@@ -539,7 +539,7 @@ impl PyObject {
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
         self.to_sequence(vm)
             .length_opt(vm)
-            .or_else(|| PyMapping::new(self, vm).and_then(|mapping| mapping.length_opt(vm)))
+            .or_else(|| self.to_mapping().length_opt(vm))
     }
 
     pub fn length(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -590,12 +590,12 @@ impl PyObject {
             return dict.set_item(needle, value, vm);
         }
 
-        if let Some(mapping) = PyMapping::new(self, vm) {
-            if let Some(f) = mapping.methods.ass_subscript {
-                let needle = needle.to_pyobject(vm);
-                return f(&mapping, &needle, Some(value), vm);
-            }
+        let mapping = self.to_mapping();
+        if let Some(f) = mapping.methods.ass_subscript.load() {
+            let needle = needle.to_pyobject(vm);
+            return f(mapping, &needle, Some(value), vm);
         }
+
         let seq = self.to_sequence(vm);
         if let Some(f) = seq.methods.ass_item.load() {
             let i = needle.key_as_isize(vm)?;
@@ -613,11 +613,10 @@ impl PyObject {
             return dict.del_item(needle, vm);
         }
 
-        if let Some(mapping) = PyMapping::new(self, vm) {
-            if let Some(f) = mapping.methods.ass_subscript {
-                let needle = needle.to_pyobject(vm);
-                return f(&mapping, &needle, None, vm);
-            }
+        let mapping = self.to_mapping();
+        if let Some(f) = mapping.methods.ass_subscript.load() {
+            let needle = needle.to_pyobject(vm);
+            return f(mapping, &needle, None, vm);
         }
         let seq = self.to_sequence(vm);
         if let Some(f) = seq.methods.ass_item.load() {

@@ -974,21 +974,24 @@ impl Drop for PyMemoryView {
 }
 
 impl AsMapping for PyMemoryView {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
-        subscript: Some(|mapping, needle, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            Self::getitem(zelf.to_owned(), needle.to_owned(), vm)
-        }),
-        ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            if let Some(value) = value {
-                Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
-            } else {
-                Err(vm.new_type_error("cannot delete memory".to_owned()))
-            }
-        }),
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(|mapping, vm| PyMemoryView::mapping_downcast(mapping).len(vm)),
+            subscript: atomic_func!(|mapping, needle, vm| {
+                let zelf = PyMemoryView::mapping_downcast(mapping);
+                PyMemoryView::getitem(zelf.to_owned(), needle.to_owned(), vm)
+            }),
+            ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                let zelf = PyMemoryView::mapping_downcast(mapping);
+                if let Some(value) = value {
+                    PyMemoryView::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
+                } else {
+                    Err(vm.new_type_error("cannot delete memory".to_owned()))
+                }
+            }),
+        };
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyMemoryView {

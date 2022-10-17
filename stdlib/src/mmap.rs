@@ -424,20 +424,24 @@ mod mmap {
     }
 
     impl AsMapping for PyMmap {
-        const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-            subscript: Some(|mapping, needle, vm| {
-                Self::mapping_downcast(mapping)._getitem(needle, vm)
-            }),
-            ass_subscript: Some(|mapping, needle, value, vm| {
-                let zelf = Self::mapping_downcast(mapping);
-                if let Some(value) = value {
-                    Self::_setitem(zelf.to_owned(), needle, value, vm)
-                } else {
-                    Err(vm.new_type_error("mmap object doesn't support item deletion".to_owned()))
-                }
-            }),
-        };
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(PyMmap::mapping_downcast(mapping).len())),
+                subscript: atomic_func!(|mapping, needle, vm| {
+                    PyMmap::mapping_downcast(mapping)._getitem(needle, vm)
+                }),
+                ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                    let zelf = PyMmap::mapping_downcast(mapping);
+                    if let Some(value) = value {
+                        PyMmap::_setitem(zelf.to_owned(), needle, value, vm)
+                    } else {
+                        Err(vm
+                            .new_type_error("mmap object doesn't support item deletion".to_owned()))
+                    }
+                }),
+            };
+            &AS_MAPPING
+        }
     }
 
     impl AsSequence for PyMmap {

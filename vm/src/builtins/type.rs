@@ -20,7 +20,7 @@ use crate::{
     convert::ToPyObject,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
-    protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
@@ -44,6 +44,7 @@ pub struct HeapTypeExt {
     pub slots: Option<PyTupleTyped<PyStrRef>>,
     pub number_methods: PyNumberMethods,
     pub sequence_methods: PySequenceMethods,
+    pub mapping_methods: PyMappingMethods,
 }
 
 pub struct PointerSlot<T>(NonNull<T>);

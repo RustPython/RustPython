@@ -170,20 +170,23 @@ impl AsSequence for PyWeakProxy {
 }
 
 impl AsMapping for PyWeakProxy {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            if let Some(value) = value {
-                zelf.setitem(needle.to_owned(), value, vm)
-            } else {
-                zelf.delitem(needle.to_owned(), vm)
-            }
-        }),
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(|mapping, vm| PyWeakProxy::mapping_downcast(mapping).len(vm)),
+            subscript: atomic_func!(|mapping, needle, vm| {
+                PyWeakProxy::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+            }),
+            ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                let zelf = PyWeakProxy::mapping_downcast(mapping);
+                if let Some(value) = value {
+                    zelf.setitem(needle.to_owned(), value, vm)
+                } else {
+                    zelf.delitem(needle.to_owned(), vm)
+                }
+            }),
+        };
+        &AS_MAPPING
+    }
 }
 
 pub fn init(context: &Context) {

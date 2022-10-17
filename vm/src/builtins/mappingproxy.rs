@@ -47,12 +47,15 @@ impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        if let Some(methods) = PyMapping::find_methods(&mapping, vm) {
+        if let Some(methods) = PyMapping::find_methods(&mapping) {
             if mapping.payload_if_subclass::<PyList>(vm).is_none()
                 && mapping.payload_if_subclass::<PyTuple>(vm).is_none()
             {
                 return Self {
-                    mapping: MappingProxyInner::Mapping(ArgMapping::with_methods(mapping, methods)),
+                    mapping: MappingProxyInner::Mapping(ArgMapping::with_methods(
+                        mapping,
+                        unsafe { methods.borrow_static() },
+                    )),
                 }
                 .into_ref_with_type(vm, cls)
                 .map(Into::into);
@@ -201,13 +204,16 @@ impl Comparable for PyMappingProxy {
 }
 
 impl AsMapping for PyMappingProxy {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(|mapping, vm| PyMappingProxy::mapping_downcast(mapping).len(vm)),
+            subscript: atomic_func!(|mapping, needle, vm| {
+                PyMappingProxy::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+            }),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        };
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyMappingProxy {

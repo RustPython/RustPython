@@ -398,13 +398,18 @@ impl PyRange {
 }
 
 impl AsMapping for PyRange {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Self::mapping_downcast(mapping).protocol_length(vm)),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(
+                |mapping, vm| PyRange::mapping_downcast(mapping).protocol_length(vm)
+            ),
+            subscript: atomic_func!(|mapping, needle, vm| {
+                PyRange::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+            }),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        };
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyRange {
