@@ -315,8 +315,6 @@ class TestSupport(unittest.TestCase):
             os.write(fd, b"foo")
         self.assertEqual(cm.exception.errno, errno.EBADF)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_check_syntax_error(self):
         support.check_syntax_error(self, "def class", lineno=1, offset=5)
         with self.assertRaises(AssertionError):
