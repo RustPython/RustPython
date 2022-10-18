@@ -69,7 +69,7 @@ mod decl {
             match source {
                 Some(source) => match active {
                     Some(active) => {
-                        Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), ((source, active)))))
+                        Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source, active))))
                     }
                     None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source,)))),
                 },
