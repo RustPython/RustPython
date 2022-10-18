@@ -30,7 +30,7 @@ mod decl {
         active: PyRwLock<Option<PyIter>>,
     }
 
-    #[pyclass(with(IterNext), flags(BASETYPE))]
+    #[pyclass(with(IterNext), flags(BASETYPE, HAS_DICT))]
     impl PyItertoolsChain {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -69,7 +69,23 @@ mod decl {
             match source {
                 Some(source) => match active {
                     Some(active) => {
-                        Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source, active))))
+                        Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), ((source, active)))))
+                    }
+                    None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source,)))),
+                },
+                None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone()))),
+            }
+        }
+
+        #[pymethod(magic)]
+        fn reduce_ex(zelf: PyRef<Self>, _proto: usize, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            let source = zelf.source.read().clone();
+            let active = zelf.active.read().clone();
+            let cls = zelf.class().to_owned();
+            match source {
+                Some(source) => match active {
+                    Some(active) => {
+                        Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), ((source, active)))))
                     }
                     None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source,)))),
                 },
