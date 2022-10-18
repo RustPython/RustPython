@@ -60,6 +60,23 @@ mod decl {
         fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
         }
+
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            let source =  zelf.source.read().clone();
+            let active = zelf.active.read().clone();
+            match source {
+                Some(source) => {
+                    match active {
+                        Some(active) => {
+                            Ok(vm.new_tuple((zelf.class().clone(), vm.ctx.empty_tuple.clone(), (source, active))))
+                        },
+                        None => Ok(vm.new_tuple((zelf.class().clone(), vm.ctx.empty_tuple.clone(), (source, ))))
+                    }
+                },
+                None => Ok(vm.new_tuple((zelf.class().clone(), vm.ctx.empty_tuple.clone())))
+            }
+        }
     }
     impl IterNextIterable for PyItertoolsChain {}
     impl IterNext for PyItertoolsChain {
