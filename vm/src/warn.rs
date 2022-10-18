@@ -134,7 +134,7 @@ fn get_filter(
         };
 
         let is_subclass = if let Some(cat) = tmp_item.get(2) {
-            category.fast_isinstance(&cat.class())
+            category.fast_isinstance(cat.class())
         } else {
             false
         };
@@ -247,7 +247,7 @@ fn warn_explicit(
     };
 
     let category = if message.fast_isinstance(vm.ctx.exceptions.warning) {
-        message.class().into_owned()
+        message.class().to_owned()
     } else {
         category
     };

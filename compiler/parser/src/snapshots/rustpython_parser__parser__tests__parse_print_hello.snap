@@ -1,5 +1,5 @@
 ---
-source: parser/src/parser.rs
+source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 [
@@ -8,13 +8,25 @@ expression: parse_ast
             row: 1,
             column: 1,
         },
+        end_location: Some(
+            Location {
+                row: 1,
+                column: 21,
+            },
+        ),
         custom: (),
         node: Expr {
             value: Located {
                 location: Location {
                     row: 1,
-                    column: 6,
+                    column: 1,
                 },
+                end_location: Some(
+                    Location {
+                        row: 1,
+                        column: 21,
+                    },
+                ),
                 custom: (),
                 node: Call {
                     func: Located {
@@ -22,6 +34,12 @@ expression: parse_ast
                             row: 1,
                             column: 1,
                         },
+                        end_location: Some(
+                            Location {
+                                row: 1,
+                                column: 6,
+                            },
+                        ),
                         custom: (),
                         node: Name {
                             id: "print",
@@ -32,8 +50,14 @@ expression: parse_ast
                         Located {
                             location: Location {
                                 row: 1,
-                                column: 8,
+                                column: 7,
                             },
+                            end_location: Some(
+                                Location {
+                                    row: 1,
+                                    column: 20,
+                                },
+                            ),
                             custom: (),
                             node: Constant {
                                 value: Str(

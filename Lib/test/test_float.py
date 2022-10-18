@@ -1525,8 +1525,6 @@ class HexFloatTestCase(unittest.TestCase):
             else:
                 self.identical(x, fromHex(toHex(x)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass(self):
         class F(float):
             def __new__(cls, value):

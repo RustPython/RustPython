@@ -239,14 +239,14 @@ impl PySequence<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let mapping = PyMapping::new(self.obj, vm).unwrap();
-        if let Some(f) = mapping.methods.ass_subscript {
+        let mapping = self.obj.to_mapping();
+        if let Some(f) = mapping.methods.ass_subscript.load() {
             let slice = PySlice {
                 start: Some(start.to_pyobject(vm)),
                 stop: stop.to_pyobject(vm),
                 step: None,
             };
-            f(&mapping, &slice.into_pyobject(vm), value, vm)
+            f(mapping, &slice.into_pyobject(vm), value, vm)
         } else {
             Err(vm.new_type_error(format!(
                 "'{}' object doesn't support slice {}",

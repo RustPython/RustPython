@@ -7,24 +7,26 @@ pub use crate::Location;
 
 type Ident = String;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Located<T, U = ()> {
     pub location: Location,
+    pub end_location: Option<Location>,
     pub custom: U,
     pub node: T,
 }
 
 impl<T> Located<T> {
-    pub fn new(location: Location, node: T) -> Self {
+    pub fn new(location: Location, end_location: Location, node: T) -> Self {
         Self {
             location,
+            end_location: Some(end_location),
             custom: (),
             node,
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Mod<U = ()> {
     Module {
         body: Vec<Stmt<U>>,
@@ -42,7 +44,7 @@ pub enum Mod<U = ()> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum StmtKind<U = ()> {
     FunctionDef {
         name: Ident,
@@ -164,7 +166,7 @@ pub enum StmtKind<U = ()> {
 }
 pub type Stmt<U = ()> = Located<StmtKind<U>, U>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExprKind<U = ()> {
     BoolOp {
         op: Boolop,
@@ -281,20 +283,20 @@ pub enum ExprKind<U = ()> {
 }
 pub type Expr<U = ()> = Located<ExprKind<U>, U>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExprContext {
     Load,
     Store,
     Del,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Boolop {
     And,
     Or,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Operator {
     Add,
     Sub,
@@ -311,7 +313,7 @@ pub enum Operator {
     FloorDiv,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Unaryop {
     Invert,
     Not,
@@ -319,7 +321,7 @@ pub enum Unaryop {
     USub,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Cmpop {
     Eq,
     NotEq,
@@ -333,7 +335,7 @@ pub enum Cmpop {
     NotIn,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Comprehension<U = ()> {
     pub target: Box<Expr<U>>,
     pub iter: Box<Expr<U>>,
@@ -341,7 +343,7 @@ pub struct Comprehension<U = ()> {
     pub is_async: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExcepthandlerKind<U = ()> {
     ExceptHandler {
         type_: Option<Box<Expr<U>>>,
@@ -351,7 +353,7 @@ pub enum ExcepthandlerKind<U = ()> {
 }
 pub type Excepthandler<U = ()> = Located<ExcepthandlerKind<U>, U>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Arguments<U = ()> {
     pub posonlyargs: Vec<Arg<U>>,
     pub args: Vec<Arg<U>>,
@@ -362,7 +364,7 @@ pub struct Arguments<U = ()> {
     pub defaults: Vec<Expr<U>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ArgData<U = ()> {
     pub arg: Ident,
     pub annotation: Option<Box<Expr<U>>>,
@@ -370,34 +372,34 @@ pub struct ArgData<U = ()> {
 }
 pub type Arg<U = ()> = Located<ArgData<U>, U>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct KeywordData<U = ()> {
     pub arg: Option<Ident>,
     pub value: Box<Expr<U>>,
 }
 pub type Keyword<U = ()> = Located<KeywordData<U>, U>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AliasData {
     pub name: Ident,
     pub asname: Option<Ident>,
 }
 pub type Alias<U = ()> = Located<AliasData, U>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Withitem<U = ()> {
     pub context_expr: Box<Expr<U>>,
     pub optional_vars: Option<Box<Expr<U>>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct MatchCase<U = ()> {
     pub pattern: Box<Pattern<U>>,
     pub guard: Option<Box<Expr<U>>>,
     pub body: Vec<Stmt<U>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PatternKind<U = ()> {
     MatchValue {
         value: Box<Expr<U>>,
@@ -432,7 +434,7 @@ pub enum PatternKind<U = ()> {
 }
 pub type Pattern<U = ()> = Located<PatternKind<U>, U>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TypeIgnore {
     TypeIgnore { lineno: usize, tag: String },
 }
@@ -529,6 +531,7 @@ pub mod fold {
         Ok(Located {
             custom: folder.map_user(node.custom)?,
             location: node.location,
+            end_location: node.end_location,
             node: f(folder, node.node)?,
         })
     }

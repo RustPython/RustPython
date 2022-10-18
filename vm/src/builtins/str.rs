@@ -85,16 +85,6 @@ impl TryFromBorrowedObject for String {
     }
 }
 
-/// str(object='') -> str
-/// str(bytes_or_buffer[, encoding[, errors]]) -> str
-///
-/// Create a new string object from the given object. If encoding or
-/// errors is specified, then the object must expose a data buffer
-/// that will be decoded using the given encoding and error handler.
-/// Otherwise, returns the result of object.__str__() (if defined)
-/// or repr(object).
-/// encoding defaults to sys.getdefaultencoding().
-/// errors defaults to 'strict'."
 #[pyclass(module = false, name = "str")]
 pub struct PyStr {
     bytes: Box<[u8]>,
@@ -1174,7 +1164,7 @@ impl PyStr {
                                     "character mapping must be in range(0x110000)".to_owned(),
                                 )
                             })?;
-                        translated.push(ch as char);
+                        translated.push(ch);
                     } else if !vm.is_none(&value) {
                         return Err(vm.new_type_error(
                             "character mapping must return integer, None or str".to_owned(),
@@ -1311,11 +1301,16 @@ impl Iterable for PyStr {
 }
 
 impl AsMapping for PyStr {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(|mapping, _vm| Ok(PyStr::mapping_downcast(mapping).len())),
+            subscript: atomic_func!(
+                |mapping, needle, vm| PyStr::mapping_downcast(mapping)._getitem(needle, vm)
+            ),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        };
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyStr {

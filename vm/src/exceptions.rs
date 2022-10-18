@@ -183,7 +183,7 @@ impl VirtualMachine {
         exc: PyBaseExceptionRef,
     ) -> (PyObjectRef, PyObjectRef, PyObjectRef) {
         let tb = exc.traceback().to_pyobject(self);
-        let class = exc.class().clone();
+        let class = exc.class().to_owned();
         (class.into(), exc.into(), tb)
     }
 
@@ -524,9 +524,9 @@ impl PyBaseException {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
         if let Some(dict) = zelf.as_object().dict().filter(|x| !x.is_empty()) {
-            return vm.new_tuple((zelf.class().clone(), zelf.args(), dict));
+            return vm.new_tuple((zelf.class().to_owned(), zelf.args(), dict));
         } else {
-            return vm.new_tuple((zelf.class().clone(), zelf.args()));
+            return vm.new_tuple((zelf.class().to_owned(), zelf.args()));
         }
     }
 }
@@ -912,7 +912,7 @@ fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrR
 fn os_error_reduce(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
     let args = exc.args();
     let obj = exc.as_object().to_owned();
-    let mut result: Vec<PyObjectRef> = vec![obj.class().clone().into()];
+    let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into()];
 
     if args.len() >= 2 && args.len() <= 5 {
         // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic

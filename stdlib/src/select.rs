@@ -205,11 +205,11 @@ mod decl {
             return Ok((empty.clone(), empty.clone(), empty));
         }
 
-        let nfds = [&mut r, &mut w, &mut x]
+        let nfds: i32 = [&mut r, &mut w, &mut x]
             .iter_mut()
             .filter_map(|set| set.highest())
             .max()
-            .map_or(0, |n| n + 1) as i32;
+            .map_or(0, |n| n + 1) as _;
 
         loop {
             let mut tv = timeout.map(sec_to_timeval);

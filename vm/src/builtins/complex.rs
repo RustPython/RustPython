@@ -352,7 +352,7 @@ impl PyComplex {
             float_ops::to_string(re)
         };
         let mut result = String::with_capacity(
-            re_part.len() + im_part.len() + 2 + if im.is_sign_positive() { 1 } else { 0 },
+            re_part.len() + im_part.len() + 2 + im.is_sign_positive() as usize,
         );
         result.push('(');
         result.push_str(&re_part);

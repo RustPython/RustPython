@@ -116,13 +116,16 @@ impl ArgMapping {
     pub fn from_dict_exact(dict: PyDictRef) -> Self {
         Self {
             obj: dict.into(),
-            methods: &PyDict::AS_MAPPING,
+            methods: PyDict::as_mapping(),
         }
     }
 
     #[inline(always)]
     pub fn mapping(&self) -> PyMapping {
-        PyMapping::with_methods(&self.obj, self.methods)
+        PyMapping {
+            obj: &self.obj,
+            methods: self.methods,
+        }
     }
 }
 

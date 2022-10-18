@@ -59,14 +59,6 @@ fn iter_search(
     }
 }
 
-/// range(stop) -> range object
-/// range(start, stop[, step]) -> range object
-///
-/// Return an object that produces a sequence of integers from start (inclusive)
-/// to stop (exclusive) by step.  range(i, j) produces i, i+1, i+2, ..., j-1.
-/// start defaults to 0, and stop is omitted!  range(4) produces 0, 1, 2, 3.
-/// These are exactly the valid indices for a list of 4 elements.
-/// When step is given, it specifies the increment (or decrement).
 #[pyclass(module = false, name = "range")]
 #[derive(Debug, Clone)]
 pub struct PyRange {
@@ -398,13 +390,18 @@ impl PyRange {
 }
 
 impl AsMapping for PyRange {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Self::mapping_downcast(mapping).protocol_length(vm)),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(
+                |mapping, vm| PyRange::mapping_downcast(mapping).protocol_length(vm)
+            ),
+            subscript: atomic_func!(|mapping, needle, vm| {
+                PyRange::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+            }),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        };
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyRange {

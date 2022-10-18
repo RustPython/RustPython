@@ -142,7 +142,7 @@ impl<T: Node> Node for Option<T> {
 impl<T: NamedNode> Node for ast::Located<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let obj = self.node.ast_to_object(vm);
-        node_add_location(&obj, self.location, vm);
+        node_add_location(&obj, self.location, self.end_location, vm);
         obj
     }
 
@@ -151,17 +151,49 @@ impl<T: NamedNode> Node for ast::Located<T> {
             Node::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?,
             Node::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?,
         );
+        let end_location = if let (Some(end_lineno), Some(end_col_offset)) = (
+            get_node_field_opt(vm, &object, "end_lineno")?
+                .map(|obj| Node::ast_from_object(vm, obj))
+                .transpose()?,
+            get_node_field_opt(vm, &object, "end_col_offset")?
+                .map(|obj| Node::ast_from_object(vm, obj))
+                .transpose()?,
+        ) {
+            Some(ast::Location::new(end_lineno, end_col_offset))
+        } else {
+            None
+        };
         let node = T::ast_from_object(vm, object)?;
-        Ok(ast::Located::new(location, node))
+        Ok(ast::Located {
+            location,
+            end_location,
+            custom: (),
+            node,
+        })
     }
 }
 
-fn node_add_location(node: &PyObject, location: ast::Location, vm: &VirtualMachine) {
+fn node_add_location(
+    node: &PyObject,
+    location: ast::Location,
+    end_location: Option<ast::Location>,
+    vm: &VirtualMachine,
+) {
     let dict = node.dict().unwrap();
     dict.set_item("lineno", vm.ctx.new_int(location.row()).into(), vm)
         .unwrap();
     dict.set_item("col_offset", vm.ctx.new_int(location.column()).into(), vm)
         .unwrap();
+    if let Some(end_location) = end_location {
+        dict.set_item("end_lineno", vm.ctx.new_int(end_location.row()).into(), vm)
+            .unwrap();
+        dict.set_item(
+            "end_col_offset",
+            vm.ctx.new_int(end_location.column()).into(),
+            vm,
+        )
+        .unwrap();
+    };
 }
 
 impl Node for String {

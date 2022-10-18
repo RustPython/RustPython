@@ -424,20 +424,24 @@ mod mmap {
     }
 
     impl AsMapping for PyMmap {
-        const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-            subscript: Some(|mapping, needle, vm| {
-                Self::mapping_downcast(mapping)._getitem(needle, vm)
-            }),
-            ass_subscript: Some(|mapping, needle, value, vm| {
-                let zelf = Self::mapping_downcast(mapping);
-                if let Some(value) = value {
-                    Self::_setitem(zelf.to_owned(), needle, value, vm)
-                } else {
-                    Err(vm.new_type_error("mmap object doesn't support item deletion".to_owned()))
-                }
-            }),
-        };
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(PyMmap::mapping_downcast(mapping).len())),
+                subscript: atomic_func!(|mapping, needle, vm| {
+                    PyMmap::mapping_downcast(mapping)._getitem(needle, vm)
+                }),
+                ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                    let zelf = PyMmap::mapping_downcast(mapping);
+                    if let Some(value) = value {
+                        PyMmap::_setitem(zelf.to_owned(), needle, value, vm)
+                    } else {
+                        Err(vm
+                            .new_type_error("mmap object doesn't support item deletion".to_owned()))
+                    }
+                }),
+            };
+            &AS_MAPPING
+        }
     }
 
     impl AsSequence for PyMmap {
@@ -751,10 +755,10 @@ mod mmap {
                 .map(|n| n as usize)
                 .unwrap_or(remaining);
 
-            let end_pos = (pos + num_bytes) as usize;
+            let end_pos = pos + num_bytes;
             let bytes = match mmap.deref().as_ref().unwrap() {
-                MmapObj::Read(mmap) => mmap[pos as usize..end_pos].to_vec(),
-                MmapObj::Write(mmap) => mmap[pos as usize..end_pos].to_vec(),
+                MmapObj::Read(mmap) => mmap[pos..end_pos].to_vec(),
+                MmapObj::Write(mmap) => mmap[pos..end_pos].to_vec(),
             };
 
             let result = PyBytes::from(bytes).into_ref(vm);
@@ -772,8 +776,8 @@ mod mmap {
             }
 
             let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
-                MmapObj::Read(mmap) => mmap[pos as usize],
-                MmapObj::Write(mmap) => mmap[pos as usize],
+                MmapObj::Read(mmap) => mmap[pos],
+                MmapObj::Write(mmap) => mmap[pos],
             };
 
             self.advance_pos(1);
@@ -805,8 +809,8 @@ mod mmap {
             };
 
             let bytes = match mmap.deref().as_ref().unwrap() {
-                MmapObj::Read(mmap) => mmap[pos as usize..end_pos].to_vec(),
-                MmapObj::Write(mmap) => mmap[pos as usize..end_pos].to_vec(),
+                MmapObj::Read(mmap) => mmap[pos..end_pos].to_vec(),
+                MmapObj::Write(mmap) => mmap[pos..end_pos].to_vec(),
             };
 
             let result = PyBytes::from(bytes).into_ref(vm);
@@ -891,7 +895,7 @@ mod mmap {
             }
 
             let len = self.try_writable(vm, |mmap| {
-                (&mut mmap[pos as usize..(pos as usize + data.len())])
+                (&mut mmap[pos..(pos + data.len())])
                     .write(&data)
                     .map_err(|e| vm.new_os_error(e.to_string()))?;
                 Ok(data.len())
@@ -914,7 +918,7 @@ mod mmap {
             }
 
             self.try_writable(vm, |mmap| {
-                mmap[pos as usize] = b;
+                mmap[pos] = b;
             })?;
 
             self.advance_pos(1);
@@ -928,8 +932,8 @@ mod mmap {
                 .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
 
             let b = match self.check_valid(vm)?.deref().as_ref().unwrap() {
-                MmapObj::Read(mmap) => mmap[i as usize],
-                MmapObj::Write(mmap) => mmap[i as usize],
+                MmapObj::Read(mmap) => mmap[i],
+                MmapObj::Write(mmap) => mmap[i],
             };
 
             Ok(PyInt::from(b).into_ref(vm).into())
@@ -1005,14 +1009,14 @@ mod mmap {
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let i = i
+            let i: usize = i
                 .wrapped_at(zelf.len())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
 
             let b = value_from_object(vm, &value)?;
 
             zelf.try_writable(vm, |mmap| {
-                mmap[i as usize] = b;
+                mmap[i] = b;
             })?;
 
             Ok(())

@@ -261,7 +261,7 @@ impl PyBaseObject {
 
     #[pygetset(name = "__class__")]
     fn get_class(obj: PyObjectRef) -> PyTypeRef {
-        obj.class().clone()
+        obj.class().to_owned()
     }
 
     #[pygetset(name = "__class__", setter)]
@@ -270,7 +270,7 @@ impl PyBaseObject {
             match value.downcast::<PyType>() {
                 Ok(cls) => {
                     // FIXME(#1979) cls instances might have a payload
-                    *instance.class_lock().write() = cls;
+                    instance.set_class(cls, vm);
                     Ok(())
                 }
                 Err(value) => {
@@ -311,7 +311,7 @@ impl PyBaseObject {
         let __reduce__ = identifier!(vm, __reduce__);
         if let Some(reduce) = vm.get_attribute_opt(obj.clone(), __reduce__)? {
             let object_reduce = vm.ctx.types.object_type.get_attr(__reduce__).unwrap();
-            let typ_obj: PyObjectRef = obj.class().clone().into();
+            let typ_obj: PyObjectRef = obj.class().to_owned().into();
             let class_reduce = typ_obj.get_attr(__reduce__, vm)?;
             if !class_reduce.is(&object_reduce) {
                 return vm.invoke(&reduce, ());

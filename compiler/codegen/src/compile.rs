@@ -342,7 +342,7 @@ impl Compiler {
             self.emit(Instruction::StoreGlobal(doc))
         }
 
-        if self.find_ann(statements) {
+        if Self::find_ann(statements) {
             self.emit(Instruction::SetupAnnotation);
         }
 
@@ -1229,22 +1229,22 @@ impl Compiler {
     }
 
     // Python/compile.c find_ann
-    fn find_ann(&self, body: &[ast::Stmt]) -> bool {
+    fn find_ann(body: &[ast::Stmt]) -> bool {
         use ast::StmtKind::*;
 
         for statement in body {
             let res = match &statement.node {
                 AnnAssign { .. } => true,
-                For { body, orelse, .. } => self.find_ann(body) || self.find_ann(orelse),
-                If { body, orelse, .. } => self.find_ann(body) || self.find_ann(orelse),
-                While { body, orelse, .. } => self.find_ann(body) || self.find_ann(orelse),
-                With { body, .. } => self.find_ann(body),
+                For { body, orelse, .. } => Self::find_ann(body) || Self::find_ann(orelse),
+                If { body, orelse, .. } => Self::find_ann(body) || Self::find_ann(orelse),
+                While { body, orelse, .. } => Self::find_ann(body) || Self::find_ann(orelse),
+                With { body, .. } => Self::find_ann(body),
                 Try {
                     body,
                     orelse,
                     finalbody,
                     ..
-                } => self.find_ann(body) || self.find_ann(orelse) || self.find_ann(finalbody),
+                } => Self::find_ann(body) || Self::find_ann(orelse) || Self::find_ann(finalbody),
                 _ => false,
             };
             if res {
@@ -1295,7 +1295,7 @@ impl Compiler {
         let doc = self.name("__doc__");
         self.emit(Instruction::StoreLocal(doc));
         // setup annotations
-        if self.find_ann(body) {
+        if Self::find_ann(body) {
             self.emit(Instruction::SetupAnnotation);
         }
         self.compile_statements(body)?;
@@ -2118,14 +2118,15 @@ impl Compiler {
             Name { id, .. } => self.load_name(id)?,
             Lambda { args, body } => {
                 let prev_ctx = self.ctx;
+
+                let name = "<lambda>".to_owned();
+                let mut funcflags = self.enter_function(&name, args)?;
+
                 self.ctx = CompileContext {
                     loop_data: Option::None,
                     in_class: prev_ctx.in_class,
                     func: FunctionContext::Function,
                 };
-
-                let name = "<lambda>".to_owned();
-                let mut funcflags = self.enter_function(&name, args)?;
 
                 self.current_codeinfo()
                     .constants

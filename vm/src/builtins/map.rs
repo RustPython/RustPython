@@ -8,10 +8,6 @@ use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
-/// map(func, *iterables) --> map object
-///
-/// Make an iterator that computes the function using arguments from
-/// each of the iterables. Stops when the shortest iterable is exhausted.
 #[pyclass(module = false, name = "map")]
 #[derive(Debug)]
 pub struct PyMap {

@@ -115,7 +115,7 @@ fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmar
     settings.no_user_site = true;
 
     Interpreter::with_init(settings, |vm| {
-        for (name, init) in rustpython_stdlib::get_module_inits().into_iter() {
+        for (name, init) in rustpython_stdlib::get_module_inits() {
             vm.add_native_module(name, init);
         }
     })

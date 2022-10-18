@@ -545,7 +545,7 @@ impl PyBytes {
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         let bytes = PyBytes::from(zelf.inner.elements.clone()).to_pyobject(vm);
         (
-            zelf.class().clone(),
+            zelf.class().to_owned(),
             PyTuple::new_ref(vec![bytes], &vm.ctx),
             zelf.as_object().dict(),
         )
@@ -571,11 +571,16 @@ impl AsBuffer for PyBytes {
 }
 
 impl AsMapping for PyBytes {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(|mapping, _vm| Ok(PyBytes::mapping_downcast(mapping).len())),
+            subscript: atomic_func!(
+                |mapping, needle, vm| PyBytes::mapping_downcast(mapping)._getitem(needle, vm)
+            ),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        };
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyBytes {

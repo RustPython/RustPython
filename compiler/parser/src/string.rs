@@ -6,9 +6,12 @@ use crate::{
 };
 use itertools::Itertools;
 
-pub fn parse_strings(values: Vec<(Location, (String, StringKind))>) -> Result<Expr, LexicalError> {
+pub fn parse_strings(
+    values: Vec<(Location, (String, StringKind), Location)>,
+) -> Result<Expr, LexicalError> {
     // Preserve the initial location and kind.
-    let initial_location = values[0].0;
+    let initial_start = values[0].0;
+    let initial_end = values[0].2;
     let initial_kind = (values[0].1 .1 == StringKind::U).then(|| "u".to_owned());
 
     // Determine whether the list of values contains any f-strings. (If not, we can return a
@@ -21,7 +24,8 @@ pub fn parse_strings(values: Vec<(Location, (String, StringKind))>) -> Result<Ex
 
     let take_current = |current: &mut Vec<String>| -> Expr {
         Expr::new(
-            initial_location,
+            initial_start,
+            initial_end,
             ExprKind::Constant {
                 value: Constant::Str(current.drain(..).join("")),
                 kind: initial_kind.clone(),
@@ -29,15 +33,17 @@ pub fn parse_strings(values: Vec<(Location, (String, StringKind))>) -> Result<Ex
         )
     };
 
-    for (location, (string, string_kind)) in values {
+    for (start, (string, string_kind), end) in values {
         match string_kind {
             StringKind::Normal | StringKind::U => current.push(string),
             StringKind::F => {
                 has_fstring = true;
-                for value in parse_located_fstring(&string, location).map_err(|e| LexicalError {
-                    location,
-                    error: LexicalErrorType::FStringError(e.error),
-                })? {
+                for value in
+                    parse_located_fstring(&string, start, end).map_err(|e| LexicalError {
+                        location: start,
+                        error: LexicalErrorType::FStringError(e.error),
+                    })?
+                {
                     match value.node {
                         ExprKind::FormattedValue { .. } => {
                             if !current.is_empty() {
@@ -63,7 +69,11 @@ pub fn parse_strings(values: Vec<(Location, (String, StringKind))>) -> Result<Ex
     }
 
     Ok(if has_fstring {
-        Expr::new(initial_location, ExprKind::JoinedStr { values: deduped })
+        Expr::new(
+            initial_start,
+            initial_end,
+            ExprKind::JoinedStr { values: deduped },
+        )
     } else {
         deduped
             .into_iter()
@@ -128,6 +138,13 @@ mod tests {
     #[test]
     fn test_parse_u_f_string_concat_2() {
         let source = String::from("u'Hello ' f'world' '!'");
+        let parse_ast = parse_program(&source, "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_string_triple_quotes_with_kind() {
+        let source = String::from("u'''Hello, world!'''");
         let parse_ast = parse_program(&source, "<test>").unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }

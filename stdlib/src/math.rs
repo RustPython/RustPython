@@ -5,7 +5,7 @@ mod math {
     use crate::vm::{
         builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef, PyStrInterned},
         function::{ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
-        identifier, AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        identifier, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use num_bigint::BigInt;
     use num_traits::{One, Signed, Zero};

@@ -1,12 +1,5 @@
 pub(crate) use _operator::make_module;
 
-/// Operator Interface
-///
-/// This module exports a set of functions corresponding to the intrinsic
-/// operators of Python.  For example, operator.add(x, y) is equivalent
-/// to the expression x+y.  The function names are those used for special
-/// methods; variants without leading and trailing '__' are also provided
-/// for convenience.
 #[pymodule]
 mod _operator {
     use crate::common::cmp;
@@ -21,85 +14,71 @@ mod _operator {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
 
-    /// Same as a < b.
     #[pyfunction]
     fn lt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         a.rich_compare(b, PyComparisonOp::Lt, vm)
     }
 
-    /// Same as a <= b.
     #[pyfunction]
     fn le(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         a.rich_compare(b, PyComparisonOp::Le, vm)
     }
 
-    /// Same as a > b.
     #[pyfunction]
     fn gt(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         a.rich_compare(b, PyComparisonOp::Gt, vm)
     }
 
-    /// Same as a >= b.
     #[pyfunction]
     fn ge(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         a.rich_compare(b, PyComparisonOp::Ge, vm)
     }
 
-    /// Same as a == b.
     #[pyfunction]
     fn eq(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         a.rich_compare(b, PyComparisonOp::Eq, vm)
     }
 
-    /// Same as a != b.
     #[pyfunction]
     fn ne(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         a.rich_compare(b, PyComparisonOp::Ne, vm)
     }
 
-    /// Same as not a.
     #[pyfunction]
     fn not_(a: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         a.try_to_bool(vm).map(|r| !r)
     }
 
-    /// Return True if a is true, False otherwise.
     #[pyfunction]
     fn truth(a: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         a.try_to_bool(vm)
     }
 
-    /// Same as a is b.
     #[pyfunction]
     fn is_(a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
         Ok(a.is(&b))
     }
 
-    /// Same as a is not b.
     #[pyfunction]
     fn is_not(a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
         Ok(!a.is(&b))
     }
 
-    /// Return the absolute value of the argument.
     #[pyfunction]
     fn abs(a: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._abs(&a)
     }
 
-    /// Return a + b, for a and b numbers.
     #[pyfunction]
     fn add(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._add(&a, &b)
     }
 
-    /// Return the bitwise and of a and b.
     #[pyfunction]
     fn and_(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._and(&a, &b)
     }
 
-    /// Return a // b.
     #[pyfunction]
     fn floordiv(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._floordiv(&a, &b)
@@ -107,85 +86,71 @@ mod _operator {
 
     // Note: Keep track of issue17567. Will need changes in order to strictly match behavior of
     // a.__index__ as raised in the issue. Currently, we accept int subclasses.
-    /// Return a converted to an integer. Equivalent to a.__index__().
     #[pyfunction]
     fn index(a: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         a.try_index(vm)
     }
 
-    /// Return the bitwise inverse of the number obj. This is equivalent to ~obj.
     #[pyfunction]
     fn invert(pos: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._invert(&pos)
     }
 
-    /// Return a shifted left by b.
     #[pyfunction]
     fn lshift(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._lshift(&a, &b)
     }
 
-    /// Return a % b
     #[pyfunction(name = "mod")]
     fn mod_(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._mod(&a, &b)
     }
 
-    /// Return a * b
     #[pyfunction]
     fn mul(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._mul(&a, &b)
     }
 
-    /// Return a @ b
     #[pyfunction]
     fn matmul(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._matmul(&a, &b)
     }
 
-    /// Return obj negated (-obj).
     #[pyfunction]
     fn neg(pos: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._neg(&pos)
     }
 
-    /// Return the bitwise or of a and b.
     #[pyfunction]
     fn or_(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._or(&a, &b)
     }
 
-    /// Return obj positive (+obj).
     #[pyfunction]
     fn pos(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._pos(&obj)
     }
 
-    /// Return a ** b, for a and b numbers.
     #[pyfunction]
     fn pow(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._pow(&a, &b)
     }
 
-    /// Return a shifted right by b.
     #[pyfunction]
     fn rshift(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._rshift(&a, &b)
     }
 
-    /// Return a - b.
     #[pyfunction]
     fn sub(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._sub(&a, &b)
     }
 
-    /// Return a / b where 2/3 is .66 rather than 0. This is also known as "true" division.
     #[pyfunction]
     fn truediv(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._truediv(&a, &b)
     }
 
-    /// Return the bitwise exclusive or of a and b.
     #[pyfunction]
     fn xor(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._xor(&a, &b)
@@ -193,7 +158,6 @@ mod _operator {
 
     // Sequence based operators
 
-    /// Return a + b for a and b sequences.
     #[pyfunction]
     fn concat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Best attempt at checking that a is sequence-like.
@@ -207,13 +171,11 @@ mod _operator {
         vm._add(&a, &b)
     }
 
-    /// Return the outcome of the test b in a. Note the reversed operands.
     #[pyfunction]
     fn contains(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._contains(a, b)
     }
 
-    /// Return the number of occurrences of b in a.
     #[pyfunction(name = "countOf")]
     fn count_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
@@ -226,19 +188,16 @@ mod _operator {
         Ok(count)
     }
 
-    /// Remove the value of a at index b.
     #[pyfunction]
     fn delitem(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         a.del_item(&*b, vm)
     }
 
-    /// Return the value of a at index b.
     #[pyfunction]
     fn getitem(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         a.get_item(&*b, vm)
     }
 
-    /// Return the number of occurrences of b in a.
     #[pyfunction(name = "indexOf")]
     fn index_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         for (index, element) in a.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
@@ -250,7 +209,6 @@ mod _operator {
         Err(vm.new_value_error("sequence.index(x): x not in sequence".to_owned()))
     }
 
-    /// Set the value of a at index b to c.
     #[pyfunction]
     fn setitem(
         a: PyObjectRef,
@@ -261,13 +219,6 @@ mod _operator {
         a.set_item(&*b, c, vm)
     }
 
-    /// Return an estimate of the number of items in obj.
-    ///
-    /// This is useful for presizing containers when building from an iterable.
-    ///
-    /// If the object supports len(), the result will be exact.
-    /// Otherwise, it may over- or under-estimate by an arbitrary amount.
-    /// The result will be an integer >= 0.
     #[pyfunction]
     fn length_hint(obj: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult<usize> {
         let default: usize = default
@@ -286,19 +237,16 @@ mod _operator {
 
     // Inplace Operators
 
-    /// a = iadd(a, b) is equivalent to a += b.
     #[pyfunction]
     fn iadd(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._iadd(&a, &b)
     }
 
-    /// a = iand(a, b) is equivalent to a &= b.
     #[pyfunction]
     fn iand(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._iand(&a, &b)
     }
 
-    /// a = iconcat(a, b) is equivalent to a += b for a and b sequences.
     #[pyfunction]
     fn iconcat(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         // Best attempt at checking that a is sequence-like.
@@ -312,83 +260,61 @@ mod _operator {
         vm._iadd(&a, &b)
     }
 
-    /// a = ifloordiv(a, b) is equivalent to a //= b.
     #[pyfunction]
     fn ifloordiv(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._ifloordiv(&a, &b)
     }
 
-    /// a = ilshift(a, b) is equivalent to a <<= b.
     #[pyfunction]
     fn ilshift(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._ilshift(&a, &b)
     }
 
-    /// a = imod(a, b) is equivalent to a %= b.
     #[pyfunction]
     fn imod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._imod(&a, &b)
     }
 
-    /// a = imul(a, b) is equivalent to a *= b.
     #[pyfunction]
     fn imul(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._imul(&a, &b)
     }
 
-    /// a = imatmul(a, b) is equivalent to a @= b.
     #[pyfunction]
     fn imatmul(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._imatmul(&a, &b)
     }
 
-    /// a = ior(a, b) is equivalent to a |= b.
     #[pyfunction]
     fn ior(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._ior(&a, &b)
     }
 
-    /// a = ipow(a, b) is equivalent to a **= b.
     #[pyfunction]
     fn ipow(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._ipow(&a, &b)
     }
 
-    /// a = irshift(a, b) is equivalent to a >>= b.
     #[pyfunction]
     fn irshift(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._irshift(&a, &b)
     }
 
-    /// a = isub(a, b) is equivalent to a -= b.
     #[pyfunction]
     fn isub(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._isub(&a, &b)
     }
 
-    /// a = itruediv(a, b) is equivalent to a /= b.
     #[pyfunction]
     fn itruediv(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._itruediv(&a, &b)
     }
 
-    /// a = ixor(a, b) is equivalent to a ^= b.
     #[pyfunction]
     fn ixor(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         vm._ixor(&a, &b)
     }
 
-    /// Return 'a == b'.
-    ///
-    /// This function uses an approach designed to prevent
-    /// timing analysis, making it appropriate for cryptography.
-    ///
-    /// a and b must both be of the same type: either str (ASCII only),
-    /// or any bytes-like object.
-    ///
-    /// Note: If a and b are of different lengths, or if an error occurs,
-    /// a timing attack could theoretically reveal information about the
-    /// types and lengths of a and b--but not their values.
     #[pyfunction]
     fn _compare_digest(
         a: Either<PyStrRef, ArgBytesLike>,
@@ -451,7 +377,7 @@ mod _operator {
             let attrs = vm
                 .ctx
                 .new_tuple(zelf.attrs.iter().map(|v| v.clone().into()).collect());
-            Ok((zelf.class().clone(), attrs))
+            Ok((zelf.class().to_owned(), attrs))
         }
 
         // Go through dotted parts of string and call getattr on whatever is returned.
@@ -545,7 +471,7 @@ mod _operator {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
-            vm.new_pyobj((zelf.class().clone(), items))
+            vm.new_pyobj((zelf.class().to_owned(), items))
         }
     }
     impl Constructor for PyItemGetter {
@@ -632,7 +558,7 @@ mod _operator {
             if zelf.args.kwargs.is_empty() {
                 let mut pargs = vec![zelf.name.as_object().to_owned()];
                 pargs.append(&mut zelf.args.args.clone());
-                Ok(vm.new_tuple((zelf.class().clone(), vm.ctx.new_tuple(pargs))))
+                Ok(vm.new_tuple((zelf.class().to_owned(), vm.ctx.new_tuple(pargs))))
             } else {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.
@@ -640,7 +566,7 @@ mod _operator {
                 let callable = vm.invoke(
                     &partial,
                     FuncArgs::new(
-                        vec![zelf.class().clone().into(), zelf.name.clone().into()],
+                        vec![zelf.class().to_owned().into(), zelf.name.clone().into()],
                         KwArgs::new(zelf.args.kwargs.clone()),
                     ),
                 )?;

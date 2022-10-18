@@ -205,7 +205,9 @@ where
 
             // Check if we have a string:
             if self.chr0 == Some('"') || self.chr0 == Some('\'') {
-                return self.lex_string(saw_b, saw_r, saw_u, saw_f);
+                return self
+                    .lex_string(saw_b, saw_r, saw_u, saw_f)
+                    .map(|(_, tok, end_pos)| (start_pos, tok, end_pos));
             }
         }
 
@@ -490,9 +492,9 @@ where
         is_unicode: bool,
         is_fstring: bool,
     ) -> LexResult {
+        let start_pos = self.get_pos();
         let quote_char = self.next_char().unwrap();
         let mut string_content = String::new();
-        let start_pos = self.get_pos();
 
         // If the next two characters are also the quote character, then we have a triple-quoted
         // string; consume those two characters and ensure that we require a triple-quote to close

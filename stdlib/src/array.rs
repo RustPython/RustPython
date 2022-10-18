@@ -12,6 +12,7 @@ mod array {
             str::wchar_t,
         },
         vm::{
+            atomic_func,
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt,
                 PyIntRef, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
@@ -1128,7 +1129,7 @@ mod array {
                 return Self::reduce(zelf, vm);
             }
             let array = zelf.read();
-            let cls = zelf.class().clone();
+            let cls = zelf.class().to_owned();
             let typecode = vm.ctx.new_str(array.typecode_str());
             let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
@@ -1148,7 +1149,7 @@ mod array {
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
             let array = zelf.read();
-            let cls = zelf.class().clone();
+            let cls = zelf.class().to_owned();
             let typecode = vm.ctx.new_str(array.typecode_str());
             let values = if array.typecode() == 'u' {
                 let s = Self::_wchar_bytes_to_string(array.get_bytes(), array.itemsize(), vm)?;
@@ -1252,20 +1253,23 @@ mod array {
     };
 
     impl AsMapping for PyArray {
-        const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-            subscript: Some(|mapping, needle, vm| {
-                Self::mapping_downcast(mapping)._getitem(needle, vm)
-            }),
-            ass_subscript: Some(|mapping, needle, value, vm| {
-                let zelf = Self::mapping_downcast(mapping);
-                if let Some(value) = value {
-                    Self::_setitem(zelf.to_owned(), needle, value, vm)
-                } else {
-                    zelf._delitem(needle, vm)
-                }
-            }),
-        };
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(PyArray::mapping_downcast(mapping).len())),
+                subscript: atomic_func!(|mapping, needle, vm| {
+                    PyArray::mapping_downcast(mapping)._getitem(needle, vm)
+                }),
+                ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                    let zelf = PyArray::mapping_downcast(mapping);
+                    if let Some(value) = value {
+                        PyArray::_setitem(zelf.to_owned(), needle, value, vm)
+                    } else {
+                        zelf._delitem(needle, vm)
+                    }
+                }),
+            };
+            &AS_MAPPING
+        }
     }
 
     impl Iterable for PyArray {

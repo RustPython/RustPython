@@ -2307,8 +2307,6 @@ class EndPositionTests(unittest.TestCase):
         cdef = ast.parse(s).body[0]
         self.assertEqual(ast.get_source_segment(s, cdef.body[0], padded=True), s_method)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_source_segment_missing_info(self):
         s = 'v = 1\r\nw = 1\nx = 1\n\ry = 1\r\n'
         v, w, x, y = ast.parse(s).body

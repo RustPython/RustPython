@@ -1299,7 +1299,7 @@ mod _io {
 
             let mut remaining = buf_len - written;
             while remaining > 0 {
-                let n = if remaining as usize > self.buffer.len() {
+                let n = if remaining > self.buffer.len() {
                     self.raw_read(Either::B(buf.clone()), written..written + remaining, vm)?
                 } else if !(readinto1 && written != 0) {
                     let n = self.fill_buffer(vm)?;
@@ -1395,7 +1395,7 @@ mod _io {
             let (raw, BufferSize { buffer_size }): (PyObjectRef, _) =
                 args.bind(vm).map_err(|e| {
                     let msg = format!("{}() {}", Self::CLASS_NAME, *e.str(vm));
-                    vm.new_exception_msg(e.class().clone(), msg)
+                    vm.new_exception_msg(e.class().to_owned(), msg)
                 })?;
             self.init(raw, BufferSize { buffer_size }, vm)
         }
@@ -4012,7 +4012,7 @@ mod fileio {
             }
             let mut handle = self.get_fd(vm)?;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
-                let mut bytes = vec![0; read_byte as usize];
+                let mut bytes = vec![0; read_byte];
                 let n = handle
                     .read(&mut bytes)
                     .map_err(|err| err.to_pyexception(vm))?;

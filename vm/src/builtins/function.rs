@@ -435,7 +435,7 @@ impl GetDescriptor for PyFunction {
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
+        let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
             zelf.into()
         } else {
             PyBoundMethod::new_ref(obj, zelf.into(), &vm.ctx).into()

@@ -20,10 +20,6 @@ use crate::{
 };
 use std::{fmt, marker::PhantomData};
 
-/// tuple() -> empty tuple
-/// tuple(iterable) -> tuple initialized from iterable's items
-///
-/// If the argument is a tuple, the return value is the same object.
 #[pyclass(module = false, name = "tuple")]
 pub struct PyTuple {
     elements: Box<[PyObjectRef]>,
@@ -285,13 +281,7 @@ impl PyTuple {
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         let (start, stop) = range.saturate(self.len(), vm)?;
-        for (index, element) in self
-            .elements
-            .iter()
-            .enumerate()
-            .take(stop as usize)
-            .skip(start as usize)
-        {
+        for (index, element) in self.elements.iter().enumerate().take(stop).skip(start) {
             if vm.identical_or_equal(element, &needle)? {
                 return Ok(index);
             }
@@ -333,11 +323,16 @@ impl PyTuple {
 }
 
 impl AsMapping for PyTuple {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(|mapping, _vm| Ok(PyTuple::mapping_downcast(mapping).len())),
+            subscript: atomic_func!(
+                |mapping, needle, vm| PyTuple::mapping_downcast(mapping)._getitem(needle, vm)
+            ),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        };
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyTuple {

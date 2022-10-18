@@ -3,9 +3,6 @@
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
 use crate::{class::PyClassImpl, PyObjectRef, VirtualMachine};
 
-/// Built-in functions, exceptions, and other objects.
-///
-/// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule]
 mod builtins {
     use crate::{
@@ -243,8 +240,6 @@ mod builtins {
         }
     }
 
-    /// Implements `eval`.
-    /// See also: https://docs.python.org/3/library/functions.html#eval
     #[pyfunction]
     fn eval(
         source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
@@ -277,8 +272,6 @@ mod builtins {
         run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval")
     }
 
-    /// Implements `exec`
-    /// https://docs.python.org/3/library/functions.html#exec
     #[pyfunction]
     fn exec(
         source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
@@ -642,13 +635,13 @@ mod builtins {
                     return val;
                 }
 
-                if !x.class().is(&y.class()) {
+                if !x.class().is(y.class()) {
                     if let Some(val) = try_pow_value(&y, (x.clone(), y.clone(), z.clone())) {
                         return val;
                     }
                 }
 
-                if !x.class().is(&z.class()) && !y.class().is(&z.class()) {
+                if !x.class().is(z.class()) && !y.class().is(z.class()) {
                     if let Some(val) = try_pow_value(&z, (x.clone(), y.clone(), z.clone())) {
                         return val;
                     }
@@ -889,8 +882,8 @@ mod builtins {
                 for base in &bases {
                     let base_class = base.class();
                     if base_class.fast_issubclass(&metaclass) {
-                        metaclass = base.class().clone();
-                    } else if !metaclass.fast_issubclass(&base_class) {
+                        metaclass = base.class().to_owned();
+                    } else if !metaclass.fast_issubclass(base_class) {
                         return Err(vm.new_type_error(
                             "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
                             subclass of the metaclasses of all its bases"

@@ -25,10 +25,6 @@ use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
-/// set() -> new empty set object
-/// set(iterable) -> new set object
-///
-/// Build an unordered collection of unique elements.
 #[pyclass(module = false, name = "set")]
 #[derive(Default)]
 pub struct PySet {
@@ -71,10 +67,6 @@ impl PySet {
     }
 }
 
-/// frozenset() -> empty frozenset object
-/// frozenset(iterable) -> frozenset object
-///
-/// Build an immutable unordered collection of unique elements.
 #[pyclass(module = false, name = "frozenset")]
 #[derive(Default)]
 pub struct PyFrozenSet {
@@ -485,7 +477,7 @@ fn reduce_set(
     vm: &VirtualMachine,
 ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
-        zelf.class().clone(),
+        zelf.class().to_owned(),
         vm.new_tuple((extract_set(zelf)
             .unwrap_or(&PySetInner::default())
             .elements(),)),
@@ -1056,8 +1048,6 @@ impl TryFromObject for AnySet {
         if class.fast_issubclass(vm.ctx.types.set_type)
             || class.fast_issubclass(vm.ctx.types.frozenset_type)
         {
-            // the class lease needs to be drop to be able to return the object
-            drop(class);
             Ok(AnySet { object: obj })
         } else {
             Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", class)))

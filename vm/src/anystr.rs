@@ -2,7 +2,7 @@ use crate::{
     builtins::{PyIntRef, PyTupleRef},
     cformat::CFormatString,
     function::OptionalOption,
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
 use std::str::FromStr;
@@ -379,7 +379,7 @@ pub trait AnyStr<'s>: 's {
     where
         FW: Fn(&Self) -> W,
     {
-        let keep = if options.keepends { 1 } else { 0 };
+        let keep = options.keepends as usize;
         let mut elements = Vec::new();
         let mut last_i = 0;
         let mut enumerated = self.as_bytes().iter().enumerate().peekable();

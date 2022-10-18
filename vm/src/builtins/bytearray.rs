@@ -684,7 +684,7 @@ impl PyByteArray {
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         let bytes = PyBytes::from(zelf.borrow_buf().to_vec()).to_pyobject(vm);
         (
-            zelf.class().clone(),
+            zelf.class().to_owned(),
             PyTuple::new_ref(vec![bytes], &vm.ctx),
             zelf.as_object().dict(),
         )
@@ -768,20 +768,23 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 }
 
 impl AsMapping for PyByteArray {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: Some(|mapping, needle, value, vm| {
-            let zelf = Self::mapping_downcast(mapping);
-            if let Some(value) = value {
-                Self::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
-            } else {
-                zelf.delitem(needle.to_owned(), vm)
-            }
-        }),
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: atomic_func!(|mapping, _vm| Ok(PyByteArray::mapping_downcast(mapping).len())),
+            subscript: atomic_func!(|mapping, needle, vm| {
+                PyByteArray::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+            }),
+            ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                let zelf = PyByteArray::mapping_downcast(mapping);
+                if let Some(value) = value {
+                    PyByteArray::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
+                } else {
+                    zelf.delitem(needle.to_owned(), vm)
+                }
+            }),
+        };
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyByteArray {

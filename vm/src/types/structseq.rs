@@ -69,7 +69,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
-        vm.new_tuple((zelf.class().clone(), (vm.ctx.new_tuple(zelf.to_vec()),)))
+        vm.new_tuple((zelf.class().to_owned(), (vm.ctx.new_tuple(zelf.to_vec()),)))
     }
 
     #[extend_class]
