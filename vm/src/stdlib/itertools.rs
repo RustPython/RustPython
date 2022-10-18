@@ -43,7 +43,7 @@ mod decl {
             .map(Into::into)
         }
 
-        #[pyclassmethod]    
+        #[pyclassmethod]
         fn from_iterable(
             cls: PyTypeRef,
             source: PyObjectRef,
@@ -63,19 +63,17 @@ mod decl {
 
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-            let source =  zelf.source.read().clone();
+            let source = zelf.source.read().clone();
             let active = zelf.active.read().clone();
             let cls = zelf.class().to_owned();
             match source {
-                Some(source) => {
-                    match active {
-                        Some(active) => {
-                            Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source, active))))
-                        },
-                        None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source, ))))
+                Some(source) => match active {
+                    Some(active) => {
+                        Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source, active))))
                     }
+                    None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source,)))),
                 },
-                None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone())))
+                None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone()))),
             }
         }
     }
