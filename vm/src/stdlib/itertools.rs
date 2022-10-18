@@ -78,7 +78,11 @@ mod decl {
         }
 
         #[pymethod(magic)]
-        fn reduce_ex(zelf: PyRef<Self>, _proto: usize, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        fn reduce_ex(
+            zelf: PyRef<Self>,
+            _proto: usize,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyTupleRef> {
             let source = zelf.source.read().clone();
             let active = zelf.active.read().clone();
             let cls = zelf.class().to_owned();
