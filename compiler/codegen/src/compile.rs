@@ -1342,7 +1342,7 @@ impl Compiler {
         self.emit(Instruction::MakeFunction(funcflags));
 
         self.emit_constant(ConstantData::Str {
-            value: qualified_name,
+            value: name.to_owned(),
         });
 
         let call = self.compile_call_inner(2, bases, keywords)?;
