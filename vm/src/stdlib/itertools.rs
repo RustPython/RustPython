@@ -1614,9 +1614,8 @@ mod decl {
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             let args: Vec<PyObjectRef> = zelf
                 .iterators
-                .to_owned()
-                .into_iter()
-                .map(|i| i.to_pyobject(vm))
+                .iter()
+                .map(|i| i.clone().to_pyobject(vm))
                 .collect();
             Ok(vm.new_tuple((
                 zelf.class().to_owned(),
@@ -1627,7 +1626,7 @@ mod decl {
 
         #[pymethod(magic)]
         fn setstate(zelf: PyRef<Self>, state: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
-            *zelf.fillvalue.write() = state.to_owned();
+            *zelf.fillvalue.write() = state;
             Ok(())
         }
     }
