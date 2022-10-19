@@ -181,8 +181,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(take(4, chain.from_iterable(['abc', 'def'])), list('abcd'))
         self.assertRaises(TypeError, list, chain.from_iterable([2, 3]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_chain_reducible(self):
         for oper in [copy.deepcopy] + picklecopiers:
             it = chain('abc', 'def')
@@ -195,8 +193,7 @@ class TestBasicOps(unittest.TestCase):
             self.assertRaises(TypeError, list, oper(chain(2, 3)))
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             self.pickletest(proto, chain('abc', 'def'), compare=list('abcdef'))
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+
     def test_chain_setstate(self):
         self.assertRaises(TypeError, chain().__setstate__, ())
         self.assertRaises(TypeError, chain().__setstate__, [])

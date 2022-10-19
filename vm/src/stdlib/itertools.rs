@@ -76,6 +76,35 @@ mod decl {
                 None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone()))),
             }
         }
+
+        #[pymethod(magic)]
+        fn setstate(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+            let args = state.as_slice();
+            if args.is_empty() {
+                let msg = String::from("function takes at leat 1 arguments (0 given)");
+                return Err(vm.new_type_error(msg));
+            }
+            if args.len() > 2 {
+                let msg = format!("function takes at most 2 arguments ({} given)", args.len());
+                return Err(vm.new_type_error(msg));
+            }
+            let source = &args[0];
+            if args.len() == 1 {
+                if !PyIter::check(source.as_ref()) {
+                    return Err(vm.new_type_error(String::from("Arguments must be iterators.")));
+                }
+                *zelf.source.write() = source.to_owned().try_into_value(vm)?;
+                return Ok(());
+            }
+            let active = &args[1];
+
+            if !PyIter::check(source.as_ref()) || !PyIter::check(active.as_ref()) {
+                return Err(vm.new_type_error(String::from("Arguments must be iterators.")));
+            }
+            *zelf.source.write() = source.to_owned().try_into_value(vm)?;
+            *zelf.active.write() = active.to_owned().try_into_value(vm)?;
+            Ok(())
+        }
     }
     impl IterNextIterable for PyItertoolsChain {}
     impl IterNext for PyItertoolsChain {
