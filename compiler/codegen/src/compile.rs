@@ -1275,6 +1275,17 @@ impl Compiler {
 
         let prev_class_name = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
 
+        // Check if the class is declared global
+        let symbol_table = self.symbol_table_stack.last().unwrap();
+        let symbol = symbol_table.lookup(name.as_ref()).expect(
+            "The symbol must be present in the symbol table, even when it is undefined in python.",
+        );
+        let mut prefix_path = vec![];
+        if symbol.scope == SymbolScope::GlobalExplicit {
+            while let Some(val1) = self.qualified_path.pop() {
+                prefix_path.insert(0, val1);
+            }
+        }
         self.push_qualified_path(name);
         let qualified_name = self.qualified_path.join(".");
 
@@ -1323,6 +1334,7 @@ impl Compiler {
 
         self.class_name = prev_class_name;
         self.qualified_path.pop();
+        self.qualified_path.append(prefix_path.as_mut());
         self.ctx = prev_ctx;
 
         let mut funcflags = bytecode::MakeFunctionFlags::empty();
