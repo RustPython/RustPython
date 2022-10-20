@@ -1298,7 +1298,7 @@ impl Compiler {
         let dunder_module = self.name("__module__");
         self.emit(Instruction::StoreLocal(dunder_module));
         self.emit_constant(ConstantData::Str {
-            value: qualified_name.clone(),
+            value: qualified_name,
         });
         let qualname = self.name("__qualname__");
         self.emit(Instruction::StoreLocal(qualname));
