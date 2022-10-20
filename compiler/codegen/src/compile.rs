@@ -1282,8 +1282,8 @@ impl Compiler {
         );
         let mut prefix_path = vec![];
         if symbol.scope == SymbolScope::GlobalExplicit {
-            while let Some(val1) = self.qualified_path.pop() {
-                prefix_path.insert(0, val1);
+            while let Some(value) = self.qualified_path.pop() {
+                prefix_path.insert(0, value);
             }
         }
         self.push_qualified_path(name);
