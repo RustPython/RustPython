@@ -18,7 +18,6 @@ mod decl {
         VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    use num_bigint::BigInt;
     use num_traits::{Signed, ToPrimitive};
     use std::fmt;
 
@@ -193,7 +192,7 @@ mod decl {
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, PyIter)) {
             (
                 zelf.class().to_owned(),
-                (zelf.data.to_owned(), zelf.selectors.clone()),
+                (zelf.data.clone(), zelf.selectors.clone()),
             )
         }
     }
@@ -206,7 +205,7 @@ mod decl {
                     PyIterReturn::Return(obj) => obj,
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
                 };
-                let verdict = sel_obj.to_owned().try_to_bool(vm)?;
+                let verdict = sel_obj.clone().try_to_bool(vm)?;
                 let data_obj = zelf.data.next(vm)?;
 
                 if verdict {
@@ -516,11 +515,11 @@ mod decl {
     #[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsTakewhile {
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), BigInt) {
+        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
             (
                 zelf.class().to_owned(),
                 (zelf.predicate.clone(), zelf.iterable.clone()),
-                (if zelf.stop_flag.load() { 1 } else { 0 }).into(),
+                zelf.stop_flag.load() as _,
             )
         }
         #[pymethod(magic)]
@@ -597,11 +596,11 @@ mod decl {
     #[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
     impl PyItertoolsDropwhile {
         #[pymethod(magic)]
-        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), BigInt) {
+        fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef, PyIter), u32) {
             (
                 zelf.class().to_owned(),
                 (zelf.predicate.clone().into(), zelf.iterable.clone()),
-                (if zelf.start_flag.load() { 1 } else { 0 }).into(),
+                (zelf.start_flag.load() as _),
             )
         }
         #[pymethod(magic)]
@@ -1482,7 +1481,7 @@ mod decl {
                 // Increment the current index which we know is not at its
                 // maximum. Then set all to the right to the same value.
                 for j in idx as usize..r {
-                    indices[j as usize] = index as usize;
+                    indices[j] = index;
                 }
             }
 
