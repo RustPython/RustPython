@@ -939,7 +939,7 @@ Module(
         self.assertEqual(d.pop('func').id, 'foo')
         self.assertEqual(d, {'keywords': [], 'args': []})
 
-    # TODO: RUSTPYTHON; redundant kind for Contant node
+    # TODO: RUSTPYTHON; redundant kind for Constant node
     @unittest.expectedFailure
     def test_iter_child_nodes(self):
         node = ast.parse("spam(23, 42, eggs='leek')", mode='eval')

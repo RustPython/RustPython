@@ -1021,8 +1021,6 @@ x = (
         self.assertEqual(f'expr={ {x: y for x, y in [(1, 2), ]} }',
                          'expr={1: 2}')
 
-    # TODO: RUSTPYTHON string should be cut at 3 chars
-    @unittest.expectedFailure
     def test_not_equal(self):
         # There's a special test for this because there's a special
         #  case in the f-string parser to look for != as not ending an
