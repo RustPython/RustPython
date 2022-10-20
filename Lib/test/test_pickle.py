@@ -110,10 +110,8 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     def test_in_band_buffers(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_in_band_buffers() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, pickle.PicklingError
-    @unittest.expectedFailure
-    def test_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_nested_names() # TODO: RUSTPYTHON, remove when this passes
+    def test_nested_names(self):
+        super().test_nested_names()
 
     # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     @unittest.expectedFailure
@@ -201,10 +199,8 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     def test_load_python2_str_as_bytes(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_load_python2_str_as_bytes() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, pickle.PicklingError
-    @unittest.expectedFailure
-    def test_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_nested_names() # TODO: RUSTPYTHON, remove when this passes
+    def test_nested_names(self):
+        super().test_nested_names()
 
     # TODO: RUSTPYTHON, AttributeError: module 'pickle' has no attribute 'PickleBuffer'
     @unittest.expectedFailure

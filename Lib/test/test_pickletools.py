@@ -35,9 +35,7 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
     def test_in_band_buffers(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_in_band_buffers()
 
-    # TODO: RUSTPYTHON, pickle.PicklingError
-    @unittest.expectedFailure
-    def test_nested_names(self): # TODO: RUSTPYTHON, remove when this passes
+    def test_nested_names(self):
         super().test_nested_names()
 
     def test_notimplemented(self): # TODO: RUSTPYTHON, remove when this passes
