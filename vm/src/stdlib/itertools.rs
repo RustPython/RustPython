@@ -1593,7 +1593,7 @@ mod decl {
             let iterators = iterators.into_vec();
             PyItertoolsZipLongest {
                 iterators,
-                fillvalue,
+                fillvalue: PyRwLock::new(fillvalue),
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
@@ -1605,11 +1605,31 @@ mod decl {
     #[derive(Debug, PyPayload)]
     struct PyItertoolsZipLongest {
         iterators: Vec<PyIter>,
-        fillvalue: PyObjectRef,
+        fillvalue: PyRwLock<PyObjectRef>,
     }
 
     #[pyclass(with(IterNext, Constructor))]
-    impl PyItertoolsZipLongest {}
+    impl PyItertoolsZipLongest {
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            let args: Vec<PyObjectRef> = zelf
+                .iterators
+                .iter()
+                .map(|i| i.clone().to_pyobject(vm))
+                .collect();
+            Ok(vm.new_tuple((
+                zelf.class().to_owned(),
+                vm.new_tuple(args),
+                zelf.fillvalue.read().to_owned(),
+            )))
+        }
+
+        #[pymethod(magic)]
+        fn setstate(zelf: PyRef<Self>, state: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
+            *zelf.fillvalue.write() = state;
+            Ok(())
+        }
+    }
     impl IterNextIterable for PyItertoolsZipLongest {}
     impl IterNext for PyItertoolsZipLongest {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
@@ -1627,7 +1647,7 @@ mod decl {
                         if numactive == 0 {
                             return Ok(PyIterReturn::StopIteration(v));
                         }
-                        zelf.fillvalue.clone()
+                        zelf.fillvalue.read().clone()
                     }
                 };
                 result.push(next_obj);
