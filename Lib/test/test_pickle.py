@@ -95,11 +95,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     def test_buffers_error(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_buffers_error() # TODO: RUSTPYTHON, remove when this passes
 
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'method' object
-    @unittest.expectedFailure
-    def test_c_methods(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_c_methods() # TODO: RUSTPYTHON, remove when this passes
-
     # TODO: RUSTPYTHON, AssertionError
     @unittest.expectedFailure
     def test_complex_newobj_ex(self): # TODO: RUSTPYTHON, remove when this passes
@@ -129,11 +124,6 @@ class PyPicklerTests(AbstractPickleTests, unittest.TestCase):
     @unittest.expectedFailure
     def test_picklebuffer_error(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_picklebuffer_error() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, pickle.PicklingError
-    @unittest.expectedFailure
-    def test_py_methods(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_py_methods() # TODO: RUSTPYTHON, remove when this passes
 
     def dumps(self, arg, proto=None, **kwargs):
         f = io.BytesIO()
@@ -170,11 +160,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     @unittest.expectedFailure
     def test_buffers_error(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_buffers_error() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'method' object
-    @unittest.expectedFailure
-    def test_c_methods(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_c_methods() # TODO: RUSTPYTHON, remove when this passes
 
     # TODO: RUSTPYTHON, AssertionError
     @unittest.expectedFailure
@@ -215,11 +200,6 @@ class InMemoryPickleTests(AbstractPickleTests, AbstractUnpickleTests,
     @unittest.expectedFailure
     def test_picklebuffer_error(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_picklebuffer_error() # TODO: RUSTPYTHON, remove when this passes
-
-    # TODO: RUSTPYTHON, pickle.PicklingError
-    @unittest.expectedFailure
-    def test_py_methods(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_py_methods() # TODO: RUSTPYTHON, remove when this passes
 
     def dumps(self, arg, protocol=None, **kwargs):
         return pickle.dumps(arg, protocol, **kwargs)

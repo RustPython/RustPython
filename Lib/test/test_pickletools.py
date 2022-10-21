@@ -17,11 +17,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
     def test_buffers_error(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_buffers_error()
 
-    # TODO: RUSTPYTHON, TypeError: cannot pickle 'method' object
-    @unittest.expectedFailure
-    def test_c_methods(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_c_methods()
-
     def test_compat_pickle(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_compat_pickle()
 
@@ -57,11 +52,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
     @unittest.expectedFailure
     def test_picklebuffer_error(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_picklebuffer_error()
-
-    # TODO: RUSTPYTHON, pickle.PicklingError
-    @unittest.expectedFailure
-    def test_py_methods(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_py_methods()
 
     def dumps(self, arg, proto=None, **kwargs):
         return pickletools.optimize(pickle.dumps(arg, proto, **kwargs))
