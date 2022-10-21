@@ -549,6 +549,34 @@ impl PyType {
         Ok(annotations)
     }
 
+    #[pygetset(magic, setter)]
+    fn set_annotations(&self, value: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
+        if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '__annotations__' attribute of immutable type '{}'",
+                self.name()
+            )));
+        }
+
+        let __annotations__ = identifier!(vm, __annotations__);
+        if let Some(value) = value {
+            self.attributes.write().insert(__annotations__, value);
+        } else {
+            self.attributes
+                .read()
+                .get(__annotations__)
+                .cloned()
+                .ok_or_else(|| {
+                    vm.new_attribute_error(format!(
+                        "'{}' object has no attribute '__annotations__'",
+                        self.name()
+                    ))
+                })?;
+        }
+
+        Ok(())
+    }
+
     #[pygetset(magic)]
     pub fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
