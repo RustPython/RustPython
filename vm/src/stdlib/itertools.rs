@@ -29,7 +29,7 @@ mod decl {
         active: PyRwLock<Option<PyIter>>,
     }
 
-    #[pyclass(with(IterNext), flags(BASETYPE))]
+    #[pyclass(with(IterNext), flags(BASETYPE, HAS_DICT))]
     impl PyItertoolsChain {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -58,6 +58,53 @@ mod decl {
         #[pyclassmethod(magic)]
         fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
             PyGenericAlias::new(cls, args, vm)
+        }
+
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            let source = zelf.source.read().clone();
+            let active = zelf.active.read().clone();
+            let cls = zelf.class().to_owned();
+            let empty_tuple = vm.ctx.empty_tuple.clone();
+            let reduced = match source {
+                Some(source) => match active {
+                    Some(active) => vm.new_tuple((cls, empty_tuple, (source, active))),
+                    None => vm.new_tuple((cls, empty_tuple, (source,))),
+                },
+                None => vm.new_tuple((cls, empty_tuple)),
+            };
+            Ok(reduced)
+        }
+
+        #[pymethod(magic)]
+        fn setstate(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+            let args = state.as_slice();
+            if args.is_empty() {
+                let msg = String::from("function takes at leat 1 arguments (0 given)");
+                return Err(vm.new_type_error(msg));
+            }
+            if args.len() > 2 {
+                let msg = format!("function takes at most 2 arguments ({} given)", args.len());
+                return Err(vm.new_type_error(msg));
+            }
+            let source = &args[0];
+            if args.len() == 1 {
+                if !PyIter::check(source.as_ref()) {
+                    return Err(vm.new_type_error(String::from("Arguments must be iterators.")));
+                }
+                *zelf.source.write() = source.to_owned().try_into_value(vm)?;
+                return Ok(());
+            }
+            let active = &args[1];
+
+            if !PyIter::check(source.as_ref()) || !PyIter::check(active.as_ref()) {
+                return Err(vm.new_type_error(String::from("Arguments must be iterators.")));
+            }
+            let mut source_lock = zelf.source.write();
+            let mut active_lock = zelf.active.write();
+            *source_lock = source.to_owned().try_into_value(vm)?;
+            *active_lock = active.to_owned().try_into_value(vm)?;
+            Ok(())
         }
     }
     impl IterNextIterable for PyItertoolsChain {}
