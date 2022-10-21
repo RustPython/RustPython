@@ -1282,7 +1282,7 @@ impl Compiler {
         );
         let mut global_path_prefix = Vec::new();
         if symbol.scope == SymbolScope::GlobalExplicit {
-            global_path_prefix.extend(self.qualified_path.drain(..));
+            global_path_prefix.append(&mut self.qualified_path);
         }
         self.push_qualified_path(name);
         let qualified_name = self.qualified_path.join(".");
