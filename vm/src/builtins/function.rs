@@ -552,6 +552,17 @@ impl PyBoundMethod {
         ))
     }
 
+    #[pymethod(magic)]
+    fn reduce(
+        &self,
+        vm: &VirtualMachine,
+    ) -> (Option<PyObjectRef>, (PyObjectRef, Option<PyObjectRef>)) {
+        let builtinfunc_getattr = vm.builtins.get_attr("getattr", vm).ok();
+        let funcself = self.object.clone();
+        let funcname = self.function.get_attr("__name__", vm).ok();
+        (builtinfunc_getattr, (funcself, funcname))
+    }
+
     #[pygetset(magic)]
     fn doc(&self, vm: &VirtualMachine) -> PyResult {
         self.function.get_attr("__doc__", vm)
