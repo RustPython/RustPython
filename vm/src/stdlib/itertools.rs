@@ -65,15 +65,15 @@ mod decl {
             let source = zelf.source.read().clone();
             let active = zelf.active.read().clone();
             let cls = zelf.class().to_owned();
-            match source {
+            let empty_tuple = vm.ctx.empty_tuple.clone();
+            let reduced = match source {
                 Some(source) => match active {
-                    Some(active) => {
-                        Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source, active))))
-                    }
-                    None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone(), (source,)))),
+                    Some(active) => vm.new_tuple((cls, empty_tuple, (source, active))),
+                    None => vm.new_tuple((cls, empty_tuple, (source,))),
                 },
-                None => Ok(vm.new_tuple((cls, vm.ctx.empty_tuple.clone()))),
-            }
+                None => vm.new_tuple((cls, empty_tuple)),
+            };
+            Ok(reduced)
         }
 
         #[pymethod(magic)]
@@ -100,8 +100,10 @@ mod decl {
             if !PyIter::check(source.as_ref()) || !PyIter::check(active.as_ref()) {
                 return Err(vm.new_type_error(String::from("Arguments must be iterators.")));
             }
-            *zelf.source.write() = source.to_owned().try_into_value(vm)?;
-            *zelf.active.write() = active.to_owned().try_into_value(vm)?;
+            let mut source_lock = zelf.source.write();
+            let mut active_lock = zelf.active.write();
+            *source_lock = source.to_owned().try_into_value(vm)?;
+            *active_lock = active.to_owned().try_into_value(vm)?;
             Ok(())
         }
     }
