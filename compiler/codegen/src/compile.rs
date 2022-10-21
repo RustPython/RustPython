@@ -1280,11 +1280,9 @@ impl Compiler {
         let symbol = symbol_table.lookup(name.as_ref()).expect(
             "The symbol must be present in the symbol table, even when it is undefined in python.",
         );
-        let mut prefix_path = vec![];
+        let mut global_path_prefix = Vec::new();
         if symbol.scope == SymbolScope::GlobalExplicit {
-            while let Some(value) = self.qualified_path.pop() {
-                prefix_path.insert(0, value);
-            }
+            global_path_prefix.extend(self.qualified_path.drain(..));
         }
         self.push_qualified_path(name);
         let qualified_name = self.qualified_path.join(".");
@@ -1334,7 +1332,7 @@ impl Compiler {
 
         self.class_name = prev_class_name;
         self.qualified_path.pop();
-        self.qualified_path.append(prefix_path.as_mut());
+        self.qualified_path.append(global_path_prefix.as_mut());
         self.ctx = prev_ctx;
 
         let mut funcflags = bytecode::MakeFunctionFlags::empty();
