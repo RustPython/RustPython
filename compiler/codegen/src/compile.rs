@@ -1275,6 +1275,15 @@ impl Compiler {
 
         let prev_class_name = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
 
+        // Check if the class is declared global
+        let symbol_table = self.symbol_table_stack.last().unwrap();
+        let symbol = symbol_table.lookup(name.as_ref()).expect(
+            "The symbol must be present in the symbol table, even when it is undefined in python.",
+        );
+        let mut global_path_prefix = Vec::new();
+        if symbol.scope == SymbolScope::GlobalExplicit {
+            global_path_prefix.append(&mut self.qualified_path);
+        }
         self.push_qualified_path(name);
         let qualified_name = self.qualified_path.join(".");
 
@@ -1287,7 +1296,7 @@ impl Compiler {
         let dunder_module = self.name("__module__");
         self.emit(Instruction::StoreLocal(dunder_module));
         self.emit_constant(ConstantData::Str {
-            value: qualified_name.clone(),
+            value: qualified_name,
         });
         let qualname = self.name("__qualname__");
         self.emit(Instruction::StoreLocal(qualname));
@@ -1323,6 +1332,7 @@ impl Compiler {
 
         self.class_name = prev_class_name;
         self.qualified_path.pop();
+        self.qualified_path.append(global_path_prefix.as_mut());
         self.ctx = prev_ctx;
 
         let mut funcflags = bytecode::MakeFunctionFlags::empty();
@@ -1342,7 +1352,7 @@ impl Compiler {
         self.emit(Instruction::MakeFunction(funcflags));
 
         self.emit_constant(ConstantData::Str {
-            value: qualified_name,
+            value: name.to_owned(),
         });
 
         let call = self.compile_call_inner(2, bases, keywords)?;

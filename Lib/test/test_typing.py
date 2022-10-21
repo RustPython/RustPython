@@ -1581,8 +1581,6 @@ class ProtocolTests(BaseTestCase):
         Alias2 = typing.Union[P, typing.Iterable]
         self.assertEqual(Alias, Alias2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_protocols_pickleable(self):
         global P, CP  # pickle wants to reference the class by name
         T = TypeVar('T')
@@ -2186,8 +2184,6 @@ class GenericTests(BaseTestCase):
                     self.assertNotEqual(repr(base), '')
                     self.assertEqual(base, base)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         global C  # pickle wants to reference the class by name
         T = TypeVar('T')
@@ -4802,8 +4798,6 @@ class AnnotatedTests(BaseTestCase):
         with self.assertRaisesRegex(TypeError, 'at least two arguments'):
             Annotated[int]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         samples = [typing.Any, typing.Union[int, str],
                    typing.Optional[str], Tuple[int, ...],
