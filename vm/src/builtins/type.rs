@@ -524,6 +524,32 @@ impl PyType {
     }
 
     #[pygetset(magic)]
+    fn annotations(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return Err(vm.new_attribute_error(format!(
+                "type object '{}' has no attribute '__annotations__'",
+                self.name()
+            )));
+        }
+
+        let __annotations__ = identifier!(vm, __annotations__);
+        let annotations = self.attributes.read().get(__annotations__).cloned();
+
+        let annotations = if let Some(annotations) = annotations {
+            annotations
+        } else {
+            let annotations: PyObjectRef = vm.ctx.new_dict().into();
+            let removed = self
+                .attributes
+                .write()
+                .insert(__annotations__, annotations.clone());
+            debug_assert!(removed.is_none());
+            annotations
+        };
+        Ok(annotations)
+    }
+
+    #[pygetset(magic)]
     pub fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.attributes
             .read()
