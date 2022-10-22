@@ -8,7 +8,8 @@ mod math {
         identifier, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use num_bigint::BigInt;
-    use num_traits::{One, Signed, Zero};
+    use num_rational::Ratio;
+    use num_traits::{One, Signed, ToPrimitive, Zero};
     use rustpython_common::float_ops;
     use std::cmp::Ordering;
 
@@ -155,13 +156,35 @@ mod math {
         }
     }
 
+    /// Generates the base-2 logarithm of a BigInt `x`
+    fn ilog2(x: &BigInt) -> f64 {
+        // log2(x) = log2(2^n * 2^-n * x) = n + log2(x/2^n)
+        // If we set 2^n to be the greatest power of 2 below x, then x/2^n is in [1, 2), and can
+        // thus be converted into a float.
+        let n = x.bits() as u32 - 1;
+        let frac = Ratio::new(x.clone(), BigInt::from(2).pow(n));
+        f64::from(n) + frac.to_f64().unwrap().log2()
+    }
+
     #[pyfunction]
-    fn log2(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
-        if x.is_nan() || x > 0.0_f64 {
-            Ok(x.log2())
-        } else {
-            Err(vm.new_value_error("math domain error".to_owned()))
+    fn log2(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+        match x.try_float(vm) {
+            Ok(x) => {
+                let x = x.to_f64();
+                if x.is_nan() || x > 0.0_f64 {
+                    Ok(x.log2())
+                } else {
+                    Err(vm.new_value_error("math domain error".to_owned()))
+                }
+            }
+            Err(float_err) => {
+                if let Ok(x) = x.try_int(vm) {
+                    Ok(ilog2(x.as_bigint()))
+                } else {
+                    // Return the float error, as it will be more intuitive to users
+                    Err(float_err)
+                }
+            }
         }
     }
 
