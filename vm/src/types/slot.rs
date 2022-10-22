@@ -63,7 +63,7 @@ pub struct PyTypeSlots {
     pub flags: PyTypeFlags,
 
     // tp_doc
-    pub doc: Option<&'static str>,
+    pub doc: PyRwLock<Option<&'static str>>,
 
     // Strong reference on a heap type, borrowed reference on a static type
     // tp_base

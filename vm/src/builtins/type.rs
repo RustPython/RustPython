@@ -914,11 +914,43 @@ impl PyType {
     }
 
     #[pygetset(magic)]
+    fn doc(&self, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            return self
+                .slots
+                .doc
+                .write()
+                .and_then(|doc| get_doc_from_internal_doc(&self.name(), doc))
+                .map(|signature| signature.to_pyobject(vm));
+        }
+
+        self.attributes
+            .read()
+            .get(identifier!(vm, __doc__))
+            .cloned()
+    }
+
+    #[pygetset(magic)]
     fn text_signature(&self) -> Option<String> {
         self.slots
             .doc
+            .write()
             .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
             .map(|signature| signature.to_string())
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_doc(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let doc = value.as_interned_str(vm).ok_or_else(|| {
+            vm.new_type_error(format!(
+                "can only assign string to {}.__doc__, not '{}'",
+                self.name(),
+                value.class().name()
+            ))
+        })?;
+
+        *self.slots.doc.write() = Some(doc.as_str());
+        Ok(())
     }
 }
 
@@ -935,6 +967,10 @@ fn find_signature<'a>(name: &str, doc: &'a str) -> Option<&'a str> {
     } else {
         Some(doc)
     }
+}
+
+fn get_doc_from_internal_doc<'a>(name: &str, internal_doc: &'a str) -> Option<&'a str> {
+    find_signature(name, internal_doc).or(Some(internal_doc))
 }
 
 pub(crate) fn get_text_signature_from_internal_doc<'a>(

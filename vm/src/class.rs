@@ -137,7 +137,7 @@ pub trait PyClassImpl: PyClassDef {
             flags: Self::TP_FLAGS,
             name: PyRwLock::new(Some(Self::TP_NAME.to_owned())),
             basicsize: Self::BASICSIZE,
-            doc: Self::DOC,
+            doc: PyRwLock::new(Self::DOC),
             ..Default::default()
         };
         Self::extend_slots(&mut slots);
