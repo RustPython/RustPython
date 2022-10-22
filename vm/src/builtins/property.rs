@@ -1,7 +1,7 @@
 /*! Python `property` descriptor class.
 
 */
-use super::{PyType, PyTypeRef};
+use super::{PyTupleRef, PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
 use crate::{
     class::PyClassImpl,
@@ -17,6 +17,7 @@ pub struct PyProperty {
     setter: PyRwLock<Option<PyObjectRef>>,
     deleter: PyRwLock<Option<PyObjectRef>>,
     doc: PyRwLock<Option<PyObjectRef>>,
+    name: PyRwLock<Option<PyObjectRef>>,
 }
 
 impl PyPayload for PyProperty {
@@ -35,6 +36,8 @@ pub struct PropertyArgs {
     fdel: Option<PyObjectRef>,
     #[pyarg(any, default)]
     doc: Option<PyObjectRef>,
+    #[pyarg(any, default)]
+    name: Option<PyObjectRef>,
 }
 
 impl GetDescriptor for PyProperty {
@@ -135,6 +138,7 @@ impl PyProperty {
             setter: PyRwLock::new(zelf.fset()),
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
+            name: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, zelf.class().to_owned())
     }
@@ -150,6 +154,7 @@ impl PyProperty {
             setter: PyRwLock::new(setter.or_else(|| zelf.fset())),
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
+            name: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, zelf.class().to_owned())
     }
@@ -165,8 +170,23 @@ impl PyProperty {
             setter: PyRwLock::new(zelf.fset()),
             deleter: PyRwLock::new(deleter.or_else(|| zelf.fdel())),
             doc: PyRwLock::new(None),
+            name: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, zelf.class().to_owned())
+    }
+
+    #[pymethod(magic)]
+    fn set_name(&self, args: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let tuple = PyTupleRef::try_from_object(vm, args)?;
+        if tuple.len() != 2 {
+            return Err(vm.new_type_error(format!(
+                "__set_name__() takes 2 positional arguments but {} were given",
+                tuple.len()
+            )));
+        }
+
+        *self.name.write() = tuple.get(1).cloned();
+        Ok(())
     }
 
     #[pygetset(magic)]
@@ -205,6 +225,7 @@ impl Constructor for PyProperty {
             setter: PyRwLock::new(None),
             deleter: PyRwLock::new(None),
             doc: PyRwLock::new(None),
+            name: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
@@ -219,6 +240,7 @@ impl Initializer for PyProperty {
         *zelf.setter.write() = args.fset;
         *zelf.deleter.write() = args.fdel;
         *zelf.doc.write() = args.doc;
+        *zelf.name.write() = args.name;
         Ok(())
     }
 }
