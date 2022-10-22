@@ -105,6 +105,7 @@ impl std::fmt::Debug for PyTypeSlots {
 bitflags! {
     #[non_exhaustive]
     pub struct PyTypeFlags: u64 {
+        const IMMUTABLETYPE = 1 << 8;
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;
         const METHOD_DESCR = 1 << 17;
