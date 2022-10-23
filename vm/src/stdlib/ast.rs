@@ -24,8 +24,9 @@ use rustpython_parser::parser;
 #[pymodule]
 mod _ast {
     use crate::{
-        builtins::PyStrRef, function::FuncArgs, AsObject, PyObjectRef, PyPayload, PyResult,
-        VirtualMachine,
+        builtins::{PyStrRef, PyTupleRef},
+        function::FuncArgs,
+        AsObject, Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]
@@ -64,6 +65,11 @@ mod _ast {
                 zelf.set_attr(key, value, vm)?;
             }
             Ok(())
+        }
+
+        #[pyattr(name = "_fields")]
+        fn fields(ctx: &Context) -> PyTupleRef {
+            ctx.empty_tuple.clone()
         }
     }
 
