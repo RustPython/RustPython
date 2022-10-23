@@ -9,9 +9,11 @@ use crate::{
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
+#[pytrace]
 #[derive(Clone)]
 pub struct ArgCallable {
     obj: PyObjectRef,
+    #[notrace]
     call: GenericMethod,
 }
 
@@ -75,6 +77,13 @@ pub struct ArgIterable<T = PyObjectRef> {
     _item: PhantomData<T>,
 }
 
+#[cfg(feature = "gc_bacon")]
+unsafe impl<T: crate::object::Trace> crate::object::Trace for ArgIterable<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.iterable.trace(tracer_fn)
+    }
+}
+
 impl<T> ArgIterable<T> {
     /// Returns an iterator over this sequence of objects.
     ///
@@ -111,8 +120,10 @@ where
 }
 
 #[derive(Debug, Clone)]
+#[pytrace]
 pub struct ArgMapping {
     obj: PyObjectRef,
+    #[notrace]
     methods: &'static PyMappingMethods,
 }
 
@@ -186,6 +197,13 @@ impl TryFromObject for ArgMapping {
 // this is not strictly related to PySequence protocol.
 #[derive(Clone)]
 pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
+
+#[cfg(feature = "gc_bacon")]
+unsafe impl<T: crate::object::Trace> crate::object::Trace for ArgSequence<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.0.trace(tracer_fn);
+    }
+}
 
 impl<T> ArgSequence<T> {
     #[inline(always)]

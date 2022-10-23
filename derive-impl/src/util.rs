@@ -3,7 +3,8 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::{HashMap, HashSet};
 use syn::{
-    spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Result, Signature, UseTree,
+    spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result, Signature,
+    UseTree,
 };
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
@@ -24,6 +25,10 @@ pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
     "extend_class",
     "pymember",
 ];
+
+pub(crate) fn path_eq(path: &Path, s: &str) -> bool {
+    path.get_ident().map_or(false, |id| id == s)
+}
 
 #[derive(Clone)]
 struct NurseryItem {
@@ -178,6 +183,20 @@ impl ItemMetaInner {
         Ok(value)
     }
 
+    pub fn _exist_path(&self, key: &str) -> Result<bool> {
+        if let Some((_, meta)) = self.meta_map.get(key) {
+            match meta {
+                Meta::Path(p) => Ok(path_eq(p, key)),
+                other => Err(syn::Error::new_spanned(
+                    other,
+                    format!("#[{}({})] is expected", self.meta_name(), key),
+                )),
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
     pub fn _bool(&self, key: &str) -> Result<bool> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             match meta {
@@ -264,7 +283,7 @@ pub(crate) struct ClassItemMeta(ItemMetaInner);
 
 impl ItemMeta for ClassItemMeta {
     const ALLOWED_NAMES: &'static [&'static str] =
-        &["module", "name", "base", "metaclass", "unhashable"];
+        &["module", "name", "base", "metaclass", "unhashable", "trace"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -306,6 +325,10 @@ impl ClassItemMeta {
 
     pub fn metaclass(&self) -> Result<Option<String>> {
         self.inner()._optional_str("metaclass")
+    }
+
+    pub fn is_trace(&self) -> Result<bool> {
+        self.inner()._exist_path("trace")
     }
 
     pub fn module(&self) -> Result<Option<String>> {

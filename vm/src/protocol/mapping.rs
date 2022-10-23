@@ -62,6 +62,13 @@ pub struct PyMapping<'a> {
     pub methods: &'static PyMappingMethods,
 }
 
+#[cfg(feature = "gc_bacon")]
+unsafe impl<'a> crate::object::Trace for PyMapping<'a> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.obj.trace(tracer_fn)
+    }
+}
+
 impl AsRef<PyObject> for PyMapping<'_> {
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {

@@ -25,7 +25,7 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
-#[pyclass(module = false, name = "function")]
+#[pyclass(module = false, name = "function", trace)]
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyRef<PyCode>,
@@ -36,6 +36,15 @@ pub struct PyFunction {
     qualname: PyMutex<PyStrRef>,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
+}
+
+#[cfg(feature = "gc_bacon")]
+unsafe impl crate::object::Trace for PyFunction {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.globals.trace(tracer_fn);
+        self.closure.trace(tracer_fn);
+        self.defaults_and_kwdefaults.trace(tracer_fn);
+    }
 }
 
 impl PyFunction {
@@ -470,6 +479,7 @@ impl Representable for PyFunction {
 
 #[pyclass(module = false, name = "method")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PyBoundMethod {
     object: PyObjectRef,
     function: PyObjectRef,
@@ -630,9 +640,11 @@ impl PyPayload for PyBoundMethod {
 
 #[pyclass(module = false, name = "cell")]
 #[derive(Debug, Default)]
+#[pytrace]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
 }
+
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {

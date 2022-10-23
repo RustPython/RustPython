@@ -13,6 +13,7 @@ use crate::{
 
 #[pyclass(module = false, name = "super")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PySuper {
     typ: PyTypeRef,
     obj: Option<(PyObjectRef, PyTypeRef)>,
@@ -25,6 +26,7 @@ impl PyPayload for PySuper {
 }
 
 #[derive(FromArgs)]
+#[pytrace]
 pub struct PySuperNewArgs {
     #[pyarg(positional, optional)]
     py_type: OptionalArg<PyTypeRef>,

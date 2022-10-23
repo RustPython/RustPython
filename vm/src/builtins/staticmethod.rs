@@ -1,8 +1,9 @@
 use super::{PyStr, PyStrInterned, PyType, PyTypeRef};
+use rustpython_common::lock::PyMutex;
+
 use crate::{
     builtins::builtin_func::PyBuiltinMethod,
     class::PyClassImpl,
-    common::lock::PyMutex,
     function::{FuncArgs, IntoPyNativeFunc},
     types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -10,6 +11,7 @@ use crate::{
 
 #[pyclass(module = false, name = "staticmethod")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PyStaticMethod {
     pub callable: PyMutex<PyObjectRef>,
 }

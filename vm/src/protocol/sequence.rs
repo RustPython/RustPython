@@ -65,6 +65,13 @@ pub struct PySequence<'a> {
     pub methods: &'static PySequenceMethods,
 }
 
+#[cfg(feature = "gc_bacon")]
+unsafe impl<'a> crate::object::Trace for PySequence<'a> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.obj.trace(tracer_fn)
+    }
+}
+
 impl<'a> PySequence<'a> {
     #[inline]
     pub fn with_methods(obj: &'a PyObject, methods: &'static PySequenceMethods) -> Self {

@@ -3,13 +3,20 @@ use rustpython_common::lock::PyMutex;
 use super::PyType;
 use crate::{class::PyClassImpl, frame::FrameRef, Context, Py, PyPayload, PyRef};
 
-#[pyclass(module = false, name = "traceback")]
+#[pyclass(module = false, name = "traceback", trace)]
 #[derive(Debug)]
 pub struct PyTraceback {
     pub next: PyMutex<Option<PyTracebackRef>>,
     pub frame: FrameRef,
     pub lasti: u32,
     pub lineno: usize,
+}
+
+#[cfg(feature = "gc_bacon")]
+unsafe impl crate::object::Trace for PyTraceback {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.next.trace(tracer_fn);
+    }
 }
 
 pub type PyTracebackRef = PyRef<PyTraceback>;

@@ -31,6 +31,13 @@ pub struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
 }
 
+#[cfg(feature = "gc_bacon")]
+unsafe impl<T: crate::object::Trace> crate::object::Trace for Dict<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.inner.trace(tracer_fn);
+    }
+}
+
 impl<T> fmt::Debug for Dict<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Debug").finish()
@@ -67,6 +74,21 @@ struct DictInner<T> {
     filled: usize,
     indices: Vec<IndexEntry>,
     entries: Vec<Option<DictEntry<T>>>,
+}
+
+#[cfg(feature = "gc_bacon")]
+unsafe impl<T: crate::object::Trace> crate::object::Trace for DictInner<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.entries
+            .iter()
+            .map(|v| {
+                if let Some(v) = v {
+                    v.key.trace(tracer_fn);
+                    v.value.trace(tracer_fn);
+                }
+            })
+            .count();
+    }
 }
 
 impl<T: Clone> Clone for Dict<T> {

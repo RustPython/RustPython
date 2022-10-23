@@ -292,6 +292,13 @@ pub struct PyNumberSlots {
     pub inplace_matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
 }
 
+#[cfg(feature = "gc_bacon")]
+unsafe impl<'a> crate::object::Trace for PyNumber<'a> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.0.trace(tracer_fn)
+    }
+}
+
 impl From<&PyNumberMethods> for PyNumberSlots {
     fn from(value: &PyNumberMethods) -> Self {
         // right_* functions will use the same left function as PyNumberMethods

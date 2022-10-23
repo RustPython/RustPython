@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
+  CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit,gc_bacon
   NON_WASM_PACKAGES: >-
     -p rustpython-common
     -p rustpython-compiler-core

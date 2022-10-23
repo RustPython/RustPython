@@ -15,6 +15,7 @@ use once_cell::sync::Lazy;
 
 #[pyclass(module = false, name = "weakproxy", unhashable = true)]
 #[derive(Debug)]
+#[pytrace]
 pub struct PyWeakProxy {
     weak: PyRef<PyWeak>,
 }

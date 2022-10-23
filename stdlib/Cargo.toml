@@ -7,6 +7,8 @@ edition = "2021"
 
 [features]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
+gc = ["gc_bacon"]
+gc_bacon = []
 zlib = ["libz-sys", "flate2/zlib"]
 bz2 = ["bzip2"]
 ssl = ["openssl", "openssl-sys", "foreign-types-shared"]

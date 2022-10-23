@@ -13,6 +13,7 @@ use crate::{
 
 #[pyclass(module = false, name = "property")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PyProperty {
     getter: PyRwLock<Option<PyObjectRef>>,
     setter: PyRwLock<Option<PyObjectRef>>,

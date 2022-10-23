@@ -11,8 +11,10 @@ use rustpython_common::atomic::{self, PyAtomic, Radium};
 
 #[pyclass(module = false, name = "zip")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PyZip {
     iterators: Vec<PyIter>,
+    #[notrace]
     strict: PyAtomic<bool>,
 }
 

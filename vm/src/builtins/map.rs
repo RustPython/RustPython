@@ -10,6 +10,7 @@ use crate::{
 
 #[pyclass(module = false, name = "map")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PyMap {
     mapper: PyObjectRef,
     iterators: Vec<PyIter>,

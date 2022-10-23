@@ -10,6 +10,7 @@ include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
 default = ["compiler"]
+gc_bacon = []
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []

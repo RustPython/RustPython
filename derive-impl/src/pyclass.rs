@@ -1,6 +1,6 @@
 use super::Diagnostic;
 use crate::util::{
-    format_doc, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem,
+    format_doc, path_eq, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem,
     ContentItemInner, ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta,
     ALL_ALLOWED_NAMES,
 };
@@ -413,8 +413,33 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
         attrs,
     )?;
 
+    // try to know if it have a `#[pyclass(trace)]` or a `#[pytrace] on this struct
+    let is_trace =
+        { class_meta.is_trace()? || attrs.iter().any(|attr| path_eq(&attr.path, "pytrace")) };
+    let maybe_trace = {
+        if is_trace {
+            quote! {
+                #[cfg(feature = "gc_bacon")]
+                impl ::rustpython_vm::object::MaybeTrace for #ident {
+                    const IS_TRACE: bool = true;
+                    fn try_trace(&self, tracer_fn: &mut ::rustpython_vm::object::TracerFn) {
+                        ::rustpython_vm::object::Trace::trace(self, tracer_fn);
+                    }
+                }
+            }
+        } else {
+            // a dummy impl, which do nothing
+            // #attrs
+            quote! {
+                #[cfg(feature = "gc_bacon")]
+                impl ::rustpython_vm::object::MaybeTrace for #ident { }
+            }
+        }
+    };
+
     let ret = quote! {
         #item
+        #maybe_trace
         #class_def
     };
     Ok(ret)

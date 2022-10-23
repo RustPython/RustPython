@@ -24,10 +24,27 @@ pub enum IterStatus<T> {
     Exhausted,
 }
 
+#[cfg(feature = "gc_bacon")]
+unsafe impl<T: crate::object::Trace> crate::object::Trace for IterStatus<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        match self {
+            IterStatus::Active(ref r) => r.trace(tracer_fn),
+            IterStatus::Exhausted => (),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct PositionIterInternal<T> {
     pub status: IterStatus<T>,
     pub position: usize,
+}
+
+#[cfg(feature = "gc_bacon")]
+unsafe impl<T: crate::object::Trace> crate::object::Trace for PositionIterInternal<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.status.trace(tracer_fn)
+    }
 }
 
 impl<T> PositionIterInternal<T> {
@@ -160,8 +177,10 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
 
 #[pyclass(module = false, name = "iterator")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PySequenceIterator {
     // cached sequence methods
+    #[notrace]
     seq_methods: &'static PySequenceMethods,
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
@@ -224,6 +243,7 @@ impl IterNext for PySequenceIterator {
 
 #[pyclass(module = false, name = "callable_iterator")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PyCallableIterator {
     sentinel: PyObjectRef,
     status: PyRwLock<IterStatus<ArgCallable>>,

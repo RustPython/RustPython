@@ -29,7 +29,7 @@ use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
-#[pyclass(module = false, name = "type")]
+#[pyclass(module = false, name = "type", trace)]
 pub struct PyType {
     pub base: Option<PyTypeRef>,
     pub bases: Vec<PyTypeRef>,
@@ -38,6 +38,21 @@ pub struct PyType {
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
+}
+
+#[cfg(feature = "gc_bacon")]
+unsafe impl crate::object::Trace for PyType {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.base.trace(tracer_fn);
+        self.bases.trace(tracer_fn);
+        self.mro.trace(tracer_fn);
+        self.subclasses.trace(tracer_fn);
+        self.attributes
+            .read_recursive()
+            .iter()
+            .map(|(_, v)| v.trace(tracer_fn))
+            .count();
+    }
 }
 
 pub struct HeapTypeExt {

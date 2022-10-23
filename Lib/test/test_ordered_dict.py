@@ -656,8 +656,6 @@ class OrderedDictTests:
         dict.update(od, [('spam', 1)])
         self.assertNotIn('NULL', repr(od))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reference_loop(self):
         # Issue 25935
         OrderedDict = self.OrderedDict
@@ -667,6 +665,8 @@ class OrderedDictTests:
         r = weakref.ref(A)
         del A
         gc.collect()
+        # TODO: RustPython, Need to fix this: somehow after del A, it takes two call to `gc.collect()`
+        # for gc to realize a loop is there and to be collected
         self.assertIsNone(r())
 
     # TODO: RUSTPYTHON

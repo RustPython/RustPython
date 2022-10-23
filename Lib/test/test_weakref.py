@@ -75,9 +75,10 @@ class TestBase(unittest.TestCase):
     def callback(self, ref):
         self.cbcalled += 1
 
-
+# TODO: RUSTPYTHON, cpython's period is 0.0001, but at least now using such a small gc period is too slow
+# so change to 0.001 for now
 @contextlib.contextmanager
-def collect_in_thread(period=0.0001):
+def collect_in_thread(period=0.001):
     """
     Ensure GC collections happen in a different thread, at a high frequency.
     """
@@ -1911,7 +1912,12 @@ class MappingTestCase(TestBase):
     def test_threaded_weak_valued_pop(self):
         d = weakref.WeakValueDictionary()
         with collect_in_thread():
+            print("")
             for i in range(100000):
+                if i%1000==0:
+                    print("\rLoop:"+str(i)+"/100000     ", end="")
+                    # TODO: RUSTPYTHON: so in log file the progress can be update in time
+                    sys.stdout.flush()
                 d[10] = RefCycle()
                 x = d.pop(10, 10)
                 self.assertIsNot(x, None)  # we never put None in there!
@@ -1921,7 +1927,12 @@ class MappingTestCase(TestBase):
         # WeakValueDictionary when collecting from another thread.
         d = weakref.WeakValueDictionary()
         with collect_in_thread():
+            print("")
             for i in range(200000):
+                if i%1000==0:
+                    print("\rLoop:"+str(i)+"/200000     ", end="")
+                    # TODO: RUSTPYTHON: so in log file the progress can be update in time
+                    sys.stdout.flush()
                 o = RefCycle()
                 d[10] = o
                 # o is still alive, so the dict can't be empty

@@ -34,6 +34,7 @@ pub type DictContentType = dictdatatype::Dict;
 
 #[pyclass(module = false, name = "dict", unhashable = true)]
 #[derive(Default)]
+#[pytrace]
 pub struct PyDict {
     entries: DictContentType,
 }

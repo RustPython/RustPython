@@ -1,7 +1,7 @@
 use super::{
     IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef,
 };
-use crate::common::lock::{PyMutex, PyRwLock};
+use crate::common::lock::PyRwLock;
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
@@ -12,10 +12,13 @@ use crate::{
 };
 use num_bigint::BigInt;
 use num_traits::Zero;
+use rustpython_common::lock::PyMutex;
 
 #[pyclass(module = false, name = "enumerate")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PyEnumerate {
+    #[notrace]
     counter: PyRwLock<BigInt>,
     iterator: PyIter,
 }
@@ -86,6 +89,7 @@ impl IterNext for PyEnumerate {
 
 #[pyclass(module = false, name = "reversed")]
 #[derive(Debug)]
+#[pytrace]
 pub struct PyReverseSequenceIterator {
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }

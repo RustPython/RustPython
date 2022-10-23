@@ -14,6 +14,13 @@ pub struct PyIter<O = PyObjectRef>(O)
 where
     O: Borrow<PyObject>;
 
+#[cfg(feature = "gc_bacon")]
+unsafe impl<O: Borrow<PyObject>> crate::object::Trace for PyIter<O> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.0.borrow().trace(tracer_fn);
+    }
+}
+
 impl PyIter<PyObjectRef> {
     pub fn check(obj: &PyObject) -> bool {
         obj.class()
@@ -149,6 +156,17 @@ pub enum PyIterReturn<T = PyObjectRef> {
     StopIteration(Option<PyObjectRef>),
 }
 
+#[cfg(feature = "gc_bacon")]
+unsafe impl<T: crate::object::Trace> crate::object::Trace for PyIterReturn<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        match self {
+            PyIterReturn::Return(r) => r.trace(tracer_fn),
+            PyIterReturn::StopIteration(Some(obj)) => obj.trace(tracer_fn),
+            _ => (),
+        }
+    }
+}
+
 impl PyIterReturn {
     pub fn from_pyresult(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
@@ -210,6 +228,16 @@ where
     obj: O, // creating PyIter<O> is zero-cost
     length_hint: Option<usize>,
     _phantom: std::marker::PhantomData<T>,
+}
+
+#[cfg(feature = "gc_bacon")]
+unsafe impl<'a, T, O> crate::object::Trace for PyIterIter<'a, T, O>
+where
+    O: crate::object::Trace + Borrow<PyObject>,
+{
+    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+        self.obj.trace(tracer_fn)
+    }
 }
 
 impl<'a, T, O> PyIterIter<'a, T, O>
