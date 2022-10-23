@@ -42,8 +42,8 @@ use std::{
 use once_cell::sync::Lazy;
 
 #[cfg(debug_assertions)]
-pub static ID2TYPE: Lazy<PyMutex<std::collections::HashMap<TypeId, String>>> =
-    Lazy::new(|| PyMutex::new(std::collections::HashMap::new()));
+pub static ID2TYPE: Lazy<std::sync::Mutex<std::collections::HashMap<TypeId, String>>> =
+    Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 // so, PyObjectRef is basically equivalent to `PyRc<PyInner<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
@@ -866,8 +866,12 @@ impl Drop for PyObjectRef {
             error!(
                 "Double drop on PyObjectRef with typeid={:?}(Type={:?})",
                 self.0.typeid,
-                ID2TYPE.lock().get(&self.0.typeid),
+                ID2TYPE
+                    .lock()
+                    .expect("can't read ID2TYPE")
+                    .get(&self.0.typeid),
             );
+            return;
         }
         if self.0.ref_count.dec() {
             #[cfg(debug_assertions)]
@@ -984,10 +988,12 @@ impl<T: PyObjectPayload> Drop for PyRef<T> {
                     "Double drop on PyRef<{}>",
                     std::any::type_name::<T>().to_string()
                 );
+                return;
             }
             let tid = TypeId::of::<T>();
             ID2TYPE
                 .lock()
+                .expect("can't insert into ID2TYPE")
                 .entry(tid)
                 .or_insert_with(|| std::any::type_name::<T>().to_string());
         }
