@@ -405,8 +405,6 @@ class AST_Tests(unittest.TestCase):
         x._fields = 666
         self.assertEqual(x._fields, 666)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_classattrs(self):
         x = ast.Num()
         self.assertEqual(x._fields, ('value', 'kind'))
@@ -550,8 +548,6 @@ class AST_Tests(unittest.TestCase):
         x = ast.Module(body, [])
         self.assertEqual(x.body, body)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nodeclasses(self):
         # Zero arguments constructor explicitly allowed
         x = ast.BinOp()
@@ -596,8 +592,6 @@ class AST_Tests(unittest.TestCase):
         x = ast.BinOp(1, 2, 3, foobarbaz=42)
         self.assertEqual(x.foobarbaz, 42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_fields(self):
         # this used to fail because Sub._fields was None
         x = ast.Sub()
