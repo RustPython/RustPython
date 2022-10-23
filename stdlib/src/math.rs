@@ -157,7 +157,7 @@ mod math {
     }
 
     /// Generates the base-2 logarithm of a BigInt `x`
-    fn ilog2(x: &BigInt) -> f64 {
+    fn int_log2(x: &BigInt) -> f64 {
         // log2(x) = log2(2^n * 2^-n * x) = n + log2(x/2^n)
         // If we set 2^n to be the greatest power of 2 below x, then x/2^n is in [1, 2), and can
         // thus be converted into a float.
@@ -179,7 +179,7 @@ mod math {
             }
             Err(float_err) => {
                 if let Ok(x) = x.try_int(vm) {
-                    Ok(ilog2(x.as_bigint()))
+                    Ok(int_log2(x.as_bigint()))
                 } else {
                     // Return the float error, as it will be more intuitive to users
                     Err(float_err)
