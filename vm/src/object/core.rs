@@ -38,6 +38,13 @@ use std::{
     ptr::{self, NonNull},
 };
 
+#[cfg(debug_assertions)]
+use once_cell::sync::Lazy;
+
+#[cfg(debug_assertions)]
+pub static ID2TYPE: Lazy<PyMutex<std::collections::HashMap<TypeId, String>>> =
+    Lazy::new(|| PyMutex::new(std::collections::HashMap::new()));
+
 // so, PyObjectRef is basically equivalent to `PyRc<PyInner<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
 // a &'static reference to it inside the `PyRc` rather than adjacent to it, like trait objects do.
@@ -109,6 +116,9 @@ impl PyObjVTable {
 #[repr(C)]
 struct PyInner<T> {
     ref_count: RefCount,
+    /// flag to prevent double drop(might not always work, and might lead to seg fault if double drop really happened)
+    #[cfg(debug_assertions)]
+    is_drop: PyMutex<bool>,
     // TODO: move typeid into vtable once TypeId::of is const
     typeid: TypeId,
     vtable: &'static PyObjVTable,
@@ -433,6 +443,8 @@ impl<T: PyObjectPayload> PyInner<T> {
         let member_count = typ.slots.member_count;
         Box::new(PyInner {
             ref_count: RefCount::new(),
+            #[cfg(debug_assertions)]
+            is_drop: PyMutex::new(false),
             typeid: TypeId::of::<T>(),
             vtable: PyObjVTable::of::<T>(),
             typ: PyAtomicRef::from(typ),
@@ -849,7 +861,19 @@ impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObject {
 impl Drop for PyObjectRef {
     #[inline]
     fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        if *self.0.is_drop.lock() {
+            error!(
+                "Double drop on PyObjectRef with typeid={:?}(Type={:?})",
+                self.0.typeid,
+                ID2TYPE.lock().get(&self.0.typeid),
+            );
+        }
         if self.0.ref_count.dec() {
+            #[cfg(debug_assertions)]
+            {
+                *self.0.is_drop.lock() = true;
+            }
             unsafe { PyObject::drop_slow(self.ptr) }
         }
     }
@@ -953,7 +977,26 @@ impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
 impl<T: PyObjectPayload> Drop for PyRef<T> {
     #[inline]
     fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        {
+            if *self.0.is_drop.lock() {
+                error!(
+                    "Double drop on PyRef<{}>",
+                    std::any::type_name::<T>().to_string()
+                );
+            }
+            let tid = TypeId::of::<T>();
+            ID2TYPE
+                .lock()
+                .entry(tid)
+                .or_insert_with(|| std::any::type_name::<T>().to_string());
+        }
+
         if self.0.ref_count.dec() {
+            #[cfg(debug_assertions)]
+            {
+                *self.0.is_drop.lock() = true;
+            }
             unsafe { PyObject::drop_slow(self.ptr.cast::<PyObject>()) }
         }
     }
@@ -1089,7 +1132,7 @@ macro_rules! partially_init {
             #[allow(invalid_value, dead_code, unreachable_code)]
             let _ = {$ty {
                 $(
-                    $(#[$attr])? 
+                    $(#[$attr])?
                     $init_field: $init_value,
                 )*
                 $($uninit_field: unreachable!(),)*
@@ -1141,6 +1184,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
                 ref_count: RefCount::new(),
+                #[cfg(debug_assertions)]
+                is_drop: PyMutex::new(false),
                 typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
@@ -1153,6 +1198,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let object_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
                 ref_count: RefCount::new(),
+                #[cfg(debug_assertions)]
+                is_drop: PyMutex::new(false),
                 typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
