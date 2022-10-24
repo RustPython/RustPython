@@ -275,8 +275,6 @@ class AST_Tests(unittest.TestCase):
                 self._assertTrueorder(value, parent_pos)
         self.assertEqual(ast_node._fields, ast_node.__match_args__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_AST_objects(self):
         x = ast.AST()
         self.assertEqual(x._fields, ())
