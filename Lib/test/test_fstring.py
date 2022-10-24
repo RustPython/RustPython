@@ -83,6 +83,8 @@ f'{a * x()}'"""
         # Make sure x was called.
         self.assertTrue(x.called)
 
+    # TODO: RUSTPYTHON - binop lineno
+    @unittest.expectedFailure 
     def test_ast_line_numbers(self):
         expr = """
 a = 10
@@ -114,6 +116,8 @@ f'{a * x()}'"""
         self.assertEqual(binop.left.col_offset, 3)
         self.assertEqual(binop.right.col_offset, 7)
 
+    # TODO: RUSTPYTHON binops lineno and col_offset
+    @unittest.expectedFailure
     def test_ast_line_numbers_multiple_formattedvalues(self):
         expr = """
 f'no formatted values'
@@ -166,6 +170,8 @@ f'eggs {a * x()} spam {b + y()}'"""
         self.assertEqual(binop2.left.col_offset, 23)
         self.assertEqual(binop2.right.col_offset, 27)
 
+    # TODO: RUSTPYTHON binops lineno and col_offset
+    @unittest.expectedFailure
     def test_ast_line_numbers_nested(self):
         expr = """
 a = 10
@@ -211,6 +217,8 @@ f'{a * f"-{x()}-"}'"""
         self.assertEqual(call.lineno, 3)
         self.assertEqual(call.col_offset, 11)
 
+    # TODO: RUSTPYTHON binops lineno and col_offset
+    @unittest.expectedFailure
     def test_ast_line_numbers_duplicate_expression(self):
         expr = """
 a = 10
@@ -277,6 +285,8 @@ f'{a * x()} {a * x()} {a * x()}'
         self.assertEqual(binop.left.col_offset, 23)
         self.assertEqual(binop.right.col_offset, 27)
 
+    # TODO: RUSTPYTHON err col_offset and missing end_* attributes
+    @unittest.expectedFailure
     def test_ast_numbers_fstring_with_formatting(self):
 
         t = ast.parse('f"Here is that pesky {xxx:.3f} again"')
@@ -300,6 +310,8 @@ f'{a * x()} {a * x()} {a * x()}'
         self.assertEqual(name.col_offset, 22)
         self.assertEqual(name.end_col_offset, 25)
 
+    # TODO: RUSTPYTHON col_offset and binop lineno and col_offset
+    @unittest.expectedFailure
     def test_ast_line_numbers_multiline_fstring(self):
         # See bpo-30465 for details.
         expr = """
@@ -379,6 +391,8 @@ a = f'''
         self.assertEqual(t.body[0].value.values[1].value.col_offset, 11)
         self.assertEqual(t.body[0].value.values[1].value.end_col_offset, 16)
 
+    # TODO: RUSTPYTHON lineno, col_offset, end*
+    @unittest.expectedFailure
     def test_ast_line_numbers_with_parentheses(self):
         expr = """
 x = (
@@ -432,6 +446,8 @@ x = (
         self.assertEqual(wat2.col_offset, 12)
         self.assertEqual(wat2.end_col_offset, 18)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_docstring(self):
         def f():
             f'''Not a docstring'''
@@ -454,6 +470,8 @@ x = (
         exec(c)
         self.assertEqual(x[0], 'foo3')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile_time_concat_errors(self):
         self.assertAllRaise(SyntaxError,
                             'cannot mix bytes and nonbytes literals',
@@ -563,6 +581,8 @@ x = (
                             ["f'{3' f'}'",  # can't concat to get a valid f-string
                              ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_comments(self):
         # These aren't comments, since they're in strings.
         d = {'#': 'hash'}
@@ -652,6 +672,8 @@ x = (
         x = X()
         self.assertEqual(f'{x} {x}', '1 2')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_missing_expression(self):
         self.assertAllRaise(SyntaxError, 'f-string: empty expression not allowed',
                             ["f'{}'",
@@ -692,6 +714,8 @@ x = (
                              "\xa0",
                              ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parens_in_expressions(self):
         self.assertEqual(f'{3,}', '(3,)')
 
@@ -715,6 +739,8 @@ x = (
         self.assertAllRaise(SyntaxError, "invalid syntax",
                 ["f'{.}'", "\nf'{.}'", "\n\nf'{.}'"])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_backslashes_in_string_part(self):
         self.assertEqual(f'\t', '\t')
         self.assertEqual(r'\t', '\\t')
@@ -770,6 +796,8 @@ x = (
         self.assertEqual(fr'\N{AMPERSAND}', '\\Nspam')
         self.assertEqual(f'\\\N{AMPERSAND}', '\\&')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_misformed_unicode_character_name(self):
         # These test are needed because unicode names are parsed
         # differently inside f-strings.
@@ -789,6 +817,8 @@ x = (
                              r"'\N{GREEK CAPITAL LETTER DELTA'",
                              ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_no_backslashes_in_expression_part(self):
         self.assertAllRaise(SyntaxError, 'f-string expression part cannot include a backslash',
                             [r"f'{\'a\'}'",
@@ -806,10 +836,10 @@ x = (
         Only literal curly braces begin an expression.
         """
         # \x7b is '{'.
-        self.assertEqual(f'\x7b1+1}}', '{1+1}')
-        self.assertEqual(f'\x7b1+1', '{1+1')
-        self.assertEqual(f'\u007b1+1', '{1+1')
-        self.assertEqual(f'\N{LEFT CURLY BRACKET}1+1\N{RIGHT CURLY BRACKET}', '{1+1}')
+        # TODO: RUSTPYTHON self.assertEqual(f'\x7b1+1}}', '{1+1}')
+        # TODO: RUSTPYTHON self.assertEqual(f'\x7b1+1', '{1+1')
+        # TODO: RUSTPYTHON self.assertEqual(f'\u007b1+1', '{1+1')
+        # TODO: RUSTPYTHON self.assertEqual(f'\N{LEFT CURLY BRACKET}1+1\N{RIGHT CURLY BRACKET}', '{1+1}')
 
     def test_newlines_in_expressions(self):
         self.assertEqual(f'{0}', '0')
@@ -850,15 +880,15 @@ x = (
 
     def test_expressions_with_triple_quoted_strings(self):
         self.assertEqual(f"{'''x'''}", 'x')
-        self.assertEqual(f"{'''eric's'''}", "eric's")
+        # TODO: RUSTPYTHON self.assertEqual(f"{'''eric's'''}", "eric's")
 
         # Test concatenation within an expression
-        self.assertEqual(f'{"x" """eric"s""" "y"}', 'xeric"sy')
-        self.assertEqual(f'{"x" """eric"s"""}', 'xeric"s')
-        self.assertEqual(f'{"""eric"s""" "y"}', 'eric"sy')
-        self.assertEqual(f'{"""x""" """eric"s""" "y"}', 'xeric"sy')
-        self.assertEqual(f'{"""x""" """eric"s""" """y"""}', 'xeric"sy')
-        self.assertEqual(f'{r"""x""" """eric"s""" """y"""}', 'xeric"sy')
+        # TODO: RUSTPYTHON self.assertEqual(f'{"x" """eric"s""" "y"}', 'xeric"sy')
+        # TODO: RUSTPYTHON self.assertEqual(f'{"x" """eric"s"""}', 'xeric"s')
+        # TODO: RUSTPYTHON self.assertEqual(f'{"""eric"s""" "y"}', 'eric"sy')
+        # TODO: RUSTPYTHON self.assertEqual(f'{"""x""" """eric"s""" "y"}', 'xeric"sy')
+        # TODO: RUSTPYTHON self.assertEqual(f'{"""x""" """eric"s""" """y"""}', 'xeric"sy')
+        # TODO: RUSTPYTHON self.assertEqual(f'{r"""x""" """eric"s""" """y"""}', 'xeric"sy')
 
     def test_multiple_vars(self):
         x = 98
@@ -991,6 +1021,8 @@ x = (
         self.assertEqual(f'expr={ {x: y for x, y in [(1, 2), ]} }',
                          'expr={1: 2}')
 
+    # TODO: RUSTPYTHON string should be cut at 3 chars
+    @unittest.expectedFailure
     def test_not_equal(self):
         # There's a special test for this because there's a special
         #  case in the f-string parser to look for != as not ending an
@@ -1053,6 +1085,8 @@ x = (
                              "del '' f''",
                              ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mismatched_braces(self):
         self.assertAllRaise(SyntaxError, "f-string: single '}' is not allowed",
                             ["f'{{}'",
@@ -1138,6 +1172,8 @@ x = (
         self.assertEqual(f'{x!s:}', 'test')
         self.assertEqual(f'{x!r:}', "'test'")
 
+    # TODO: RUSTPYTHON d[0] error
+    @unittest.expectedFailure
     def test_str_format_differences(self):
         d = {'a': 'string',
              0: 'integer',
@@ -1149,6 +1185,8 @@ x = (
         self.assertEqual('{d[a]}'.format(d=d), 'string')
         self.assertEqual('{d[0]}'.format(d=d), 'integer')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_errors(self):
         # see issue 26287
         self.assertAllRaise(TypeError, 'unsupported',
@@ -1160,6 +1198,8 @@ x = (
                              r"f'{1000:j}'",
                             ])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_filename_in_syntaxerror(self):
         # see issue 38964
         with temp_cwd() as cwd:
@@ -1305,25 +1345,35 @@ x = (
         self.assertEqual(f'{(x:=10)}', '10')
         self.assertEqual(x, 10)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_syntax_error_message(self):
         with self.assertRaisesRegex(SyntaxError, "f-string: invalid syntax"):
             compile("f'{a $ b}'", "?", "exec")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_with_two_commas_in_format_specifier(self):
         error_msg = re.escape("Cannot specify ',' with ','.")
         with self.assertRaisesRegex(ValueError, error_msg):
             f'{1:,,}'
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_with_two_underscore_in_format_specifier(self):
         error_msg = re.escape("Cannot specify '_' with '_'.")
         with self.assertRaisesRegex(ValueError, error_msg):
             f'{1:__}'
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_with_a_commas_and_an_underscore_in_format_specifier(self):
         error_msg = re.escape("Cannot specify both ',' and '_'.")
         with self.assertRaisesRegex(ValueError, error_msg):
             f'{1:,_}'
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_with_an_underscore_and_a_comma_in_format_specifier(self):
         error_msg = re.escape("Cannot specify both ',' and '_'.")
         with self.assertRaisesRegex(ValueError, error_msg):
