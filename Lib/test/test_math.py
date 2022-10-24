@@ -1162,8 +1162,6 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.log1p, -1)
         self.assertEqual(math.log1p(INF), INF)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @requires_IEEE_754
     def testLog2(self):
         self.assertRaises(TypeError, math.log2)

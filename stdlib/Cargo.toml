@@ -53,6 +53,7 @@ bzip2 = { version = "0.4", optional = true }
 num-complex = "0.4.0"
 num-bigint = "0.4.3"
 num-integer = "0.1.44"
+num-rational = "0.4.1"
 
 crossbeam-utils = "=0.8.9"
 itertools = "0.10.3"

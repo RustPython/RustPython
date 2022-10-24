@@ -1472,8 +1472,6 @@ class TestMean(NumericTestCase, AverageMixin, UnivariateTypeMixin):
         d = Decimal('1e4')
         self.assertEqual(statistics.mean([d]), d)
 
-    # TODO: RUSTPYTHON division converts ints to floats before dividing, not after
-    @unittest.expectedFailure
     def test_regression_25177(self):
         # Regression test for issue 25177.
         # Ensure very big and very small floats don't overflow.
