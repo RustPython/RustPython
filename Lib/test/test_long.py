@@ -514,8 +514,6 @@ class LongTest(unittest.TestCase):
         self.assertNotEqual(float(shuge), int(shuge),
             "float(shuge) should not equal int(shuge)")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_logs(self):
         LOG10E = math.log10(math.e)
 

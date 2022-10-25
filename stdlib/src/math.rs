@@ -132,18 +132,9 @@ mod math {
     }
 
     #[pyfunction]
-    fn log(x: ArgIntoFloat, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
-        base.map_or_else(
-            || {
-                if x.is_nan() || x > 0.0_f64 {
-                    Ok(x.ln())
-                } else {
-                    Err(vm.new_value_error("math domain error".to_owned()))
-                }
-            },
-            |base| Ok(x.log(*base)),
-        )
+    fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
+        let base = base.map(|b| *b).unwrap_or(std::f64::consts::E);
+        log2(x, vm).map(|logx| logx / base.log2())
     }
 
     #[pyfunction]
@@ -179,7 +170,12 @@ mod math {
             }
             Err(float_err) => {
                 if let Ok(x) = x.try_int(vm) {
-                    Ok(int_log2(x.as_bigint()))
+                    let x = x.as_bigint();
+                    if x > &BigInt::zero() {
+                        Ok(int_log2(x))
+                    } else {
+                        Err(vm.new_value_error("math domain error".to_owned()))
+                    }
                 } else {
                     // Return the float error, as it will be more intuitive to users
                     Err(float_err)
@@ -189,13 +185,8 @@ mod math {
     }
 
     #[pyfunction]
-    fn log10(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
-        if x.is_nan() || x > 0.0_f64 {
-            Ok(x.log10())
-        } else {
-            Err(vm.new_value_error("math domain error".to_owned()))
-        }
+    fn log10(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+        log2(x, vm).map(|logx| logx / 10f64.log2())
     }
 
     #[pyfunction]
