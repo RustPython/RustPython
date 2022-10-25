@@ -171,7 +171,7 @@ mod math {
             Err(float_err) => {
                 if let Ok(x) = x.try_int(vm) {
                     let x = x.as_bigint();
-                    if x > &BigInt::zero() {
+                    if x.is_positive() {
                         Ok(int_log2(x))
                     } else {
                         Err(vm.new_value_error("math domain error".to_owned()))
