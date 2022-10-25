@@ -104,8 +104,6 @@ class StringTestCase(unittest.TestCase, HelperMixin):
             self.helper(s)
 
 class ExceptionTestCase(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exceptions(self):
         new = marshal.loads(marshal.dumps(StopIteration))
         self.assertEqual(StopIteration, new)

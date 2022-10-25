@@ -23,7 +23,7 @@ mod decl {
         None = b'N',
         False = b'F',
         True = b'T',
-        // StopIter = b'S',
+        StopIter = b'S',
         Ellipsis = b'.',
         Int = b'i',
         Float = b'g',
@@ -57,7 +57,7 @@ mod decl {
                 b'N' => None,
                 b'F' => False,
                 b'T' => True,
-                // b'S' => StopIter,
+                b'S' => StopIter,
                 b'.' => Ellipsis,
                 b'i' => Int,
                 b'g' => Float,
@@ -112,6 +112,8 @@ mod decl {
     fn dump_obj(buf: &mut Vec<u8>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if vm.is_none(&value) {
             buf.push(Type::None as u8);
+        } else if value.is(vm.ctx.exceptions.stop_iteration) {
+            buf.push(Type::StopIter as u8);
         } else if value.is(&vm.ctx.ellipsis) {
             buf.push(Type::Ellipsis as u8);
         } else {
@@ -277,6 +279,10 @@ mod decl {
             Type::True => (true.to_pyobject(vm), buf),
             Type::False => (false.to_pyobject(vm), buf),
             Type::None => (vm.ctx.none(), buf),
+            Type::StopIter => (
+                vm.ctx.exceptions.stop_iteration.to_owned().to_pyobject(vm),
+                buf,
+            ),
             Type::Ellipsis => (vm.ctx.ellipsis(), buf),
             Type::Int => {
                 if buf.len() < 4 {
