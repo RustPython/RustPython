@@ -1137,8 +1137,6 @@ class MathTests(unittest.TestCase):
             self.assertEqual(math.ldexp(NINF, n), NINF)
             self.assertTrue(math.isnan(math.ldexp(NAN, n)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testLog(self):
         self.assertRaises(TypeError, math.log)
         self.ftest('log(1/e)', math.log(1/math.e), -1)
@@ -1190,8 +1188,6 @@ class MathTests(unittest.TestCase):
         expected = [float(n) for n in range(-1074, 1024)]
         self.assertEqual(actual, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testLog10(self):
         self.assertRaises(TypeError, math.log10)
         self.ftest('log10(0.1)', math.log10(0.1), -1)
