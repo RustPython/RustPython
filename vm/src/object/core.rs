@@ -806,6 +806,8 @@ impl PyObject {
             // abort drop for whatever reason
             return;
         }
+
+        *ptr.as_ref().0.is_drop.lock() = true;
         let drop_dealloc = ptr.as_ref().0.vtable.drop_dealloc;
         // call drop only when there are no references in scope - stacked borrows stuff
         drop_dealloc(ptr.as_ptr())
@@ -858,10 +860,10 @@ impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObject {
     }
 }
 
+#[cfg(debug_assertions)]
 impl Drop for PyObjectRef {
     #[inline]
     fn drop(&mut self) {
-        #[cfg(debug_assertions)]
         if *self.0.is_drop.lock() {
             error!(
                 "Double drop on PyObjectRef with typeid={:?}(Type={:?})",
@@ -874,10 +876,16 @@ impl Drop for PyObjectRef {
             return;
         }
         if self.0.ref_count.dec() {
-            #[cfg(debug_assertions)]
-            {
-                *self.0.is_drop.lock() = true;
-            }
+            unsafe { PyObject::drop_slow(self.ptr) }
+        }
+    }
+}
+
+#[cfg(not(debug_assertions))]
+impl Drop for PyObjectRef {
+    #[inline]
+    fn drop(&mut self) {
+        if self.0.ref_count.dec() {
             unsafe { PyObject::drop_slow(self.ptr) }
         }
     }
@@ -978,31 +986,35 @@ impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
     }
 }
 
+#[cfg(debug_assertions)]
 impl<T: PyObjectPayload> Drop for PyRef<T> {
     #[inline]
     fn drop(&mut self) {
-        #[cfg(debug_assertions)]
-        {
-            if *self.0.is_drop.lock() {
-                error!(
-                    "Double drop on PyRef<{}>",
-                    std::any::type_name::<T>().to_string()
-                );
-                return;
-            }
-            let tid = TypeId::of::<T>();
-            ID2TYPE
-                .lock()
-                .expect("can't insert into ID2TYPE")
-                .entry(tid)
-                .or_insert_with(|| std::any::type_name::<T>().to_string());
+        if *self.0.is_drop.lock() {
+            error!(
+                "Double drop on PyRef<{}>",
+                std::any::type_name::<T>().to_string()
+            );
+            return;
         }
+        let tid = TypeId::of::<T>();
+        ID2TYPE
+            .lock()
+            .expect("can't insert into ID2TYPE")
+            .entry(tid)
+            .or_insert_with(|| std::any::type_name::<T>().to_string());
 
         if self.0.ref_count.dec() {
-            #[cfg(debug_assertions)]
-            {
-                *self.0.is_drop.lock() = true;
-            }
+            unsafe { PyObject::drop_slow(self.ptr.cast::<PyObject>()) }
+        }
+    }
+}
+
+#[cfg(not(debug_assertions))]
+impl<T: PyObjectPayload> Drop for PyRef<T> {
+    #[inline]
+    fn drop(&mut self) {
+        if self.0.ref_count.dec() {
             unsafe { PyObject::drop_slow(self.ptr.cast::<PyObject>()) }
         }
     }
