@@ -339,8 +339,6 @@ class AST_Tests(unittest.TestCase):
         mod.body[0].module = " __future__ ".strip()
         compile(mod, "<test>", "exec")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_alias(self):
         im = ast.parse("from bar import y").body[0]
         self.assertEqual(len(im.names), 1)
@@ -369,8 +367,6 @@ class AST_Tests(unittest.TestCase):
         self.assertTrue(issubclass(ast.comprehension, ast.AST))
         self.assertTrue(issubclass(ast.Gt, ast.AST))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_field_attr_existence(self):
         for name, item in ast.__dict__.items():
             if self._is_ast_node(name, item):
@@ -403,8 +399,6 @@ class AST_Tests(unittest.TestCase):
         x._fields = 666
         self.assertEqual(x._fields, 666)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_classattrs(self):
         x = ast.Num()
         self.assertEqual(x._fields, ('value', 'kind'))
@@ -548,8 +542,6 @@ class AST_Tests(unittest.TestCase):
         x = ast.Module(body, [])
         self.assertEqual(x.body, body)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nodeclasses(self):
         # Zero arguments constructor explicitly allowed
         x = ast.BinOp()
@@ -594,8 +586,6 @@ class AST_Tests(unittest.TestCase):
         x = ast.BinOp(1, 2, 3, foobarbaz=42)
         self.assertEqual(x.foobarbaz, 42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_no_fields(self):
         # this used to fail because Sub._fields was None
         x = ast.Sub()
@@ -698,8 +688,6 @@ class AST_Tests(unittest.TestCase):
         self.assertEqual(grandchild_binop.end_col_offset, 3)
         self.assertEqual(grandchild_binop.end_lineno, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_issue39579_dotted_name_end_col_offset(self):
         tree = ast.parse('@a.b.c\ndef f(): pass')
         attr_b = tree.body[0].decorator_list[0].value
@@ -1043,8 +1031,6 @@ Module(
         self.assertEqual(elif_stmt.lineno, 3)
         self.assertEqual(elif_stmt.col_offset, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_starred_expr_end_position_within_call(self):
         node = ast.parse('f(*[0, 1])')
         starred_expr = node.body[0].value.args[0]
@@ -1939,8 +1925,6 @@ class EndPositionTests(unittest.TestCase):
         # and a right hand side of an assignment statement.
         return ast.parse(s).body[0].value
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lambda(self):
         s = 'lambda x, *y: None'
         lam = self._parse_value(s)
@@ -1966,8 +1950,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, fdef.args.kwarg, 'kwargs: Any')
         self._check_content(s, fdef.args.kwarg.annotation, 'Any')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_call(self):
         s = 'func(x, y=2, **kw)'
         call = self._parse_value(s)
@@ -1975,8 +1957,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, call.keywords[0].value, '2')
         self._check_content(s, call.keywords[1].value, 'kw')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_call_noargs(self):
         s = 'x[0]()'
         call = self._parse_value(s)
@@ -1995,8 +1975,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, cdef.bases[1], 'B')
         self._check_content(s, cdef.body[0], 'x: int = 0')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_class_kw(self):
         s = 'class S(metaclass=abc.ABCMeta): pass'
         cdef = ast.parse(s).body[0]
@@ -2172,8 +2150,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s3, t3, '(1 , 2 )')
         self._check_end_pos(tm, 3, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_attribute_spaces(self):
         s = 'func(x. y .z)'
         call = self._parse_value(s)
@@ -2192,8 +2168,6 @@ class EndPositionTests(unittest.TestCase):
         self.assertEqual(type(v).__name__, 'BinOp')
         self._check_content(s2, v, 'a + b')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_trailers_with_redundant_parenthesis(self):
         tests = (
             ('( ( ( a ) ) ) ( )', 'Call'),
@@ -2211,8 +2185,6 @@ class EndPositionTests(unittest.TestCase):
                 self.assertEqual(type(v).__name__, t)
                 self._check_content(s2, v, s)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_displays(self):
         s1 = '[{}, {1, }, {1, 2,} ]'
         s2 = '{a: b, f (): g () ,}'

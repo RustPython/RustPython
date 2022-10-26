@@ -1541,6 +1541,8 @@ def func2():
 """
         self._check_error(code, "expected ':'")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_line_continuation_error_position(self):
         self._check_error(r"a = 3 \ 4",
                           "unexpected character after line continuation character",
