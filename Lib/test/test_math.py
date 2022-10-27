@@ -1178,7 +1178,6 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.log2, NINF)
         self.assertTrue(math.isnan(math.log2(NAN)))
 
-    # TODO: RUSTPYTHON
     @requires_IEEE_754
     # log2() is not accurate enough on Mac OS X Tiger (10.4)
     @support.requires_mac_ver(10, 5)
@@ -1562,7 +1561,6 @@ class MathTests(unittest.TestCase):
         self.ftest('tanh(-inf)', math.tanh(NINF), -1)
         self.assertTrue(math.isnan(math.tanh(NAN)))
 
-    # TODO: RUSTPYTHON
     @requires_IEEE_754
     def testTanhSign(self):
         # check that tanh(-0.) == -0. on IEEE 754 systems
@@ -1625,7 +1623,6 @@ class MathTests(unittest.TestCase):
         self.assertFalse(math.isinf(0.))
         self.assertFalse(math.isinf(1.))
 
-    # TODO: RUSTPYTHON
     @requires_IEEE_754
     def test_nan_constant(self):
         self.assertTrue(math.isnan(math.nan))
