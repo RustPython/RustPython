@@ -833,8 +833,6 @@ class MathTests(unittest.TestCase):
     @requires_IEEE_754
     @unittest.skipIf(HAVE_DOUBLE_ROUNDING,
                      "hypot() loses accuracy on machines with double rounding")
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testHypotAccuracy(self):
         # Verify improved accuracy in cases that were known to be inaccurate.
         #
