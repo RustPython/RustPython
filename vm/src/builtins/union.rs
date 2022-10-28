@@ -43,7 +43,7 @@ impl PyUnion {
     #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            if vm.is_none(&obj) {
+            if obj.is(vm.ctx.types.none_type) {
                 return Ok("None".to_string());
             }
 

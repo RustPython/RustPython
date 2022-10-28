@@ -929,8 +929,6 @@ class UnionTests(unittest.TestCase):
         assert typing.Optional[int] | str == typing.Union[int, str, None]
         assert typing.Union[int, bool] | str == typing.Union[int, bool, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_or_type_repr(self):
         assert repr(int | str) == "int | str"
         assert repr((int | str) | list) == "int | str | list"
