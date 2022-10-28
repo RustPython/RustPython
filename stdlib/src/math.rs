@@ -331,7 +331,7 @@ mod math {
         };
         let mut norm = v
             .iter()
-            .cloned()
+            .copied()
             .map(|x| x / scale)
             .reduce(accurate_hypot)
             .unwrap_or_default();
@@ -342,9 +342,8 @@ mod math {
             // approximation of the square root of that to `norm`.
             let correction = v
                 .iter()
-                .cloned()
-                .map(|x| x / scale)
-                .map(|x| x * x)
+                .copied()
+                .map(|x| (x / scale).pow(2))
                 .chain(std::iter::once(-norm * norm))
                 .tree_fold1(std::ops::Add::add)
                 .unwrap();
