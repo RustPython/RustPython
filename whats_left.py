@@ -200,7 +200,7 @@ def gen_methods():
         "type(range(0).__iter__())",
         "type(str().__iter__())",
         "type(tuple().__iter__())",
-        "type(memoryview(bytearray(b'0')).__iter__())",
+        "type(iter(memoryview(bytearray(b'0'))))",
     ]
 
     methods = {}
