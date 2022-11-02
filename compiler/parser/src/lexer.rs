@@ -128,16 +128,16 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         // Collapse \r\n into \n
         loop {
-            if self.chr0 == Some('\r') {
-                if self.chr1 == Some('\n') {
-                    // Transform windows EOL into \n
+            match (self.chr0, self.chr1) {
+                (Some('\r'), Some('\n')) => {
+                    // Windows EOL into \n
                     self.shift();
-                } else {
-                    // Transform MAC EOL into \n
-                    self.chr0 = Some('\n')
                 }
-            } else {
-                break;
+                (Some('\r'), _) => {
+                    // MAC EOL into \n
+                    self.chr0 = Some('\n');
+                }
+                _ => break,
             }
         }
 
@@ -159,8 +159,8 @@ where
             nesting: 0,
             indentation_stack: vec![Default::default()],
             pending: Vec::new(),
-            chr0: None,
             location: start,
+            chr0: None,
             chr1: None,
             chr2: None,
         };
@@ -184,17 +184,13 @@ where
         let mut saw_f = false;
         loop {
             // Detect r"", f"", b"" and u""
-            if !(saw_b || saw_u || saw_f) && matches!(self.chr0, Some('b') | Some('B')) {
+            if !(saw_b || saw_u || saw_f) && matches!(self.chr0, Some('b' | 'B')) {
                 saw_b = true;
-            } else if !(saw_b || saw_r || saw_u || saw_f)
-                && matches!(self.chr0, Some('u') | Some('U'))
-            {
+            } else if !(saw_b || saw_r || saw_u || saw_f) && matches!(self.chr0, Some('u' | 'U')) {
                 saw_u = true;
-            } else if !(saw_r || saw_u) && (self.chr0 == Some('r') || self.chr0 == Some('R')) {
+            } else if !(saw_r || saw_u) && matches!(self.chr0, Some('r' | 'R')) {
                 saw_r = true;
-            } else if !(saw_b || saw_u || saw_f)
-                && (self.chr0 == Some('f') || self.chr0 == Some('F'))
-            {
+            } else if !(saw_b || saw_u || saw_f) && matches!(self.chr0, Some('f' | 'F')) {
                 saw_f = true;
             } else {
                 break;
@@ -204,7 +200,7 @@ where
             name.push(self.next_char().unwrap());
 
             // Check if we have a string:
-            if self.chr0 == Some('"') || self.chr0 == Some('\'') {
+            if matches!(self.chr0, Some('"' | '\'')) {
                 return self
                     .lex_string(saw_b, saw_r, saw_u, saw_f)
                     .map(|(_, tok, end_pos)| (start_pos, tok, end_pos));
@@ -227,18 +223,18 @@ where
     fn lex_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
         if self.chr0 == Some('0') {
-            if self.chr1 == Some('x') || self.chr1 == Some('X') {
-                // Hex!
+            if matches!(self.chr1, Some('x' | 'X')) {
+                // Hex! (0xdeadbeef)
                 self.next_char();
                 self.next_char();
                 self.lex_number_radix(start_pos, 16)
-            } else if self.chr1 == Some('o') || self.chr1 == Some('O') {
-                // Octal style!
+            } else if matches!(self.chr1, Some('o' | 'O')) {
+                // Octal style! (0o377)
                 self.next_char();
                 self.next_char();
                 self.lex_number_radix(start_pos, 8)
-            } else if self.chr1 == Some('b') || self.chr1 == Some('B') {
-                // Binary!
+            } else if matches!(self.chr1, Some('b' | 'B')) {
+                // Binary! (0b_1110_0101)
                 self.next_char();
                 self.next_char();
                 self.lex_number_radix(start_pos, 2)
@@ -283,7 +279,7 @@ where
             }
 
             // 1e6 for example:
-            if self.chr0 == Some('e') || self.chr0 == Some('E') {
+            if matches!(self.chr0, Some('e' | 'E')) {
                 if self.chr1 == Some('_') {
                     return Err(LexicalError {
                         error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
@@ -292,7 +288,7 @@ where
                 }
                 value_text.push(self.next_char().unwrap().to_ascii_lowercase());
                 // Optional +/-
-                if self.chr0 == Some('-') || self.chr0 == Some('+') {
+                if matches!(self.chr0, Some('-' | '+')) {
                     if self.chr1 == Some('_') {
                         return Err(LexicalError {
                             error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
@@ -309,8 +305,9 @@ where
                 error: LexicalErrorType::OtherError("Invalid decimal literal".to_owned()),
                 location: self.get_pos(),
             })?;
+
             // Parse trailing 'j':
-            if self.chr0 == Some('j') || self.chr0 == Some('J') {
+            if matches!(self.chr0, Some('j' | 'J')) {
                 self.next_char();
                 let end_pos = self.get_pos();
                 Ok((
@@ -327,7 +324,7 @@ where
             }
         } else {
             // Parse trailing 'j':
-            if self.chr0 == Some('j') || self.chr0 == Some('J') {
+            if matches!(self.chr0, Some('j' | 'J')) {
                 self.next_char();
                 let end_pos = self.get_pos();
                 let imag = f64::from_str(&value_text).unwrap();
@@ -336,6 +333,7 @@ where
                 let end_pos = self.get_pos();
                 let value = value_text.parse::<BigInt>().unwrap();
                 if start_is_zero && !value.is_zero() {
+                    // leading zeros in decimal integer literals are not permitted
                     return Err(LexicalError {
                         error: LexicalErrorType::OtherError("Invalid Token".to_owned()),
                         location: self.get_pos(),
@@ -389,8 +387,8 @@ where
     /// Test if we face '[eE][-+]?[0-9]+'
     fn at_exponent(&self) -> bool {
         match self.chr0 {
-            Some('e') | Some('E') => match self.chr1 {
-                Some('+') | Some('-') => matches!(self.chr2, Some('0'..='9')),
+            Some('e' | 'E') => match self.chr1 {
+                Some('+' | '-') => matches!(self.chr2, Some('0'..='9')),
                 Some('0'..='9') => true,
                 _ => false,
             },
