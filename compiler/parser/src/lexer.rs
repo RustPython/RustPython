@@ -352,7 +352,7 @@ where
             }
 
             // 1e6 for example:
-            if matches!(self.window[0], Some('e' | 'E')) {
+            if let Some('e' | 'E') = self.window[0] {
                 if self.window[1] == Some('_') {
                     return Err(LexicalError {
                         error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
@@ -1256,10 +1256,7 @@ where
             ' ' | '\t' | '\x0C' => {
                 // Skip whitespaces
                 self.next_char();
-                while self.window[0] == Some(' ')
-                    || self.window[0] == Some('\t')
-                    || self.window[0] == Some('\x0C')
-                {
+                while let Some(' ' | '\t' | '\x0C') = self.window[0] {
                     self.next_char();
                 }
             }
