@@ -727,44 +727,46 @@ where
     fn handle_indentations(&mut self) -> Result<(), LexicalError> {
         let indentation_level = self.eat_indentation()?;
 
-        if self.nesting == 0 {
-            // Determine indent or dedent:
-            let current_indentation = self.indentation_stack.last().unwrap();
-            let ordering = indentation_level.compare_strict(current_indentation, self.get_pos())?;
-            match ordering {
-                Ordering::Equal => {
-                    // Same same
-                }
-                Ordering::Greater => {
-                    // New indentation level:
-                    self.indentation_stack.push(indentation_level);
-                    let tok_pos = self.get_pos();
-                    self.emit((tok_pos, Tok::Indent, tok_pos));
-                }
-                Ordering::Less => {
-                    // One or more dedentations
-                    // Pop off other levels until col is found:
+        if self.nesting != 0 {
+            return Ok(());
+        }
 
-                    loop {
-                        let current_indentation = self.indentation_stack.last().unwrap();
-                        let ordering = indentation_level
-                            .compare_strict(current_indentation, self.get_pos())?;
-                        match ordering {
-                            Ordering::Less => {
-                                self.indentation_stack.pop();
-                                let tok_pos = self.get_pos();
-                                self.emit((tok_pos, Tok::Dedent, tok_pos));
-                            }
-                            Ordering::Equal => {
-                                // We arrived at proper level of indentation.
-                                break;
-                            }
-                            Ordering::Greater => {
-                                return Err(LexicalError {
-                                    error: LexicalErrorType::IndentationError,
-                                    location: self.get_pos(),
-                                });
-                            }
+        // Determine indent or dedent:
+        let current_indentation = self.indentation_stack.last().unwrap();
+        let ordering = indentation_level.compare_strict(current_indentation, self.get_pos())?;
+        match ordering {
+            Ordering::Equal => {
+                // Same same
+            }
+            Ordering::Greater => {
+                // New indentation level:
+                self.indentation_stack.push(indentation_level);
+                let tok_pos = self.get_pos();
+                self.emit((tok_pos, Tok::Indent, tok_pos));
+            }
+            Ordering::Less => {
+                // One or more dedentations
+                // Pop off other levels until col is found:
+
+                loop {
+                    let current_indentation = self.indentation_stack.last().unwrap();
+                    let ordering =
+                        indentation_level.compare_strict(current_indentation, self.get_pos())?;
+                    match ordering {
+                        Ordering::Less => {
+                            self.indentation_stack.pop();
+                            let tok_pos = self.get_pos();
+                            self.emit((tok_pos, Tok::Dedent, tok_pos));
+                        }
+                        Ordering::Equal => {
+                            // We arrived at proper level of indentation.
+                            break;
+                        }
+                        Ordering::Greater => {
+                            return Err(LexicalError {
+                                error: LexicalErrorType::IndentationError,
+                                location: self.get_pos(),
+                            });
                         }
                     }
                 }
