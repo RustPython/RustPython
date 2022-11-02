@@ -147,12 +147,11 @@ where
 
 pub struct Lexer<T: Iterator<Item = char>> {
     chars: T,
-    window: CharWindow<3>,
-
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
     indentations: Indentations,
     pending: Vec<Spanned>,
+    window: CharWindow<3>,
     location: Location,
 }
 
@@ -167,8 +166,7 @@ pub type LexResult = Result<Spanned, LexicalError>;
 // types into \n always.
 pub struct NewlineHandler<T: Iterator<Item = char>> {
     source: T,
-    chr0: Option<char>,
-    chr1: Option<char>,
+    window: CharWindow<2>,
 }
 
 impl<T> NewlineHandler<T>
@@ -178,8 +176,7 @@ where
     pub fn new(source: T) -> Self {
         let mut nlh = NewlineHandler {
             source,
-            chr0: None,
-            chr1: None,
+            window: CharWindow::default(),
         };
         nlh.shift();
         nlh.shift();
@@ -187,9 +184,8 @@ where
     }
 
     fn shift(&mut self) -> Option<char> {
-        let result = self.chr0;
-        self.chr0 = self.chr1;
-        self.chr1 = self.source.next();
+        let result = self.window[0];
+        self.window.slide(self.source.next());
         result
     }
 }
@@ -203,14 +199,14 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         // Collapse \r\n into \n
         loop {
-            match (self.chr0, self.chr1) {
+            match (self.window[0], self.window[1]) {
                 (Some('\r'), Some('\n')) => {
                     // Windows EOL into \n
                     self.shift();
                 }
                 (Some('\r'), _) => {
                     // MAC EOL into \n
-                    self.chr0 = Some('\n');
+                    self.window[0] = Some('\n');
                 }
                 _ => break,
             }
