@@ -147,11 +147,13 @@ where
 
 pub struct Lexer<T: Iterator<Item = char>> {
     chars: T,
+    window: CharWindow<3>,
+
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
     indentations: Indentations,
+
     pending: Vec<Spanned>,
-    window: CharWindow<3>,
     location: Location,
 }
 
