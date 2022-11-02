@@ -426,7 +426,7 @@ where
         loop {
             if let Some(c) = self.take_number(radix) {
                 value_text.push(c);
-            } else if self.window[1] == Some('_')
+            } else if self.window[0] == Some('_')
                 && Lexer::<T>::is_digit_of_radix(self.window[1], radix)
             {
                 self.next_char();
@@ -1392,7 +1392,7 @@ mod tests {
 
     #[test]
     fn test_numbers() {
-        let source = "0x2f 0b1101 0 123 0.2 2j 2.2j";
+        let source = "0x2f 0b1101 0 123 123_45_67_890 0.2 2j 2.2j";
         let tokens = lex_source(source);
         assert_eq!(
             tokens,
@@ -1408,6 +1408,9 @@ mod tests {
                 },
                 Tok::Int {
                     value: BigInt::from(123),
+                },
+                Tok::Int {
+                    value: BigInt::from(1234567890),
                 },
                 Tok::Float { value: 0.2 },
                 Tok::Complex {
