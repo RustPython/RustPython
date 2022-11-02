@@ -11,6 +11,8 @@ use num_traits::identities::Zero;
 use num_traits::Num;
 use std::char;
 use std::cmp::Ordering;
+use std::ops::{Index, IndexMut};
+use std::slice::SliceIndex;
 use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -92,15 +94,51 @@ impl Default for Indentations {
     }
 }
 
+struct CharWindow<const N: usize>(pub [Option<char>; N]);
+
+impl<const N: usize> CharWindow<N> {
+    fn slide(&mut self, next_char: Option<char>) {
+        let len = self.0.len();
+        for i in 0..(len - 1) {
+            self[i] = self[i + 1];
+        }
+        self[len - 1] = next_char;
+    }
+}
+
+impl<const N: usize> Default for CharWindow<N> {
+    fn default() -> Self {
+        Self([None; N])
+    }
+}
+
+impl<const N: usize, Idx> Index<Idx> for CharWindow<N>
+where
+    Idx: SliceIndex<[Option<char>], Output = Option<char>>,
+{
+    type Output = Option<char>;
+
+    fn index(&self, index: Idx) -> &Self::Output {
+        self.0.index(index)
+    }
+}
+
+impl<const N: usize, Idx> IndexMut<Idx> for CharWindow<N>
+where
+    Idx: SliceIndex<[Option<char>], Output = Option<char>>,
+{
+    fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
+        self.0.index_mut(index)
+    }
+}
+
 pub struct Lexer<T: Iterator<Item = char>> {
     chars: T,
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
     indentations: Indentations,
     pending: Vec<Spanned>,
-    chr0: Option<char>,
-    chr1: Option<char>,
-    chr2: Option<char>,
+    window: CharWindow<3>,
     location: Location,
 }
 
@@ -196,9 +234,7 @@ where
             indentations: Indentations::default(),
             pending: Vec::new(),
             location: start,
-            chr0: None,
-            chr1: None,
-            chr2: None,
+            window: CharWindow::default(),
         };
         lxr.next_char();
         lxr.next_char();
@@ -220,13 +256,15 @@ where
         let mut saw_f = false;
         loop {
             // Detect r"", f"", b"" and u""
-            if !(saw_b || saw_u || saw_f) && matches!(self.chr0, Some('b' | 'B')) {
+            if !(saw_b || saw_u || saw_f) && matches!(self.window[0], Some('b' | 'B')) {
                 saw_b = true;
-            } else if !(saw_b || saw_r || saw_u || saw_f) && matches!(self.chr0, Some('u' | 'U')) {
+            } else if !(saw_b || saw_r || saw_u || saw_f)
+                && matches!(self.window[0], Some('u' | 'U'))
+            {
                 saw_u = true;
-            } else if !(saw_r || saw_u) && matches!(self.chr0, Some('r' | 'R')) {
+            } else if !(saw_r || saw_u) && matches!(self.window[0], Some('r' | 'R')) {
                 saw_r = true;
-            } else if !(saw_b || saw_u || saw_f) && matches!(self.chr0, Some('f' | 'F')) {
+            } else if !(saw_b || saw_u || saw_f) && matches!(self.window[0], Some('f' | 'F')) {
                 saw_f = true;
             } else {
                 break;
@@ -236,7 +274,7 @@ where
             name.push(self.next_char().unwrap());
 
             // Check if we have a string:
-            if matches!(self.chr0, Some('"' | '\'')) {
+            if matches!(self.window[0], Some('"' | '\'')) {
                 return self
                     .lex_string(saw_b, saw_r, saw_u, saw_f)
                     .map(|(_, tok, end_pos)| (start_pos, tok, end_pos));
@@ -258,18 +296,18 @@ where
     /// Numeric lexing. The feast can start!
     fn lex_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
-        if self.chr0 == Some('0') {
-            if matches!(self.chr1, Some('x' | 'X')) {
+        if self.window[0] == Some('0') {
+            if matches!(self.window[1], Some('x' | 'X')) {
                 // Hex! (0xdeadbeef)
                 self.next_char();
                 self.next_char();
                 self.lex_number_radix(start_pos, 16)
-            } else if matches!(self.chr1, Some('o' | 'O')) {
+            } else if matches!(self.window[1], Some('o' | 'O')) {
                 // Octal style! (0o377)
                 self.next_char();
                 self.next_char();
                 self.lex_number_radix(start_pos, 8)
-            } else if matches!(self.chr1, Some('b' | 'B')) {
+            } else if matches!(self.window[1], Some('b' | 'B')) {
                 // Binary! (0b_1110_0101)
                 self.next_char();
                 self.next_char();
@@ -296,15 +334,15 @@ where
     /// Lex a normal number, that is, no octal, hex or binary number.
     fn lex_normal_number(&mut self) -> LexResult {
         let start_pos = self.get_pos();
-        let start_is_zero = self.chr0 == Some('0');
+        let start_is_zero = self.window[0] == Some('0');
         // Normal number:
         let mut value_text = self.radix_run(10);
 
         // If float:
-        if self.chr0 == Some('.') || self.at_exponent() {
+        if self.window[0] == Some('.') || self.at_exponent() {
             // Take '.':
-            if self.chr0 == Some('.') {
-                if self.chr1 == Some('_') {
+            if self.window[0] == Some('.') {
+                if self.window[1] == Some('_') {
                     return Err(LexicalError {
                         error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
                         location: self.get_pos(),
@@ -315,8 +353,8 @@ where
             }
 
             // 1e6 for example:
-            if matches!(self.chr0, Some('e' | 'E')) {
-                if self.chr1 == Some('_') {
+            if matches!(self.window[0], Some('e' | 'E')) {
+                if self.window[1] == Some('_') {
                     return Err(LexicalError {
                         error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
                         location: self.get_pos(),
@@ -324,8 +362,8 @@ where
                 }
                 value_text.push(self.next_char().unwrap().to_ascii_lowercase());
                 // Optional +/-
-                if matches!(self.chr0, Some('-' | '+')) {
-                    if self.chr1 == Some('_') {
+                if matches!(self.window[0], Some('-' | '+')) {
+                    if self.window[1] == Some('_') {
                         return Err(LexicalError {
                             error: LexicalErrorType::OtherError("Invalid Syntax".to_owned()),
                             location: self.get_pos(),
@@ -343,7 +381,7 @@ where
             })?;
 
             // Parse trailing 'j':
-            if matches!(self.chr0, Some('j' | 'J')) {
+            if matches!(self.window[0], Some('j' | 'J')) {
                 self.next_char();
                 let end_pos = self.get_pos();
                 Ok((
@@ -360,7 +398,7 @@ where
             }
         } else {
             // Parse trailing 'j':
-            if matches!(self.chr0, Some('j' | 'J')) {
+            if matches!(self.window[0], Some('j' | 'J')) {
                 self.next_char();
                 let end_pos = self.get_pos();
                 let imag = f64::from_str(&value_text).unwrap();
@@ -389,7 +427,9 @@ where
         loop {
             if let Some(c) = self.take_number(radix) {
                 value_text.push(c);
-            } else if self.chr0 == Some('_') && Lexer::<T>::is_digit_of_radix(self.chr1, radix) {
+            } else if self.window[1] == Some('_')
+                && Lexer::<T>::is_digit_of_radix(self.window[1], radix)
+            {
                 self.next_char();
             } else {
                 break;
@@ -400,7 +440,7 @@ where
 
     /// Consume a single character with the given radix.
     fn take_number(&mut self, radix: u32) -> Option<char> {
-        let take_char = Lexer::<T>::is_digit_of_radix(self.chr0, radix);
+        let take_char = Lexer::<T>::is_digit_of_radix(self.window[0], radix);
 
         if take_char {
             Some(self.next_char().unwrap())
@@ -422,9 +462,9 @@ where
 
     /// Test if we face '[eE][-+]?[0-9]+'
     fn at_exponent(&self) -> bool {
-        match self.chr0 {
-            Some('e' | 'E') => match self.chr1 {
-                Some('+' | '-') => matches!(self.chr2, Some('0'..='9')),
+        match self.window[0] {
+            Some('e' | 'E') => match self.window[1] {
+                Some('+' | '-') => matches!(self.window[2], Some('0'..='9')),
                 Some('0'..='9') => true,
                 _ => false,
             },
@@ -437,7 +477,7 @@ where
         let start_pos = self.get_pos();
         self.next_char();
         loop {
-            match self.chr0 {
+            match self.window[0] {
                 Some('\n') | None => {
                     let end_pos = self.get_pos();
                     return Ok((start_pos, Tok::Comment, end_pos));
@@ -473,7 +513,7 @@ where
         let mut octet_content = String::new();
         octet_content.push(first);
         while octet_content.len() < 3 {
-            if let Some('0'..='7') = self.chr0 {
+            if let Some('0'..='7') = self.window[0] {
                 octet_content.push(self.next_char().unwrap())
             } else {
                 break;
@@ -535,18 +575,19 @@ where
 
         // If the next two characters are also the quote character, then we have a triple-quoted
         // string; consume those two characters and ensure that we require a triple-quote to close
-        let triple_quoted = if self.chr0 == Some(quote_char) && self.chr1 == Some(quote_char) {
-            self.next_char();
-            self.next_char();
-            true
-        } else {
-            false
-        };
+        let triple_quoted =
+            if self.window[0] == Some(quote_char) && self.window[1] == Some(quote_char) {
+                self.next_char();
+                self.next_char();
+                true
+            } else {
+                false
+            };
 
         loop {
             match self.next_char() {
                 Some('\\') => {
-                    if self.chr0 == Some(quote_char) && !is_raw {
+                    if self.window[0] == Some(quote_char) && !is_raw {
                         string_content.push(quote_char);
                         self.next_char();
                     } else if is_raw {
@@ -606,7 +647,9 @@ where
                             // Look ahead at the next two characters; if we have two more
                             // quote_chars, it's the end of the string; consume the remaining
                             // closing quotes and break the loop
-                            if self.chr0 == Some(quote_char) && self.chr1 == Some(quote_char) {
+                            if self.window[0] == Some(quote_char)
+                                && self.window[1] == Some(quote_char)
+                            {
                                 self.next_char();
                                 self.next_char();
                                 break;
@@ -665,7 +708,7 @@ where
     }
 
     fn is_identifier_continuation(&self) -> bool {
-        if let Some(c) = self.chr0 {
+        if let Some(c) = self.window[0] {
             match c {
                 '_' | '0'..='9' => true,
                 c => is_xid_continue(c),
@@ -697,7 +740,7 @@ where
         let mut spaces: usize = 0;
         let mut tabs: usize = 0;
         loop {
-            match self.chr0 {
+            match self.window[0] {
                 Some(' ') => {
                     /*
                     if tabs != 0 {
@@ -815,7 +858,7 @@ where
     /// Take a look at the next character, if any, and decide upon the next steps.
     fn consume_normal(&mut self) -> Result<(), LexicalError> {
         // Check if we have some character:
-        if let Some(c) = self.chr0 {
+        if let Some(c) = self.window[0] {
             // First check identifier:
             if self.is_identifier_start(c) {
                 let identifier = self.lex_identifier()?;
@@ -882,7 +925,7 @@ where
             '=' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                match self.chr0 {
+                match self.window[0] {
                     Some('=') => {
                         self.next_char();
                         let tok_end = self.get_pos();
@@ -897,7 +940,7 @@ where
             '+' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if let Some('=') = self.window[0] {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::PlusEqual, tok_end));
@@ -909,7 +952,7 @@ where
             '*' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                match self.chr0 {
+                match self.window[0] {
                     Some('=') => {
                         self.next_char();
                         let tok_end = self.get_pos();
@@ -917,7 +960,7 @@ where
                     }
                     Some('*') => {
                         self.next_char();
-                        match self.chr0 {
+                        match self.window[0] {
                             Some('=') => {
                                 self.next_char();
                                 let tok_end = self.get_pos();
@@ -938,7 +981,7 @@ where
             '/' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                match self.chr0 {
+                match self.window[0] {
                     Some('=') => {
                         self.next_char();
                         let tok_end = self.get_pos();
@@ -946,7 +989,7 @@ where
                     }
                     Some('/') => {
                         self.next_char();
-                        match self.chr0 {
+                        match self.window[0] {
                             Some('=') => {
                                 self.next_char();
                                 let tok_end = self.get_pos();
@@ -967,7 +1010,7 @@ where
             '%' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if let Some('=') = self.window[0] {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::PercentEqual, tok_end));
@@ -979,7 +1022,7 @@ where
             '|' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if let Some('=') = self.window[0] {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::VbarEqual, tok_end));
@@ -991,7 +1034,7 @@ where
             '^' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if let Some('=') = self.window[0] {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::CircumflexEqual, tok_end));
@@ -1003,7 +1046,7 @@ where
             '&' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if let Some('=') = self.window[0] {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::AmperEqual, tok_end));
@@ -1015,7 +1058,7 @@ where
             '-' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                match self.chr0 {
+                match self.window[0] {
                     Some('=') => {
                         self.next_char();
                         let tok_end = self.get_pos();
@@ -1035,7 +1078,7 @@ where
             '@' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if let Some('=') = self.window[0] {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::AtEqual, tok_end));
@@ -1047,7 +1090,7 @@ where
             '!' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if let Some('=') = self.window[0] {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::NotEqual, tok_end));
@@ -1106,7 +1149,7 @@ where
             ':' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                if let Some('=') = self.chr0 {
+                if let Some('=') = self.window[0] {
                     self.next_char();
                     let tok_end = self.get_pos();
                     self.emit((tok_start, Tok::ColonEqual, tok_end));
@@ -1121,10 +1164,10 @@ where
             '<' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                match self.chr0 {
+                match self.window[0] {
                     Some('<') => {
                         self.next_char();
-                        match self.chr0 {
+                        match self.window[0] {
                             Some('=') => {
                                 self.next_char();
                                 let tok_end = self.get_pos();
@@ -1150,10 +1193,10 @@ where
             '>' => {
                 let tok_start = self.get_pos();
                 self.next_char();
-                match self.chr0 {
+                match self.window[0] {
                     Some('>') => {
                         self.next_char();
-                        match self.chr0 {
+                        match self.window[0] {
                             Some('=') => {
                                 self.next_char();
                                 let tok_end = self.get_pos();
@@ -1183,13 +1226,13 @@ where
                 self.emit((tok_start, Tok::Comma, tok_end));
             }
             '.' => {
-                if let Some('0'..='9') = self.chr1 {
+                if let Some('0'..='9') = self.window[1] {
                     let number = self.lex_number()?;
                     self.emit(number);
                 } else {
                     let tok_start = self.get_pos();
                     self.next_char();
-                    if let (Some('.'), Some('.')) = (&self.chr0, &self.chr1) {
+                    if let (Some('.'), Some('.')) = (&self.window[0], &self.window[1]) {
                         self.next_char();
                         self.next_char();
                         let tok_end = self.get_pos();
@@ -1214,14 +1257,16 @@ where
             ' ' | '\t' | '\x0C' => {
                 // Skip whitespaces
                 self.next_char();
-                while self.chr0 == Some(' ') || self.chr0 == Some('\t') || self.chr0 == Some('\x0C')
+                while self.window[0] == Some(' ')
+                    || self.window[0] == Some('\t')
+                    || self.window[0] == Some('\x0C')
                 {
                     self.next_char();
                 }
             }
             '\\' => {
                 self.next_char();
-                if let Some('\n') = self.chr0 {
+                if let Some('\n') = self.window[0] {
                     self.next_char();
                 } else {
                     return Err(LexicalError {
@@ -1230,7 +1275,7 @@ where
                     });
                 }
 
-                if self.chr0.is_none() {
+                if self.window[0].is_none() {
                     return Err(LexicalError {
                         error: LexicalErrorType::Eof,
                         location: self.get_pos(),
@@ -1259,11 +1304,9 @@ where
 
     /// Helper function to go to the next character coming up.
     fn next_char(&mut self) -> Option<char> {
-        let c = self.chr0;
+        let c = self.window[0];
         let nxt = self.chars.next();
-        self.chr0 = self.chr1;
-        self.chr1 = self.chr2;
-        self.chr2 = nxt;
+        self.window.slide(nxt);
         if c == Some('\n') {
             self.location.newline();
         } else {
