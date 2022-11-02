@@ -56,11 +56,47 @@ impl IndentationLevel {
     }
 }
 
+#[derive(Debug)]
+struct Indentations {
+    indent_stack: Vec<IndentationLevel>,
+}
+
+impl Indentations {
+    pub fn is_empty(&self) -> bool {
+        self.indent_stack.len() == 1
+    }
+
+    pub fn push(&mut self, indent: IndentationLevel) {
+        self.indent_stack.push(indent);
+    }
+
+    pub fn pop(&mut self) -> Option<IndentationLevel> {
+        if self.is_empty() {
+            return None;
+        }
+        self.indent_stack.pop()
+    }
+
+    pub fn current(&self) -> &IndentationLevel {
+        self.indent_stack
+            .last()
+            .expect("Indetations must have at least one level")
+    }
+}
+
+impl Default for Indentations {
+    fn default() -> Self {
+        Self {
+            indent_stack: vec![IndentationLevel::default()],
+        }
+    }
+}
+
 pub struct Lexer<T: Iterator<Item = char>> {
     chars: T,
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
-    indentation_stack: Vec<IndentationLevel>,
+    indentations: Indentations,
     pending: Vec<Spanned>,
     chr0: Option<char>,
     chr1: Option<char>,
@@ -157,7 +193,7 @@ where
             chars: input,
             at_begin_of_line: true,
             nesting: 0,
-            indentation_stack: vec![Default::default()],
+            indentations: Indentations::default(),
             pending: Vec::new(),
             location: start,
             chr0: None,
@@ -732,7 +768,7 @@ where
         }
 
         // Determine indent or dedent:
-        let current_indentation = self.indentation_stack.last().unwrap();
+        let current_indentation = self.indentations.current();
         let ordering = indentation_level.compare_strict(current_indentation, self.get_pos())?;
         match ordering {
             Ordering::Equal => {
@@ -740,7 +776,7 @@ where
             }
             Ordering::Greater => {
                 // New indentation level:
-                self.indentation_stack.push(indentation_level);
+                self.indentations.push(indentation_level);
                 let tok_pos = self.get_pos();
                 self.emit((tok_pos, Tok::Indent, tok_pos));
             }
@@ -749,12 +785,12 @@ where
                 // Pop off other levels until col is found:
 
                 loop {
-                    let current_indentation = self.indentation_stack.last().unwrap();
+                    let current_indentation = self.indentations.current();
                     let ordering =
                         indentation_level.compare_strict(current_indentation, self.get_pos())?;
                     match ordering {
                         Ordering::Less => {
-                            self.indentation_stack.pop();
+                            self.indentations.pop();
                             let tok_pos = self.get_pos();
                             self.emit((tok_pos, Tok::Dedent, tok_pos));
                         }
@@ -817,8 +853,8 @@ where
             }
 
             // Next, flush the indentation stack to zero.
-            while self.indentation_stack.len() > 1 {
-                self.indentation_stack.pop();
+            while !self.indentations.is_empty() {
+                self.indentations.pop();
                 self.emit((tok_pos, Tok::Dedent, tok_pos));
             }
 
@@ -1267,7 +1303,7 @@ where
             "Lex token {:?}, nesting={:?}, indent stack: {:?}",
             token,
             self.nesting,
-            self.indentation_stack
+            self.indentations,
         );
 
         match token {
