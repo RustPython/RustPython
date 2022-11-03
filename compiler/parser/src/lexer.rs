@@ -77,22 +77,22 @@ struct Indentations {
 }
 
 impl Indentations {
-    pub fn is_empty(&self) -> bool {
+    fn is_empty(&self) -> bool {
         self.indent_stack.len() == 1
     }
 
-    pub fn push(&mut self, indent: IndentationLevel) {
+    fn push(&mut self, indent: IndentationLevel) {
         self.indent_stack.push(indent);
     }
 
-    pub fn pop(&mut self) -> Option<IndentationLevel> {
+    fn pop(&mut self) -> Option<IndentationLevel> {
         if self.is_empty() {
             return None;
         }
         self.indent_stack.pop()
     }
 
-    pub fn current(&self) -> &IndentationLevel {
+    fn current(&self) -> &IndentationLevel {
         self.indent_stack
             .last()
             .expect("Indetations must have at least one level")
@@ -107,7 +107,7 @@ impl Default for Indentations {
     }
 }
 
-struct CharWindow<const N: usize>(pub [Option<char>; N]);
+struct CharWindow<const N: usize>([Option<char>; N]);
 
 impl<const N: usize> CharWindow<N> {
     fn slide(&mut self, next_char: Option<char>) {
