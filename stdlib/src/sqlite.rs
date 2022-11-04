@@ -1,11 +1,28 @@
 pub(crate) use _sqlite::make_module;
+// pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+//     // TODO: sqlite version check
+//     _sqlite::make_module(vm)
+// }
 
 #[pymodule]
 mod _sqlite {
+    use crate::vm::VirtualMachine;
+    use std::ffi::CStr;
+
     #[pyattr]
-    const PARSE_COLNAMES: i32 = 2;
+    fn sqlite_version(_: &VirtualMachine) -> String {
+        unsafe {
+            let s = sqlite3_sys::sqlite3_libversion();
+            let s = CStr::from_ptr(s);
+            s.to_str().unwrap().to_owned()
+        }
+    }
+
     #[pyattr]
     const PARSE_DECLTYPES: i32 = 1;
+    #[pyattr]
+    const PARSE_COLNAMES: i32 = 2;
+
     #[pyattr]
     use sqlite3_sys::{
         SQLITE_ALTER_TABLE, SQLITE_ANALYZE, SQLITE_ATTACH, SQLITE_CREATE_INDEX,
