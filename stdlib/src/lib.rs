@@ -50,6 +50,7 @@ mod resource;
 mod scproxy;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
+mod sqlite;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
@@ -105,6 +106,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,
+            "sqlite3" => sqlite::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
         #[cfg(any(unix, target_os = "wasi"))]
