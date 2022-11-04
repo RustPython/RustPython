@@ -18,6 +18,9 @@ mod _sqlite {
         }
     }
 
+    #[pyattr(name = "_deprecated_version")]
+    const PYSQLITE_VERSION: &str = "2.6.0";
+
     #[pyattr]
     const PARSE_DECLTYPES: i32 = 1;
     #[pyattr]
