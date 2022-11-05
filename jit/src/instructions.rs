@@ -270,6 +270,26 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                         let val = self.builder.ins().icmp(cond, a.val, b.val);
                         self.stack.push(JitValue {
+                            // TODO: Remove this `bint` in cranelift 0.90 as icmp now returns i8
+                            val: self.builder.ins().bint(types::I8, val),
+                            ty: JitType::Bool,
+                        });
+
+                        Ok(())
+                    }
+                    (JitType::Float, JitType::Float) => {
+                        let cond = match op {
+                            ComparisonOperator::Equal => FloatCC::Equal,
+                            ComparisonOperator::NotEqual => FloatCC::NotEqual,
+                            ComparisonOperator::Less => FloatCC::LessThan,
+                            ComparisonOperator::LessOrEqual => FloatCC::LessThanOrEqual,
+                            ComparisonOperator::Greater => FloatCC::GreaterThan,
+                            ComparisonOperator::GreaterOrEqual => FloatCC::GreaterThanOrEqual,
+                        };
+
+                        let val = self.builder.ins().fcmp(cond, a.val, b.val);
+                        self.stack.push(JitValue {
+                            // TODO: Remove this `bint` in cranelift 0.90 as fcmp now returns i8
                             val: self.builder.ins().bint(types::I8, val),
                             ty: JitType::Bool,
                         });
