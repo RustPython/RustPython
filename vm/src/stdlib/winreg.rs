@@ -191,7 +191,8 @@ mod winreg {
         key.with_key(|k| k.get_raw_value(subkey))
             .map_err(|e| e.to_pyexception(vm))
             .and_then(|regval| {
-                let ty = regval.vtype as usize;
+                #[allow(clippy::redundant_clone)]
+                let ty = regval.vtype.clone() as usize;
                 Ok((reg_to_py(regval, vm)?, ty))
             })
     }
@@ -221,7 +222,8 @@ mod winreg {
             })
             .map_err(|e| e.to_pyexception(vm))
             .and_then(|(name, value)| {
-                let ty = value.vtype as usize;
+                #[allow(clippy::redundant_clone)]
+                let ty = value.vtype.clone() as usize;
                 Ok((name, reg_to_py(value, vm)?, ty))
             })
     }

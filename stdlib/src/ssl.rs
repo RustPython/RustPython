@@ -295,13 +295,13 @@ mod _ssl {
     }
 
     fn _txt2obj(s: &CStr, no_name: bool) -> Option<Asn1Object> {
-        unsafe { ptr2obj(sys::OBJ_txt2obj(s.as_ptr(), if no_name { 1 } else { 0 })) }
+        unsafe { ptr2obj(sys::OBJ_txt2obj(s.as_ptr(), i32::from(no_name))) }
     }
     fn _nid2obj(nid: Nid) -> Option<Asn1Object> {
         unsafe { ptr2obj(sys::OBJ_nid2obj(nid.as_raw())) }
     }
     fn obj2txt(obj: &Asn1ObjectRef, no_name: bool) -> Option<String> {
-        let no_name = if no_name { 1 } else { 0 };
+        let no_name = i32::from(no_name);
         let ptr = obj.as_ptr();
         let b = unsafe {
             let buflen = sys::OBJ_obj2txt(std::ptr::null_mut(), 0, ptr, no_name);
