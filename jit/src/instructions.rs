@@ -1,4 +1,6 @@
 use cranelift::prelude::*;
+use cranelift_jit::JITModule;
+use cranelift_module::Module;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::{
     self as bytecode, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator,
@@ -26,23 +28,26 @@ impl JitValue {
     }
 }
 
-pub struct FunctionCompiler<'a, 'b> {
+pub struct FunctionCompiler<'a, 'b, 'c> {
     builder: &'a mut FunctionBuilder<'b>,
+    module: &'c mut JITModule,
     stack: Vec<JitValue>,
     variables: Box<[Option<Local>]>,
     label_to_block: HashMap<Label, Block>,
     pub(crate) sig: JitSig,
 }
 
-impl<'a, 'b> FunctionCompiler<'a, 'b> {
+impl<'a, 'b, 'c> FunctionCompiler<'a, 'b, 'c> {
     pub fn new(
         builder: &'a mut FunctionBuilder<'b>,
+        module: &'c mut JITModule,
         num_variables: usize,
         arg_types: &[JitType],
         entry_block: Block,
-    ) -> FunctionCompiler<'a, 'b> {
+    ) -> FunctionCompiler<'a, 'b, 'c> {
         let mut compiler = FunctionCompiler {
             builder,
+            module,
             stack: Vec::new(),
             variables: vec![None; num_variables].into_boxed_slice(),
             label_to_block: HashMap::new(),
@@ -96,6 +101,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(self.builder.ins().bint(types::I8, val))
             }
             JitType::Bool => Ok(val.val),
+            JitType::PrintFunction => Err(JitCompileError::NotSupported),
         }
     }
 
@@ -138,7 +144,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 continue;
             }
 
-            self.add_instruction(instruction, &bytecode.constants)?;
+            self.add_instruction(instruction, &bytecode.constants, &bytecode.names)?;
         }
 
         Ok(())
@@ -184,6 +190,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         &mut self,
         instruction: &Instruction,
         constants: &[C],
+        names: &[C::Name],
     ) -> Result<(), JitCompileError> {
         match instruction {
             Instruction::JumpIfFalse { target } => {
@@ -403,7 +410,61 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 // TODO: block support
                 Ok(())
             }
-            _ => Err(JitCompileError::NotSupported),
+            Instruction::LoadGlobal(idx) => {
+                let name = &names[*idx as usize];
+                if name.as_ref() == "print" {
+                    self.stack.push(JitValue {
+                        val: self.builder.ins().iconst(types::I8, 0), // Not used
+                        ty: JitType::PrintFunction,
+                    });
+                    Ok(())
+                } else {
+                    Err(JitCompileError::NotSupported)
+                }
+            }
+            Instruction::CallFunctionPositional { nargs } => {
+                if nargs != &1 {
+                    return Err(JitCompileError::NotSupported);
+                }
+
+                let arg1 = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                let function = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+
+                match (arg1.ty, function.ty) {
+                    (JitType::Int, JitType::PrintFunction) => {
+                        let mut sig = self.module.make_signature();
+                        sig.params.push(AbiParam::new(types::I64));
+                        sig.returns.push(AbiParam::new(types::I64));
+
+                        let callee = self
+                            .module
+                            .declare_function("print_fun", cranelift_module::Linkage::Import, &sig)
+                            .unwrap();
+
+                        let local_callee =
+                            self.module.declare_func_in_func(callee, self.builder.func);
+
+                        let args = vec![arg1.val];
+                        let call = self.builder.ins().call(local_callee, &args);
+                        let res = self.builder.inst_results(call)[0];
+
+                        self.stack.push(JitValue {
+                            val: res,
+                            ty: JitType::Int,
+                        });
+                        Ok(())
+                    }
+                    _ => Err(JitCompileError::NotSupported),
+                }
+            }
+            Instruction::Pop => {
+                self.stack.pop();
+                Ok(())
+            }
+            inst => {
+                println!("Unsupported instruction: {:?}", inst);
+                Err(JitCompileError::NotSupported)
+            }
         }
     }
 

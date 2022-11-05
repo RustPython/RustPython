@@ -101,3 +101,14 @@ fn test_while_loop() {
     assert_eq!(while_loop(1), Ok(1));
     assert_eq!(while_loop(10), Ok(10));
 }
+
+#[test]
+fn test_print() {
+    let print_number = jit_function! { print_number(a:i64) -> i64 => r##"
+        def print_number(a: int):
+            print(a)
+            return 0
+    "## };
+
+    assert_eq!(print_number(42), Ok(0));
+}

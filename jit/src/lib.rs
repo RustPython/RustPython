@@ -5,6 +5,7 @@ use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{FuncId, Linkage, Module, ModuleError};
 use instructions::FunctionCompiler;
 use rustpython_compiler_core as bytecode;
+use std::borrow::BorrowMut;
 use std::{fmt, mem::ManuallyDrop};
 
 #[derive(Debug, thiserror::Error)]
@@ -33,10 +34,19 @@ struct Jit {
     module: JITModule,
 }
 
+// TODO: print should return None
+pub fn print_fun(a: i64) -> i64 {
+    println!("PRINT: {a}");
+    0
+}
+
 impl Jit {
     fn new() -> Self {
-        let builder = JITBuilder::new(cranelift_module::default_libcall_names())
+        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names())
             .expect("Failed to build JITBuilder");
+
+        builder.symbol("print_fun", print_fun as *const u8);
+
         let module = JITModule::new(builder);
         Self {
             builder_context: FunctionBuilderContext::new(),
@@ -64,8 +74,13 @@ impl Jit {
         builder.switch_to_block(entry_block);
 
         let sig = {
-            let mut compiler =
-                FunctionCompiler::new(&mut builder, bytecode.varnames.len(), args, entry_block);
+            let mut compiler = FunctionCompiler::new(
+                &mut builder,
+                self.module.borrow_mut(),
+                bytecode.varnames.len(),
+                args,
+                entry_block,
+            );
 
             compiler.compile(bytecode)?;
 
@@ -165,6 +180,7 @@ pub enum JitType {
     Int,
     Float,
     Bool,
+    PrintFunction,
 }
 
 impl JitType {
@@ -173,6 +189,7 @@ impl JitType {
             Self::Int => types::I64,
             Self::Float => types::F64,
             Self::Bool => types::I8,
+            Self::PrintFunction => panic!("can't materialize"),
         }
     }
 
@@ -181,6 +198,7 @@ impl JitType {
             Self::Int => libffi::middle::Type::i64(),
             Self::Float => libffi::middle::Type::f64(),
             Self::Bool => libffi::middle::Type::u8(),
+            Self::PrintFunction => panic!("can't materialize"),
         }
     }
 }
@@ -277,6 +295,7 @@ impl UnTypedAbiValue {
             JitType::Int => AbiValue::Int(self.int),
             JitType::Float => AbiValue::Float(self.float),
             JitType::Bool => AbiValue::Bool(self.boolean != 0),
+            JitType::PrintFunction => panic!("not supported"),
         }
     }
 }
