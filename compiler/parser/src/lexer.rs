@@ -102,7 +102,7 @@ impl<const N: usize> CharWindow<N> {
         *self.0.last_mut().expect("never empty") = next_char;
     }
 
-    fn swap(&mut self, ch: char) {
+    fn swap_first(&mut self, ch: char) {
         *self.0.first_mut().expect("never empty") = Some(ch);
     }
 }
@@ -200,7 +200,7 @@ where
                 }
                 (Some('\r'), _) => {
                     // MAC EOL into \n
-                    self.window.swap('\n');
+                    self.window.swap_first('\n');
                 }
                 _ => break,
             }
