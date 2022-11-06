@@ -17,19 +17,6 @@ use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 
-#[inline]
-pub fn make_tokenizer(source: &str) -> impl Iterator<Item = LexResult> + '_ {
-    make_tokenizer_located(source, Location::new(0, 0))
-}
-
-pub fn make_tokenizer_located(
-    source: &str,
-    start_location: Location,
-) -> impl Iterator<Item = LexResult> + '_ {
-    let nlh = NewlineHandler::new(source.chars());
-    Lexer::new(nlh, start_location)
-}
-
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 struct IndentationLevel {
     tabs: usize,
@@ -160,6 +147,19 @@ pub static KEYWORDS: phf::Map<&'static str, Tok> =
 
 pub type Spanned = (Location, Tok, Location);
 pub type LexResult = Result<Spanned, LexicalError>;
+
+#[inline]
+pub fn make_tokenizer(source: &str) -> impl Iterator<Item = LexResult> + '_ {
+    make_tokenizer_located(source, Location::new(0, 0))
+}
+
+pub fn make_tokenizer_located(
+    source: &str,
+    start_location: Location,
+) -> impl Iterator<Item = LexResult> + '_ {
+    let nlh = NewlineHandler::new(source.chars());
+    Lexer::new(nlh, start_location)
+}
 
 // The newline handler is an iterator which collapses different newline
 // types into \n always.
