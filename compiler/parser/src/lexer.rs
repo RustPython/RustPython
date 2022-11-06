@@ -11,7 +11,7 @@ use num_traits::identities::Zero;
 use num_traits::Num;
 use std::char;
 use std::cmp::Ordering;
-use std::ops::{Index, IndexMut};
+use std::ops::Index;
 use std::slice::SliceIndex;
 use std::str::FromStr;
 use unic_emoji_char::is_emoji_presentation;
@@ -101,6 +101,10 @@ impl<const N: usize> CharWindow<N> {
         self.0.rotate_left(1);
         *self.0.last_mut().expect("never empty") = next_char;
     }
+
+    fn swap(&mut self, ch: char) {
+        *self.0.first_mut().expect("never empty") = Some(ch);
+    }
 }
 
 impl<const N: usize> Default for CharWindow<N> {
@@ -117,15 +121,6 @@ where
 
     fn index(&self, index: Idx) -> &Self::Output {
         self.0.index(index)
-    }
-}
-
-impl<const N: usize, Idx> IndexMut<Idx> for CharWindow<N>
-where
-    Idx: SliceIndex<[Option<char>], Output = Option<char>>,
-{
-    fn index_mut(&mut self, index: Idx) -> &mut Self::Output {
-        self.0.index_mut(index)
     }
 }
 
@@ -205,7 +200,7 @@ where
                 }
                 (Some('\r'), _) => {
                     // MAC EOL into \n
-                    self.window[0] = Some('\n');
+                    self.window.swap('\n');
                 }
                 _ => break,
             }
