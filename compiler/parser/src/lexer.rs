@@ -111,11 +111,8 @@ struct CharWindow<const N: usize>([Option<char>; N]);
 
 impl<const N: usize> CharWindow<N> {
     fn slide(&mut self, next_char: Option<char>) {
-        let len = self.0.len();
-        for i in 0..(len - 1) {
-            self[i] = self[i + 1];
-        }
-        self[len - 1] = next_char;
+        self.0.rotate_left(1);
+        *self.0.last_mut().expect("never empty") = next_char;
     }
 }
 
