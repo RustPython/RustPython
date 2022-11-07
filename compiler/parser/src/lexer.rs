@@ -110,14 +110,18 @@ where
         }
     }
 
-    fn slide(&mut self) {
+    fn slide(&mut self) -> Option<char> {
         self.window.rotate_left(1);
-        *self.window.last_mut().expect("never empty") = self.source.next();
+        let next = self.source.next();
+        *self.window.last_mut().expect("never empty") = next;
+        next
     }
 
     fn fill(&mut self) {
         while self.window[0] == None {
-            self.slide();
+            if self.slide() == None {
+                return;
+            }
         }
     }
 
