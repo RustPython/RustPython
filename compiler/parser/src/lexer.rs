@@ -118,8 +118,8 @@ where
     }
 
     fn fill(&mut self) {
-        while self.window[0] == None {
-            if self.slide() == None {
+        while self.window[0].is_none() {
+            if self.slide().is_none() {
                 return;
             }
         }
