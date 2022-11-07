@@ -117,14 +117,6 @@ where
         next
     }
 
-    fn fill(&mut self) {
-        while self.window[0].is_none() {
-            if self.slide().is_none() {
-                return;
-            }
-        }
-    }
-
     fn change_first(&mut self, ch: char) {
         *self.window.first_mut().expect("never empty") = Some(ch);
     }
@@ -241,7 +233,9 @@ where
             location: start,
             window: CharWindow::new(input),
         };
-        lxr.window.fill();
+        lxr.window.slide();
+        lxr.window.slide();
+        lxr.window.slide();
         // Start at top row (=1) left column (=1)
         lxr.location.reset();
         lxr
