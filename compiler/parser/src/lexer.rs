@@ -94,39 +94,52 @@ impl Default for Indentations {
     }
 }
 
-struct CharWindow<const N: usize>([Option<char>; N]);
-
-impl<const N: usize> CharWindow<N> {
-    fn slide(&mut self, next_char: Option<char>) {
-        self.0.rotate_left(1);
-        *self.0.last_mut().expect("never empty") = next_char;
-    }
-
-    fn swap_first(&mut self, ch: char) {
-        *self.0.first_mut().expect("never empty") = Some(ch);
-    }
+struct CharWindow<T: Iterator<Item = char>, const N: usize> {
+    source: T,
+    window: [Option<char>; N],
 }
 
-impl<const N: usize> Default for CharWindow<N> {
-    fn default() -> Self {
-        Self([None; N])
-    }
-}
-
-impl<const N: usize, Idx> Index<Idx> for CharWindow<N>
+impl<T, const N: usize> CharWindow<T, N>
 where
+    T: Iterator<Item = char>,
+{
+    fn new(source: T) -> Self {
+        Self {
+            source,
+            window: [None; N],
+        }
+    }
+
+    fn slide(&mut self) {
+        self.window.rotate_left(1);
+        *self.window.last_mut().expect("never empty") = self.source.next();
+    }
+
+    fn fill(&mut self) {
+        while self.window[0] == None {
+            self.slide();
+        }
+    }
+
+    fn change_first(&mut self, ch: char) {
+        *self.window.first_mut().expect("never empty") = Some(ch);
+    }
+}
+
+impl<T, const N: usize, Idx> Index<Idx> for CharWindow<T, N>
+where
+    T: Iterator<Item = char>,
     Idx: SliceIndex<[Option<char>], Output = Option<char>>,
 {
     type Output = Option<char>;
 
     fn index(&self, index: Idx) -> &Self::Output {
-        self.0.index(index)
+        self.window.index(index)
     }
 }
 
 pub struct Lexer<T: Iterator<Item = char>> {
-    chars: T,
-    window: CharWindow<3>,
+    window: CharWindow<T, 3>,
 
     at_begin_of_line: bool,
     nesting: usize, // Amount of parenthesis
@@ -159,8 +172,7 @@ pub fn make_tokenizer_located(
 // The newline handler is an iterator which collapses different newline
 // types into \n always.
 pub struct NewlineHandler<T: Iterator<Item = char>> {
-    source: T,
-    window: CharWindow<2>,
+    window: CharWindow<T, 2>,
 }
 
 impl<T> NewlineHandler<T>
@@ -169,8 +181,7 @@ where
 {
     pub fn new(source: T) -> Self {
         let mut nlh = NewlineHandler {
-            source,
-            window: CharWindow::default(),
+            window: CharWindow::new(source),
         };
         nlh.shift();
         nlh.shift();
@@ -179,7 +190,7 @@ where
 
     fn shift(&mut self) -> Option<char> {
         let result = self.window[0];
-        self.window.slide(self.source.next());
+        self.window.slide();
         result
     }
 }
@@ -200,7 +211,7 @@ where
                 }
                 (Some('\r'), _) => {
                     // MAC EOL into \n
-                    self.window.swap_first('\n');
+                    self.window.change_first('\n');
                 }
                 _ => break,
             }
@@ -219,17 +230,14 @@ where
 {
     pub fn new(input: T, start: Location) -> Self {
         let mut lxr = Lexer {
-            chars: input,
             at_begin_of_line: true,
             nesting: 0,
             indentations: Indentations::default(),
             pending: Vec::new(),
             location: start,
-            window: CharWindow::default(),
+            window: CharWindow::new(input),
         };
-        lxr.next_char();
-        lxr.next_char();
-        lxr.next_char();
+        lxr.window.fill();
         // Start at top row (=1) left column (=1)
         lxr.location.reset();
         lxr
@@ -1293,8 +1301,7 @@ where
     /// Helper function to go to the next character coming up.
     fn next_char(&mut self) -> Option<char> {
         let c = self.window[0];
-        let nxt = self.chars.next();
-        self.window.slide(nxt);
+        self.window.slide();
         if c == Some('\n') {
             self.location.newline();
         } else {
