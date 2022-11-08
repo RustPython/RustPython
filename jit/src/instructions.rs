@@ -8,6 +8,12 @@ use std::collections::HashMap;
 
 use super::{JitCompileError, JitSig, JitType};
 
+#[repr(u16)]
+enum CustomTrapCode {
+    /// Raised when shifting by a negative number
+    NegativeShiftCount = 0,
+}
+
 #[derive(Clone)]
 struct Local {
     var: Variable,
@@ -340,64 +346,75 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                match (a.ty, b.ty) {
-                    (JitType::Int, JitType::Int) => match op {
-                        BinaryOperator::Add => {
-                            let (out, carry) = self.builder.ins().iadd_ifcout(a.val, b.val);
-                            self.builder.ins().trapif(
-                                IntCC::Overflow,
-                                carry,
-                                TrapCode::IntegerOverflow,
-                            );
-                            self.stack.push(JitValue {
-                                val: out,
-                                ty: JitType::Int,
-                            });
-                            Ok(())
-                        }
-                        BinaryOperator::Subtract => {
-                            let out = self.compile_sub(a.val, b.val);
-                            self.stack.push(JitValue {
-                                val: out,
-                                ty: JitType::Int,
-                            });
-                            Ok(())
-                        }
-                        _ => Err(JitCompileError::NotSupported),
-                    },
-                    (JitType::Float, JitType::Float) => match op {
-                        BinaryOperator::Add => {
-                            self.stack.push(JitValue {
-                                val: self.builder.ins().fadd(a.val, b.val),
-                                ty: JitType::Float,
-                            });
-                            Ok(())
-                        }
-                        BinaryOperator::Subtract => {
-                            self.stack.push(JitValue {
-                                val: self.builder.ins().fsub(a.val, b.val),
-                                ty: JitType::Float,
-                            });
-                            Ok(())
-                        }
-                        BinaryOperator::Multiply => {
-                            self.stack.push(JitValue {
-                                val: self.builder.ins().fmul(a.val, b.val),
-                                ty: JitType::Float,
-                            });
-                            Ok(())
-                        }
-                        BinaryOperator::Divide => {
-                            self.stack.push(JitValue {
-                                val: self.builder.ins().fdiv(a.val, b.val),
-                                ty: JitType::Float,
-                            });
-                            Ok(())
-                        }
-                        _ => Err(JitCompileError::NotSupported),
-                    },
-                    _ => Err(JitCompileError::NotSupported),
-                }
+                let (val, ty) = match (op, a.ty, b.ty) {
+                    (BinaryOperator::Add, JitType::Int, JitType::Int) => {
+                        let (out, carry) = self.builder.ins().iadd_ifcout(a.val, b.val);
+                        self.builder.ins().trapif(
+                            IntCC::Overflow,
+                            carry,
+                            TrapCode::IntegerOverflow,
+                        );
+                        (out, JitType::Int)
+                    }
+                    (BinaryOperator::Subtract, JitType::Int, JitType::Int) => {
+                        (self.compile_sub(a.val, b.val), JitType::Int)
+                    }
+                    (BinaryOperator::FloorDivide, JitType::Int, JitType::Int) => {
+                        (self.builder.ins().sdiv(a.val, b.val), JitType::Int)
+                    }
+                    (BinaryOperator::Modulo, JitType::Int, JitType::Int) => {
+                        (self.builder.ins().srem(a.val, b.val), JitType::Int)
+                    }
+                    (
+                        BinaryOperator::Lshift | BinaryOperator::Rshift,
+                        JitType::Int,
+                        JitType::Int,
+                    ) => {
+                        // Shifts throw an exception if we have a negative shift count
+                        // Remove all bits except the sign bit, and trap if its 1 (i.e. negative).
+                        let sign = self.builder.ins().ushr_imm(b.val, 63);
+                        self.builder.ins().trapnz(
+                            sign,
+                            TrapCode::User(CustomTrapCode::NegativeShiftCount as u16),
+                        );
+
+                        let out = if *op == BinaryOperator::Lshift {
+                            self.builder.ins().ishl(a.val, b.val)
+                        } else {
+                            self.builder.ins().sshr(a.val, b.val)
+                        };
+
+                        (out, JitType::Int)
+                    }
+                    (BinaryOperator::And, JitType::Int, JitType::Int) => {
+                        (self.builder.ins().band(a.val, b.val), JitType::Int)
+                    }
+                    (BinaryOperator::Or, JitType::Int, JitType::Int) => {
+                        (self.builder.ins().bor(a.val, b.val), JitType::Int)
+                    }
+                    (BinaryOperator::Xor, JitType::Int, JitType::Int) => {
+                        (self.builder.ins().bxor(a.val, b.val), JitType::Int)
+                    }
+
+                    // Floats
+                    (BinaryOperator::Add, JitType::Float, JitType::Float) => {
+                        (self.builder.ins().fadd(a.val, b.val), JitType::Float)
+                    }
+                    (BinaryOperator::Subtract, JitType::Float, JitType::Float) => {
+                        (self.builder.ins().fsub(a.val, b.val), JitType::Float)
+                    }
+                    (BinaryOperator::Multiply, JitType::Float, JitType::Float) => {
+                        (self.builder.ins().fmul(a.val, b.val), JitType::Float)
+                    }
+                    (BinaryOperator::Divide, JitType::Float, JitType::Float) => {
+                        (self.builder.ins().fdiv(a.val, b.val), JitType::Float)
+                    }
+                    _ => return Err(JitCompileError::NotSupported),
+                };
+
+                self.stack.push(JitValue { val, ty });
+
+                Ok(())
             }
             Instruction::SetupLoop { .. } | Instruction::PopBlock => {
                 // TODO: block support
