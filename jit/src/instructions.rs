@@ -21,14 +21,33 @@ struct Local {
 }
 
 #[derive(Debug)]
-struct JitValue {
-    val: Value,
-    ty: JitType,
+enum JitValue {
+    Int(Value),
+    Float(Value),
+    Bool(Value),
 }
 
 impl JitValue {
-    fn new(val: Value, ty: JitType) -> JitValue {
-        JitValue { val, ty }
+    fn from_type_and_value(ty: JitType, val: Value) -> JitValue {
+        match ty {
+            JitType::Int => JitValue::Int(val),
+            JitType::Float => JitValue::Float(val),
+            JitType::Bool => JitValue::Bool(val),
+        }
+    }
+
+    fn to_jit_type(&self) -> Option<JitType> {
+        match self {
+            JitValue::Int(_) => Some(JitType::Int),
+            JitValue::Float(_) => Some(JitType::Float),
+            JitValue::Bool(_) => Some(JitType::Bool),
+        }
+    }
+
+    fn into_value(self) -> Option<Value> {
+        match self {
+            JitValue::Int(val) | JitValue::Float(val) | JitValue::Bool(val) => Some(val),
+        }
     }
 }
 
@@ -60,7 +79,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
         for (i, (ty, val)) in arg_types.iter().zip(params).enumerate() {
             compiler
-                .store_variable(i as u32, JitValue::new(val, ty.clone()))
+                .store_variable(i as u32, JitValue::from_type_and_value(ty.clone(), val))
                 .unwrap();
         }
         compiler
@@ -72,36 +91,37 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         val: JitValue,
     ) -> Result<(), JitCompileError> {
         let builder = &mut self.builder;
+        let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
         let local = self.variables[idx as usize].get_or_insert_with(|| {
             let var = Variable::new(idx as usize);
             let local = Local {
                 var,
-                ty: val.ty.clone(),
+                ty: ty.clone(),
             };
-            builder.declare_var(var, val.ty.to_cranelift());
+            builder.declare_var(var, ty.to_cranelift());
             local
         });
-        if val.ty != local.ty {
+        if ty != local.ty {
             Err(JitCompileError::NotSupported)
         } else {
-            self.builder.def_var(local.var, val.val);
+            self.builder.def_var(local.var, val.into_value().unwrap());
             Ok(())
         }
     }
 
     fn boolean_val(&mut self, val: JitValue) -> Result<Value, JitCompileError> {
-        match val.ty {
-            JitType::Float => {
+        match val {
+            JitValue::Float(val) => {
                 let zero = self.builder.ins().f64const(0);
-                let val = self.builder.ins().fcmp(FloatCC::NotEqual, val.val, zero);
+                let val = self.builder.ins().fcmp(FloatCC::NotEqual, val, zero);
                 Ok(self.builder.ins().bint(types::I8, val))
             }
-            JitType::Int => {
+            JitValue::Int(val) => {
                 let zero = self.builder.ins().iconst(types::I64, 0);
-                let val = self.builder.ins().icmp(IntCC::NotEqual, val.val, zero);
+                let val = self.builder.ins().icmp(IntCC::NotEqual, val, zero);
                 Ok(self.builder.ins().bint(types::I8, val))
             }
-            JitType::Bool => Ok(val.val),
+            JitValue::Bool(val) => Ok(val),
         }
     }
 
@@ -160,26 +180,17 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     types::I64,
                     value.to_i64().ok_or(JitCompileError::NotSupported)?,
                 );
-                self.stack.push(JitValue {
-                    val,
-                    ty: JitType::Int,
-                });
+                self.stack.push(JitValue::Int(val));
                 Ok(())
             }
             BorrowedConstant::Float { value } => {
                 let val = self.builder.ins().f64const(value);
-                self.stack.push(JitValue {
-                    val,
-                    ty: JitType::Float,
-                });
+                self.stack.push(JitValue::Float(val));
                 Ok(())
             }
             BorrowedConstant::Boolean { value } => {
                 let val = self.builder.ins().iconst(types::I8, value as i64);
-                self.stack.push(JitValue {
-                    val,
-                    ty: JitType::Bool,
-                });
+                self.stack.push(JitValue::Bool(val));
                 Ok(())
             }
             _ => Err(JitCompileError::NotSupported),
@@ -228,10 +239,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let local = self.variables[*idx as usize]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
-                self.stack.push(JitValue {
-                    val: self.builder.use_var(local.var),
-                    ty: local.ty.clone(),
-                });
+                self.stack.push(JitValue::from_type_and_value(
+                    local.ty.clone(),
+                    self.builder.use_var(local.var),
+                ));
                 Ok(())
             }
             Instruction::StoreFast(idx) => {
@@ -244,18 +255,19 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 if let Some(ref ty) = self.sig.ret {
-                    if val.ty != *ty {
+                    if val.to_jit_type().as_ref() != Some(ty) {
                         return Err(JitCompileError::NotSupported);
                     }
                 } else {
-                    self.sig.ret = Some(val.ty.clone());
+                    let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+                    self.sig.ret = Some(ty.clone());
                     self.builder
                         .func
                         .signature
                         .returns
-                        .push(AbiParam::new(val.ty.to_cranelift()));
+                        .push(AbiParam::new(ty.to_cranelift()));
                 }
-                self.builder.ins().return_(&[val.val]);
+                self.builder.ins().return_(&[val.into_value().unwrap()]);
                 Ok(())
             }
             Instruction::CompareOperation { op, .. } => {
@@ -263,8 +275,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
-                match (a.ty, b.ty) {
-                    (JitType::Int, JitType::Int) => {
+                match (a, b) {
+                    (JitValue::Int(a), JitValue::Int(b)) => {
                         let cond = match op {
                             ComparisonOperator::Equal => IntCC::Equal,
                             ComparisonOperator::NotEqual => IntCC::NotEqual,
@@ -274,16 +286,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             ComparisonOperator::GreaterOrEqual => IntCC::SignedLessThanOrEqual,
                         };
 
-                        let val = self.builder.ins().icmp(cond, a.val, b.val);
-                        self.stack.push(JitValue {
-                            // TODO: Remove this `bint` in cranelift 0.90 as icmp now returns i8
-                            val: self.builder.ins().bint(types::I8, val),
-                            ty: JitType::Bool,
-                        });
-
+                        let val = self.builder.ins().icmp(cond, a, b);
+                        // TODO: Remove this `bint` in cranelift 0.90 as icmp now returns i8
+                        self.stack
+                            .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
                         Ok(())
                     }
-                    (JitType::Float, JitType::Float) => {
+                    (JitValue::Float(a), JitValue::Float(b)) => {
                         let cond = match op {
                             ComparisonOperator::Equal => FloatCC::Equal,
                             ComparisonOperator::NotEqual => FloatCC::NotEqual,
@@ -293,13 +302,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             ComparisonOperator::GreaterOrEqual => FloatCC::GreaterThanOrEqual,
                         };
 
-                        let val = self.builder.ins().fcmp(cond, a.val, b.val);
-                        self.stack.push(JitValue {
-                            // TODO: Remove this `bint` in cranelift 0.90 as fcmp now returns i8
-                            val: self.builder.ins().bint(types::I8, val),
-                            ty: JitType::Bool,
-                        });
-
+                        let val = self.builder.ins().fcmp(cond, a, b);
+                        // TODO: Remove this `bint` in cranelift 0.90 as fcmp now returns i8
+                        self.stack
+                            .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
                         Ok(())
                     }
                     _ => Err(JitCompileError::NotSupported),
@@ -308,16 +314,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::UnaryOperation { op, .. } => {
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
-                match a.ty {
-                    JitType::Int => match op {
+                match a {
+                    JitValue::Int(val) => match op {
                         UnaryOperator::Minus => {
                             // Compile minus as 0 - a.
                             let zero = self.builder.ins().iconst(types::I64, 0);
-                            let out = self.compile_sub(zero, a.val);
-                            self.stack.push(JitValue {
-                                val: out,
-                                ty: JitType::Int,
-                            });
+                            let out = self.compile_sub(zero, val);
+                            self.stack.push(JitValue::Int(out));
                             Ok(())
                         }
                         UnaryOperator::Plus => {
@@ -327,14 +330,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         }
                         _ => Err(JitCompileError::NotSupported),
                     },
-                    JitType::Bool => match op {
+                    JitValue::Bool(val) => match op {
                         UnaryOperator::Not => {
-                            let val = self.boolean_val(a)?;
                             let not_val = self.builder.ins().bxor_imm(val, 1);
-                            self.stack.push(JitValue {
-                                val: not_val,
-                                ty: JitType::Bool,
-                            });
+                            self.stack.push(JitValue::Bool(not_val));
                             Ok(())
                         }
                         _ => Err(JitCompileError::NotSupported),
@@ -346,73 +345,71 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                let (val, ty) = match (op, a.ty, b.ty) {
-                    (BinaryOperator::Add, JitType::Int, JitType::Int) => {
-                        let (out, carry) = self.builder.ins().iadd_ifcout(a.val, b.val);
+                let val = match (op, a, b) {
+                    (BinaryOperator::Add, JitValue::Int(a), JitValue::Int(b)) => {
+                        let (out, carry) = self.builder.ins().iadd_ifcout(a, b);
                         self.builder.ins().trapif(
                             IntCC::Overflow,
                             carry,
                             TrapCode::IntegerOverflow,
                         );
-                        (out, JitType::Int)
+                        JitValue::Int(out)
                     }
-                    (BinaryOperator::Subtract, JitType::Int, JitType::Int) => {
-                        (self.compile_sub(a.val, b.val), JitType::Int)
+                    (BinaryOperator::Subtract, JitValue::Int(a), JitValue::Int(b)) => {
+                        JitValue::Int(self.compile_sub(a, b))
                     }
-                    (BinaryOperator::FloorDivide, JitType::Int, JitType::Int) => {
-                        (self.builder.ins().sdiv(a.val, b.val), JitType::Int)
+                    (BinaryOperator::FloorDivide, JitValue::Int(a), JitValue::Int(b)) => {
+                        JitValue::Int(self.builder.ins().sdiv(a, b))
                     }
-                    (BinaryOperator::Modulo, JitType::Int, JitType::Int) => {
-                        (self.builder.ins().srem(a.val, b.val), JitType::Int)
+                    (BinaryOperator::Modulo, JitValue::Int(a), JitValue::Int(b)) => {
+                        JitValue::Int(self.builder.ins().srem(a, b))
                     }
                     (
                         BinaryOperator::Lshift | BinaryOperator::Rshift,
-                        JitType::Int,
-                        JitType::Int,
+                        JitValue::Int(a),
+                        JitValue::Int(b),
                     ) => {
                         // Shifts throw an exception if we have a negative shift count
                         // Remove all bits except the sign bit, and trap if its 1 (i.e. negative).
-                        let sign = self.builder.ins().ushr_imm(b.val, 63);
+                        let sign = self.builder.ins().ushr_imm(b, 63);
                         self.builder.ins().trapnz(
                             sign,
                             TrapCode::User(CustomTrapCode::NegativeShiftCount as u16),
                         );
 
                         let out = if *op == BinaryOperator::Lshift {
-                            self.builder.ins().ishl(a.val, b.val)
+                            self.builder.ins().ishl(a, b)
                         } else {
-                            self.builder.ins().sshr(a.val, b.val)
+                            self.builder.ins().sshr(a, b)
                         };
-
-                        (out, JitType::Int)
+                        JitValue::Int(out)
                     }
-                    (BinaryOperator::And, JitType::Int, JitType::Int) => {
-                        (self.builder.ins().band(a.val, b.val), JitType::Int)
+                    (BinaryOperator::And, JitValue::Int(a), JitValue::Int(b)) => {
+                        JitValue::Int(self.builder.ins().band(a, b))
                     }
-                    (BinaryOperator::Or, JitType::Int, JitType::Int) => {
-                        (self.builder.ins().bor(a.val, b.val), JitType::Int)
+                    (BinaryOperator::Or, JitValue::Int(a), JitValue::Int(b)) => {
+                        JitValue::Int(self.builder.ins().bor(a, b))
                     }
-                    (BinaryOperator::Xor, JitType::Int, JitType::Int) => {
-                        (self.builder.ins().bxor(a.val, b.val), JitType::Int)
+                    (BinaryOperator::Xor, JitValue::Int(a), JitValue::Int(b)) => {
+                        JitValue::Int(self.builder.ins().bxor(a, b))
                     }
 
                     // Floats
-                    (BinaryOperator::Add, JitType::Float, JitType::Float) => {
-                        (self.builder.ins().fadd(a.val, b.val), JitType::Float)
+                    (BinaryOperator::Add, JitValue::Float(a), JitValue::Float(b)) => {
+                        JitValue::Float(self.builder.ins().fadd(a, b))
                     }
-                    (BinaryOperator::Subtract, JitType::Float, JitType::Float) => {
-                        (self.builder.ins().fsub(a.val, b.val), JitType::Float)
+                    (BinaryOperator::Subtract, JitValue::Float(a), JitValue::Float(b)) => {
+                        JitValue::Float(self.builder.ins().fsub(a, b))
                     }
-                    (BinaryOperator::Multiply, JitType::Float, JitType::Float) => {
-                        (self.builder.ins().fmul(a.val, b.val), JitType::Float)
+                    (BinaryOperator::Multiply, JitValue::Float(a), JitValue::Float(b)) => {
+                        JitValue::Float(self.builder.ins().fmul(a, b))
                     }
-                    (BinaryOperator::Divide, JitType::Float, JitType::Float) => {
-                        (self.builder.ins().fdiv(a.val, b.val), JitType::Float)
+                    (BinaryOperator::Divide, JitValue::Float(a), JitValue::Float(b)) => {
+                        JitValue::Float(self.builder.ins().fdiv(a, b))
                     }
                     _ => return Err(JitCompileError::NotSupported),
                 };
-
-                self.stack.push(JitValue { val, ty });
+                self.stack.push(val);
 
                 Ok(())
             }
