@@ -33,9 +33,7 @@ mod _scproxy {
 
     #[pyfunction]
     fn _get_proxy_settings(vm: &VirtualMachine) -> PyResult<Option<PyDictRef>> {
-        let proxy_dict = if let Some(p) = proxy_dict() {
-            p
-        } else {
+        let Some(proxy_dict) = proxy_dict() else {
             return Ok(None);
         };
 
@@ -73,9 +71,7 @@ mod _scproxy {
 
     #[pyfunction]
     fn _get_proxies(vm: &VirtualMachine) -> PyResult<Option<PyDictRef>> {
-        let proxy_dict = if let Some(p) = proxy_dict() {
-            p
-        } else {
+        let Some(proxy_dict) = proxy_dict() else {
             return Ok(None);
         };
 

@@ -243,9 +243,7 @@ impl PyNumber<'_> {
 
     // PyNumber_Check
     pub fn check(obj: &PyObject) -> bool {
-        let methods = if let Some(m) = Self::find_methods(obj) {
-            m
-        } else {
+        let Some(methods) = Self::find_methods(obj) else {
             return false;
         };
         let methods = methods.as_ref();

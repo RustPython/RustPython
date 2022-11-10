@@ -959,9 +959,7 @@ impl GetAttr for PyType {
             ))
         }
 
-        let name = if let Some(name) = vm.ctx.interned_str(&*name_str) {
-            name
-        } else {
+        let Some(name) = vm.ctx.interned_str(&*name_str) else {
             return Err(attribute_error(zelf, name_str.as_str(), vm));
         };
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);

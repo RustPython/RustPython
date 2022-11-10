@@ -110,9 +110,7 @@ mod decl {
     impl IterNextIterable for PyItertoolsChain {}
     impl IterNext for PyItertoolsChain {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let source = if let Some(source) = zelf.source.read().clone() {
-                source
-            } else {
+            let Some(source) = zelf.source.read().clone() else {
                 return Ok(PyIterReturn::StopIteration(None));
             };
             let next = loop {

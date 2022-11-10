@@ -586,9 +586,7 @@ impl<T: Clone> Dict<T> {
         pred: impl Fn(&T) -> Result<bool, E>,
     ) -> Result<PopInnerResult<T>, E> {
         let (entry_index, index_index) = lookup;
-        let entry_index = if let Some(entry_index) = entry_index.index() {
-            entry_index
-        } else {
+        let Some(entry_index) = entry_index.index() else {
             return Ok(ControlFlow::Break(None));
         };
         let inner = &mut *self.write();
