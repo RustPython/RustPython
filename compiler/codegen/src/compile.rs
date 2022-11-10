@@ -1412,9 +1412,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         let with_location = self.current_source_location;
 
-        let (item, items) = if let Some(parts) = items.split_first() {
-            parts
-        } else {
+        let Some((item, items)) = items.split_first() else {
             return Err(self.error(CodegenErrorType::EmptyWithItems));
         };
 

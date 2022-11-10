@@ -392,13 +392,12 @@ impl PyFunction {
     fn set_qualname(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                if let Ok(qualname) = value.downcast::<PyStr>() {
-                    *self.qualname.lock() = qualname;
-                } else {
+                let Ok(qualname) = value.downcast::<PyStr>() else {
                     return Err(vm.new_type_error(
                         "__qualname__ must be set to a string object".to_string(),
                     ));
-                }
+                };
+                *self.qualname.lock() = qualname;
             }
             PySetterValue::Delete => {
                 return Err(
