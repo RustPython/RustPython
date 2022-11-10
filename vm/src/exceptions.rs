@@ -524,9 +524,9 @@ impl PyBaseException {
     #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
         if let Some(dict) = zelf.as_object().dict().filter(|x| !x.is_empty()) {
-            return vm.new_tuple((zelf.class().to_owned(), zelf.args(), dict));
+            vm.new_tuple((zelf.class().to_owned(), zelf.args(), dict))
         } else {
-            return vm.new_tuple((zelf.class().to_owned(), zelf.args()));
+            vm.new_tuple((zelf.class().to_owned(), zelf.args()))
         }
     }
 }
