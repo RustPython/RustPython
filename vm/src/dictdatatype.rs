@@ -248,9 +248,17 @@ impl<T: Clone> Dict<T> {
             if let Some(index) = entry_index.index() {
                 // Update existing key
                 if let Some(entry) = inner.entries.get_mut(index) {
-                    let entry = entry
-                        .as_mut()
-                        .expect("The dict was changed since we did lookup.");
+                    let entry = if let Some(entry) = entry.as_mut() {
+                        entry
+                    } else {
+                        // The dict was changed since we did lookup. Let's try again.
+                        // this is very rare to happen
+                        // (and seems only happen with very high freq gc, and about three to four time in 200000 iters)
+                        // but still possible
+                        // so logging a warn is acceptable in here
+                        warn!("The dict was changed since we did lookup. Let's try again.");
+                        continue;
+                    };
                     if entry.index == index_index {
                         let removed = std::mem::replace(&mut entry.value, value);
                         // defer dec RC
