@@ -253,10 +253,8 @@ impl<T: Clone> Dict<T> {
                     } else {
                         // The dict was changed since we did lookup. Let's try again.
                         // this is very rare to happen
-                        // (and seems only happen with very high freq gc, and about three to four time in 200000 iters)
+                        // (and seems only happen with very high freq gc, and about one time in 10000 iters)
                         // but still possible
-                        // so logging a warn is acceptable in here
-                        warn!("The dict was changed since we did lookup. Let's try again.");
                         continue;
                     };
                     if entry.index == index_index {
