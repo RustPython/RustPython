@@ -248,9 +248,7 @@ impl<T: Clone> Dict<T> {
             if let Some(index) = entry_index.index() {
                 // Update existing key
                 if let Some(entry) = inner.entries.get_mut(index) {
-                    let entry = if let Some(entry) = entry.as_mut() {
-                        entry
-                    } else {
+                    let Some(entry) = entry.as_mut() else {
                         // The dict was changed since we did lookup. Let's try again.
                         // this is very rare to happen
                         // (and seems only happen with very high freq gc, and about one time in 10000 iters)
