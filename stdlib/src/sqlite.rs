@@ -22,7 +22,8 @@ mod _sqlite {
         object::PyObjectPayload,
         stdlib::os::PyPathLike,
         types::Constructor,
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,PyAtomicRef,PyObject
+        PyAtomicRef, PyObject, PyObjectAtomicRef, PyObjectRef, PyPayload, PyRef, PyResult,
+        VirtualMachine,
     };
     use sqlite3_sys::{
         sqlite3, sqlite3_complete, sqlite3_libversion, sqlite3_open_v2, sqlite3_threadsafe,
@@ -284,7 +285,7 @@ mod _sqlite {
                 isolation_level,
                 check_same_thread: args.check_same_thread,
                 thread_ident: crate::vm::stdlib::thread::get_ident(),
-                row_factory: vm.ctx.none()
+                row_factory: vm.ctx.none(),
             })
         }
 
@@ -296,12 +297,19 @@ mod _sqlite {
         ) -> PyResult<PyRef<Cursor>> {
             let cursor = if let OptionalArg::Present(factory) = factory {
                 let cursor = factory.invoke((zelf.clone(),), vm)?;
-                if let Some(cursor) = cursor.payload::<Cursor>() {
-                    // if zelf
+                let cursor = cursor.downcast::<Cursor>().map_err(|x| {
+                    vm.new_type_error(format!("factory must return a cursor, not {}", x.class()))
+                })?;
+                if !vm.is_none(&zelf.row_factory) {
+                    cursor
+                        .row_factory
+                        .swap_to_temporary_refs(zelf.row_factory.clone(), vm);
                 }
+                cursor
             } else {
-                Cursor::py_new(Cursor::class(vm).to_owned(), (zelf.clone(),), vm)?
+                Cursor::new(zelf.clone(), zelf.row_factory.clone(), vm).into_ref(vm)
             };
+            Ok(cursor)
         }
     }
 
@@ -315,7 +323,7 @@ mod _sqlite {
         arraysize: i32,
         lastrowid: PyObjectRef,
         rowcount: i64,
-        row_factory: PyAtomicRef<PyObject>,
+        row_factory: PyObjectAtomicRef,
         // statement: PyRef<Statement>,
         closed: bool,
         // locked: bool,
@@ -324,8 +332,11 @@ mod _sqlite {
 
     #[pyclass(with(Constructor))]
     impl Cursor {
-        fn new(connection: PyRef<Connection>, row_factory: PyObjectRef, vm: &VirtualMachine) -> Self{
-
+        fn new(
+            connection: PyRef<Connection>,
+            row_factory: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> Self {
             Self {
                 connection,
                 description: vm.ctx.none(),
@@ -333,7 +344,7 @@ mod _sqlite {
                 arraysize: 1,
                 lastrowid: vm.ctx.none(),
                 rowcount: -1,
-                row_factory,
+                row_factory: PyObjectAtomicRef::from(row_factory),
                 closed: false,
             }
         }
@@ -343,9 +354,9 @@ mod _sqlite {
         type Args = (PyRef<Connection>,);
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::new(args.0, vm.ctx.none())
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            Self::new(args.0, vm.ctx.none(), vm)
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 
