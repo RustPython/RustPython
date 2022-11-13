@@ -187,3 +187,15 @@ fn test_plus() {
     assert_eq!(plus(-3), Ok(-3));
     assert_eq!(plus(0), Ok(0));
 }
+
+#[test]
+fn test_not() {
+    let not_ = jit_function! { not_(a: i64) -> bool => r##"
+        def not_(a: int):
+            return not a
+    "## };
+
+    assert_eq!(not_(0), Ok(true));
+    assert_eq!(not_(1), Ok(false));
+    assert_eq!(not_(-1), Ok(false));
+}

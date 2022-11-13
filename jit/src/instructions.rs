@@ -313,31 +313,25 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::UnaryOperation { op, .. } => {
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-
-                match a {
-                    JitValue::Int(val) => match op {
-                        UnaryOperator::Minus => {
-                            // Compile minus as 0 - a.
-                            let zero = self.builder.ins().iconst(types::I64, 0);
-                            let out = self.compile_sub(zero, val);
-                            self.stack.push(JitValue::Int(out));
-                            Ok(())
-                        }
-                        UnaryOperator::Plus => {
-                            // Nothing to do
-                            self.stack.push(a);
-                            Ok(())
-                        }
-                        _ => Err(JitCompileError::NotSupported),
-                    },
-                    JitValue::Bool(val) => match op {
-                        UnaryOperator::Not => {
-                            let not_val = self.builder.ins().bxor_imm(val, 1);
-                            self.stack.push(JitValue::Bool(not_val));
-                            Ok(())
-                        }
-                        _ => Err(JitCompileError::NotSupported),
-                    },
+                match (op, a) {
+                    (UnaryOperator::Minus, JitValue::Int(val)) => {
+                        // Compile minus as 0 - a.
+                        let zero = self.builder.ins().iconst(types::I64, 0);
+                        let out = self.compile_sub(zero, val);
+                        self.stack.push(JitValue::Int(out));
+                        Ok(())
+                    }
+                    (UnaryOperator::Plus, JitValue::Int(val)) => {
+                        // Nothing to do
+                        self.stack.push(JitValue::Int(val));
+                        Ok(())
+                    }
+                    (UnaryOperator::Not, a) => {
+                        let boolean = self.boolean_val(a)?;
+                        let not_boolean = self.builder.ins().bxor_imm(boolean, 1);
+                        self.stack.push(JitValue::Bool(not_boolean));
+                        Ok(())
+                    }
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
