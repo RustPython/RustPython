@@ -259,6 +259,12 @@ impl<T: PyObjectPayload> PyAtomicRef<T> {
 
 pub struct PyObjectAtomicRef(PyAtomic<*mut PyObject>);
 
+impl std::fmt::Debug for PyObjectAtomicRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.deref().fmt(f)
+    }
+}
+
 impl From<PyObjectRef> for PyObjectAtomicRef {
     fn from(obj: PyObjectRef) -> Self {
         let obj = obj.into_raw();
