@@ -257,6 +257,42 @@ impl<T: PyObjectPayload> PyAtomicRef<T> {
     }
 }
 
+pub struct PyObjectAtomicRef(PyAtomic<*mut PyObject>);
+
+impl From<PyObjectRef> for PyObjectAtomicRef {
+    fn from(obj: PyObjectRef) -> Self {
+        let obj = obj.into_raw();
+        Self(Radium::new(obj as *mut _))
+    }
+}
+
+impl Deref for PyObjectAtomicRef {
+    type Target = PyObject;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.0.load(Ordering::Relaxed) }
+    }
+}
+
+impl PyObjectAtomicRef {
+    /// # Safety
+    /// The caller is responsible to keep the returned reference alive
+    /// until no more reference can be used via PyObjectAtomicRef::deref()
+    #[must_use]
+    pub unsafe fn swap(&self, obj: PyObjectRef) -> PyObjectRef {
+        let obj = obj.into_raw();
+        let old = Radium::swap(&self.0, obj as *mut _, Ordering::AcqRel);
+        PyObjectRef::from_raw(old)
+    }
+
+    pub fn swap_to_temporary_refs(&self, obj: PyObjectRef, vm: &VirtualMachine) {
+        let old = unsafe { self.swap(obj) };
+        if let Some(frame) = vm.current_frame() {
+            frame.temporary_refs.lock().push(old);
+        }
+    }
+}
+
 pub trait AsObject
 where
     Self: Borrow<PyObject>,
