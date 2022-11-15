@@ -1,7 +1,5 @@
 use rustpython_vm::{
-    builtins::PyStr,
-    function::{FuncArgs, KwArgs, PosArgs},
-    pyclass, pymodule, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
+    pyclass, pymodule, PyObject, PyPayload, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
 
@@ -19,19 +17,10 @@ pub fn main() {
 
         let module = vm.import("call_between_rust_and_python", None, 0).unwrap();
         let init_fn = module.get_attr("python_callback", vm).unwrap();
-
         vm.invoke(&init_fn, ()).unwrap();
 
-        let pystr = PyObjectRef::from(PyStr::new_ref(
-            unsafe {
-                PyStr::new_ascii_unchecked(String::from("Rust string sent to python").into_bytes())
-            },
-            vm.as_ref(),
-        ));
-        let take_string_args = FuncArgs::new(PosArgs::new(vec![pystr]), KwArgs::default());
         let take_string_fn = module.get_attr("take_string", vm).unwrap();
-
-        vm.invoke(&take_string_fn, take_string_args).unwrap();
+        vm.invoke(&take_string_fn, (String::from("Rust string sent to python"),)).unwrap();
     })
 }
 
@@ -43,8 +32,8 @@ mod rust_py_module {
     fn rust_function(
         num: i32,
         s: String,
-        python_person: PyObjectRef,
-        vm: &VirtualMachine,
+        python_person: PythonPerson,
+        _vm: &VirtualMachine,
     ) -> PyResult<RustStruct> {
         println!(
             "Calling standalone rust function from python passing args:
@@ -53,7 +42,7 @@ string: {},
 python_person.name: {}",
             num,
             s,
-            python_person.try_into_value::<PythonPerson>(vm).unwrap().name
+            python_person.name
         );
         Ok(RustStruct)
     }
@@ -78,10 +67,8 @@ python_person.name: {}",
     impl TryFromBorrowedObject for PythonPerson {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
             let name = obj
-                .get_attr("name", vm)
-                .unwrap()
-                .try_into_value::<String>(vm)
-                .unwrap();
+                .get_attr("name", vm)?
+                .try_into_value::<String>(vm)?;
             Ok(PythonPerson { name })
         }
     }
