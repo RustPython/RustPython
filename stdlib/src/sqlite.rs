@@ -11,28 +11,74 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         let code = vm.new_pyobj(*code);
         module.set_attr(name, code, vm).unwrap();
     }
+
+    _sqlite::setup_module_exceptions(&module, vm);
+
     module
 }
 
 #[pymodule]
 mod _sqlite {
+    use rustpython_common::static_cell;
+    use rustpython_vm::__exports::paste;
     use rustpython_vm::{
-        builtins::{PyStrRef, PyTypeRef},
-        function::{ArgCallable, OptionalArg},
+        builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef, PyType},
+        convert::IntoObject,
+        function::{ArgCallable, ArgIterable, OptionalArg},
         object::PyObjectPayload,
         stdlib::os::PyPathLike,
         types::Constructor,
         PyAtomicRef, PyObject, PyObjectAtomicRef, PyObjectRef, PyPayload, PyRef, PyResult,
-        VirtualMachine,
+        VirtualMachine,Py
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_complete, sqlite3_libversion, sqlite3_open_v2, sqlite3_threadsafe,
-        SQLITE_OPEN_URI,
+        sqlite3, sqlite3_complete, sqlite3_libversion, sqlite3_open_v2, sqlite3_stmt,
+        sqlite3_threadsafe, SQLITE_OPEN_URI,
     };
     use std::{
         ffi::{CStr, CString},
-        ptr::{addr_of_mut, null, null_mut},
+        ptr::{addr_of_mut, null, null_mut, NonNull},
     };
+
+    macro_rules! exceptions {
+        ($(($x:ident, $base:expr)),*) => {
+            paste::paste! {
+                static_cell! {
+                    $(
+                        static [<$x:snake:upper>]: PyTypeRef;
+                    )*
+                }
+                $(
+                    fn [<new_ $x:snake>](vm: &VirtualMachine) -> PyBaseExceptionRef {
+                        vm.new_exception_empty([<$x:snake _type>]().to_owned())
+                    }
+                    fn [<$x:snake _type>]() -> &'static Py<PyType> {
+                        [<$x:snake:upper>].get().expect("exception type not initialize")
+                    }
+                )*
+                pub fn setup_module_exceptions(module: &PyObject, vm: &VirtualMachine) {
+                    $(
+                        let exception = [<$x:snake:upper>].get_or_init(
+                            || vm.ctx.new_exception_type("_sqlite3", stringify!($x), Some(vec![$base(vm).to_owned()])));
+                        module.set_attr(stringify!($x), exception.clone().into_object(), vm).unwrap();
+                    )*
+                }
+            }
+        };
+    }
+
+    exceptions!(
+        (Warning, |vm: &VirtualMachine| vm.ctx.exceptions.exception_type),
+        (Error, |vm: &VirtualMachine| vm.ctx.exceptions.exception_type),
+        (InterfaceError, |_| error_type()),
+        (DatabaseError, |_| error_type()),
+        (DataError, |_| database_error_type()),
+        (OperationalError, |_| database_error_type()),
+        (IntegrityError, |_| database_error_type()),
+        (InternalError, |_| database_error_type()),
+        (ProgrammingError, |_| database_error_type()),
+        (NotSupportedError, |_| database_error_type())
+    );
 
     #[pyattr]
     fn sqlite_version(_: &VirtualMachine) -> String {
@@ -229,10 +275,10 @@ mod _sqlite {
     }
 
     #[pyfunction]
-    fn complete_statement(statement: PyStrRef) -> bool {
-        let s = CString::new(statement.as_str()).expect("CString::new from PyStrRef failed");
+    fn complete_statement(statement: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let s = CString::new(statement.as_str()).map_err(|_| new_programming_error(vm))?;
         let ret = unsafe { sqlite3_complete(s.as_ptr()) };
-        ret == 1
+        Ok(ret == 1)
     }
 
     #[pyfunction]
@@ -348,6 +394,8 @@ mod _sqlite {
                 closed: false,
             }
         }
+
+        fn execute(&self, sql: PyStrRef, parameters: ArgIterable) {}
     }
 
     impl Constructor for Cursor {
@@ -384,12 +432,25 @@ mod _sqlite {
     #[pyclass()]
     impl PrepareProtocol {}
 
+    struct Statement {
+        st: NonNull<sqlite3_stmt>,
+        is_dml: bool,
+    }
+
+    // impl Statement {
+    //     fn new(sql: &PyStr) -> PyResult<Self> {
+    //         let sql_cstr = CString::new(sql.as_str()).expect()
+    //     }
+    // }
+
     struct Sqlite {
         db: *mut sqlite3,
     }
 
     cfg_if::cfg_if! {
         if #[cfg(feature = "threading")] {
+            unsafe impl Send for Statement {}
+            unsafe impl Sync for Statement {}
             unsafe impl Send for Sqlite {}
             unsafe impl Sync for Sqlite {}
         }
