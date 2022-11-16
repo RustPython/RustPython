@@ -20,20 +20,20 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule]
 mod _sqlite {
     use rustpython_common::static_cell;
-    use rustpython_vm::__exports::paste;
     use rustpython_vm::{
-        builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef, PyType},
+        builtins::{PyBaseExceptionRef, PyStr, PyStrRef, PyType, PyTypeRef},
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, OptionalArg},
         object::PyObjectPayload,
         stdlib::os::PyPathLike,
         types::Constructor,
-        PyAtomicRef, PyObject, PyObjectAtomicRef, PyObjectRef, PyPayload, PyRef, PyResult,
-        VirtualMachine,Py
+        Py, PyAtomicRef, PyObject, PyObjectAtomicRef, PyObjectRef, PyPayload, PyRef, PyResult,
+        VirtualMachine,
+        __exports::paste,
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_complete, sqlite3_libversion, sqlite3_open_v2, sqlite3_stmt,
-        sqlite3_threadsafe, SQLITE_OPEN_URI,
+        sqlite3, sqlite3_complete, sqlite3_libversion, sqlite3_open_v2, sqlite3_prepare_v2,
+        sqlite3_stmt, sqlite3_threadsafe, SQLITE_OPEN_URI,
     };
     use std::{
         ffi::{CStr, CString},
@@ -49,8 +49,8 @@ mod _sqlite {
                     )*
                 }
                 $(
-                    fn [<new_ $x:snake>](vm: &VirtualMachine) -> PyBaseExceptionRef {
-                        vm.new_exception_empty([<$x:snake _type>]().to_owned())
+                    fn [<new_ $x:snake>](vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
+                        vm.new_exception_msg([<$x:snake _type>]().to_owned(), msg)
                     }
                     fn [<$x:snake _type>]() -> &'static Py<PyType> {
                         [<$x:snake:upper>].get().expect("exception type not initialize")
@@ -68,8 +68,14 @@ mod _sqlite {
     }
 
     exceptions!(
-        (Warning, |vm: &VirtualMachine| vm.ctx.exceptions.exception_type),
-        (Error, |vm: &VirtualMachine| vm.ctx.exceptions.exception_type),
+        (Warning, |vm: &VirtualMachine| vm
+            .ctx
+            .exceptions
+            .exception_type),
+        (Error, |vm: &VirtualMachine| vm
+            .ctx
+            .exceptions
+            .exception_type),
         (InterfaceError, |_| error_type()),
         (DatabaseError, |_| error_type()),
         (DataError, |_| database_error_type()),
@@ -276,7 +282,7 @@ mod _sqlite {
 
     #[pyfunction]
     fn complete_statement(statement: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let s = CString::new(statement.as_str()).map_err(|_| new_programming_error(vm))?;
+        let s = to_cstring(&statement, vm)?;
         let ret = unsafe { sqlite3_complete(s.as_ptr()) };
         Ok(ret == 1)
     }
@@ -437,11 +443,17 @@ mod _sqlite {
         is_dml: bool,
     }
 
-    // impl Statement {
-    //     fn new(sql: &PyStr) -> PyResult<Self> {
-    //         let sql_cstr = CString::new(sql.as_str()).expect()
-    //     }
-    // }
+    impl Statement {
+        fn new(connection: &Connection, sql: &PyStr, vm: &VirtualMachine) -> PyResult<Self> {
+            let sql_cstr = to_cstring(sql, vm)?;
+            let sql_len = (sql.byte_len() + 1) as i32;
+            let st = connection.db.prepare(sql_cstr.as_ptr(), sql_len)?;
+            Ok(Self {
+                st: NonNull::new(st).expect("sqlite3_stmt is null"),
+                is_dml: true,
+            })
+        }
+    }
 
     struct Sqlite {
         db: *mut sqlite3,
@@ -454,6 +466,11 @@ mod _sqlite {
             unsafe impl Send for Sqlite {}
             unsafe impl Sync for Sqlite {}
         }
+    }
+
+    fn to_cstring(s: &PyStr, vm: &VirtualMachine) -> PyResult<CString> {
+        CString::new(s.as_str())
+            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
     }
 
     fn check_error(ret: i32) -> PyResult<()> {
@@ -472,6 +489,49 @@ mod _sqlite {
                 )
             };
             check_error(ret).map(|_| Self { db })
+        }
+
+        fn prepare(&self, sql: *const i8, sql_len: i32) -> PyResult<*mut sqlite3_stmt> {
+            let mut st = null_mut();
+            let mut tail = null();
+            let ret = unsafe {
+                sqlite3_prepare_v2(self.db, sql, sql_len, addr_of_mut!(st), addr_of_mut!(tail))
+            };
+            check_error(ret).map(|_| st)
+        }
+    }
+
+    fn lstrip_sql(sql: &[u8]) -> Option<&[u8]> {
+        let mut pos = sql;
+        loop {
+            match pos.first()? {
+                b' ' | b'\t' | b'\x0c' | b'\n' | b'\r' => {
+                    pos = &pos[1..];
+                }
+                b'-' => {
+                    if *pos.get(1)? == b'-' {
+                        // line comments
+                        pos = &pos[2..];
+                        while *pos.first()? != b'\n' {
+                            pos = &pos[1..];
+                        }
+                    } else {
+                        return Some(pos);
+                    }
+                }
+                b'/' => {
+                    if *pos.get(1)? == b'*' {
+                        // c style comments
+                        pos = &pos[2..];
+                        while *pos.first()? != b'*' || *pos.get(1)? != b'/' {
+                            pos = &pos[1..];
+                        }
+                    } else {
+                        return Some(pos);
+                    }
+                }
+                _ => return Some(pos),
+            }
         }
     }
 }
