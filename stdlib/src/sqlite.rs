@@ -32,8 +32,8 @@ mod _sqlite {
         __exports::paste,
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_complete, sqlite3_libversion, sqlite3_open_v2, sqlite3_prepare_v2,
-        sqlite3_stmt, sqlite3_threadsafe, SQLITE_OPEN_URI,
+        sqlite3, sqlite3_complete, sqlite3_finalize, sqlite3_libversion, sqlite3_limit,
+        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_stmt, sqlite3_threadsafe, SQLITE_OPEN_URI,
     };
     use std::{
         ffi::{CStr, CString},
@@ -447,10 +447,40 @@ mod _sqlite {
         fn new(connection: &Connection, sql: &PyStr, vm: &VirtualMachine) -> PyResult<Self> {
             let sql_cstr = to_cstring(sql, vm)?;
             let sql_len = (sql.byte_len() + 1) as i32;
-            let st = connection.db.prepare(sql_cstr.as_ptr(), sql_len)?;
+
+            let max_len = connection.db.limit(SQLITE_LIMIT_SQL_LENGTH);
+            if sql_len > max_len {
+                return Err(new_data_error(vm, "query string is too large".to_owned()));
+            }
+
+            let mut tail = null();
+            let st = connection
+                .db
+                .prepare(sql_cstr.as_ptr(), addr_of_mut!(tail))?;
+
+            let tail = unsafe { CStr::from_ptr(tail) };
+            let tail = tail.to_bytes();
+            if lstrip_sql(tail).is_some() {
+                unsafe { sqlite3_finalize(st) };
+                return Err(new_programming_error(
+                    vm,
+                    "You can only execute one statement at a time.".to_owned(),
+                ));
+            }
+
+            let is_dml = if let Some(head) = lstrip_sql(sql_cstr.as_bytes()) {
+                head.len() >= 6
+                    && (head[..6].eq_ignore_ascii_case(b"insert")
+                        || head[..6].eq_ignore_ascii_case(b"update")
+                        || head[..6].eq_ignore_ascii_case(b"delete")
+                        || (head.len() >= 7 && head[..7].eq_ignore_ascii_case(b"replace")))
+            } else {
+                false
+            };
+
             Ok(Self {
                 st: NonNull::new(st).expect("sqlite3_stmt is null"),
-                is_dml: true,
+                is_dml,
             })
         }
     }
@@ -491,13 +521,14 @@ mod _sqlite {
             check_error(ret).map(|_| Self { db })
         }
 
-        fn prepare(&self, sql: *const i8, sql_len: i32) -> PyResult<*mut sqlite3_stmt> {
+        fn prepare(&self, sql: *const i8, tail: *mut *const i8) -> PyResult<*mut sqlite3_stmt> {
             let mut st = null_mut();
-            let mut tail = null();
-            let ret = unsafe {
-                sqlite3_prepare_v2(self.db, sql, sql_len, addr_of_mut!(st), addr_of_mut!(tail))
-            };
+            let ret = unsafe { sqlite3_prepare_v2(self.db, sql, -1, addr_of_mut!(st), tail) };
             check_error(ret).map(|_| st)
+        }
+
+        fn limit(&self, id: i32) -> i32 {
+            unsafe { sqlite3_limit(self.db, id, -1) }
         }
     }
 
