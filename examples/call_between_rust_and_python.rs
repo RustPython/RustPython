@@ -1,6 +1,5 @@
 use rustpython_vm::{
-    pyclass, pymodule, PyObject, PyPayload, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
+    pyclass, pymodule, PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 
 pub(crate) use rust_py_module::make_module;
@@ -20,7 +19,11 @@ pub fn main() {
         vm.invoke(&init_fn, ()).unwrap();
 
         let take_string_fn = module.get_attr("take_string", vm).unwrap();
-        vm.invoke(&take_string_fn, (String::from("Rust string sent to python"),)).unwrap();
+        vm.invoke(
+            &take_string_fn,
+            (String::from("Rust string sent to python"),),
+        )
+        .unwrap();
     })
 }
 
@@ -40,9 +43,7 @@ mod rust_py_module {
 num: {},
 string: {},
 python_person.name: {}",
-            num,
-            s,
-            python_person.name
+            num, s, python_person.name
         );
         Ok(RustStruct)
     }
@@ -66,9 +67,7 @@ python_person.name: {}",
 
     impl TryFromBorrowedObject for PythonPerson {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
-            let name = obj
-                .get_attr("name", vm)?
-                .try_into_value::<String>(vm)?;
+            let name = obj.get_attr("name", vm)?.try_into_value::<String>(vm)?;
             Ok(PythonPerson { name })
         }
     }
