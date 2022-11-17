@@ -26,6 +26,7 @@ enum JitValue {
     Float(Value),
     Bool(Value),
     None,
+    Tuple(Vec<JitValue>),
 }
 
 impl JitValue {
@@ -42,14 +43,14 @@ impl JitValue {
             JitValue::Int(_) => Some(JitType::Int),
             JitValue::Float(_) => Some(JitType::Float),
             JitValue::Bool(_) => Some(JitType::Bool),
-            JitValue::None => None,
+            JitValue::None | JitValue::Tuple(_) => None,
         }
     }
 
     fn into_value(self) -> Option<Value> {
         match self {
             JitValue::Int(val) | JitValue::Float(val) | JitValue::Bool(val) => Some(val),
-            JitValue::None => None,
+            JitValue::None | JitValue::Tuple(_) => None,
         }
     }
 }
@@ -86,6 +87,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 .unwrap();
         }
         compiler
+    }
+
+    fn pop_multiple(&mut self, count: usize) -> Vec<JitValue> {
+        let stack_len = self.stack.len();
+        self.stack.drain(stack_len - count..).collect()
     }
 
     fn store_variable(
@@ -126,6 +132,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             JitValue::Bool(val) => Ok(val),
             JitValue::None => Ok(self.builder.ins().iconst(types::I8, 0)),
+            JitValue::Tuple(_) => Err(JitCompileError::NotSupported),
         }
     }
 
@@ -259,6 +266,26 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::LoadConst { idx } => {
                 self.load_const(constants[*idx as usize].borrow_constant())
+            }
+            Instruction::BuildTuple { unpack, size } if !unpack => {
+                let elements = self.pop_multiple(*size as usize);
+                self.stack.push(JitValue::Tuple(elements));
+                Ok(())
+            }
+            Instruction::UnpackSequence { size } => {
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+
+                let elements = match val {
+                    JitValue::Tuple(elements) => elements,
+                    _ => return Err(JitCompileError::NotSupported),
+                };
+
+                if elements.len() != *size as usize {
+                    return Err(JitCompileError::NotSupported);
+                }
+
+                self.stack.extend(elements.into_iter().rev());
+                Ok(())
             }
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
