@@ -154,6 +154,7 @@ Checkout those talks on conferences:
 Although RustPython is a fairly young project, a few people have used it to
 make cool projects:
 
+- [GreptimeDB](https://github.com/GreptimeTeam/greptimedb): an open-source, cloud-native, distributed time-series database. Using RustPython for embedded scripting.
 - [pyckitup](https://github.com/pickitup247/pyckitup): a game engine written in
   rust.
 - [Robot Rumble](https://github.com/robot-rumble/logic/): an arena-based AI competition platform
