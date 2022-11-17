@@ -376,7 +376,7 @@ mod _sqlite {
         lastrowid: PyObjectRef,
         rowcount: i64,
         row_factory: PyObjectAtomicRef,
-        // statement: PyRef<Statement>,
+        statement: Option<Statement>,
         closed: bool,
         // locked: bool,
         // initialized: bool,
@@ -397,11 +397,20 @@ mod _sqlite {
                 lastrowid: vm.ctx.none(),
                 rowcount: -1,
                 row_factory: PyObjectAtomicRef::from(row_factory),
+                statement: None,
                 closed: false,
             }
         }
 
-        fn execute(&self, sql: PyStrRef, parameters: ArgIterable) {}
+        fn execute(
+            &self,
+            sql: PyStrRef,
+            parameters: ArgIterable,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let parameters: Vec<PyObjectRef> = parameters.iter(vm)?.collect()?;
+
+        }
     }
 
     impl Constructor for Cursor {
@@ -438,6 +447,7 @@ mod _sqlite {
     #[pyclass()]
     impl PrepareProtocol {}
 
+    #[derive(Debug, PyPayload)]
     struct Statement {
         st: NonNull<sqlite3_stmt>,
         is_dml: bool,
