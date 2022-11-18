@@ -25,6 +25,7 @@ enum JitValue {
     Int(Value),
     Float(Value),
     Bool(Value),
+    None,
 }
 
 impl JitValue {
@@ -41,12 +42,14 @@ impl JitValue {
             JitValue::Int(_) => Some(JitType::Int),
             JitValue::Float(_) => Some(JitType::Float),
             JitValue::Bool(_) => Some(JitType::Bool),
+            JitValue::None => None,
         }
     }
 
     fn into_value(self) -> Option<Value> {
         match self {
             JitValue::Int(val) | JitValue::Float(val) | JitValue::Bool(val) => Some(val),
+            JitValue::None => None,
         }
     }
 }
@@ -122,6 +125,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(self.builder.ins().bint(types::I8, val))
             }
             JitValue::Bool(val) => Ok(val),
+            JitValue::None => Ok(self.builder.ins().iconst(types::I8, 0)),
         }
     }
 
@@ -191,6 +195,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             BorrowedConstant::Boolean { value } => {
                 let val = self.builder.ins().iconst(types::I8, value as i64);
                 self.stack.push(JitValue::Bool(val));
+                Ok(())
+            }
+            BorrowedConstant::None => {
+                self.stack.push(JitValue::None);
                 Ok(())
             }
             _ => Err(JitCompileError::NotSupported),
