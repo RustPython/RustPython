@@ -308,38 +308,39 @@ impl<T: PyObjectPayload> PyAtomicRef<Option<T>> {
     }
 }
 
-pub struct PyObjectAtomicRef(PyAtomic<*mut PyObject>);
-
-impl std::fmt::Debug for PyObjectAtomicRef {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.deref().fmt(f)
-    }
-}
-
-impl From<PyObjectRef> for PyObjectAtomicRef {
+impl From<PyObjectRef> for PyAtomicRef<PyObject> {
     fn from(obj: PyObjectRef) -> Self {
         let obj = obj.into_raw();
-        Self(Radium::new(obj as *mut _))
+        Self {
+            inner: Radium::new(obj as *mut _),
+            _phantom: Default::default(),
+        }
     }
 }
 
-impl Deref for PyObjectAtomicRef {
+impl Deref for PyAtomicRef<PyObject> {
     type Target = PyObject;
 
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.0.load(Ordering::Relaxed) }
+        unsafe {
+            self.inner
+                .load(Ordering::Relaxed)
+                .cast::<PyObject>()
+                .as_ref()
+                .unwrap_unchecked()
+        }
     }
 }
 
-impl PyObjectAtomicRef {
+impl PyAtomicRef<PyObject> {
     /// # Safety
-    /// The caller is responsible to keep the returned reference alive
-    /// until no more reference can be used via PyObjectAtomicRef::deref()
+    /// The caller is responsible to keep the returned PyRef alive
+    /// until no more reference can be used via PyAtomicRef::deref()
     #[must_use]
     pub unsafe fn swap(&self, obj: PyObjectRef) -> PyObjectRef {
-        let obj = obj.into_raw();
-        let old = Radium::swap(&self.0, obj as *mut _, Ordering::AcqRel);
-        PyObjectRef::from_raw(old)
+        let obj = obj.into_raw() as *mut i8;
+        let old = Radium::swap(&self.inner, obj, Ordering::AcqRel);
+        PyObjectRef::from_raw(old.cast())
     }
 
     pub fn swap_to_temporary_refs(&self, obj: PyObjectRef, vm: &VirtualMachine) {
