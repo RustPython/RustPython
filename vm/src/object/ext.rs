@@ -342,9 +342,9 @@ impl PyAtomicRef<PyObject> {
     /// until no more reference can be used via PyAtomicRef::deref()
     #[must_use]
     pub unsafe fn swap(&self, obj: PyObjectRef) -> PyObjectRef {
-        let obj = obj.into_raw() as *mut _;
-        let old = Radium::swap(&self.inner, obj, Ordering::AcqRel);
-        PyObjectRef::from_raw(old.cast())
+        let obj = obj.into_raw();
+        let old = Radium::swap(&self.0, obj as *mut _, Ordering::AcqRel);
+        PyObjectRef::from_raw(old)
     }
 
     pub fn swap_to_temporary_refs(&self, obj: PyObjectRef, vm: &VirtualMachine) {
