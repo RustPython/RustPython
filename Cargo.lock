@@ -1876,6 +1876,7 @@ version = "0.1.2"
 dependencies = [
  "ahash",
  "anyhow",
+ "fnv",
  "insta",
  "itertools",
  "lalrpop",
