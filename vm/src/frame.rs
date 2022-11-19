@@ -20,9 +20,9 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
-use std::iter::zip;
 use itertools::Itertools;
 use std::fmt;
+use std::iter::zip;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
 
