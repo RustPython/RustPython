@@ -27,7 +27,7 @@ mod _sqlite {
         object::PyObjectPayload,
         stdlib::os::PyPathLike,
         types::Constructor,
-        Py, PyAtomicRef, PyObject, PyObjectAtomicRef, PyObjectRef, PyPayload, PyRef, PyResult,
+        Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         VirtualMachine,
         __exports::paste,
     };
@@ -375,8 +375,8 @@ mod _sqlite {
         arraysize: i32,
         lastrowid: PyObjectRef,
         rowcount: i64,
-        row_factory: PyObjectAtomicRef,
-        statement: Option<Statement>,
+        row_factory: PyAtomicRef<PyObject>,
+        statement: PyAtomicRef<Option<PyRef<Statement>>>,
         closed: bool,
         // locked: bool,
         // initialized: bool,
@@ -409,7 +409,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let parameters: Vec<PyObjectRef> = parameters.iter(vm)?.collect()?;
-
+            Ok(())
         }
     }
 
