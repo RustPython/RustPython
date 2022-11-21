@@ -30,6 +30,7 @@ pub fn main() {
 #[pymodule]
 mod rust_py_module {
     use super::*;
+    use rustpython_vm::{builtins::PyList, convert::ToPyObject, PyObjectRef};
 
     #[pyfunction]
     fn rust_function(
@@ -45,16 +46,35 @@ string: {},
 python_person.name: {}",
             num, s, python_person.name
         );
-        Ok(RustStruct)
+        Ok(RustStruct {
+            numbers: NumVec(vec![1, 2, 3, 4]),
+        })
+    }
+
+    #[derive(Debug, Clone)]
+    struct NumVec(Vec<i32>);
+
+    impl ToPyObject for NumVec {
+        fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+            let list = self.0.into_iter().map(|e| vm.new_pyobj(e)).collect();
+            PyList::new_ref(list, vm.as_ref()).to_pyobject(vm)
+        }
     }
 
     #[pyattr]
     #[pyclass(module = "rust_py_module", name = "RustStruct")]
     #[derive(Debug, PyPayload)]
-    struct RustStruct;
+    struct RustStruct {
+        numbers: NumVec,
+    }
 
     #[pyclass]
     impl RustStruct {
+        #[pygetset]
+        fn numbers(&self) -> NumVec {
+            self.numbers.clone()
+        }
+
         #[pymethod]
         fn print_in_rust_from_python(&self) {
             println!("Calling a rust method from python");

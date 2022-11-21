@@ -7,6 +7,7 @@ class PythonPerson:
 def python_callback():
     python_person = PythonPerson("Peter Python")
     rust_object = rust_function(42, "This is a python string", python_person)
+    print("Printing member 'numbers' from rust struct: ", rust_object.numbers)
     rust_object.print_in_rust_from_python()
 
 def take_string(string):
