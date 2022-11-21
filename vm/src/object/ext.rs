@@ -226,6 +226,12 @@ cfg_if::cfg_if! {
     }
 }
 
+impl<T: std::fmt::Debug> std::fmt::Debug for PyAtomicRef<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PyAtomicRef({:?})", self.deref())
+    }
+}
+
 impl<T: PyObjectPayload> From<PyRef<T>> for PyAtomicRef<T> {
     fn from(pyref: PyRef<T>) -> Self {
         let py = PyRef::leak(pyref);
