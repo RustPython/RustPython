@@ -9,7 +9,7 @@ A Python-3 (CPython >= 3.10.0) Interpreter written in Rust :snake: :scream:
 [![codecov](https://codecov.io/gh/RustPython/RustPython/branch/main/graph/badge.svg)](https://codecov.io/gh/RustPython/RustPython)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Contributors](https://img.shields.io/github/contributors/RustPython/RustPython.svg)](https://github.com/RustPython/RustPython/graphs/contributors)
-[![Gitter](https://badges.gitter.im/RustPython/Lobby.svg)](https://gitter.im/rustpython/Lobby)
+![Discord Shield](https://discordapp.com/api/guilds/1043121930691149845/widget.png?style=shield)
 [![docs.rs](https://docs.rs/rustpython/badge.svg)](https://docs.rs/rustpython/)
 [![Crates.io](https://img.shields.io/crates/v/rustpython)](https://crates.io/crates/rustpython)
 [![dependency status](https://deps.rs/crate/rustpython/0.1.1/status.svg)](https://deps.rs/crate/rustpython/0.1.1)
@@ -185,7 +185,7 @@ Documentation HTML files can then be found in the `target/doc` directory.
 ## Contributing
 
 Contributions are more than welcome, and in many cases we are happy to guide
-contributors through PRs or on gitter. Please refer to the
+contributors through PRs or on Discord. Please refer to the
 [development guide](DEVELOPMENT.md) as well for tips on developments.
 
 With that in mind, please note this project is maintained by volunteers, some of
@@ -208,8 +208,9 @@ method.
 [See this doc](wasm/README.md)
 
 ## Community
+![Discord Banner](https://discordapp.com/api/guilds/1043121930691149845/widget.png?style=banner2)
 
-Chat with us on [gitter][gitter].
+Chat with us on [Discord][discord].
 
 ## Code of conduct
 
@@ -221,7 +222,7 @@ The initial work was based on
 [windelbouwman/rspython](https://github.com/windelbouwman/rspython) and
 [shinglyu/RustPython](https://github.com/shinglyu/RustPython)
 
-[gitter]: https://gitter.im/rustpython/Lobby
+[discord]: https://discord.gg/vru8NypEhv
 
 ## Links
 

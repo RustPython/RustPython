@@ -202,4 +202,4 @@ There are some code generations involved in building RustPython:
 ## Questions
 
 Have you tried these steps and have a question, please chat with us on
-[gitter](https://gitter.im/rustpython/Lobby).
+[Discord](https://discord.gg/vru8NypEhv).
