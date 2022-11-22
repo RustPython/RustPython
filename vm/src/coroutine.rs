@@ -57,9 +57,16 @@ impl Coro {
         }
     }
 
+    fn take_frame(&self) -> Option<FrameRef> {
+        // safe because frame is not sharing the reference
+        unsafe { self.frame.swap(None) }
+    }
+
     fn maybe_close(&self, res: &PyResult<ExecutionResult>) {
         match res {
-            Ok(ExecutionResult::Return(_)) | Err(_) => drop(unsafe { self.frame.swap(None) }),
+            Ok(ExecutionResult::Return(_)) | Err(_) => {
+                self.take_frame();
+            }
             Ok(ExecutionResult::Yield(_)) => {}
         }
     }
@@ -149,7 +156,7 @@ impl Coro {
     }
 
     pub fn close(&self, gen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        let Some(frame) = (unsafe { self.frame.swap(None) }) else {
+        let Some(frame) = self.take_frame() else {
             return Ok(());
         };
         let result = self.run_with_context(gen, frame, vm, |f| {
@@ -170,7 +177,7 @@ impl Coro {
     }
 
     pub fn set_close(&self) {
-        drop(unsafe { self.frame.swap(None) });
+        self.take_frame();
     }
 
     pub fn running(&self) -> bool {
