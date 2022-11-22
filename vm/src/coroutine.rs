@@ -1,7 +1,8 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::lock::PyMutex,
-    frame::{ExecutionResult, FrameRef},
+    frame::{ExecutionResult, Frame, FrameRef},
+    object::PyAtomicRef,
     protocol::PyIterReturn,
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
@@ -26,8 +27,7 @@ impl ExecutionResult {
 
 #[derive(Debug)]
 pub struct Coro {
-    frame: FrameRef,
-    pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
+    frame: PyAtomicRef<Option<Frame>>,
     running: AtomicCell<bool>,
     // code
     // _weakreflist
@@ -50,8 +50,7 @@ fn gen_name(gen: &PyObject, vm: &VirtualMachine) -> &'static str {
 impl Coro {
     pub fn new(frame: FrameRef, name: PyStrRef) -> Self {
         Coro {
-            frame,
-            closed: AtomicCell::new(false),
+            frame: PyAtomicRef::from(Some(frame)),
             running: AtomicCell::new(false),
             exception: PyMutex::default(),
             name: PyMutex::new(name),
@@ -60,7 +59,7 @@ impl Coro {
 
     fn maybe_close(&self, res: &PyResult<ExecutionResult>) {
         match res {
-            Ok(ExecutionResult::Return(_)) | Err(_) => self.closed.store(true),
+            Ok(ExecutionResult::Return(_)) | Err(_) => drop(unsafe { self.frame.swap(None) }),
             Ok(ExecutionResult::Yield(_)) => {}
         }
     }
@@ -68,6 +67,7 @@ impl Coro {
     fn run_with_context<F>(
         &self,
         gen: &PyObject,
+        frame: FrameRef,
         vm: &VirtualMachine,
         func: F,
     ) -> PyResult<ExecutionResult>
@@ -79,8 +79,7 @@ impl Coro {
         }
 
         vm.push_exception(self.exception.lock().take());
-
-        let result = vm.with_frame(self.frame.clone(), func);
+        let result = vm.with_frame(frame, func);
 
         *self.exception.lock() = vm.pop_exception();
 
@@ -94,10 +93,11 @@ impl Coro {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
-        if self.closed.load() {
+        let Some(frame) = self.frame.deref() else {
             return Ok(PyIterReturn::StopIteration(None));
-        }
-        let value = if self.frame.lasti() > 0 {
+        };
+        let frame = frame.to_owned();
+        let value = if frame.lasti() > 0 {
             Some(value)
         } else if !vm.is_none(&value) {
             return Err(vm.new_type_error(format!(
@@ -107,7 +107,7 @@ impl Coro {
         } else {
             None
         };
-        let result = self.run_with_context(gen, vm, |f| f.resume(value, vm));
+        let result = self.run_with_context(gen, frame, vm, |f| f.resume(value, vm));
         self.maybe_close(&result);
         match result {
             Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
@@ -138,19 +138,21 @@ impl Coro {
         exc_tb: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
-        if self.closed.load() {
+        let Some(frame) = self.frame.deref() else {
             return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
-        }
-        let result = self.run_with_context(gen, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
+        };
+        let result = self.run_with_context(gen, frame.to_owned(), vm, |f| {
+            f.gen_throw(vm, exc_type, exc_val, exc_tb)
+        });
         self.maybe_close(&result);
         Ok(result?.into_iter_return(vm))
     }
 
     pub fn close(&self, gen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        if self.closed.load() {
+        let Some(frame) = (unsafe { self.frame.swap(None) }) else {
             return Ok(());
-        }
-        let result = self.run_with_context(gen, vm, |f| {
+        };
+        let result = self.run_with_context(gen, frame, vm, |f| {
             f.gen_throw(
                 vm,
                 vm.ctx.exceptions.generator_exit.to_owned().into(),
@@ -158,7 +160,6 @@ impl Coro {
                 vm.ctx.none(),
             )
         });
-        self.closed.store(true);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
                 Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(gen, vm))))
@@ -168,14 +169,18 @@ impl Coro {
         }
     }
 
+    pub fn set_close(&self) {
+        drop(unsafe { self.frame.swap(None) });
+    }
+
     pub fn running(&self) -> bool {
         self.running.load()
     }
     pub fn closed(&self) -> bool {
-        self.closed.load()
+        self.frame.deref().is_none()
     }
-    pub fn frame(&self) -> FrameRef {
-        self.frame.clone()
+    pub fn frame(&self) -> Option<FrameRef> {
+        self.frame.deref().map(|x| x.to_owned())
     }
     pub fn name(&self) -> PyStrRef {
         self.name.lock().clone()

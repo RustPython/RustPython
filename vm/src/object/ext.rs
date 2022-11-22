@@ -223,6 +223,8 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "threading")] {
         unsafe impl<T: Send + PyObjectPayload> Send for PyAtomicRef<T> {}
         unsafe impl<T: Sync + PyObjectPayload> Sync for PyAtomicRef<T> {}
+        unsafe impl<T: Send + PyObjectPayload> Send for PyAtomicRef<Option<T>> {}
+        unsafe impl<T: Sync + PyObjectPayload> Sync for PyAtomicRef<Option<T>> {}
     }
 }
 
