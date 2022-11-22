@@ -83,10 +83,10 @@ impl PyCoroutine {
 
     #[pygetset]
     fn cr_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame().yield_from_target()
+        self.inner.frame().and_then(|x| x.yield_from_target())
     }
     #[pygetset]
-    fn cr_frame(&self, _vm: &VirtualMachine) -> FrameRef {
+    fn cr_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
         self.inner.frame()
     }
     #[pygetset]
@@ -94,8 +94,8 @@ impl PyCoroutine {
         self.inner.running()
     }
     #[pygetset]
-    fn cr_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().code.clone()
+    fn cr_code(&self, _vm: &VirtualMachine) -> Option<PyRef<PyCode>> {
+        self.inner.frame().map(|x| x.code.clone())
     }
     // TODO: coroutine origin tracking:
     // https://docs.python.org/3/library/sys.html#sys.set_coroutine_origin_tracking_depth

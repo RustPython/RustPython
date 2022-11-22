@@ -17,7 +17,7 @@ use super::{
     PyAtomicRef,
 };
 use crate::{
-    builtins::{PyDictRef, PyType, PyTypeRef},
+    builtins::{PyDict, PyDictRef, PyType, PyTypeRef},
     common::{
         atomic::{OncePtr, PyAtomic, Radium},
         linked_list::{Link, LinkedList, Pointers},
@@ -394,7 +394,7 @@ impl PyRef<PyWeak> {
 
 #[derive(Debug)]
 struct InstanceDict {
-    d: PyRwLock<PyDictRef>,
+    d: PyAtomicRef<PyDict>,
 }
 
 impl From<PyDictRef> for InstanceDict {
@@ -408,23 +408,18 @@ impl InstanceDict {
     #[inline]
     pub fn new(d: PyDictRef) -> Self {
         Self {
-            d: PyRwLock::new(d),
+            d: PyAtomicRef::from(d),
         }
     }
 
     #[inline]
     pub fn get(&self) -> PyDictRef {
-        self.d.read().clone()
+        self.d.deref().to_owned()
     }
 
     #[inline]
-    pub fn set(&self, d: PyDictRef) {
-        self.replace(d);
-    }
-
-    #[inline]
-    pub fn replace(&self, d: PyDictRef) -> PyDictRef {
-        std::mem::replace(&mut self.d.write(), d)
+    pub fn set(&self, d: PyDictRef, vm: &VirtualMachine) {
+        self.d.swap_to_temporary_refs(d, vm);
     }
 }
 
@@ -683,10 +678,10 @@ impl PyObject {
 
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
-    pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
+    pub fn set_dict(&self, dict: PyDictRef, vm: &VirtualMachine) -> Result<(), PyDictRef> {
         match self.instance_dict() {
             Some(d) => {
-                d.set(dict);
+                d.set(dict, vm);
                 Ok(())
             }
             None => Err(dict),
