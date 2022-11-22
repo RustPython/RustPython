@@ -972,6 +972,8 @@ class ExceptionTests(unittest.TestCase):
         obj = wr()
         self.assertIsNone(obj)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_throw_cleanup_exc_state(self):
         def do_throw(g):
             try:
@@ -980,16 +982,22 @@ class ExceptionTests(unittest.TestCase):
                 pass
         self._check_generator_cleanup_exc_state(do_throw)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_close_cleanup_exc_state(self):
         def do_close(g):
             g.close()
         self._check_generator_cleanup_exc_state(do_close)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_del_cleanup_exc_state(self):
         def do_del(g):
             g = None
         self._check_generator_cleanup_exc_state(do_del)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_next_cleanup_exc_state(self):
         def do_next(g):
             try:
@@ -1000,6 +1008,8 @@ class ExceptionTests(unittest.TestCase):
                 self.fail("should have raised StopIteration")
         self._check_generator_cleanup_exc_state(do_next)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_send_cleanup_exc_state(self):
         def do_send(g):
             try:

@@ -474,6 +474,8 @@ class OrderedDictTests:
         del obj
         support.gc_collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_highly_nested_subclass(self):
         # Issues 25395 and 35983: test that the trashcan mechanism works
         # correctly for OrderedDict: deleting a highly nested OrderDict

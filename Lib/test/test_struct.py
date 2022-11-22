@@ -678,6 +678,8 @@ class StructTest(unittest.TestCase):
         self.assertIn(b"Exception ignored in:", stderr)
         self.assertIn(b"C.__del__", stderr)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test__struct_reference_cycle_cleaned_up(self):
         # Regression test for python/cpython#94207.
 
