@@ -109,10 +109,10 @@ impl PyAsyncGen {
 
     #[pygetset]
     fn ag_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
-        self.inner.frame().yield_from_target()
+        self.inner.frame().and_then(|x| x.yield_from_target())
     }
     #[pygetset]
-    fn ag_frame(&self, _vm: &VirtualMachine) -> FrameRef {
+    fn ag_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
         self.inner.frame()
     }
     #[pygetset]
@@ -120,8 +120,8 @@ impl PyAsyncGen {
         self.inner.running()
     }
     #[pygetset]
-    fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().code.clone()
+    fn ag_code(&self, _vm: &VirtualMachine) -> Option<PyRef<PyCode>> {
+        self.inner.frame().map(|x| x.code.clone())
     }
 
     #[pyclassmethod(magic)]
@@ -152,7 +152,8 @@ impl PyAsyncGenWrappedValue {
             _ => (false, false),
         };
         if closed {
-            ag.inner.closed.store(true);
+            // ag.inner.closed.store(true);
+            ag.inner.set_close();
         }
         if async_done {
             ag.running_async.store(false);
