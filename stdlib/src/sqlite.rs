@@ -19,24 +19,25 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
 #[pymodule]
 mod _sqlite {
-    use rustpython_common::static_cell;
+    use rustpython_common::{lock::PyMutex, static_cell};
     use rustpython_vm::{
-        builtins::{PyBaseExceptionRef, PyStr, PyStrRef, PyType, PyTypeRef},
+        builtins::{PyBaseException, PyBaseExceptionRef, PyStr, PyStrRef, PyType, PyTypeRef},
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, OptionalArg},
         object::PyObjectPayload,
-        stdlib::os::PyPathLike,
+        stdlib::{os::PyPathLike, thread},
         types::Constructor,
-        Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-        VirtualMachine,
+        Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         __exports::paste,
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_complete, sqlite3_finalize, sqlite3_libversion, sqlite3_limit,
-        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_stmt, sqlite3_threadsafe, SQLITE_OPEN_URI,
+        sqlite3, sqlite3_complete, sqlite3_data_count, sqlite3_errcode, sqlite3_errmsg,
+        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_libversion, sqlite3_limit,
+        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_step, sqlite3_stmt,
+        sqlite3_threadsafe, SQLITE_OPEN_URI,
     };
     use std::{
-        ffi::{CStr, CString},
+        ffi::{c_int, CStr, CString},
         ptr::{addr_of_mut, null, null_mut, NonNull},
     };
 
@@ -300,7 +301,7 @@ mod _sqlite {
     #[pyclass(name)]
     #[derive(PyPayload)]
     struct Connection {
-        db: Sqlite,
+        db: PyMutex<Sqlite>,
         detect_types: i32,
         isolation_level: PyStrRef,
         check_same_thread: bool,
@@ -336,7 +337,7 @@ mod _sqlite {
                 detect_types: args.detect_types,
                 isolation_level,
                 check_same_thread: args.check_same_thread,
-                thread_ident: crate::vm::stdlib::thread::get_ident(),
+                thread_ident: thread::get_ident(),
                 row_factory: vm.ctx.none(),
             })
         }
@@ -363,6 +364,27 @@ mod _sqlite {
             };
             Ok(cursor)
         }
+
+        fn begin_transaction(&self) -> PyResult<()> {
+            let mut s = b"BEGIN ".to_vec();
+            s.extend_from_slice(self.isolation_level.as_str().as_bytes());
+            let statement = self.db.prepare(s.as_ptr(), null())?;
+            let statement = SqliteStatement::from(statement);
+            let rc = statement.step();
+            Ok(())
+        }
+
+        fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.check_same_thread && (thread::get_ident() != self.thread_ident) {
+                Err(new_programming_error(
+                    vm,
+                    "SQLite objects created in a thread can only be used in that same thread."
+                        .to_owned(),
+                ))
+            } else {
+                Ok(())
+            }
+        }
     }
 
     #[pyattr]
@@ -376,10 +398,9 @@ mod _sqlite {
         lastrowid: PyObjectRef,
         rowcount: i64,
         row_factory: PyAtomicRef<PyObject>,
-        statement: PyAtomicRef<Option<PyRef<Statement>>>,
+        statement: PyMutex<Option<Statement>>,
         closed: bool,
         // locked: bool,
-        // initialized: bool,
     }
 
     #[pyclass(with(Constructor))]
@@ -409,6 +430,15 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let parameters: Vec<PyObjectRef> = parameters.iter(vm)?.collect()?;
+            Ok(())
+        }
+
+        fn fetch_one_row(&self) -> PyResult<()> {
+            Ok(())
+            // let num_cols = self.
+        }
+
+        fn not_close(&self) -> PyResult<()> {
             Ok(())
         }
     }
@@ -449,8 +479,8 @@ mod _sqlite {
 
     #[derive(Debug, PyPayload)]
     struct Statement {
-        st: NonNull<sqlite3_stmt>,
-        is_dml: bool,
+        st: *mut sqlite3_stmt,
+        pub is_dml: bool,
     }
 
     impl Statement {
@@ -488,10 +518,17 @@ mod _sqlite {
                 false
             };
 
-            Ok(Self {
-                st: NonNull::new(st).expect("sqlite3_stmt is null"),
-                is_dml,
-            })
+            Ok(Self { st, is_dml })
+        }
+
+        fn reset(&self) {
+            unsafe {
+                sqlite3_reset(self.st);
+            }
+        }
+
+        fn data_count(&self) -> i32 {
+            unsafe { sqlite3_data_count(self.st) }
         }
     }
 
@@ -501,24 +538,34 @@ mod _sqlite {
 
     cfg_if::cfg_if! {
         if #[cfg(feature = "threading")] {
-            unsafe impl Send for Statement {}
-            unsafe impl Sync for Statement {}
+            unsafe impl Send for SqliteStatement {}
+            unsafe impl Sync for SqliteStatement {}
             unsafe impl Send for Sqlite {}
-            unsafe impl Sync for Sqlite {}
+            // unsafe impl Sync for Sqlite {}
         }
     }
 
-    fn to_cstring(s: &PyStr, vm: &VirtualMachine) -> PyResult<CString> {
-        CString::new(s.as_str())
-            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
-    }
-
-    fn check_error(ret: i32) -> PyResult<()> {
-        Ok(())
-    }
-
     impl Sqlite {
-        fn open(path: *const i8, uri: bool) -> PyResult<Self> {
+        fn check(&self, ret: c_int, vm: &VirtualMachine) -> PyResult<()> {
+            if ret == SQLITE_OK {
+                Ok(())
+            } else {
+                Err(error_extended(vm))
+            }
+        }
+
+        fn error_extended(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+            let errcode = unsafe { sqlite3_errcode(self.db) };
+            let typ = exception_type_from_errcode(errcode, vm);
+            let extented_errcode = unsafe { sqlite3_extended_errcode(self.db) };
+            let errmsg = unsafe { sqlite3_errmsg(self.db) };
+            let errmsg = CString::new(errmsg).unwrap();
+            let errmsg = errmsg.into_string().unwrap();
+
+            raise_exception(typ.to_owned(), extended_errcode, errmsg, vm)
+        }
+
+        fn open(path: *const i8, uri: bool, vm: &VirtualMachine) -> PyResult<Self> {
             let mut db = null_mut();
             let ret = unsafe {
                 sqlite3_open_v2(
@@ -528,18 +575,99 @@ mod _sqlite {
                     null(),
                 )
             };
-            check_error(ret).map(|_| Self { db })
+            let zelf = Self { db };
+            zelf.check(ret, vm).map(|_| zelf)
         }
 
-        fn prepare(&self, sql: *const i8, tail: *mut *const i8) -> PyResult<*mut sqlite3_stmt> {
+        fn prepare(
+            &self,
+            sql: *const i8,
+            tail: *mut *const i8,
+            vm: &VirtualMachine,
+        ) -> PyResult<*mut sqlite3_stmt> {
             let mut st = null_mut();
             let ret = unsafe { sqlite3_prepare_v2(self.db, sql, -1, addr_of_mut!(st), tail) };
-            check_error(ret).map(|_| st)
+            self.check(ret, vm).map(|_| st)
         }
 
         fn limit(&self, id: i32) -> i32 {
             unsafe { sqlite3_limit(self.db, id, -1) }
         }
+    }
+
+    struct SqliteStatement {
+        st: *mut sqlite3_stmt,
+    }
+
+    impl From<*mut sqlite3_stmt> for SqliteStatement {
+        fn from(st: *mut sqlite3_stmt) -> Self {
+            SqliteStatement { st }
+        }
+    }
+
+    impl Drop for SqliteStatement {
+        fn drop(&mut self) {
+            unsafe {
+                sqlite3_finalize(self.st);
+            }
+        }
+    }
+
+    impl SqliteStatement {
+        fn step(&self) -> c_int {
+            unsafe { sqlite3_step(self.st) }
+        }
+    }
+
+    fn to_cstring(s: &PyStr, vm: &VirtualMachine) -> PyResult<CString> {
+        CString::new(s.as_str())
+            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
+    }
+
+    fn exception_type_from_errcode(errcode: c_int, vm: &VirtualMachine) -> &'static Py<PyType> {
+        match errocode {
+            SQLITE_INTERNAL | SQLITE_NOTFOUND => internal_error_type(),
+            SQLITE_NOMEM => vm.ctx.exceptions.memory_error,
+            SQLITE_ERROR | SQLITE_PERM | SQLITE_ABORT | SQLITE_BUSY | SQLITE_LOCKED
+            | SQLITE_READONLY | SQLITE_INTERRUPT | SQLITE_IOERR | SQLITE_FULL | SQLITE_CANTOPEN
+            | SQLITE_PROTOCOL | SQLITE_EMPTY | SQLITE_SCHEMA => operational_error_type(),
+            SQLITE_CORRUPT => database_error_type(),
+            SQLITE_TOOBIG => data_error_type(),
+            SQLITE_CONSTRAINT | SQLITE_MISMATCH => integrity_error_type(),
+            SQLITE_MISUSE | SQLITE_RANGE => interface_error_type(),
+            _ => database_error_type(),
+        }
+    }
+
+    fn name_from_errcode(errcode: c_int) -> &'static str {
+        for (name, code) in ERROR_CODES {
+            if code == errcode {
+                return name;
+            }
+        }
+        "unknown error code"
+    }
+
+    fn raise_exception(
+        typ: PyTypeRef,
+        errcode: c_int,
+        msg: String,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        let dict = vm.ctx.new_dict();
+        if let Err(e) = dict.set_item("sqlite_errorcode", errcode, vm) {
+            return e;
+        }
+        let errname = name_from_errcode(errcode);
+        if let Err(e) = dict.set_item("sqlite_errorname", errname, vm) {
+            return e;
+        }
+
+        PyRef::new_ref(
+            PyBaseException::new(vec![vm.ctx.new_str(msg).into()]),
+            typ,
+            Some(dict),
+        )
     }
 
     fn lstrip_sql(sql: &[u8]) -> Option<&[u8]> {

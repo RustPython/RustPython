@@ -81,7 +81,7 @@ pub mod warn;
 
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 pub use self::object::{
-    AsObject, Py, PyAtomicRef, PyExact, PyObject, PyObjectAtomicRef, PyObjectRef, PyPayload, PyRef,
+    AsObject, Py, PyAtomicRef, PyExact, PyObject, PyObjectRef, PyPayload, PyRef,
     PyRefExact, PyResult, PyWeakRef,
 };
 pub use self::vm::{Context, Interpreter, Settings, VirtualMachine};
