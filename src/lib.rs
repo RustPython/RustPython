@@ -43,6 +43,9 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
+#[cfg(feature = "flame-it")]
+use vm::Settings;
+
 mod interpreter;
 mod settings;
 mod shell;
@@ -80,68 +83,11 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
         config = config.init_stdlib();
     }
     config = config.init_hook(Box::new(init));
+
     let interp = config.interpreter();
-
-    #[cfg(feature = "flame-it")]
-    let main_guard = flame::start_guard("RustPython main");
-
     let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
 
-    #[cfg(feature = "flame-it")]
-    {
-        main_guard.end();
-        if let Err(e) = write_profile(&matches) {
-            error!("Error writing profile information: {}", e);
-        }
-    }
     ExitCode::from(exitcode)
-}
-
-#[cfg(feature = "flame-it")]
-fn write_profile(matches: &ArgMatches) -> Result<(), Box<dyn std::error::Error>> {
-    use std::{fs, io};
-
-    enum ProfileFormat {
-        Html,
-        Text,
-        Speedscope,
-    }
-
-    let profile_output = matches.value_of_os("profile_output");
-
-    let profile_format = match matches.value_of("profile_format") {
-        Some("html") => ProfileFormat::Html,
-        Some("text") => ProfileFormat::Text,
-        None if profile_output == Some("-".as_ref()) => ProfileFormat::Text,
-        Some("speedscope") | None => ProfileFormat::Speedscope,
-        Some(other) => {
-            error!("Unknown profile format {}", other);
-            // TODO: Need to change to ExitCode or Termination
-            std::process::exit(1);
-        }
-    };
-
-    let profile_output = profile_output.unwrap_or_else(|| match profile_format {
-        ProfileFormat::Html => "flame-graph.html".as_ref(),
-        ProfileFormat::Text => "flame.txt".as_ref(),
-        ProfileFormat::Speedscope => "flamescope.json".as_ref(),
-    });
-
-    let profile_output: Box<dyn io::Write> = if profile_output == "-" {
-        Box::new(io::stdout())
-    } else {
-        Box::new(fs::File::create(profile_output)?)
-    };
-
-    let profile_output = io::BufWriter::new(profile_output);
-
-    match profile_format {
-        ProfileFormat::Html => flame::dump_html(profile_output)?,
-        ProfileFormat::Text => flame::dump_text_to_writer(profile_output)?,
-        ProfileFormat::Speedscope => flamescope::dump(profile_output)?,
-    }
-
-    Ok(())
 }
 
 fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
@@ -206,6 +152,9 @@ fn install_pip(_installer: &str, _scope: Scope, vm: &VirtualMachine) -> PyResult
 }
 
 fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
+    #[cfg(feature = "flame-it")]
+    let main_guard = flame::start_guard("RustPython main");
+
     let scope = setup_main_module(vm)?;
 
     let site_result = vm.import("site", None, 0);
@@ -243,6 +192,57 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
                 shell::run_shell(vm, scope)?;
             }
         }
+    }
+    #[cfg(feature = "flame-it")]
+    {
+        main_guard.end();
+        if let Err(e) = write_profile(&vm.state.as_ref().settings) {
+            error!("Error writing profile information: {}", e);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "flame-it")]
+fn write_profile(settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
+    use std::{fs, io};
+
+    enum ProfileFormat {
+        Html,
+        Text,
+        Speedscope,
+    }
+    let profile_output = settings.profile_output.as_deref();
+    let profile_format = match settings.profile_format.as_deref() {
+        Some("html") => ProfileFormat::Html,
+        Some("text") => ProfileFormat::Text,
+        None if profile_output == Some("-".as_ref()) => ProfileFormat::Text,
+        Some("speedscope") | None => ProfileFormat::Speedscope,
+        Some(other) => {
+            error!("Unknown profile format {}", other);
+            // TODO: Need to change to ExitCode or Termination
+            std::process::exit(1);
+        }
+    };
+
+    let profile_output = profile_output.unwrap_or_else(|| match profile_format {
+        ProfileFormat::Html => "flame-graph.html".as_ref(),
+        ProfileFormat::Text => "flame.txt".as_ref(),
+        ProfileFormat::Speedscope => "flamescope.json".as_ref(),
+    });
+
+    let profile_output: Box<dyn io::Write> = if profile_output == "-" {
+        Box::new(io::stdout())
+    } else {
+        Box::new(fs::File::create(profile_output)?)
+    };
+
+    let profile_output = io::BufWriter::new(profile_output);
+
+    match profile_format {
+        ProfileFormat::Html => flame::dump_html(profile_output)?,
+        ProfileFormat::Text => flame::dump_text_to_writer(profile_output)?,
+        ProfileFormat::Speedscope => flamescope::dump(profile_output)?,
     }
 
     Ok(())

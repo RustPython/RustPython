@@ -1,3 +1,6 @@
+#[cfg(feature = "flame-it")]
+use std::ffi::OsString;
+
 /// Struct containing all kind of settings for the python vm.
 #[non_exhaustive]
 pub struct Settings {
@@ -67,6 +70,11 @@ pub struct Settings {
 
     /// false for wasm. Not a command-line option
     pub allow_external_library: bool,
+
+    #[cfg(feature = "flame-it")]
+    pub profile_output: Option<OsString>,
+    #[cfg(feature = "flame-it")]
+    pub profile_format: Option<String>,
 }
 
 /// Sensible default settings.
@@ -95,6 +103,10 @@ impl Default for Settings {
             stdio_unbuffered: false,
             check_hash_based_pycs: "default".to_owned(),
             allow_external_library: cfg!(feature = "importlib"),
+            #[cfg(feature = "flame-it")]
+            profile_output: None,
+            #[cfg(feature = "flame-it")]
+            profile_format: None,
         }
     }
 }
