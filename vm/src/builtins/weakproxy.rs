@@ -1,3 +1,5 @@
+use once_cell::sync::Lazy;
+
 use super::{PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     atomic_func,
@@ -158,13 +160,13 @@ impl Comparable for PyWeakProxy {
 
 impl AsSequence for PyWeakProxy {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, vm| PyWeakProxy::sequence_downcast(seq).len(vm)),
             contains: atomic_func!(|seq, needle, vm| {
                 PyWeakProxy::sequence_downcast(seq).contains(needle.to_owned(), vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }

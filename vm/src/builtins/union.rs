@@ -1,3 +1,5 @@
+use once_cell::sync::Lazy;
+
 use super::{genericalias, type_};
 use crate::{
     atomic_func,
@@ -243,12 +245,12 @@ impl PyUnion {
 
 impl AsMapping for PyUnion {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
             subscript: atomic_func!(|mapping, needle, vm| {
                 PyUnion::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_MAPPING
     }
 }

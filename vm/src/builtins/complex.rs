@@ -15,6 +15,7 @@ use crate::{
 };
 use num_complex::Complex64;
 use num_traits::Zero;
+use once_cell::sync::Lazy;
 use rustpython_common::{float_ops, hash};
 use std::num::Wrapping;
 
@@ -447,7 +448,7 @@ impl Hashable for PyComplex {
 
 impl AsNumber for PyComplex {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
             add: atomic_func!(|number, other, vm| PyComplex::number_complex_op(
                 number,
                 other,
@@ -481,7 +482,7 @@ impl AsNumber for PyComplex {
                 PyComplex::number_general_op(number, other, inner_div, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_NUMBER
     }
 }
