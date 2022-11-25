@@ -26,6 +26,7 @@ use crate::{
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
+use once_cell::sync::Lazy;
 use std::{mem::size_of, ops::Deref};
 
 #[pyclass(module = false, name = "bytes")]
@@ -572,20 +573,20 @@ impl AsBuffer for PyBytes {
 
 impl AsMapping for PyBytes {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
             length: atomic_func!(|mapping, _vm| Ok(PyBytes::mapping_downcast(mapping).len())),
             subscript: atomic_func!(
                 |mapping, needle, vm| PyBytes::mapping_downcast(mapping)._getitem(needle, vm)
             ),
             ..PyMappingMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_MAPPING
     }
 }
 
 impl AsSequence for PyBytes {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).len())),
             concat: atomic_func!(|seq, other, vm| {
                 PyBytes::sequence_downcast(seq)
@@ -612,21 +613,21 @@ impl AsSequence for PyBytes {
                 PyBytes::sequence_downcast(seq).contains(other, vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }
 
 impl AsNumber for PyBytes {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
             remainder: atomic_func!(|number, other, vm| {
                 PyBytes::number_downcast(number)
                     .mod_(other.to_owned(), vm)
                     .to_pyresult(vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_NUMBER
     }
 }

@@ -26,6 +26,7 @@ use crate::{
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
+use once_cell::sync::Lazy;
 use rustpython_common::lock::PyMutex;
 use std::fmt;
 
@@ -465,12 +466,12 @@ impl AsMapping for PyDict {
 
 impl AsSequence for PyDict {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             contains: atomic_func!(|seq, target, vm| PyDict::sequence_downcast(seq)
                 .entries
                 .contains(vm, target)),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }
@@ -1052,7 +1053,7 @@ impl Comparable for PyDictKeys {
 
 impl AsSequence for PyDictKeys {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyDictKeys::sequence_downcast(seq).len())),
             contains: atomic_func!(|seq, target, vm| {
                 PyDictKeys::sequence_downcast(seq)
@@ -1061,7 +1062,7 @@ impl AsSequence for PyDictKeys {
                     .contains(vm, target)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }
@@ -1108,7 +1109,7 @@ impl Comparable for PyDictItems {
 
 impl AsSequence for PyDictItems {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyDictItems::sequence_downcast(seq).len())),
             contains: atomic_func!(|seq, target, vm| {
                 PyDictItems::sequence_downcast(seq)
@@ -1117,7 +1118,7 @@ impl AsSequence for PyDictItems {
                     .contains(vm, target)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }
@@ -1133,10 +1134,10 @@ impl Unconstructible for PyDictValues {}
 
 impl AsSequence for PyDictValues {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyDictValues::sequence_downcast(seq).len())),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }

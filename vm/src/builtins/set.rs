@@ -1,3 +1,5 @@
+use once_cell::sync::Lazy;
+
 /*
  * Builtin set type with a sequence of unique items.
  */
@@ -758,13 +760,13 @@ impl Initializer for PySet {
 
 impl AsSequence for PySet {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PySet::sequence_downcast(seq).len())),
             contains: atomic_func!(|seq, needle, vm| PySet::sequence_downcast(seq)
                 .inner
                 .contains(needle, vm)),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }
@@ -980,13 +982,13 @@ impl PyFrozenSet {
 
 impl AsSequence for PyFrozenSet {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).len())),
             contains: atomic_func!(|seq, needle, vm| PyFrozenSet::sequence_downcast(seq)
                 .inner
                 .contains(needle, vm)),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }

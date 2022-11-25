@@ -25,6 +25,7 @@ use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
 use itertools::Itertools;
 use num_traits::ToPrimitive;
+use once_cell::sync::Lazy;
 use rustpython_common::{
     ascii,
     atomic::{self, PyAtomic, Radium},
@@ -1302,20 +1303,20 @@ impl Iterable for PyStr {
 
 impl AsMapping for PyStr {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
             length: atomic_func!(|mapping, _vm| Ok(PyStr::mapping_downcast(mapping).len())),
             subscript: atomic_func!(
                 |mapping, needle, vm| PyStr::mapping_downcast(mapping)._getitem(needle, vm)
             ),
             ..PyMappingMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_MAPPING
     }
 }
 
 impl AsSequence for PyStr {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyStr::sequence_downcast(seq).len())),
             concat: atomic_func!(|seq, other, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
@@ -1334,7 +1335,7 @@ impl AsSequence for PyStr {
                 |seq, needle, vm| PyStr::sequence_downcast(seq)._contains(needle, vm)
             ),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }

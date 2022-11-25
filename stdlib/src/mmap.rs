@@ -446,7 +446,8 @@ mod mmap {
 
     impl AsSequence for PyMmap {
         fn as_sequence() -> &'static PySequenceMethods {
-            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            use once_cell::sync::Lazy;
+            static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
                 length: atomic_func!(|seq, _vm| Ok(PyMmap::sequence_downcast(seq).len())),
                 item: atomic_func!(|seq, i, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
@@ -462,7 +463,7 @@ mod mmap {
                     }
                 }),
                 ..PySequenceMethods::NOT_IMPLEMENTED
-            };
+            });
             &AS_SEQUENCE
         }
     }

@@ -29,6 +29,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
+use once_cell::sync::Lazy;
 use rustpython_common::lock::PyMutex;
 use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
@@ -996,7 +997,7 @@ impl AsMapping for PyMemoryView {
 
 impl AsSequence for PyMemoryView {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, vm| {
                 let zelf = PyMemoryView::sequence_downcast(seq);
                 zelf.try_not_released(vm)?;
@@ -1008,7 +1009,7 @@ impl AsSequence for PyMemoryView {
                 zelf.getitem_by_idx(i, vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }

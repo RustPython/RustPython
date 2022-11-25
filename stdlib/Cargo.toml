@@ -55,7 +55,7 @@ num-bigint = "0.4.3"
 num-integer = "0.1.44"
 num-rational = "0.4.1"
 
-crossbeam-utils = "=0.8.9"
+crossbeam-utils = "0.8.9"
 itertools = "0.10.3"
 lexical-parse-float = "0.8.3"
 num-traits = "0.2.14"
@@ -73,11 +73,11 @@ libz-sys = { version = "1.1.5", optional = true }
 num_enum = "0.5.7"
 ascii = "1.0.0"
 parking_lot = "0.12.0"
+once_cell = "1.13.0"
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32")))'.dependencies]
 mac_address = "1.1.3"
-once_cell = "1.13.0"
 uuid = { version = "1.1.2", features = ["v1", "fast-rng", "macro-diagnostics"] }
 
 # mmap

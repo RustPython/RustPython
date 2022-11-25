@@ -1,3 +1,5 @@
+use once_cell::sync::Lazy;
+
 use super::{PyType, PyTypeRef};
 use crate::{
     atomic_func,
@@ -58,10 +60,10 @@ impl PyNone {
 
 impl AsNumber for PyNone {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
             boolean: atomic_func!(|_number, _vm| Ok(false)),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_NUMBER
     }
 }

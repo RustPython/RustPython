@@ -1,3 +1,5 @@
+use once_cell::sync::Lazy;
+
 use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
 use crate::{
     atomic_func,
@@ -205,32 +207,32 @@ impl Comparable for PyMappingProxy {
 
 impl AsMapping for PyMappingProxy {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
             length: atomic_func!(|mapping, vm| PyMappingProxy::mapping_downcast(mapping).len(vm)),
             subscript: atomic_func!(|mapping, needle, vm| {
                 PyMappingProxy::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_MAPPING
     }
 }
 
 impl AsSequence for PyMappingProxy {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             contains: atomic_func!(
                 |seq, target, vm| PyMappingProxy::sequence_downcast(seq)._contains(target, vm)
             ),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_SEQUENCE
     }
 }
 
 impl AsNumber for PyMappingProxy {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
             or: atomic_func!(|num, args, vm| {
                 PyMappingProxy::number_downcast(num).or(args.to_pyobject(vm), vm)
             }),
@@ -238,7 +240,7 @@ impl AsNumber for PyMappingProxy {
                 PyMappingProxy::number_downcast(num).ior(args.to_pyobject(vm), vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        };
+        });
         &AS_NUMBER
     }
 }
