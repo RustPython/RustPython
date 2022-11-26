@@ -84,6 +84,27 @@ impl VirtualMachine {
         self.new_exception(exc_type, vec![self.ctx.new_str(msg).into()])
     }
 
+    /// Instantiate an exception with `msg` as the only argument and `dict` for object
+    /// This function should only be used with builtin exception types; if a user-defined exception
+    /// type is passed in, it may not be fully initialized; try using
+    /// [`vm.invoke_exception()`][Self::invoke_exception] or
+    /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
+    pub fn new_exception_msg_dict(
+        &self,
+        exc_type: PyTypeRef,
+        msg: String,
+        dict: PyDictRef,
+    ) -> PyBaseExceptionRef {
+        PyRef::new_ref(
+            // TODO: this costructor might be invalid, because multiple
+            // exception (even builtin ones) are using custom constructors,
+            // see `OSError` as an example:
+            PyBaseException::new(vec![self.ctx.new_str(msg).into()], self),
+            exc_type,
+            Some(dict),
+        )
+    }
+
     pub fn new_lookup_error(&self, msg: String) -> PyBaseExceptionRef {
         let lookup_error = self.ctx.exceptions.lookup_error.to_owned();
         self.new_exception_msg(lookup_error, msg)

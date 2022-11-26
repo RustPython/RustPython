@@ -230,6 +230,20 @@ cfg_if::cfg_if! {
     }
 }
 
+impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "PyAtomicRef(")?;
+        unsafe {
+            self.inner
+                .load(Ordering::Relaxed)
+                .cast::<T>()
+                .as_ref()
+                .fmt(f)
+        }?;
+        write!(f, ")")
+    }
+}
+
 impl<T: PyObjectPayload> From<PyRef<T>> for PyAtomicRef<T> {
     fn from(pyref: PyRef<T>) -> Self {
         let py = PyRef::leak(pyref);
