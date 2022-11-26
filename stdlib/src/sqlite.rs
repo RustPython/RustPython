@@ -20,7 +20,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 mod _sqlite {
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
-        lock::{PyMutex, PyMutexGuard},
+        lock::{PyMappedMutexGuard, PyMutex, PyMutexGuard},
         static_cell,
     };
     use rustpython_vm::{
@@ -44,7 +44,8 @@ mod _sqlite {
         sqlite3_errcode, sqlite3_errmsg, sqlite3_extended_errcode, sqlite3_finalize,
         sqlite3_get_autocommit, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
         sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_step, sqlite3_stmt,
-        sqlite3_threadsafe, SQLITE_OPEN_URI, SQLITE_TRANSIENT,
+        sqlite3_threadsafe, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
+        SQLITE_TRANSIENT,
     };
     use std::{
         ffi::{c_int, c_longlong, CStr, CString},
@@ -313,7 +314,7 @@ mod _sqlite {
     #[pyclass(name)]
     #[derive(PyPayload)]
     struct Connection {
-        db: PyMutex<Sqlite>,
+        db: PyMutex<Option<Sqlite>>,
         detect_types: i32,
         isolation_level: PyStrRef,
         check_same_thread: bool,
@@ -345,13 +346,24 @@ mod _sqlite {
                 .unwrap_or_else(|| vm.ctx.new_str("DEFERRED"));
 
             Ok(Self {
-                db: PyMutex::new(db),
+                db: PyMutex::new(Some(db)),
                 detect_types: args.detect_types,
                 isolation_level,
                 check_same_thread: args.check_same_thread,
                 thread_ident: thread::get_ident(),
                 row_factory: vm.ctx.none(),
             })
+        }
+
+        fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<Sqlite>> {
+            let guard = self.db.lock();
+            if guard.is_some() {
+                Ok(PyMutexGuard::map(guard, |x| unsafe {
+                    x.as_mut().unwrap_unchecked()
+                }))
+            } else {
+                Err(new_programming_error(vm, "".to_owned()))
+            }
         }
 
         #[pymethod]
@@ -377,10 +389,15 @@ mod _sqlite {
             Ok(cursor)
         }
 
+        #[pymethod]
+        fn close(&self) {
+            self.db.lock().take();
+        }
+
         fn begin_transaction(&self, vm: &VirtualMachine) -> PyResult<()> {
             let mut s = b"BEGIN ".to_vec();
             s.extend_from_slice(self.isolation_level.as_str().as_bytes());
-            let db = self.db.lock();
+            let db = self.db_lock(vm)?;
             let statement = db.prepare(s.as_ptr().cast(), null_mut(), vm)?;
             let statement = SqliteStatementRaw::from(statement);
             let rc = statement.step();
@@ -409,7 +426,7 @@ mod _sqlite {
         row_cast_map: Option<PyObjectRef>,
         arraysize: i32,
         lastrowid: PyAtomic<i64>,
-        rowcount: PyAtomic<isize>,
+        rowcount: PyAtomic<i64>,
         row_factory: PyAtomicRef<PyObject>,
         statement: PyAtomicRef<Option<Statement>>,
         closed: bool,
@@ -436,6 +453,7 @@ mod _sqlite {
             }
         }
 
+        #[pymethod]
         fn execute(
             &self,
             sql: PyStrRef,
@@ -457,7 +475,7 @@ mod _sqlite {
             self.rowcount
                 .store(if stmt.is_dml { 0 } else { -1 }, Ordering::Relaxed);
 
-            let db = self.connection.db.lock();
+            let db = self.connection.db_lock(vm)?;
 
             if !self.connection.isolation_level.is_empty() && stmt.is_dml && db.is_autocommit() {
                 self.connection.begin_transaction(vm)?;
@@ -475,7 +493,7 @@ mod _sqlite {
             if ret == SQLITE_DONE {
                 if stmt.is_dml {
                     self.rowcount
-                        .fetch_add(db.changes() as isize, Ordering::Relaxed);
+                        .fetch_add(db.changes() as i64, Ordering::Relaxed);
                 }
                 st.reset();
             }
@@ -493,6 +511,21 @@ mod _sqlite {
 
         fn not_close(&self) -> PyResult<()> {
             Ok(())
+        }
+
+        #[pygetset]
+        fn connection(&self) -> PyRef<Connection> {
+            self.connection.clone()
+        }
+
+        #[pygetset]
+        fn lastrowid(&self) -> i64 {
+            self.lastrowid.load(Ordering::Relaxed)
+        }
+
+        #[pygetset]
+        fn rowcount(&self) -> i64 {
+            self.rowcount.load(Ordering::Relaxed)
         }
     }
 
@@ -554,7 +587,7 @@ mod _sqlite {
             let sql_cstr = to_cstring(sql, vm)?;
             let sql_len = (sql.byte_len() + 1) as i32;
 
-            let db = connection.db.lock();
+            let db = connection.db_lock(vm)?;
 
             let max_len = db.limit(SQLITE_LIMIT_SQL_LENGTH);
             if sql_len > max_len {
@@ -669,7 +702,9 @@ mod _sqlite {
                 sqlite3_open_v2(
                     path,
                     addr_of_mut!(db),
-                    if uri { SQLITE_OPEN_URI } else { 0 },
+                    SQLITE_OPEN_READWRITE
+                        | SQLITE_OPEN_CREATE
+                        | if uri { SQLITE_OPEN_URI } else { 0 },
                     null(),
                 )
             };
