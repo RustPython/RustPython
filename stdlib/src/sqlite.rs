@@ -20,7 +20,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 mod _sqlite {
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
-        lock::PyMutex,
+        lock::{PyMutex, PyMutexGuard},
         static_cell,
     };
     use rustpython_vm::{
@@ -39,15 +39,15 @@ mod _sqlite {
     };
     use sqlite3_sys::{
         sqlite3, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null,
-        sqlite3_bind_parameter_count, sqlite3_bind_text, sqlite3_close_v2, sqlite3_complete,
-        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg,
-        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit, sqlite3_libversion,
-        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_step,
-        sqlite3_stmt, sqlite3_threadsafe, SQLITE_OPEN_URI, SQLITE_TRANSIENT,
-        sqlite3_bind_parameter_name
+        sqlite3_bind_parameter_count, sqlite3_bind_parameter_name, sqlite3_bind_text,
+        sqlite3_changes, sqlite3_close_v2, sqlite3_complete, sqlite3_data_count, sqlite3_db_handle,
+        sqlite3_errcode, sqlite3_errmsg, sqlite3_extended_errcode, sqlite3_finalize,
+        sqlite3_get_autocommit, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
+        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_step, sqlite3_stmt,
+        sqlite3_threadsafe, SQLITE_OPEN_URI, SQLITE_TRANSIENT,
     };
     use std::{
-        ffi::{c_int, CStr, CString},
+        ffi::{c_int, c_longlong, CStr, CString},
         fmt::Debug,
         ops::Deref,
         ptr::{addr_of_mut, null, null_mut, NonNull},
@@ -408,7 +408,7 @@ mod _sqlite {
         description: PyObjectRef,
         row_cast_map: Option<PyObjectRef>,
         arraysize: i32,
-        lastrowid: PyObjectRef,
+        lastrowid: PyAtomic<i64>,
         rowcount: PyAtomic<isize>,
         row_factory: PyAtomicRef<PyObject>,
         statement: PyAtomicRef<Option<Statement>>,
@@ -428,7 +428,7 @@ mod _sqlite {
                 description: vm.ctx.none(),
                 row_cast_map: None,
                 arraysize: 1,
-                lastrowid: vm.ctx.none(),
+                lastrowid: Radium::new(-1),
                 rowcount: Radium::new(-1),
                 row_factory: PyAtomicRef::from(row_factory),
                 statement: PyAtomicRef::from(None),
@@ -439,15 +439,15 @@ mod _sqlite {
         fn execute(
             &self,
             sql: PyStrRef,
-            parameters: ArgIterable,
+            parameters: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let parameters: Vec<PyObjectRef> = parameters
-                .iter(vm)?
-                .collect::<PyResult<Vec<PyObjectRef>>>()?;
+            // let parameters: Vec<PyObjectRef> = parameters
+            //     .iter(vm)?
+            //     .collect::<PyResult<Vec<PyObjectRef>>>()?;
             // let stmt = &mut *self.statement.lock();
             if let Some(stmt) = self.statement.deref() {
-                stmt.reset()
+                stmt.lock().reset();
             }
 
             let stmt = Statement::new(&self.connection, &sql, vm)?.into_ref(vm);
@@ -457,12 +457,31 @@ mod _sqlite {
             self.rowcount
                 .store(if stmt.is_dml { 0 } else { -1 }, Ordering::Relaxed);
 
-            if !self.connection.isolation_level.is_empty()
-                && stmt.is_dml
-                && self.connection.db.lock().is_autocommit()
-            {
+            let db = self.connection.db.lock();
+
+            if !self.connection.isolation_level.is_empty() && stmt.is_dml && db.is_autocommit() {
                 self.connection.begin_transaction(vm)?;
             }
+
+            let st = stmt.lock();
+            st.bind_parameters(&parameters, vm)?;
+            let ret = st.step();
+            if ret != SQLITE_DONE && ret != SQLITE_ROW {
+                return Err(db.error_extended(vm));
+            }
+
+            // TODO: descreption
+
+            if ret == SQLITE_DONE {
+                if stmt.is_dml {
+                    self.rowcount
+                        .fetch_add(db.changes() as isize, Ordering::Relaxed);
+                }
+                st.reset();
+            }
+
+            let lastrowid = db.lastrowid();
+            self.lastrowid.store(lastrowid, Ordering::Relaxed);
 
             Ok(())
         }
@@ -571,8 +590,8 @@ mod _sqlite {
             })
         }
 
-        fn reset(&self) {
-            self.st.lock().reset();
+        fn lock(&self) -> PyMutexGuard<SqliteStatement> {
+            self.st.lock()
         }
     }
 
@@ -675,6 +694,14 @@ mod _sqlite {
 
         fn is_autocommit(self) -> bool {
             unsafe { sqlite3_get_autocommit(self.db) != 0 }
+        }
+
+        fn changes(self) -> c_int {
+            unsafe { sqlite3_changes(self.db) }
+        }
+
+        fn lastrowid(self) -> c_longlong {
+            unsafe { sqlite3_last_insert_rowid(self.db) }
         }
     }
 
@@ -796,7 +823,10 @@ mod _sqlite {
         fn bind_parameters_sequence(self, seq: PySequence, vm: &VirtualMachine) -> PyResult<()> {
             let num_needed = unsafe { sqlite3_bind_parameter_count(self.st) };
             if seq.length(vm)? != num_needed as usize {
-                return Err(new_programming_error(vm, "Incorrect number of binding supplied".to_owned()));
+                return Err(new_programming_error(
+                    vm,
+                    "Incorrect number of binding supplied".to_owned(),
+                ));
             }
 
             for i in 1..=num_needed {
