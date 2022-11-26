@@ -25,11 +25,13 @@ mod _sqlite {
     };
     use rustpython_vm::{
         builtins::{
-            PyBaseException, PyBaseExceptionRef, PyFloat, PyInt, PyStr, PyStrRef, PyType, PyTypeRef,
+            PyBaseException, PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyStr, PyStrRef, PyType,
+            PyTypeRef,
         },
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, OptionalArg},
         object::PyObjectPayload,
+        protocol::PySequence,
         stdlib::{os::PyPathLike, thread},
         types::Constructor,
         Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -37,11 +39,12 @@ mod _sqlite {
     };
     use sqlite3_sys::{
         sqlite3, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null,
-        sqlite3_bind_text, sqlite3_close_v2, sqlite3_complete, sqlite3_data_count,
-        sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_extended_errcode,
-        sqlite3_finalize, sqlite3_get_autocommit, sqlite3_libversion, sqlite3_limit,
-        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_step, sqlite3_stmt,
-        sqlite3_threadsafe, SQLITE_OPEN_URI, SQLITE_TRANSIENT,
+        sqlite3_bind_parameter_count, sqlite3_bind_text, sqlite3_close_v2, sqlite3_complete,
+        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg,
+        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit, sqlite3_libversion,
+        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_step,
+        sqlite3_stmt, sqlite3_threadsafe, SQLITE_OPEN_URI, SQLITE_TRANSIENT,
+        sqlite3_bind_parameter_name
     };
     use std::{
         ffi::{c_int, CStr, CString},
@@ -408,7 +411,7 @@ mod _sqlite {
         lastrowid: PyObjectRef,
         rowcount: PyAtomic<isize>,
         row_factory: PyAtomicRef<PyObject>,
-        statement: PyMutex<Option<Statement>>,
+        statement: PyAtomicRef<Option<Statement>>,
         closed: bool,
         // locked: bool,
     }
@@ -428,7 +431,7 @@ mod _sqlite {
                 lastrowid: vm.ctx.none(),
                 rowcount: Radium::new(-1),
                 row_factory: PyAtomicRef::from(row_factory),
-                statement: PyMutex::from(None),
+                statement: PyAtomicRef::from(None),
                 closed: false,
             }
         }
@@ -442,12 +445,14 @@ mod _sqlite {
             let parameters: Vec<PyObjectRef> = parameters
                 .iter(vm)?
                 .collect::<PyResult<Vec<PyObjectRef>>>()?;
-            let stmt = &mut *self.statement.lock();
-            if stmt.is_none() {
-                *stmt = Some(Statement::new(&self.connection, &sql, vm)?);
+            // let stmt = &mut *self.statement.lock();
+            if let Some(stmt) = self.statement.deref() {
+                stmt.reset()
             }
-            let stmt = stmt.as_mut().unwrap();
-            stmt.st.reset();
+
+            let stmt = Statement::new(&self.connection, &sql, vm)?.into_ref(vm);
+            self.statement
+                .swap_to_temporary_refs(Some(stmt.clone()), vm);
 
             self.rowcount
                 .store(if stmt.is_dml { 0 } else { -1 }, Ordering::Relaxed);
@@ -510,7 +515,7 @@ mod _sqlite {
     #[pyclass(name)]
     #[derive(PyPayload)]
     struct Statement {
-        st: SqliteStatementRaw,
+        st: PyMutex<SqliteStatement>,
         pub is_dml: bool,
     }
 
@@ -539,7 +544,7 @@ mod _sqlite {
 
             let mut tail = null();
             let st = db.prepare(sql_cstr.as_ptr(), addr_of_mut!(tail), vm)?;
-            let st = SqliteStatementRaw::from(st);
+            let st: SqliteStatement = SqliteStatementRaw::from(st).into();
 
             let tail = unsafe { CStr::from_ptr(tail) };
             let tail = tail.to_bytes();
@@ -560,7 +565,14 @@ mod _sqlite {
                 false
             };
 
-            Ok(Self { st, is_dml })
+            Ok(Self {
+                st: PyMutex::from(st),
+                is_dml,
+            })
+        }
+
+        fn reset(&self) {
+            self.st.lock().reset();
         }
     }
 
@@ -595,8 +607,8 @@ mod _sqlite {
 
     cfg_if::cfg_if! {
         if #[cfg(feature = "threading")] {
-            unsafe impl Send for SqliteStatementRaw {}
-            unsafe impl Sync for SqliteStatementRaw {}
+            unsafe impl Send for SqliteStatement {}
+            // unsafe impl Sync for SqliteStatement {}
             unsafe impl Send for Sqlite {}
             // unsafe impl Sync for Sqlite {}
         }
@@ -704,20 +716,20 @@ mod _sqlite {
     }
 
     impl SqliteStatementRaw {
-        fn step(&self) -> c_int {
+        fn step(self) -> c_int {
             unsafe { sqlite3_step(self.st) }
         }
 
-        fn reset(&self) {
+        fn reset(self) {
             unsafe { sqlite3_reset(self.st) };
         }
 
-        fn data_count(&self) -> c_int {
+        fn data_count(self) -> c_int {
             unsafe { sqlite3_data_count(self.st) }
         }
 
         fn bind_parameter(
-            &self,
+            self,
             pos: c_int,
             parameter: &PyObject,
             vm: &VirtualMachine,
@@ -747,9 +759,51 @@ mod _sqlite {
             if ret == SQLITE_OK {
                 Ok(())
             } else {
-                // let db = Sqlite::from(self)
-                Ok(())
+                let db = SqliteRaw::from(self);
+                db.check(ret, vm)
             }
+        }
+
+        fn bind_parameters(self, parameters: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            if let Some(dict) = parameters.downcast_ref::<PyDict>() {
+                self.bind_parameters_name(dict, vm)
+            } else if let Ok(seq) = PySequence::try_protocol(parameters, vm) {
+                self.bind_parameters_sequence(seq, vm)
+            } else {
+                Err(new_programming_error(
+                    vm,
+                    "parameters are unsupported type".to_owned(),
+                ))
+            }
+        }
+
+        fn bind_parameters_name(self, dict: &Py<PyDict>, vm: &VirtualMachine) -> PyResult<()> {
+            let num_needed = unsafe { sqlite3_bind_parameter_count(self.st) };
+
+            for i in 1..=num_needed {
+                let name = unsafe { sqlite3_bind_parameter_name(self.st, i) };
+                let name = unsafe { name.add(1) };
+                let name = unsafe { CStr::from_ptr(name) };
+                let name = name.to_str().unwrap();
+
+                let val = dict.get_item(name, vm)?;
+
+                self.bind_parameter(i, &val, vm)?;
+            }
+            Ok(())
+        }
+
+        fn bind_parameters_sequence(self, seq: PySequence, vm: &VirtualMachine) -> PyResult<()> {
+            let num_needed = unsafe { sqlite3_bind_parameter_count(self.st) };
+            if seq.length(vm)? != num_needed as usize {
+                return Err(new_programming_error(vm, "Incorrect number of binding supplied".to_owned()));
+            }
+
+            for i in 1..=num_needed {
+                let val = seq.get_item(i as isize, vm)?;
+                self.bind_parameter(i, &val, vm)?;
+            }
+            Ok(())
         }
     }
 
