@@ -362,7 +362,10 @@ mod _sqlite {
                     x.as_mut().unwrap_unchecked()
                 }))
             } else {
-                Err(new_programming_error(vm, "".to_owned()))
+                Err(new_programming_error(
+                    vm,
+                    "Cannot operate on a closed database.".to_owned(),
+                ))
             }
         }
 
@@ -394,14 +397,42 @@ mod _sqlite {
             self.db.lock().take();
         }
 
+        #[pymethod]
+        fn commit(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let db = self.db_lock(vm)?;
+            if !db.is_autocommit() {
+                db.execute_sql(b"COMMIT".as_ptr().cast(), vm)
+            } else {
+                Ok(())
+            }
+        }
+
+        #[pymethod]
+        fn rollback(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let db = self.db_lock(vm)?;
+            if !db.is_autocommit() {
+                db.execute_sql(b"ROLLBACK".as_ptr().cast(), vm)
+            } else {
+                Ok(())
+            }
+        }
+
+        #[pymethod]
+        fn execute(
+            zelf: PyRef<Self>,
+            sql: PyStrRef,
+            parameters: OptionalArg<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Cursor>> {
+            let cursor = Cursor::new(zelf.clone(), zelf.row_factory.clone(), vm).into_ref(vm);
+            cursor.execute(sql, parameters, vm)?;
+            Ok(cursor)
+        }
+
         fn begin_transaction(&self, vm: &VirtualMachine) -> PyResult<()> {
             let mut s = b"BEGIN ".to_vec();
             s.extend_from_slice(self.isolation_level.as_str().as_bytes());
-            let db = self.db_lock(vm)?;
-            let statement = db.prepare(s.as_ptr().cast(), null_mut(), vm)?;
-            let statement = SqliteStatementRaw::from(statement);
-            let rc = statement.step();
-            db.check(rc, vm)
+            self.db_lock(vm)?.execute_sql(s.as_ptr().cast(), vm)
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -422,15 +453,26 @@ mod _sqlite {
     #[derive(Debug, PyPayload)]
     struct Cursor {
         connection: PyRef<Connection>,
+        // description: PyObjectRef,
+        // row_cast_map: Option<PyObjectRef>,
+        // arraysize: i32,
+        // lastrowid: PyAtomic<i64>,
+        arraysize: PyAtomic<i32>,
+        // rowcount: PyAtomic<i64>,
+        row_factory: PyAtomicRef<PyObject>,
+        // statement: PyAtomicRef<Option<Statement>>,
+        // closed: bool,
+        // locked: bool,
+        inner: PyMutex<Option<CursorInner>>,
+    }
+
+    #[derive(Debug)]
+    struct CursorInner {
         description: PyObjectRef,
         row_cast_map: Option<PyObjectRef>,
-        arraysize: i32,
-        lastrowid: PyAtomic<i64>,
-        rowcount: PyAtomic<i64>,
-        row_factory: PyAtomicRef<PyObject>,
-        statement: PyAtomicRef<Option<Statement>>,
-        closed: bool,
-        // locked: bool,
+        lastrowid: i64,
+        rowcount: i64,
+        statement: Option<PyRef<Statement>>,
     }
 
     #[pyclass(with(Constructor))]
@@ -442,14 +484,36 @@ mod _sqlite {
         ) -> Self {
             Self {
                 connection,
-                description: vm.ctx.none(),
-                row_cast_map: None,
-                arraysize: 1,
-                lastrowid: Radium::new(-1),
-                rowcount: Radium::new(-1),
+                // description: vm.ctx.none(),
+                // row_cast_map: None,
+                // arraysize: 1,
+                // lastrowid: Radium::new(-1),
+                // rowcount: Radium::new(-1),
+                arraysize: Radium::new(1),
                 row_factory: PyAtomicRef::from(row_factory),
-                statement: PyAtomicRef::from(None),
-                closed: false,
+                // statement: PyAtomicRef::from(None),
+                // closed: false,
+                inner: PyMutex::from(Some(CursorInner {
+                    description: vm.ctx.none(),
+                    row_cast_map: None,
+                    lastrowid: -1,
+                    rowcount: -1,
+                    statement: None,
+                })),
+            }
+        }
+
+        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<CursorInner>> {
+            let guard = self.inner.lock();
+            if guard.is_some() {
+                Ok(PyMutexGuard::map(guard, |x| unsafe {
+                    x.as_mut().unwrap_unchecked()
+                }))
+            } else {
+                Err(new_programming_error(
+                    vm,
+                    "Cannot operate on a closed cursor.".to_owned(),
+                ))
             }
         }
 
@@ -457,33 +521,37 @@ mod _sqlite {
         fn execute(
             &self,
             sql: PyStrRef,
-            parameters: PyObjectRef,
+            parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             // let parameters: Vec<PyObjectRef> = parameters
             //     .iter(vm)?
             //     .collect::<PyResult<Vec<PyObjectRef>>>()?;
-            // let stmt = &mut *self.statement.lock();
-            if let Some(stmt) = self.statement.deref() {
+
+            let mut inner = self.inner(vm)?;
+
+            if let Some(stmt) = &inner.statement {
                 stmt.lock().reset();
             }
 
             let stmt = Statement::new(&self.connection, &sql, vm)?.into_ref(vm);
-            self.statement
-                .swap_to_temporary_refs(Some(stmt.clone()), vm);
+            inner.statement = Some(stmt.clone());
 
-            self.rowcount
-                .store(if stmt.is_dml { 0 } else { -1 }, Ordering::Relaxed);
+            inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
             let db = self.connection.db_lock(vm)?;
 
-            if !self.connection.isolation_level.is_empty() && stmt.is_dml && db.is_autocommit() {
+            if stmt.is_dml && db.is_autocommit() {
                 self.connection.begin_transaction(vm)?;
             }
 
             let st = stmt.lock();
-            st.bind_parameters(&parameters, vm)?;
+            if let OptionalArg::Present(parameters) = parameters {
+                st.bind_parameters(&parameters, vm)?;
+            }
+
             let ret = st.step();
+
             if ret != SQLITE_DONE && ret != SQLITE_ROW {
                 return Err(db.error_extended(vm));
             }
@@ -492,14 +560,12 @@ mod _sqlite {
 
             if ret == SQLITE_DONE {
                 if stmt.is_dml {
-                    self.rowcount
-                        .fetch_add(db.changes() as i64, Ordering::Relaxed);
+                    inner.rowcount += db.changes() as i64;
                 }
                 st.reset();
             }
 
-            let lastrowid = db.lastrowid();
-            self.lastrowid.store(lastrowid, Ordering::Relaxed);
+            inner.lastrowid = db.lastrowid();
 
             Ok(())
         }
@@ -519,13 +585,22 @@ mod _sqlite {
         }
 
         #[pygetset]
-        fn lastrowid(&self) -> i64 {
-            self.lastrowid.load(Ordering::Relaxed)
+        fn lastrowid(&self, vm: &VirtualMachine) -> PyResult<i64> {
+            self.inner(vm).map(|x| x.lastrowid)
         }
 
         #[pygetset]
-        fn rowcount(&self) -> i64 {
-            self.rowcount.load(Ordering::Relaxed)
+        fn rowcount(&self, vm: &VirtualMachine) -> PyResult<i64> {
+            self.inner(vm).map(|x| x.rowcount)
+        }
+
+        #[pymethod]
+        fn close(&self) {
+            if let Some(inner) = self.inner.lock().take() {
+                if let Some(stmt) = inner.statement {
+                    stmt.lock().reset();
+                }
+            }
         }
     }
 
@@ -721,6 +796,13 @@ mod _sqlite {
             let mut st = null_mut();
             let ret = unsafe { sqlite3_prepare_v2(self.db, sql, -1, addr_of_mut!(st), tail) };
             self.check(ret, vm).map(|_| st)
+        }
+
+        fn execute_sql(self, sql: *const i8, vm: &VirtualMachine) -> PyResult<()> {
+            let st = self.prepare(sql, null_mut(), vm)?;
+            let stmt = SqliteStatement::from(SqliteStatementRaw::from(st));
+            let ret = stmt.step();
+            self.check(ret, vm)
         }
 
         fn limit(self, id: i32) -> i32 {
