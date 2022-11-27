@@ -1178,38 +1178,33 @@ impl SymbolTableBuilder {
         let symbol = if let Some(symbol) = table.symbols.get_mut(name.as_ref()) {
             // Role already set..
             match role {
-                SymbolUsage::Global => {
-                    if !symbol.is_global() {
-                        if symbol.is_parameter {
-                            return Err(SymbolTableError {
-                                error: format!("name '{}' is parameter and global", name),
-                                location,
-                            });
-                        }
-                        if symbol.is_referenced {
-                            return Err(SymbolTableError {
-                                error: format!(
-                                    "name '{}' is used prior to global declaration",
-                                    name
-                                ),
-                                location,
-                            });
-                        }
-                        if symbol.is_annotated {
-                            return Err(SymbolTableError {
-                                error: format!("annotated name '{}' can't be global", name),
-                                location,
-                            });
-                        }
-                        if symbol.is_assigned {
-                            return Err(SymbolTableError {
-                                error: format!(
-                                    "name '{}' is assigned to before global declaration",
-                                    name
-                                ),
-                                location,
-                            });
-                        }
+                SymbolUsage::Global if !symbol.is_global() => {
+                    if symbol.is_parameter {
+                        return Err(SymbolTableError {
+                            error: format!("name '{}' is parameter and global", name),
+                            location,
+                        });
+                    }
+                    if symbol.is_referenced {
+                        return Err(SymbolTableError {
+                            error: format!("name '{}' is used prior to global declaration", name),
+                            location,
+                        });
+                    }
+                    if symbol.is_annotated {
+                        return Err(SymbolTableError {
+                            error: format!("annotated name '{}' can't be global", name),
+                            location,
+                        });
+                    }
+                    if symbol.is_assigned {
+                        return Err(SymbolTableError {
+                            error: format!(
+                                "name '{}' is assigned to before global declaration",
+                                name
+                            ),
+                            location,
+                        });
                     }
                 }
                 SymbolUsage::Nonlocal => {
