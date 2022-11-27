@@ -1260,7 +1260,7 @@ impl SymbolTableBuilder {
             table.symbols.entry(name.into_owned()).or_insert(symbol)
         };
 
-        // Set proper flags on symbol:
+        // Set proper scope and flags on symbol:
         match role {
             SymbolUsage::Nonlocal => {
                 symbol.scope = SymbolScope::Free;
