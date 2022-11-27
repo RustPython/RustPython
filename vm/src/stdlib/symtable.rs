@@ -5,7 +5,9 @@ mod symtable {
     use crate::{
         builtins::PyStrRef, compiler, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
-    use rustpython_codegen::symboltable::{Symbol, SymbolScope, SymbolTable, SymbolTableType};
+    use rustpython_codegen::symboltable::{
+        Symbol, SymbolFlags, SymbolScope, SymbolTable, SymbolTableType,
+    };
     use std::fmt;
 
     #[pyfunction]
@@ -179,7 +181,7 @@ mod symtable {
 
         #[pymethod]
         fn is_imported(&self) -> bool {
-            self.symbol.is_imported
+            self.symbol.flags.contains(SymbolFlags::IMPORTED)
         }
 
         #[pymethod]
@@ -190,22 +192,22 @@ mod symtable {
 
         #[pymethod]
         fn is_nonlocal(&self) -> bool {
-            self.symbol.is_nonlocal
+            self.symbol.flags.contains(SymbolFlags::NONLOCAL)
         }
 
         #[pymethod]
         fn is_referenced(&self) -> bool {
-            self.symbol.is_referenced
+            self.symbol.flags.contains(SymbolFlags::REFERENCED)
         }
 
         #[pymethod]
         fn is_assigned(&self) -> bool {
-            self.symbol.is_assigned
+            self.symbol.flags.contains(SymbolFlags::ASSIGNED)
         }
 
         #[pymethod]
         fn is_parameter(&self) -> bool {
-            self.symbol.is_parameter
+            self.symbol.flags.contains(SymbolFlags::PARAMETER)
         }
 
         #[pymethod]
@@ -220,7 +222,7 @@ mod symtable {
 
         #[pymethod]
         fn is_annotated(&self) -> bool {
-            self.symbol.is_annotated
+            self.symbol.flags.contains(SymbolFlags::ANNOTATED)
         }
 
         #[pymethod]

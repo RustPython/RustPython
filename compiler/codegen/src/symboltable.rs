@@ -129,31 +129,7 @@ pub struct Symbol {
     pub name: String,
     // pub table: SymbolTableRef,
     pub scope: SymbolScope,
-    // TODO: Use bitflags replace
-    pub is_referenced: bool,
-    pub is_assigned: bool,
-    pub is_parameter: bool,
-    pub is_annotated: bool,
-    pub is_imported: bool,
-    pub is_nonlocal: bool,
-
-    // indicates if the symbol gets a value assigned by a named expression in a comprehension
-    // this is required to correct the scope in the analysis.
-    pub is_assign_namedexpr_in_comprehension: bool,
-
-    // indicates that the symbol is used a bound iterator variable. We distinguish this case
-    // from normal assignment to detect unallowed re-assignment to iterator variables.
-    pub is_iter: bool,
-
-    /// indicates that the symbol is a free variable in a class method from the scope that the
-    /// class is defined in, e.g.:
-    /// ```python
-    /// def foo(x):
-    ///     class A:
-    ///         def method(self):
-    ///             return x // is_free_class
-    /// ```
-    pub is_free_class: bool,
+    pub flags: SymbolFlags,
 }
 
 impl Symbol {
@@ -162,15 +138,7 @@ impl Symbol {
             name: name.to_owned(),
             // table,
             scope: SymbolScope::Unknown,
-            is_referenced: false,
-            is_assigned: false,
-            is_parameter: false,
-            is_annotated: false,
-            is_imported: false,
-            is_nonlocal: false,
-            is_assign_namedexpr_in_comprehension: false,
-            is_iter: false,
-            is_free_class: false,
+            flags: SymbolFlags::empty(),
         }
     }
 
@@ -186,7 +154,7 @@ impl Symbol {
     }
 
     pub fn is_bound(&self) -> bool {
-        self.is_assigned || self.is_parameter || self.is_imported || self.is_iter
+        !(self.flags & SymbolFlags::BOUND).is_empty()
     }
 }
 
@@ -328,7 +296,11 @@ impl SymbolTableAnalyzer {
         st_typ: SymbolTableType,
         sub_tables: &mut [SymbolTable],
     ) -> SymbolTableResult {
-        if symbol.is_assign_namedexpr_in_comprehension && st_typ == SymbolTableType::Comprehension {
+        if symbol
+            .flags
+            .contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
+            && st_typ == SymbolTableType::Comprehension
+        {
             // propagate symbol to next higher level that can hold it,
             // i.e., function or module. Comprehension is skipped and
             // Class is not allowed and detected as error.
@@ -416,10 +388,10 @@ impl SymbolTableAnalyzer {
             for (table, typ) in self.tables.iter_mut().rev().take(decl_depth) {
                 if let SymbolTableType::Class = typ {
                     if let Some(free_class) = table.get_mut(name) {
-                        free_class.is_free_class = true;
+                        free_class.flags.insert(SymbolFlags::FREE_CLASS)
                     } else {
                         let mut symbol = Symbol::new(name);
-                        symbol.is_free_class = true;
+                        symbol.flags.insert(SymbolFlags::FREE_CLASS);
                         symbol.scope = SymbolScope::Free;
                         table.insert(name.to_owned(), symbol);
                     }
@@ -443,7 +415,7 @@ impl SymbolTableAnalyzer {
     ) -> Option<SymbolScope> {
         sub_tables.iter().find_map(|st| {
             st.symbols.get(name).and_then(|sym| {
-                if sym.scope == SymbolScope::Free || sym.is_free_class {
+                if sym.scope == SymbolScope::Free || sym.flags.contains(SymbolFlags::FREE_CLASS) {
                     if st_typ == SymbolTableType::Class && name != "__class__" {
                         None
                     } else {
@@ -474,7 +446,7 @@ impl SymbolTableAnalyzer {
         let table_type = last.1;
 
         // it is not allowed to use an iterator variable as assignee in a named expression
-        if symbol.is_iter {
+        if symbol.flags.contains(SymbolFlags::ITER) {
             return Err(SymbolTableError {
                 error: format!(
                     "assignment expression cannot rebind comprehension iteration variable {}",
@@ -501,7 +473,7 @@ impl SymbolTableAnalyzer {
                 if let Some(parent_symbol) = symbols.get_mut(&symbol.name) {
                     if let SymbolScope::Unknown = parent_symbol.scope {
                         // this information is new, as the assignment is done in inner scope
-                        parent_symbol.is_assigned = true;
+                        parent_symbol.flags.insert(SymbolFlags::ASSIGNED);
                     }
 
                     symbol.scope = if parent_symbol.is_global() {
@@ -520,7 +492,7 @@ impl SymbolTableAnalyzer {
                 match symbols.get_mut(&symbol.name) {
                     Some(parent_symbol) => {
                         // check if assignee is an iterator in top scope
-                        if parent_symbol.is_iter {
+                        if parent_symbol.flags.contains(SymbolFlags::ITER) {
                             return Err(SymbolTableError {
                                 error: format!("assignment expression cannot rebind comprehension iteration variable {}", symbol.name),
                                 // TODO: accurate location info, somehow
@@ -529,7 +501,7 @@ impl SymbolTableAnalyzer {
                         }
 
                         // we synthesize the assignment to the symbol from inner scope
-                        parent_symbol.is_assigned = true; // more checks are required
+                        parent_symbol.flags.insert(SymbolFlags::ASSIGNED); // more checks are required
                     }
                     None => {
                         // extend the scope of the inner symbol
@@ -1176,28 +1148,29 @@ impl SymbolTableBuilder {
 
         // Some checks for the symbol that present on this scope level:
         let symbol = if let Some(symbol) = table.symbols.get_mut(name.as_ref()) {
+            let flags = &symbol.flags;
             // Role already set..
             match role {
                 SymbolUsage::Global if !symbol.is_global() => {
-                    if symbol.is_parameter {
+                    if flags.contains(SymbolFlags::PARAMETER) {
                         return Err(SymbolTableError {
                             error: format!("name '{}' is parameter and global", name),
                             location,
                         });
                     }
-                    if symbol.is_referenced {
+                    if flags.contains(SymbolFlags::REFERENCED) {
                         return Err(SymbolTableError {
                             error: format!("name '{}' is used prior to global declaration", name),
                             location,
                         });
                     }
-                    if symbol.is_annotated {
+                    if flags.contains(SymbolFlags::ANNOTATED) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{}' can't be global", name),
                             location,
                         });
                     }
-                    if symbol.is_assigned {
+                    if flags.contains(SymbolFlags::ASSIGNED) {
                         return Err(SymbolTableError {
                             error: format!(
                                 "name '{}' is assigned to before global declaration",
@@ -1208,25 +1181,25 @@ impl SymbolTableBuilder {
                     }
                 }
                 SymbolUsage::Nonlocal => {
-                    if symbol.is_parameter {
+                    if flags.contains(SymbolFlags::PARAMETER) {
                         return Err(SymbolTableError {
                             error: format!("name '{}' is parameter and nonlocal", name),
                             location,
                         });
                     }
-                    if symbol.is_referenced {
+                    if flags.contains(SymbolFlags::REFERENCED) {
                         return Err(SymbolTableError {
                             error: format!("name '{}' is used prior to nonlocal declaration", name),
                             location,
                         });
                     }
-                    if symbol.is_annotated {
+                    if flags.contains(SymbolFlags::ANNOTATED) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{}' can't be nonlocal", name),
                             location,
                         });
                     }
-                    if symbol.is_assigned {
+                    if flags.contains(SymbolFlags::ASSIGNED) {
                         return Err(SymbolTableError {
                             error: format!(
                                 "name '{}' is assigned to before nonlocal declaration",
@@ -1261,47 +1234,44 @@ impl SymbolTableBuilder {
         };
 
         // Set proper scope and flags on symbol:
+        let flags = &mut symbol.flags;
         match role {
             SymbolUsage::Nonlocal => {
                 symbol.scope = SymbolScope::Free;
-                symbol.is_nonlocal = true;
+                flags.insert(SymbolFlags::NONLOCAL);
             }
             SymbolUsage::Imported => {
-                symbol.is_assigned = true;
-                symbol.is_imported = true;
+                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::IMPORTED);
             }
             SymbolUsage::Parameter => {
-                symbol.is_parameter = true;
+                flags.insert(SymbolFlags::PARAMETER);
             }
             SymbolUsage::AnnotationParameter => {
-                symbol.is_parameter = true;
-                symbol.is_annotated = true;
+                flags.insert(SymbolFlags::PARAMETER | SymbolFlags::ANNOTATED);
             }
             SymbolUsage::AnnotationAssigned => {
-                symbol.is_assigned = true;
-                symbol.is_annotated = true;
+                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::ANNOTATED);
             }
             SymbolUsage::Assigned => {
-                symbol.is_assigned = true;
+                flags.insert(SymbolFlags::ASSIGNED);
             }
             SymbolUsage::AssignedNamedExprInCompr => {
-                symbol.is_assigned = true;
-                symbol.is_assign_namedexpr_in_comprehension = true;
+                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::ASSIGNED_IN_COMPREHENSION);
             }
             SymbolUsage::Global => {
                 symbol.scope = SymbolScope::GlobalExplicit;
             }
             SymbolUsage::Used => {
-                symbol.is_referenced = true;
+                flags.insert(SymbolFlags::REFERENCED);
             }
             SymbolUsage::Iter => {
-                symbol.is_iter = true;
+                flags.insert(SymbolFlags::ITER);
             }
         }
 
         // and even more checking
         // it is not allowed to assign to iterator variables (by named expressions)
-        if symbol.is_iter && symbol.is_assigned
+        if flags.contains(SymbolFlags::ITER | SymbolFlags::ASSIGNED)
         /*&& symbol.is_assign_namedexpr_in_comprehension*/
         {
             return Err(SymbolTableError {

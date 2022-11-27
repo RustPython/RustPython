@@ -8,7 +8,7 @@
 use crate::{
     error::{CodegenError, CodegenErrorType},
     ir,
-    symboltable::{self, SymbolScope, SymbolTable},
+    symboltable::{self, SymbolFlags, SymbolScope, SymbolTable},
     IndexSet,
 };
 use itertools::Itertools;
@@ -272,7 +272,9 @@ impl Compiler {
         let freevar_cache = table
             .symbols
             .iter()
-            .filter(|(_, s)| s.scope == SymbolScope::Free || s.is_free_class)
+            .filter(|(_, s)| {
+                s.scope == SymbolScope::Free || s.flags.contains(SymbolFlags::FREE_CLASS)
+            })
             .map(|(var, _)| var.clone())
             .collect();
 
@@ -1209,7 +1211,7 @@ impl Compiler {
             let vars = match symbol.scope {
                 SymbolScope::Free => &parent_code.freevar_cache,
                 SymbolScope::Cell => &parent_code.cellvar_cache,
-                _ if symbol.is_free_class => &parent_code.freevar_cache,
+                _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => &parent_code.freevar_cache,
                 x => unreachable!(
                     "var {} in a {:?} should be free or cell but it's {:?}",
                     var, table.typ, x
