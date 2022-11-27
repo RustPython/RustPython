@@ -679,6 +679,37 @@ mod _sqlite {
             Ok(())
         }
 
+        #[pymethod]
+        fn executescript(
+            zelf: PyRef<Self>,
+            script: PyStrRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            let db = zelf.connection.db_lock(vm)?;
+            
+            db.sql_limit(script.byte_len(), vm)?;
+
+            db.implicity_commit(vm)?;
+
+            let script = to_cstring(&script, vm)?;
+            let mut ptr = script.as_ptr();
+
+            loop {
+                let mut tail = null();
+                let st = db.prepare(ptr, addr_of_mut!(tail), vm)?;
+                while st.step() == SQLITE_ROW {}
+
+                if tail.is_null() {
+                    break;
+                }
+
+                ptr = tail;
+            }
+
+            drop(db);
+            Ok(zelf)
+        }
+
         fn fetch_one_row(&self) -> PyResult<()> {
             Ok(())
             // let num_cols = self.
@@ -911,6 +942,14 @@ mod _sqlite {
             unsafe { sqlite3_limit(self.db, id, -1) }
         }
 
+        fn sql_limit(self, len: usize, vm: &VirtualMachine) -> PyResult<()> {
+            if len <= self.limit(SQLITE_LIMIT_SQL_LENGTH) as usize {
+                Ok(())
+            } else {
+                Err(new_data_error(vm, "query string is too large".to_owned()))
+            }
+        }
+
         fn is_autocommit(self) -> bool {
             unsafe { sqlite3_get_autocommit(self.db) != 0 }
         }
@@ -921,6 +960,15 @@ mod _sqlite {
 
         fn lastrowid(self) -> c_longlong {
             unsafe { sqlite3_last_insert_rowid(self.db) }
+        }
+
+        fn implicity_commit(self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.is_autocommit() {
+                Ok(())
+            } else {
+                self.prepare(b"COMMIT\0".as_ptr().cast(), null_mut(), vm)?
+                    .step_done(vm)
+            }
         }
     }
 
