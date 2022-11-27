@@ -25,8 +25,8 @@ mod _sqlite {
     };
     use rustpython_vm::{
         builtins::{
-            PyBaseException, PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyStr, PyStrRef, PyType,
-            PyTypeRef,
+            PyBaseException, PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyStr, PyStrRef,
+            PyTupleRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, OptionalArg},
@@ -40,12 +40,13 @@ mod _sqlite {
     use sqlite3_sys::{
         sqlite3, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null,
         sqlite3_bind_parameter_count, sqlite3_bind_parameter_name, sqlite3_bind_text,
-        sqlite3_changes, sqlite3_close_v2, sqlite3_complete, sqlite3_data_count, sqlite3_db_handle,
-        sqlite3_errcode, sqlite3_errmsg, sqlite3_extended_errcode, sqlite3_finalize,
-        sqlite3_get_autocommit, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
-        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_step, sqlite3_stmt,
-        sqlite3_threadsafe, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
-        SQLITE_TRANSIENT,
+        sqlite3_changes, sqlite3_close_v2, sqlite3_column_count, sqlite3_column_name,
+        sqlite3_complete, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg,
+        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
+        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
+        sqlite3_prepare_v2, sqlite3_reset, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy,
+        sqlite3_stmt_readonly, sqlite3_threadsafe, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE,
+        SQLITE_OPEN_URI, SQLITE_TRANSIENT,
     };
     use std::{
         ffi::{c_int, c_longlong, CStr, CString},
@@ -401,7 +402,8 @@ mod _sqlite {
         fn commit(&self, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
             if !db.is_autocommit() {
-                db.execute_sql(b"COMMIT".as_ptr().cast(), vm)
+                db.prepare(b"COMMIT\0".as_ptr().cast(), null_mut(), vm)?
+                    .step_done(vm)
             } else {
                 Ok(())
             }
@@ -411,7 +413,8 @@ mod _sqlite {
         fn rollback(&self, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
             if !db.is_autocommit() {
-                db.execute_sql(b"ROLLBACK".as_ptr().cast(), vm)
+                db.prepare(b"ROLLBACK\0".as_ptr().cast(), null_mut(), vm)?
+                    .step_done(vm)
             } else {
                 Ok(())
             }
@@ -429,10 +432,16 @@ mod _sqlite {
             Ok(cursor)
         }
 
-        fn begin_transaction(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let mut s = b"BEGIN ".to_vec();
-            s.extend_from_slice(self.isolation_level.as_str().as_bytes());
-            self.db_lock(vm)?.execute_sql(s.as_ptr().cast(), vm)
+        #[pymethod]
+        fn executemany(
+            zelf: PyRef<Self>,
+            sql: PyStrRef,
+            seq_of_params: ArgIterable,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Cursor>> {
+            let cursor = Cursor::new(zelf.clone(), zelf.row_factory.clone(), vm).into_ref(vm);
+            cursor.executemany(sql, seq_of_params, vm)?;
+            Ok(cursor)
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -527,14 +536,14 @@ mod _sqlite {
             // let parameters: Vec<PyObjectRef> = parameters
             //     .iter(vm)?
             //     .collect::<PyResult<Vec<PyObjectRef>>>()?;
+            let stmt = Statement::new(&self.connection, &sql, vm)?.into_ref(vm);
 
             let mut inner = self.inner(vm)?;
 
-            if let Some(stmt) = &inner.statement {
+            if let Some(stmt) = inner.statement.take() {
                 stmt.lock().reset();
             }
 
-            let stmt = Statement::new(&self.connection, &sql, vm)?.into_ref(vm);
             inner.statement = Some(stmt.clone());
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
@@ -542,7 +551,11 @@ mod _sqlite {
             let db = self.connection.db_lock(vm)?;
 
             if stmt.is_dml && db.is_autocommit() {
-                self.connection.begin_transaction(vm)?;
+                let mut s = b"BEGIN ".to_vec();
+                s.extend_from_slice(self.connection.isolation_level.as_str().as_bytes());
+                s.push(b'\0');
+                let st = db.prepare(s.as_ptr().cast(), null_mut(), vm)?;
+                st.step_done(vm)?;
             }
 
             let st = stmt.lock();
@@ -556,7 +569,25 @@ mod _sqlite {
                 return Err(db.error_extended(vm));
             }
 
-            // TODO: descreption
+            let columns = st
+                .columns_name(vm)?
+                .into_iter()
+                .map(|s| {
+                    vm.ctx
+                        .new_tuple(vec![
+                            s.into(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                        ])
+                        .into()
+                })
+                .collect();
+            let columns = vm.ctx.new_tuple(columns);
+            inner.description = columns.into();
 
             if ret == SQLITE_DONE {
                 if stmt.is_dml {
@@ -566,6 +597,84 @@ mod _sqlite {
             }
 
             inner.lastrowid = db.lastrowid();
+
+            Ok(())
+        }
+
+        #[pymethod]
+        fn executemany(
+            &self,
+            sql: PyStrRef,
+            seq_of_params: ArgIterable,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let stmt = Statement::new(&self.connection, &sql, vm)?.into_ref(vm);
+
+            let mut inner = self.inner(vm)?;
+
+            if let Some(stmt) = inner.statement.take() {
+                stmt.lock().reset();
+            }
+            inner.statement = Some(stmt.clone());
+
+            let st = stmt.lock();
+            if st.readonly() {
+                return Err(new_programming_error(
+                    vm,
+                    "executemany() can only execute DML statements.".to_owned(),
+                ));
+            }
+
+            let columns = st
+                .columns_name(vm)?
+                .into_iter()
+                .map(|s| {
+                    vm.ctx
+                        .new_tuple(vec![
+                            s.into(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                            vm.ctx.none(),
+                        ])
+                        .into()
+                })
+                .collect();
+            let columns = vm.ctx.new_tuple(columns);
+            inner.description = columns.into();
+
+            inner.rowcount = if stmt.is_dml { 0 } else { -1 };
+
+            let db = self.connection.db_lock(vm)?;
+
+            if stmt.is_dml && db.is_autocommit() {
+                let mut s = b"BEGIN ".to_vec();
+                s.extend_from_slice(self.connection.isolation_level.as_str().as_bytes());
+                s.push(b'\0');
+                let st = db.prepare(s.as_ptr().cast(), null_mut(), vm)?;
+                st.step_done(vm)?;
+            }
+
+            let iter = seq_of_params.iter(vm)?;
+            for params in iter {
+                let params = params?;
+                st.bind_parameters(&params, vm)?;
+
+                let ret = st.step();
+
+                if ret != SQLITE_DONE && ret != SQLITE_ROW {
+                    return Err(db.error_extended(vm));
+                }
+
+                if ret == SQLITE_DONE {
+                    if stmt.is_dml {
+                        inner.rowcount += db.changes() as i64;
+                    }
+                    st.reset();
+                }
+            }
 
             Ok(())
         }
@@ -671,7 +780,6 @@ mod _sqlite {
 
             let mut tail = null();
             let st = db.prepare(sql_cstr.as_ptr(), addr_of_mut!(tail), vm)?;
-            let st: SqliteStatement = SqliteStatementRaw::from(st).into();
 
             let tail = unsafe { CStr::from_ptr(tail) };
             let tail = tail.to_bytes();
@@ -792,17 +900,11 @@ mod _sqlite {
             sql: *const i8,
             tail: *mut *const i8,
             vm: &VirtualMachine,
-        ) -> PyResult<*mut sqlite3_stmt> {
+        ) -> PyResult<SqliteStatement> {
             let mut st = null_mut();
             let ret = unsafe { sqlite3_prepare_v2(self.db, sql, -1, addr_of_mut!(st), tail) };
-            self.check(ret, vm).map(|_| st)
-        }
-
-        fn execute_sql(self, sql: *const i8, vm: &VirtualMachine) -> PyResult<()> {
-            let st = self.prepare(sql, null_mut(), vm)?;
-            let stmt = SqliteStatement::from(SqliteStatementRaw::from(st));
-            let ret = stmt.step();
             self.check(ret, vm)
+                .map(|_| SqliteStatement::from(SqliteStatementRaw::from(st)))
         }
 
         fn limit(self, id: i32) -> i32 {
@@ -862,6 +964,24 @@ mod _sqlite {
     impl SqliteStatementRaw {
         fn step(self) -> c_int {
             unsafe { sqlite3_step(self.st) }
+        }
+
+        fn step_done(self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.step() == SQLITE_DONE {
+                Ok(())
+            } else {
+                let db = SqliteRaw::from(self);
+                Err(db.error_extended(vm))
+            }
+        }
+
+        fn step_done_row(self, vm: &VirtualMachine) -> PyResult<()> {
+            let ret = self.step();
+            if ret == SQLITE_DONE || ret == SQLITE_ROW {
+                Ok(())
+            } else {
+                Err(SqliteRaw::from(self).error_extended(vm))
+            }
         }
 
         fn reset(self) {
@@ -947,16 +1067,43 @@ mod _sqlite {
             }
 
             for i in 1..=num_needed {
-                let val = seq.get_item(i as isize, vm)?;
+                let val = seq.get_item(i as isize - 1, vm)?;
                 self.bind_parameter(i, &val, vm)?;
             }
             Ok(())
+        }
+
+        fn column_count(self) -> c_int {
+            unsafe { sqlite3_column_count(self.st) }
+        }
+
+        fn columns_name(self, vm: &VirtualMachine) -> PyResult<Vec<PyStrRef>> {
+            let count = self.column_count();
+            (0..count)
+                .map(|i| {
+                    let name = unsafe { sqlite3_column_name(self.st, i) };
+                    ptr_to_str(name, vm).map(|x| vm.ctx.new_str(x))
+                })
+                .collect()
+        }
+
+        fn busy(self) -> bool {
+            unsafe { sqlite3_stmt_busy(self.st) != 0 }
+        }
+
+        fn readonly(self) -> bool {
+            unsafe { sqlite3_stmt_readonly(self.st) != 0 }
         }
     }
 
     fn to_cstring(s: &PyStr, vm: &VirtualMachine) -> PyResult<CString> {
         CString::new(s.as_str())
             .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
+    }
+
+    fn ptr_to_str<'a>(p: *const i8, vm: &VirtualMachine) -> PyResult<&'a str> {
+        unsafe { CStr::from_ptr(p).to_str() }
+            .map_err(|_| vm.new_value_error("Invalid UIF-8 codepoint".to_owned()))
     }
 
     fn exception_type_from_errcode(errcode: c_int, vm: &VirtualMachine) -> &'static Py<PyType> {
