@@ -11,6 +11,7 @@ use crate::{
     error::{CodegenError, CodegenErrorType},
     IndexMap,
 };
+use bitflags::bitflags;
 use rustpython_ast as ast;
 use rustpython_compiler_core::Location;
 use std::{borrow::Cow, fmt};
@@ -92,6 +93,33 @@ pub enum SymbolScope {
     GlobalImplicit,
     Free,
     Cell,
+}
+
+bitflags! {
+    pub struct SymbolFlags: u16 {
+        const REFERENCED = 0x001;
+        const ASSIGNED = 0x002;
+        const PARAMETER = 0x004;
+        const ANNOTATED = 0x008;
+        const IMPORTED = 0x010;
+        const NONLOCAL = 0x020;
+        // indicates if the symbol gets a value assigned by a named expression in a comprehension
+        // this is required to correct the scope in the analysis.
+        const ASSIGNED_IN_COMPREHENSION = 0x040;
+        // indicates that the symbol is used a bound iterator variable. We distinguish this case
+        // from normal assignment to detect unallowed re-assignment to iterator variables.
+        const ITER = 0x080;
+        /// indicates that the symbol is a free variable in a class method from the scope that the
+        /// class is defined in, e.g.:
+        /// ```python
+        /// def foo(x):
+        ///     class A:
+        ///         def method(self):
+        ///             return x // is_free_class
+        /// ```
+        const FREE_CLASS = 0x100;
+        const BOUND = Self::ASSIGNED.bits | Self::PARAMETER.bits | Self::IMPORTED.bits | Self::ITER.bits;
+    }
 }
 
 /// A single symbol in a table. Has various properties such as the scope
