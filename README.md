@@ -136,7 +136,7 @@ Then `examples/hello_embed.rs` and `examples/mini_repl.rs` may be of some assist
 ## Disclaimer
 
 RustPython is in development, and while the interpreter certainly can be used
-in interesting use cases like running Python in WASM and embedding into a Rust
+in interesting use cases like running Python in WASM and embedding into a [Rust](https://www.rust-lang.org/)
 project, do note that RustPython is not totally production-ready.
 
 Contribution is more than welcome! See our contribution section for more
