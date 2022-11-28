@@ -154,7 +154,7 @@ impl Symbol {
     }
 
     pub fn is_bound(&self) -> bool {
-        !(self.flags & SymbolFlags::BOUND).is_empty()
+        self.flags.intersects(SymbolFlags::BOUND)
     }
 }
 
