@@ -34,20 +34,22 @@ mod _sqlite {
         protocol::{PyIterReturn, PySequence},
         stdlib::{os::PyPathLike, thread},
         types::{Constructor, IterNext, IterNextIterable},
-        Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        VirtualMachine,
         __exports::paste,
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null,
+        sqlite3, sqlite3_backup_finish, sqlite3_backup_init, sqlite3_backup_step,
+        sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null,
         sqlite3_bind_parameter_count, sqlite3_bind_parameter_name, sqlite3_bind_text,
         sqlite3_changes, sqlite3_close_v2, sqlite3_column_count, sqlite3_column_double,
         sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text, sqlite3_column_type,
         sqlite3_complete, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg,
         sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
         sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
-        sqlite3_prepare_v2, sqlite3_reset, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy,
-        sqlite3_stmt_readonly, sqlite3_threadsafe, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE,
-        SQLITE_OPEN_URI, SQLITE_TRANSIENT,
+        sqlite3_prepare_v2, sqlite3_reset, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
+        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, SQLITE_OPEN_CREATE,
+        SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TRANSIENT,
     };
     use std::{
         ffi::{c_int, c_longlong, CStr, CString},
@@ -289,6 +291,20 @@ mod _sqlite {
         uri: bool,
     }
 
+    #[derive(FromArgs)]
+    struct BackupArgs {
+        #[pyarg(any)]
+        target: PyRef<Connection>,
+        #[pyarg(named, default = "-1")]
+        pages: i32,
+        #[pyarg(named, optional)]
+        progress: Option<ArgCallable>,
+        #[pyarg(named, optional)]
+        name: Option<PyStrRef>,
+        #[pyarg(named, default = "0.250")]
+        sleep: f64,
+    }
+
     #[pyfunction]
     fn connect(args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
         // if let Some(factory) = args.factory.take() {}
@@ -458,6 +474,54 @@ mod _sqlite {
             )
         }
 
+        #[pymethod]
+        fn backup(zelf: PyRef<Self>, args: BackupArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let BackupArgs {
+                target,
+                pages,
+                progress,
+                name,
+                sleep,
+            } = args;
+            if zelf.is(&target) {
+                return Err(
+                    vm.new_value_error("target cannot be the same connection instance".to_owned())
+                );
+            }
+
+            let db = zelf.db_lock(vm)?;
+            let target_db = target.db_lock(vm)?;
+
+            let pages = if pages == 0 { -1 } else { pages };
+            let name = if let Some(name) = &name {
+                to_cstring(name, vm)?.as_ptr()
+            } else {
+                b"main\0".as_ptr().cast()
+            };
+            let sleep_ms = (sleep * 1000.0) as i32;
+
+            let handle = unsafe {
+                sqlite3_backup_init(target_db.db, b"main\0".as_ptr().cast(), db.db, name)
+            };
+
+            if handle.is_null() {
+                return Err(target_db.error_extended(vm));
+            }
+
+            loop {
+                let ret = unsafe { sqlite3_backup_step(handle, pages) };
+
+                if ret == SQLITE_BUSY || ret == SQLITE_LOCKED {
+                    unsafe { sqlite3_sleep(sleep_ms) };
+                } else if ret != SQLITE_OK {
+                    break;
+                }
+            }
+
+            let ret = unsafe { sqlite3_backup_finish(handle) };
+            target_db.check(ret, vm)
+        }
+
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.check_same_thread && (thread::get_ident() != self.thread_ident) {
                 Err(new_programming_error(
@@ -570,15 +634,10 @@ mod _sqlite {
                 st.bind_parameters(&parameters, vm)?;
             }
 
-            let ret = st.step();
-
-            if ret != SQLITE_DONE && ret != SQLITE_ROW {
-                return Err(db.error_extended(vm));
-            }
-
-            inner.description = st.columns_description(vm)?;
-
-            if ret == SQLITE_DONE {
+            if st.step_row_else_done(vm)? {
+                inner.description = st.columns_description(vm)?;
+            } else {
+                inner.description = st.columns_description(vm)?;
                 if stmt.is_dml {
                     inner.rowcount += db.changes() as i64;
                 }
@@ -629,13 +688,7 @@ mod _sqlite {
                 let params = params?;
                 st.bind_parameters(&params, vm)?;
 
-                let ret = st.step();
-
-                if ret != SQLITE_DONE && ret != SQLITE_ROW {
-                    return Err(db.error_extended(vm));
-                }
-
-                if ret == SQLITE_DONE {
+                if !st.step_row_else_done(vm)? {
                     if stmt.is_dml {
                         inner.rowcount += db.changes() as i64;
                     }
@@ -664,7 +717,7 @@ mod _sqlite {
             loop {
                 let mut tail = null();
                 let st = db.prepare(ptr, addr_of_mut!(tail), vm)?;
-                while st.step() == SQLITE_ROW {}
+                while st.step_row_else_done(vm)? {}
 
                 if tail.is_null() {
                     break;
