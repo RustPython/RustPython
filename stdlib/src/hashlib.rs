@@ -11,7 +11,7 @@ mod hashlib {
     use blake2::{Blake2b512, Blake2s256};
     use digest::DynDigest;
     use md5::Md5;
-    use sha2::Sha1;
+    use sha_1::Sha1;
     use sha2::{Sha224, Sha256, Sha384, Sha512};
     use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512}; // TODO: , shake_128, shake_256;
 
