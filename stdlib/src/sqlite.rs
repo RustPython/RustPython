@@ -39,9 +39,9 @@ mod _sqlite {
         __exports::paste,
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_backup_finish, sqlite3_backup_init, sqlite3_backup_pagecount,
-        sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob, sqlite3_bind_double,
-        sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
+        sqlite3, sqlite3_backup, sqlite3_backup_finish, sqlite3_backup_init,
+        sqlite3_backup_pagecount, sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob,
+        sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
         sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_changes, sqlite3_close_v2,
         sqlite3_column_count, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
         sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_data_count,
@@ -482,9 +482,6 @@ mod _sqlite {
                 );
             }
 
-            let db = zelf.db_lock(vm)?;
-            let target_db = target.db_lock(vm)?;
-
             let pages = if pages == 0 { -1 } else { pages };
 
             let name_cstring;
@@ -497,6 +494,9 @@ mod _sqlite {
 
             let sleep_ms = (sleep * 1000.0) as i32;
 
+            let db = zelf.db_lock(vm)?;
+            let target_db = target.db_lock(vm)?;
+
             let handle = unsafe {
                 sqlite3_backup_init(target_db.db, b"main\0".as_ptr().cast(), db.db, name_ptr)
             };
@@ -505,13 +505,19 @@ mod _sqlite {
                 return Err(target_db.error_extended(vm));
             }
 
+            drop(db);
+            drop(target_db);
+
             loop {
                 let ret = unsafe { sqlite3_backup_step(handle, pages) };
 
                 if let Some(progress) = &progress {
                     let remaining = unsafe { sqlite3_backup_remaining(handle) };
                     let pagecount = unsafe { sqlite3_backup_pagecount(handle) };
-                    progress.invoke((ret, remaining, pagecount), vm)?;
+                    if let Err(err) = progress.invoke((ret, remaining, pagecount), vm) {
+                        unsafe { sqlite3_backup_finish(handle) };
+                        return Err(err);
+                    }
                 }
 
                 if ret == SQLITE_BUSY || ret == SQLITE_LOCKED {
@@ -522,7 +528,11 @@ mod _sqlite {
             }
 
             let ret = unsafe { sqlite3_backup_finish(handle) };
-            target_db.check(ret, vm)
+            if ret == SQLITE_OK {
+                Ok(())
+            } else {
+                Err(target.db_lock(vm)?.error_extended(vm))
+            }
         }
 
         #[pymethod]
