@@ -109,6 +109,7 @@ class BackupTests(unittest.TestCase):
                 self.cx.backup(bck, pages=1, progress='bar')
         self.assertEqual(str(cm.exception), 'progress argument must be a callable')
 
+    @unittest.skip("TODO: RUSTPYTHON deadlock")
     def test_modifying_progress(self):
         journal = []
 

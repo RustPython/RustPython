@@ -39,17 +39,18 @@ mod _sqlite {
         __exports::paste,
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_backup_finish, sqlite3_backup_init, sqlite3_backup_step,
-        sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null,
-        sqlite3_bind_parameter_count, sqlite3_bind_parameter_name, sqlite3_bind_text,
-        sqlite3_changes, sqlite3_close_v2, sqlite3_column_count, sqlite3_column_double,
-        sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text, sqlite3_column_type,
-        sqlite3_complete, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg,
-        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
-        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
-        sqlite3_prepare_v2, sqlite3_reset, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
-        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, SQLITE_FLOAT, SQLITE_INTEGER,
-        SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TRANSIENT,
+        sqlite3, sqlite3_backup_finish, sqlite3_backup_init, sqlite3_backup_pagecount,
+        sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob, sqlite3_bind_double,
+        sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
+        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_changes, sqlite3_close_v2,
+        sqlite3_column_count, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
+        sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_data_count,
+        sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_extended_errcode,
+        sqlite3_finalize, sqlite3_get_autocommit, sqlite3_last_insert_rowid, sqlite3_libversion,
+        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_sleep,
+        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
+        SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE,
+        SQLITE_OPEN_URI, SQLITE_TRANSIENT,
     };
     use std::{
         ffi::{c_int, c_longlong, CStr, CString},
@@ -506,6 +507,12 @@ mod _sqlite {
 
             loop {
                 let ret = unsafe { sqlite3_backup_step(handle, pages) };
+
+                if let Some(progress) = &progress {
+                    let remaining = unsafe { sqlite3_backup_remaining(handle) };
+                    let pagecount = unsafe { sqlite3_backup_pagecount(handle) };
+                    progress.invoke((ret, remaining, pagecount), vm)?;
+                }
 
                 if ret == SQLITE_BUSY || ret == SQLITE_LOCKED {
                     unsafe { sqlite3_sleep(sleep_ms) };
