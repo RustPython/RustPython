@@ -48,8 +48,8 @@ mod _sqlite {
         sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
         sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
         sqlite3_prepare_v2, sqlite3_reset, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
-        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, SQLITE_OPEN_CREATE,
-        SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TRANSIENT,
+        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, SQLITE_FLOAT, SQLITE_INTEGER,
+        SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TRANSIENT,
     };
     use std::{
         ffi::{c_int, c_longlong, CStr, CString},
@@ -417,13 +417,7 @@ mod _sqlite {
 
         #[pymethod]
         fn commit(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let db = self.db_lock(vm)?;
-            if !db.is_autocommit() {
-                db.prepare(b"COMMIT\0".as_ptr().cast(), null_mut(), vm)?
-                    .step_done(vm)
-            } else {
-                Ok(())
-            }
+            self.db_lock(vm)?.implicity_commit(vm)
         }
 
         #[pymethod]
@@ -445,8 +439,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             let cursor = Cursor::new(zelf.clone(), zelf.row_factory.clone(), vm).into_ref(vm);
-            cursor.execute(sql, parameters, vm)?;
-            Ok(cursor)
+            Cursor::execute(cursor, sql, parameters, vm)
         }
 
         #[pymethod]
@@ -457,8 +450,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             let cursor = Cursor::new(zelf.clone(), zelf.row_factory.clone(), vm).into_ref(vm);
-            cursor.executemany(sql, seq_of_params, vm)?;
-            Ok(cursor)
+            Cursor::executemany(cursor, sql, seq_of_params, vm)
         }
 
         #[pymethod]
@@ -493,15 +485,19 @@ mod _sqlite {
             let target_db = target.db_lock(vm)?;
 
             let pages = if pages == 0 { -1 } else { pages };
-            let name = if let Some(name) = &name {
-                to_cstring(name, vm)?.as_ptr()
+
+            let name_cstring;
+            let name_ptr = if let Some(name) = &name {
+                name_cstring = to_cstring(name, vm)?;
+                name_cstring.as_ptr()
             } else {
                 b"main\0".as_ptr().cast()
             };
+
             let sleep_ms = (sleep * 1000.0) as i32;
 
             let handle = unsafe {
-                sqlite3_backup_init(target_db.db, b"main\0".as_ptr().cast(), db.db, name)
+                sqlite3_backup_init(target_db.db, b"main\0".as_ptr().cast(), db.db, name_ptr)
             };
 
             if handle.is_null() {
@@ -520,6 +516,36 @@ mod _sqlite {
 
             let ret = unsafe { sqlite3_backup_finish(handle) };
             target_db.check(ret, vm)
+        }
+
+        #[pymethod]
+        fn getlimit(&self, category: i32, vm: &VirtualMachine) -> PyResult<i32> {
+            self.db_lock(vm)?.limit(category, -1, vm)
+        }
+
+        #[pymethod]
+        fn setlimit(&self, category: i32, limit: i32, vm: &VirtualMachine) -> PyResult<i32> {
+            self.db_lock(vm)?.limit(category, limit, vm)
+        }
+
+        #[pymethod(magic)]
+        fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
+            zelf
+        }
+
+        #[pymethod(magic)]
+        fn exit(
+            &self,
+            cls: PyObjectRef,
+            exc: PyObjectRef,
+            tb: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            if vm.is_none(&cls) && vm.is_none(&exc) && vm.is_none(&tb) {
+                self.commit(vm)
+            } else {
+                self.rollback(vm)
+            }
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -606,14 +632,14 @@ mod _sqlite {
 
         #[pymethod]
         fn execute(
-            &self,
+            zelf: PyRef<Self>,
             sql: PyStrRef,
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            let stmt = Statement::new(&self.connection, &sql, vm)?.into_ref(vm);
+        ) -> PyResult<PyRef<Self>> {
+            let stmt = Statement::new(&zelf.connection, &sql, vm)?.into_ref(vm);
 
-            let mut inner = self.inner(vm)?;
+            let mut inner = zelf.inner(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
                 stmt.lock().reset();
@@ -623,10 +649,10 @@ mod _sqlite {
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
-            let db = self.connection.db_lock(vm)?;
+            let db = zelf.connection.db_lock(vm)?;
 
             if stmt.is_dml && db.is_autocommit() {
-                db.begin_transaction(&self.connection.isolation_level, vm)?;
+                db.begin_transaction(&zelf.connection.isolation_level, vm)?;
             }
 
             let st = stmt.lock();
@@ -646,19 +672,21 @@ mod _sqlite {
 
             inner.lastrowid = db.lastrowid();
 
-            Ok(())
+            drop(inner);
+            drop(db);
+            Ok(zelf)
         }
 
         #[pymethod]
         fn executemany(
-            &self,
+            zelf: PyRef<Self>,
             sql: PyStrRef,
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            let stmt = Statement::new(&self.connection, &sql, vm)?.into_ref(vm);
+        ) -> PyResult<PyRef<Self>> {
+            let stmt = Statement::new(&zelf.connection, &sql, vm)?.into_ref(vm);
 
-            let mut inner = self.inner(vm)?;
+            let mut inner = zelf.inner(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
                 stmt.lock().reset();
@@ -677,10 +705,10 @@ mod _sqlite {
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
-            let db = self.connection.db_lock(vm)?;
+            let db = zelf.connection.db_lock(vm)?;
 
             if stmt.is_dml && db.is_autocommit() {
-                db.begin_transaction(&self.connection.isolation_level, vm)?;
+                db.begin_transaction(&zelf.connection.isolation_level, vm)?;
             }
 
             let iter = seq_of_params.iter(vm)?;
@@ -696,7 +724,9 @@ mod _sqlite {
                 }
             }
 
-            Ok(())
+            drop(inner);
+            drop(db);
+            Ok(zelf)
         }
 
         #[pymethod]
@@ -835,7 +865,6 @@ mod _sqlite {
 
             for i in 0..num_cols {
                 let col_type = st.column_type(i);
-
                 let val = match col_type {
                     SQLITE_NULL => vm.ctx.none(),
                     SQLITE_INTEGER => vm.ctx.new_int(st.column_int(i)).into(),
@@ -1042,12 +1071,20 @@ mod _sqlite {
                 .map(|_| SqliteStatement::from(SqliteStatementRaw::from(st)))
         }
 
-        fn limit(self, id: i32) -> i32 {
-            unsafe { sqlite3_limit(self.db, id, -1) }
+        fn limit(self, category: c_int, limit: c_int, vm: &VirtualMachine) -> PyResult<c_int> {
+            let old_limit = unsafe { sqlite3_limit(self.db, category, limit) };
+            if old_limit >= 0 {
+                Ok(old_limit)
+            } else {
+                Err(new_programming_error(
+                    vm,
+                    "'category' is out of bounds".to_owned(),
+                ))
+            }
         }
 
         fn sql_limit(self, len: usize, vm: &VirtualMachine) -> PyResult<()> {
-            if len <= self.limit(SQLITE_LIMIT_SQL_LENGTH) as usize {
+            if len <= unsafe { sqlite3_limit(self.db, SQLITE_LIMIT_SQL_LENGTH, -1) } as usize {
                 Ok(())
             } else {
                 Err(new_data_error(vm, "query string is too large".to_owned()))
