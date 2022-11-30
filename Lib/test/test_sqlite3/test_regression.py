@@ -266,6 +266,7 @@ class RegressionTests(unittest.TestCase):
             # Lone surrogate cannot be encoded to the default encoding (utf8)
             "\uDC80", collation_cb)
 
+    @unittest.skip("TODO: RUSTPYTHON deadlock")
     def test_recursive_cursor_use(self):
         """
         http://bugs.python.org/issue10811

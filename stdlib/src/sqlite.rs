@@ -34,6 +34,7 @@ mod _sqlite {
         protocol::{PyIterReturn, PySequence},
         stdlib::{os::PyPathLike, thread},
         types::{Constructor, IterNext, IterNextIterable},
+        utils::ToCString,
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         VirtualMachine,
         __exports::paste,
@@ -315,7 +316,7 @@ mod _sqlite {
 
     #[pyfunction]
     fn complete_statement(statement: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let s = to_cstring(&statement, vm)?;
+        let s = statement.to_cstring(vm)?;
         let ret = unsafe { sqlite3_complete(s.as_ptr()) };
         Ok(ret == 1)
     }
@@ -335,7 +336,7 @@ mod _sqlite {
     struct Connection {
         db: PyMutex<Option<Sqlite>>,
         detect_types: i32,
-        isolation_level: PyStrRef,
+        isolation_level: PyAtomicRef<PyStr>,
         check_same_thread: bool,
         thread_ident: u64,
         row_factory: PyObjectRef,
@@ -362,12 +363,13 @@ mod _sqlite {
             let db = SqliteRaw::open(path.as_ptr(), args.uri, vm)?.into();
             let isolation_level = args
                 .isolation_level
-                .unwrap_or_else(|| vm.ctx.new_str("DEFERRED"));
+                .unwrap_or_else(|| vm.ctx.empty_str.clone());
+            begin_statement_ptr_from_isolation_level(&isolation_level, vm)?;
 
             Ok(Self {
                 db: PyMutex::new(Some(db)),
                 detect_types: args.detect_types,
-                isolation_level,
+                isolation_level: isolation_level.into(),
                 check_same_thread: args.check_same_thread,
                 thread_ident: thread::get_ident(),
                 row_factory: vm.ctx.none(),
@@ -394,6 +396,7 @@ mod _sqlite {
             factory: OptionalArg<ArgCallable>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
+            drop(zelf.db_lock(vm)?);
             let cursor = if let OptionalArg::Present(factory) = factory {
                 let cursor = factory.invoke((zelf.clone(),), vm)?;
                 let cursor = cursor.downcast::<Cursor>().map_err(|x| {
@@ -486,7 +489,7 @@ mod _sqlite {
 
             let name_cstring;
             let name_ptr = if let Some(name) = &name {
-                name_cstring = to_cstring(name, vm)?;
+                name_cstring = name.to_cstring(vm)?;
                 name_cstring.as_ptr()
             } else {
                 b"main\0".as_ptr().cast()
@@ -563,6 +566,17 @@ mod _sqlite {
             } else {
                 self.rollback(vm)
             }
+        }
+
+        #[pygetset]
+        fn isolation_level(&self) -> PyStrRef {
+            self.isolation_level.to_owned()
+        }
+        #[pygetset(setter)]
+        fn set_isolation_level(&self, val: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+            begin_statement_ptr_from_isolation_level(&val, vm)?;
+            unsafe { self.isolation_level.swap(val) };
+            Ok(())
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -662,8 +676,6 @@ mod _sqlite {
                 stmt.lock().reset();
             }
 
-            inner.statement = Some(stmt.clone());
-
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
             let db = zelf.connection.db_lock(vm)?;
@@ -679,12 +691,15 @@ mod _sqlite {
 
             if st.step_row_else_done(vm)? {
                 inner.description = st.columns_description(vm)?;
+                drop(st);
+                inner.statement = Some(stmt);
             } else {
                 inner.description = st.columns_description(vm)?;
+                st.reset();
+                drop(st);
                 if stmt.is_dml {
                     inner.rowcount += db.changes() as i64;
                 }
-                st.reset();
             }
 
             inner.lastrowid = db.lastrowid();
@@ -708,7 +723,6 @@ mod _sqlite {
             if let Some(stmt) = inner.statement.take() {
                 stmt.lock().reset();
             }
-            inner.statement = Some(stmt.clone());
 
             let st = stmt.lock();
             if st.readonly() {
@@ -741,6 +755,11 @@ mod _sqlite {
                 }
             }
 
+            if st.busy() {
+                drop(st);
+                inner.statement = Some(stmt);
+            }
+
             drop(inner);
             drop(db);
             Ok(zelf)
@@ -758,7 +777,7 @@ mod _sqlite {
 
             db.implicity_commit(vm)?;
 
-            let script = to_cstring(&script, vm)?;
+            let script = script.to_cstring(vm)?;
             let mut ptr = script.as_ptr();
 
             loop {
@@ -952,7 +971,7 @@ mod _sqlite {
     #[pyclass()]
     impl Statement {
         fn new(connection: &Connection, sql: &PyStr, vm: &VirtualMachine) -> PyResult<Self> {
-            let sql_cstr = to_cstring(sql, vm)?;
+            let sql_cstr = sql.to_cstring(vm)?;
             let sql_len = sql.byte_len() + 1;
 
             let db = connection.db_lock(vm)?;
@@ -1224,7 +1243,7 @@ mod _sqlite {
                 let val = val.to_f64();
                 unsafe { sqlite3_bind_double(self.st, pos, val) }
             } else if let Some(val) = parameter.payload::<PyStr>() {
-                let s = to_cstring(val, vm)?;
+                let s = val.to_cstring(vm)?;
                 unsafe { sqlite3_bind_text(self.st, pos, s.as_ptr(), -1, None) }
             } else {
                 return Err(new_programming_error(
@@ -1263,6 +1282,9 @@ mod _sqlite {
 
             for i in 1..=num_needed {
                 let name = unsafe { sqlite3_bind_parameter_name(self.st, i) };
+                if name.is_null() {
+                    return Err(new_programming_error(vm, "Binding {} has no name, but you supplied a dictionary (which has only names).".to_owned()));
+                }
                 let name = unsafe { name.add(1) };
                 let name = unsafe { CStr::from_ptr(name) };
                 let name = name.to_str().unwrap();
@@ -1346,11 +1368,6 @@ mod _sqlite {
         }
     }
 
-    fn to_cstring(s: &PyStr, vm: &VirtualMachine) -> PyResult<CString> {
-        CString::new(s.as_str())
-            .map_err(|_| vm.new_value_error("embedded null character".to_owned()))
-    }
-
     fn ptr_to_str<'a>(p: *const i8, vm: &VirtualMachine) -> PyResult<&'a str> {
         unsafe { CStr::from_ptr(p).to_str() }
             .map_err(|_| vm.new_value_error("Invalid UIF-8 codepoint".to_owned()))
@@ -1396,6 +1413,24 @@ mod _sqlite {
         }
 
         vm.new_exception_msg_dict(typ, msg, dict)
+    }
+
+    static BEGIN_STATEMENTS: &[&[u8]] = &[
+        b"BEGIN ",
+        b"BEGIN DEFERRED",
+        b"BEGIN IMMEDIATE",
+        b"BEGIN EXCLUSIVE",
+    ];
+
+    fn begin_statement_ptr_from_isolation_level(
+        s: &PyStr,
+        vm: &VirtualMachine,
+    ) -> PyResult<*const i8> {
+        BEGIN_STATEMENTS
+            .iter()
+            .find(|&&x| x[6..].eq_ignore_ascii_case(s.as_str().as_bytes()))
+            .map(|&x| x.as_ptr().cast())
+            .ok_or_else(|| vm.new_value_error("invalid value for isolation_level".to_owned()))
     }
 
     fn lstrip_sql(sql: &[u8]) -> Option<&[u8]> {

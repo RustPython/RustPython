@@ -30,11 +30,13 @@ import unittest
 import urllib.parse
 
 from test.support import (
-    SHORT_TIMEOUT, check_disallow_instantiation, requires_subprocess,
-    is_emscripten, is_wasi
+    SHORT_TIMEOUT, check_disallow_instantiation,# requires_subprocess,
+    #is_emscripten, is_wasi
+# TODO: RUSTPYTHON
 )
 from test.support import threading_helper
-from _testcapi import INT_MAX, ULLONG_MAX
+# TODO: RUSTPYTHON
+#from _testcapi import INT_MAX, ULLONG_MAX
 from os import SEEK_SET, SEEK_CUR, SEEK_END
 from test.support.os_helper import TESTFN, TESTFN_UNDECODABLE, unlink, temp_dir, FakePath
 
@@ -656,7 +658,8 @@ class OpenTests(unittest.TestCase):
 
     @unittest.skipIf(sys.platform == "win32", "skipped on Windows")
     @unittest.skipIf(sys.platform == "darwin", "skipped on macOS")
-    @unittest.skipIf(is_emscripten or is_wasi, "not supported on Emscripten/WASI")
+    # TODO: RUSTPYTHON
+    # @unittest.skipIf(is_emscripten or is_wasi, "not supported on Emscripten/WASI")
     @unittest.skipUnless(TESTFN_UNDECODABLE, "only works if there are undecodable paths")
     def test_open_with_undecodable_path(self):
         path = TESTFN_UNDECODABLE
@@ -702,7 +705,8 @@ class OpenTests(unittest.TestCase):
 
     @unittest.skipIf(sys.platform == "win32", "skipped on Windows")
     @unittest.skipIf(sys.platform == "darwin", "skipped on macOS")
-    @unittest.skipIf(is_emscripten or is_wasi, "not supported on Emscripten/WASI")
+    # TODO: RUSTPYTHON
+    # @unittest.skipIf(is_emscripten or is_wasi, "not supported on Emscripten/WASI")
     @unittest.skipUnless(TESTFN_UNDECODABLE, "only works if there are undecodable paths")
     def test_open_undecodable_uri(self):
         path = TESTFN_UNDECODABLE
@@ -1458,7 +1462,8 @@ class BlobTests(unittest.TestCase):
                                    blob.read)
 
 
-@threading_helper.requires_working_threading()
+# TODO: RUSTPYTHON
+# @threading_helper.requires_working_threading()
 class ThreadTests(unittest.TestCase):
     def setUp(self):
         self.con = sqlite.connect(":memory:")
@@ -1823,7 +1828,8 @@ class SqliteOnConflictTests(unittest.TestCase):
         self.assertEqual(self.cu.fetchall(), [('Very different data!', 'foo')])
 
 
-@requires_subprocess()
+# TODO: RUSTPYTHON
+# @requires_subprocess()
 class MultiprocessTests(unittest.TestCase):
     CONNECTION_TIMEOUT = SHORT_TIMEOUT / 1000.  # Defaults to 30 ms
 

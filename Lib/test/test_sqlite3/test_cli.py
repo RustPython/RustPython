@@ -5,11 +5,12 @@ import subprocess
 import sys
 import unittest
 
-from test.support import SHORT_TIMEOUT, requires_subprocess
+from test.support import SHORT_TIMEOUT, #requires_subprocess
 from test.support.os_helper import TESTFN, unlink
 
 
-@requires_subprocess()
+# TODO: RUSTPYTHON
+#@requires_subprocess()
 class CommandLineInterface(unittest.TestCase):
 
     def _do_test(self, *args, expect_success=True):
@@ -68,7 +69,8 @@ class CommandLineInterface(unittest.TestCase):
         self.assertIn("(0,)", out)
 
 
-@requires_subprocess()
+# TODO: RUSTPYTHON
+#@requires_subprocess()
 class InteractiveSession(unittest.TestCase):
     TIMEOUT = SHORT_TIMEOUT / 10.
     MEMORY_DB_MSG = "Connected to a transient in-memory database"
