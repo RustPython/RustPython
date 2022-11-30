@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use rustpython_common::lock::PyMutex;
+
 use crate::vm::{PyObjectRef, VirtualMachine};
 
 // pub(crate) use _sqlite::make_module;
@@ -13,6 +17,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     _sqlite::setup_module_exceptions(&module, vm);
 
+    let _ = _sqlite::CONVERTERS.set(PyMutex::new(HashMap::new()));
+
     module
 }
 
@@ -25,8 +31,8 @@ mod _sqlite {
     };
     use rustpython_vm::{
         builtins::{
-            PyBaseException, PyBaseExceptionRef, PyDict, PyFloat, PyInt, PyStr, PyStrRef,
-            PyTupleRef, PyType, PyTypeRef,
+            PyBaseException, PyBaseExceptionRef, PyBytes, PyDict, PyDictRef, PyFloat, PyInt, PyStr,
+            PyStrRef, PyTupleRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, OptionalArg},
@@ -44,17 +50,19 @@ mod _sqlite {
         sqlite3_backup_pagecount, sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob,
         sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
         sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_changes, sqlite3_close_v2,
-        sqlite3_column_count, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
-        sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_data_count,
-        sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_extended_errcode,
-        sqlite3_finalize, sqlite3_get_autocommit, sqlite3_last_insert_rowid, sqlite3_libversion,
-        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_sleep,
-        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
-        SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE,
-        SQLITE_OPEN_URI, SQLITE_TRANSIENT,
+        sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype,
+        sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
+        sqlite3_column_type, sqlite3_complete, sqlite3_data_count, sqlite3_db_handle,
+        sqlite3_errcode, sqlite3_errmsg, sqlite3_extended_errcode, sqlite3_finalize,
+        sqlite3_get_autocommit, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
+        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_sleep, sqlite3_step,
+        sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, SQLITE_FLOAT,
+        SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
+        SQLITE_TRANSIENT,
     };
     use std::{
-        ffi::{c_int, c_longlong, CStr, CString},
+        collections::HashMap,
+        ffi::{c_int, c_longlong, c_void, CStr, CString},
         fmt::Debug,
         ops::Deref,
         ptr::{addr_of_mut, null, null_mut, NonNull},
@@ -328,7 +336,18 @@ mod _sqlite {
     fn register_adapter(typ: PyObjectRef, adapter: PyObjectRef) {}
 
     #[pyfunction]
-    fn register_converter(typename: PyObjectRef, converter: PyObjectRef) {}
+    fn register_converter(typename: PyStrRef, converter: ArgCallable) {
+        let name = typename.as_str().to_uppercase();
+        converters().insert(name, converter);
+    }
+
+    static_cell! {
+        pub(crate) static CONVERTERS: PyMutex<HashMap<String, ArgCallable>>;
+    }
+
+    fn converters() -> PyMutexGuard<'static, HashMap<String, ArgCallable>> {
+        CONVERTERS.get().expect("converters not initialize").lock()
+    }
 
     #[pyattr]
     #[pyclass(name)]
@@ -613,7 +632,7 @@ mod _sqlite {
     #[derive(Debug)]
     struct CursorInner {
         description: PyObjectRef,
-        row_cast_map: Option<PyObjectRef>,
+        row_cast_map: Vec<Option<ArgCallable>>,
         lastrowid: i64,
         rowcount: i64,
         statement: Option<PyRef<Statement>>,
@@ -639,7 +658,7 @@ mod _sqlite {
                 // closed: false,
                 inner: PyMutex::from(Some(CursorInner {
                     description: vm.ctx.none(),
-                    row_cast_map: None,
+                    row_cast_map: vec![],
                     lastrowid: -1,
                     rowcount: -1,
                     statement: None,
@@ -689,12 +708,20 @@ mod _sqlite {
                 st.bind_parameters(&parameters, vm)?;
             }
 
-            if st.step_row_else_done(vm)? {
-                inner.description = st.columns_description(vm)?;
+            let ret = st.step();
+
+            if ret != SQLITE_DONE && ret != SQLITE_ROW {
+                return Err(db.error_extended(vm));
+            }
+
+            inner.row_cast_map = zelf.build_row_cast_map(&st, vm)?;
+
+            inner.description = st.columns_description(vm)?;
+
+            if ret == SQLITE_ROW {
                 drop(st);
                 inner.statement = Some(stmt);
             } else {
-                inner.description = st.columns_description(vm)?;
                 st.reset();
                 drop(st);
                 if stmt.is_dml {
@@ -872,6 +899,46 @@ mod _sqlite {
         fn set_arraysize(&self, val: i32) {
             self.arraysize.store(val, Ordering::Relaxed);
         }
+
+        fn build_row_cast_map(&self, st: &SqliteStatementRaw, vm: &VirtualMachine) -> PyResult<Vec<Option<ArgCallable>>> {
+            if self.connection.detect_types == 0 {
+                return Ok(vec![]);
+            }
+
+            let mut cast_map = vec![];
+            let num_cols = st.column_count();
+
+            for i in 0..num_cols {
+                if self.connection.detect_types & PARSE_COLNAMES != 0 {
+                    let col_name = st.column_name(i);
+                    let col_name = ptr_to_str(col_name, vm)?;
+                    let col_name = col_name
+                        .chars()
+                        .skip_while(|&x| x != '[')
+                        .skip(1)
+                        .take_while(|&x| x != ']')
+                        .flat_map(|x| x.to_uppercase())
+                        .collect::<String>();
+                    if let Some(converter) = converters().get(&col_name) {
+                        cast_map.push(Some(converter.clone()));
+                        continue;
+                    }
+                }
+                if self.connection.detect_types & PARSE_DECLTYPES != 0 {
+                    let decltype = st.column_decltype(i);
+                    let decltype = ptr_to_str(decltype, vm)?;
+                    if let Some(decltype) = decltype.split_terminator(" (").next() {
+                        if let Some(converter) = converters().get(decltype) {
+                            cast_map.push(Some(converter.clone()));
+                            continue;
+                        }
+                    }
+                }
+                cast_map.push(None);
+            }
+
+            Ok(cast_map)
+        }
     }
 
     impl Constructor for Cursor {
@@ -900,15 +967,32 @@ mod _sqlite {
             let mut row = Vec::with_capacity(num_cols as usize);
 
             for i in 0..num_cols {
-                let col_type = st.column_type(i);
-                let val = match col_type {
-                    SQLITE_NULL => vm.ctx.none(),
-                    SQLITE_INTEGER => vm.ctx.new_int(st.column_int(i)).into(),
-                    SQLITE_FLOAT => vm.ctx.new_float(st.column_double(i)).into(),
-                    _ => {
-                        return Err(vm.new_not_implemented_error("blob type".to_owned()));
+                let val = if let Some(converter) =
+                    inner.row_cast_map.get(i as usize).cloned().flatten()
+                {
+                    let blob = st.column_blob(i);
+                    if blob.is_null() {
+                        vm.ctx.none()
+                    } else {
+                        let nbytes = st.column_bytes(i);
+                        let blob = unsafe {
+                            std::slice::from_raw_parts(blob.cast::<u8>(), nbytes as usize)
+                        };
+                        let blob = vm.ctx.new_bytes(blob.to_vec());
+                        converter.invoke((blob,), vm)?
+                    }
+                } else {
+                    let col_type = st.column_type(i);
+                    match col_type {
+                        SQLITE_NULL => vm.ctx.none(),
+                        SQLITE_INTEGER => vm.ctx.new_int(st.column_int(i)).into(),
+                        SQLITE_FLOAT => vm.ctx.new_float(st.column_double(i)).into(),
+                        _ => {
+                            return Err(vm.new_not_implemented_error("blob type".to_owned()));
+                        }
                     }
                 };
+
                 row.push(val);
             }
 
@@ -1328,11 +1412,27 @@ mod _sqlite {
             unsafe { sqlite3_column_double(self.st, pos) }
         }
 
+        fn column_blob(self, pos: c_int) -> *const c_void {
+            unsafe { sqlite3_column_blob(self.st, pos) }
+        }
+
+        fn column_decltype(self, pos: c_int) -> *const i8 {
+            unsafe { sqlite3_column_decltype(self.st, pos) }
+        }
+
+        fn column_bytes(self, pos: c_int) -> c_int {
+            unsafe { sqlite3_column_bytes(self.st, pos) }
+        }
+
+        fn column_name(self, pos: c_int) -> *const i8 {
+            unsafe { sqlite3_column_name(self.st, pos) }
+        }
+
         fn columns_name(self, vm: &VirtualMachine) -> PyResult<Vec<PyStrRef>> {
             let count = self.column_count();
             (0..count)
                 .map(|i| {
-                    let name = unsafe { sqlite3_column_name(self.st, i) };
+                    let name = self.column_name(i);
                     ptr_to_str(name, vm).map(|x| vm.ctx.new_str(x))
                 })
                 .collect()
@@ -1369,6 +1469,9 @@ mod _sqlite {
     }
 
     fn ptr_to_str<'a>(p: *const i8, vm: &VirtualMachine) -> PyResult<&'a str> {
+        if p.is_null() {
+            return Err(vm.new_memory_error("string pointer is null".to_owned()));
+        }
         unsafe { CStr::from_ptr(p).to_str() }
             .map_err(|_| vm.new_value_error("Invalid UIF-8 codepoint".to_owned()))
     }
