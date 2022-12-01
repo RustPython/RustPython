@@ -18,6 +18,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     _sqlite::setup_module_exceptions(&module, vm);
 
     let _ = _sqlite::CONVERTERS.set(PyMutex::new(HashMap::new()));
+    let _ = _sqlite::ADAPTERS.set(vm.ctx.new_dict());
 
     module
 }
@@ -44,6 +45,7 @@ mod _sqlite {
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         VirtualMachine,
         __exports::paste,
+        identifier,
     };
     use sqlite3_sys::{
         sqlite3, sqlite3_backup, sqlite3_backup_finish, sqlite3_backup_init,
@@ -333,7 +335,9 @@ mod _sqlite {
     fn enable_callback_tracebacks(flag: i32) {}
 
     #[pyfunction]
-    fn register_adapter(typ: PyObjectRef, adapter: PyObjectRef) {}
+    fn register_adapter(typ: PyTypeRef, adapter: ArgCallable, vm: &VirtualMachine) -> PyResult<()> {
+        adapters().set_item(typ.as_object(), adapter.into(), vm)
+    }
 
     #[pyfunction]
     fn register_converter(typename: PyStrRef, converter: ArgCallable) {
@@ -341,12 +345,63 @@ mod _sqlite {
         converters().insert(name, converter);
     }
 
+    fn _adapt<F>(obj: &PyObject, alt: F, vm: &VirtualMachine) -> PyResult
+    where
+        F: FnOnce(&PyObject) -> PyResult,
+    {
+        if let Some(adapter) = adapters().get_item_opt(obj.class().as_object(), vm)? {
+            vm.invoke(&adapter, (obj,))
+        } else if let Ok(adapter) = obj.get_attr("__conform__", vm) {
+            vm.invoke(&adapter, (PrepareProtocol::class(vm).to_owned(),))
+        } else {
+           alt(obj)
+        }
+    }
+
+    #[pyfunction]
+    fn adapt(
+        obj: PyObjectRef,
+        proto: OptionalArg<PyTypeRef>,
+        alt: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let err = || new_programming_error(vm, "can't adapt".to_owned());
+
+        if let OptionalArg::Present(proto) = proto {
+            if !proto.is(PrepareProtocol::class(vm)) {
+                return if let OptionalArg::Present(alt) = alt {
+                    Ok(alt)
+                } else {
+                    Err(err())
+                };
+            }
+        }
+
+        _adapt(
+            &obj,
+            |_| {
+                if let OptionalArg::Present(alt) = alt {
+                    Ok(alt)
+                } else {
+                    Err(err())
+                }
+            },
+            vm,
+        )
+    }
+
     static_cell! {
         pub(crate) static CONVERTERS: PyMutex<HashMap<String, ArgCallable>>;
+        pub(crate) static ADAPTERS: PyDictRef;
+        static ADAPTER_BASE_TYPE: ();
     }
 
     fn converters() -> PyMutexGuard<'static, HashMap<String, ArgCallable>> {
         CONVERTERS.get().expect("converters not initialize").lock()
+    }
+
+    fn adapters() -> &'static Py<PyDict> {
+        ADAPTERS.get().expect("adapters not initialize")
     }
 
     #[pyattr]
@@ -900,7 +955,11 @@ mod _sqlite {
             self.arraysize.store(val, Ordering::Relaxed);
         }
 
-        fn build_row_cast_map(&self, st: &SqliteStatementRaw, vm: &VirtualMachine) -> PyResult<Vec<Option<ArgCallable>>> {
+        fn build_row_cast_map(
+            &self,
+            st: &SqliteStatementRaw,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<Option<ArgCallable>>> {
             if self.connection.detect_types == 0 {
                 return Ok(vec![]);
             }
@@ -1318,7 +1377,9 @@ mod _sqlite {
             parameter: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let ret = if vm.is_none(parameter) {
+            let parameter = _adapt(parameter, |x| Ok(x.to_owned()), vm)?;
+
+            let ret = if vm.is_none(&parameter) {
                 unsafe { sqlite3_bind_null(self.st, pos) }
             } else if let Some(val) = parameter.payload::<PyInt>() {
                 let val = val.try_to_primitive::<i64>(vm)?;
@@ -1370,8 +1431,7 @@ mod _sqlite {
                     return Err(new_programming_error(vm, "Binding {} has no name, but you supplied a dictionary (which has only names).".to_owned()));
                 }
                 let name = unsafe { name.add(1) };
-                let name = unsafe { CStr::from_ptr(name) };
-                let name = name.to_str().unwrap();
+                let name = ptr_to_str(name, vm)?;
 
                 let val = dict.get_item(name, vm)?;
 
