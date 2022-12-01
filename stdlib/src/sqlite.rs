@@ -32,8 +32,8 @@ mod _sqlite {
     };
     use rustpython_vm::{
         builtins::{
-            PyBaseException, PyBaseExceptionRef, PyBytes, PyDict, PyDictRef, PyFloat, PyInt, PyStr,
-            PyStrRef, PyTupleRef, PyType, PyTypeRef,
+            PyBaseException, PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat,
+            PyInt, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, OptionalArg},
@@ -60,7 +60,7 @@ mod _sqlite {
         sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_sleep, sqlite3_step,
         sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, SQLITE_FLOAT,
         SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
-        SQLITE_TRANSIENT,
+        SQLITE_TEXT, SQLITE_TRANSIENT,SQLITE_BLOB
     };
     use std::{
         collections::HashMap,
@@ -354,7 +354,7 @@ mod _sqlite {
         } else if let Ok(adapter) = obj.get_attr("__conform__", vm) {
             vm.invoke(&adapter, (PrepareProtocol::class(vm).to_owned(),))
         } else {
-           alt(obj)
+            alt(obj)
         }
     }
 
@@ -414,6 +414,7 @@ mod _sqlite {
         check_same_thread: bool,
         thread_ident: u64,
         row_factory: PyObjectRef,
+        text_factory: PyAtomicRef<PyObject>,
     }
 
     impl Debug for Connection {
@@ -439,6 +440,7 @@ mod _sqlite {
                 .isolation_level
                 .unwrap_or_else(|| vm.ctx.empty_str.clone());
             begin_statement_ptr_from_isolation_level(&isolation_level, vm)?;
+            let text_factory = PyStr::class(vm).to_owned().into_object();
 
             Ok(Self {
                 db: PyMutex::new(Some(db)),
@@ -447,6 +449,7 @@ mod _sqlite {
                 check_same_thread: args.check_same_thread,
                 thread_ident: thread::get_ident(),
                 row_factory: vm.ctx.none(),
+                text_factory: PyAtomicRef::from(text_factory),
             })
         }
 
@@ -651,6 +654,15 @@ mod _sqlite {
             begin_statement_ptr_from_isolation_level(&val, vm)?;
             unsafe { self.isolation_level.swap(val) };
             Ok(())
+        }
+
+        #[pygetset]
+        fn text_factory(&self) -> PyObjectRef {
+            self.text_factory.to_owned()
+        }
+        #[pygetset(setter)]
+        fn set_text_factory(&self, val: PyObjectRef) {
+            unsafe { self.text_factory.swap(val) };
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -1046,8 +1058,41 @@ mod _sqlite {
                         SQLITE_NULL => vm.ctx.none(),
                         SQLITE_INTEGER => vm.ctx.new_int(st.column_int(i)).into(),
                         SQLITE_FLOAT => vm.ctx.new_float(st.column_double(i)).into(),
+                        SQLITE_TEXT => {
+                            let text = st.column_text(i);
+                            let nbytes = st.column_bytes(i);
+
+                            let text_slice = ptr_to_slice(text, nbytes, vm)?;
+
+                            let text_factory = zelf.connection.text_factory.to_owned();
+
+                            if text_factory.is(PyStr::class(vm)) {
+                                let text = std::str::from_utf8(text_slice).map_err(|_| {
+                                    new_operational_error(vm, "not valid UTF-8".to_owned())
+                                })?;
+                                vm.ctx.new_str(text).into()
+                            } else if text_factory.is(PyBytes::class(vm)) {
+                                vm.ctx.new_bytes(text_slice.to_vec()).into()
+                            } else if text_factory.is(PyByteArray::class(vm)) {
+                                PyByteArray::from(text_slice.to_vec()).into_ref(vm).into()
+                            } else {
+                                let bytes = vm.ctx.new_bytes(text_slice.to_vec());
+                                vm.invoke(&text_factory, (bytes,))?
+                            }
+                        }
+                        SQLITE_BLOB => {
+                            let blob = st.column_blob(i);
+                            let nbytes = st.column_bytes(i);
+
+                            let slice = ptr_to_slice(blob.cast(), nbytes, vm)?;
+
+                            vm.ctx.new_bytes(slice.to_vec()).into()
+                        }
                         _ => {
-                            return Err(vm.new_not_implemented_error("blob type".to_owned()));
+                            return Err(vm.new_not_implemented_error(format!(
+                                "unknown column type: {}",
+                                col_type
+                            )));
                         }
                     }
                 };
@@ -1417,7 +1462,7 @@ mod _sqlite {
             } else {
                 Err(new_programming_error(
                     vm,
-                    "parameters are unsupported type".to_owned(),
+                    "parameters are of unsupported type".to_owned(),
                 ))
             }
         }
@@ -1474,6 +1519,10 @@ mod _sqlite {
 
         fn column_blob(self, pos: c_int) -> *const c_void {
             unsafe { sqlite3_column_blob(self.st, pos) }
+        }
+
+        fn column_text(self, pos: c_int) -> *const u8 {
+            unsafe { sqlite3_column_text(self.st, pos) }
         }
 
         fn column_decltype(self, pos: c_int) -> *const i8 {
@@ -1536,6 +1585,16 @@ mod _sqlite {
             .map_err(|_| vm.new_value_error("Invalid UIF-8 codepoint".to_owned()))
     }
 
+    fn ptr_to_slice<'a>(p: *const u8, nbytes: c_int, vm: &VirtualMachine) -> PyResult<&'a [u8]> {
+        if p.is_null() {
+            return Err(vm.new_memory_error("string pointer is null".to_owned()));
+        }
+        if nbytes < 0 {
+            return Err(vm.new_system_error("negative size with ptr".to_owned()));
+        }
+        unsafe { Ok(std::slice::from_raw_parts(p.cast(), nbytes as usize)) }
+    }
+
     fn exception_type_from_errcode(errcode: c_int, vm: &VirtualMachine) -> &'static Py<PyType> {
         match errcode {
             SQLITE_INTERNAL | SQLITE_NOTFOUND => internal_error_type(),
@@ -1593,7 +1652,12 @@ mod _sqlite {
             .iter()
             .find(|&&x| x[6..].eq_ignore_ascii_case(s.as_str().as_bytes()))
             .map(|&x| x.as_ptr().cast())
-            .ok_or_else(|| vm.new_value_error("invalid value for isolation_level".to_owned()))
+            .ok_or_else(|| {
+                vm.new_value_error(
+                    "isolation_level string must be '', 'DEFERRED', 'IMMEDIATE', or 'EXCLUSIVE'"
+                        .to_owned(),
+                )
+            })
     }
 
     fn lstrip_sql(sql: &[u8]) -> Option<&[u8]> {
