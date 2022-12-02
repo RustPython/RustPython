@@ -189,7 +189,7 @@ Python Standard Library modules in Rust (`vm/src/stdlib`). In Python
 everything can be represented as an object. The `vm/src/builtins` directory holds
 the Rust code used to represent different Python objects and their methods. The
 core implementation of what a Python object is can be found in
-`vm/src/pyobjectrc.rs`.
+`vm/src/object/core.rs`.
 
 ### Code generation
 
