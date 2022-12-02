@@ -446,6 +446,7 @@ class RegressionTests(unittest.TestCase):
             con.execute("drop table t")
             con.commit()
 
+    @unittest.skip("TODO: RUSTPYTHON deadlock")
     def test_table_lock_cursor_non_readonly_select(self):
         with memory_database() as con:
             con.execute("create table t(t)")

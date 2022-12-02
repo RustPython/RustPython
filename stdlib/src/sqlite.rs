@@ -54,13 +54,16 @@ mod _sqlite {
         sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_changes, sqlite3_close_v2,
         sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype,
         sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
-        sqlite3_column_type, sqlite3_complete, sqlite3_data_count, sqlite3_db_handle,
-        sqlite3_errcode, sqlite3_errmsg, sqlite3_extended_errcode, sqlite3_finalize,
-        sqlite3_get_autocommit, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
-        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_sleep, sqlite3_step,
-        sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, SQLITE_FLOAT,
-        SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
-        SQLITE_TEXT, SQLITE_TRANSIENT,SQLITE_BLOB
+        sqlite3_column_type, sqlite3_complete, sqlite3_context, sqlite3_context_db_handle,
+        sqlite3_create_function_v2, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
+        sqlite3_errmsg, sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
+        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
+        sqlite3_prepare_v2, sqlite3_reset, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
+        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data,
+        sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double,
+        sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB,
+        SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE,
+        SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRANSIENT, SQLITE_UTF8,
     };
     use std::{
         collections::HashMap,
@@ -283,6 +286,28 @@ mod _sqlite {
     // SQLITE_IOERR_CORRUPTFS
     // TODO: update with sqlite-sys
 
+    macro_rules! ptr_to_vec {
+        ($ptr:expr, $nbytes:expr, $db:expr, $vm:expr, $func:expr) => {{
+            let ptr = $ptr;
+            if ptr.is_null() {
+                let db = $db;
+                if unsafe { sqlite3_errcode(db) } == SQLITE_NOMEM {
+                    Err($vm.new_memory_error("sqlite out of memory".to_owned()))
+                } else {
+                    Ok(vec![])
+                }
+            } else {
+                let nbytes = $nbytes;
+                if nbytes < 0 {
+                    Err($vm.new_system_error("negative size with ptr".to_owned()))
+                } else {
+                    let slice = unsafe { std::slice::from_raw_parts(ptr.cast(), nbytes as usize) };
+                    Ok(slice.to_vec())
+                }
+            }
+        }};
+    }
+
     #[derive(FromArgs)]
     struct ConnectArgs {
         #[pyarg(any)]
@@ -315,6 +340,18 @@ mod _sqlite {
         name: Option<PyStrRef>,
         #[pyarg(named, default = "0.250")]
         sleep: f64,
+    }
+
+    #[derive(FromArgs)]
+    struct CreateFunctionArgs {
+        #[pyarg(any)]
+        name: PyStrRef,
+        #[pyarg(any)]
+        narg: i32,
+        #[pyarg(any)]
+        func: PyObjectRef,
+        #[pyarg(named, default)]
+        deterministic: bool,
     }
 
     #[pyfunction]
@@ -612,6 +649,121 @@ mod _sqlite {
                 Ok(())
             } else {
                 Err(target.db_lock(vm)?.error_extended(vm))
+            }
+        }
+
+        #[pymethod]
+        fn create_function(&self, args: CreateFunctionArgs, vm: &VirtualMachine) -> PyResult<()> {
+            struct UserData {
+                func: *const PyObject,
+                vm: *const VirtualMachine,
+            }
+
+            extern "C" fn func_callback(
+                context: *mut sqlite3_context,
+                argc: c_int,
+                argv: *mut *mut sqlite3_value,
+            ) {
+                let data = unsafe { sqlite3_user_data(context) };
+                let data = unsafe { Box::from_raw(data.cast::<UserData>()) };
+                let data = Box::leak(data);
+                let vm = unsafe { data.vm.as_ref().unwrap_unchecked() };
+                let func = unsafe { PyObjectRef::from_raw(data.func) };
+
+                let mut py_args = Vec::with_capacity(argc as usize);
+                let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
+
+                for &value in args {
+                    let value_type = unsafe { sqlite3_value_type(value) };
+                    let py_value = match value_type {
+                        SQLITE_INTEGER => {
+                            vm.ctx.new_int(unsafe { sqlite3_value_int64(value) }).into()
+                        }
+                        SQLITE_FLOAT => vm
+                            .ctx
+                            .new_float(unsafe { sqlite3_value_double(value) })
+                            .into(),
+                        SQLITE_TEXT => {
+                            let text = unsafe {
+                                ptr_to_vec(
+                                    sqlite3_value_text(value),
+                                    sqlite3_value_bytes(value),
+                                    sqlite3_context_db_handle(context),
+                                    vm,
+                                )
+                            }
+                            .unwrap();
+                            let text = String::from_utf8(text).unwrap();
+                            // let text = unsafe { sqlite3_value_text(value) };
+                            // if text.is_null() {
+                            //     vm.ctx.none()
+                            // }
+                            // let nbytes = unsafe { sqlite3_value_bytes(value) };
+                            // let text_slice = ptr_to_slice(text, nbytes, vm).unwrap();
+                            // let text = unsafe { std::str::from_utf8_unchecked(text_slice) };
+                            vm.ctx.new_str(text).into()
+                        }
+                        SQLITE_BLOB => {
+                            let blob = unsafe {
+                                ptr_to_vec(
+                                    sqlite3_value_blob(value).cast(),
+                                    sqlite3_value_bytes(value),
+                                    sqlite3_context_db_handle(context),
+                                    vm,
+                                )
+                            }
+                            .unwrap();
+                            vm.ctx.new_bytes(blob).into()
+                        }
+                        SQLITE_NULL | _ => vm.ctx.none(),
+                    };
+                    py_args.push(py_value);
+                }
+
+                // let py_args = vm.ctx.new_tuple(py_args);
+                vm.invoke(&func, py_args).unwrap();
+                func.into_raw();
+            }
+
+            extern "C" fn destructor(data: *mut c_void) {
+                unsafe { Box::from_raw(data.cast::<UserData>()) };
+            }
+
+            let name = args.name.to_cstring(vm)?;
+            let flags = if args.deterministic {
+                SQLITE_UTF8 | SQLITE_DETERMINISTIC
+            } else {
+                SQLITE_UTF8
+            };
+            // let func = args.func.into_raw() as *mut _;
+            let data = Box::new(UserData {
+                func: args.func.into_raw(),
+                vm: vm as *const _,
+            });
+
+            let db = self.db_lock(vm)?;
+
+            let ret = unsafe {
+                sqlite3_create_function_v2(
+                    db.db,
+                    name.as_ptr(),
+                    args.narg,
+                    flags,
+                    Box::into_raw(data).cast(),
+                    Some(func_callback),
+                    None,
+                    None,
+                    Some(destructor),
+                )
+            };
+
+            if ret == SQLITE_OK {
+                Ok(())
+            } else {
+                Err(new_operational_error(
+                    vm,
+                    "Error creating function".to_owned(),
+                ))
             }
         }
 
@@ -1059,34 +1211,34 @@ mod _sqlite {
                         SQLITE_INTEGER => vm.ctx.new_int(st.column_int(i)).into(),
                         SQLITE_FLOAT => vm.ctx.new_float(st.column_double(i)).into(),
                         SQLITE_TEXT => {
-                            let text = st.column_text(i);
-                            let nbytes = st.column_bytes(i);
-
-                            let text_slice = ptr_to_slice(text, nbytes, vm)?;
+                            let text =
+                                ptr_to_vec(st.column_text(i), st.column_bytes(i), db.db, vm)?;
 
                             let text_factory = zelf.connection.text_factory.to_owned();
 
                             if text_factory.is(PyStr::class(vm)) {
-                                let text = std::str::from_utf8(text_slice).map_err(|_| {
+                                let text = String::from_utf8(text).map_err(|_| {
                                     new_operational_error(vm, "not valid UTF-8".to_owned())
                                 })?;
                                 vm.ctx.new_str(text).into()
                             } else if text_factory.is(PyBytes::class(vm)) {
-                                vm.ctx.new_bytes(text_slice.to_vec()).into()
+                                vm.ctx.new_bytes(text).into()
                             } else if text_factory.is(PyByteArray::class(vm)) {
-                                PyByteArray::from(text_slice.to_vec()).into_ref(vm).into()
+                                PyByteArray::from(text).into_ref(vm).into()
                             } else {
-                                let bytes = vm.ctx.new_bytes(text_slice.to_vec());
+                                let bytes = vm.ctx.new_bytes(text);
                                 vm.invoke(&text_factory, (bytes,))?
                             }
                         }
                         SQLITE_BLOB => {
-                            let blob = st.column_blob(i);
-                            let nbytes = st.column_bytes(i);
+                            let blob = ptr_to_vec(
+                                st.column_blob(i).cast(),
+                                st.column_bytes(i),
+                                db.db,
+                                vm,
+                            )?;
 
-                            let slice = ptr_to_slice(blob.cast(), nbytes, vm)?;
-
-                            vm.ctx.new_bytes(slice.to_vec()).into()
+                            vm.ctx.new_bytes(blob).into()
                         }
                         _ => {
                             return Err(vm.new_not_implemented_error(format!(
@@ -1585,14 +1737,23 @@ mod _sqlite {
             .map_err(|_| vm.new_value_error("Invalid UIF-8 codepoint".to_owned()))
     }
 
-    fn ptr_to_slice<'a>(p: *const u8, nbytes: c_int, vm: &VirtualMachine) -> PyResult<&'a [u8]> {
+    fn ptr_to_vec(
+        p: *const u8,
+        nbytes: c_int,
+        db: *mut sqlite3,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
         if p.is_null() {
-            return Err(vm.new_memory_error("string pointer is null".to_owned()));
+            if unsafe { sqlite3_errcode(db) } == SQLITE_NOMEM {
+                Err(vm.new_memory_error("sqlite out of memory".to_owned()))
+            } else {
+                Ok(vec![])
+            }
+        } else if nbytes < 0 {
+            Err(vm.new_system_error("negative size with ptr".to_owned()))
+        } else {
+            Ok(unsafe { std::slice::from_raw_parts(p.cast(), nbytes as usize) }.to_vec())
         }
-        if nbytes < 0 {
-            return Err(vm.new_system_error("negative size with ptr".to_owned()));
-        }
-        unsafe { Ok(std::slice::from_raw_parts(p.cast(), nbytes as usize)) }
     }
 
     fn exception_type_from_errcode(errcode: c_int, vm: &VirtualMachine) -> &'static Py<PyType> {
