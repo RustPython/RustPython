@@ -985,27 +985,11 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::JumpIfTrue { target } => self.jump_if(vm, *target, true),
             bytecode::Instruction::JumpIfFalse { target } => self.jump_if(vm, *target, false),
-
             bytecode::Instruction::JumpIfTrueOrPop { target } => {
-                let obj = self.last_value();
-                let value = obj.try_to_bool(vm)?;
-                if value {
-                    self.jump(*target);
-                } else {
-                    self.pop_value();
-                }
-                Ok(None)
+                self.jump_if_or_pop(vm, *target, true)
             }
-
             bytecode::Instruction::JumpIfFalseOrPop { target } => {
-                let obj = self.last_value();
-                let value = obj.try_to_bool(vm)?;
-                if !value {
-                    self.jump(*target);
-                } else {
-                    self.pop_value();
-                }
-                Ok(None)
+                self.jump_if_or_pop(vm, *target, false)
             }
 
             bytecode::Instruction::Raise { kind } => self.execute_raise(vm, *kind),
@@ -1478,6 +1462,23 @@ impl ExecutingFrame<'_> {
         let value = obj.try_to_bool(vm)?;
         if value == flag {
             self.jump(target);
+        }
+        Ok(None)
+    }
+
+    #[inline]
+    fn jump_if_or_pop(
+        &mut self,
+        vm: &VirtualMachine,
+        target: bytecode::Label,
+        flag: bool,
+    ) -> FrameResult {
+        let obj = self.last_value();
+        let value = obj.try_to_bool(vm)?;
+        if value == flag {
+            self.jump(target);
+        } else {
+            self.pop_value();
         }
         Ok(None)
     }
