@@ -234,6 +234,8 @@ class FunctionTests(unittest.TestCase):
         cur = self.con.cursor()
         cur.execute("select reftest()")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_func_return_text(self):
         cur = self.con.cursor()
         cur.execute("select returntext()")
@@ -241,12 +243,16 @@ class FunctionTests(unittest.TestCase):
         self.assertEqual(type(val), str)
         self.assertEqual(val, "foo")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_func_return_text_with_null_char(self):
         cur = self.con.cursor()
         res = cur.execute("select returntextwithnull()").fetchone()[0]
         self.assertEqual(type(res), str)
         self.assertEqual(res, "1\x002")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_func_return_unicode(self):
         cur = self.con.cursor()
         cur.execute("select returnunicode()")
@@ -336,6 +342,8 @@ class FunctionTests(unittest.TestCase):
         # SQLite has no concept of nan; it is converted to NULL
         self.assertTrue(cur.fetchone()[0])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_too_large_int(self):
         err = "Python int too large to convert to SQLite INTEGER"
         self.assertRaisesRegex(OverflowError, err, self.con.execute,
@@ -347,6 +355,8 @@ class FunctionTests(unittest.TestCase):
                                self.con.execute, "select spam(?)",
                                (memoryview(b"blob")[::2],))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @with_tracebacks(BufferError, regex="buffer.*contiguous")
     def test_return_non_contiguous_blob(self):
         with self.assertRaises(sqlite.OperationalError):
@@ -441,6 +451,8 @@ class FunctionTests(unittest.TestCase):
         del x,y
         gc_collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @with_tracebacks(OverflowError)
     def test_func_return_too_large_int(self):
         cur = self.con.cursor()
