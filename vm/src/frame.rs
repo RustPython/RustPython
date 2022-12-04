@@ -983,23 +983,8 @@ impl ExecutingFrame<'_> {
                 self.jump(*target);
                 Ok(None)
             }
-            bytecode::Instruction::JumpIfTrue { target } => {
-                let obj = self.pop_value();
-                let value = obj.try_to_bool(vm)?;
-                if value {
-                    self.jump(*target);
-                }
-                Ok(None)
-            }
-
-            bytecode::Instruction::JumpIfFalse { target } => {
-                let obj = self.pop_value();
-                let value = obj.try_to_bool(vm)?;
-                if !value {
-                    self.jump(*target);
-                }
-                Ok(None)
-            }
+            bytecode::Instruction::JumpIfTrue { target } => self.jump_if(vm, *target, true),
+            bytecode::Instruction::JumpIfFalse { target } => self.jump_if(vm, *target, false),
 
             bytecode::Instruction::JumpIfTrueOrPop { target } => {
                 let obj = self.last_value();
@@ -1485,6 +1470,16 @@ impl ExecutingFrame<'_> {
         let target_pc = label.0;
         vm_trace!("jump from {:?} to {:?}", self.lasti(), target_pc);
         self.update_lasti(|i| *i = target_pc);
+    }
+
+    #[inline]
+    fn jump_if(&mut self, vm: &VirtualMachine, target: bytecode::Label, flag: bool) -> FrameResult {
+        let obj = self.pop_value();
+        let value = obj.try_to_bool(vm)?;
+        if value == flag {
+            self.jump(target);
+        }
+        Ok(None)
     }
 
     /// The top of stack contains the iterator, lets push it forward
