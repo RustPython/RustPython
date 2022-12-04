@@ -2100,8 +2100,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, binop.left, '1 * 2 + (3 )')
         self._check_content(s, binop.left.right, '3')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_boolop(self):
         s = dedent('''
             if (one_condition and
