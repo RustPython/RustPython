@@ -56,16 +56,16 @@ mod _sqlite {
         sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
         sqlite3_column_type, sqlite3_complete, sqlite3_context, sqlite3_context_db_handle,
         sqlite3_create_function_v2, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
-        sqlite3_errmsg, sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
-        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
-        sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
-        sqlite3_result_error, sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text,
-        sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly,
-        sqlite3_threadsafe, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
-        sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text,
-        sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER,
-        SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT,
-        SQLITE_TRANSIENT, SQLITE_UTF8,
+        sqlite3_errmsg, sqlite3_exec, sqlite3_extended_errcode, sqlite3_finalize,
+        sqlite3_get_autocommit, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
+        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob,
+        sqlite3_result_double, sqlite3_result_error, sqlite3_result_int64, sqlite3_result_null,
+        sqlite3_result_text, sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy,
+        sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data, sqlite3_value,
+        sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64,
+        sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT,
+        SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
+        SQLITE_TEXT, SQLITE_TRANSIENT, SQLITE_UTF8,
     };
     use std::{
         collections::HashMap,
@@ -526,8 +526,7 @@ mod _sqlite {
         fn rollback(&self, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
             if !db.is_autocommit() {
-                db.prepare(b"ROLLBACK\0".as_ptr().cast(), null_mut(), vm)?
-                    .step_done(vm)
+                db._exec(b"ROLLBACK\0", vm)
             } else {
                 Ok(())
             }
@@ -906,13 +905,17 @@ mod _sqlite {
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let stmt = Statement::new(&zelf.connection, &sql, vm)?.into_ref(vm);
-
             let mut inner = zelf.inner(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
                 stmt.lock().reset();
             }
+
+            let Some(stmt) = Statement::new(&zelf.connection, &sql, vm)? else {
+                drop(inner);
+                return Ok(zelf);
+            };
+            let stmt = stmt.into_ref(vm);
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
@@ -930,11 +933,10 @@ mod _sqlite {
             let ret = st.step();
 
             if ret != SQLITE_DONE && ret != SQLITE_ROW {
+                if let Some(exc) = unsafe { user_function_exception().swap(None) } {
+                    return Err(exc);
+                }
                 return Err(db.error_extended(vm));
-            }
-
-            if let Some(exc) = unsafe { user_function_exception().swap(None) } {
-                return Err(exc);
             }
 
             inner.row_cast_map = zelf.build_row_cast_map(&st, vm)?;
@@ -966,15 +968,20 @@ mod _sqlite {
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let stmt = Statement::new(&zelf.connection, &sql, vm)?.into_ref(vm);
-
             let mut inner = zelf.inner(vm)?;
 
             if let Some(stmt) = inner.statement.take() {
                 stmt.lock().reset();
             }
 
+            let Some(stmt) = Statement::new(&zelf.connection, &sql, vm)? else {
+                drop(inner);
+                return Ok(zelf);
+            };
+            let stmt = stmt.into_ref(vm);
+
             let st = stmt.lock();
+
             if st.readonly() {
                 return Err(new_programming_error(
                     vm,
@@ -1004,9 +1011,9 @@ mod _sqlite {
                     st.reset();
                 }
 
-                if let Some(exc) = unsafe { user_function_exception().swap(None) } {
-                    return Err(exc);
-                }
+                // if let Some(exc) = unsafe { user_function_exception().swap(None) } {
+                //     return Err(exc);
+                // }
             }
 
             if st.busy() {
@@ -1034,16 +1041,12 @@ mod _sqlite {
             let script = script.to_cstring(vm)?;
             let mut ptr = script.as_ptr();
 
-            loop {
-                let mut tail = null();
-                let st = db.prepare(ptr, addr_of_mut!(tail), vm)?;
+            // while unsafe { *ptr } != 0 {
+            while let Some(st) = db.prepare(ptr, &mut ptr, vm)? {
+                // dbg!(unsafe {*ptr});
+                // let st = db.prepare(ptr, &mut ptr, vm)?;
+                // dbg!(unsafe {*ptr});
                 while st.step_row_else_done(vm)? {}
-
-                if tail.is_null() {
-                    break;
-                }
-
-                ptr = tail;
             }
 
             drop(db);
@@ -1318,7 +1321,11 @@ mod _sqlite {
 
     #[pyclass()]
     impl Statement {
-        fn new(connection: &Connection, sql: &PyStr, vm: &VirtualMachine) -> PyResult<Self> {
+        fn new(
+            connection: &Connection,
+            sql: &PyStr,
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<Self>> {
             let sql_cstr = sql.to_cstring(vm)?;
             let sql_len = sql.byte_len() + 1;
 
@@ -1327,7 +1334,11 @@ mod _sqlite {
             db.sql_limit(sql_len, vm)?;
 
             let mut tail = null();
-            let st = db.prepare(sql_cstr.as_ptr(), addr_of_mut!(tail), vm)?;
+            let st = db.prepare(sql_cstr.as_ptr(), &mut tail, vm)?;
+
+            let Some(st) = st else {
+                return Ok(None);
+            };
 
             let tail = unsafe { CStr::from_ptr(tail) };
             let tail = tail.to_bytes();
@@ -1348,10 +1359,10 @@ mod _sqlite {
                 false
             };
 
-            Ok(Self {
+            Ok(Some(Self {
                 st: PyMutex::from(st),
                 is_dml,
-            })
+            }))
         }
 
         fn lock(&self) -> PyMutexGuard<SqliteStatement> {
@@ -1443,16 +1454,26 @@ mod _sqlite {
             zelf.check(ret, vm).map(|_| zelf)
         }
 
+        fn _exec(self, sql: &[u8], vm: &VirtualMachine) -> PyResult<()> {
+            let ret =
+                unsafe { sqlite3_exec(self.db, sql.as_ptr().cast(), None, null_mut(), null_mut()) };
+            self.check(ret, vm)
+        }
+
         fn prepare(
             self,
             sql: *const i8,
             tail: *mut *const i8,
             vm: &VirtualMachine,
-        ) -> PyResult<SqliteStatement> {
+        ) -> PyResult<Option<SqliteStatement>> {
             let mut st = null_mut();
-            let ret = unsafe { sqlite3_prepare_v2(self.db, sql, -1, addr_of_mut!(st), tail) };
-            self.check(ret, vm)
-                .map(|_| SqliteStatement::from(SqliteStatementRaw::from(st)))
+            let ret = unsafe { sqlite3_prepare_v2(self.db, sql, -1, &mut st, tail) };
+            self.check(ret, vm)?;
+            if st.is_null() {
+                Ok(None)
+            } else {
+                Ok(Some(SqliteStatement::from(SqliteStatementRaw::from(st))))
+            }
         }
 
         fn limit(self, category: c_int, limit: c_int, vm: &VirtualMachine) -> PyResult<c_int> {
@@ -1491,8 +1512,7 @@ mod _sqlite {
             if self.is_autocommit() {
                 Ok(())
             } else {
-                self.prepare(b"COMMIT\0".as_ptr().cast(), null_mut(), vm)?
-                    .step_done(vm)
+                self._exec(b"COMMIT\0", vm)
             }
         }
 
@@ -1501,8 +1521,7 @@ mod _sqlite {
             s.extend(b"BEGIN ");
             s.extend(isolation_level.as_str().bytes());
             s.push(b'\0');
-            self.prepare(s.as_ptr().cast(), null_mut(), vm)?
-                .step_done(vm)
+            self._exec(&s, vm)
         }
     }
 
@@ -1559,7 +1578,10 @@ mod _sqlite {
 
         fn step_row_else_done(self, vm: &VirtualMachine) -> PyResult<bool> {
             let ret = self.step();
-            if ret == SQLITE_ROW {
+
+            if let Some(exc) = unsafe { user_function_exception().swap(None) } {
+                Err(exc)
+            } else if ret == SQLITE_ROW {
                 Ok(true)
             } else if ret == SQLITE_DONE {
                 Ok(false)
