@@ -53,11 +53,11 @@ impl PyModule {
             return vm.invoke(&getattr, (name,));
         }
         let module_name = if let Some(name) = Self::name(zelf.to_owned(), vm) {
-            format!(" '{}'", name)
+            format!(" '{name}'")
         } else {
             "".to_owned()
         };
-        Err(vm.new_attribute_error(format!("module{} has no attribute '{}'", module_name, name)))
+        Err(vm.new_attribute_error(format!("module{module_name} has no attribute '{name}'")))
     }
 
     fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<PyStrRef> {

@@ -152,7 +152,7 @@ impl PyStaticMethod {
         ) {
             (None, _) => None,
             (Some(qualname), Some(module)) if module != "builtins" => {
-                Some(format!("<{}.{}({})>", module, qualname, callable))
+                Some(format!("<{module}.{qualname}({callable})>"))
             }
             _ => Some(format!("<{}({})>", class.slot_name(), callable)),
         }

@@ -740,10 +740,7 @@ mod mmap {
                 .map(|obj| {
                     let name = obj.class().name().to_string();
                     obj.try_into_value::<Option<isize>>(vm).map_err(|_| {
-                        vm.new_type_error(format!(
-                            "read argument must be int or None, not {}",
-                            name,
-                        ))
+                        vm.new_type_error(format!("read argument must be int or None, not {name}",))
                     })
                 })
                 .transpose()?

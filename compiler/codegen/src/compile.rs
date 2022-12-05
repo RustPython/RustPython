@@ -457,7 +457,7 @@ impl Compiler {
             NameUsage::Delete if is_forbidden_name(name) => "cannot delete",
             _ => return Ok(()),
         };
-        Err(self.error(CodegenErrorType::SyntaxError(format!("{} {}", msg, name))))
+        Err(self.error(CodegenErrorType::SyntaxError(format!("{msg} {name}"))))
     }
 
     fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {

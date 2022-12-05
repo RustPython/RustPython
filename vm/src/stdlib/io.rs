@@ -88,8 +88,7 @@ impl TryFromObject for Fildes {
         let fd = int.try_to_primitive(vm)?;
         if fd < 0 {
             return Err(vm.new_value_error(format!(
-                "file descriptor cannot be a negative integer ({})",
-                fd
+                "file descriptor cannot be a negative integer ({fd})"
             )));
         }
         Ok(Fildes(fd))
@@ -183,7 +182,7 @@ mod _io {
                     if v >= 0 {
                         Ok(v as usize)
                     } else {
-                        Err(vm.new_value_error(format!("Negative size value {}", v)))
+                        Err(vm.new_value_error(format!("Negative size value {v}")))
                     }
                 })
                 .transpose()
@@ -843,7 +842,7 @@ mod _io {
             let offset = get_offset(ret, vm)?;
             if offset < 0 {
                 return Err(
-                    vm.new_os_error(format!("Raw stream returned invalid position {}", offset))
+                    vm.new_os_error(format!("Raw stream returned invalid position {offset}"))
                 );
             }
             self.abs_pos = offset;
@@ -888,7 +887,7 @@ mod _io {
             let offset = get_offset(ret, vm)?;
             if offset < 0 {
                 return Err(
-                    vm.new_os_error(format!("Raw stream returned invalid position {}", offset))
+                    vm.new_os_error(format!("Raw stream returned invalid position {offset}"))
                 );
             }
             self.abs_pos = offset;
@@ -941,8 +940,7 @@ mod _io {
             let n = isize::try_from_object(vm, res)?;
             if n < 0 || n as usize > len {
                 return Err(vm.new_os_error(format!(
-                    "raw write() returned invalid length {} (should have been between 0 and {})",
-                    n, len
+                    "raw write() returned invalid length {n} (should have been between 0 and {len})"
                 )));
             }
             if self.abs_pos != -1 {
@@ -1173,8 +1171,7 @@ mod _io {
             let n = isize::try_from_object(vm, res)?;
             if n < 0 || n as usize > len {
                 return Err(vm.new_os_error(format!(
-                    "raw readinto() returned invalid length {} (should have been between 0 and {})",
-                    n, len
+                    "raw readinto() returned invalid length {n} (should have been between 0 and {len})"
                 )));
             }
             if n > 0 && self.abs_pos != -1 {
@@ -1457,7 +1454,7 @@ mod _io {
         ) -> PyResult<Offset> {
             let whence = whence.unwrap_or(0);
             if !validate_whence(whence) {
-                return Err(vm.new_value_error(format!("whence value {} unsupported", whence)));
+                return Err(vm.new_value_error(format!("whence value {whence} unsupported")));
             }
             let mut data = self.lock(vm)?;
             let raw = data.check_init(vm)?;
@@ -1540,9 +1537,9 @@ mod _io {
             let cls = zelf.class();
             let slot_name = cls.slot_name();
             let repr = if let Some(name_repr) = name_repr {
-                format!("<{} name={}>", slot_name, name_repr)
+                format!("<{slot_name} name={name_repr}>")
             } else {
-                format!("<{}>", slot_name)
+                format!("<{slot_name}>")
             };
             Ok(repr)
         }
@@ -1961,7 +1958,7 @@ mod _io {
                     "\n" => Self::Lf,
                     "\r" => Self::Cr,
                     "\r\n" => Self::Crlf,
-                    _ => return Err(vm.new_value_error(format!("illegal newline value: {}", s))),
+                    _ => return Err(vm.new_value_error(format!("illegal newline value: {s}"))),
                 }
             };
             Ok(nl)
@@ -2405,8 +2402,9 @@ mod _io {
                     }
                 }
                 _ => {
-                    return Err(vm
-                        .new_value_error(format!("invalid whence ({}, should be 0, 1 or 2)", how)))
+                    return Err(
+                        vm.new_value_error(format!("invalid whence ({how}, should be 0, 1 or 2)"))
+                    )
                 }
             };
             use crate::types::PyComparisonOp;
@@ -3480,7 +3478,7 @@ mod _io {
     impl ParseModeError {
         fn error_msg(&self, mode_string: &str) -> String {
             match self {
-                ParseModeError::InvalidMode => format!("invalid mode: '{}'", mode_string),
+                ParseModeError::InvalidMode => format!("invalid mode: '{mode_string}'"),
                 ParseModeError::MultipleFile => {
                     "must have exactly one of create/read/write/append mode".to_owned()
                 }
@@ -3759,7 +3757,7 @@ mod fileio {
     impl ModeError {
         fn error_msg(&self, mode_str: &str) -> String {
             match self {
-                ModeError::Invalid => format!("invalid mode: {}", mode_str),
+                ModeError::Invalid => format!("invalid mode: {mode_str}"),
                 ModeError::BadRwa => {
                     "Must have exactly one of create/read/write/append mode and at most one plus"
                         .to_owned()
@@ -3894,7 +3892,7 @@ mod fileio {
                 }
                 let fd = i32::try_from_object(vm, fd)?;
                 if fd < 0 {
-                    return Err(vm.new_value_error(format!("opener returned {}", fd)));
+                    return Err(vm.new_value_error(format!("opener returned {fd}")));
                 }
                 fd
             } else if let Some(i) = name.payload::<crate::builtins::PyInt>() {
@@ -3992,12 +3990,9 @@ mod fileio {
             let mode = zelf.mode();
             let closefd = if zelf.closefd.load() { "True" } else { "False" };
             let repr = if let Some(name_repr) = name_repr {
-                format!(
-                    "<_io.FileIO name={} mode='{}' closefd={}>",
-                    name_repr, mode, closefd
-                )
+                format!("<_io.FileIO name={name_repr} mode='{mode}' closefd={closefd}>")
             } else {
-                format!("<_io.FileIO fd={} mode='{}' closefd={}>", fd, mode, closefd)
+                format!("<_io.FileIO fd={fd} mode='{mode}' closefd={closefd}>")
             };
             Ok(repr)
         }

@@ -61,7 +61,7 @@ impl PyNamespace {
             }
             format!("{}({})", name, parts.join(", "))
         } else {
-            format!("{}(...)", name)
+            format!("{name}(...)")
         };
         Ok(repr)
     }

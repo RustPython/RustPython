@@ -164,7 +164,7 @@ mod hashlib {
                 data: args.data,
                 usedforsecurity: args.usedforsecurity,
             }),
-            other => Err(vm.new_value_error(format!("Unknown hashing algorithm: {}", other))),
+            other => Err(vm.new_value_error(format!("Unknown hashing algorithm: {other}"))),
         }
     }
 

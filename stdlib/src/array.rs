@@ -551,15 +551,13 @@ mod array {
     fn u32_to_char(ch: u32) -> Result<char, String> {
         if ch > 0x10ffff {
             return Err(format!(
-                "character U+{:4x} is not in range [U+0000; U+10ffff]",
-                ch
+                "character U+{ch:4x} is not in range [U+0000; U+10ffff]"
             ));
         };
         char::from_u32(ch).ok_or_else(|| {
             format!(
-                "'utf-8' codec can't encode character '\\u{:x}' \
-                in position 0: surrogates not allowed",
-                ch
+                "'utf-8' codec can't encode character '\\u{ch:x}' \
+                in position 0: surrogates not allowed"
             )
         })
     }
@@ -638,8 +636,7 @@ mod array {
                         (spec, ch) if spec == ch => array.frombytes(&init.get_bytes()),
                         (spec, 'u') => {
                             return Err(vm.new_type_error(format!(
-                            "cannot use a unicode array to initialize an array with typecode '{}'",
-                            spec
+                            "cannot use a unicode array to initialize an array with typecode '{spec}'"
                         )))
                         }
                         _ => {
@@ -654,8 +651,7 @@ mod array {
                         array.frombytes_move(bytes);
                     } else {
                         return Err(vm.new_type_error(format!(
-                            "cannot use a str to initialize an array with typecode '{}'",
-                            spec
+                            "cannot use a str to initialize an array with typecode '{spec}'"
                         )));
                     }
                 } else if init.payload_is::<PyBytes>() || init.payload_is::<PyByteArray>() {
@@ -1079,7 +1075,7 @@ mod array {
             let class_name = class.name();
             if zelf.read().typecode() == 'u' {
                 if zelf.len() == 0 {
-                    return Ok(format!("{}('u')", class_name));
+                    return Ok(format!("{class_name}('u')"));
                 }
                 return Ok(format!(
                     "{}('u', {})",

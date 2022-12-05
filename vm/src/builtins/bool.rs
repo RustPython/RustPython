@@ -94,8 +94,7 @@ impl Constructor for PyBool {
             let actual_class = zelf.class();
             let actual_type = &actual_class.name();
             return Err(vm.new_type_error(format!(
-                "requires a 'type' object but received a '{}'",
-                actual_type
+                "requires a 'type' object but received a '{actual_type}'"
             )));
         }
         let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;

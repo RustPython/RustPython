@@ -37,8 +37,8 @@ impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use CodegenErrorType::*;
         match self {
-            Assign(target) => write!(f, "cannot assign to {}", target),
-            Delete(target) => write!(f, "cannot delete {}", target),
+            Assign(target) => write!(f, "cannot assign to {target}"),
+            Delete(target) => write!(f, "cannot delete {target}"),
             SyntaxError(err) => write!(f, "{}", err.as_str()),
             MultipleStarArgs => {
                 write!(f, "two starred expressions in assignment")
@@ -59,7 +59,7 @@ impl fmt::Display for CodegenErrorType {
                 "from __future__ imports must occur at the beginning of the file"
             ),
             InvalidFutureFeature(feat) => {
-                write!(f, "future feature {} is not defined", feat)
+                write!(f, "future feature {feat} is not defined")
             }
             FunctionImportStar => {
                 write!(f, "import * only allowed at module level")

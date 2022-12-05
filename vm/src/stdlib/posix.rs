@@ -268,7 +268,7 @@ pub mod module {
         )
         })?;
 
-        let metadata = fs::metadata(&path.path);
+        let metadata = fs::metadata(path.path);
 
         // if it's only checking for F_OK
         if flags == AccessFlags::F_OK {
@@ -1012,10 +1012,10 @@ pub mod module {
 
         match i.cmp(&-1) {
             Ordering::Greater => Ok(Some(i.try_into().map_err(|_| {
-                vm.new_overflow_error(format!("{} is larger than maximum", typ_name))
+                vm.new_overflow_error(format!("{typ_name} is larger than maximum"))
             })?)),
             Ordering::Less => {
-                Err(vm.new_overflow_error(format!("{} is less than minimum", typ_name)))
+                Err(vm.new_overflow_error(format!("{typ_name} is less than minimum")))
             }
             Ordering::Equal => Ok(None), // -1 means does not change the value
         }
@@ -1371,7 +1371,7 @@ pub mod module {
                 for sig in sigs.iter(vm)? {
                     let sig = sig?;
                     let sig = signal::Signal::try_from(sig).map_err(|_| {
-                        vm.new_value_error(format!("signal number {} out of range", sig))
+                        vm.new_value_error(format!("signal number {sig} out of range"))
                     })?;
                     set.add(sig);
                 }
@@ -1604,7 +1604,7 @@ pub mod module {
         slice
             .to_str()
             .map(|s| s.to_owned())
-            .map_err(|e| vm.new_unicode_decode_error(format!("unable to decode login name: {}", e)))
+            .map_err(|e| vm.new_unicode_decode_error(format!("unable to decode login name: {e}")))
     }
 
     // cfg from nix

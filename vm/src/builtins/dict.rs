@@ -260,7 +260,7 @@ impl PyDict {
             for (key, value) in zelf {
                 let key_repr = &key.repr(vm)?;
                 let value_repr = value.repr(vm)?;
-                str_parts.push(format!("{}: {}", key_repr, value_repr));
+                str_parts.push(format!("{key_repr}: {value_repr}"));
             }
 
             format!("{{{}}}", str_parts.join(", "))

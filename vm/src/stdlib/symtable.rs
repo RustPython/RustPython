@@ -92,7 +92,7 @@ mod symtable {
                 }
                 .into_ref(vm))
             } else {
-                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {} failed", name)).into()))
+                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {name} failed")).into()))
             }
         }
 

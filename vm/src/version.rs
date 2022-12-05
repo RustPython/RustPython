@@ -25,7 +25,7 @@ pub fn get_version() -> String {
 }
 
 pub fn get_version_number() -> String {
-    format!("{}.{}.{}{}", MAJOR, MINOR, MICRO, RELEASELEVEL)
+    format!("{MAJOR}.{MINOR}.{MICRO}{RELEASELEVEL}")
 }
 
 pub fn get_compiler() -> String {
@@ -105,5 +105,5 @@ pub fn get_git_datetime() -> String {
     let date = get_git_date();
     let time = get_git_time();
 
-    format!("{} {}", date, time)
+    format!("{date} {time}")
 }

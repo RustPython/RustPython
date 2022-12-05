@@ -463,15 +463,12 @@ impl ExecutingFrame<'_> {
         if let Some(&name) = self.code.cellvars.get(i) {
             vm.new_exception_msg(
                 vm.ctx.exceptions.unbound_local_error.to_owned(),
-                format!("local variable '{}' referenced before assignment", name),
+                format!("local variable '{name}' referenced before assignment"),
             )
         } else {
             let name = self.code.freevars[i - self.code.cellvars.len()];
             vm.new_name_error(
-                format!(
-                    "free variable '{}' referenced before assignment in enclosing scope",
-                    name
-                ),
+                format!("free variable '{name}' referenced before assignment in enclosing scope"),
                 name.to_owned(),
             )
         }
@@ -1032,7 +1029,7 @@ impl ExecutingFrame<'_> {
         self.globals
             .get_chain(self.builtins, name, vm)?
             .ok_or_else(|| {
-                vm.new_name_error(format!("name '{}' is not defined", name), name.to_owned())
+                vm.new_name_error(format!("name '{name}' is not defined"), name.to_owned())
             })
     }
 
@@ -1072,7 +1069,7 @@ impl ExecutingFrame<'_> {
     fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> PyResult {
         let module = self.last_value();
         let name = self.code.names[idx as usize];
-        let err = || vm.new_import_error(format!("cannot import name '{}'", name), name);
+        let err = || vm.new_import_error(format!("cannot import name '{name}'"), name);
         // Load attribute, and transform any error into import error.
         if let Some(obj) = vm.get_attribute_opt(module.clone(), name)? {
             return Ok(obj);
@@ -1082,7 +1079,7 @@ impl ExecutingFrame<'_> {
             .get_attr(identifier!(vm, __name__), vm)
             .map_err(|_| err())?;
         let mod_name = mod_name.downcast::<PyStr>().map_err(|_| err())?;
-        let full_mod_name = format!("{}.{}", mod_name, name);
+        let full_mod_name = format!("{mod_name}.{name}");
         let sys_modules = vm
             .sys_module
             .clone()
@@ -1702,7 +1699,7 @@ impl ExecutingFrame<'_> {
                 return Ok(None);
             }
             std::cmp::Ordering::Greater => {
-                format!("too many values to unpack (expected {})", size)
+                format!("too many values to unpack (expected {size})")
             }
             std::cmp::Ordering::Less => format!(
                 "not enough values to unpack (expected {}, got {})",
@@ -1886,14 +1883,14 @@ impl fmt::Debug for Frame {
                 if elem.payload_is::<Frame>() {
                     "\n  > {frame}".to_owned()
                 } else {
-                    format!("\n  > {:?}", elem)
+                    format!("\n  > {elem:?}")
                 }
             })
             .collect::<String>();
         let block_str = state
             .blocks
             .iter()
-            .map(|elem| format!("\n  > {:?}", elem))
+            .map(|elem| format!("\n  > {elem:?}"))
             .collect::<String>();
         // TODO: fix this up
         let locals = self.locals.clone();
