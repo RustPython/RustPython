@@ -38,14 +38,14 @@ mod _sqlite {
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, OptionalArg},
         object::PyObjectPayload,
-        protocol::{PyIterReturn, PySequence},
+        protocol::{PyBuffer, PyIterReturn, PySequence},
         stdlib::{os::PyPathLike, thread},
         types::{Constructor, IterNext, IterNextIterable},
         utils::ToCString,
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         VirtualMachine,
         __exports::paste,
-        identifier,
+        identifier, TryFromBorrowedObject,
     };
     use sqlite3_sys::{
         sqlite3, sqlite3_backup, sqlite3_backup_finish, sqlite3_backup_init,
@@ -702,6 +702,12 @@ mod _sqlite {
                 } else if let Some(val) = val.payload::<PyStr>() {
                     let val = val.to_cstring(vm)?;
                     unsafe { sqlite3_result_text(context, val.as_ptr(), -1, None) };
+                } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &val) {
+                    let len = i32::try_from(buffer.desc.len)
+                        .map_err(|_| vm.new_overflow_error("BLOB size over INT_MAX".to_owned()))?;
+                    buffer.contiguous_or_collect(|x| unsafe {
+                        sqlite3_result_blob(context, x.as_ptr().cast(), len, None)
+                    });
                 } else {
                     return Err(new_programming_error(
                         vm,
@@ -1616,7 +1622,16 @@ mod _sqlite {
                 unsafe { sqlite3_bind_double(self.st, pos, val) }
             } else if let Some(val) = parameter.payload::<PyStr>() {
                 let s = val.to_cstring(vm)?;
+                // TODO: TRANSIENT
                 unsafe { sqlite3_bind_text(self.st, pos, s.as_ptr(), -1, None) }
+            } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &parameter) {
+                let len = i32::try_from(buffer.desc.len).map_err(|_| {
+                    vm.new_overflow_error("BLOB longer than INT_MAX bytes".to_owned())
+                })?;
+                // TODO: TRANSIENT
+                buffer.contiguous_or_collect(|x| unsafe {
+                    sqlite3_bind_blob(self.st, pos, x.as_ptr().cast(), len, None)
+                })
             } else {
                 return Err(new_programming_error(
                     vm,
