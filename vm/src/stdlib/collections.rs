@@ -173,7 +173,7 @@ mod _collections {
                 Err(vm.new_value_error(
                     needle
                         .repr(vm)
-                        .map(|repr| format!("{} is not in deque", repr))
+                        .map(|repr| format!("{repr} is not in deque"))
                         .unwrap_or_else(|_| String::new()),
                 ))
             }
@@ -302,11 +302,11 @@ mod _collections {
             let class_name = class.name();
             let closing_part = zelf
                 .maxlen
-                .map(|maxlen| format!("], maxlen={}", maxlen))
+                .map(|maxlen| format!("], maxlen={maxlen}"))
                 .unwrap_or_else(|| "]".to_owned());
 
             let s = if zelf.len() == 0 {
-                format!("{}([{})", class_name, closing_part)
+                format!("{class_name}([{closing_part})")
             } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 collection_repr(Some(&class_name), "[", &closing_part, deque.iter(), vm)?
             } else {

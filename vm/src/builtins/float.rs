@@ -124,7 +124,7 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
 
 pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     if v1.is_zero() && v2.is_sign_negative() {
-        let msg = format!("{} cannot be raised to a negative power", v1);
+        let msg = format!("{v1} cannot be raised to a negative power");
         Err(vm.new_zero_division_error(msg))
     } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
         let v1 = Complex64::new(v1, 0.);
@@ -180,9 +180,7 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     };
     float_ops::parse_bytes(b).ok_or_else(|| {
         val.repr(vm)
-            .map(|repr| {
-                vm.new_value_error(format!("could not convert string to float: '{}'", repr))
-            })
+            .map(|repr| vm.new_value_error(format!("could not convert string to float: '{repr}'")))
             .unwrap_or_else(|e| e)
     })
 }

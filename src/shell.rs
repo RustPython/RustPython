@@ -121,11 +121,11 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 break;
             }
             ReadlineResult::Other(err) => {
-                eprintln!("Readline error: {:?}", err);
+                eprintln!("Readline error: {err:?}");
                 break;
             }
             ReadlineResult::Io(err) => {
-                eprintln!("IO error: {:?}", err);
+                eprintln!("IO error: {err:?}");
                 break;
             }
         };

@@ -212,7 +212,7 @@ mod _codecs {
 
         fn error_oob_restart(&self, i: usize) -> PyBaseExceptionRef {
             self.vm
-                .new_index_error(format!("position {} from error handler out of bounds", i))
+                .new_index_error(format!("position {i} from error handler out of bounds"))
         }
 
         fn error_encoding(

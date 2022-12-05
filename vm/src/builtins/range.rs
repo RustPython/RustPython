@@ -308,7 +308,7 @@ impl PyRange {
         if let Ok(int) = needle.clone().downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
                 Some(idx) => Ok(idx),
-                None => Err(vm.new_value_error(format!("{} is not in range", int))),
+                None => Err(vm.new_value_error(format!("{int} is not in range"))),
             }
         } else {
             // Fallback to iteration.

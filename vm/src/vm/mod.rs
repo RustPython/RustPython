@@ -261,7 +261,7 @@ impl VirtualMachine {
                         self,
                     )?;
                     self.sys_module.set_attr(
-                        format!("__{}__", name), // e.g. __stdin__
+                        format!("__{name}__"), // e.g. __stdin__
                         stdio.clone(),
                         self,
                     )?;
@@ -405,7 +405,7 @@ impl VirtualMachine {
     // To be called right before raising the recursion depth.
     fn check_recursive_call(&self, _where: &str) -> PyResult<()> {
         if self.recursion_depth.get() >= self.recursion_limit.get() {
-            Err(self.new_recursion_error(format!("maximum recursion depth exceeded {}", _where)))
+            Err(self.new_recursion_error(format!("maximum recursion depth exceeded {_where}")))
         } else {
             Ok(())
         }
@@ -447,10 +447,10 @@ impl VirtualMachine {
     pub fn class(&self, module: &str, class: &str) -> PyTypeRef {
         let module = self
             .import(module, None, 0)
-            .unwrap_or_else(|_| panic!("unable to import {}", module));
+            .unwrap_or_else(|_| panic!("unable to import {module}"));
         let class = module
             .get_attr(class, self)
-            .unwrap_or_else(|_| panic!("module {:?} has no class {}", module, class));
+            .unwrap_or_else(|_| panic!("module {module:?} has no class {class}"));
         class.downcast().expect("not a class")
     }
 
@@ -487,7 +487,7 @@ impl VirtualMachine {
             Some(cached_module) => {
                 if self.is_none(&cached_module) {
                     Err(self.new_import_error(
-                        format!("import of {} halted; None in sys.modules", module),
+                        format!("import of {module} halted; None in sys.modules"),
                         module,
                     ))
                 } else {
@@ -754,7 +754,7 @@ impl VirtualMachine {
             };
             if let Some(msg) = msg {
                 let stderr = stdlib::sys::PyStderr(self);
-                writeln!(stderr, "{}", msg);
+                writeln!(stderr, "{msg}");
             }
             1
         } else {

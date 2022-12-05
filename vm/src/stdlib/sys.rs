@@ -619,8 +619,7 @@ mod sys {
             Ok(())
         } else {
             Err(vm.new_recursion_error(format!(
-                "cannot set the recursion limit to {} at the recursion depth {}: the limit is too low",
-                recursion_limit, recursion_depth
+                "cannot set the recursion limit to {recursion_limit} at the recursion depth {recursion_depth}: the limit is too low"
             )))
         }
     }
@@ -920,7 +919,7 @@ impl PyStderr<'_> {
                 return;
             }
         }
-        eprint!("{}", args)
+        eprint!("{args}")
     }
 }
 

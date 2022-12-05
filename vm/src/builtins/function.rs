@@ -133,7 +133,7 @@ impl PyFunction {
                 let slot = &mut fastlocals[pos];
                 if slot.is_some() {
                     return Err(
-                        vm.new_type_error(format!("Got multiple values for argument '{}'", name))
+                        vm.new_type_error(format!("Got multiple values for argument '{name}'"))
                     );
                 }
                 *slot = Some(value);
@@ -143,7 +143,7 @@ impl PyFunction {
                 posonly_passed_as_kwarg.push(name);
             } else {
                 return Err(
-                    vm.new_type_error(format!("got an unexpected keyword argument '{}'", name))
+                    vm.new_type_error(format!("got an unexpected keyword argument '{name}'"))
                 );
             }
         }
@@ -251,7 +251,7 @@ impl PyFunction {
 
                 // No default value and not specified.
                 return Err(
-                    vm.new_type_error(format!("Missing required kw only argument: '{}'", kwarg))
+                    vm.new_type_error(format!("Missing required kw only argument: '{kwarg}'"))
                 );
             }
         }

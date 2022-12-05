@@ -52,7 +52,7 @@ mod time {
 
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| vm.new_value_error(format!("Time error: {:?}", e)))
+            .map_err(|e| vm.new_value_error(format!("Time error: {e:?}")))
     }
 
     // TODO: implement proper monotonic time for wasm/wasi.
@@ -220,7 +220,7 @@ mod time {
     ) -> PyResult<PyStructTime> {
         let format = format.as_ref().map_or("%a %b %H:%M:%S %Y", |s| s.as_str());
         let instant = NaiveDateTime::parse_from_str(string.as_str(), format)
-            .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
+            .map_err(|e| vm.new_value_error(format!("Parse error: {e:?}")))?;
         Ok(PyStructTime::new(vm, instant, -1))
     }
 

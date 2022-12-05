@@ -32,7 +32,7 @@ fn main() {
 
     let folder = Path::new(matches.value_of("folder").unwrap());
     if folder.exists() && folder.is_dir() {
-        println!("Parsing folder of python code: {:?}", folder);
+        println!("Parsing folder of python code: {folder:?}");
         let t1 = Instant::now();
         let parsed_files = parse_folder(folder).unwrap();
         let t2 = Instant::now();
@@ -43,7 +43,7 @@ fn main() {
         };
         statistics(results);
     } else {
-        println!("{:?} is not a folder.", folder);
+        println!("{folder:?} is not a folder.");
     }
 }
 
@@ -111,13 +111,13 @@ fn statistics(results: ScanResult) {
         .iter()
         .filter(|p| p.result.is_ok())
         .count();
-    println!("Passed: {} Failed: {} Total: {}", passed, failed, total);
+    println!("Passed: {passed} Failed: {failed} Total: {total}");
     println!(
         "That is {} % success rate.",
         (passed as f64 * 100.0) / total as f64
     );
     let duration = results.t2 - results.t1;
-    println!("Total time spend: {:?}", duration);
+    println!("Total time spend: {duration:?}");
     println!(
         "Processed {} files. That's {} files/second",
         total,
