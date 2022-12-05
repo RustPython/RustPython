@@ -64,10 +64,7 @@ pub(crate) mod _struct {
             if (-offset) as usize > buffer_len {
                 return Err(new_struct_error(
                     vm,
-                    format!(
-                        "offset {} out of range for {}-byte buffer",
-                        offset, buffer_len
-                    ),
+                    format!("offset {offset} out of range for {buffer_len}-byte buffer"),
                 ));
             }
             buffer_len - (-offset as usize)
@@ -98,12 +95,9 @@ pub(crate) mod _struct {
             Err(new_struct_error(
                 vm,
                 if is_pack {
-                    format!("no space to pack {} bytes at offset {}", needed, offset)
+                    format!("no space to pack {needed} bytes at offset {offset}")
                 } else {
-                    format!(
-                        "not enough data to unpack {} bytes at offset {}",
-                        needed, offset
-                    )
+                    format!("not enough data to unpack {needed} bytes at offset {offset}")
                 },
             ))
         } else {

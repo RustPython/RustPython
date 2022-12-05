@@ -369,7 +369,7 @@ mod _operator {
             } else {
                 "...".to_owned()
             };
-            Ok(format!("operator.attrgetter({})", fmt))
+            Ok(format!("operator.attrgetter({fmt})"))
         }
 
         #[pymethod(magic)]
@@ -465,7 +465,7 @@ mod _operator {
             } else {
                 "...".to_owned()
             };
-            Ok(format!("operator.itemgetter({})", fmt))
+            Ok(format!("operator.itemgetter({fmt})"))
         }
 
         #[pymethod(magic)]
@@ -541,7 +541,7 @@ mod _operator {
                     let mut parts = Vec::with_capacity(kwargs.len());
                     for (key, value) in kwargs {
                         let value_repr = value.repr(vm)?;
-                        parts.push(format!("{}={}", key, value_repr));
+                        parts.push(format!("{key}={value_repr}"));
                     }
                     fmt.push(parts.join(", "));
                 }
@@ -549,7 +549,7 @@ mod _operator {
             } else {
                 "...".to_owned()
             };
-            Ok(format!("operator.methodcaller({})", fmt))
+            Ok(format!("operator.methodcaller({fmt})"))
         }
 
         #[pymethod(magic)]

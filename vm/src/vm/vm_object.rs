@@ -38,7 +38,7 @@ impl VirtualMachine {
             } else {
                 "run with RUST_BACKTRACE=1 to see Python backtrace"
             };
-            panic!("{}; {}", msg, after)
+            panic!("{msg}; {after}")
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
         {

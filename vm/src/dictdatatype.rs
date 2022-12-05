@@ -912,8 +912,8 @@ mod tests {
             dict.insert(vm, &*key1, value2.clone()).unwrap();
             assert_eq!(2, dict.len());
 
-            assert_eq!(true, dict.contains(vm, &*key1).unwrap());
-            assert_eq!(true, dict.contains(vm, "x").unwrap());
+            assert!(dict.contains(vm, &*key1).unwrap());
+            assert!(dict.contains(vm, "x").unwrap());
 
             let val = dict.get(vm, "x").unwrap().unwrap();
             vm.bool_eq(&val, &value2)

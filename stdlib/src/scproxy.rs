@@ -100,9 +100,9 @@ mod _scproxy {
                         .and_then(|v| v.downcast::<CFNumber>())
                         .and_then(|v| v.to_i32())
                     {
-                        format!("http://{}:{}", h, port)
+                        format!("http://{h}:{port}")
                     } else {
-                        format!("http://{}", h)
+                        format!("http://{h}")
                     };
                     result.set_item(proto, vm.new_pyobj(v), vm)?;
                 }

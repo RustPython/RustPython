@@ -375,9 +375,9 @@ mod _sre {
             };
 
             if flags.is_empty() {
-                Ok(format!("re.compile({})", s))
+                Ok(format!("re.compile({s})"))
             } else {
-                Ok(format!("re.compile({}, {})", s, flags))
+                Ok(format!("re.compile({s}, {flags})"))
             }
         }
 

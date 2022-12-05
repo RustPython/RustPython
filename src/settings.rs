@@ -344,7 +344,7 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
                 .map(|path| {
                     path.into_os_string()
                         .into_string()
-                        .unwrap_or_else(|_| panic!("{} isn't valid unicode", env_variable_name))
+                        .unwrap_or_else(|_| panic!("{env_variable_name} isn't valid unicode"))
                 })
                 .collect::<Vec<_>>()
         })

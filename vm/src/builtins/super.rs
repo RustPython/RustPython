@@ -129,7 +129,7 @@ impl PySuper {
         let typname = &self.typ.name();
         match self.obj {
             Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", typname, ty.name()),
-            None => format!("<super: <class '{}'>, NULL>", typname),
+            None => format!("<super: <class '{typname}'>, NULL>"),
         }
     }
 }

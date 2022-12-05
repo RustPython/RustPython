@@ -106,7 +106,7 @@ impl PyGenericAlias {
                 (Some(qualname), Some(module)) => Ok(if module == "builtins" {
                     qualname
                 } else {
-                    format!("{}.{}", module, qualname)
+                    format!("{module}.{qualname}")
                 }),
             }
         }

@@ -45,10 +45,10 @@ impl VirtualMachine {
             if let Ok(stderr) = sys::get_stderr(vm) {
                 let mut stderr = py_io::PyWriter(stderr, vm);
                 // if this fails stderr might be closed -- ignore it
-                let _ = writeln!(stderr, "{}", errstr);
+                let _ = writeln!(stderr, "{errstr}");
                 let _ = self.write_exception(&mut stderr, exc);
             } else {
-                eprintln!("{}\nlost sys.stderr", errstr);
+                eprintln!("{errstr}\nlost sys.stderr");
                 let _ = self.write_exception(&mut py_io::IoWriter(io::stderr()), exc);
             }
         };
@@ -106,7 +106,7 @@ impl VirtualMachine {
         } {
             if !seen.contains(&cause_or_context.get_id()) {
                 self.write_exception_recursive(output, &cause_or_context, seen)?;
-                writeln!(output, "{}", msg)?;
+                writeln!(output, "{msg}")?;
             } else {
                 seen.insert(cause_or_context.get_id());
             }
@@ -135,7 +135,7 @@ impl VirtualMachine {
         let exc_class = exc.class();
         let exc_name = exc_class.name();
         match args_repr.len() {
-            0 => write!(output, "{}", exc_name),
+            0 => write!(output, "{exc_name}"),
             1 => write!(output, "{}: {}", exc_name, args_repr[0]),
             _ => write!(
                 output,
@@ -900,7 +900,7 @@ fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrR
                 Err(_) => format!("[Errno {}] {}: '{}'", errno, msg, filename.str(vm)?),
             },
             Err(_) => {
-                format!("[Errno {}] {}", errno, msg)
+                format!("[Errno {errno}] {msg}")
             }
         };
         Ok(vm.ctx.new_str(s))

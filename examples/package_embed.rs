@@ -20,7 +20,7 @@ fn main() -> ExitCode {
     });
     let result = py_main(&interp);
     let result = result.map(|result| {
-        println!("name: {}", result);
+        println!("name: {result}");
     });
     ExitCode::from(interp.run(|_vm| result))
 }

@@ -158,8 +158,7 @@ impl FuncArgs {
                     let kwarg_class = kwarg.class();
                     let actual_ty_name = &kwarg_class.name();
                     Err(vm.new_type_error(format!(
-                        "argument of type {} is required for named parameter `{}` (got: {})",
-                        expected_ty_name, key, actual_ty_name
+                        "argument of type {expected_ty_name} is required for named parameter `{key}` (got: {actual_ty_name})"
                     )))
                 }
             }
@@ -217,7 +216,7 @@ impl FuncArgs {
         self.kwargs
             .keys()
             .next()
-            .map(|k| vm.new_type_error(format!("Unexpected keyword argument {}", k)))
+            .map(|k| vm.new_type_error(format!("Unexpected keyword argument {k}")))
     }
 }
 
@@ -262,10 +261,10 @@ impl ArgumentError {
                 num_given
             )),
             ArgumentError::InvalidKeywordArgument(name) => {
-                vm.new_type_error(format!("{} is an invalid keyword argument", name))
+                vm.new_type_error(format!("{name} is an invalid keyword argument"))
             }
             ArgumentError::RequiredKeywordArgument(name) => {
-                vm.new_type_error(format!("Required keyqord only argument {}", name))
+                vm.new_type_error(format!("Required keyqord only argument {name}"))
             }
             ArgumentError::Exception(ex) => ex,
         }

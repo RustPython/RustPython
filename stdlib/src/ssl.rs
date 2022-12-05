@@ -358,7 +358,7 @@ mod _ssl {
         _nid2obj(Nid::from_raw(nid))
             .as_deref()
             .map(obj2py)
-            .ok_or_else(|| vm.new_value_error(format!("unknown NID {}", nid)))
+            .ok_or_else(|| vm.new_value_error(format!("unknown NID {nid}")))
     }
 
     #[pyfunction]
@@ -1153,9 +1153,9 @@ mod _ssl {
                     // add `library` attribute
                     let attr_name = vm.ctx.as_ref().intern_str("library");
                     cls.set_attr(attr_name, vm.ctx.new_str(lib).into());
-                    format!("[{}] {} ({}:{})", lib, errstr, file, line)
+                    format!("[{lib}] {errstr} ({file}:{line})")
                 } else {
-                    format!("{} ({}:{})", errstr, file, line)
+                    format!("{errstr} ({file}:{line})")
                 };
                 // add `reason` attribute
                 let attr_name = vm.ctx.as_ref().intern_str("reason");
@@ -1314,7 +1314,7 @@ mod _ssl {
 
     #[pyfunction]
     fn _test_decode_cert(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
-        let pem = std::fs::read(&path).map_err(|e| e.to_pyexception(vm))?;
+        let pem = std::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
         let x509 = X509::from_pem(&pem).map_err(|e| convert_openssl_error(vm, e))?;
         cert_to_py(vm, &x509, false)
     }

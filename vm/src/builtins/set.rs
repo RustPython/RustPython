@@ -619,7 +619,7 @@ impl PySet {
         let borrowed_name = class.name();
         let class_name = borrowed_name.deref();
         let s = if zelf.inner.len() == 0 {
-            format!("{}()", class_name)
+            format!("{class_name}()")
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let name = if class_name != "set" {
                 Some(class_name)
@@ -628,7 +628,7 @@ impl PySet {
             };
             zelf.inner.repr(name, vm)?
         } else {
-            format!("{}(...)", class_name)
+            format!("{class_name}(...)")
         };
         Ok(s)
     }
@@ -957,11 +957,11 @@ impl PyFrozenSet {
         let class = zelf.class();
         let class_name = class.name();
         let s = if inner.len() == 0 {
-            format!("{}()", class_name)
+            format!("{class_name}()")
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             inner.repr(Some(&class_name), vm)?
         } else {
-            format!("{}(...)", class_name)
+            format!("{class_name}(...)")
         };
         Ok(s)
     }
@@ -1052,7 +1052,7 @@ impl TryFromObject for AnySet {
         {
             Ok(AnySet { object: obj })
         } else {
-            Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", class)))
+            Err(vm.new_type_error(format!("{class} is not a subtype of set or frozenset")))
         }
     }
 }

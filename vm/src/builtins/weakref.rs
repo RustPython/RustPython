@@ -60,7 +60,7 @@ impl PyWeak {
                 o.get_id(),
             )
         } else {
-            format!("<weakref at {:#x}; dead>", id)
+            format!("<weakref at {id:#x}; dead>")
         }
     }
 

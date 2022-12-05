@@ -242,7 +242,7 @@ impl CodecsRegistry {
                 return Ok(codec.clone());
             }
         }
-        Err(vm.new_lookup_error(format!("unknown encoding: {}", encoding)))
+        Err(vm.new_lookup_error(format!("unknown encoding: {encoding}")))
     }
 
     fn _lookup_text_encoding(
@@ -256,8 +256,7 @@ impl CodecsRegistry {
             Ok(codec)
         } else {
             Err(vm.new_lookup_error(format!(
-                "'{}' is not a text encoding; use {} to handle arbitrary codecs",
-                encoding, generic_func
+                "'{encoding}' is not a text encoding; use {generic_func} to handle arbitrary codecs"
             )))
         }
     }
@@ -338,7 +337,7 @@ impl CodecsRegistry {
 
     pub fn lookup_error(&self, name: &str, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         self.lookup_error_opt(name)
-            .ok_or_else(|| vm.new_lookup_error(format!("unknown error handler name '{}'", name)))
+            .ok_or_else(|| vm.new_lookup_error(format!("unknown error handler name '{name}'")))
     }
 }
 
@@ -440,7 +439,7 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
         let b = PyBytesRef::try_from_object(vm, err.get_attr("object", vm)?)?;
         let mut replace = String::with_capacity(4 * range.len());
         for &c in &b[range.clone()] {
-            write!(replace, "\\x{:02x}", c).unwrap();
+            write!(replace, "\\x{c:02x}").unwrap();
         }
         return Ok((replace, range.end));
     } else if !is_encode_ish_err(&err, vm) {
@@ -455,11 +454,11 @@ fn backslashreplace_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(S
     for c in s_after_start.chars().take(num_chars) {
         let c = c as u32;
         if c >= 0x10000 {
-            write!(out, "\\U{:08x}", c).unwrap();
+            write!(out, "\\U{c:08x}").unwrap();
         } else if c >= 0x100 {
-            write!(out, "\\u{:04x}", c).unwrap();
+            write!(out, "\\u{c:04x}").unwrap();
         } else {
-            write!(out, "\\x{:02x}", c).unwrap();
+            write!(out, "\\x{c:02x}").unwrap();
         }
     }
     Ok((out, range.end))
