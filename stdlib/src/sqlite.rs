@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use rustpython_common::lock::PyMutex;
-use rustpython_vm::{PyAtomicRef, PyObjectRef, VirtualMachine};
+use rustpython_common::{lock::PyMutex, atomic::Radium};
+use rustpython_vm::{builtins::PyBaseException, PyAtomicRef, PyObjectRef, VirtualMachine};
 
 // pub(crate) use _sqlite::make_module;
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -19,6 +19,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let _ = _sqlite::CONVERTERS.set(PyMutex::new(HashMap::new()));
     let _ = _sqlite::ADAPTERS.set(vm.ctx.new_dict());
     let _ = _sqlite::USER_FUNCTION_EXCEPTION.set(PyAtomicRef::from(None));
+    let _ = _sqlite::TRACEBACK.set(Radium::new(false));
 
     module
 }
@@ -48,24 +49,25 @@ mod _sqlite {
         identifier, TryFromBorrowedObject,
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_backup, sqlite3_backup_finish, sqlite3_backup_init,
-        sqlite3_backup_pagecount, sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob,
-        sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
-        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_changes, sqlite3_close_v2,
-        sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype,
-        sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
-        sqlite3_column_type, sqlite3_complete, sqlite3_context, sqlite3_context_db_handle,
-        sqlite3_create_function_v2, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
-        sqlite3_errmsg, sqlite3_exec, sqlite3_extended_errcode, sqlite3_finalize,
-        sqlite3_get_autocommit, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
-        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob,
-        sqlite3_result_double, sqlite3_result_error, sqlite3_result_int64, sqlite3_result_null,
-        sqlite3_result_text, sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy,
-        sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data, sqlite3_value,
-        sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64,
-        sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT,
-        SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
-        SQLITE_TEXT, SQLITE_TRANSIENT, SQLITE_UTF8,
+        sqlite3, sqlite3_aggregate_context, sqlite3_backup, sqlite3_backup_finish,
+        sqlite3_backup_init, sqlite3_backup_pagecount, sqlite3_backup_remaining,
+        sqlite3_backup_step, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64,
+        sqlite3_bind_null, sqlite3_bind_parameter_count, sqlite3_bind_parameter_name,
+        sqlite3_bind_text, sqlite3_changes, sqlite3_close_v2, sqlite3_column_blob,
+        sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype, sqlite3_column_double,
+        sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text, sqlite3_column_type,
+        sqlite3_complete, sqlite3_context, sqlite3_context_db_handle, sqlite3_create_function_v2,
+        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec,
+        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
+        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
+        sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
+        sqlite3_result_error, sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text,
+        sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly,
+        sqlite3_threadsafe, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
+        sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text,
+        sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER,
+        SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT,
+        SQLITE_TRANSIENT, SQLITE_UTF8,
     };
     use std::{
         collections::HashMap,
@@ -331,6 +333,16 @@ mod _sqlite {
         deterministic: bool,
     }
 
+    #[derive(FromArgs)]
+    struct CreateAggregateArgs {
+        #[pyarg(any)]
+        name: PyStrRef,
+        #[pyarg(positional)]
+        n_arg: i32,
+        #[pyarg(positional)]
+        aggregate_class: PyObjectRef,
+    }
+
     #[pyfunction]
     fn connect(args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
         // if let Some(factory) = args.factory.take() {}
@@ -409,6 +421,7 @@ mod _sqlite {
         pub(super) static ADAPTERS: PyDictRef;
         pub(super) static ADAPTER_BASE_TYPE: ();
         pub(super) static USER_FUNCTION_EXCEPTION: PyAtomicRef<Option<PyBaseException>>;
+        pub(super) static TRACEBACK: PyAtomic<bool>;
     }
 
     fn converters() -> PyMutexGuard<'static, HashMap<String, ArgCallable>> {
@@ -728,11 +741,10 @@ mod _sqlite {
                     let data = Box::from_raw(data.cast::<UserData>());
                     let data = Box::leak(data);
                     let vm = data.vm.as_ref().unwrap_unchecked();
-                    let func = PyObjectRef::from_raw(data.func);
-
+                    let func = data.func.as_ref().unwrap_unchecked();
                     let args = std::slice::from_raw_parts(argv, argc as usize);
 
-                    if let Err(err) = func_callback(context, &func, args, vm) {
+                    if let Err(err) = func_callback(context, func, args, vm) {
                         drop(user_function_exception().swap(Some(err)));
                         sqlite3_result_error(
                             context,
@@ -740,8 +752,6 @@ mod _sqlite {
                             -1,
                         );
                     }
-
-                    func.into_raw();
                 }
             }
 
@@ -763,6 +773,7 @@ mod _sqlite {
 
             let db = self.db_lock(vm)?;
 
+            // TODO: remove function
             let ret = unsafe {
                 sqlite3_create_function_v2(
                     db.db,
@@ -785,6 +796,114 @@ mod _sqlite {
                     "Error creating function".to_owned(),
                 ))
             }
+        }
+
+        #[pymethod]
+        fn create_aggregate(&self, args: CreateAggregateArgs, vm: &VirtualMachine) -> PyResult<()> {
+            struct UserData {
+                cls: *const PyObject,
+                vm: *const VirtualMachine,
+            }
+
+            extern "C" fn step_callback_wrapper(
+                context: *mut sqlite3_context,
+                argc: i32,
+                argv: *mut *mut sqlite3_value,
+            ) {
+                let context = SqliteContext::from(context);
+                // let data = unsafe { &*context.user_data::<UserData>() };
+                let data = unsafe { sqlite3_user_data(context.ctx) };
+                let data = unsafe { Box::from_raw(data.cast::<UserData>()) };
+                let data = Box::leak(data);
+                let vm = unsafe { &*data.vm };
+                let cls = unsafe { &*data.cls };
+                let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
+                let instance = context.aggregate_context::<*const PyObject>();
+                if unsafe { (*instance).is_null() } {
+                    match vm.invoke(cls, ()) {
+                        Ok(obj) => unsafe { *instance = obj.into_raw() },
+                        Err(exc) => {
+                            return context.result_exception(
+                                vm,
+                                exc,
+                                "user-defined aggregate's '__init__' method raised error\0",
+                            )
+                        }
+                    }
+                }
+                let instance = unsafe { &**instance };
+
+                let Ok(step_method) = instance.get_attr("step", vm) else {return};
+
+                let db = context.db_handle();
+
+                if let Err(exc) = (|| -> PyResult<()> {
+                    let args = args
+                        .iter()
+                        .cloned()
+                        .map(|val| value_to_object(val, db, vm))
+                        .collect::<PyResult<Vec<PyObjectRef>>>()?;
+                    vm.invoke(&step_method, args)?;
+                    Ok(())
+                })() {
+                    return context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'step' method raised error\0",
+                    );
+                }
+            }
+
+            extern "C" fn finalize_callback(context: *mut sqlite3_context) {
+                let context = SqliteContext::from(context);
+                let data = unsafe { &*context.user_data::<UserData>() };
+                let vm = unsafe { &*data.vm };
+                let instance = context.aggregate_context::<*const PyObject>();
+                if instance.is_null() || unsafe { (*instance).is_null() } {
+                    return;
+                }
+                let instance = unsafe { &**instance };
+
+                if let Err(exc) = (|| -> PyResult<()> {
+                    let val = vm.call_method(instance, "finalize", ())?;
+                    context.result_from_object(&val, vm)
+                })() {
+                    return context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'finalize' method raised error\0",
+                    );
+                }
+            }
+
+            extern "C" fn destructor(data: *mut c_void) {
+                unsafe { Box::from_raw(data.cast::<UserData>()) };
+            }
+
+            let name = args.name.to_cstring(vm)?;
+
+            let data = Box::new(UserData {
+                cls: args.aggregate_class.into_raw(),
+                vm: vm as *const _,
+            });
+
+            let db = self.db_lock(vm)?;
+
+            let ret = unsafe {
+                sqlite3_create_function_v2(
+                    db.db,
+                    name.as_ptr(),
+                    args.n_arg,
+                    SQLITE_UTF8,
+                    Box::into_raw(data).cast(),
+                    None,
+                    Some(step_callback_wrapper),
+                    Some(finalize_callback),
+                    Some(destructor),
+                )
+            };
+
+            db.check(ret, vm)
         }
 
         #[pymethod]
@@ -1772,6 +1891,121 @@ mod _sqlite {
         fn readonly(self) -> bool {
             unsafe { sqlite3_stmt_readonly(self.st) != 0 }
         }
+    }
+
+    #[derive(Copy, Clone)]
+    struct SqliteContext {
+        ctx: *mut sqlite3_context,
+    }
+
+    impl From<*mut sqlite3_context> for SqliteContext {
+        fn from(ctx: *mut sqlite3_context) -> Self {
+            Self { ctx }
+        }
+    }
+
+    impl SqliteContext {
+        fn user_data<T>(self) -> *mut T {
+            unsafe { sqlite3_user_data(self.ctx).cast() }
+        }
+
+        fn aggregate_context<T>(self) -> *mut T {
+            unsafe { sqlite3_aggregate_context(self.ctx, std::mem::size_of::<T>() as i32).cast() }
+        }
+
+        fn result_exception(self, vm: &VirtualMachine, exc: PyBaseExceptionRef, msg: &str) {
+            if TRACEBACK
+                .get()
+                .expect("module not initialize")
+                .load(Ordering::Relaxed)
+            {
+                vm.print_exception(exc);
+            }
+            unsafe { sqlite3_result_error(self.ctx, msg.as_ptr().cast(), -1) }
+        }
+
+        fn db_handle(self) -> *mut sqlite3 {
+            unsafe { sqlite3_context_db_handle(self.ctx) }
+        }
+
+        // fn result_null(self) {
+        //     unsafe { sqlite3_result_null(self.ctx) }
+        // }
+
+        // fn result_int64(self, val: i64) {
+        //     unsafe { sqlite3_result_int64(self.ctx, val) }
+        // }
+
+        // fn result_double(self, val: f64) {
+        //     unsafe { sqlite3_result_double(self.ctx, val) }
+        // }
+
+        // fn result_text(self, val: &CStr) {
+        //     // TODO:
+        //     unsafe { sqlite3_result_text(self.ctx, val.as_ptr(), -1, None) }
+        // }
+
+        // fn result_blob(self, val: &[u8], vm: &VirtualMachine) -> PyResult<()> {
+        //     let len = i32::try_from(val.len())
+        //         .map_err(|_| vm.new_overflow_error("BLOB size over INT_MAX".to_owned()))?;
+        //     // TODO:
+        //     unsafe { sqlite3_result_blob(self.ctx, val.as_ptr().cast(), len, None) }
+        //     Ok(())
+        // }
+
+        fn result_from_object(self, val: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+            unsafe {
+                if vm.is_none(val) {
+                    sqlite3_result_null(self.ctx)
+                } else if let Some(val) = val.payload::<PyInt>() {
+                    sqlite3_result_int64(self.ctx, val.try_to_primitive(vm)?)
+                } else if let Some(val) = val.payload::<PyFloat>() {
+                    sqlite3_result_double(self.ctx, val.to_f64())
+                } else if let Some(val) = val.payload::<PyStr>() {
+                    sqlite3_result_text(self.ctx, val.to_cstring(vm)?.as_ptr(), -1, None)
+                } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, val) {
+                    let len = i32::try_from(buffer.desc.len)
+                        .map_err(|_| vm.new_overflow_error("BLOB size over INT_MAX".to_owned()))?;
+                    buffer.contiguous_or_collect(|x| {
+                        sqlite3_result_blob(self.ctx, x.as_ptr().cast(), len, None)
+                    })
+                } else {
+                    return Err(new_programming_error(
+                        vm,
+                        "result type not support".to_owned(),
+                    ));
+                }
+            }
+            Ok(())
+        }
+    }
+
+    fn value_to_object(val: *mut sqlite3_value, db: *mut sqlite3, vm: &VirtualMachine) -> PyResult {
+        let obj = unsafe {
+            match sqlite3_value_type(val) {
+                SQLITE_INTEGER => vm.ctx.new_int(sqlite3_value_int64(val)).into(),
+                SQLITE_FLOAT => vm.ctx.new_float(sqlite3_value_double(val)).into(),
+                SQLITE_TEXT => {
+                    let text =
+                        ptr_to_vec(sqlite3_value_text(val), sqlite3_value_bytes(val), db, vm)?;
+                    let text = String::from_utf8(text).map_err(|_| {
+                        vm.new_value_error("invalid utf-8 with SQLITE_TEXT".to_owned())
+                    })?;
+                    vm.ctx.new_str(text).into()
+                }
+                SQLITE_BLOB => {
+                    let blob = ptr_to_vec(
+                        sqlite3_value_blob(val).cast(),
+                        sqlite3_value_bytes(val),
+                        db,
+                        vm,
+                    )?;
+                    vm.ctx.new_bytes(blob).into()
+                }
+                SQLITE_NULL | _ => vm.ctx.none(),
+            }
+        };
+        Ok(obj)
     }
 
     fn ptr_to_str<'a>(p: *const i8, vm: &VirtualMachine) -> PyResult<&'a str> {

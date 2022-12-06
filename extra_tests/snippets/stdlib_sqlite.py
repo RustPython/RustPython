@@ -16,3 +16,16 @@ cx.executescript("""
     INSERT INTO foo(key) VALUES (10);
     INSERT INTO foo(key) VALUES (11);
 """)
+
+class AggrSum:
+    def __init__(self):
+        self.val = 0.0
+
+    def step(self, val):
+        self.val += val
+
+    def finalize(self):
+        return self.val
+
+cx.create_aggregate("mysum", 1, AggrSum)
+cur.execute("select mysum(key) from foo")
