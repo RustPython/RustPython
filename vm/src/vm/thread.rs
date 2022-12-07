@@ -3,7 +3,9 @@ use itertools::Itertools;
 use std::{cell::RefCell, ptr::NonNull, thread_local};
 
 thread_local! {
-    pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
+    pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = const {
+        RefCell::new(Vec::new())
+    };
 }
 
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
