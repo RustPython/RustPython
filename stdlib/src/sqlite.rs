@@ -656,79 +656,21 @@ mod _sqlite {
             }
 
             fn func_callback(
-                context: *mut sqlite3_context,
+                context: SqliteContext,
                 func: &PyObject,
                 args: &[*mut sqlite3_value],
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
-                let mut py_args = Vec::with_capacity(args.len());
-                for &value in args {
-                    let value_type = unsafe { sqlite3_value_type(value) };
-                    let py_value = match value_type {
-                        SQLITE_INTEGER => {
-                            vm.ctx.new_int(unsafe { sqlite3_value_int64(value) }).into()
-                        }
-                        SQLITE_FLOAT => vm
-                            .ctx
-                            .new_float(unsafe { sqlite3_value_double(value) })
-                            .into(),
-                        SQLITE_TEXT => {
-                            let text = unsafe {
-                                ptr_to_vec(
-                                    sqlite3_value_text(value),
-                                    sqlite3_value_bytes(value),
-                                    sqlite3_context_db_handle(context),
-                                    vm,
-                                )
-                            }?;
-                            let text = String::from_utf8(text).map_err(|_| {
-                                vm.new_value_error("invalid utf-8 with SQLITE_TEXT".to_owned())
-                            })?;
-                            vm.ctx.new_str(text).into()
-                        }
-                        SQLITE_BLOB => {
-                            let blob = unsafe {
-                                ptr_to_vec(
-                                    sqlite3_value_blob(value).cast(),
-                                    sqlite3_value_bytes(value),
-                                    sqlite3_context_db_handle(context),
-                                    vm,
-                                )
-                            }?;
-                            vm.ctx.new_bytes(blob).into()
-                        }
-                        SQLITE_NULL | _ => vm.ctx.none(),
-                    };
-                    py_args.push(py_value);
-                }
+                let db = context.db_handle();
+                let args = args
+                    .iter()
+                    .cloned()
+                    .map(|val| value_to_object(val, db, vm))
+                    .collect::<PyResult<Vec<PyObjectRef>>>()?;
 
-                let val = vm.invoke(&func, py_args)?;
+                let val = vm.invoke(func, args)?;
 
-                if vm.is_none(&val) {
-                    unsafe { sqlite3_result_null(context) };
-                } else if let Some(val) = val.payload::<PyInt>() {
-                    let val = val.try_to_primitive::<i64>(vm)?;
-                    unsafe { sqlite3_result_int64(context, val) };
-                } else if let Some(val) = val.payload::<PyFloat>() {
-                    let val = val.to_f64();
-                    unsafe { sqlite3_result_double(context, val) };
-                } else if let Some(val) = val.payload::<PyStr>() {
-                    let val = val.to_cstring(vm)?;
-                    unsafe { sqlite3_result_text(context, val.as_ptr(), -1, None) };
-                } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &val) {
-                    let len = i32::try_from(buffer.desc.len)
-                        .map_err(|_| vm.new_overflow_error("BLOB size over INT_MAX".to_owned()))?;
-                    buffer.contiguous_or_collect(|x| unsafe {
-                        sqlite3_result_blob(context, x.as_ptr().cast(), len, None)
-                    });
-                } else {
-                    return Err(new_programming_error(
-                        vm,
-                        "result type not support".to_owned(),
-                    ));
-                }
-
-                Ok(())
+                context.result_from_object(&val, vm)
             }
 
             extern "C" fn func_callback_wrapper(
@@ -736,20 +678,18 @@ mod _sqlite {
                 argc: c_int,
                 argv: *mut *mut sqlite3_value,
             ) {
+                let context = SqliteContext::from(context);
                 unsafe {
-                    let data = sqlite3_user_data(context);
-                    let data = Box::from_raw(data.cast::<UserData>());
-                    let data = Box::leak(data);
-                    let vm = data.vm.as_ref().unwrap_unchecked();
-                    let func = data.func.as_ref().unwrap_unchecked();
+                    let data = &*context.user_data::<UserData>();
+                    let vm = &*data.vm;
+                    let func = &*data.func;
                     let args = std::slice::from_raw_parts(argv, argc as usize);
 
-                    if let Err(err) = func_callback(context, func, args, vm) {
-                        drop(user_function_exception().swap(Some(err)));
-                        sqlite3_result_error(
-                            context,
-                            "user-defined function raised exception\0".as_ptr().cast(),
-                            -1,
+                    if let Err(exc) = func_callback(context, func, args, vm) {
+                        return context.result_exception(
+                            vm,
+                            exc,
+                            "user-defined function raised exception\0",
                         );
                     }
                 }
@@ -810,7 +750,7 @@ mod _sqlite {
 
             fn step_callback(
                 context: SqliteContext,
-                step_method: &PyObject,
+                instance: &PyObject,
                 args: &[*mut sqlite3_value],
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
@@ -820,7 +760,8 @@ mod _sqlite {
                     .cloned()
                     .map(|val| value_to_object(val, db, vm))
                     .collect::<PyResult<Vec<PyObjectRef>>>()?;
-                vm.invoke(&step_method, args).map(drop)
+                // vm.invoke(&step_method, args).map(drop)
+                vm.call_method(instance, "step", args).map(drop)
             }
 
             extern "C" fn step_callback_wrapper(
@@ -849,24 +790,40 @@ mod _sqlite {
                     }
                     let instance = &**instance;
 
-                    let step_method = match instance.get_attr("step", vm) {
-                        Ok(step_method) => step_method,
-                        Err(exc) => {
-                            return context.result_exception(
+                    if let Err(exc) = step_callback(context, instance, args, vm) {
+                        if exc.fast_isinstance(&vm.ctx.exceptions.attribute_error) {
+                            context.result_exception(
                                 vm,
                                 exc,
                                 "user-defined aggregate's 'step' method not defined\0",
                             )
+                        } else {
+                            context.result_exception(
+                                vm,
+                                exc,
+                                "user-defined aggregate's 'step' method raised error\0",
+                            )
                         }
-                    };
-
-                    if let Err(exc) = step_callback(context, &step_method, args, vm) {
-                        return context.result_exception(
-                            vm,
-                            exc,
-                            "user-defined aggregate's 'step' method raised error\0",
-                        );
                     }
+
+                    // let step_method = match instance.get_attr("step", vm) {
+                    //     Ok(step_method) => step_method,
+                    //     Err(exc) => {
+                    //         return context.result_exception(
+                    //             vm,
+                    //             exc,
+                    //             "user-defined aggregate's 'step' method not defined\0",
+                    //         )
+                    //     }
+                    // };
+
+                    // if let Err(exc) = step_callback(context, &step_method, args, vm) {
+                    //     return context.result_exception(
+                    //         vm,
+                    //         exc,
+                    //         "user-defined aggregate's 'step' method raised error\0",
+                    //     );
+                    // }
                 }
             }
 
@@ -876,7 +833,7 @@ mod _sqlite {
                     let data = &*context.user_data::<UserData>();
                     let vm = &*data.vm;
                     let instance = context.aggregate_context::<*const PyObject>();
-                    if instance.is_null() || (*instance).is_null() {
+                    if (*instance).is_null() {
                         return;
                     }
                     let instance = &**instance;
@@ -885,11 +842,19 @@ mod _sqlite {
                         let val = vm.call_method(instance, "finalize", ())?;
                         context.result_from_object(&val, vm)
                     })() {
-                        return context.result_exception(
-                            vm,
-                            exc,
-                            "user-defined aggregate's 'finalize' method raised error\0",
-                        );
+                        if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) {
+                            context.result_exception(
+                                vm,
+                                exc,
+                                "user-defined aggregate's 'finalize' method not defined\0",
+                            )
+                        } else {
+                            context.result_exception(
+                                vm,
+                                exc,
+                                "user-defined aggregate's 'finalize' method raised error\0",
+                            )
+                        }
                     }
                 }
             }
