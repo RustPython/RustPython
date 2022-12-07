@@ -19,7 +19,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let _ = _sqlite::CONVERTERS.set(PyMutex::new(HashMap::new()));
     let _ = _sqlite::ADAPTERS.set(vm.ctx.new_dict());
     let _ = _sqlite::USER_FUNCTION_EXCEPTION.set(PyAtomicRef::from(None));
-    let _ = _sqlite::TRACEBACK.set(Radium::new(false));
+    let _ = _sqlite::ENABLE_TRACEBACK.set(Radium::new(false));
 
     module
 }
@@ -358,7 +358,9 @@ mod _sqlite {
     }
 
     #[pyfunction]
-    fn enable_callback_tracebacks(flag: i32) {}
+    fn enable_callback_tracebacks(flag: bool) {
+        enable_traceback().store(flag, Ordering::Relaxed);
+    }
 
     #[pyfunction]
     fn register_adapter(typ: PyTypeRef, adapter: ArgCallable, vm: &VirtualMachine) -> PyResult<()> {
@@ -421,7 +423,7 @@ mod _sqlite {
         pub(super) static ADAPTERS: PyDictRef;
         pub(super) static ADAPTER_BASE_TYPE: ();
         pub(super) static USER_FUNCTION_EXCEPTION: PyAtomicRef<Option<PyBaseException>>;
-        pub(super) static TRACEBACK: PyAtomic<bool>;
+        pub(super) static ENABLE_TRACEBACK: PyAtomic<bool>;
     }
 
     fn converters() -> PyMutexGuard<'static, HashMap<String, ArgCallable>> {
@@ -436,6 +438,12 @@ mod _sqlite {
         USER_FUNCTION_EXCEPTION
             .get()
             .expect("user function exception not initialize")
+    }
+
+    fn enable_traceback() -> &'static PyAtomic<bool> {
+        ENABLE_TRACEBACK
+            .get()
+            .expect("enable traceback not initialize")
     }
 
     #[pyattr]
@@ -1900,11 +1908,7 @@ mod _sqlite {
         }
 
         fn result_exception(self, vm: &VirtualMachine, exc: PyBaseExceptionRef, msg: &str) {
-            if TRACEBACK
-                .get()
-                .expect("module not initialize")
-                .load(Ordering::Relaxed)
-            {
+            if enable_traceback().load(Ordering::Relaxed) {
                 vm.print_exception(exc);
             }
             unsafe { sqlite3_result_error(self.ctx, msg.as_ptr().cast(), -1) }
