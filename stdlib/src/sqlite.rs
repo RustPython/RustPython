@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use rustpython_common::{lock::PyMutex, atomic::Radium};
+use rustpython_common::{atomic::Radium, lock::PyMutex};
 use rustpython_vm::{builtins::PyBaseException, PyAtomicRef, PyObjectRef, VirtualMachine};
 
 // pub(crate) use _sqlite::make_module;
@@ -756,7 +756,10 @@ mod _sqlite {
             }
 
             extern "C" fn destructor(data: *mut c_void) {
-                unsafe { Box::from_raw(data.cast::<UserData>()) };
+                unsafe {
+                    let data = Box::from_raw(data.cast::<UserData>());
+                    PyObjectRef::from_raw(data.func);
+                }
             }
 
             let name = args.name.to_cstring(vm)?;
@@ -805,79 +808,97 @@ mod _sqlite {
                 vm: *const VirtualMachine,
             }
 
+            fn step_callback(
+                context: SqliteContext,
+                step_method: &PyObject,
+                args: &[*mut sqlite3_value],
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
+                let db = context.db_handle();
+                let args = args
+                    .iter()
+                    .cloned()
+                    .map(|val| value_to_object(val, db, vm))
+                    .collect::<PyResult<Vec<PyObjectRef>>>()?;
+                vm.invoke(&step_method, args).map(drop)
+            }
+
             extern "C" fn step_callback_wrapper(
                 context: *mut sqlite3_context,
                 argc: i32,
                 argv: *mut *mut sqlite3_value,
             ) {
                 let context = SqliteContext::from(context);
-                // let data = unsafe { &*context.user_data::<UserData>() };
-                let data = unsafe { sqlite3_user_data(context.ctx) };
-                let data = unsafe { Box::from_raw(data.cast::<UserData>()) };
-                let data = Box::leak(data);
-                let vm = unsafe { &*data.vm };
-                let cls = unsafe { &*data.cls };
-                let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
-                let instance = context.aggregate_context::<*const PyObject>();
-                if unsafe { (*instance).is_null() } {
-                    match vm.invoke(cls, ()) {
-                        Ok(obj) => unsafe { *instance = obj.into_raw() },
+                unsafe {
+                    let data = &*context.user_data::<UserData>();
+                    let vm = &*data.vm;
+                    let cls = &*data.cls;
+                    let args = std::slice::from_raw_parts(argv, argc as usize);
+                    let instance = context.aggregate_context::<*const PyObject>();
+                    if (*instance).is_null() {
+                        match vm.invoke(cls, ()) {
+                            Ok(obj) => *instance = obj.into_raw(),
+                            Err(exc) => {
+                                return context.result_exception(
+                                    vm,
+                                    exc,
+                                    "user-defined aggregate's '__init__' method raised error\0",
+                                )
+                            }
+                        }
+                    }
+                    let instance = &**instance;
+
+                    let step_method = match instance.get_attr("step", vm) {
+                        Ok(step_method) => step_method,
                         Err(exc) => {
                             return context.result_exception(
                                 vm,
                                 exc,
-                                "user-defined aggregate's '__init__' method raised error\0",
+                                "user-defined aggregate's 'step' method not defined\0",
                             )
                         }
+                    };
+
+                    if let Err(exc) = step_callback(context, &step_method, args, vm) {
+                        return context.result_exception(
+                            vm,
+                            exc,
+                            "user-defined aggregate's 'step' method raised error\0",
+                        );
                     }
-                }
-                let instance = unsafe { &**instance };
-
-                let Ok(step_method) = instance.get_attr("step", vm) else {return};
-
-                let db = context.db_handle();
-
-                if let Err(exc) = (|| -> PyResult<()> {
-                    let args = args
-                        .iter()
-                        .cloned()
-                        .map(|val| value_to_object(val, db, vm))
-                        .collect::<PyResult<Vec<PyObjectRef>>>()?;
-                    vm.invoke(&step_method, args)?;
-                    Ok(())
-                })() {
-                    return context.result_exception(
-                        vm,
-                        exc,
-                        "user-defined aggregate's 'step' method raised error\0",
-                    );
                 }
             }
 
             extern "C" fn finalize_callback(context: *mut sqlite3_context) {
                 let context = SqliteContext::from(context);
-                let data = unsafe { &*context.user_data::<UserData>() };
-                let vm = unsafe { &*data.vm };
-                let instance = context.aggregate_context::<*const PyObject>();
-                if instance.is_null() || unsafe { (*instance).is_null() } {
-                    return;
-                }
-                let instance = unsafe { &**instance };
+                unsafe {
+                    let data = &*context.user_data::<UserData>();
+                    let vm = &*data.vm;
+                    let instance = context.aggregate_context::<*const PyObject>();
+                    if instance.is_null() || (*instance).is_null() {
+                        return;
+                    }
+                    let instance = &**instance;
 
-                if let Err(exc) = (|| -> PyResult<()> {
-                    let val = vm.call_method(instance, "finalize", ())?;
-                    context.result_from_object(&val, vm)
-                })() {
-                    return context.result_exception(
-                        vm,
-                        exc,
-                        "user-defined aggregate's 'finalize' method raised error\0",
-                    );
+                    if let Err(exc) = (|| -> PyResult<()> {
+                        let val = vm.call_method(instance, "finalize", ())?;
+                        context.result_from_object(&val, vm)
+                    })() {
+                        return context.result_exception(
+                            vm,
+                            exc,
+                            "user-defined aggregate's 'finalize' method raised error\0",
+                        );
+                    }
                 }
             }
 
             extern "C" fn destructor(data: *mut c_void) {
-                unsafe { Box::from_raw(data.cast::<UserData>()) };
+                unsafe {
+                    let data = Box::from_raw(data.cast::<UserData>());
+                    PyObjectRef::from_raw(data.cls);
+                }
             }
 
             let name = args.name.to_cstring(vm)?;
