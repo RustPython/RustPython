@@ -43,6 +43,7 @@ use unicode_casing::CharExt;
 pub(crate) enum PyStrKind {
     Ascii,
     Utf8,
+    U32,
 }
 
 impl std::ops::BitOr for PyStrKind {
@@ -60,6 +61,7 @@ impl PyStrKind {
         match self {
             PyStrKind::Ascii => PyStrKindData::Ascii,
             PyStrKind::Utf8 => PyStrKindData::Utf8(Radium::new(usize::MAX)),
+            PyStrKind::U32 => PyStrKindData::U32,
         }
     }
 }
@@ -69,6 +71,7 @@ enum PyStrKindData {
     Ascii,
     // uses usize::MAX as a sentinel for "uncomputed"
     Utf8(PyAtomic<usize>),
+    U32,
 }
 
 impl PyStrKindData {
@@ -76,6 +79,7 @@ impl PyStrKindData {
         match self {
             PyStrKindData::Ascii => PyStrKind::Ascii,
             PyStrKindData::Utf8(_) => PyStrKind::Utf8,
+            PyStrKindData::U32 => PyStrKind::U32,
         }
     }
 }
@@ -375,6 +379,16 @@ impl PyStr {
         }
     }
 
+    #[allow(dead_code)]
+    fn as_u32_slice(&self) -> &[u32] {
+        assert_eq!(self.kind.kind(), PyStrKind::U32);
+        assert_eq!(self.bytes.len() % 4, 0);
+        let (prefix, reslice, suffix) = unsafe { self.bytes.align_to::<u32>() };
+        assert_eq!(prefix.len(), 0);
+        assert_eq!(suffix.len(), 0);
+        reslice
+    }
+
     fn char_all<F>(&self, test: F) -> bool
     where
         F: Fn(char) -> bool,
@@ -382,6 +396,7 @@ impl PyStr {
         match self.kind.kind() {
             PyStrKind::Ascii => self.bytes.iter().all(|&x| test(char::from(x))),
             PyStrKind::Utf8 => self.as_str().chars().all(test),
+            PyStrKind::U32 => unimplemented!(),
         }
     }
 }
@@ -480,6 +495,7 @@ impl PyStr {
                 usize::MAX => self._compute_char_len(),
                 len => len,
             },
+            PyStrKindData::U32 => self.bytes.len() / 4,
         }
     }
     #[cold]
@@ -504,6 +520,7 @@ impl PyStr {
         match self.kind {
             PyStrKindData::Ascii => true,
             PyStrKindData::Utf8(_) => false,
+            PyStrKindData::U32 => false,
         }
     }
 
@@ -550,6 +567,7 @@ impl PyStr {
         match self.kind.kind() {
             PyStrKind::Ascii => self.as_str().to_ascii_lowercase(),
             PyStrKind::Utf8 => self.as_str().to_lowercase(),
+            PyStrKind::U32 => unimplemented!(),
         }
     }
 
@@ -564,6 +582,7 @@ impl PyStr {
         match self.kind.kind() {
             PyStrKind::Ascii => self.as_str().to_ascii_uppercase(),
             PyStrKind::Utf8 => self.as_str().to_uppercase(),
+            PyStrKind::U32 => unimplemented!(),
         }
     }
 
@@ -616,6 +635,7 @@ impl PyStr {
                 |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s).into()).collect(),
                 |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s).into()),
             ),
+            PyStrKind::U32 => unimplemented!(),
         }?;
         Ok(elements)
     }
@@ -899,6 +919,7 @@ impl PyStr {
             PyStrKind::Utf8 => self
                 .as_str()
                 .py_iscase(char::is_lowercase, char::is_uppercase),
+            PyStrKind::U32 => unimplemented!(),
         }
     }
 
@@ -910,6 +931,7 @@ impl PyStr {
             PyStrKind::Utf8 => self
                 .as_str()
                 .py_iscase(char::is_uppercase, char::is_lowercase),
+            PyStrKind::U32 => unimplemented!(),
         }
     }
 
