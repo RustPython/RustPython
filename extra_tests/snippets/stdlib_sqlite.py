@@ -29,3 +29,20 @@ class AggrSum:
 
 cx.create_aggregate("mysum", 1, AggrSum)
 cur.execute("select mysum(key) from foo")
+assert cur.fetchone()[0] == 28.0
+
+# toobig = 2**64
+# cur.execute("insert into foo(key) values (?)", (toobig,))
+
+class AggrText:
+    def __init__(self):
+        self.txt = ""
+    def step(self, txt):
+        txt = str(txt)
+        self.txt = self.txt + txt
+    def finalize(self):
+        return self.txt
+
+cx.create_aggregate("aggtxt", 1, AggrText)
+cur.execute("select aggtxt(key) from foo")
+assert cur.fetchone()[0] == '341011'

@@ -234,8 +234,6 @@ class FunctionTests(unittest.TestCase):
         cur = self.con.cursor()
         cur.execute("select reftest()")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_func_return_text(self):
         cur = self.con.cursor()
         cur.execute("select returntext()")
@@ -251,8 +249,6 @@ class FunctionTests(unittest.TestCase):
         self.assertEqual(type(res), str)
         self.assertEqual(res, "1\x002")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_func_return_unicode(self):
         cur = self.con.cursor()
         cur.execute("select returnunicode()")
@@ -349,6 +345,8 @@ class FunctionTests(unittest.TestCase):
         self.assertRaisesRegex(OverflowError, err, self.con.execute,
                                "select spam(?)", (1 << 65,))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_contiguous_blob(self):
         self.assertRaisesRegex(BufferError,
                                "underlying buffer is not C-contiguous",

@@ -1,7 +1,4 @@
-use std::collections::HashMap;
-
-use rustpython_common::{atomic::Radium, lock::PyMutex};
-use rustpython_vm::{builtins::PyBaseException, PyAtomicRef, PyObjectRef, VirtualMachine};
+use rustpython_vm::{PyObjectRef, VirtualMachine};
 
 // pub(crate) use _sqlite::make_module;
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -21,22 +18,20 @@ mod _sqlite {
     use rustpython_vm::{
         builtins::{
             PyBaseException, PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat,
-            PyInt, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
+            PyInt, PyStr, PyStrRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, OptionalArg},
-        object::PyObjectPayload,
         protocol::{PyBuffer, PyIterReturn, PySequence},
         stdlib::{os::PyPathLike, thread},
         types::{Constructor, IterNext, IterNextIterable},
         utils::ToCString,
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-        VirtualMachine,
+        TryFromBorrowedObject, VirtualMachine,
         __exports::paste,
-        identifier, TryFromBorrowedObject,
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_aggregate_context, sqlite3_backup, sqlite3_backup_finish,
+        sqlite3, sqlite3_aggregate_context,  sqlite3_backup_finish,
         sqlite3_backup_init, sqlite3_backup_pagecount, sqlite3_backup_remaining,
         sqlite3_backup_step, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64,
         sqlite3_bind_null, sqlite3_bind_parameter_count, sqlite3_bind_parameter_name,
@@ -48,21 +43,27 @@ mod _sqlite {
         sqlite3_errmsg, sqlite3_exec, sqlite3_extended_errcode, sqlite3_finalize,
         sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion,
         sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob,
-        sqlite3_result_double, sqlite3_result_error, sqlite3_result_int64, sqlite3_result_null,
+        sqlite3_result_double, sqlite3_result_error, sqlite3_result_error_nomem,
+        sqlite3_result_error_toobig, sqlite3_result_int64, sqlite3_result_null,
         sqlite3_result_text, sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy,
         sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data, sqlite3_value,
         sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64,
         sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT,
         SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
-        SQLITE_TEXT, SQLITE_TRANSIENT, SQLITE_UTF8,
+        SQLITE_TEXT, SQLITE_UTF8,
     };
     use std::{
         collections::HashMap,
-        ffi::{c_int, c_longlong, c_void, CStr, CString},
+        ffi::{c_int, c_longlong, c_void, CStr},
         fmt::Debug,
         ops::Deref,
-        ptr::{addr_of_mut, null, null_mut, NonNull},
+        ptr::{addr_of_mut, null, null_mut},
     };
+
+    #[allow(non_snake_case)]
+    const fn SQLITE_TRANSIENT() -> Option<extern "C" fn(arg1: *mut c_void)> {
+        Some(unsafe { std::mem::transmute(-1_isize) })
+    }
 
     macro_rules! exceptions {
         ($(($x:ident, $base:expr)),*) => {
@@ -73,6 +74,7 @@ mod _sqlite {
                     )*
                 }
                 $(
+                    #[allow(dead_code)]
                     fn [<new_ $x:snake>](vm: &VirtualMachine, msg: String) -> PyBaseExceptionRef {
                         vm.new_exception_msg([<$x:snake _type>]().to_owned(), msg)
                     }
@@ -155,6 +157,7 @@ mod _sqlite {
     macro_rules! error_codes {
         ($($x:ident),*) => {
             $(
+                #[allow(unused_imports)]
                 use sqlite3_sys::$x;
             )*
             static ERROR_CODES: &[(&str, c_int)] = &[
@@ -1791,15 +1794,6 @@ mod _sqlite {
             unsafe { sqlite3_step(self.st) }
         }
 
-        fn step_done(self, vm: &VirtualMachine) -> PyResult<()> {
-            if self.step() == SQLITE_DONE {
-                Ok(())
-            } else {
-                let db = SqliteRaw::from(self);
-                Err(db.error_extended(vm))
-            }
-        }
-
         fn step_row_else_done(self, vm: &VirtualMachine) -> PyResult<bool> {
             let ret = self.step();
 
@@ -1840,15 +1834,13 @@ mod _sqlite {
                 unsafe { sqlite3_bind_double(self.st, pos, val) }
             } else if let Some(val) = parameter.payload::<PyStr>() {
                 let s = val.to_cstring(vm)?;
-                // TODO: TRANSIENT
-                unsafe { sqlite3_bind_text(self.st, pos, s.as_ptr(), -1, None) }
+                unsafe { sqlite3_bind_text(self.st, pos, s.as_ptr(), -1, SQLITE_TRANSIENT()) }
             } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &parameter) {
                 let len = c_int::try_from(buffer.desc.len).map_err(|_| {
                     vm.new_overflow_error("BLOB longer than INT_MAX bytes".to_owned())
                 })?;
-                // TODO: TRANSIENT
                 buffer.contiguous_or_collect(|x| unsafe {
-                    sqlite3_bind_blob(self.st, pos, x.as_ptr().cast(), len, None)
+                    sqlite3_bind_blob(self.st, pos, x.as_ptr().cast(), len, SQLITE_TRANSIENT())
                 })
             } else {
                 return Err(new_programming_error(
@@ -2013,10 +2005,16 @@ mod _sqlite {
         }
 
         fn result_exception(self, vm: &VirtualMachine, exc: PyBaseExceptionRef, msg: &str) {
+            if exc.fast_isinstance(&vm.ctx.exceptions.memory_error) {
+                unsafe { sqlite3_result_error_nomem(self.ctx) }
+            } else if exc.fast_isinstance(&vm.ctx.exceptions.overflow_error) {
+                unsafe { sqlite3_result_error_toobig(self.ctx) }
+            } else {
+                unsafe { sqlite3_result_error(self.ctx, msg.as_ptr().cast(), -1) }
+            }
             if enable_traceback().load(Ordering::Relaxed) {
                 vm.print_exception(exc);
             }
-            unsafe { sqlite3_result_error(self.ctx, msg.as_ptr().cast(), -1) }
         }
 
         fn db_handle(self) -> *mut sqlite3 {
@@ -2032,12 +2030,17 @@ mod _sqlite {
                 } else if let Some(val) = val.payload::<PyFloat>() {
                     sqlite3_result_double(self.ctx, val.to_f64())
                 } else if let Some(val) = val.payload::<PyStr>() {
-                    sqlite3_result_text(self.ctx, val.to_cstring(vm)?.as_ptr(), -1, None)
+                    sqlite3_result_text(
+                        self.ctx,
+                        val.to_cstring(vm)?.as_ptr(),
+                        -1,
+                        SQLITE_TRANSIENT(),
+                    )
                 } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, val) {
                     let len = c_int::try_from(buffer.desc.len)
                         .map_err(|_| vm.new_overflow_error("BLOB size over INT_MAX".to_owned()))?;
                     buffer.contiguous_or_collect(|x| {
-                        sqlite3_result_blob(self.ctx, x.as_ptr().cast(), len, None)
+                        sqlite3_result_blob(self.ctx, x.as_ptr().cast(), len, SQLITE_TRANSIENT())
                     })
                 } else {
                     return Err(new_programming_error(
