@@ -29,8 +29,8 @@ where
     PyObjectDeserializer { vm }.deserialize(deserializer)
 }
 
-// We need to have a VM available to serialise a PyObject based on its subclass, so we implement
-// PyObject serialisation via a proxy object which holds a reference to a VM
+// We need to have a VM available to serialize a PyObject based on its subclass, so we implement
+// PyObject serialization via a proxy object which holds a reference to a VM
 pub struct PyObjectSerializer<'s> {
     pyobject: &'s PyObject,
     vm: &'s VirtualMachine,
@@ -131,7 +131,7 @@ impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     type Value = PyObjectRef;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a type that can deserialise in Python")
+        formatter.write_str("a type that can deserialize in Python")
     }
 
     fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E>
