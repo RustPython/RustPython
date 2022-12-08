@@ -241,8 +241,6 @@ class FunctionTests(unittest.TestCase):
         self.assertEqual(type(val), str)
         self.assertEqual(val, "foo")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_func_return_text_with_null_char(self):
         cur = self.con.cursor()
         res = cur.execute("select returntextwithnull()").fetchone()[0]
@@ -345,8 +343,6 @@ class FunctionTests(unittest.TestCase):
         self.assertRaisesRegex(OverflowError, err, self.con.execute,
                                "select spam(?)", (1 << 65,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_contiguous_blob(self):
         self.assertRaisesRegex(BufferError,
                                "underlying buffer is not C-contiguous",

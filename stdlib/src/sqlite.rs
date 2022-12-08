@@ -31,26 +31,25 @@ mod _sqlite {
         __exports::paste,
     };
     use sqlite3_sys::{
-        sqlite3, sqlite3_aggregate_context,  sqlite3_backup_finish,
-        sqlite3_backup_init, sqlite3_backup_pagecount, sqlite3_backup_remaining,
-        sqlite3_backup_step, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64,
-        sqlite3_bind_null, sqlite3_bind_parameter_count, sqlite3_bind_parameter_name,
-        sqlite3_bind_text, sqlite3_changes, sqlite3_close_v2, sqlite3_column_blob,
-        sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype, sqlite3_column_double,
-        sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text, sqlite3_column_type,
-        sqlite3_complete, sqlite3_context, sqlite3_context_db_handle, sqlite3_create_collation_v2,
-        sqlite3_create_function_v2, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
-        sqlite3_errmsg, sqlite3_exec, sqlite3_extended_errcode, sqlite3_finalize,
-        sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion,
-        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob,
-        sqlite3_result_double, sqlite3_result_error, sqlite3_result_error_nomem,
-        sqlite3_result_error_toobig, sqlite3_result_int64, sqlite3_result_null,
-        sqlite3_result_text, sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy,
-        sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data, sqlite3_value,
-        sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64,
-        sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT,
-        SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
-        SQLITE_TEXT, SQLITE_UTF8,
+        sqlite3, sqlite3_aggregate_context, sqlite3_backup_finish, sqlite3_backup_init,
+        sqlite3_backup_pagecount, sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob,
+        sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
+        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_changes, sqlite3_close_v2,
+        sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype,
+        sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
+        sqlite3_column_type, sqlite3_complete, sqlite3_context, sqlite3_context_db_handle,
+        sqlite3_create_collation_v2, sqlite3_create_function_v2, sqlite3_data_count,
+        sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec, sqlite3_extended_errcode,
+        sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid,
+        sqlite3_libversion, sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset,
+        sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
+        sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
+        sqlite3_result_null, sqlite3_result_text, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
+        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data,
+        sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double,
+        sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB,
+        SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE,
+        SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_UTF8,
     };
     use std::{
         collections::HashMap,
@@ -1833,15 +1832,11 @@ mod _sqlite {
                 let val = val.to_f64();
                 unsafe { sqlite3_bind_double(self.st, pos, val) }
             } else if let Some(val) = parameter.payload::<PyStr>() {
-                let s = val.to_cstring(vm)?;
-                unsafe { sqlite3_bind_text(self.st, pos, s.as_ptr(), -1, SQLITE_TRANSIENT()) }
+                let (ptr, len) = str_to_ptr_len(val, vm)?;
+                unsafe { sqlite3_bind_text(self.st, pos, ptr, len, SQLITE_TRANSIENT()) }
             } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &parameter) {
-                let len = c_int::try_from(buffer.desc.len).map_err(|_| {
-                    vm.new_overflow_error("BLOB longer than INT_MAX bytes".to_owned())
-                })?;
-                buffer.contiguous_or_collect(|x| unsafe {
-                    sqlite3_bind_blob(self.st, pos, x.as_ptr().cast(), len, SQLITE_TRANSIENT())
-                })
+                let (ptr, len) = buffer_to_ptr_len(&buffer, vm)?;
+                unsafe { sqlite3_bind_blob(self.st, pos, ptr, len, SQLITE_TRANSIENT()) }
             } else {
                 return Err(new_programming_error(
                     vm,
@@ -2030,18 +2025,11 @@ mod _sqlite {
                 } else if let Some(val) = val.payload::<PyFloat>() {
                     sqlite3_result_double(self.ctx, val.to_f64())
                 } else if let Some(val) = val.payload::<PyStr>() {
-                    sqlite3_result_text(
-                        self.ctx,
-                        val.to_cstring(vm)?.as_ptr(),
-                        -1,
-                        SQLITE_TRANSIENT(),
-                    )
+                    let (ptr, len) = str_to_ptr_len(val, vm)?;
+                    sqlite3_result_text(self.ctx, ptr, len, SQLITE_TRANSIENT())
                 } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, val) {
-                    let len = c_int::try_from(buffer.desc.len)
-                        .map_err(|_| vm.new_overflow_error("BLOB size over INT_MAX".to_owned()))?;
-                    buffer.contiguous_or_collect(|x| {
-                        sqlite3_result_blob(self.ctx, x.as_ptr().cast(), len, SQLITE_TRANSIENT())
-                    })
+                    let (ptr, len) = buffer_to_ptr_len(&buffer, vm)?;
+                    sqlite3_result_blob(self.ctx, ptr, len, SQLITE_TRANSIENT())
                 } else {
                     return Err(new_programming_error(
                         vm,
@@ -2116,6 +2104,23 @@ mod _sqlite {
         } else {
             Ok(unsafe { std::slice::from_raw_parts(p.cast(), nbytes as usize) }.to_vec())
         }
+    }
+
+    fn str_to_ptr_len(s: &PyStr, vm: &VirtualMachine) -> PyResult<(*const i8, i32)> {
+        let len = c_int::try_from(s.byte_len())
+            .map_err(|_| vm.new_overflow_error("TEXT longer than INT_MAX bytes".to_owned()))?;
+        let ptr = s.as_str().as_ptr().cast();
+        Ok((ptr, len))
+    }
+
+    fn buffer_to_ptr_len(buffer: &PyBuffer, vm: &VirtualMachine) -> PyResult<(*const c_void, i32)> {
+        let bytes = buffer.as_contiguous().ok_or_else(|| {
+            vm.new_buffer_error("underlying buffer is not C-contiguous".to_owned())
+        })?;
+        let len = c_int::try_from(bytes.len())
+            .map_err(|_| vm.new_overflow_error("BLOB longer than INT_MAX bytes".to_owned()))?;
+        let ptr = bytes.as_ptr().cast();
+        Ok((ptr, len))
     }
 
     fn exception_type_from_errcode(errcode: c_int, vm: &VirtualMachine) -> &'static Py<PyType> {
