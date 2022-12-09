@@ -10,6 +10,28 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
 #[pymodule]
 mod _sqlite {
+    use libsqlite3_sys::{
+        sqlite3, sqlite3_aggregate_context, sqlite3_backup_finish, sqlite3_backup_init,
+        sqlite3_backup_pagecount, sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob,
+        sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
+        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_busy_timeout, sqlite3_changes,
+        sqlite3_close_v2, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
+        sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
+        sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
+        sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
+        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec,
+        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt,
+        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
+        sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
+        sqlite3_result_error, sqlite3_result_error_nomem, sqlite3_result_error_toobig,
+        sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text, sqlite3_sleep,
+        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
+        sqlite3_user_data, sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes,
+        sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type,
+        SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
+        SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRANSIENT,
+        SQLITE_UTF8,
+    };
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
         lock::{PyMappedMutexGuard, PyMutex, PyMutexGuard},
@@ -30,27 +52,6 @@ mod _sqlite {
         TryFromBorrowedObject, VirtualMachine,
         __exports::paste,
     };
-    use sqlite3_sys::{
-        sqlite3, sqlite3_aggregate_context, sqlite3_backup_finish, sqlite3_backup_init,
-        sqlite3_backup_pagecount, sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob,
-        sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
-        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_busy_timeout, sqlite3_changes,
-        sqlite3_close_v2, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
-        sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
-        sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
-        sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
-        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec,
-        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt,
-        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
-        sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
-        sqlite3_result_error, sqlite3_result_error_nomem, sqlite3_result_error_toobig,
-        sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text, sqlite3_sleep,
-        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
-        sqlite3_user_data, sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes,
-        sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type,
-        SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
-        SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_UTF8,
-    };
     use std::{
         collections::HashMap,
         ffi::{c_int, c_longlong, c_void, CStr},
@@ -58,11 +59,6 @@ mod _sqlite {
         ops::Deref,
         ptr::{addr_of_mut, null, null_mut},
     };
-
-    #[allow(non_snake_case)]
-    const fn SQLITE_TRANSIENT() -> Option<extern "C" fn(arg1: *mut c_void)> {
-        Some(unsafe { std::mem::transmute(-1_isize) })
-    }
 
     macro_rules! exceptions {
         ($(($x:ident, $base:expr)),*) => {
@@ -137,7 +133,7 @@ mod _sqlite {
     const PARSE_COLNAMES: c_int = 2;
 
     #[pyattr]
-    use sqlite3_sys::{
+    use libsqlite3_sys::{
         SQLITE_ALTER_TABLE, SQLITE_ANALYZE, SQLITE_ATTACH, SQLITE_CREATE_INDEX,
         SQLITE_CREATE_TABLE, SQLITE_CREATE_TEMP_INDEX, SQLITE_CREATE_TEMP_TABLE,
         SQLITE_CREATE_TEMP_TRIGGER, SQLITE_CREATE_TEMP_VIEW, SQLITE_CREATE_TRIGGER,
@@ -157,11 +153,11 @@ mod _sqlite {
         ($($x:ident),*) => {
             $(
                 #[allow(unused_imports)]
-                use sqlite3_sys::$x;
+                use libsqlite3_sys::$x;
             )*
             static ERROR_CODES: &[(&str, c_int)] = &[
             $(
-                (stringify!($x), sqlite3_sys::$x),
+                (stringify!($x), libsqlite3_sys::$x),
             )*
             ];
         };
@@ -252,29 +248,28 @@ mod _sqlite {
         SQLITE_CONSTRAINT_ROWID,
         SQLITE_READONLY_DBMOVED,
         SQLITE_AUTH_USER,
-        SQLITE_OK_LOAD_PERMANENTLY
+        SQLITE_OK_LOAD_PERMANENTLY,
+        SQLITE_IOERR_VNODE,
+        SQLITE_IOERR_AUTH,
+        SQLITE_IOERR_BEGIN_ATOMIC,
+        SQLITE_IOERR_COMMIT_ATOMIC,
+        SQLITE_IOERR_ROLLBACK_ATOMIC,
+        SQLITE_ERROR_MISSING_COLLSEQ,
+        SQLITE_ERROR_RETRY,
+        SQLITE_READONLY_CANTINIT,
+        SQLITE_READONLY_DIRECTORY,
+        SQLITE_CORRUPT_SEQUENCE,
+        SQLITE_LOCKED_VTAB,
+        SQLITE_CANTOPEN_DIRTYWAL,
+        SQLITE_ERROR_SNAPSHOT,
+        SQLITE_CANTOPEN_SYMLINK,
+        SQLITE_CONSTRAINT_PINNED,
+        SQLITE_OK_SYMLINK,
+        SQLITE_BUSY_TIMEOUT,
+        SQLITE_CORRUPT_INDEX,
+        SQLITE_IOERR_DATA,
+        SQLITE_IOERR_CORRUPTFS
     );
-    // SQLITE_IOERR_VNODE,
-    // SQLITE_IOERR_AUTH,
-    // SQLITE_IOERR_BEGIN_ATOMIC,
-    // SQLITE_IOERR_COMMIT_ATOMIC,
-    // SQLITE_IOERR_ROLLBACK_ATOMIC,
-    // SQLITE_ERROR_MISSING_COLLSEQ,
-    // SQLITE_ERROR_RETRY,
-    // SQLITE_READONLY_CANTINIT,
-    // SQLITE_READONLY_DIRECTORY,
-    // SQLITE_CORRUPT_SEQUENCE,
-    // SQLITE_LOCKED_VTAB,
-    // SQLITE_CANTOPEN_DIRTYWAL,
-    // SQLITE_ERROR_SNAPSHOT,
-    // SQLITE_CANTOPEN_SYMLINK,
-    // SQLITE_CONSTRAINT_PINNED,
-    // SQLITE_OK_SYMLINK,
-    // SQLITE_BUSY_TIMEOUT,
-    // SQLITE_CORRUPT_INDEX,
-    // SQLITE_IOERR_DATA,
-    // SQLITE_IOERR_CORRUPTFS
-    // TODO: update with sqlite-sys
 
     #[derive(FromArgs)]
     struct ConnectArgs {

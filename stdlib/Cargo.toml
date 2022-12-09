@@ -75,8 +75,7 @@ ascii = "1.0.0"
 parking_lot = "0.12.0"
 once_cell = "1.13.0"
 sqlite3-sys = "0.14"
-=======
-# libsqlite3-sys = "0.25"
+libsqlite3-sys = { version = "0.25", features = ["min_sqlite_version_3_7_16", "bundled"] }
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32")))'.dependencies]
