@@ -19,18 +19,18 @@ mod _sqlite {
         sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
         sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
         sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
-        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec,
-        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt,
-        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
-        sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
-        sqlite3_result_error, sqlite3_result_error_nomem, sqlite3_result_error_toobig,
-        sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text, sqlite3_sleep,
-        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
-        sqlite3_user_data, sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes,
-        sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type,
-        SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
-        SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRANSIENT,
-        SQLITE_UTF8,
+        sqlite3_create_window_function, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
+        sqlite3_errmsg, sqlite3_exec, sqlite3_extended_errcode, sqlite3_finalize,
+        sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion,
+        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob,
+        sqlite3_result_double, sqlite3_result_error, sqlite3_result_error_nomem,
+        sqlite3_result_error_toobig, sqlite3_result_int64, sqlite3_result_null,
+        sqlite3_result_text, sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy,
+        sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data, sqlite3_value,
+        sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64,
+        sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT,
+        SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
+        SQLITE_TEXT, SQLITE_TRANSIENT, SQLITE_UTF8,
     };
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
@@ -344,8 +344,157 @@ mod _sqlite {
             Box::new(self)
         }
 
+        fn into_raw(self) -> *mut Self {
+            Box::into_raw(self.into_box())
+        }
+
         fn retrive(&self) -> (&PyObject, &VirtualMachine) {
             unsafe { (&*self.obj, &*self.vm) }
+        }
+
+        unsafe extern "C" fn destructor(data: *mut c_void) {
+            drop(Box::from_raw(data.cast::<Self>()));
+        }
+
+        unsafe extern "C" fn func_callback(
+            context: *mut sqlite3_context,
+            argc: c_int,
+            argv: *mut *mut sqlite3_value,
+        ) {
+            let context = SqliteContext::from(context);
+            let (func, vm) = (&*context.user_data::<Self>()).retrive();
+            let args = std::slice::from_raw_parts(argv, argc as usize);
+
+            let f = || -> PyResult<()> {
+                let db = context.db_handle();
+                let args = args
+                    .iter()
+                    .cloned()
+                    .map(|val| value_to_object(val, db, vm))
+                    .collect::<PyResult<Vec<PyObjectRef>>>()?;
+
+                let val = vm.invoke(func, args)?;
+
+                context.result_from_object(&val, vm)
+            };
+
+            if let Err(exc) = f() {
+                return context.result_exception(
+                    vm,
+                    exc,
+                    "user-defined function raised exception\0",
+                );
+            }
+        }
+
+        unsafe extern "C" fn step_callback(
+            context: *mut sqlite3_context,
+            argc: c_int,
+            argv: *mut *mut sqlite3_value,
+        ) {
+            let context = SqliteContext::from(context);
+            let (cls, vm) = (&*context.user_data::<Self>()).retrive();
+            let args = std::slice::from_raw_parts(argv, argc as usize);
+            let instance = context.aggregate_context::<*const PyObject>();
+            if (*instance).is_null() {
+                match vm.invoke(cls, ()) {
+                    Ok(obj) => *instance = obj.into_raw(),
+                    Err(exc) => {
+                        return context.result_exception(
+                            vm,
+                            exc,
+                            "user-defined aggregate's '__init__' method raised error\0",
+                        )
+                    }
+                }
+            }
+            let instance = &**instance;
+
+            let f = || -> PyResult<()> {
+                let db = context.db_handle();
+                let args = args
+                    .iter()
+                    .cloned()
+                    .map(|val| value_to_object(val, db, vm))
+                    .collect::<PyResult<Vec<PyObjectRef>>>()?;
+                vm.call_method(instance, "step", args).map(drop)
+            };
+
+            if let Err(exc) = f() {
+                if exc.fast_isinstance(&vm.ctx.exceptions.attribute_error) {
+                    context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'step' method not defined\0",
+                    )
+                } else {
+                    context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'step' method raised error\0",
+                    )
+                }
+            }
+        }
+
+        unsafe extern "C" fn finalize_callback(context: *mut sqlite3_context) {
+            let context = SqliteContext::from(context);
+            let (_, vm) = (&*context.user_data::<Self>()).retrive();
+            let instance = context.aggregate_context::<*const PyObject>();
+            let Some(instance) = (*instance).as_ref() else { return; };
+
+            let f = || -> PyResult<()> {
+                let val = vm.call_method(instance, "finalize", ())?;
+                context.result_from_object(&val, vm)
+            };
+
+            if let Err(exc) = f() {
+                if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) {
+                    context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'finalize' method not defined\0",
+                    )
+                } else {
+                    context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'finalize' method raised error\0",
+                    )
+                }
+            }
+        }
+
+        unsafe extern "C" fn collation_callback(
+            data: *mut c_void,
+            a_len: c_int,
+            a_ptr: *const c_void,
+            b_len: c_int,
+            b_ptr: *const c_void,
+        ) -> c_int {
+            let (callable, vm) = (&*data.cast::<Self>()).retrive();
+
+            let f = || -> PyResult<c_int> {
+                let text1 = ptr_to_string(a_ptr.cast(), a_len, null_mut(), vm)?;
+                let text1 = vm.ctx.new_str(text1);
+                let text2 = ptr_to_string(b_ptr.cast(), b_len, null_mut(), vm)?;
+                let text2 = vm.ctx.new_str(text2);
+
+                let val = vm.invoke(callable, (text1, text2))?;
+                let Some(val) = val.to_number().index(vm)? else {
+                    return Ok(0);
+                };
+
+                let val = match val.as_bigint().sign() {
+                    num_bigint::Sign::Plus => 1,
+                    num_bigint::Sign::Minus => -1,
+                    num_bigint::Sign::NoSign => 0,
+                };
+
+                Ok(val)
+            };
+
+            f().unwrap_or(0)
         }
     }
 
@@ -528,6 +677,10 @@ mod _sqlite {
 
         fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<Sqlite>> {
             self.check_thread(vm)?;
+            self._db_lock(vm)
+        }
+
+        fn _db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<Sqlite>> {
             let guard = self.db.lock();
             if guard.is_some() {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
@@ -693,47 +846,6 @@ mod _sqlite {
 
         #[pymethod]
         fn create_function(&self, args: CreateFunctionArgs, vm: &VirtualMachine) -> PyResult<()> {
-            fn func_callback(
-                context: SqliteContext,
-                func: &PyObject,
-                args: &[*mut sqlite3_value],
-                vm: &VirtualMachine,
-            ) -> PyResult<()> {
-                let db = context.db_handle();
-                let args = args
-                    .iter()
-                    .cloned()
-                    .map(|val| value_to_object(val, db, vm))
-                    .collect::<PyResult<Vec<PyObjectRef>>>()?;
-
-                let val = vm.invoke(func, args)?;
-
-                context.result_from_object(&val, vm)
-            }
-
-            extern "C" fn func_callback_wrapper(
-                context: *mut sqlite3_context,
-                argc: c_int,
-                argv: *mut *mut sqlite3_value,
-            ) {
-                let context = SqliteContext::from(context);
-                let data = unsafe { &*context.user_data::<CallbackData>() };
-                let (func, vm) = data.retrive();
-                let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
-
-                if let Err(exc) = func_callback(context, func, args, vm) {
-                    return context.result_exception(
-                        vm,
-                        exc,
-                        "user-defined function raised exception\0",
-                    );
-                }
-            }
-
-            extern "C" fn destructor(data: *mut c_void) {
-                unsafe { Box::from_raw(data.cast::<CallbackData>()) };
-            }
-
             let name = args.name.to_cstring(vm)?;
             let flags = if args.deterministic {
                 SQLITE_UTF8 | SQLITE_DETERMINISTIC
@@ -741,153 +853,42 @@ mod _sqlite {
                 SQLITE_UTF8
             };
 
-            let data = CallbackData::new(args.func, vm).into_box();
+            let data = CallbackData::new(args.func, vm).into_raw();
 
             let db = self.db_lock(vm)?;
 
-            // TODO: remove function
-            let ret = unsafe {
-                sqlite3_create_function_v2(
-                    db.db,
-                    name.as_ptr(),
-                    args.narg,
-                    flags,
-                    Box::into_raw(data).cast(),
-                    Some(func_callback_wrapper),
-                    None,
-                    None,
-                    Some(destructor),
-                )
-            };
-
-            if ret == SQLITE_OK {
-                Ok(())
-            } else {
-                Err(new_operational_error(
-                    vm,
-                    "Error creating function".to_owned(),
-                ))
-            }
+            db.create_function(
+                name.as_ptr(),
+                args.narg,
+                flags,
+                data.cast(),
+                Some(CallbackData::func_callback),
+                None,
+                None,
+                Some(CallbackData::destructor),
+                vm,
+            )
         }
 
         #[pymethod]
         fn create_aggregate(&self, args: CreateAggregateArgs, vm: &VirtualMachine) -> PyResult<()> {
-            fn step_callback(
-                context: SqliteContext,
-                instance: &PyObject,
-                args: &[*mut sqlite3_value],
-                vm: &VirtualMachine,
-            ) -> PyResult<()> {
-                let db = context.db_handle();
-                let args = args
-                    .iter()
-                    .cloned()
-                    .map(|val| value_to_object(val, db, vm))
-                    .collect::<PyResult<Vec<PyObjectRef>>>()?;
-                // vm.invoke(&step_method, args).map(drop)
-                vm.call_method(instance, "step", args).map(drop)
-            }
-
-            extern "C" fn step_callback_wrapper(
-                context: *mut sqlite3_context,
-                argc: c_int,
-                argv: *mut *mut sqlite3_value,
-            ) {
-                let context = SqliteContext::from(context);
-                unsafe {
-                    let data = &*context.user_data::<CallbackData>();
-                    let (cls, vm) = data.retrive();
-                    let args = std::slice::from_raw_parts(argv, argc as usize);
-                    let instance = context.aggregate_context::<*const PyObject>();
-                    if (*instance).is_null() {
-                        match vm.invoke(cls, ()) {
-                            Ok(obj) => *instance = obj.into_raw(),
-                            Err(exc) => {
-                                return context.result_exception(
-                                    vm,
-                                    exc,
-                                    "user-defined aggregate's '__init__' method raised error\0",
-                                )
-                            }
-                        }
-                    }
-                    let instance = &**instance;
-
-                    if let Err(exc) = step_callback(context, instance, args, vm) {
-                        if exc.fast_isinstance(&vm.ctx.exceptions.attribute_error) {
-                            context.result_exception(
-                                vm,
-                                exc,
-                                "user-defined aggregate's 'step' method not defined\0",
-                            )
-                        } else {
-                            context.result_exception(
-                                vm,
-                                exc,
-                                "user-defined aggregate's 'step' method raised error\0",
-                            )
-                        }
-                    }
-                }
-            }
-
-            extern "C" fn finalize_callback(context: *mut sqlite3_context) {
-                let context = SqliteContext::from(context);
-                unsafe {
-                    let data = &*context.user_data::<CallbackData>();
-                    let vm = &*data.vm;
-                    let instance = context.aggregate_context::<*const PyObject>();
-                    if (*instance).is_null() {
-                        return;
-                    }
-                    let instance = &**instance;
-
-                    if let Err(exc) = (|| -> PyResult<()> {
-                        let val = vm.call_method(instance, "finalize", ())?;
-                        context.result_from_object(&val, vm)
-                    })() {
-                        if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) {
-                            context.result_exception(
-                                vm,
-                                exc,
-                                "user-defined aggregate's 'finalize' method not defined\0",
-                            )
-                        } else {
-                            context.result_exception(
-                                vm,
-                                exc,
-                                "user-defined aggregate's 'finalize' method raised error\0",
-                            )
-                        }
-                    }
-                }
-            }
-
-            extern "C" fn destructor(data: *mut c_void) {
-                unsafe { Box::from_raw(data.cast::<CallbackData>()) };
-            }
-
             let name = args.name.to_cstring(vm)?;
 
-            let data = CallbackData::new(args.aggregate_class, vm).into_box();
+            let data = CallbackData::new(args.aggregate_class, vm).into_raw();
 
             let db = self.db_lock(vm)?;
 
-            let ret = unsafe {
-                sqlite3_create_function_v2(
-                    db.db,
-                    name.as_ptr(),
-                    args.n_arg,
-                    SQLITE_UTF8,
-                    Box::into_raw(data).cast(),
-                    None,
-                    Some(step_callback_wrapper),
-                    Some(finalize_callback),
-                    Some(destructor),
-                )
-            };
-
-            db.check(ret, vm)
+            db.create_function(
+                name.as_ptr(),
+                args.n_arg,
+                SQLITE_UTF8,
+                data.cast(),
+                None,
+                Some(CallbackData::step_callback),
+                Some(CallbackData::finalize_callback),
+                Some(CallbackData::destructor),
+                vm,
+            )
         }
 
         #[pymethod]
@@ -897,60 +898,9 @@ mod _sqlite {
             callable: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            fn collation_callback(
-                callable: &PyObject,
-                text1_len: c_int,
-                text1_ptr: *const c_void,
-                text2_len: c_int,
-                text2_ptr: *const c_void,
-                vm: &VirtualMachine,
-            ) -> PyResult<c_int> {
-                let text1 = ptr_to_string(text1_ptr.cast(), text1_len, null_mut(), vm)?;
-                let text1 = vm.ctx.new_str(text1);
-                let text2 = ptr_to_string(text2_ptr.cast(), text2_len, null_mut(), vm)?;
-                let text2 = vm.ctx.new_str(text2);
-
-                let val = vm.invoke(callable, (text1, text2))?;
-                let Some(val) = val.to_number().index(vm)? else {
-                    return Ok(0);
-                };
-
-                let val = match val.as_bigint().sign() {
-                    num_bigint::Sign::Plus => 1,
-                    num_bigint::Sign::Minus => -1,
-                    num_bigint::Sign::NoSign => 0,
-                };
-
-                Ok(val)
-            }
-
-            extern "C" fn collation_callback_wrapper(
-                data: *mut c_void,
-                text1_len: c_int,
-                text1_ptr: *const c_void,
-                text2_len: c_int,
-                text2_ptr: *const c_void,
-            ) -> c_int {
-                let data = unsafe { &*data.cast::<CallbackData>() };
-                let (callable, vm) = data.retrive();
-
-                if let Ok(val) =
-                    collation_callback(callable, text1_len, text1_ptr, text2_len, text2_ptr, vm)
-                {
-                    val
-                } else {
-                    0
-                }
-            }
-
-            extern "C" fn destructor(data: *mut c_void) {
-                unsafe { Box::from_raw(data.cast::<CallbackData>()) };
-            }
-
             let name = name.to_cstring(vm)?;
 
-            let data = CallbackData::new(callable, vm).into_box();
-            let data = Box::into_raw(data);
+            let data = CallbackData::new(callable, vm).into_raw();
 
             let db = self.db_lock(vm)?;
 
@@ -960,20 +910,21 @@ mod _sqlite {
                     name.as_ptr(),
                     SQLITE_UTF8,
                     data.cast(),
-                    Some(collation_callback_wrapper),
-                    Some(destructor),
+                    Some(CallbackData::collation_callback),
+                    Some(CallbackData::destructor),
                 )
             };
 
-            if ret == SQLITE_OK {
-                Ok(())
-            } else {
+            // TODO: replace with Result.inspect_err when stable
+            if let Err(exc) = db.check(ret, vm) {
+                // create_colation do not call destructor if error occur
                 unsafe { Box::from_raw(data) };
-                Err(db.error_extended(vm))
+                Err(exc)
+            } else {
+                Ok(())
             }
         }
 
-        // TODO: sqlite-sys sqlite3_create_window_function
         // #[pymethod]
         // fn create_window_function(
         //     &self,
@@ -1003,7 +954,8 @@ mod _sqlite {
 
         #[pymethod]
         fn interrupt(&self, vm: &VirtualMachine) -> PyResult<()> {
-            self.db_lock(vm).map(|x| x.interrupt())
+            // DO NOT check thread safety
+            self._db_lock(vm).map(|x| x.interrupt())
         }
 
         #[pymethod]
@@ -1755,6 +1707,39 @@ mod _sqlite {
 
         fn busy_timeout(self, timeout: i32) {
             unsafe { sqlite3_busy_timeout(self.db, timeout) };
+        }
+
+        fn create_function(
+            self,
+            name: *const i8,
+            narg: c_int,
+            flags: c_int,
+            data: *mut c_void,
+            func: Option<
+                unsafe extern "C" fn(
+                    arg1: *mut sqlite3_context,
+                    arg2: c_int,
+                    arg3: *mut *mut sqlite3_value,
+                ),
+            >,
+            step: Option<
+                unsafe extern "C" fn(
+                    arg1: *mut sqlite3_context,
+                    arg2: c_int,
+                    arg3: *mut *mut sqlite3_value,
+                ),
+            >,
+            finalize: Option<unsafe extern "C" fn(arg1: *mut sqlite3_context)>,
+            destroy: Option<unsafe extern "C" fn(arg1: *mut c_void)>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let ret = unsafe {
+                sqlite3_create_function_v2(
+                    self.db, name, narg, flags, data, func, step, finalize, destroy,
+                )
+            };
+            self.check(ret, vm)
+                .map_err(|_| new_operational_error(vm, "Error creating function".to_owned()))
         }
     }
 
