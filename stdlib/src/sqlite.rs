@@ -361,10 +361,12 @@ mod _sqlite {
     }
 
     #[pyfunction]
-    fn connect(args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
-        // if let Some(factory) = args.factory.take() {}
-        // Connection::py_new(Connection, args, vm)
-        Connection::py_new(Connection::class(vm).to_owned(), args, vm)
+    fn connect(mut args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
+        let cls = args
+            .factory
+            .take()
+            .unwrap_or_else(|| Connection::class(vm).to_owned());
+        Connection::py_new(cls, args, vm)
     }
 
     #[pyfunction]
