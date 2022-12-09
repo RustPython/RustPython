@@ -528,6 +528,7 @@ mod _sqlite {
         }
 
         fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<Sqlite>> {
+            self.check_thread(vm)?;
             let guard = self.db.lock();
             if guard.is_some() {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
@@ -547,7 +548,8 @@ mod _sqlite {
             factory: OptionalArg<ArgCallable>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            drop(zelf.db_lock(vm)?);
+            zelf.db_lock(vm).map(drop)?;
+
             let cursor = if let OptionalArg::Present(factory) = factory {
                 let cursor = factory.invoke((zelf.clone(),), vm)?;
                 let cursor = cursor.downcast::<Cursor>().map_err(|x| {
@@ -566,8 +568,10 @@ mod _sqlite {
         }
 
         #[pymethod]
-        fn close(&self) {
+        fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
+            self.check_thread(vm)?;
             self.db.lock().take();
+            Ok(())
         }
 
         #[pymethod]
