@@ -34,22 +34,22 @@ mod _sqlite {
         sqlite3, sqlite3_aggregate_context, sqlite3_backup_finish, sqlite3_backup_init,
         sqlite3_backup_pagecount, sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob,
         sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
-        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_changes, sqlite3_close_v2,
-        sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype,
-        sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
-        sqlite3_column_type, sqlite3_complete, sqlite3_context, sqlite3_context_db_handle,
-        sqlite3_create_collation_v2, sqlite3_create_function_v2, sqlite3_data_count,
-        sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec, sqlite3_extended_errcode,
-        sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid,
-        sqlite3_libversion, sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset,
-        sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
-        sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
-        sqlite3_result_null, sqlite3_result_text, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
-        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data,
-        sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double,
-        sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB,
-        SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE,
-        SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_UTF8,
+        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_busy_timeout, sqlite3_changes,
+        sqlite3_close_v2, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
+        sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
+        sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
+        sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
+        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec,
+        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt,
+        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
+        sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
+        sqlite3_result_error, sqlite3_result_error_nomem, sqlite3_result_error_toobig,
+        sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text, sqlite3_sleep,
+        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
+        sqlite3_user_data, sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes,
+        sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type,
+        SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
+        SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_UTF8,
     };
     use std::{
         collections::HashMap,
@@ -511,7 +511,9 @@ mod _sqlite {
     impl Connection {
         fn new(args: ConnectArgs, vm: &VirtualMachine) -> PyResult<Self> {
             let path = args.database.into_cstring(vm)?;
-            let db = SqliteRaw::open(path.as_ptr(), args.uri, vm)?.into();
+            let db = Sqlite::from(SqliteRaw::open(path.as_ptr(), args.uri, vm)?);
+            let timeout = (args.timeout * 1000.0) as c_int;
+            db.busy_timeout(timeout);
             let isolation_level = args
                 .isolation_level
                 .unwrap_or_else(|| vm.ctx.empty_str.clone());
@@ -1754,6 +1756,10 @@ mod _sqlite {
 
         fn interrupt(self) {
             unsafe { sqlite3_interrupt(self.db) }
+        }
+
+        fn busy_timeout(self, timeout: i32) {
+            unsafe { sqlite3_busy_timeout(self.db, timeout) };
         }
     }
 
