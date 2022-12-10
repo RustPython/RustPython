@@ -568,9 +568,9 @@ mod _sqlite {
     }
 
     #[pyfunction]
-    fn register_converter(typename: PyStrRef, converter: ArgCallable) {
+    fn register_converter(typename: PyStrRef, converter: ArgCallable, vm: &VirtualMachine) -> PyResult<()> {
         let name = typename.as_str().to_uppercase();
-        converters().insert(name, converter);
+        converters().set_item(&name, converter.into(), vm)
     }
 
     fn _adapt<F>(obj: &PyObject, alt: F, vm: &VirtualMachine) -> PyResult
@@ -619,15 +619,15 @@ mod _sqlite {
     }
 
     static_cell! {
-        static CONVERTERS: PyMutex<HashMap<String, ArgCallable>>;
+        static CONVERTERS: PyDictRef;
         static ADAPTERS: PyDictRef;
         static ADAPTER_BASE_TYPE: ();
         static USER_FUNCTION_EXCEPTION: PyAtomicRef<Option<PyBaseException>>;
         static ENABLE_TRACEBACK: PyAtomic<bool>;
     }
 
-    fn converters() -> PyMutexGuard<'static, HashMap<String, ArgCallable>> {
-        CONVERTERS.get().expect("converters not initialize").lock()
+    fn converters() -> &'static Py<PyDict> {
+        CONVERTERS.get().expect("converters not initialize")
     }
 
     fn adapters() -> &'static Py<PyDict> {
@@ -655,10 +655,12 @@ mod _sqlite {
 
         setup_module_exceptions(&module, vm);
 
-        let _ = CONVERTERS.set(PyMutex::new(HashMap::new()));
+        let _ = CONVERTERS.set(vm.ctx.new_dict());
         let _ = ADAPTERS.set(vm.ctx.new_dict());
         let _ = USER_FUNCTION_EXCEPTION.set(PyAtomicRef::from(None));
         let _ = ENABLE_TRACEBACK.set(Radium::new(false));
+
+        module.set_attr("converters", converters().to_owned(), vm).unwrap();
     }
 
     #[pyattr]
@@ -1076,7 +1078,7 @@ mod _sqlite {
     #[derive(Debug)]
     struct CursorInner {
         description: PyObjectRef,
-        row_cast_map: Vec<Option<ArgCallable>>,
+        row_cast_map: Vec<Option<PyObjectRef>>,
         lastrowid: i64,
         rowcount: i64,
         statement: Option<PyRef<Statement>>,
@@ -1353,7 +1355,7 @@ mod _sqlite {
             &self,
             st: &SqliteStatementRaw,
             vm: &VirtualMachine,
-        ) -> PyResult<Vec<Option<ArgCallable>>> {
+        ) -> PyResult<Vec<Option<PyObjectRef>>> {
             if self.connection.detect_types == 0 {
                 return Ok(vec![]);
             }
@@ -1372,7 +1374,7 @@ mod _sqlite {
                         .take_while(|&x| x != ']')
                         .flat_map(|x| x.to_uppercase())
                         .collect::<String>();
-                    if let Some(converter) = converters().get(&col_name) {
+                    if let Some(converter) = converters().get_item_opt(&col_name, vm)? {
                         cast_map.push(Some(converter.clone()));
                         continue;
                     }
@@ -1381,7 +1383,7 @@ mod _sqlite {
                     let decltype = st.column_decltype(i);
                     let decltype = ptr_to_str(decltype, vm)?;
                     if let Some(decltype) = decltype.split_terminator(" (").next() {
-                        if let Some(converter) = converters().get(decltype) {
+                        if let Some(converter) = converters().get_item_opt(decltype, vm)? {
                             cast_map.push(Some(converter.clone()));
                             continue;
                         }
@@ -1432,7 +1434,7 @@ mod _sqlite {
                             std::slice::from_raw_parts(blob.cast::<u8>(), nbytes as usize)
                         };
                         let blob = vm.ctx.new_bytes(blob.to_vec());
-                        converter.invoke((blob,), vm)?
+                        vm.invoke(&converter, (blob,))?
                     }
                 } else {
                     let col_type = st.column_type(i);
