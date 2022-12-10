@@ -409,32 +409,8 @@ mod _sqlite {
                 }
             }
             let instance = &**instance;
-
-            let f = || -> PyResult<()> {
-                let db = context.db_handle();
-                let args = args
-                    .iter()
-                    .cloned()
-                    .map(|val| value_to_object(val, db, vm))
-                    .collect::<PyResult<Vec<PyObjectRef>>>()?;
-                vm.call_method(instance, "step", args).map(drop)
-            };
-
-            if let Err(exc) = f() {
-                if exc.fast_isinstance(&vm.ctx.exceptions.attribute_error) {
-                    context.result_exception(
-                        vm,
-                        exc,
-                        "user-defined aggregate's 'step' method not defined\0",
-                    )
-                } else {
-                    context.result_exception(
-                        vm,
-                        exc,
-                        "user-defined aggregate's 'step' method raised error\0",
-                    )
-                }
-            }
+        
+            Self::call_method_with_args(context, instance, "step", args, vm);
         }
 
         unsafe extern "C" fn finalize_callback(context: *mut sqlite3_context) {
@@ -443,26 +419,7 @@ mod _sqlite {
             let instance = context.aggregate_context::<*const PyObject>();
             let Some(instance) = (*instance).as_ref() else { return; };
 
-            let f = || -> PyResult<()> {
-                let val = vm.call_method(instance, "finalize", ())?;
-                context.result_from_object(&val, vm)
-            };
-
-            if let Err(exc) = f() {
-                if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) {
-                    context.result_exception(
-                        vm,
-                        exc,
-                        "user-defined aggregate's 'finalize' method not defined\0",
-                    )
-                } else {
-                    context.result_exception(
-                        vm,
-                        exc,
-                        "user-defined aggregate's 'finalize' method raised error\0",
-                    )
-                }
-            }
+            Self::callback_result_from_method(context, instance, "finalize", vm);
         }
 
         unsafe extern "C" fn collation_callback(
@@ -499,12 +456,35 @@ mod _sqlite {
 
         unsafe extern "C" fn value_callback(context: *mut sqlite3_context) {
             let context = SqliteContext::from(context);
-            let (cls, vm) = (&*context.user_data::<Self>()).retrive();
+            let (_, vm) = (&*context.user_data::<Self>()).retrive();
             let instance = context.aggregate_context::<*const PyObject>();
             let instance = &**instance;
 
+            Self::callback_result_from_method(context, instance, "value", vm);
+        }
+
+        unsafe extern "C" fn inverse_callback(
+            context: *mut sqlite3_context,
+            argc: c_int,
+            argv: *mut *mut sqlite3_value,
+        ) {
+            let context = SqliteContext::from(context);
+            let (_, vm) = (&*context.user_data::<Self>()).retrive();
+            let args = std::slice::from_raw_parts(argv, argc as usize);
+            let instance = context.aggregate_context::<*const PyObject>();
+            let instance = &**instance;
+
+            Self::call_method_with_args(context, instance, "inverse", args, vm);
+        }
+
+        fn callback_result_from_method(
+            context: SqliteContext,
+            instance: &PyObject,
+            name: &str,
+            vm: &VirtualMachine,
+        ) {
             let f = || -> PyResult<()> {
-                let val = vm.call_method(instance, "value", ())?;
+                let val = vm.call_method(instance, name, ())?;
                 context.result_from_object(&val, vm)
             };
 
@@ -513,26 +493,19 @@ mod _sqlite {
                     context.result_exception(
                         vm,
                         exc,
-                        "user-defined aggregate's 'value' method not defined\0",
+                        &format!("user-defined aggregate's '{}' method not defined\0", name),
                     )
                 } else {
                     context.result_exception(
                         vm,
                         exc,
-                        "user-defined aggregate's 'value' method raised error\0",
+                        &format!("user-defined aggregate's '{}' method raised error\0", name),
                     )
                 }
             }
         }
 
-        unsafe extern "C" fn inverse_callback(context: *mut sqlite3_context, argc: c_int, argv: 
-        *mut *mut sqlite3_value) {
-            
-            let context = SqliteContext::from(context);
-            let (_, vm) = (&*context.user_data::<Self>()).retrive();
-            let args = std::slice::from_raw_parts(argv, argc as usize);
-            let instance = context.aggregate_context::<*const PyObject>();
-            let instance = &**instance;
+        fn call_method_with_args(context: SqliteContext, instance: &PyObject, name: &str, args: &[*mut sqlite3_value], vm: &VirtualMachine) {
 
             let f = || -> PyResult<()> {
                 let db = context.db_handle();
@@ -541,7 +514,7 @@ mod _sqlite {
                     .cloned()
                     .map(|val| value_to_object(val, db, vm))
                     .collect::<PyResult<Vec<PyObjectRef>>>()?;
-                vm.call_method(instance, "inverse", args).map(drop)
+                vm.call_method(instance, name, args).map(drop)
             };
 
             if let Err(exc) = f() {
@@ -549,13 +522,13 @@ mod _sqlite {
                     context.result_exception(
                         vm,
                         exc,
-                        "user-defined aggregate's 'inverse' method not defined\0",
+                        &format!("user-defined aggregate's '{}' method not defined\0", name),
                     )
                 } else {
                     context.result_exception(
                         vm,
                         exc,
-                        "user-defined aggregate's 'inverse' method raised error\0",
+                        &format!("user-defined aggregate's '{}' method raised error\0", name),
                     )
                 }
             }
