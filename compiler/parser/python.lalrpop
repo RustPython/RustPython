@@ -393,80 +393,129 @@ Guard: ast::Expr = {
 }
 
 Pattern: ast::Pattern = {
-
+    // <pattern:AsPattern> => pattern,
+    <pattern:OrPattern> => pattern,
 }
 
-MatchValue: ast::Pattern = {
-    <location:@L> "not" <e:NotTest> <end_location:@R> => ast::Pattern {
+// AsPattern: ast::Pattern = {
+//     <location:@L> <pattern:OrPattern> "as" <target:PatternCaptureTarget> => ast::Pattern {
+
+//     }
+// }
+
+// FIXME
+OrPattern: ast::Pattern = {
+    <pattern:ClosedPattern> => pattern,
+}
+
+ClosedPattern: ast::Pattern = {
+    <location:@L> <node:LiteralPattern> <end_location:@R> => ast::Pattern {
         location,
         end_location: Some(end_location),
         custom: (),
-        node: ast::PatternKind::MatchValue { }
+        node,
     },
-};
-
-MatchSingleton: ast::Pattern = {
-    <location: @L> <end_location:@R> => ast::Pattern {
-        location,
-        end_location: Some(end_location),
-        custom: (),
-        node: ast::PatternKind::MatchSingleton { }
-    }
+    // <pattern:CapturePattern> => pattern,
+    // <location:@L> "_" <end_location:@R> => ast::Pattern {
+    //     location,
+    //     end_location: Some(end_location),
+    //     custom: (),
+    //     node: ast::PatternKind::MatchAs(),
+    // },
+    // <pattern:ValuePattern> => pattern,
+    // <pattern:GroupPattern> => pattern,
+    // <pattern:SequencePattern> => pattern,
+    // <pattern:MappingPattern> => pattern,
+    // <pattern:ClassPattern> => pattern,
 }
 
-MatchSequence: ast::Pattern = {
-    <location: @L> <end_location:@R> => ast::Pattern {
-        location,
-        end_location: Some(end_location),
-        custom: (),
-        node: ast::PatternKind::MatchSequence { }
-    }
+LiteralPattern: ast::PatternKind = {
+    <location:@L> <value:Constant> <end_location:@R> => ast::PatternKind::MatchValue {
+        value: Box::new(ast::Expr {
+            location,
+            end_location: Some(end_location),
+            custom: (),
+            node: ast::ExprKind::Constant { value, kind: None }
+        })
+    },
+    "None" => ast::PatternKind::MatchSingleton {
+        value: ast::Constant::None
+    },
+    "True" => ast::PatternKind::MatchSingleton {
+        value: true.into()
+    },
+    "False" => ast::PatternKind::MatchSingleton {
+        value: false.into()
+    },
 }
 
-MatchMapping: ast::Pattern = {
-    <location: @L> <end_location:@R> => ast::Pattern {
-        location,
-        end_location,
-        custom: (),
-        node: ast::PatternKind::MatchMapping { }
-    }
-}
+// ValuePattern: ast::Pattern = {
+//     // TODO:
+//     <value:MatchValue> => value,
+// }
 
-MatchClass: ast::Pattern = {
-    <location: @L> <end_location:@R> => ast::Pattern {
-        location,
-        end_location: Some(end_location),
-        custom: (),
-        node: ast::PatternKind::MatchClass { }
-    }
-}
+// MatchValue: ast::Pattern = {
+//     <location:@L> "not" <e:NotTest> <end_location:@R> => ast::Pattern {
+//         location,
+//         end_location: Some(end_location),
+//         custom: (),
+//         node: ast::PatternKind::MatchValue { }
+//     },
+// };
 
-MatchStar: ast::Pattern = {
-    <location: @L> <end_location:@R> => ast::Pattern {
-        location,
-        end_location: Some(end_location),
-        custom: (),
-        node: ast::PatternKind::MatchStar { }
-    }
-}
+// MatchSequence: ast::Pattern = {
+//     <location: @L> <end_location:@R> => ast::Pattern {
+//         location,
+//         end_location: Some(end_location),
+//         custom: (),
+//         node: ast::PatternKind::MatchSequence { }
+//     }
+// }
 
-MatchAs: ast::Pattern = {
-    <location: @L> <end_location:@R> => ast::Pattern {
-        location,
-        end_location: Some(end_location),
-        custom: (),
-        node: ast::PatternKind::MatchAs { }
-    }
-}
+// MatchMapping: ast::Pattern = {
+//     <location: @L> <end_location:@R> => ast::Pattern {
+//         location,
+//         end_location: Some(end_location),
+//         custom: (),
+//         node: ast::PatternKind::MatchMapping { }
+//     }
+// }
 
-MatchOr: ast::Pattern = {
-    <location: @L> <end_location:@R> => ast::Pattern {
-        location,
-        end_location: Some(end_location),
-        custom: (),
-        node: ast::PatternKind::MatchOr { }
-    }
-}
+// MatchClass: ast::Pattern = {
+//     <location: @L> <end_location:@R> => ast::Pattern {
+//         location,
+//         end_location: Some(end_location),
+//         custom: (),
+//         node: ast::PatternKind::MatchClass { }
+//     }
+// }
+
+// MatchStar: ast::Pattern = {
+//     <location: @L> <end_location:@R> => ast::Pattern {
+//         location,
+//         end_location: Some(end_location),
+//         custom: (),
+//         node: ast::PatternKind::MatchStar { }
+//     }
+// }
+
+// MatchAs: ast::Pattern = {
+//     <location: @L> <end_location:@R> => ast::Pattern {
+//         location,
+//         end_location: Some(end_location),
+//         custom: (),
+//         node: ast::PatternKind::MatchAs { }
+//     }
+// }
+
+// MatchOr: ast::Pattern = {
+//     <location: @L> <end_location:@R> => ast::Pattern {
+//         location,
+//         end_location: Some(end_location),
+//         custom: (),
+//         node: ast::PatternKind::MatchOr { }
+//     }
+// }
 
 
 IfStatement: ast::Stmt = {
