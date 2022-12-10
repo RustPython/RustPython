@@ -53,7 +53,6 @@ mod _sqlite {
         __exports::paste,
     };
     use std::{
-        collections::HashMap,
         ffi::{c_int, c_longlong, c_void, CStr},
         fmt::Debug,
         ops::Deref,
@@ -1037,7 +1036,8 @@ mod _sqlite {
             self.isolation_level.to_owned()
         }
         #[pygetset(setter)]
-        fn set_isolation_level(&self, val: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_isolation_level(&self, val: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<()> {
+            let val = val.unwrap_or_else(|| vm.ctx.empty_str.clone());
             begin_statement_ptr_from_isolation_level(&val, vm)?;
             unsafe { self.isolation_level.swap(val) };
             Ok(())
