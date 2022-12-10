@@ -408,7 +408,7 @@ mod _sqlite {
                 }
             }
             let instance = &**instance;
-        
+
             Self::call_method_with_args(context, instance, "step", args, vm);
         }
 
@@ -504,8 +504,13 @@ mod _sqlite {
             }
         }
 
-        fn call_method_with_args(context: SqliteContext, instance: &PyObject, name: &str, args: &[*mut sqlite3_value], vm: &VirtualMachine) {
-
+        fn call_method_with_args(
+            context: SqliteContext,
+            instance: &PyObject,
+            name: &str,
+            args: &[*mut sqlite3_value],
+            vm: &VirtualMachine,
+        ) {
             let f = || -> PyResult<()> {
                 let db = context.db_handle();
                 let args = args
@@ -563,26 +568,62 @@ mod _sqlite {
 
     #[pyfunction]
     fn register_adapter(typ: PyTypeRef, adapter: ArgCallable, vm: &VirtualMachine) -> PyResult<()> {
-        adapters().set_item(typ.as_object(), adapter.into(), vm)
+        if typ.is(PyInt::class(vm))
+            || typ.is(PyFloat::class(vm))
+            || typ.is(PyStr::class(vm))
+            || typ.is(PyByteArray::class(vm))
+        {
+            let _ = BASE_TYPE_ADAPTED.set(());
+        }
+        let protocol = PrepareProtocol::class(vm).to_owned();
+        let key = vm.ctx.new_tuple(vec![typ.into(), protocol.into()]);
+        adapters().set_item(key.as_object(), adapter.into(), vm)
     }
 
     #[pyfunction]
-    fn register_converter(typename: PyStrRef, converter: ArgCallable, vm: &VirtualMachine) -> PyResult<()> {
+    fn register_converter(
+        typename: PyStrRef,
+        converter: ArgCallable,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let name = typename.as_str().to_uppercase();
         converters().set_item(&name, converter.into(), vm)
     }
 
-    fn _adapt<F>(obj: &PyObject, alt: F, vm: &VirtualMachine) -> PyResult
+    fn _adapt<F>(obj: &PyObject, proto: PyTypeRef, alt: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(&PyObject) -> PyResult,
     {
-        if let Some(adapter) = adapters().get_item_opt(obj.class().as_object(), vm)? {
-            vm.invoke(&adapter, (obj,))
-        } else if let Ok(adapter) = obj.get_attr("__conform__", vm) {
-            vm.invoke(&adapter, (PrepareProtocol::class(vm).to_owned(),))
-        } else {
-            alt(obj)
+        let proto = proto.into_object();
+        let key = vm
+            .ctx
+            .new_tuple(vec![obj.class().to_owned().into(), proto.clone()]);
+
+        if let Some(adapter) = adapters().get_item_opt(key.as_object(), vm)? {
+            return vm.invoke(&adapter, (obj,));
         }
+        if let Ok(adapter) = proto.get_attr("__adapt__", vm) {
+            match vm.invoke(&adapter, (obj.clone(),)) {
+                Ok(val) => return Ok(val),
+                Err(exc) => {
+                    if !exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+                        return Err(exc);
+                    }
+                }
+            }
+        }
+        if let Ok(adapter) = obj.get_attr("__conform__", vm) {
+            match vm.invoke(&adapter, (proto,)) {
+                Ok(val) => return Ok(val),
+                Err(exc) => {
+                    if !exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+                        return Err(exc);
+                    }
+                }
+            }
+        }
+
+        alt(obj)
     }
 
     #[pyfunction]
@@ -592,35 +633,38 @@ mod _sqlite {
         alt: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let err = || new_programming_error(vm, "can't adapt".to_owned());
-
-        if let OptionalArg::Present(proto) = proto {
-            if !proto.is(PrepareProtocol::class(vm)) {
-                return if let OptionalArg::Present(alt) = alt {
-                    Ok(alt)
-                } else {
-                    Err(err())
-                };
-            }
-        }
+        let proto = proto.unwrap_or_else(|| PrepareProtocol::class(vm).to_owned());
 
         _adapt(
             &obj,
+            proto,
             |_| {
                 if let OptionalArg::Present(alt) = alt {
                     Ok(alt)
                 } else {
-                    Err(err())
+                    Err(new_programming_error(vm, "can't adapt".to_owned()))
                 }
             },
             vm,
         )
     }
 
+    fn need_adapt(obj: &PyObject, vm: &VirtualMachine) -> bool {
+        if BASE_TYPE_ADAPTED.get().is_some() {
+            true
+        } else {
+            let cls = obj.class();
+            !(cls.is(vm.ctx.types.int_type)
+                || cls.is(vm.ctx.types.float_type)
+                || cls.is(vm.ctx.types.str_type)
+                || cls.is(vm.ctx.types.bytearray_type))
+        }
+    }
+
     static_cell! {
         static CONVERTERS: PyDictRef;
         static ADAPTERS: PyDictRef;
-        static ADAPTER_BASE_TYPE: ();
+        static BASE_TYPE_ADAPTED: ();
         static USER_FUNCTION_EXCEPTION: PyAtomicRef<Option<PyBaseException>>;
         static ENABLE_TRACEBACK: PyAtomic<bool>;
     }
@@ -659,7 +703,12 @@ mod _sqlite {
         let _ = USER_FUNCTION_EXCEPTION.set(PyAtomicRef::from(None));
         let _ = ENABLE_TRACEBACK.set(Radium::new(false));
 
-        module.set_attr("converters", converters().to_owned(), vm).unwrap();
+        module
+            .set_attr("converters", converters().to_owned(), vm)
+            .unwrap();
+        module
+            .set_attr("adapters", adapters().to_owned(), vm)
+            .unwrap();
     }
 
     #[pyattr]
@@ -1857,20 +1906,31 @@ mod _sqlite {
             parameter: &PyObject,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let parameter = _adapt(parameter, |x| Ok(x.to_owned()), vm)?;
+            let adapted;
+            let obj = if need_adapt(parameter, vm) {
+                adapted = _adapt(
+                    parameter,
+                    PrepareProtocol::class(vm).to_owned(),
+                    |x| Ok(x.to_owned()),
+                    vm,
+                )?;
+                &adapted
+            } else {
+                parameter
+            };
 
-            let ret = if vm.is_none(&parameter) {
+            let ret = if vm.is_none(obj) {
                 unsafe { sqlite3_bind_null(self.st, pos) }
-            } else if let Some(val) = parameter.payload::<PyInt>() {
+            } else if let Some(val) = obj.payload::<PyInt>() {
                 let val = val.try_to_primitive::<i64>(vm)?;
                 unsafe { sqlite3_bind_int64(self.st, pos, val) }
-            } else if let Some(val) = parameter.payload::<PyFloat>() {
+            } else if let Some(val) = obj.payload::<PyFloat>() {
                 let val = val.to_f64();
                 unsafe { sqlite3_bind_double(self.st, pos, val) }
-            } else if let Some(val) = parameter.payload::<PyStr>() {
+            } else if let Some(val) = obj.payload::<PyStr>() {
                 let (ptr, len) = str_to_ptr_len(val, vm)?;
                 unsafe { sqlite3_bind_text(self.st, pos, ptr, len, SQLITE_TRANSIENT()) }
-            } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &parameter) {
+            } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, obj) {
                 let (ptr, len) = buffer_to_ptr_len(&buffer, vm)?;
                 unsafe { sqlite3_bind_blob(self.st, pos, ptr, len, SQLITE_TRANSIENT()) }
             } else {
@@ -1879,7 +1939,7 @@ mod _sqlite {
                     format!(
                         "Error binding parameter {}: type '{}' is not supported",
                         pos,
-                        parameter.class()
+                        obj.class()
                     ),
                 ));
             };
