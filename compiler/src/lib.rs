@@ -6,8 +6,7 @@ use rustpython_parser::{
 };
 
 pub use rustpython_codegen::compile::CompileOpts;
-pub use rustpython_compiler_core::CodeObject;
-pub use rustpython_compiler_core::{BaseError as CompileErrorBody, Mode};
+pub use rustpython_compiler_core::{BaseError as CompileErrorBody, CodeObject, Mode};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CompileErrorType {
@@ -29,7 +28,7 @@ pub fn compile(
     source: &str,
     mode: compile::Mode,
     source_path: String,
-    opts: compile::CompileOpts,
+    opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
     let mut ast = match parser::parse(source, mode.into(), &source_path) {
         Ok(x) => x,
