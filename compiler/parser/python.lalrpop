@@ -363,10 +363,11 @@ CompoundStatement: ast::Stmt = {
 // TODO: https://github.com/python/cpython/pull/28043
 // TODO: https://github.com/lalrpop/lalrpop
 MatchStatement: ast::Stmt = {
-    <location:@L> "match" <subject:NamedExpressionTest> ":" "\n" Indent <cases:OneOrMore<MatchCase>> Dedent => {
+    <location:@L> "match" <subject:NamedExpressionTest> ":" "\n" Indent <cases:OneOrMore<MatchCase>> <end_location:@R> Dedent => {
         ast::Stmt {
             custom: (),
             location,
+            end_location: Some(end_location),
             node: ast::StmtKind::Match {
                 subject: Box::new(subject),
                 cases: cases
@@ -396,64 +397,72 @@ Pattern: ast::Pattern = {
 }
 
 MatchValue: ast::Pattern = {
-    <location:@L> "not" <e:NotTest> => ast::Pattern {
+    <location:@L> "not" <e:NotTest> <end_location:@R> => ast::Pattern {
         location,
+        end_location: Some(end_location),
         custom: (),
         node: ast::PatternKind::MatchValue { }
     },
 };
 
 MatchSingleton: ast::Pattern = {
-    <location: @L> => ast::Pattern {
+    <location: @L> <end_location:@R> => ast::Pattern {
         location,
+        end_location: Some(end_location),
         custom: (),
         node: ast::PatternKind::MatchSingleton { }
     }
 }
 
 MatchSequence: ast::Pattern = {
-    <location: @L> => ast::Pattern {
+    <location: @L> <end_location:@R> => ast::Pattern {
         location,
+        end_location: Some(end_location),
         custom: (),
         node: ast::PatternKind::MatchSequence { }
     }
 }
 
 MatchMapping: ast::Pattern = {
-    <location: @L> => ast::Pattern {
+    <location: @L> <end_location:@R> => ast::Pattern {
         location,
+        end_location,
         custom: (),
         node: ast::PatternKind::MatchMapping { }
     }
 }
 
 MatchClass: ast::Pattern = {
-    <location: @L> => ast::Pattern {
+    <location: @L> <end_location:@R> => ast::Pattern {
         location,
+        end_location: Some(end_location),
         custom: (),
         node: ast::PatternKind::MatchClass { }
     }
 }
 
 MatchStar: ast::Pattern = {
-    <location: @L> => ast::Pattern {
+    <location: @L> <end_location:@R> => ast::Pattern {
         location,
+        end_location: Some(end_location),
         custom: (),
         node: ast::PatternKind::MatchStar { }
     }
 }
 
 MatchAs: ast::Pattern = {
-    <location: @L> => ast::Pattern {
+    <location: @L> <end_location:@R> => ast::Pattern {
         location,
+        end_location: Some(end_location),
         custom: (),
         node: ast::PatternKind::MatchAs { }
     }
 }
 
 MatchOr: ast::Pattern = {
-    <location: @L> => ast::Pattern {
+    <location: @L> <end_location:@R> => ast::Pattern {
         location,
+        end_location: Some(end_location),
         custom: (),
         node: ast::PatternKind::MatchOr { }
     }
