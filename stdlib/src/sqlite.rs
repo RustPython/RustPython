@@ -496,6 +496,70 @@ mod _sqlite {
 
             f().unwrap_or(0)
         }
+
+        unsafe extern "C" fn value_callback(context: *mut sqlite3_context) {
+            let context = SqliteContext::from(context);
+            let (cls, vm) = (&*context.user_data::<Self>()).retrive();
+            let instance = context.aggregate_context::<*const PyObject>();
+            let instance = &**instance;
+
+            let f = || -> PyResult<()> {
+                let val = vm.call_method(instance, "value", ())?;
+                context.result_from_object(&val, vm)
+            };
+
+            if let Err(exc) = f() {
+                if exc.fast_isinstance(vm.ctx.exceptions.attribute_error) {
+                    context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'value' method not defined\0",
+                    )
+                } else {
+                    context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'value' method raised error\0",
+                    )
+                }
+            }
+        }
+
+        unsafe extern "C" fn inverse_callback(context: *mut sqlite3_context, argc: c_int, argv: 
+        *mut *mut sqlite3_value) {
+            
+            let context = SqliteContext::from(context);
+            let (_, vm) = (&*context.user_data::<Self>()).retrive();
+            let args = std::slice::from_raw_parts(argv, argc as usize);
+            let instance = context.aggregate_context::<*const PyObject>();
+            let instance = &**instance;
+
+            let f = || -> PyResult<()> {
+                let db = context.db_handle();
+                let args = args
+                    .iter()
+                    .cloned()
+                    .map(|val| value_to_object(val, db, vm))
+                    .collect::<PyResult<Vec<PyObjectRef>>>()?;
+                vm.call_method(instance, "inverse", args).map(drop)
+            };
+
+            if let Err(exc) = f() {
+                if exc.fast_isinstance(&vm.ctx.exceptions.attribute_error) {
+                    context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'inverse' method not defined\0",
+                    )
+                } else {
+                    context.result_exception(
+                        vm,
+                        exc,
+                        "user-defined aggregate's 'inverse' method raised error\0",
+                    )
+                }
+            }
+        }
     }
 
     impl Drop for CallbackData {
@@ -925,32 +989,37 @@ mod _sqlite {
             }
         }
 
-        // #[pymethod]
-        // fn create_window_function(
-        //     &self,
-        //     name: PyStrRef,
-        //     num_params: c_int,
-        //     aggregate_class: PyObjectRef,
-        //     vm: &VirtualMachine,
-        // ) -> PyResult<()> {
-        //     let name = name.to_cstring(vm)?;
+        #[pymethod]
+        fn create_window_function(
+            &self,
+            name: PyStrRef,
+            num_params: c_int,
+            aggregate_class: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let name = name.to_cstring(vm)?;
 
-        //     let data = CallbackData::new(aggregate_class, vm).into_box();
-        //     let data = Box::into_raw(data);
+            let data = CallbackData::new(aggregate_class, vm).into_raw();
 
-        //     let db = self.db_lock(vm)?;
+            let db = self.db_lock(vm)?;
 
-        //     let ret = unsafe {
-        //         sqlite3_create_window_function(
-        //             db.db,
-        //             name.as_ptr(),
-        //             num_params,
-        //             SQLITE_UTF8,
-        //             data.cast(),
-        //             Some(step_callback),
-        //         )
-        //     };
-        // }
+            let ret = unsafe {
+                sqlite3_create_window_function(
+                    db.db,
+                    name.as_ptr(),
+                    num_params,
+                    SQLITE_UTF8,
+                    data.cast(),
+                    Some(CallbackData::step_callback),
+                    Some(CallbackData::finalize_callback),
+                    Some(CallbackData::value_callback),
+                    Some(CallbackData::inverse_callback),
+                    Some(CallbackData::destructor),
+                )
+            };
+            db.check(ret, vm)
+                .map_err(|_| new_programming_error(vm, "Error creating window function".to_owned()))
+        }
 
         #[pymethod]
         fn interrupt(&self, vm: &VirtualMachine) -> PyResult<()> {
