@@ -629,11 +629,12 @@ mod _sqlite {
     #[pyfunction]
     fn adapt(
         obj: PyObjectRef,
-        proto: OptionalArg<PyTypeRef>,
+        proto: OptionalArg<Option<PyTypeRef>>,
         alt: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let proto = proto.unwrap_or_else(|| PrepareProtocol::class(vm).to_owned());
+        // TODO: None proto
+        let proto = proto.flatten().unwrap_or_else(|| PrepareProtocol::class(vm).to_owned());
 
         _adapt(
             &obj,
