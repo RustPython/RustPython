@@ -22,12 +22,12 @@ mod _sqlite {
         sqlite3_create_window_function, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
         sqlite3_errmsg, sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode,
         sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid,
-        sqlite3_libversion, sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset,
-        sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
-        sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
-        sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep,
-        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
-        sqlite3_trace_v2, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
+        sqlite3_libversion, sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2,
+        sqlite3_progress_handler, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
+        sqlite3_result_error, sqlite3_result_error_nomem, sqlite3_result_error_toobig,
+        sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer,
+        sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly,
+        sqlite3_threadsafe, sqlite3_trace_v2, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
         sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text,
         sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER,
         SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT,
@@ -507,12 +507,21 @@ mod _sqlite {
             let (callable, vm) = (&*data.cast::<Self>()).retrive();
             let expanded = sqlite3_expanded_sql(stmt.cast());
             let f = || -> PyResult<()> {
-                let stmt = ptr_to_str(expanded, vm)
-                    .or_else(|_| ptr_to_str(sql.cast(), vm))?;
+                let stmt = ptr_to_str(expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
                 vm.invoke(callable, (stmt,)).map(drop)
             };
             let _ = f();
             0
+        }
+
+        unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
+            let (callable, vm) = (&*data.cast::<Self>()).retrive();
+            if let Ok(val) = vm.invoke(callable, ()) {
+                if let Ok(val) = val.is_true(vm) {
+                    return val as c_int;
+                }
+            }
+            -1
         }
 
         fn callback_result_from_method(
@@ -1112,6 +1121,28 @@ mod _sqlite {
             };
 
             db.check(ret, vm)
+        }
+
+        #[pymethod]
+        fn set_progress_handler(
+            &self,
+            callable: PyObjectRef,
+            n: c_int,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let data = CallbackData::new(callable, vm).into_box();
+            let db = self.db_lock(vm)?;
+
+            unsafe {
+                sqlite3_progress_handler(
+                    db.db,
+                    n,
+                    Some(CallbackData::progress_callback),
+                    Box::into_raw(data).cast(),
+                )
+            };
+
+            Ok(())
         }
 
         #[pymethod]
