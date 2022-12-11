@@ -20,17 +20,18 @@ mod _sqlite {
         sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
         sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
         sqlite3_create_window_function, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
-        sqlite3_errmsg, sqlite3_exec, sqlite3_extended_errcode, sqlite3_finalize,
-        sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion,
-        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob,
-        sqlite3_result_double, sqlite3_result_error, sqlite3_result_error_nomem,
-        sqlite3_result_error_toobig, sqlite3_result_int64, sqlite3_result_null,
-        sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
-        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data,
-        sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double,
-        sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB,
-        SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE,
-        SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRANSIENT, SQLITE_UTF8,
+        sqlite3_errmsg, sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode,
+        sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid,
+        sqlite3_libversion, sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset,
+        sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
+        sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
+        sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep,
+        sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
+        sqlite3_trace_v2, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
+        sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text,
+        sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER,
+        SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT,
+        SQLITE_TRACE_STMT, SQLITE_TRANSIENT, SQLITE_UTF8,
     };
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
@@ -53,7 +54,7 @@ mod _sqlite {
         __exports::paste,
     };
     use std::{
-        ffi::{c_int, c_longlong, c_void, CStr},
+        ffi::{c_int, c_longlong, c_uint, c_void, CStr},
         fmt::Debug,
         ops::Deref,
         ptr::{addr_of_mut, null, null_mut},
@@ -480,7 +481,7 @@ mod _sqlite {
             db_name: *const i8,
             access: *const i8,
         ) -> c_int {
-            let (callable, vm) = (&*data.cast::<CallbackData>()).retrive();
+            let (callable, vm) = (&*data.cast::<Self>()).retrive();
             let f = || -> PyResult<c_int> {
                 let arg1 = ptr_to_str(arg1, vm)?;
                 let arg2 = ptr_to_str(arg2, vm)?;
@@ -495,6 +496,23 @@ mod _sqlite {
             };
 
             f().unwrap_or(SQLITE_DENY)
+        }
+
+        unsafe extern "C" fn trace_callback(
+            _typ: c_uint,
+            data: *mut c_void,
+            stmt: *mut c_void,
+            sql: *mut c_void,
+        ) -> c_int {
+            let (callable, vm) = (&*data.cast::<Self>()).retrive();
+            let expanded = sqlite3_expanded_sql(stmt.cast());
+            let f = || -> PyResult<()> {
+                let stmt = ptr_to_str(expanded, vm)
+                    .or_else(|_| ptr_to_str(sql.cast(), vm))?;
+                vm.invoke(callable, (stmt,)).map(drop)
+            };
+            let _ = f();
+            0
         }
 
         fn callback_result_from_method(
@@ -1076,6 +1094,24 @@ mod _sqlite {
             db.check(ret, vm).map_err(|_| {
                 new_operational_error(vm, "Error setting authorizer callback".to_owned())
             })
+        }
+
+        #[pymethod]
+        fn set_trace_callback(&self, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            // TODO: callable is None
+            let data = CallbackData::new(callable, vm).into_box();
+            let db = self.db_lock(vm)?;
+
+            let ret = unsafe {
+                sqlite3_trace_v2(
+                    db.db,
+                    SQLITE_TRACE_STMT as u32,
+                    Some(CallbackData::trace_callback),
+                    Box::into_raw(data).cast(),
+                )
+            };
+
+            db.check(ret, vm)
         }
 
         #[pymethod]
