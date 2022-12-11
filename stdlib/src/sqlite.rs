@@ -322,7 +322,7 @@ mod _sqlite {
         #[pyarg(any)]
         name: PyStrRef,
         #[pyarg(positional)]
-        n_arg: c_int,
+        narg: c_int,
         #[pyarg(positional)]
         aggregate_class: PyObjectRef,
     }
@@ -333,15 +333,11 @@ mod _sqlite {
     }
 
     impl CallbackData {
-        fn new(obj: PyObjectRef, vm: &VirtualMachine) -> Self {
-            Self {
+        fn new(obj: PyObjectRef, vm: &VirtualMachine) -> Option<Self> {
+            (!vm.is_none(&obj)).then_some(Self {
                 obj: obj.into_raw(),
                 vm,
-            }
-        }
-
-        fn into_box(self) -> Box<Self> {
-            Box::new(self)
+            })
         }
 
         fn retrive(&self) -> (&PyObject, &VirtualMachine) {
@@ -990,14 +986,16 @@ mod _sqlite {
             } else {
                 SQLITE_UTF8
             };
-            let data = CallbackData::new(args.func, vm).into_box();
             let db = self.db_lock(vm)?;
+            let Some(data) = CallbackData::new(args.func, vm) else {
+                return db.create_function(name.as_ptr(), args.narg, flags, null_mut(), None, None, None, None, vm);
+            };
 
             db.create_function(
                 name.as_ptr(),
                 args.narg,
                 flags,
-                Box::into_raw(data).cast(),
+                Box::into_raw(Box::new(data)).cast(),
                 Some(CallbackData::func_callback),
                 None,
                 None,
@@ -1009,14 +1007,16 @@ mod _sqlite {
         #[pymethod]
         fn create_aggregate(&self, args: CreateAggregateArgs, vm: &VirtualMachine) -> PyResult<()> {
             let name = args.name.to_cstring(vm)?;
-            let data = CallbackData::new(args.aggregate_class, vm).into_box();
             let db = self.db_lock(vm)?;
+            let Some(data) = CallbackData::new(args.aggregate_class, vm) else {
+                return db.create_function(name.as_ptr(), args.narg, SQLITE_UTF8, null_mut(), None, None, None, None, vm);
+            };
 
             db.create_function(
                 name.as_ptr(),
-                args.n_arg,
+                args.narg,
                 SQLITE_UTF8,
-                Box::into_raw(data).cast(),
+                Box::into_raw(Box::new(data)).cast(),
                 None,
                 Some(CallbackData::step_callback),
                 Some(CallbackData::finalize_callback),
@@ -1033,9 +1033,14 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let name = name.to_cstring(vm)?;
-            let data = CallbackData::new(callable, vm).into_box();
             let db = self.db_lock(vm)?;
-            let data = Box::into_raw(data);
+            let Some(data )= CallbackData::new(callable, vm) else {
+                unsafe {
+                    sqlite3_create_collation_v2(db.db, name.as_ptr(), SQLITE_UTF8, null_mut(), None, None);
+                    return Ok(());
+                }
+            };
+            let data = Box::into_raw(Box::new(data));
 
             let ret = unsafe {
                 sqlite3_create_collation_v2(
@@ -1062,21 +1067,26 @@ mod _sqlite {
         fn create_window_function(
             &self,
             name: PyStrRef,
-            num_params: c_int,
+            narg: c_int,
             aggregate_class: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let name = name.to_cstring(vm)?;
-            let data = CallbackData::new(aggregate_class, vm).into_box();
             let db = self.db_lock(vm)?;
+            let Some(data) = CallbackData::new(aggregate_class, vm) else {
+                unsafe {
+                    sqlite3_create_window_function(db.db, name.as_ptr(), narg, SQLITE_UTF8, null_mut(), None, None, None, None, None)
+                };
+                return Ok(());
+            };
 
             let ret = unsafe {
                 sqlite3_create_window_function(
                     db.db,
                     name.as_ptr(),
-                    num_params,
+                    narg,
                     SQLITE_UTF8,
-                    Box::into_raw(data).cast(),
+                    Box::into_raw(Box::new(data)).cast(),
                     Some(CallbackData::step_callback),
                     Some(CallbackData::finalize_callback),
                     Some(CallbackData::value_callback),
@@ -1090,14 +1100,17 @@ mod _sqlite {
 
         #[pymethod]
         fn set_authorizer(&self, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let data = CallbackData::new(callable, vm).into_box();
             let db = self.db_lock(vm)?;
+            let Some(data) = CallbackData::new(callable, vm) else {
+                unsafe { sqlite3_set_authorizer(db.db, None, null_mut()) };
+                return Ok(());
+            };
 
             let ret = unsafe {
                 sqlite3_set_authorizer(
                     db.db,
                     Some(CallbackData::authorizer_callback),
-                    Box::into_raw(data).cast(),
+                    Box::into_raw(Box::new(data)).cast(),
                 )
             };
             db.check(ret, vm).map_err(|_| {
@@ -1107,16 +1120,20 @@ mod _sqlite {
 
         #[pymethod]
         fn set_trace_callback(&self, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            // TODO: callable is None
-            let data = CallbackData::new(callable, vm).into_box();
             let db = self.db_lock(vm)?;
+            let Some(data )= CallbackData::new(callable, vm) else {
+                unsafe {
+                    sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT as u32, None, null_mut())
+                };
+                return Ok(());
+            };
 
             let ret = unsafe {
                 sqlite3_trace_v2(
                     db.db,
                     SQLITE_TRACE_STMT as u32,
                     Some(CallbackData::trace_callback),
-                    Box::into_raw(data).cast(),
+                    Box::into_raw(Box::new(data)).cast(),
                 )
             };
 
@@ -1130,15 +1147,18 @@ mod _sqlite {
             n: c_int,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let data = CallbackData::new(callable, vm).into_box();
             let db = self.db_lock(vm)?;
+            let Some(data )= CallbackData::new(callable, vm) else {
+                unsafe {sqlite3_progress_handler(db.db, n, None, null_mut())};
+                return Ok(());
+            };
 
             unsafe {
                 sqlite3_progress_handler(
                     db.db,
                     n,
                     Some(CallbackData::progress_callback),
-                    Box::into_raw(data).cast(),
+                    Box::into_raw(Box::new(data)).cast(),
                 )
             };
 
