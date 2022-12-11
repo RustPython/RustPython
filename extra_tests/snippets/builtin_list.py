@@ -656,3 +656,16 @@ l = [1, 2, 3, m, 4]
 m.list = l
 l.remove(4) 
 assert_raises(ValueError, lambda: l.index(4)) # element 4 must not be in the list
+
+# Test no panic occured when list elements was deleted in __eq__
+class rewrite_list_eq(list):
+    pass
+
+class poc:
+    def __eq__(self, other):
+        list1.clear()
+        return self
+
+list1 = rewrite_list_eq([poc()])
+list1.remove(list1)
+assert list1 == []
