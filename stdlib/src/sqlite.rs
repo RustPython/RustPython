@@ -25,12 +25,12 @@ mod _sqlite {
         sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_reset, sqlite3_result_blob,
         sqlite3_result_double, sqlite3_result_error, sqlite3_result_error_nomem,
         sqlite3_result_error_toobig, sqlite3_result_int64, sqlite3_result_null,
-        sqlite3_result_text, sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy,
-        sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data, sqlite3_value,
-        sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64,
-        sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT,
-        SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI,
-        SQLITE_TEXT, SQLITE_TRANSIENT, SQLITE_UTF8,
+        sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
+        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_user_data,
+        sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double,
+        sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB,
+        SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE,
+        SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRANSIENT, SQLITE_UTF8,
     };
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
@@ -343,10 +343,6 @@ mod _sqlite {
             Box::new(self)
         }
 
-        fn into_raw(self) -> *mut Self {
-            Box::into_raw(self.into_box())
-        }
-
         fn retrive(&self) -> (&PyObject, &VirtualMachine) {
             unsafe { (&*self.obj, &*self.vm) }
         }
@@ -474,6 +470,31 @@ mod _sqlite {
             let instance = &**instance;
 
             Self::call_method_with_args(context, instance, "inverse", args, vm);
+        }
+
+        unsafe extern "C" fn authorizer_callback(
+            data: *mut c_void,
+            action: c_int,
+            arg1: *const i8,
+            arg2: *const i8,
+            db_name: *const i8,
+            access: *const i8,
+        ) -> c_int {
+            let (callable, vm) = (&*data.cast::<CallbackData>()).retrive();
+            let f = || -> PyResult<c_int> {
+                let arg1 = ptr_to_str(arg1, vm)?;
+                let arg2 = ptr_to_str(arg2, vm)?;
+                let db_name = ptr_to_str(db_name, vm)?;
+                let access = ptr_to_str(access, vm)?;
+
+                let val = vm.invoke(callable, (action, arg1, arg2, db_name, access))?;
+                let Some(val) = val.payload::<PyInt>() else {
+                    return Ok(SQLITE_DENY);
+                };
+                val.try_to_primitive::<c_int>(vm)
+            };
+
+            f().unwrap_or(SQLITE_DENY)
         }
 
         fn callback_result_from_method(
@@ -634,7 +655,9 @@ mod _sqlite {
         vm: &VirtualMachine,
     ) -> PyResult {
         // TODO: None proto
-        let proto = proto.flatten().unwrap_or_else(|| PrepareProtocol::class(vm).to_owned());
+        let proto = proto
+            .flatten()
+            .unwrap_or_else(|| PrepareProtocol::class(vm).to_owned());
 
         _adapt(
             &obj,
@@ -940,16 +963,14 @@ mod _sqlite {
             } else {
                 SQLITE_UTF8
             };
-
-            let data = CallbackData::new(args.func, vm).into_raw();
-
+            let data = CallbackData::new(args.func, vm).into_box();
             let db = self.db_lock(vm)?;
 
             db.create_function(
                 name.as_ptr(),
                 args.narg,
                 flags,
-                data.cast(),
+                Box::into_raw(data).cast(),
                 Some(CallbackData::func_callback),
                 None,
                 None,
@@ -961,16 +982,14 @@ mod _sqlite {
         #[pymethod]
         fn create_aggregate(&self, args: CreateAggregateArgs, vm: &VirtualMachine) -> PyResult<()> {
             let name = args.name.to_cstring(vm)?;
-
-            let data = CallbackData::new(args.aggregate_class, vm).into_raw();
-
+            let data = CallbackData::new(args.aggregate_class, vm).into_box();
             let db = self.db_lock(vm)?;
 
             db.create_function(
                 name.as_ptr(),
                 args.n_arg,
                 SQLITE_UTF8,
-                data.cast(),
+                Box::into_raw(data).cast(),
                 None,
                 Some(CallbackData::step_callback),
                 Some(CallbackData::finalize_callback),
@@ -987,10 +1006,9 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let name = name.to_cstring(vm)?;
-
-            let data = CallbackData::new(callable, vm).into_raw();
-
+            let data = CallbackData::new(callable, vm).into_box();
             let db = self.db_lock(vm)?;
+            let data = Box::into_raw(data);
 
             let ret = unsafe {
                 sqlite3_create_collation_v2(
@@ -1022,9 +1040,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let name = name.to_cstring(vm)?;
-
-            let data = CallbackData::new(aggregate_class, vm).into_raw();
-
+            let data = CallbackData::new(aggregate_class, vm).into_box();
             let db = self.db_lock(vm)?;
 
             let ret = unsafe {
@@ -1033,7 +1049,7 @@ mod _sqlite {
                     name.as_ptr(),
                     num_params,
                     SQLITE_UTF8,
-                    data.cast(),
+                    Box::into_raw(data).cast(),
                     Some(CallbackData::step_callback),
                     Some(CallbackData::finalize_callback),
                     Some(CallbackData::value_callback),
@@ -1043,6 +1059,23 @@ mod _sqlite {
             };
             db.check(ret, vm)
                 .map_err(|_| new_programming_error(vm, "Error creating window function".to_owned()))
+        }
+
+        #[pymethod]
+        fn set_authorizer(&self, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let data = CallbackData::new(callable, vm).into_box();
+            let db = self.db_lock(vm)?;
+
+            let ret = unsafe {
+                sqlite3_set_authorizer(
+                    db.db,
+                    Some(CallbackData::authorizer_callback),
+                    Box::into_raw(data).cast(),
+                )
+            };
+            db.check(ret, vm).map_err(|_| {
+                new_operational_error(vm, "Error setting authorizer callback".to_owned())
+            })
         }
 
         #[pymethod]
