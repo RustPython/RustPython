@@ -358,6 +358,8 @@ class FunctionTests(unittest.TestCase):
             cur = self.con.execute("select return_noncont_blob()")
             cur.fetchone()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_param_surrogates(self):
         self.assertRaisesRegex(UnicodeEncodeError, "surrogates not allowed",
                                self.con.execute, "select spam(?)",
@@ -787,6 +789,8 @@ class AuthorizerTests(unittest.TestCase):
         return sqlite.SQLITE_OK
 
     def setUp(self):
+        # TODO: RUSTPYTHON difference 'prohibited'
+        self.prohibited = 'not authorized'
         self.con = sqlite.connect(":memory:")
         self.con.executescript("""
             create table t1 (c1, c2);
@@ -806,12 +810,12 @@ class AuthorizerTests(unittest.TestCase):
     def test_table_access(self):
         with self.assertRaises(sqlite.DatabaseError) as cm:
             self.con.execute("select * from t2")
-        self.assertIn('prohibited', str(cm.exception))
+        self.assertIn(self.prohibited, str(cm.exception))
 
     def test_column_access(self):
         with self.assertRaises(sqlite.DatabaseError) as cm:
             self.con.execute("select c2 from t1")
-        self.assertIn('prohibited', str(cm.exception))
+        self.assertIn(self.prohibited, str(cm.exception))
 
     def test_clear_authorizer(self):
         self.con.set_authorizer(None)

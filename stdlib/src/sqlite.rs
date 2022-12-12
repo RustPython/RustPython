@@ -280,12 +280,12 @@ mod _sqlite {
         timeout: f64,
         #[pyarg(any, default = "0")]
         detect_types: c_int,
-        #[pyarg(any, optional)]
+        #[pyarg(any, default = "Some(vm.ctx.empty_str.clone())")]
         isolation_level: Option<PyStrRef>,
         #[pyarg(any, default = "true")]
         check_same_thread: bool,
-        #[pyarg(any, optional)]
-        factory: Option<PyTypeRef>,
+        #[pyarg(any, default = "Connection::class(vm).to_owned()")]
+        factory: PyTypeRef,
         #[pyarg(any, default = "0")]
         cached_statements: c_int,
         #[pyarg(any, default = "false")]
@@ -591,12 +591,8 @@ mod _sqlite {
     }
 
     #[pyfunction]
-    fn connect(mut args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
-        let cls = args
-            .factory
-            .take()
-            .unwrap_or_else(|| Connection::class(vm).to_owned());
-        Connection::py_new(cls, args, vm)
+    fn connect(args: ConnectArgs, vm: &VirtualMachine) -> PyResult {
+        Connection::py_new(args.factory.clone(), args, vm)
     }
 
     #[pyfunction]
@@ -765,7 +761,7 @@ mod _sqlite {
     struct Connection {
         db: PyMutex<Option<Sqlite>>,
         detect_types: c_int,
-        isolation_level: PyAtomicRef<PyStr>,
+        isolation_level: PyAtomicRef<Option<PyStr>>,
         check_same_thread: bool,
         thread_ident: u64,
         row_factory: PyAtomicRef<PyObject>,
@@ -793,16 +789,15 @@ mod _sqlite {
             let db = Sqlite::from(SqliteRaw::open(path.as_ptr(), args.uri, vm)?);
             let timeout = (args.timeout * 1000.0) as c_int;
             db.busy_timeout(timeout);
-            let isolation_level = args
-                .isolation_level
-                .unwrap_or_else(|| vm.ctx.empty_str.clone());
-            begin_statement_ptr_from_isolation_level(&isolation_level, vm)?;
+            if let Some(isolation_level) = &args.isolation_level {
+                begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
+            }
             let text_factory = PyStr::class(vm).to_owned().into_object();
 
             Ok(Self {
                 db: PyMutex::new(Some(db)),
                 detect_types: args.detect_types,
-                isolation_level: isolation_level.into(),
+                isolation_level: PyAtomicRef::from(args.isolation_level),
                 check_same_thread: args.check_same_thread,
                 thread_ident: thread::get_ident(),
                 row_factory: PyAtomicRef::from(vm.ctx.none()),
@@ -1201,13 +1196,14 @@ mod _sqlite {
         }
 
         #[pygetset]
-        fn isolation_level(&self) -> PyStrRef {
-            self.isolation_level.to_owned()
+        fn isolation_level(&self) -> Option<PyStrRef> {
+            self.isolation_level.deref().map(|x| x.to_owned())
         }
         #[pygetset(setter)]
         fn set_isolation_level(&self, val: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<()> {
-            let val = val.unwrap_or_else(|| vm.ctx.empty_str.clone());
-            begin_statement_ptr_from_isolation_level(&val, vm)?;
+            if let Some(val) = &val {
+                begin_statement_ptr_from_isolation_level(&val, vm)?;
+            }
             unsafe { self.isolation_level.swap(val) };
             Ok(())
         }
@@ -1331,7 +1327,7 @@ mod _sqlite {
             let db = zelf.connection.db_lock(vm)?;
 
             if stmt.is_dml && db.is_autocommit() {
-                db.begin_transaction(&zelf.connection.isolation_level, vm)?;
+                db.begin_transaction(zelf.connection.isolation_level.deref().map(|x| x.to_owned()), vm)?;
             }
 
             let st = stmt.lock();
@@ -1405,7 +1401,7 @@ mod _sqlite {
             let db = zelf.connection.db_lock(vm)?;
 
             if stmt.is_dml && db.is_autocommit() {
-                db.begin_transaction(&zelf.connection.isolation_level, vm)?;
+                db.begin_transaction(zelf.connection.isolation_level.deref().map(|x| x.to_owned()), vm)?;
             }
 
             let iter = seq_of_params.iter(vm)?;
@@ -1570,8 +1566,9 @@ mod _sqlite {
                 if self.connection.detect_types & PARSE_DECLTYPES != 0 {
                     let decltype = st.column_decltype(i);
                     let decltype = ptr_to_str(decltype, vm)?;
-                    if let Some(decltype) = decltype.split_terminator(" (").next() {
-                        if let Some(converter) = converters().get_item_opt(decltype, vm)? {
+                    if let Some(decltype) = decltype.split_terminator(&[' ', '(']).next() {
+                        let decltype = decltype.to_uppercase();
+                        if let Some(converter) = converters().get_item_opt(&decltype, vm)? {
                             cast_map.push(Some(converter.clone()));
                             continue;
                         }
@@ -1929,7 +1926,10 @@ mod _sqlite {
             }
         }
 
-        fn begin_transaction(self, isolation_level: &PyStr, vm: &VirtualMachine) -> PyResult<()> {
+        fn begin_transaction(self, isolation_level: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<()> {
+            let Some(isolation_level) = isolation_level else {
+                return Ok(());
+            };
             let mut s = Vec::with_capacity(16);
             s.extend(b"BEGIN ");
             s.extend(isolation_level.as_str().bytes());
@@ -2189,6 +2189,9 @@ mod _sqlite {
         }
 
         fn columns_description(self, vm: &VirtualMachine) -> PyResult {
+            if self.column_count() == 0 {
+                return Ok(vm.ctx.none());
+            }
             let columns = self
                 .columns_name(vm)?
                 .into_iter()
