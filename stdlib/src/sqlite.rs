@@ -27,11 +27,12 @@ mod _sqlite {
         sqlite3_result_error, sqlite3_result_error_nomem, sqlite3_result_error_toobig,
         sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer,
         sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly,
-        sqlite3_threadsafe, sqlite3_trace_v2, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
-        sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text,
-        sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER,
-        SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT,
-        SQLITE_TRACE_STMT, SQLITE_TRANSIENT, SQLITE_UTF8,
+        sqlite3_threadsafe, sqlite3_total_changes, sqlite3_trace_v2, sqlite3_user_data,
+        sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double,
+        sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB,
+        SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE,
+        SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRACE_STMT, SQLITE_TRANSIENT,
+        SQLITE_UTF8,
     };
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
@@ -767,7 +768,7 @@ mod _sqlite {
         isolation_level: PyAtomicRef<PyStr>,
         check_same_thread: bool,
         thread_ident: u64,
-        row_factory: PyObjectRef,
+        row_factory: PyAtomicRef<PyObject>,
         text_factory: PyAtomicRef<PyObject>,
     }
 
@@ -804,7 +805,7 @@ mod _sqlite {
                 isolation_level: isolation_level.into(),
                 check_same_thread: args.check_same_thread,
                 thread_ident: thread::get_ident(),
-                row_factory: vm.ctx.none(),
+                row_factory: PyAtomicRef::from(vm.ctx.none()),
                 text_factory: PyAtomicRef::from(text_factory),
             })
         }
@@ -842,13 +843,11 @@ mod _sqlite {
                     vm.new_type_error(format!("factory must return a cursor, not {}", x.class()))
                 })?;
                 if !vm.is_none(&zelf.row_factory) {
-                    cursor
-                        .row_factory
-                        .swap_to_temporary_refs(zelf.row_factory.clone(), vm);
+                    unsafe { cursor.row_factory.swap(zelf.row_factory.to_owned()) };
                 }
                 cursor
             } else {
-                Cursor::new(zelf.clone(), zelf.row_factory.clone(), vm).into_ref(vm)
+                Cursor::new(zelf.clone(), zelf.row_factory.to_owned(), vm).into_ref(vm)
             };
             Ok(cursor)
         }
@@ -882,7 +881,7 @@ mod _sqlite {
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let cursor = Cursor::new(zelf.clone(), zelf.row_factory.clone(), vm).into_ref(vm);
+            let cursor = Cursor::new(zelf.clone(), zelf.row_factory.to_owned(), vm).into_ref(vm);
             Cursor::execute(cursor, sql, parameters, vm)
         }
 
@@ -893,7 +892,7 @@ mod _sqlite {
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let cursor = Cursor::new(zelf.clone(), zelf.row_factory.clone(), vm).into_ref(vm);
+            let cursor = Cursor::new(zelf.clone(), zelf.row_factory.to_owned(), vm).into_ref(vm);
             Cursor::executemany(cursor, sql, seq_of_params, vm)
         }
 
@@ -904,7 +903,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             Cursor::executescript(
-                Cursor::new(zelf.clone(), zelf.row_factory.clone(), vm).into_ref(vm),
+                Cursor::new(zelf.clone(), zelf.row_factory.to_owned(), vm).into_ref(vm),
                 script,
                 vm,
             )
@@ -1222,6 +1221,15 @@ mod _sqlite {
             unsafe { self.text_factory.swap(val) };
         }
 
+        #[pygetset]
+        fn row_factory(&self) -> PyObjectRef {
+            self.row_factory.to_owned()
+        }
+        #[pygetset(setter)]
+        fn set_row_factory(&self, val: PyObjectRef) {
+            unsafe { self.row_factory.swap(val) };
+        }
+
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.check_same_thread && (thread::get_ident() != self.thread_ident) {
                 Err(new_programming_error(
@@ -1232,6 +1240,16 @@ mod _sqlite {
             } else {
                 Ok(())
             }
+        }
+
+        #[pygetset]
+        fn in_transaction(&self, vm: &VirtualMachine) -> PyResult<bool> {
+            self._db_lock(vm).map(|x| !x.is_autocommit())
+        }
+
+        #[pygetset]
+        fn total_changes(&self, vm: &VirtualMachine) -> PyResult<c_int> {
+            self._db_lock(vm).map(|x| x.total_changes())
         }
     }
 
@@ -1893,6 +1911,10 @@ mod _sqlite {
 
         fn changes(self) -> c_int {
             unsafe { sqlite3_changes(self.db) }
+        }
+
+        fn total_changes(self) -> c_int {
+            unsafe { sqlite3_total_changes(self.db) }
         }
 
         fn lastrowid(self) -> c_longlong {
