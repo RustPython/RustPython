@@ -36,19 +36,25 @@ mod _sqlite {
     };
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
+        hash::PyHash,
         lock::{PyMappedMutexGuard, PyMutex, PyMutexGuard},
         static_cell,
     };
     use rustpython_vm::{
+        atomic_func,
         builtins::{
             PyBaseException, PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat,
-            PyInt, PyStr, PyStrRef, PyType, PyTypeRef,
+            PyInt, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
-        function::{ArgCallable, ArgIterable, OptionalArg},
-        protocol::{PyBuffer, PyIterReturn, PySequence},
+        function::{ArgCallable, ArgIterable, OptionalArg, PyComparisonValue},
+        protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
+        sliceable::SliceableSequenceOp,
         stdlib::{os::PyPathLike, thread},
-        types::{Constructor, IterNext, IterNextIterable},
+        types::{
+            AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
+            Iterable, PyComparisonOp,
+        },
         utils::ToCString,
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine,
@@ -1261,7 +1267,7 @@ mod _sqlite {
 
     #[derive(Debug)]
     struct CursorInner {
-        description: PyObjectRef,
+        description: Option<PyTupleRef>,
         row_cast_map: Vec<Option<PyObjectRef>>,
         lastrowid: i64,
         rowcount: i64,
@@ -1280,7 +1286,7 @@ mod _sqlite {
                 arraysize: Radium::new(1),
                 row_factory: PyAtomicRef::from(row_factory),
                 inner: PyMutex::from(Some(CursorInner {
-                    description: vm.ctx.none(),
+                    description: None,
                     row_cast_map: vec![],
                     lastrowid: -1,
                     rowcount: -1,
@@ -1327,7 +1333,13 @@ mod _sqlite {
             let db = zelf.connection.db_lock(vm)?;
 
             if stmt.is_dml && db.is_autocommit() {
-                db.begin_transaction(zelf.connection.isolation_level.deref().map(|x| x.to_owned()), vm)?;
+                db.begin_transaction(
+                    zelf.connection
+                        .isolation_level
+                        .deref()
+                        .map(|x| x.to_owned()),
+                    vm,
+                )?;
             }
 
             let st = stmt.lock();
@@ -1401,7 +1413,13 @@ mod _sqlite {
             let db = zelf.connection.db_lock(vm)?;
 
             if stmt.is_dml && db.is_autocommit() {
-                db.begin_transaction(zelf.connection.isolation_level.deref().map(|x| x.to_owned()), vm)?;
+                db.begin_transaction(
+                    zelf.connection
+                        .isolation_level
+                        .deref()
+                        .map(|x| x.to_owned()),
+                    vm,
+                )?;
             }
 
             let iter = seq_of_params.iter(vm)?;
@@ -1522,7 +1540,7 @@ mod _sqlite {
         }
 
         #[pygetset]
-        fn description(&self, vm: &VirtualMachine) -> PyResult {
+        fn description(&self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
             self.inner(vm).map(|x| x.description.clone())
         }
 
@@ -1686,10 +1704,126 @@ mod _sqlite {
     #[pyattr]
     #[pyclass(name)]
     #[derive(Debug, PyPayload)]
-    struct Row {}
+    struct Row {
+        data: PyTupleRef,
+        description: PyTupleRef,
+    }
 
-    #[pyclass()]
-    impl Row {}
+    #[pyclass(with(Constructor, Hashable, Comparable, Iterable, AsMapping, AsSequence))]
+    impl Row {
+        #[pymethod]
+        fn keys(&self, _vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+            Ok(self
+                .description
+                .iter()
+                .map(|x| x.payload::<PyTuple>().unwrap().as_slice()[0].clone())
+                .collect())
+        }
+
+        fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+            if let Some(i) = needle.payload::<PyInt>() {
+                let i = i.try_to_primitive::<isize>(vm)?;
+                self.data.getitem_by_index(vm, i)
+            } else if let Some(name) = needle.payload::<PyStr>() {
+                for (obj, i) in self.description.iter().zip(0..) {
+                    let obj = &obj.payload::<PyTuple>().unwrap().as_slice()[0];
+                    let Some(obj) = obj.payload::<PyStr>() else { break; };
+                    let a_iter = name.as_str().chars().flat_map(|x| x.to_uppercase());
+                    let b_iter = obj.as_str().chars().flat_map(|x| x.to_uppercase());
+
+                    if a_iter.eq(b_iter) {
+                        return self.data.getitem_by_index(vm, i);
+                    }
+                }
+                Err(vm.new_index_error("No item with that key".to_owned()))
+            } else if let Some(slice) = needle.payload::<PySlice>() {
+                let list = self
+                    .data
+                    .getitem_by_slice(vm, slice.to_saturated(vm)?)?;
+                Ok(vm.ctx.new_list(list).into())
+            } else {
+                Err(vm.new_index_error("Index must be int or string".to_owned()))
+            }
+        }
+    }
+
+    impl Constructor for Row {
+        type Args = (PyRef<Cursor>, PyTupleRef);
+
+        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let description = args
+                .0
+                .inner(vm)?
+                .description
+                .clone()
+                .ok_or_else(|| vm.new_value_error("no description in Cursor".to_owned()))?;
+
+            Self {
+                data: args.1,
+                description,
+            }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
+        }
+    }
+
+    impl Hashable for Row {
+        fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+            Ok(zelf.description.as_object().hash(vm)? | zelf.data.as_object().hash(vm)?)
+        }
+    }
+
+    impl Comparable for Row {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            op.eq_only(|| {
+                if let Some(other) = other.payload::<Self>() {
+                    let eq = vm
+                        .bool_eq(zelf.description.as_object(), other.description.as_object())?
+                        && vm.bool_eq(zelf.data.as_object(), other.data.as_object())?;
+                    Ok(eq.into())
+                } else {
+                    Ok(PyComparisonValue::NotImplemented)
+                }
+            })
+        }
+    }
+
+    impl Iterable for Row {
+        fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            Iterable::iter(zelf.data.clone(), vm)
+        }
+    }
+
+    impl AsMapping for Row {
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(Row::mapping_downcast(mapping).data.len())),
+                subscript: atomic_func!(|mapping, needle, vm| {
+                    Row::mapping_downcast(mapping).subscript(needle, vm)
+                }),
+                ..PyMappingMethods::NOT_IMPLEMENTED
+            };
+            &AS_MAPPING
+        }
+    }
+
+    impl AsSequence for Row {
+        fn as_sequence() -> &'static PySequenceMethods {
+            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+                length: atomic_func!(|seq, _vm| Ok(Row::sequence_downcast(seq).data.len())),
+                item: atomic_func!(|seq, i, vm| Row::sequence_downcast(seq)
+                    .data
+                    .getitem_by_index(vm, i)),
+                ..PySequenceMethods::NOT_IMPLEMENTED
+            };
+            &AS_SEQUENCE
+        }
+    }
 
     #[pyattr]
     #[pyclass(name)]
@@ -1926,7 +2060,11 @@ mod _sqlite {
             }
         }
 
-        fn begin_transaction(self, isolation_level: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<()> {
+        fn begin_transaction(
+            self,
+            isolation_level: Option<PyStrRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let Some(isolation_level) = isolation_level else {
                 return Ok(());
             };
@@ -2188,9 +2326,9 @@ mod _sqlite {
                 .collect()
         }
 
-        fn columns_description(self, vm: &VirtualMachine) -> PyResult {
+        fn columns_description(self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
             if self.column_count() == 0 {
-                return Ok(vm.ctx.none());
+                return Ok(None);
             }
             let columns = self
                 .columns_name(vm)?
@@ -2209,7 +2347,7 @@ mod _sqlite {
                         .into()
                 })
                 .collect();
-            Ok(vm.ctx.new_tuple(columns).into())
+            Ok(Some(vm.ctx.new_tuple(columns)))
         }
 
         fn busy(self) -> bool {
