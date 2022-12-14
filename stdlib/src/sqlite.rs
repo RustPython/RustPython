@@ -14,25 +14,26 @@ mod _sqlite {
         sqlite3, sqlite3_aggregate_context, sqlite3_backup_finish, sqlite3_backup_init,
         sqlite3_backup_pagecount, sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob,
         sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
-        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_busy_timeout, sqlite3_changes,
-        sqlite3_close_v2, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
-        sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
-        sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
-        sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
-        sqlite3_create_window_function, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
-        sqlite3_errmsg, sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode,
-        sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid,
-        sqlite3_libversion, sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2,
-        sqlite3_progress_handler, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
-        sqlite3_result_error, sqlite3_result_error_nomem, sqlite3_result_error_toobig,
-        sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer,
-        sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly,
-        sqlite3_threadsafe, sqlite3_total_changes, sqlite3_trace_v2, sqlite3_user_data,
-        sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double,
-        sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type, SQLITE_BLOB,
-        SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL, SQLITE_OPEN_CREATE,
-        SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRACE_STMT, SQLITE_TRANSIENT,
-        SQLITE_UTF8,
+        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_blob, sqlite3_blob_bytes,
+        sqlite3_blob_close, sqlite3_blob_open, sqlite3_blob_read, sqlite3_blob_write,
+        sqlite3_busy_timeout, sqlite3_changes, sqlite3_close_v2, sqlite3_column_blob,
+        sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype, sqlite3_column_double,
+        sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text, sqlite3_column_type,
+        sqlite3_complete, sqlite3_context, sqlite3_context_db_handle, sqlite3_create_collation_v2,
+        sqlite3_create_function_v2, sqlite3_create_window_function, sqlite3_data_count,
+        sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec, sqlite3_expanded_sql,
+        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt,
+        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
+        sqlite3_prepare_v2, sqlite3_progress_handler, sqlite3_reset, sqlite3_result_blob,
+        sqlite3_result_double, sqlite3_result_error, sqlite3_result_error_nomem,
+        sqlite3_result_error_toobig, sqlite3_result_int64, sqlite3_result_null,
+        sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
+        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_total_changes,
+        sqlite3_trace_v2, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
+        sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text,
+        sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER,
+        SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT,
+        SQLITE_TRACE_STMT, SQLITE_TRANSIENT, SQLITE_UTF8,
     };
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
@@ -47,7 +48,7 @@ mod _sqlite {
             PyInt, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
-        function::{ArgCallable, ArgIterable, OptionalArg, PyComparisonValue},
+        function::{ArgCallable, ArgIterable, FuncArgs, OptionalArg, PyComparisonValue},
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
         sliceable::SliceableSequenceOp,
         stdlib::{os::PyPathLike, thread},
@@ -332,6 +333,20 @@ mod _sqlite {
         narg: c_int,
         #[pyarg(positional)]
         aggregate_class: PyObjectRef,
+    }
+
+    #[derive(FromArgs)]
+    struct BlobOpenArgs {
+        #[pyarg(positional)]
+        table: PyStrRef,
+        #[pyarg(positional)]
+        column: PyStrRef,
+        #[pyarg(positional)]
+        row: i64,
+        #[pyarg(named, default)]
+        readonly: bool,
+        #[pyarg(named, default = "vm.ctx.new_str(stringify!(main))")]
+        name: PyStrRef,
     }
 
     struct CallbackData {
@@ -851,6 +866,41 @@ mod _sqlite {
                 Cursor::new(zelf.clone(), zelf.row_factory.to_owned(), vm).into_ref(vm)
             };
             Ok(cursor)
+        }
+
+        #[pymethod]
+        fn blobopen(
+            zelf: PyRef<Self>,
+            args: BlobOpenArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Blob>> {
+            let table = args.table.to_cstring(vm)?;
+            let column = args.column.to_cstring(vm)?;
+            let name = args.name.to_cstring(vm)?;
+
+            let db = zelf.db_lock(vm)?;
+
+            let mut blob = null_mut();
+            let ret = unsafe {
+                sqlite3_blob_open(
+                    db.db,
+                    name.as_ptr(),
+                    table.as_ptr(),
+                    column.as_ptr(),
+                    args.row,
+                    (!args.readonly) as c_int,
+                    &mut blob,
+                )
+            };
+            db.check(ret, vm)?;
+            drop(db);
+
+            let blob = SqliteBlob { blob };
+            let blob = Blob {
+                connection: zelf,
+                inner: PyMutex::new(Some(BlobInner { blob, offset: 0 })),
+            };
+            Ok(blob.into_ref(vm))
         }
 
         #[pymethod]
@@ -1737,9 +1787,7 @@ mod _sqlite {
                 }
                 Err(vm.new_index_error("No item with that key".to_owned()))
             } else if let Some(slice) = needle.payload::<PySlice>() {
-                let list = self
-                    .data
-                    .getitem_by_slice(vm, slice.to_saturated(vm)?)?;
+                let list = self.data.getitem_by_slice(vm, slice.to_saturated(vm)?)?;
                 Ok(vm.ctx.new_list(list).into())
             } else {
                 Err(vm.new_index_error("Index must be int or string".to_owned()))
@@ -1828,10 +1876,146 @@ mod _sqlite {
     #[pyattr]
     #[pyclass(name)]
     #[derive(Debug, PyPayload)]
-    struct Blob {}
+    struct Blob {
+        connection: PyRef<Connection>,
+        inner: PyMutex<Option<BlobInner>>,
+    }
+
+    #[derive(Debug)]
+    struct BlobInner {
+        blob: SqliteBlob,
+        offset: c_int,
+    }
 
     #[pyclass()]
-    impl Blob {}
+    impl Blob {
+        #[pymethod]
+        fn close(&self) {
+            if let Some(inner) = self.inner.lock().take() {
+                unsafe { sqlite3_blob_close(inner.blob.blob) };
+            }
+        }
+
+        #[pymethod]
+        fn read(
+            &self,
+            length: OptionalArg<c_int>,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<PyBytes>> {
+            let mut length = length.unwrap_or(-1);
+            let mut inner = self.inner(vm)?;
+            let blob_len = inner.blob.bytes();
+            let max_read = blob_len - inner.offset;
+
+            if length < 0 || length > max_read {
+                length = max_read;
+            }
+
+            if length == 0 {
+                Ok(vm.ctx.empty_bytes.clone())
+            } else {
+                let mut buf = Vec::<u8>::with_capacity(length as usize);
+                let ret = inner
+                    .blob
+                    .read(buf.as_mut_ptr().cast(), length, inner.offset);
+                self.check(ret, vm)?;
+                unsafe { buf.set_len(length as usize) };
+                inner.offset += length;
+                Ok(vm.ctx.new_bytes(buf))
+            }
+        }
+
+        #[pymethod]
+        fn write(&self, data: PyBuffer, vm: &VirtualMachine) -> PyResult<()> {
+            let inner = self.inner(vm)?;
+            let blob_len = inner.blob.bytes();
+            let max_write = blob_len - inner.offset;
+
+            let length = if data.desc.len < max_write as usize {
+                data.desc.len as c_int
+            } else {
+                return Err(vm.new_value_error("data longer than blob length".to_owned()));
+            };
+
+            let ret = data.contiguous_or_collect(|buf| {
+                inner.blob.write(buf.as_ptr().cast(), length, inner.offset)
+            });
+
+            self.check(ret, vm)
+        }
+
+        #[pymethod]
+        fn tell(&self, vm: &VirtualMachine) -> PyResult<c_int> {
+            self.inner(vm).map(|x| x.offset)
+        }
+
+        #[pymethod]
+        fn seek(
+            &self,
+            mut offset: c_int,
+            origin: OptionalArg<c_int>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let origin = origin.unwrap_or(libc::SEEK_SET);
+            let mut inner = self.inner(vm)?;
+            let blob_len = inner.blob.bytes();
+
+            let overflow_err =
+                || vm.new_overflow_error("seek offset results in overflow".to_owned());
+
+            match origin {
+                libc::SEEK_SET => {}
+                libc::SEEK_CUR => {
+                    offset = offset.checked_add(inner.offset).ok_or_else(overflow_err)?
+                }
+                libc::SEEK_END => offset = offset.checked_add(blob_len).ok_or_else(overflow_err)?,
+                _ => {
+                    return Err(vm.new_value_error(
+                        "'origin' should be os.SEEK_SET, os.SEEK_CUR, or os.SEEK_END".to_owned(),
+                    ))
+                }
+            }
+
+            if offset < 0 || offset > blob_len {
+                Err(vm.new_value_error("offset out of blob range".to_owned()))
+            } else {
+                inner.offset = offset;
+                Ok(())
+            }
+        }
+
+        #[pymethod(magic)]
+        fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
+            zelf
+        }
+
+        #[pymethod(magic)]
+        fn exit(&self, _args: FuncArgs) {
+            self.close()
+        }
+
+        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<BlobInner>> {
+            let guard = self.inner.lock();
+            if guard.is_some() {
+                Ok(PyMutexGuard::map(guard, |x| unsafe {
+                    x.as_mut().unwrap_unchecked()
+                }))
+            } else {
+                Err(new_programming_error(
+                    vm,
+                    "Cannot operate on a closed blob.".to_owned(),
+                ))
+            }
+        }
+
+        fn check(&self, ret: c_int, vm: &VirtualMachine) -> PyResult<()> {
+            if ret == SQLITE_OK {
+                Ok(())
+            } else {
+                Err(self.connection.db_lock(vm)?.error_extended(vm))
+            }
+        }
+    }
 
     #[pyattr]
     #[pyclass(name)]
@@ -1945,6 +2129,7 @@ mod _sqlite {
             // unsafe impl Sync for SqliteStatement {}
             unsafe impl Send for Sqlite {}
             // unsafe impl Sync for Sqlite {}
+            unsafe impl Send for SqliteBlob {}
         }
     }
 
@@ -2356,6 +2541,25 @@ mod _sqlite {
 
         fn readonly(self) -> bool {
             unsafe { sqlite3_stmt_readonly(self.st) != 0 }
+        }
+    }
+
+    #[derive(Debug, Copy, Clone)]
+    struct SqliteBlob {
+        blob: *mut sqlite3_blob,
+    }
+
+    impl SqliteBlob {
+        fn bytes(self) -> c_int {
+            unsafe { sqlite3_blob_bytes(self.blob) }
+        }
+
+        fn write(self, buf: *const c_void, length: c_int, offset: c_int) -> c_int {
+            unsafe { sqlite3_blob_write(self.blob, buf, length, offset) }
+        }
+
+        fn read(self, buf: *mut c_void, length: c_int, offset: c_int) -> c_int {
+            unsafe { sqlite3_blob_read(self.blob, buf, length, offset) }
         }
     }
 
