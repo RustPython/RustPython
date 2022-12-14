@@ -31,7 +31,7 @@ fn main() {
     write!(
         f,
         "sysvars! {{ {} }}",
-        std::env::vars_os().format_with(", ", |(k, v), f| f(&format_args!("{:?} => {:?}", k, v)))
+        std::env::vars_os().format_with(", ", |(k, v), f| f(&format_args!("{k:?} => {v:?}")))
     )
     .unwrap();
 }
@@ -60,8 +60,8 @@ fn command(cmd: &str, args: &[&str]) -> String {
     match Command::new(cmd).args(args).output() {
         Ok(output) => match String::from_utf8(output.stdout) {
             Ok(s) => s,
-            Err(err) => format!("(output error: {})", err),
+            Err(err) => format!("(output error: {err})"),
         },
-        Err(err) => format!("(command error: {})", err),
+        Err(err) => format!("(command error: {err})"),
     }
 }

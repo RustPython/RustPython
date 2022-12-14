@@ -230,9 +230,7 @@ pub(crate) mod _signal {
             let nonblock =
                 fcntl::OFlag::from_bits_truncate(oflags).contains(fcntl::OFlag::O_NONBLOCK);
             if !nonblock {
-                return Err(
-                    vm.new_value_error(format!("the fd {} must be in non-blocking mode", fd))
-                );
+                return Err(vm.new_value_error(format!("the fd {fd} must be in non-blocking mode")));
             }
         }
 

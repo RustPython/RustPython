@@ -184,7 +184,7 @@ mod decl {
                 base64::decode(&buf)
             })
         })
-        .map_err(|err| new_binascii_error(format!("error decoding base64: {}", err), vm))
+        .map_err(|err| new_binascii_error(format!("error decoding base64: {err}"), vm))
     }
 
     #[pyfunction]

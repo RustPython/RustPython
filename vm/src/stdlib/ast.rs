@@ -78,9 +78,8 @@ mod _ast {
 }
 
 fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &str, typ: &str) -> PyResult {
-    vm.get_attribute_opt(obj.to_owned(), field)?.ok_or_else(|| {
-        vm.new_type_error(format!("required field \"{}\" missing from {}", field, typ))
-    })
+    vm.get_attribute_opt(obj.to_owned(), field)?
+        .ok_or_else(|| vm.new_type_error(format!("required field \"{field}\" missing from {typ}")))
 }
 
 fn get_node_field_opt(

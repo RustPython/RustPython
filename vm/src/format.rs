@@ -567,10 +567,7 @@ impl FormatSpec {
                     FormatSpec::compute_fill_string(fill_char, left_fill_chars_needed);
                 let right_fill_string =
                     FormatSpec::compute_fill_string(fill_char, right_fill_chars_needed);
-                format!(
-                    "{}{}{}{}",
-                    left_fill_string, sign_str, magnitude_string, right_fill_string
-                )
+                format!("{left_fill_string}{sign_str}{magnitude_string}{right_fill_string}")
             }
         })
     }

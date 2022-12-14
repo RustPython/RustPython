@@ -1978,8 +1978,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_end_pos(assign, 3, 40)
         self._check_end_pos(assign.value, 3, 40)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_continued_str(self):
         s = dedent('''
             x = "first part" \\
@@ -1989,8 +1987,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_end_pos(assign, 2, 13)
         self._check_end_pos(assign.value, 2, 13)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_suites(self):
         # We intentionally put these into the same string to check
         # that empty lines are not part of the suite.
@@ -2100,8 +2096,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, binop.left, '1 * 2 + (3 )')
         self._check_content(s, binop.left.right, '3')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_boolop(self):
         s = dedent('''
             if (one_condition and

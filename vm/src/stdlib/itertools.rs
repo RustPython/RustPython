@@ -273,7 +273,7 @@ mod decl {
             let cur = format!("{}", self.cur.read().clone().repr(vm)?);
             let step = &self.step;
             if vm.bool_eq(step, vm.ctx.new_int(1).as_object())? {
-                return Ok(format!("count({})", cur));
+                return Ok(format!("count({cur})"));
             }
             Ok(format!("count({}, {})", cur, step.repr(vm)?))
         }
@@ -404,7 +404,7 @@ mod decl {
                 fmt.push_str(", ");
                 fmt.push_str(&times.read().to_string());
             }
-            Ok(format!("repeat({})", fmt))
+            Ok(format!("repeat({fmt})"))
         }
     }
 
@@ -857,8 +857,7 @@ mod decl {
         }
         // We don't have an int or value was < 0 or > sys.maxsize
         Err(vm.new_value_error(format!(
-            "{} argument for islice() must be None or an integer: 0 <= x <= sys.maxsize.",
-            name
+            "{name} argument for islice() must be None or an integer: 0 <= x <= sys.maxsize."
         )))
     }
 

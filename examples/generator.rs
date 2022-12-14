@@ -33,7 +33,7 @@ gen()
             PyResult::Ok(v)
         })?;
         match r {
-            PyIterReturn::Return(value) => println!("{}", value),
+            PyIterReturn::Return(value) => println!("{value}"),
             PyIterReturn::StopIteration(_) => break,
         }
     }

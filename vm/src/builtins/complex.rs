@@ -100,7 +100,7 @@ fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
 fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
     if v1.is_zero() {
         return if v2.im != 0.0 {
-            let msg = format!("{} cannot be raised to a negative or complex power", v1);
+            let msg = format!("{v1} cannot be raised to a negative or complex power");
             Err(vm.new_zero_division_error(msg))
         } else if v2.is_zero() {
             Ok(Complex64::new(1.0, 0.0))

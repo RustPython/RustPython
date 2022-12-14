@@ -14,7 +14,7 @@ pub(crate) mod _sysconfigdata {
         }
         sysvars! {
             // fake shared module extension
-            "EXT_SUFFIX" => format!(".rustpython-{}", MULTIARCH),
+            "EXT_SUFFIX" => format!(".rustpython-{MULTIARCH}"),
             "MULTIARCH" => MULTIARCH,
             // enough for tests to stop expecting urandom() to fail after restricting file resources
             "HAVE_GETRANDOM" => 1,

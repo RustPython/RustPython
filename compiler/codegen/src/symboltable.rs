@@ -1154,27 +1154,26 @@ impl SymbolTableBuilder {
                 SymbolUsage::Global if !symbol.is_global() => {
                     if flags.contains(SymbolFlags::PARAMETER) {
                         return Err(SymbolTableError {
-                            error: format!("name '{}' is parameter and global", name),
+                            error: format!("name '{name}' is parameter and global"),
                             location,
                         });
                     }
                     if flags.contains(SymbolFlags::REFERENCED) {
                         return Err(SymbolTableError {
-                            error: format!("name '{}' is used prior to global declaration", name),
+                            error: format!("name '{name}' is used prior to global declaration"),
                             location,
                         });
                     }
                     if flags.contains(SymbolFlags::ANNOTATED) {
                         return Err(SymbolTableError {
-                            error: format!("annotated name '{}' can't be global", name),
+                            error: format!("annotated name '{name}' can't be global"),
                             location,
                         });
                     }
                     if flags.contains(SymbolFlags::ASSIGNED) {
                         return Err(SymbolTableError {
                             error: format!(
-                                "name '{}' is assigned to before global declaration",
-                                name
+                                "name '{name}' is assigned to before global declaration"
                             ),
                             location,
                         });
@@ -1183,27 +1182,26 @@ impl SymbolTableBuilder {
                 SymbolUsage::Nonlocal => {
                     if flags.contains(SymbolFlags::PARAMETER) {
                         return Err(SymbolTableError {
-                            error: format!("name '{}' is parameter and nonlocal", name),
+                            error: format!("name '{name}' is parameter and nonlocal"),
                             location,
                         });
                     }
                     if flags.contains(SymbolFlags::REFERENCED) {
                         return Err(SymbolTableError {
-                            error: format!("name '{}' is used prior to nonlocal declaration", name),
+                            error: format!("name '{name}' is used prior to nonlocal declaration"),
                             location,
                         });
                     }
                     if flags.contains(SymbolFlags::ANNOTATED) {
                         return Err(SymbolTableError {
-                            error: format!("annotated name '{}' can't be nonlocal", name),
+                            error: format!("annotated name '{name}' can't be nonlocal"),
                             location,
                         });
                     }
                     if flags.contains(SymbolFlags::ASSIGNED) {
                         return Err(SymbolTableError {
                             error: format!(
-                                "name '{}' is assigned to before nonlocal declaration",
-                                name
+                                "name '{name}' is assigned to before nonlocal declaration"
                             ),
                             location,
                         });
@@ -1220,7 +1218,7 @@ impl SymbolTableBuilder {
             match role {
                 SymbolUsage::Nonlocal if scope_depth < 2 => {
                     return Err(SymbolTableError {
-                        error: format!("cannot define nonlocal '{}' at top level.", name),
+                        error: format!("cannot define nonlocal '{name}' at top level."),
                         location,
                     })
                 }

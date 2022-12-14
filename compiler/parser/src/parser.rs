@@ -173,7 +173,8 @@ class Foo(A, B):
  def __init__(self):
   pass
  def method_with_default(self, arg='default'):
-  pass";
+  pass
+";
         insta::assert_debug_snapshot!(parse_program(source, "<test>").unwrap());
     }
 
@@ -215,6 +216,20 @@ class Foo(A, B):
     #[test]
     fn test_parse_if_else_generator_comprehension() {
         let source = String::from("(x if y else y for y in z)");
+        let parse_ast = parse_expression(&source, "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_boolop_or() {
+        let source = String::from("x or y");
+        let parse_ast = parse_expression(&source, "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_boolop_and() {
+        let source = String::from("x and y");
         let parse_ast = parse_expression(&source, "<test>").unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }

@@ -192,9 +192,9 @@ impl CFormatSpec {
             // arguments, the LEFT_ADJUST flag will be used by a later call to fill_string with
             // the 0-filled string as the string param.
             if !fill_with_precision && self.flags.contains(CConversionFlags::LEFT_ADJUST) {
-                format!("{}{}", string, fill_string)
+                format!("{string}{fill_string}")
             } else {
-                format!("{}{}", fill_string, string)
+                format!("{fill_string}{string}")
             }
         } else {
             string
@@ -286,7 +286,7 @@ impl CFormatSpec {
             } else {
                 ' ' // '-' overrides the '0' conversion if both are given
             };
-            let signed_prefix = format!("{}{}", sign_string, prefix);
+            let signed_prefix = format!("{sign_string}{prefix}");
             format!(
                 "{}{}",
                 signed_prefix,
@@ -299,7 +299,7 @@ impl CFormatSpec {
             )
         } else {
             self.fill_string(
-                format!("{}{}{}", sign_string, prefix, padded_magnitude_string),
+                format!("{sign_string}{prefix}{padded_magnitude_string}"),
                 ' ',
                 None,
                 false,
@@ -371,12 +371,7 @@ impl CFormatSpec {
                 )
             )
         } else {
-            self.fill_string(
-                format!("{}{}", sign_string, magnitude_string),
-                ' ',
-                None,
-                false,
-            )
+            self.fill_string(format!("{sign_string}{magnitude_string}"), ' ', None, false)
         }
     }
 
@@ -450,7 +445,7 @@ impl CFormatSpec {
                     if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                         // formatfloat in bytesobject.c generates its own specific exception
                         // text in this case, mirror it here.
-                        vm.new_type_error(format!("float argument required, not {}", type_name))
+                        vm.new_type_error(format!("float argument required, not {type_name}"))
                     } else {
                         e
                     }
@@ -1366,8 +1361,7 @@ mod tests {
         let result = fmt.parse::<CFormatString>();
         assert_eq!(
             result, expected,
-            "left = {:#?} \n\n\n right = {:#?}",
-            result, expected
+            "left = {result:#?} \n\n\n right = {expected:#?}"
         );
     }
 }

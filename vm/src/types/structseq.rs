@@ -44,7 +44,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     fn repr(zelf: PyRef<PyTuple>, vm: &VirtualMachine) -> PyResult<String> {
         let format_field = |(value, name): (&PyObjectRef, _)| {
             let s = value.repr(vm)?;
-            Ok(format!("{}={}", name, s))
+            Ok(format!("{name}={s}"))
         };
         let (body, suffix) = if let Some(_guard) =
             rustpython_vm::recursion::ReprGuard::enter(vm, zelf.as_object())

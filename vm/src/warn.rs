@@ -117,7 +117,7 @@ fn get_filter(
             None
         };
         let tmp_item = tmp_item.ok_or_else(|| {
-            vm.new_value_error(format!("_warnings.filters item {} isn't a 5-tuple", i))
+            vm.new_value_error(format!("_warnings.filters item {i} isn't a 5-tuple"))
         })?;
 
         /* Python code: action, msg, cat, mod, ln = item */

@@ -73,7 +73,7 @@ fn main() {
                 error!("Error while compiling {:?}: {}", script, e);
             }
         } else {
-            eprintln!("{:?} is not a file.", script);
+            eprintln!("{script:?} is not a file.");
         }
     }
 }
@@ -90,7 +90,7 @@ fn display_script(
     if expand_codeobjects {
         println!("{}", code.display_expand_codeobjects());
     } else {
-        println!("{}", code);
+        println!("{code}");
     }
     Ok(())
 }

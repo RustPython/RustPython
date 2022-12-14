@@ -73,7 +73,7 @@ mod builtins {
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
-            format!("0b{:b}", x)
+            format!("0b{x:b}")
         }
     }
 
@@ -303,8 +303,7 @@ mod builtins {
 
         if !code_obj.freevars.is_empty() {
             return Err(vm.new_type_error(format!(
-                "code object passed to {}() may not contain free variables",
-                func
+                "code object passed to {func}() may not contain free variables"
             )));
         }
 
@@ -368,7 +367,7 @@ mod builtins {
     #[pyfunction]
     fn hex(number: PyIntRef) -> String {
         let n = number.as_bigint();
-        format!("{:#x}", n)
+        format!("{n:#x}")
     }
 
     #[pyfunction]
@@ -478,8 +477,7 @@ mod builtins {
             std::cmp::Ordering::Greater => {
                 if default.is_some() {
                     return Err(vm.new_type_error(format!(
-                        "Cannot specify a default for {}() with multiple positional arguments",
-                        func_name
+                        "Cannot specify a default for {func_name}() with multiple positional arguments"
                     )));
                 }
                 args.args
@@ -488,7 +486,7 @@ mod builtins {
             std::cmp::Ordering::Less => {
                 // zero arguments means type error:
                 return Err(
-                    vm.new_type_error(format!("{} expected at least 1 argument, got 0", func_name))
+                    vm.new_type_error(format!("{func_name} expected at least 1 argument, got 0"))
                 );
             }
         };
@@ -498,7 +496,7 @@ mod builtins {
             Some(x) => x,
             None => {
                 return default.ok_or_else(|| {
-                    vm.new_value_error(format!("{}() arg is an empty sequence", func_name))
+                    vm.new_value_error(format!("{func_name}() arg is an empty sequence"))
                 })
             }
         };
@@ -560,7 +558,7 @@ mod builtins {
         let s = if n.is_negative() {
             format!("-0o{:o}", n.abs())
         } else {
-            format!("0o{:o}", n)
+            format!("0o{n:o}")
         };
 
         Ok(vm.ctx.new_str(s).into())
@@ -573,8 +571,7 @@ mod builtins {
                 let bytes_len = bytes.len();
                 if bytes_len != 1 {
                     return Err(vm.new_type_error(format!(
-                        "ord() expected a character, but string of length {} found",
-                        bytes_len
+                        "ord() expected a character, but string of length {bytes_len} found"
                     )));
                 }
                 Ok(u32::from(bytes[0]))
@@ -584,8 +581,7 @@ mod builtins {
                 let string_len = string.chars().count();
                 if string_len != 1 {
                     return Err(vm.new_type_error(format!(
-                        "ord() expected a character, but string of length {} found",
-                        string_len
+                        "ord() expected a character, but string of length {string_len} found"
                     )));
                 }
                 match string.chars().next() {
@@ -939,15 +935,13 @@ mod builtins {
         if let Some(ref classcell) = classcell {
             let classcell = classcell.get().ok_or_else(|| {
                 vm.new_type_error(format!(
-                    "__class__ not set defining {:?} as {:?}. Was __classcell__ propagated to type.__new__?",
-                    meta_name, class
+                    "__class__ not set defining {meta_name:?} as {class:?}. Was __classcell__ propagated to type.__new__?"
                 ))
             })?;
 
             if !classcell.is(&class) {
                 return Err(vm.new_type_error(format!(
-                    "__class__ set to {:?} defining {:?} as {:?}",
-                    classcell, meta_name, class
+                    "__class__ set to {classcell:?} defining {meta_name:?} as {class:?}"
                 )));
             }
         }

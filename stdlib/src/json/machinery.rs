@@ -81,7 +81,7 @@ pub fn write_json_string<W: io::Write>(s: &str, ascii_only: bool, w: &mut W) -> 
                 write_start_idx = idx + c.len_utf8();
                 // codepoints outside the BMP get 2 '\uxxxx' sequences to represent them
                 for point in c.encode_utf16(&mut [0; 2]) {
-                    write!(w, "\\u{:04x}", point)?;
+                    write!(w, "\\u{point:04x}")?;
                 }
             }
         }
@@ -195,19 +195,14 @@ pub fn scanstring<'a>(
                         ));
                         continue;
                     }
-                    _ => {
-                        return Err(DecodeError::new(
-                            format!("Invalid \\escape: {:?}", c),
-                            char_i,
-                        ))
-                    }
+                    _ => return Err(DecodeError::new(format!("Invalid \\escape: {c:?}"), char_i)),
                 };
                 chunk_start = byte_i + 2;
                 push_chunk(StrOrChar::Str(esc));
             }
             '\x00'..='\x1f' if strict => {
                 return Err(DecodeError::new(
-                    format!("Invalid control character {:?} at", c),
+                    format!("Invalid control character {c:?} at"),
                     char_i,
                 ));
             }

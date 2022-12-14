@@ -113,9 +113,7 @@ mod _imp {
             .frozen
             .get(name.as_str())
             .map(|frozen| frozen.package)
-            .ok_or_else(|| {
-                vm.new_import_error(format!("No such frozen object named {}", name), name)
-            })
+            .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {name}"), name))
     }
 
     #[pyfunction]

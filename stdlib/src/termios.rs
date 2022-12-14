@@ -211,8 +211,7 @@ mod termios {
         let cc = cc.borrow_vec();
         let cc = <&[PyObjectRef; NCCS]>::try_from(&*cc).map_err(|_| {
             vm.new_type_error(format!(
-                "tcsetattr: attributes[6] must be {} element list",
-                NCCS
+                "tcsetattr: attributes[6] must be {NCCS} element list"
             ))
         })?;
         for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {

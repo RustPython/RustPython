@@ -991,7 +991,7 @@ mod _socket {
                     }
                     Ok(addr6.into())
                 }
-                _ => Err(vm.new_os_error(format!("{}(): bad family", caller)).into()),
+                _ => Err(vm.new_os_error(format!("{caller}(): bad family")).into()),
             }
         }
 
@@ -1954,7 +1954,7 @@ mod _socket {
                 })?;
                 Ok(get_ipv6_addr_str(Ipv6Addr::from(*packed_ip)))
             }
-            _ => Err(vm.new_value_error(format!("unknown address family {}", af_inet))),
+            _ => Err(vm.new_value_error(format!("unknown address family {af_inet}"))),
         }
     }
 

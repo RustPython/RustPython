@@ -450,8 +450,7 @@ impl PyBytesInner {
         };
 
         Err(vm.new_value_error(format!(
-            "non-hexadecimal number found in fromhex() arg at position {}",
-            i
+            "non-hexadecimal number found in fromhex() arg at position {i}"
         )))
     }
 

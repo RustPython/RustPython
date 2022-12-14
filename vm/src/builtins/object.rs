@@ -277,8 +277,7 @@ impl PyBaseObject {
                     let value_class = value.class();
                     let type_repr = &value_class.name();
                     Err(vm.new_type_error(format!(
-                        "__class__ must be set to a class, not '{}' object",
-                        type_repr
+                        "__class__ must be set to a class, not '{type_repr}' object"
                     )))
                 }
             }

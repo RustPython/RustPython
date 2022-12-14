@@ -41,7 +41,7 @@ mod basic_readline {
 
         pub fn readline(&mut self, prompt: &str) -> ReadlineResult {
             use std::io::prelude::*;
-            print!("{}", prompt);
+            print!("{prompt}");
             if let Err(e) = io::stdout().flush() {
                 return ReadlineResult::Io(e);
             }

@@ -1622,7 +1622,7 @@ pub(super) mod _os {
         // TODO: just call libc::truncate() on POSIX
         let f = OpenOptions::new()
             .write(true)
-            .open(&path)
+            .open(path)
             .map_err(|e| e.into_pyexception(vm))?;
         f.set_len(length as u64)
             .map_err(|e| e.into_pyexception(vm))?;
@@ -1650,7 +1650,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn waitstatus_to_exitcode(status: i32, vm: &VirtualMachine) -> PyResult<i32> {
         let status = u32::try_from(status)
-            .map_err(|_| vm.new_value_error(format!("invalid WEXITSTATUS: {}", status)))?;
+            .map_err(|_| vm.new_value_error(format!("invalid WEXITSTATUS: {status}")))?;
 
         cfg_if::cfg_if! {
             if #[cfg(not(windows))] {
@@ -1663,7 +1663,7 @@ pub(super) mod _os {
                     return Ok(-libc::WTERMSIG(status));
                 }
 
-                Err(vm.new_value_error(format!("Invalid wait status: {}", status)))
+                Err(vm.new_value_error(format!("Invalid wait status: {status}")))
             } else {
                 i32::try_from(status.rotate_right(8))
                     .map_err(|_| vm.new_value_error(format!("invalid wait status: {}", status)))

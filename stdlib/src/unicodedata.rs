@@ -82,7 +82,7 @@ mod unicodedata {
                     return Ok(character.to_string());
                 }
             }
-            Err(vm.new_lookup_error(format!("undefined character name '{}'", name)))
+            Err(vm.new_lookup_error(format!("undefined character name '{name}'")))
         }
 
         #[pymethod]
