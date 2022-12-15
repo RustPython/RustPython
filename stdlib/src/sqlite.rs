@@ -45,12 +45,12 @@ mod _sqlite {
         atomic_func,
         builtins::{
             PyBaseException, PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat,
-            PyInt, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+            PyInt, PyIntRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, FuncArgs, OptionalArg, PyComparisonValue},
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
-        sliceable::SliceableSequenceOp,
+        sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         stdlib::{os::PyPathLike, thread},
         types::{
             AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
@@ -1887,7 +1887,7 @@ mod _sqlite {
         offset: c_int,
     }
 
-    #[pyclass()]
+    #[pyclass(with(AsMapping))]
     impl Blob {
         #[pymethod]
         fn close(&self) {
@@ -1929,13 +1929,7 @@ mod _sqlite {
         fn write(&self, data: PyBuffer, vm: &VirtualMachine) -> PyResult<()> {
             let inner = self.inner(vm)?;
             let blob_len = inner.blob.bytes();
-            let max_write = blob_len - inner.offset;
-
-            let length = if data.desc.len < max_write as usize {
-                data.desc.len as c_int
-            } else {
-                return Err(vm.new_value_error("data longer than blob length".to_owned()));
-            };
+            let length = Self::expect_write(blob_len, data.desc.len, inner.offset, vm)?;
 
             let ret = data.contiguous_or_collect(|buf| {
                 inner.blob.write(buf.as_ptr().cast(), length, inner.offset)
@@ -2008,12 +2002,124 @@ mod _sqlite {
             }
         }
 
+        fn wrapped_index(index: PyIntRef, length: c_int, vm: &VirtualMachine) -> PyResult<c_int> {
+            let mut index = index.try_to_primitive::<c_int>(vm)?;
+            if index < 0 {
+                index += length;
+            }
+            if index < 0 || index >= length {
+                Err(vm.new_index_error("Blob index out of range".to_owned()))
+            } else {
+                Ok(index)
+            }
+        }
+
+        fn expect_write(
+            blob_len: c_int,
+            length: usize,
+            offset: c_int,
+            vm: &VirtualMachine,
+        ) -> PyResult<c_int> {
+            let max_write = blob_len - offset;
+            if length < max_write as usize {
+                Ok(length as c_int)
+            } else {
+                Err(vm.new_value_error("data longer than blob length".to_owned()))
+            }
+        }
+
+        fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+            let inner = self.inner(vm)?;
+            if let Some(index) = needle.try_index_opt(vm) {
+                let blob_len = inner.blob.bytes();
+                let index = Self::wrapped_index(index?, blob_len, vm)?;
+                let mut byte: u8 = 0;
+                let ret = inner.blob.read_single(&mut byte, index);
+                self.check(ret, vm).map(|_| vm.ctx.new_int(byte).into())
+            } else if let Some(slice) = needle.payload::<PySlice>() {
+                let blob_len = inner.blob.bytes();
+                let slice = slice.to_saturated(vm)?;
+                let (range, step, length) = slice.adjust_indices(blob_len as usize);
+                let mut buf = Vec::<u8>::with_capacity(length);
+
+                if step == 1 {
+                    let ret = inner.blob.read(
+                        buf.as_mut_ptr().cast(),
+                        length as c_int,
+                        range.start as c_int,
+                    );
+                    self.check(ret, vm)?;
+                    unsafe { buf.set_len(length) };
+                } else {
+                    let iter = SaturatedSliceIter::from_adjust_indices(range, step, length);
+                    let mut byte: u8 = 0;
+                    for index in iter {
+                        let ret = inner.blob.read_single(&mut byte, index as c_int);
+                        self.check(ret, vm)?;
+                        buf.push(byte);
+                    }
+                }
+                Ok(vm.ctx.new_bytes(buf).into())
+            } else {
+                Err(vm.new_type_error("Blob indices must be integers".to_owned()))
+            }
+        }
+
+        fn ass_subscript(
+            &self,
+            needle: &PyObject,
+            value: Option<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let Some(value) = value else {
+                return Err(vm.new_type_error("Blob doesn't support deletion".to_owned()));
+            };
+            let inner = self.inner(vm)?;
+
+            if let Some(index) = needle.try_index_opt(vm) {
+                let Some(value) = value.payload::<PyInt>() else {
+                    return Err(vm.new_type_error(format!("'{}' object cannot be interpreted as an integer", value.class())));
+                };
+                let value = value.try_to_primitive::<u8>(vm)?;
+                let blob_len = inner.blob.bytes();
+                let index = Self::wrapped_index(index?, blob_len, vm)?;
+                Self::expect_write(blob_len, 1, index, vm)?;
+                let ret = inner.blob.write_single(value, index);
+                self.check(ret, vm)
+            } else if let Some(_slice) = needle.payload::<PySlice>() {
+                Err(vm.new_not_implemented_error("Blob slice assigment is not implmented".to_owned()))
+                // let blob_len = inner.blob.bytes();
+                // let slice = slice.to_saturated(vm)?;
+                // let (range, step, length) = slice.adjust_indices(blob_len as usize);
+            } else {
+                Err(vm.new_type_error("Blob indices must be integers".to_owned()))
+            }
+        }
+
         fn check(&self, ret: c_int, vm: &VirtualMachine) -> PyResult<()> {
             if ret == SQLITE_OK {
                 Ok(())
             } else {
                 Err(self.connection.db_lock(vm)?.error_extended(vm))
             }
+        }
+    }
+
+    impl AsMapping for Blob {
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, vm| Blob::mapping_downcast(mapping)
+                    .inner(vm)
+                    .map(|x| x.blob.bytes() as usize)),
+                subscript: atomic_func!(|mapping, needle, vm| {
+                    Blob::mapping_downcast(mapping).subscript(needle, vm)
+                }),
+                ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                    Blob::mapping_downcast(mapping).ass_subscript(needle, value, vm)
+                }),
+                ..PyMappingMethods::NOT_IMPLEMENTED
+            };
+            &AS_MAPPING
         }
     }
 
@@ -2560,6 +2666,14 @@ mod _sqlite {
 
         fn read(self, buf: *mut c_void, length: c_int, offset: c_int) -> c_int {
             unsafe { sqlite3_blob_read(self.blob, buf, length, offset) }
+        }
+
+        fn read_single(self, byte: &mut u8, offset: c_int) -> c_int {
+            self.read(byte as *mut u8 as *mut _, 1, offset)
+        }
+
+        fn write_single(self, byte: u8, offset: c_int) -> c_int {
+            self.write(&byte as *const u8 as *const _, 1, offset)
         }
     }
 

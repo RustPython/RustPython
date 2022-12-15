@@ -5,7 +5,7 @@ import subprocess
 import sys
 import unittest
 
-from test.support import SHORT_TIMEOUT, #requires_subprocess
+from test.support import SHORT_TIMEOUT#, requires_subprocess
 from test.support.os_helper import TESTFN, unlink
 
 
