@@ -21,7 +21,7 @@ rustpython-parser = { path = "../../compiler/parser" }
 rustpython-pylib = { path = "../../pylib", default-features = false, optional = true }
 rustpython-stdlib = { path = "../../stdlib", default-features = false, optional = true }
 # make sure no threading! otherwise wasm build will fail
-rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler", "encodings"] }
+rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler", "encodings", "serde"] }
 
 serde = { workspace = true }
 

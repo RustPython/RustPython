@@ -616,21 +616,30 @@ impl IntoIterator for PyDictRef {
     }
 }
 
-impl IntoIterator for &PyDictRef {
+impl<'a> IntoIterator for &'a PyDictRef {
     type Item = (PyObjectRef, PyObjectRef);
-    type IntoIter = DictIter;
+    type IntoIter = DictIterRef<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictIter::new(self.clone())
+        DictIterRef::new(self)
     }
 }
 
-impl IntoIterator for &Py<PyDict> {
+impl<'a> IntoIterator for &'a Py<PyDict> {
     type Item = (PyObjectRef, PyObjectRef);
-    type IntoIter = DictIter;
+    type IntoIter = DictIterRef<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictIter::new(self.to_owned())
+        DictIterRef::new(self)
+    }
+}
+
+impl<'a> IntoIterator for &'a PyDict {
+    type Item = (PyObjectRef, PyObjectRef);
+    type IntoIter = DictIterRef<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DictIterRef::new(self)
     }
 }
 
@@ -655,8 +664,44 @@ impl Iterator for DictIter {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let l = self.dict.entries.len_from_entry_index(self.position);
+        let l = self.len();
         (l, Some(l))
+    }
+}
+impl ExactSizeIterator for DictIter {
+    fn len(&self) -> usize {
+        self.dict.entries.len_from_entry_index(self.position)
+    }
+}
+
+pub struct DictIterRef<'a> {
+    dict: &'a PyDict,
+    position: usize,
+}
+
+impl<'a> DictIterRef<'a> {
+    pub fn new(dict: &'a PyDict) -> Self {
+        DictIterRef { dict, position: 0 }
+    }
+}
+
+impl Iterator for DictIterRef<'_> {
+    type Item = (PyObjectRef, PyObjectRef);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (position, key, value) = self.dict.entries.next_entry(self.position)?;
+        self.position = position;
+        Some((key, value))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let l = self.len();
+        (l, Some(l))
+    }
+}
+impl ExactSizeIterator for DictIterRef<'_> {
+    fn len(&self) -> usize {
+        self.dict.entries.len_from_entry_index(self.position)
     }
 }
 

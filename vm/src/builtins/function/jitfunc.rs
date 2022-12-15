@@ -118,7 +118,9 @@ fn get_jit_value(vm: &VirtualMachine, obj: &PyObject) -> Result<AbiValue, ArgsEr
             .map(AbiValue::Int)
             .ok_or(ArgsError::IntOverflow)
     } else if cls.is(vm.ctx.types.float_type) {
-        Ok(AbiValue::Float(float::get_value(obj)))
+        Ok(AbiValue::Float(
+            obj.downcast_ref::<float::PyFloat>().unwrap().to_f64(),
+        ))
     } else if cls.is(vm.ctx.types.bool_type) {
         Ok(AbiValue::Bool(bool_::get_value(obj)))
     } else {
@@ -141,7 +143,7 @@ pub(crate) fn get_jit_args<'a>(
     let nargs = func_args.args.len();
     let arg_names = func.code.arg_names();
 
-    if nargs > func.code.arg_count || nargs < func.code.posonlyarg_count {
+    if nargs > func.code.arg_count as usize || nargs < func.code.posonlyarg_count as usize {
         return Err(ArgsError::WrongNumberOfArgs);
     }
 
@@ -160,7 +162,7 @@ pub(crate) fn get_jit_args<'a>(
             }
             jit_args.set(arg_idx, get_jit_value(vm, value)?)?;
         } else if let Some(kwarg_idx) = arg_pos(arg_names.kwonlyargs, name) {
-            let arg_idx = kwarg_idx + func.code.arg_count;
+            let arg_idx = kwarg_idx + func.code.arg_count as usize;
             if jit_args.is_set(arg_idx) {
                 return Err(ArgsError::ArgPassedMultipleTimes);
             }
@@ -175,7 +177,7 @@ pub(crate) fn get_jit_args<'a>(
     // fill in positional defaults
     if let Some(defaults) = defaults {
         for (i, default) in defaults.iter().enumerate() {
-            let arg_idx = i + func.code.arg_count - defaults.len();
+            let arg_idx = i + func.code.arg_count as usize - defaults.len();
             if !jit_args.is_set(arg_idx) {
                 jit_args.set(arg_idx, get_jit_value(vm, default)?)?;
             }
@@ -185,7 +187,7 @@ pub(crate) fn get_jit_args<'a>(
     // fill in keyword only defaults
     if let Some(kw_only_defaults) = kwdefaults {
         for (i, name) in arg_names.kwonlyargs.iter().enumerate() {
-            let arg_idx = i + func.code.arg_count;
+            let arg_idx = i + func.code.arg_count as usize;
             if !jit_args.is_set(arg_idx) {
                 let default = kw_only_defaults
                     .get_item(&**name, vm)

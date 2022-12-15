@@ -28,6 +28,12 @@ pub struct PyComplex {
     value: Complex64,
 }
 
+impl PyComplex {
+    pub fn to_complex64(self) -> Complex64 {
+        self.value
+    }
+}
+
 impl PyPayload for PyComplex {
     fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.complex_type
