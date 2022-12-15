@@ -86,7 +86,7 @@ where
         }
     }
 
-    fn del_item_by_index(&mut self, vm: &VirtualMachine, index: isize) -> PyResult<()> {
+    fn delitem_by_index(&mut self, vm: &VirtualMachine, index: isize) -> PyResult<()> {
         let pos = self
             .as_ref()
             .wrap_index(index)
@@ -95,11 +95,11 @@ where
         Ok(())
     }
 
-    fn del_item_by_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
+    fn delitem_by_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
         let (range, step, slice_len) = slice.adjust_indices(self.as_ref().len());
         if slice_len == 0 {
             Ok(())
-        } else if step == 1 {
+        } else if step == 1 || step == -1 {
             self.do_set_range(range, &[]);
             Ok(())
         } else {
@@ -192,11 +192,9 @@ pub trait SliceableSequenceOp {
         let sliced = if slice_len == 0 {
             Self::empty()
         } else if step == 1 {
-            if step.is_negative() {
-                self.do_slice_reverse(range)
-            } else {
-                self.do_slice(range)
-            }
+            self.do_slice(range)
+        } else if step == -1 {
+            self.do_slice_reverse(range)
         } else if step.is_negative() {
             self.do_stepped_slice_reverse(range, step.unsigned_abs())
         } else {
