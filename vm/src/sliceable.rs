@@ -195,10 +195,10 @@ pub trait SliceableSequenceOp {
             self.do_slice(range)
         } else if step == -1 {
             self.do_slice_reverse(range)
-        } else if step.is_negative() {
-            self.do_stepped_slice_reverse(range, step.unsigned_abs())
-        } else {
+        } else if step.is_positive() {
             self.do_stepped_slice(range, step.unsigned_abs())
+        } else {
+            self.do_stepped_slice_reverse(range, step.unsigned_abs())
         };
         Ok(sliced)
     }

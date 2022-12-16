@@ -229,9 +229,7 @@ impl PyByteArray {
             SequenceIndex::Int(i) => self.try_resizable(vm)?.elements.delitem_by_index(vm, i),
             SequenceIndex::Slice(slice) => {
                 // TODO: delete 0 elements don't need resizable
-                self.try_resizable(vm)?
-                    .elements
-                    .delitem_by_slice(vm, slice)
+                self.try_resizable(vm)?.elements.delitem_by_slice(vm, slice)
             }
         }
     }
