@@ -258,7 +258,7 @@ mod winreg {
         value: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if typ != REG_SZ as u32 {
+        if typ != REG_SZ {
             return Err(vm.new_type_error("type must be winreg.REG_SZ".to_owned()));
         }
         let subkey = subkey.as_ref().map_or("", |s| s.as_str());

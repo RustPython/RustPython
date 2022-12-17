@@ -1109,7 +1109,7 @@ pub(super) mod _os {
         // TODO: replicate CPython's win32_xstat
         let [] = dir_fd.0;
         let meta = match file {
-            PathOrFd::Path(path) => super::fs_metadata(&path, follow_symlinks.0)?,
+            PathOrFd::Path(path) => super::fs_metadata(path, follow_symlinks.0)?,
             PathOrFd::Fd(fno) => {
                 use std::os::windows::io::FromRawHandle;
                 let handle = Fd(fno).to_raw_handle()?;
