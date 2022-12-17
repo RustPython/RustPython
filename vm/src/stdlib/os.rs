@@ -1521,7 +1521,7 @@ pub(super) mod _os {
             };
 
             let tick_for_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
-            let c = unsafe { libc::times(&mut t as *mut _) } as i64;
+            let c = unsafe { libc::times(&mut t as *mut _) };
 
             if c == -1 {
                 return Err(vm.new_os_error("Fail to get times".to_string()));
