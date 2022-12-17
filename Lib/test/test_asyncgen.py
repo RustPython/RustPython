@@ -4,9 +4,11 @@ import unittest
 import contextlib
 
 from test.support.import_helper import import_module
-from test.support import gc_collect
+from test.support import gc_collect, requires_working_socket
 asyncio = import_module("asyncio")
 
+
+requires_working_socket(module=True)
 
 _no_default = object()
 
@@ -375,8 +377,6 @@ class AsyncGenTest(unittest.TestCase):
 
         self.compare_generators(sync_gen_wrapper(), async_gen_wrapper())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_api_01(self):
         async def gen():
             yield 123
@@ -467,16 +467,12 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         result = self.loop.run_until_complete(test_throw())
         self.assertEqual(result, "completed")
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_async_generator_anext(self):
         async def agen():
             yield 1
             yield 2
         self.check_async_iterator_anext(agen)
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_python_async_iterator_anext(self):
         class MyAsyncIter:
             """Asynchronously yield 1, then 2."""
@@ -492,8 +488,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
                     return self.yielded
         self.check_async_iterator_anext(MyAsyncIter)
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_python_async_iterator_types_coroutine_anext(self):
         import types
         class MyAsyncIterWithTypesCoro:
@@ -513,19 +507,16 @@ class AsyncGenAsyncioTest(unittest.TestCase):
                     return self.yielded
         self.check_async_iterator_anext(MyAsyncIterWithTypesCoro)
 
-    # TODO: RUSTPYTHON: async for gen expression compilation
-    # def test_async_gen_aiter(self):
-    #     async def gen():
-    #         yield 1
-    #         yield 2
-    #     g = gen()
-    #     async def consume():
-    #         return [i async for i in aiter(g)]
-    #     res = self.loop.run_until_complete(consume())
-    #     self.assertEqual(res, [1, 2])
+    def test_async_gen_aiter(self):
+        async def gen():
+            yield 1
+            yield 2
+        g = gen()
+        async def consume():
+            return [i async for i in aiter(g)]
+        res = self.loop.run_until_complete(consume())
+        self.assertEqual(res, [1, 2])
 
-    # TODO: RUSTPYTHON, NameError: name 'aiter' is not defined
-    @unittest.expectedFailure
     def test_async_gen_aiter_class(self):
         results = []
         class Gen:
@@ -550,8 +541,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         applied_twice = aiter(applied_once)
         self.assertIs(applied_once, applied_twice)
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_bad_args(self):
         async def gen():
             yield 1
@@ -572,8 +561,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.loop.run_until_complete(call_with_kwarg())
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_bad_await(self):
         async def bad_awaitable():
             class BadAwaitable:
@@ -604,8 +591,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
             await awaitable
         return "completed"
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_return_iterator(self):
         class WithIterAnext:
             def __aiter__(self):
@@ -615,8 +600,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         result = self.loop.run_until_complete(self.check_anext_returning_iterator(WithIterAnext))
         self.assertEqual(result, "completed")
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_return_generator(self):
         class WithGenAnext:
             def __aiter__(self):
@@ -626,8 +609,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         result = self.loop.run_until_complete(self.check_anext_returning_iterator(WithGenAnext))
         self.assertEqual(result, "completed")
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_await_raises(self):
         class RaisingAwaitable:
             def __await__(self):
@@ -649,8 +630,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         result = self.loop.run_until_complete(do_test())
         self.assertEqual(result, "completed")
 
-    # TODO: RUSTPYTHON, NameError: name 'anext' is not defined
-    @unittest.expectedFailure
     def test_anext_iter(self):
         @types.coroutine
         def _async_yield(v):
@@ -1049,8 +1028,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         fut.cancel()
         self.loop.run_until_complete(asyncio.sleep(0.01))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_gen_asyncio_gc_aclose_09(self):
         DONE = 0
 
@@ -1508,8 +1485,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
 
         self.assertEqual(messages, [])
 
-    # TODO: RUSTPYTHON, ValueError: not enough values to unpack (expected 1, got 0)
-    @unittest.expectedFailure
     def test_async_gen_asyncio_shutdown_exception_01(self):
         messages = []
 
@@ -1539,8 +1514,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         self.assertIn('an error occurred during closing of asynchronous generator',
                       message['message'])
 
-    # TODO: RUSTPYTHON, ValueError: not enough values to unpack (expected 1, got 0)
-    @unittest.expectedFailure
     def test_async_gen_asyncio_shutdown_exception_02(self):
         messages = []
 
@@ -1569,38 +1542,36 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         self.assertIn('unhandled exception during asyncio.run() shutdown',
                       message['message'])
 
-    # TODO: RUSTPYTHON: async for gen expression compilation
-    # def test_async_gen_expression_01(self):
-    #     async def arange(n):
-    #         for i in range(n):
-    #             await asyncio.sleep(0.01)
-    #             yield i
+    def test_async_gen_expression_01(self):
+        async def arange(n):
+            for i in range(n):
+                await asyncio.sleep(0.01)
+                yield i
 
-    #     def make_arange(n):
-    #         # This syntax is legal starting with Python 3.7
-    #         return (i * 2 async for i in arange(n))
+        def make_arange(n):
+            # This syntax is legal starting with Python 3.7
+            return (i * 2 async for i in arange(n))
 
-    #     async def run():
-    #         return [i async for i in make_arange(10)]
+        async def run():
+            return [i async for i in make_arange(10)]
 
-    #     res = self.loop.run_until_complete(run())
-    #     self.assertEqual(res, [i * 2 for i in range(10)])
+        res = self.loop.run_until_complete(run())
+        self.assertEqual(res, [i * 2 for i in range(10)])
 
-    # TODO: RUSTPYTHON: async for gen expression compilation
-    # def test_async_gen_expression_02(self):
-    #     async def wrap(n):
-    #         await asyncio.sleep(0.01)
-    #         return n
+    def test_async_gen_expression_02(self):
+        async def wrap(n):
+            await asyncio.sleep(0.01)
+            return n
 
-    #     def make_arange(n):
-    #         # This syntax is legal starting with Python 3.7
-    #         return (i * 2 for i in range(n) if await wrap(i))
+        def make_arange(n):
+            # This syntax is legal starting with Python 3.7
+            return (i * 2 for i in range(n) if await wrap(i))
 
-    #     async def run():
-    #         return [i async for i in make_arange(10)]
+        async def run():
+            return [i async for i in make_arange(10)]
 
-    #     res = self.loop.run_until_complete(run())
-    #     self.assertEqual(res, [i * 2 for i in range(1, 10)])
+        res = self.loop.run_until_complete(run())
+        self.assertEqual(res, [i * 2 for i in range(1, 10)])
 
     def test_asyncgen_nonstarted_hooks_are_cancellable(self):
         # See https://bugs.python.org/issue38013
