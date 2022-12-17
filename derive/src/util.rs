@@ -67,7 +67,7 @@ impl ItemNursery {
                 if !inserted {
                     return Err(syn::Error::new(
                         item.attr_name.span(),
-                        &format!("Duplicated #[py*] attribute found for {:?}", &item.py_names),
+                        format!("Duplicated #[py*] attribute found for {:?}", &item.py_names),
                     ));
                 }
             }

@@ -1109,7 +1109,7 @@ pub(super) mod _os {
         // TODO: replicate CPython's win32_xstat
         let [] = dir_fd.0;
         let meta = match file {
-            PathOrFd::Path(path) => super::fs_metadata(&path, follow_symlinks.0)?,
+            PathOrFd::Path(path) => super::fs_metadata(path, follow_symlinks.0)?,
             PathOrFd::Fd(fno) => {
                 use std::os::windows::io::FromRawHandle;
                 let handle = Fd(fno).to_raw_handle()?;
@@ -1521,9 +1521,10 @@ pub(super) mod _os {
             };
 
             let tick_for_second = unsafe { libc::sysconf(libc::_SC_CLK_TCK) } as f64;
-            let c = unsafe { libc::times(&mut t as *mut _) } as i64;
+            let c = unsafe { libc::times(&mut t as *mut _) };
 
-            if c == -1 {
+            // XXX: The signedness of `clock_t` varies from platform to platform.
+            if c == (-1i8) as libc::clock_t {
                 return Err(vm.new_os_error("Fail to get times".to_string()));
             }
 
