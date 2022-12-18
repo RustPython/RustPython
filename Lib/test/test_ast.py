@@ -2107,8 +2107,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, bop.values[1],
                             'other_condition or yet_another_one')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_tuples(self):
         s1 = 'x = () ;'
         s2 = 'x = 1 , ;'
@@ -2190,8 +2188,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, fdef.body[0].value, 'yield x')
         self._check_content(s, fdef.body[1].value, 'await y')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_source_segment_multi(self):
         s_orig = dedent('''
             x = (
