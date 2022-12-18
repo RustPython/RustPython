@@ -41,3 +41,8 @@ assert 'b' not in locals()
 assert 'c' not in locals()
 assert 'b' not in globals()
 assert 'c' not in globals()
+
+
+def f():
+    # Test no panic occured.
+    [[x := 1 for j in range(5)] for i in range(5)]
