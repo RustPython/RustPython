@@ -74,7 +74,6 @@ num_enum = "0.5.7"
 ascii = "1.0.0"
 parking_lot = "0.12.0"
 once_cell = "1.13.0"
-libsqlite3-sys = { version = "0.25", features = ["min_sqlite_version_3_7_16", "bundled"] }
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32")))'.dependencies]
@@ -97,6 +96,7 @@ openssl = { version = "0.10.43", optional = true }
 openssl-sys = { version = "0.9.72", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
+libsqlite3-sys = { version = "0.25", features = ["min_sqlite_version_3_7_16", "bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 schannel = "0.1.19"
