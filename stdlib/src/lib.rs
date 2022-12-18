@@ -50,6 +50,7 @@ mod resource;
 mod scproxy;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
+#[cfg(not(target_arch = "wasm32"))]
 mod sqlite;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
@@ -106,7 +107,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,
-            "_sqlite3" => sqlite::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
         #[cfg(any(unix, target_os = "wasi"))]
@@ -119,6 +119,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "select" => select::make_module,
             "_socket" => socket::make_module,
             "faulthandler" => faulthandler::make_module,
+            "_sqlite3" => sqlite::make_module,
         }
         #[cfg(feature = "ssl")]
         {
