@@ -1360,7 +1360,7 @@ mod _ssl {
             let root = Path::new(CERT_DIR);
             if !root.is_dir() {
                 return Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.file_not_found_error.clone(),
+                    vm.ctx.exceptions.file_not_found_error.to_owned(),
                     CERT_DIR.to_string(),
                 ));
             }
