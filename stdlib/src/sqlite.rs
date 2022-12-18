@@ -394,11 +394,7 @@ mod _sqlite {
             };
 
             if let Err(exc) = f() {
-                context.result_exception(
-                    vm,
-                    exc,
-                    "user-defined function raised exception\0",
-                )
+                context.result_exception(vm, exc, "user-defined function raised exception\0")
             }
         }
 
@@ -1881,26 +1877,30 @@ mod _sqlite {
 
     impl AsMapping for Row {
         fn as_mapping() -> &'static PyMappingMethods {
-            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(Row::mapping_downcast(mapping).data.len())),
-                subscript: atomic_func!(|mapping, needle, vm| {
-                    Row::mapping_downcast(mapping).subscript(needle, vm)
-                }),
-                ..PyMappingMethods::NOT_IMPLEMENTED
-            };
+            static AS_MAPPING: once_cell::sync::Lazy<PyMappingMethods> =
+                once_cell::sync::Lazy::new(|| PyMappingMethods {
+                    length: atomic_func!(|mapping, _vm| Ok(Row::mapping_downcast(mapping)
+                        .data
+                        .len())),
+                    subscript: atomic_func!(|mapping, needle, vm| {
+                        Row::mapping_downcast(mapping).subscript(needle, vm)
+                    }),
+                    ..PyMappingMethods::NOT_IMPLEMENTED
+                });
             &AS_MAPPING
         }
     }
 
     impl AsSequence for Row {
         fn as_sequence() -> &'static PySequenceMethods {
-            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(Row::sequence_downcast(seq).data.len())),
-                item: atomic_func!(|seq, i, vm| Row::sequence_downcast(seq)
-                    .data
-                    .getitem_by_index(vm, i)),
-                ..PySequenceMethods::NOT_IMPLEMENTED
-            };
+            static AS_SEQUENCE: once_cell::sync::Lazy<PySequenceMethods> =
+                once_cell::sync::Lazy::new(|| PySequenceMethods {
+                    length: atomic_func!(|seq, _vm| Ok(Row::sequence_downcast(seq).data.len())),
+                    item: atomic_func!(|seq, i, vm| Row::sequence_downcast(seq)
+                        .data
+                        .getitem_by_index(vm, i)),
+                    ..PySequenceMethods::NOT_IMPLEMENTED
+                });
             &AS_SEQUENCE
         }
     }

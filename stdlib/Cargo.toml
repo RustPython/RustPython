@@ -74,7 +74,6 @@ num_enum = "0.5.7"
 ascii = "1.0.0"
 parking_lot = "0.12.0"
 once_cell = "1.13.0"
-sqlite3-sys = "0.14"
 libsqlite3-sys = { version = "0.25", features = ["min_sqlite_version_3_7_16", "bundled"] }
 
 # uuid
