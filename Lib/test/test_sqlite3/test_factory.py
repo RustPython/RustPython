@@ -50,6 +50,8 @@ class ConnectionFactoryTests(unittest.TestCase):
                 con = sqlite.connect(":memory:", factory=factory)
                 self.assertIsInstance(con, factory)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_connection_factory_relayed_call(self):
         # gh-95132: keyword args must not be passed as positional args
         class Factory(sqlite.Connection):
@@ -78,6 +80,8 @@ class CursorFactoryTests(unittest.TestCase):
     def tearDown(self):
         self.con.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_is_instance(self):
         cur = self.con.cursor()
         self.assertIsInstance(cur, sqlite.Cursor)
@@ -98,6 +102,8 @@ class RowFactoryTestsBackwardsCompat(unittest.TestCase):
     def setUp(self):
         self.con = sqlite.connect(":memory:")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_is_produced_by_factory(self):
         cur = self.con.cursor(factory=MyCursor)
         cur.execute("select 4+5 as foo")
@@ -117,6 +123,8 @@ class RowFactoryTests(unittest.TestCase):
         row = self.con.execute("select 1, 2").fetchone()
         self.assertIsInstance(row, list)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sqlite_row_index(self):
         self.con.row_factory = sqlite.Row
         row = self.con.execute("select 1 as a_1, 2 as b").fetchone()
@@ -148,6 +156,8 @@ class RowFactoryTests(unittest.TestCase):
         with self.assertRaises(IndexError):
             row[complex()]  # index must be int or string
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sqlite_row_index_unicode(self):
         self.con.row_factory = sqlite.Row
         row = self.con.execute("select 1 as \xff").fetchone()
@@ -231,6 +241,8 @@ class RowFactoryTests(unittest.TestCase):
 
         self.assertEqual(hash(row_1), hash(row_2))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sqlite_row_as_sequence(self):
         """ Checks if the row object can act like a sequence """
         self.con.row_factory = sqlite.Row

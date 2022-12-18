@@ -346,6 +346,8 @@ class ModuleTests(unittest.TestCase):
                              sqlite.SQLITE_CONSTRAINT_CHECK)
             self.assertEqual(exc.sqlite_errorname, "SQLITE_CONSTRAINT_CHECK")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_disallow_instantiation(self):
         cx = sqlite.connect(":memory:")
         check_disallow_instantiation(self, type(cx("select 1")))
@@ -418,6 +420,8 @@ class ConnectionTests(unittest.TestCase):
             with self.cx:
                 pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exceptions(self):
         # Optional DB-API extension.
         self.assertEqual(self.cx.Warning, sqlite.Warning)
@@ -453,6 +457,8 @@ class ConnectionTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             self.cx.in_transaction = True
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_connection_exceptions(self):
         exceptions = [
             "DataError",
@@ -541,6 +547,9 @@ class ConnectionTests(unittest.TestCase):
                     cx.isolation_level = level
                     self.assertEqual(cx.isolation_level, level)
 
+    # TODO: RUSTPYTHON
+    # @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON deadlock")
     def test_connection_reinit(self):
         db = ":memory:"
         cx = sqlite.connect(db)
@@ -566,6 +575,8 @@ class ConnectionTests(unittest.TestCase):
         self.assertTrue(all(isinstance(r, sqlite.Row) for r in rows))
         self.assertEqual([r[0] for r in rows], ["2", "3"])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_connection_bad_reinit(self):
         cx = sqlite.connect(":memory:")
         with cx:
@@ -580,6 +591,7 @@ class ConnectionTests(unittest.TestCase):
                                    ((v,) for v in range(3)))
 
 
+@unittest.skip("TODO: RUSTPYHON")
 class UninitialisedConnectionTests(unittest.TestCase):
     def setUp(self):
         self.cx = sqlite.Connection.__new__(sqlite.Connection)
@@ -717,6 +729,8 @@ class OpenTests(unittest.TestCase):
             self.assertTrue(os.path.exists(path))
             cx.execute(self._sql)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_factory_database_arg(self):
         def factory(database, *args, **kwargs):
             nonlocal database_arg
@@ -755,6 +769,8 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(sqlite.OperationalError):
             self.cu.execute("select asdf")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_execute_multiple_statements(self):
         msg = "You can only execute one statement at a time"
         dataset = (
@@ -777,6 +793,8 @@ class CursorTests(unittest.TestCase):
                 with self.assertRaisesRegex(sqlite.ProgrammingError, msg):
                     self.cu.execute(query)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_execute_with_appended_comments(self):
         dataset = (
             "select 1; -- foo bar",
@@ -824,11 +842,15 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             self.cu.execute("insert into test(id) values (?)", (17, "Egon"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_execute_wrong_no_of_args2(self):
         # too little parameters
         with self.assertRaises(sqlite.ProgrammingError):
             self.cu.execute("insert into test(id) values (?)")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_execute_wrong_no_of_args3(self):
         # no parameters, parameters are needed
         with self.assertRaises(sqlite.ProgrammingError):
@@ -890,11 +912,15 @@ class CursorTests(unittest.TestCase):
         row = self.cu.fetchone()
         self.assertEqual(row[0], "foo")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_execute_dict_mapping_too_little_args(self):
         self.cu.execute("insert into test(name) values ('foo')")
         with self.assertRaises(sqlite.ProgrammingError):
             self.cu.execute("select name from test where name=:name and id=:id", {"name": "foo"})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_execute_dict_mapping_no_args(self):
         self.cu.execute("insert into test(name) values ('foo')")
         with self.assertRaises(sqlite.ProgrammingError):
@@ -937,6 +963,8 @@ class CursorTests(unittest.TestCase):
         self.assertEqual(self.cu.fetchone()[0], 1)
         self.assertEqual(self.cu.rowcount, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_rowcount_prefixed_with_comment(self):
         # gh-79579: rowcount is updated even if query is prefixed with comments
         self.cu.execute("""
@@ -1057,6 +1085,8 @@ class CursorTests(unittest.TestCase):
         res = self.cu.fetchmany(100)
         self.assertEqual(res, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fetchmany_kw_arg(self):
         """Checks if fetchmany works with keyword arguments"""
         self.cu.execute("select name from test")
@@ -1176,6 +1206,8 @@ class BlobTests(unittest.TestCase):
         self.blob.seek(-10, SEEK_END)
         self.assertEqual(self.blob.tell(), 40)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_seek_error(self):
         msg_oor = "offset out of blob range"
         msg_orig = "'origin' should be os.SEEK_SET, os.SEEK_CUR, or os.SEEK_END"
@@ -1298,6 +1330,8 @@ class BlobTests(unittest.TestCase):
         expected = b"This blob data string is exactly fifty bytes long."
         self.assertEqual(self.blob.read(), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_set_slice_buffer_object(self):
         from array import array
         self.blob[0:5] = memoryview(b"12345")
@@ -1325,16 +1359,22 @@ class BlobTests(unittest.TestCase):
     def test_blob_get_slice_with_skip(self):
         self.assertEqual(self.blob[0:10:2], b"ti lb")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_set_slice(self):
         self.blob[0:5] = b"12345"
         expected = b"12345" + self.data[5:]
         actual = self.cx.execute("select b from test").fetchone()[0]
         self.assertEqual(actual, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_set_empty_slice(self):
         self.blob[0:0] = b""
         self.assertEqual(self.blob[:], self.data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_set_slice_with_skip(self):
         self.blob[0:10:2] = b"12345"
         actual = self.cx.execute("select b from test").fetchone()[0]
@@ -1350,6 +1390,8 @@ class BlobTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             self.blob["a"] = b"b"
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_get_item_error(self):
         dataset = [len(self.blob), 105, -105]
         for idx in dataset:
@@ -1364,6 +1406,8 @@ class BlobTests(unittest.TestCase):
         with self.assertRaises(sqlite.OperationalError):
             self.blob[0]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_set_item_error(self):
         with self.assertRaisesRegex(TypeError, "cannot be interpreted"):
             self.blob[0] = b"multiple"
@@ -1383,6 +1427,8 @@ class BlobTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must be in range"):
             self.blob[0] = 2**65
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_set_slice_error(self):
         with self.assertRaisesRegex(IndexError, "wrong size"):
             self.blob[5:10] = b"a"
@@ -1395,6 +1441,8 @@ class BlobTests(unittest.TestCase):
         with self.assertRaises(BufferError):
             self.blob[5:10] = memoryview(b"abcde")[::2]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_sequence_not_supported(self):
         with self.assertRaisesRegex(TypeError, "unsupported operand"):
             self.blob + self.blob
@@ -1422,6 +1470,8 @@ class BlobTests(unittest.TestCase):
                 raise DummyException("reraised")
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_closed(self):
         with memory_database() as cx:
             cx.execute("create table test(b blob)")
@@ -1451,6 +1501,8 @@ class BlobTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite.ProgrammingError, msg):
                 blob[0] = b""
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_blob_closed_db_read(self):
         with memory_database() as cx:
             cx.execute("create table test(b blob)")
@@ -1516,6 +1568,8 @@ class ThreadTests(unittest.TestCase):
             with self.subTest(fn=fn):
                 self._run_test(fn)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_check_cursor_thread(self):
         fns = [
             lambda: self.cur.execute("insert into test(name) values('a')"),
@@ -1607,6 +1661,8 @@ class ExtensionTests(unittest.TestCase):
                 insert into a(i) values (5);
                 """)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cursor_executescript_with_surrogates(self):
         con = sqlite.connect(":memory:")
         cur = con.cursor()
@@ -1710,6 +1766,8 @@ class ClosedConTests(unittest.TestCase):
         with self.assertRaises(sqlite.ProgrammingError):
             con.set_progress_handler(progress, 100)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_closed_call(self):
         con = sqlite.connect(":memory:")
         con.close()
@@ -1717,6 +1775,8 @@ class ClosedConTests(unittest.TestCase):
             con()
 
 class ClosedCurTests(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_closed(self):
         con = sqlite.connect(":memory:")
         cur = con.cursor()

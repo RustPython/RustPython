@@ -227,6 +227,8 @@ cfg_if::cfg_if! {
         unsafe impl<T: Sync + PyObjectPayload> Sync for PyAtomicRef<Option<T>> {}
         unsafe impl Send for PyAtomicRef<PyObject> {}
         unsafe impl Sync for PyAtomicRef<PyObject> {}
+        unsafe impl Send for PyAtomicRef<Option<PyObject>> {}
+        unsafe impl Sync for PyAtomicRef<Option<PyObject>> {}
     }
 }
 
@@ -304,6 +306,10 @@ impl<T: PyObjectPayload> PyAtomicRef<Option<T>> {
         unsafe { self.inner.load(Ordering::Relaxed).cast::<Py<T>>().as_ref() }
     }
 
+    pub fn to_owned(&self) -> Option<PyRef<T>> {
+        self.deref().map(|x| x.to_owned())
+    }
+
     /// # Safety
     /// The caller is responsible to keep the returned PyRef alive
     /// until no more reference can be used via PyAtomicRef::deref()
@@ -363,6 +369,52 @@ impl PyAtomicRef<PyObject> {
 
     pub fn swap_to_temporary_refs(&self, obj: PyObjectRef, vm: &VirtualMachine) {
         let old = unsafe { self.swap(obj) };
+        if let Some(frame) = vm.current_frame() {
+            frame.temporary_refs.lock().push(old);
+        }
+    }
+}
+
+impl From<Option<PyObjectRef>> for PyAtomicRef<Option<PyObject>> {
+    fn from(obj: Option<PyObjectRef>) -> Self {
+        let val = obj.map(|x| x.into_raw() as *mut _).unwrap_or(null_mut());
+        Self {
+            inner: Radium::new(val),
+            _phantom: Default::default(),
+        }
+    }
+}
+
+impl PyAtomicRef<Option<PyObject>> {
+    pub fn deref(&self) -> Option<&PyObject> {
+        unsafe {
+            self.inner
+                .load(Ordering::Relaxed)
+                .cast::<PyObject>()
+                .as_ref()
+        }
+    }
+
+    pub fn to_owned(&self) -> Option<PyObjectRef> {
+        self.deref().map(|x| x.to_owned())
+    }
+
+    /// # Safety
+    /// The caller is responsible to keep the returned PyRef alive
+    /// until no more reference can be used via PyAtomicRef::deref()
+    #[must_use]
+    pub unsafe fn swap(&self, obj: Option<PyObjectRef>) -> Option<PyObjectRef> {
+        let val = obj.map(|x| x.into_raw() as *mut _).unwrap_or(null_mut());
+        let old = Radium::swap(&self.inner, val, Ordering::AcqRel);
+        old.cast::<PyObject>()
+            .as_ref()
+            .map(|x| PyObjectRef::from_raw(x))
+    }
+
+    pub fn swap_to_temporary_refs(&self, obj: Option<PyObjectRef>, vm: &VirtualMachine) {
+        let Some(old) = (unsafe { self.swap(obj) }) else {
+            return;
+        };
         if let Some(frame) = vm.current_frame() {
             frame.temporary_refs.lock().push(old);
         }

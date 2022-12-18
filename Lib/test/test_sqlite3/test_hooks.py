@@ -36,6 +36,8 @@ class CollationTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             con.create_collation(None, lambda x, y: (x > y) - (x < y))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_create_collation_not_callable(self):
         con = sqlite.connect(":memory:")
         with self.assertRaises(TypeError) as cm:

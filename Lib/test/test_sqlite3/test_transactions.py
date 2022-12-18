@@ -94,6 +94,8 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(len(res), 1)
         self.assertEqual(res[0][0], 5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_toggle_auto_commit(self):
         self.cur1.execute("create table test(i)")
         self.cur1.execute("insert into test(i) values (5)")

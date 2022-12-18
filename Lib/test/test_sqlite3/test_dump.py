@@ -5,6 +5,8 @@ import sqlite3 as sqlite
 from .test_dbapi import memory_database
 
 
+# TODO: RUSTPYTHON
+@unittest.expectedFailure
 class DumpTests(unittest.TestCase):
     def setUp(self):
         self.cx = sqlite.connect(":memory:")

@@ -150,6 +150,8 @@ class RegressionTests(unittest.TestCase):
         with self.assertRaises(IndexError):
             con.execute("insert into foo(bar, baz) values (?, ?)", parameters)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_error_msg_decode_error(self):
         # When porting the module to Python 3.0, the error message about
         # decoding errors disappeared. This verifies they're back again.
@@ -195,6 +197,8 @@ class RegressionTests(unittest.TestCase):
                     con.isolation_level = value
                 self.assertEqual(con.isolation_level, "DEFERRED")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_cursor_constructor_call_check(self):
         """
         Verifies that cursor methods check whether base class __init__ was
@@ -219,6 +223,8 @@ class RegressionTests(unittest.TestCase):
         class MyStr(str): pass
         self.con.execute("select ?", (MyStr("abc"),))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_connection_constructor_call_check(self):
         """
         Verifies that connection methods check whether base class __init__ was
@@ -259,6 +265,8 @@ class RegressionTests(unittest.TestCase):
         """
         self.assertRaises(TypeError, self.con, b"select 1")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_collation(self):
         def collation_cb(a, b):
             return 1
@@ -321,6 +329,8 @@ class RegressionTests(unittest.TestCase):
                           sqlite.connect, ":memory:", isolation_level=123)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_null_character(self):
         # Issue #21147
         cur = self.con.cursor()
@@ -333,6 +343,8 @@ class RegressionTests(unittest.TestCase):
                 self.assertRaisesRegex(sqlite.ProgrammingError, "null char",
                                        cur.execute, query)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_surrogates(self):
         con = sqlite.connect(":memory:")
         self.assertRaises(UnicodeEncodeError, con, "select '\ud8ff'")
@@ -341,6 +353,8 @@ class RegressionTests(unittest.TestCase):
         self.assertRaises(UnicodeEncodeError, cur.execute, "select '\ud8ff'")
         self.assertRaises(UnicodeEncodeError, cur.execute, "select '\udcff'")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_large_sql(self):
         msg = "query string is too large"
         with memory_database() as cx, cx_limit(cx) as lim:
@@ -401,10 +415,14 @@ class RegressionTests(unittest.TestCase):
         del ref
         support.gc_collect()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_del_isolation_level_segfault(self):
         with self.assertRaises(AttributeError):
             del self.con.isolation_level
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bpo37347(self):
         class Printer:
             def log(self, *args):

@@ -48,18 +48,30 @@ class SqliteInteractiveConsole(InteractiveConsole):
         Return True if more input is needed; buffering is done automatically.
         Return False is input is a complete statement ready for execution.
         """
-        match source:
-            case ".version":
-                print(f"{sqlite3.sqlite_version}")
-            case ".help":
-                print("Enter SQL code and press enter.")
-            case ".quit":
-                sys.exit(0)
-            case _:
-                if not sqlite3.complete_statement(source):
-                    return True
-                execute(self._cur, source)
-        return False
+        if source == ".version":
+            print(f"{sqlite3.sqlite_version}")
+        elif source == ".help":
+            print("Enter SQL code and press enter.")
+        elif source == ".quit":
+            sys.exit(0)
+        elif not sqlite3.complete_statement(source):
+            return True
+        else:
+            execute(self._cur, source)
+            return False
+        # TODO: RUSTPYTHON match statement supporting
+        # match source:
+        #     case ".version":
+        #         print(f"{sqlite3.sqlite_version}")
+        #     case ".help":
+        #         print("Enter SQL code and press enter.")
+        #     case ".quit":
+        #         sys.exit(0)
+        #     case _:
+            # if not sqlite3.complete_statement(source):
+            #     return True
+            # execute(self._cur, source)
+        # return False
 
 
 def main():

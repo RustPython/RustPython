@@ -95,6 +95,8 @@ class SqliteTypeTests(unittest.TestCase):
         row = self.cur.fetchone()
         self.assertIsNone(row)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_string_with_surrogates(self):
         for value in 0xd8ff, 0xdcff:
             with self.assertRaises(UnicodeEncodeError):
@@ -343,6 +345,8 @@ class ColNamesTests(unittest.TestCase):
         val = self.cur.fetchone()[0]
         self.assertEqual(val, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_col_name(self):
         self.cur.execute("insert into test(x) values (?)", ("xxx",))
         self.cur.execute('select x as "x y [bar]" from test')

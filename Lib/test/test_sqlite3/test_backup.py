@@ -103,6 +103,8 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(len(journal), 1)
         self.assertEqual(journal[0], 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_callable_progress(self):
         with self.assertRaises(TypeError) as cm:
             with sqlite.connect(':memory:') as bck:
