@@ -51,7 +51,7 @@ mod _sqlite {
         function::{ArgCallable, ArgIterable, FuncArgs, OptionalArg, PyComparisonValue},
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
-        stdlib::{os::PyPathLike, thread},
+        stdlib::os::PyPathLike,
         types::{
             AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
             IterNextIterable, Iterable, PyComparisonOp,
@@ -66,6 +66,7 @@ mod _sqlite {
         fmt::Debug,
         ops::Deref,
         ptr::{addr_of_mut, null, null_mut},
+        thread::ThreadId,
     };
 
     macro_rules! exceptions {
@@ -293,6 +294,7 @@ mod _sqlite {
         check_same_thread: bool,
         #[pyarg(any, default = "Connection::class(vm).to_owned()")]
         factory: PyTypeRef,
+        // TODO: cache statements
         #[allow(dead_code)]
         #[pyarg(any, default = "0")]
         cached_statements: c_int,
@@ -781,7 +783,7 @@ mod _sqlite {
         detect_types: c_int,
         isolation_level: PyAtomicRef<Option<PyStr>>,
         check_same_thread: bool,
-        thread_ident: u64,
+        thread_ident: ThreadId,
         row_factory: PyAtomicRef<Option<PyObject>>,
         text_factory: PyAtomicRef<PyObject>,
     }
@@ -829,7 +831,7 @@ mod _sqlite {
                 detect_types: args.detect_types,
                 isolation_level: PyAtomicRef::from(args.isolation_level),
                 check_same_thread: args.check_same_thread,
-                thread_ident: thread::get_ident(),
+                thread_ident: std::thread::current().id(),
                 row_factory: PyAtomicRef::from(None),
                 text_factory: PyAtomicRef::from(text_factory),
             })
@@ -1297,7 +1299,7 @@ mod _sqlite {
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
-            if self.check_same_thread && (thread::get_ident() != self.thread_ident) {
+            if self.check_same_thread && (std::thread::current().id() != self.thread_ident) {
                 Err(new_programming_error(
                     vm,
                     "SQLite objects created in a thread can only be used in that same thread."

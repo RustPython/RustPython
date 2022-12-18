@@ -1,5 +1,4 @@
 //! Implementation of the _thread module
-pub use _thread::get_ident;
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{make_module, RawRMutex};
 
@@ -219,7 +218,7 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    pub fn get_ident() -> u64 {
+    fn get_ident() -> u64 {
         thread_to_id(&thread::current())
     }
 
