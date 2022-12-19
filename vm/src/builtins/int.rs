@@ -1,6 +1,5 @@
 use super::{float, PyByteArray, PyBytes, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
-    atomic_func,
     bytesinner::PyBytesInner,
     class::PyClassImpl,
     common::hash,
@@ -10,7 +9,7 @@ use crate::{
         ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,
         PyComparisonValue,
     },
-    protocol::{PyNumber, PyNumberMethods},
+    protocol::{NumberBinaryFn, NumberUnaryFn, PyNumber, PyNumberMethods},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, VirtualMachine,
@@ -730,70 +729,64 @@ impl Hashable for PyInt {
 impl AsNumber for PyInt {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            add: atomic_func!(|num, other, vm| PyInt::number_int_op(num, other, |a, b| a + b, vm)),
-            subtract: atomic_func!(|num, other, vm| PyInt::number_int_op(
-                num,
-                other,
-                |a, b| a - b,
-                vm
-            )),
-            multiply: atomic_func!(|num, other, vm| PyInt::number_int_op(
-                num,
-                other,
-                |a, b| a * b,
-                vm
-            )),
-            remainder: atomic_func!(|num, other, vm| PyInt::number_general_op(
-                num, other, inner_mod, vm
-            )),
-            divmod: atomic_func!(|num, other, vm| PyInt::number_general_op(
-                num,
-                other,
-                inner_divmod,
-                vm
-            )),
-            power: atomic_func!(|num, other, vm| PyInt::number_general_op(
-                num, other, inner_pow, vm
-            )),
-            negative: atomic_func!(|num, vm| (&PyInt::number_downcast(num).value)
-                .neg()
-                .to_pyresult(vm)),
-            positive: atomic_func!(|num, vm| Ok(PyInt::number_int(num, vm).into())),
-            absolute: atomic_func!(|num, vm| PyInt::number_downcast(num)
-                .value
-                .abs()
-                .to_pyresult(vm)),
-            boolean: atomic_func!(|num, _vm| Ok(PyInt::number_downcast(num).value.is_zero())),
-            invert: atomic_func!(|num, vm| (&PyInt::number_downcast(num).value)
-                .not()
-                .to_pyresult(vm)),
-            lshift: atomic_func!(|num, other, vm| PyInt::number_general_op(
-                num,
-                other,
-                inner_lshift,
-                vm
-            )),
-            rshift: atomic_func!(|num, other, vm| PyInt::number_general_op(
-                num,
-                other,
-                inner_rshift,
-                vm
-            )),
-            and: atomic_func!(|num, other, vm| PyInt::number_int_op(num, other, |a, b| a & b, vm)),
-            xor: atomic_func!(|num, other, vm| PyInt::number_int_op(num, other, |a, b| a ^ b, vm)),
-            or: atomic_func!(|num, other, vm| PyInt::number_int_op(num, other, |a, b| a | b, vm)),
-            int: atomic_func!(|num, other| Ok(PyInt::number_int(num, other))),
-            float: atomic_func!(|num, vm| {
+            add: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_int_op(num, other, |a, b| a + b, vm)
+            }),
+            subtract: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_int_op(num, other, |a, b| a - b, vm)
+            }),
+            multiply: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_int_op(num, other, |a, b| a * b, vm)
+            }),
+            remainder: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_general_op(num, other, inner_mod, vm)
+            }),
+            divmod: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_general_op(num, other, inner_divmod, vm)
+            }),
+            power: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_general_op(num, other, inner_pow, vm)
+            }),
+            negative: NumberUnaryFn::from(|num, vm| {
+                (&PyInt::number_downcast(num).value).neg().to_pyresult(vm)
+            }),
+            positive: NumberUnaryFn::from(|num, vm| Ok(PyInt::number_int(num, vm).into())),
+            absolute: NumberUnaryFn::from(|num, vm| {
+                PyInt::number_downcast(num).value.abs().to_pyresult(vm)
+            }),
+            boolean: NumberUnaryFn::from(|num, _vm| {
+                Ok(PyInt::number_downcast(num).value.is_zero())
+            }),
+            invert: NumberUnaryFn::from(|num, vm| {
+                (&PyInt::number_downcast(num).value).not().to_pyresult(vm)
+            }),
+            lshift: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_general_op(num, other, inner_lshift, vm)
+            }),
+            rshift: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_general_op(num, other, inner_rshift, vm)
+            }),
+            and: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_int_op(num, other, |a, b| a & b, vm)
+            }),
+            xor: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_int_op(num, other, |a, b| a ^ b, vm)
+            }),
+            or: NumberBinaryFn::from(|num, other, vm| {
+                PyInt::number_int_op(num, other, |a, b| a | b, vm)
+            }),
+            int: NumberUnaryFn::from(|num, other| Ok(PyInt::number_int(num, other))),
+            float: NumberUnaryFn::from(|num, vm| {
                 let zelf = PyInt::number_downcast(num);
                 try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
             }),
-            floor_divide: atomic_func!(|num, other, vm| {
+            floor_divide: NumberBinaryFn::from(|num, other, vm| {
                 PyInt::number_general_op(num, other, inner_floordiv, vm)
             }),
-            true_divide: atomic_func!(|num, other, vm| {
+            true_divide: NumberBinaryFn::from(|num, other, vm| {
                 PyInt::number_general_op(num, other, inner_truediv, vm)
             }),
-            index: atomic_func!(|num, vm| Ok(PyInt::number_int(num, vm))),
+            index: NumberUnaryFn::from(|num, vm| Ok(PyInt::number_int(num, vm))),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
         &AS_NUMBER

@@ -3,7 +3,6 @@ use super::{
     PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
-    atomic_func,
     buffer::FormatSpec,
     bytesinner::bytes_to_hex,
     class::PyClassImpl,
@@ -16,8 +15,9 @@ use crate::{
     function::Either,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{
-        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
-        PySequenceMethods, VecBuffer,
+        BufferDescriptor, BufferMethods, MappingAssSubscriptFn, MappingLengthFn,
+        MappingSubscriptFn, PyBuffer, PyIterReturn, PyMappingMethods, PySequenceMethods,
+        SequenceItemFn, SequenceLengthFn, VecBuffer,
     },
     sliceable::SequenceIndexOp,
     types::{
@@ -977,12 +977,14 @@ impl Drop for PyMemoryView {
 impl AsMapping for PyMemoryView {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: atomic_func!(|mapping, vm| PyMemoryView::mapping_downcast(mapping).len(vm)),
-            subscript: atomic_func!(|mapping, needle, vm| {
+            length: MappingLengthFn::from(|mapping, vm| {
+                PyMemoryView::mapping_downcast(mapping).len(vm)
+            }),
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                 let zelf = PyMemoryView::mapping_downcast(mapping);
                 PyMemoryView::getitem(zelf.to_owned(), needle.to_owned(), vm)
             }),
-            ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+            ass_subscript: MappingAssSubscriptFn::from(|mapping, needle, value, vm| {
                 let zelf = PyMemoryView::mapping_downcast(mapping);
                 if let Some(value) = value {
                     PyMemoryView::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
@@ -997,19 +999,19 @@ impl AsMapping for PyMemoryView {
 
 impl AsSequence for PyMemoryView {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, vm| {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: SequenceLengthFn::from(|seq, vm| {
                 let zelf = PyMemoryView::sequence_downcast(seq);
                 zelf.try_not_released(vm)?;
                 zelf.len(vm)
             }),
-            item: atomic_func!(|seq, i, vm| {
+            item: SequenceItemFn::from(|seq, i, vm| {
                 let zelf = PyMemoryView::sequence_downcast(seq);
                 zelf.try_not_released(vm)?;
                 zelf.getitem_by_idx(i, vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_SEQUENCE
     }
 }

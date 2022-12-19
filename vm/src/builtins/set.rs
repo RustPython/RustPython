@@ -7,8 +7,8 @@ use super::{
     builtins_iter, IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef,
     PyType, PyTypeRef,
 };
-use crate::atomic_func;
 use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
+use crate::protocol::{SequenceContainsFn, SequenceLengthFn};
 use crate::{
     class::PyClassImpl,
     dictdatatype::{self, DictSize},
@@ -761,10 +761,10 @@ impl Initializer for PySet {
 impl AsSequence for PySet {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PySet::sequence_downcast(seq).len())),
-            contains: atomic_func!(|seq, needle, vm| PySet::sequence_downcast(seq)
-                .inner
-                .contains(needle, vm)),
+            length: SequenceLengthFn::from(|seq, _vm| Ok(PySet::sequence_downcast(seq).len())),
+            contains: SequenceContainsFn::from(|seq, needle, vm| {
+                PySet::sequence_downcast(seq).inner.contains(needle, vm)
+            }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
@@ -982,13 +982,17 @@ impl PyFrozenSet {
 
 impl AsSequence for PyFrozenSet {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).len())),
-            contains: atomic_func!(|seq, needle, vm| PyFrozenSet::sequence_downcast(seq)
-                .inner
-                .contains(needle, vm)),
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: SequenceLengthFn::from(
+                |seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).len()),
+            ),
+            contains: SequenceContainsFn::from(|seq, needle, vm| {
+                PyFrozenSet::sequence_downcast(seq)
+                    .inner
+                    .contains(needle, vm)
+            }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_SEQUENCE
     }
 }

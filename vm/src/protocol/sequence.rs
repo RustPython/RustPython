@@ -5,8 +5,8 @@ use crate::{
     protocol::PyMapping,
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
-use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
+use rustpython_common::atomic::{Ordering, PyAtomicFn};
 use std::fmt::Debug;
 
 // Sequence Protocol
@@ -24,19 +24,31 @@ impl PyObject {
     }
 }
 
+pub type SequenceLengthFn = PyAtomicFn<Option<fn(PySequence, &VirtualMachine) -> PyResult<usize>>>;
+pub type SequenceConcatFn =
+    PyAtomicFn<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>;
+pub type SequenceRepeatFn = PyAtomicFn<Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>>;
+pub type SequenceItemFn = PyAtomicFn<Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>>;
+pub type SequenceAssItemFn =
+    PyAtomicFn<Option<fn(PySequence, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>>;
+pub type SequenceContainsFn =
+    PyAtomicFn<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult<bool>>>;
+pub type SequenceInplaceConcatFn =
+    PyAtomicFn<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>;
+pub type SequenceInplaceRepeatFn =
+    PyAtomicFn<Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>>;
+
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PySequenceMethods {
-    pub length: AtomicCell<Option<fn(PySequence, &VirtualMachine) -> PyResult<usize>>>,
-    pub concat: AtomicCell<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub repeat: AtomicCell<Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>>,
-    pub item: AtomicCell<Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>>,
-    pub ass_item: AtomicCell<
-        Option<fn(PySequence, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
-    >,
-    pub contains: AtomicCell<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult<bool>>>,
-    pub inplace_concat: AtomicCell<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub inplace_repeat: AtomicCell<Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>>,
+    pub length: SequenceLengthFn,
+    pub concat: SequenceConcatFn,
+    pub repeat: SequenceRepeatFn,
+    pub item: SequenceItemFn,
+    pub ass_item: SequenceAssItemFn,
+    pub contains: SequenceContainsFn,
+    pub inplace_concat: SequenceInplaceConcatFn,
+    pub inplace_repeat: SequenceInplaceRepeatFn,
 }
 
 impl Debug for PySequenceMethods {
@@ -48,14 +60,14 @@ impl Debug for PySequenceMethods {
 impl PySequenceMethods {
     #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: PySequenceMethods = PySequenceMethods {
-        length: AtomicCell::new(None),
-        concat: AtomicCell::new(None),
-        repeat: AtomicCell::new(None),
-        item: AtomicCell::new(None),
-        ass_item: AtomicCell::new(None),
-        contains: AtomicCell::new(None),
-        inplace_concat: AtomicCell::new(None),
-        inplace_repeat: AtomicCell::new(None),
+        length: SequenceLengthFn::new(None),
+        concat: SequenceConcatFn::new(None),
+        repeat: SequenceRepeatFn::new(None),
+        item: SequenceItemFn::new(None),
+        ass_item: SequenceAssItemFn::new(None),
+        contains: SequenceContainsFn::new(None),
+        inplace_concat: SequenceInplaceConcatFn::new(None),
+        inplace_repeat: SequenceInplaceRepeatFn::new(None),
     };
 }
 
@@ -83,7 +95,7 @@ impl<'a> PySequence<'a> {
 
 impl PySequence<'_> {
     pub fn check(&self) -> bool {
-        self.methods.item.load().is_some()
+        self.methods.item.load(Ordering::Relaxed).is_some()
     }
 
     pub fn find_methods(
@@ -99,7 +111,10 @@ impl PySequence<'_> {
     }
 
     pub fn length_opt(self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        self.methods.length.load().map(|f| f(self, vm))
+        self.methods
+            .length
+            .load(Ordering::Relaxed)
+            .map(|f| f(self, vm))
     }
 
     pub fn length(self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -112,7 +127,7 @@ impl PySequence<'_> {
     }
 
     pub fn concat(self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods.concat.load() {
+        if let Some(f) = self.methods.concat.load(Ordering::Relaxed) {
             return f(self, other, vm);
         }
 
@@ -131,7 +146,7 @@ impl PySequence<'_> {
     }
 
     pub fn repeat(self, n: usize, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods.repeat.load() {
+        if let Some(f) = self.methods.repeat.load(Ordering::Relaxed) {
             return f(self, n, vm);
         }
 
@@ -147,10 +162,10 @@ impl PySequence<'_> {
     }
 
     pub fn inplace_concat(self, other: &PyObject, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods.inplace_concat.load() {
+        if let Some(f) = self.methods.inplace_concat.load(Ordering::Relaxed) {
             return f(self, other, vm);
         }
-        if let Some(f) = self.methods.concat.load() {
+        if let Some(f) = self.methods.concat.load(Ordering::Relaxed) {
             return f(self, other, vm);
         }
 
@@ -169,10 +184,10 @@ impl PySequence<'_> {
     }
 
     pub fn inplace_repeat(self, n: usize, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods.inplace_repeat.load() {
+        if let Some(f) = self.methods.inplace_repeat.load(Ordering::Relaxed) {
             return f(self, n, vm);
         }
-        if let Some(f) = self.methods.repeat.load() {
+        if let Some(f) = self.methods.repeat.load(Ordering::Relaxed) {
             return f(self, n, vm);
         }
 
@@ -187,7 +202,7 @@ impl PySequence<'_> {
     }
 
     pub fn get_item(self, i: isize, vm: &VirtualMachine) -> PyResult {
-        if let Some(f) = self.methods.item.load() {
+        if let Some(f) = self.methods.item.load(Ordering::Relaxed) {
             return f(self, i, vm);
         }
         Err(vm.new_type_error(format!(
@@ -197,7 +212,7 @@ impl PySequence<'_> {
     }
 
     fn _ass_item(self, i: isize, value: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<()> {
-        if let Some(f) = self.methods.ass_item.load() {
+        if let Some(f) = self.methods.ass_item.load(Ordering::Relaxed) {
             return f(self, i, value, vm);
         }
         Err(vm.new_type_error(format!(
@@ -240,7 +255,7 @@ impl PySequence<'_> {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let mapping = self.obj.to_mapping();
-        if let Some(f) = mapping.methods.ass_subscript.load() {
+        if let Some(f) = mapping.methods.ass_subscript.load(Ordering::Relaxed) {
             let slice = PySlice {
                 start: Some(start.to_pyobject(vm)),
                 stop: stop.to_pyobject(vm),
@@ -353,7 +368,7 @@ impl PySequence<'_> {
     }
 
     pub fn contains(self, target: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Some(f) = self.methods.contains.load() {
+        if let Some(f) = self.methods.contains.load(Ordering::Relaxed) {
             return f(self, target, vm);
         }
 

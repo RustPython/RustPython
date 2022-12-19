@@ -5,13 +5,15 @@ use super::{
 };
 use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
-    atomic_func,
     class::PyClassImpl,
     convert::{ToPyException, ToPyObject},
     format::{FormatSpec, FormatString, FromTemplate},
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
-    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+    protocol::{
+        MappingLengthFn, MappingSubscriptFn, PyIterReturn, PyMappingMethods, PySequenceMethods,
+        SequenceConcatFn, SequenceContainsFn, SequenceItemFn, SequenceLengthFn, SequenceRepeatFn,
+    },
     sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
@@ -1303,39 +1305,41 @@ impl Iterable for PyStr {
 
 impl AsMapping for PyStr {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyStr::mapping_downcast(mapping).len())),
-            subscript: atomic_func!(
-                |mapping, needle, vm| PyStr::mapping_downcast(mapping)._getitem(needle, vm)
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: MappingLengthFn::from(
+                |mapping, _vm| Ok(PyStr::mapping_downcast(mapping).len()),
             ),
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
+                PyStr::mapping_downcast(mapping)._getitem(needle, vm)
+            }),
             ..PyMappingMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_MAPPING
     }
 }
 
 impl AsSequence for PyStr {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyStr::sequence_downcast(seq).len())),
-            concat: atomic_func!(|seq, other, vm| {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: SequenceLengthFn::from(|seq, _vm| Ok(PyStr::sequence_downcast(seq).len())),
+            concat: SequenceConcatFn::from(|seq, other, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
                 PyStr::add(zelf.to_owned(), other.to_owned(), vm)
             }),
-            repeat: atomic_func!(|seq, n, vm| {
+            repeat: SequenceRepeatFn::from(|seq, n, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
                 PyStr::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
             }),
-            item: atomic_func!(|seq, i, vm| {
+            item: SequenceItemFn::from(|seq, i, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
                 zelf.getitem_by_index(vm, i)
                     .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
             }),
-            contains: atomic_func!(
-                |seq, needle, vm| PyStr::sequence_downcast(seq)._contains(needle, vm)
-            ),
+            contains: SequenceContainsFn::from(|seq, needle, vm| {
+                PyStr::sequence_downcast(seq)._contains(needle, vm)
+            }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_SEQUENCE
     }
 }

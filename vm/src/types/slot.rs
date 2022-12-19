@@ -1,4 +1,4 @@
-use crate::common::{hash::PyHash, lock::PyRwLock};
+use crate::common::{hash::PyHash, lock::PyRwLock, atomic::{Ordering}};
 use crate::convert::ToPyObject;
 use crate::{
     builtins::{type_::PointerSlot, PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
@@ -15,14 +15,16 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::{borrow::Borrow, cmp::Ordering};
+use std::borrow::Borrow;
+// use std::{borrow::Borrow, cmp::Ordering};
 
-#[macro_export]
-macro_rules! atomic_func {
-    ($x:expr) => {
-        crossbeam_utils::atomic::AtomicCell::new(Some($x))
-    };
-}
+// #[macro_export]
+// macro_rules! atomic_func {
+//     ($x:expr) => {
+//         // crossbeam_utils::atomic::AtomicCell::new(Some($x))
+//         crate::common::atomic::PyAtomicFn::<Option<_>>::new(Some($x))
+//     };
+// }
 
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
@@ -376,7 +378,7 @@ impl PyType {
                     Some($func)
                 } else {
                     None
-                });
+                }, Ordering::Relaxed);
             }};
         }
 
@@ -793,11 +795,11 @@ impl PyComparisonOp {
         }
     }
 
-    pub fn eval_ord(self, ord: Ordering) -> bool {
+    pub fn eval_ord(self, ord: std::cmp::Ordering) -> bool {
         let bit = match ord {
-            Ordering::Less => Self::Lt,
-            Ordering::Equal => Self::Eq,
-            Ordering::Greater => Self::Gt,
+            std::cmp::Ordering::Less => Self::Lt,
+            std::cmp::Ordering::Equal => Self::Eq,
+            std::cmp::Ordering::Greater => Self::Gt,
         };
         self.0 as u8 & bit.0 as u8 != 0
     }

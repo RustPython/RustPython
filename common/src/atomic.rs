@@ -1,7 +1,7 @@
 use core::ptr::{self, NonNull};
 pub use core::sync::atomic::*;
 pub use radium::Radium;
-use std::{marker::PhantomData, mem::transmute};
+use std::{marker::PhantomData, mem::transmute, ptr::null_mut};
 
 mod sealed {
     pub trait Sealed {}
@@ -103,13 +103,14 @@ macro_rules! atomic_struct_transmute {
 pub use atomic_struct_transmute;
 
 pub trait FnPtr: Copy + sealed::Sealed {}
+// pub unsafe trait FnPtr: Copy {}
 
-pub struct PyAtomicFn<T: FnPtr> {
+pub struct PyAtomicFn<T> {
     inner: PyAtomic<*mut u8>,
     _marker: PhantomData<T>,
 }
 
-impl<T: FnPtr> Clone for PyAtomicFn<T> {
+impl<T> Clone for PyAtomicFn<T> {
     fn clone(&self) -> Self {
         Self {
             inner: Radium::new(self.inner.load(Ordering::Relaxed)),
@@ -118,47 +119,80 @@ impl<T: FnPtr> Clone for PyAtomicFn<T> {
     }
 }
 
-impl<T: FnPtr> PyAtomicFn<T> {
-    pub fn new(ptr: T) -> Self {
-        Self {
-            inner: Radium::new(unsafe { transmute(&ptr) }),
-            _marker: PhantomData::default(),
-        }
-    }
-
-    pub fn load(&self, order: Ordering) -> T {
-        unsafe { *transmute::<_, &T>(self.inner.load(order)) }
-    }
-
-    pub fn store(&self, ptr: T, order: Ordering) {
-        unsafe {
-            self.inner.store(transmute(&ptr), order);
-        }
-    }
-}
-
-macro_rules! impl_fn_ptr {
+macro_rules! impl_atomic_fn {
     ($($arg:ident),*) => {
-        impl<Ret, $($arg),*> sealed::Sealed for fn($($arg),*) -> Ret {}
-        impl<Ret, $($arg),*> FnPtr for fn($($arg),*) -> Ret {}
-        impl<Ret, $($arg),*> sealed::Sealed for Option<fn($($arg),*) -> Ret> {}
-        impl<Ret, $($arg),*> FnPtr for Option<fn($($arg),*) -> Ret> {}
+        impl<Ret, $($arg),*> PyAtomicFn<fn($($arg),*) -> Ret> {
+            pub fn new(ptr: fn($($arg),*) -> Ret) -> Self {
+                Self {
+                    inner: Radium::new(unsafe { transmute(ptr) }),
+                    _marker: PhantomData::default(),
+                }
+            }
+
+            pub fn load(&self, order: Ordering) -> fn($($arg),*) -> Ret {
+                unsafe { transmute::<_, fn($($arg),*) -> Ret>(self.inner.load(order)) }
+            }
+
+            pub fn store(&self, ptr: fn($($arg),*) -> Ret, order: Ordering) {
+                unsafe {
+                    self.inner.store(transmute(ptr), order);
+                }
+            }
+        }
+
+        impl<Ret, $($arg),*> PyAtomicFn<Option<fn($($arg),*) -> Ret>> {
+            pub fn from(ptr: fn($($arg),*) -> Ret) -> Self {
+                Self::new(Some(ptr))
+            }
+
+            pub fn new(ptr: Option<fn($($arg),*) -> Ret>) -> Self {
+                Self {
+                    inner: Radium::new(unsafe { transmute(ptr) }),
+                    _marker: PhantomData::default(),
+                }
+            }
+
+            pub fn load(&self, order: Ordering) -> Option<fn($($arg),*) -> Ret> {
+                unsafe { transmute::<_, Option<fn($($arg),*) -> Ret>>(self.inner.load(order)) }
+            }
+
+            pub fn store(&self, ptr: Option<fn($($arg),*) -> Ret>, order: Ordering) {
+                unsafe {
+                    self.inner.store(transmute(ptr), order);
+                }
+            }
+        }
     };
 }
 
-impl_fn_ptr!();
-impl_fn_ptr!(A);
-impl_fn_ptr!(A, B);
-impl_fn_ptr!(A, B, C);
-impl_fn_ptr!(A, B, C, D);
-impl_fn_ptr!(A, B, C, D, E);
-impl_fn_ptr!(A, B, C, D, E, F);
-impl_fn_ptr!(A, B, C, D, E, F, G);
-impl_fn_ptr!(A, B, C, D, E, F, G, H);
-impl_fn_ptr!(A, B, C, D, E, F, G, H, I);
-impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J);
-impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J, K);
-impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J, K, L);
+impl<T> Default for PyAtomicFn<Option<T>> {
+    fn default() -> Self {
+        Self { inner: Radium::new(null_mut()), _marker: Default::default() }
+    }
+}
+
+// macro_rules! impl_fn_ptr {
+//     ($($arg:ident),*) => {
+//         impl<Ret, $($arg),*> sealed::Sealed for fn($($arg),*) -> Ret {}
+//         impl<Ret, $($arg),*> FnPtr for fn($($arg),*) -> Ret {}
+//         impl<Ret, $($arg),*> sealed::Sealed for Option<fn($($arg),*) -> Ret> {}
+//         impl<Ret, $($arg),*> FnPtr for Option<fn($($arg),*) -> Ret> {}
+//     };
+// }
+
+impl_atomic_fn!();
+impl_atomic_fn!(A);
+impl_atomic_fn!(A, B);
+impl_atomic_fn!(A, B, C);
+impl_atomic_fn!(A, B, C, D);
+impl_atomic_fn!(A, B, C, D, E);
+impl_atomic_fn!(A, B, C, D, E, F);
+impl_atomic_fn!(A, B, C, D, E, F, G);
+impl_atomic_fn!(A, B, C, D, E, F, G, H);
+// impl_fn_ptr!(A, B, C, D, E, F, G, H, I);
+// impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J);
+// impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J, K);
+// impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J, K, L);
 
 pub struct OncePtr<T> {
     inner: PyAtomic<*mut T>,

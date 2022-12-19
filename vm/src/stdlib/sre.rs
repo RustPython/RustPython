@@ -3,7 +3,6 @@ pub(crate) use _sre::make_module;
 #[pymodule]
 mod _sre {
     use crate::{
-        atomic_func,
         builtins::{
             PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyStrRef, PyTuple,
             PyTupleRef, PyTypeRef,
@@ -11,7 +10,7 @@ mod _sre {
         common::{ascii, hash::PyHash},
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg, PosArgs, PyComparisonValue},
-        protocol::{PyBuffer, PyMappingMethods},
+        protocol::{PyBuffer, PyMappingMethods, MappingSubscriptFn},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable},
         PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, TryFromObject,
@@ -756,15 +755,15 @@ mod _sre {
 
     impl AsMapping for Match {
         fn as_mapping() -> &'static PyMappingMethods {
-            static AS_MAPPING: once_cell::sync::Lazy<PyMappingMethods> =
-                once_cell::sync::Lazy::new(|| PyMappingMethods {
-                    subscript: atomic_func!(|mapping, needle, vm| {
+            static AS_MAPPING: PyMappingMethods =
+                 PyMappingMethods {
+                    subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                         Match::mapping_downcast(mapping)
                             .getitem(needle.to_owned(), vm)
                             .map(|x| x.to_pyobject(vm))
                     }),
                     ..PyMappingMethods::NOT_IMPLEMENTED
-                });
+                };
             &AS_MAPPING
         }
     }

@@ -3,7 +3,6 @@ use super::{
 };
 use crate::{
     anystr::{self, AnyStr},
-    atomic_func,
     bytesinner::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -15,7 +14,7 @@ use crate::{
     function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods,
-        PySequenceMethods,
+        PySequenceMethods, MappingLengthFn, MappingSubscriptFn, SequenceLengthFn, SequenceConcatFn, SequenceRepeatFn, SequenceItemFn, SequenceContainsFn, NumberBinaryFn,
     },
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
@@ -574,10 +573,10 @@ impl AsBuffer for PyBytes {
 impl AsMapping for PyBytes {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyBytes::mapping_downcast(mapping).len())),
-            subscript: atomic_func!(
+            length: MappingLengthFn::new(Some(|mapping, _vm| Ok(PyBytes::mapping_downcast(mapping).len()))),
+            subscript: MappingSubscriptFn::new(Some(
                 |mapping, needle, vm| PyBytes::mapping_downcast(mapping)._getitem(needle, vm)
-            ),
+            )),
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
         &AS_MAPPING
@@ -587,31 +586,31 @@ impl AsMapping for PyBytes {
 impl AsSequence for PyBytes {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).len())),
-            concat: atomic_func!(|seq, other, vm| {
+            length: SequenceLengthFn::new(Some(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).len()))),
+            concat: SequenceConcatFn::new(Some(|seq, other, vm| {
                 PyBytes::sequence_downcast(seq)
                     .inner
                     .concat(other, vm)
                     .map(|x| vm.ctx.new_bytes(x).into())
-            }),
-            repeat: atomic_func!(|seq, n, vm| {
+            })),
+            repeat: SequenceRepeatFn::new(Some(|seq, n, vm| {
                 Ok(vm
                     .ctx
                     .new_bytes(PyBytes::sequence_downcast(seq).repeat(n))
                     .into())
-            }),
-            item: atomic_func!(|seq, i, vm| {
+            })),
+            item: SequenceItemFn::new(Some(|seq, i, vm| {
                 PyBytes::sequence_downcast(seq)
                     .inner
                     .elements
                     .getitem_by_index(vm, i)
                     .map(|x| vm.ctx.new_bytes(vec![x]).into())
-            }),
-            contains: atomic_func!(|seq, other, vm| {
+            })),
+            contains: SequenceContainsFn::new(Some(|seq, other, vm| {
                 let other =
                     <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
                 PyBytes::sequence_downcast(seq).contains(other, vm)
-            }),
+            })),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
@@ -621,11 +620,11 @@ impl AsSequence for PyBytes {
 impl AsNumber for PyBytes {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            remainder: atomic_func!(|number, other, vm| {
+            remainder: NumberBinaryFn::new(Some(|number, other, vm| {
                 PyBytes::number_downcast(number)
                     .mod_(other.to_owned(), vm)
                     .to_pyresult(vm)
-            }),
+            })),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
         &AS_NUMBER

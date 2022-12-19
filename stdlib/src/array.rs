@@ -1251,11 +1251,11 @@ mod array {
     impl AsMapping for PyArray {
         fn as_mapping() -> &'static PyMappingMethods {
             static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(PyArray::mapping_downcast(mapping).len())),
-                subscript: atomic_func!(|mapping, needle, vm| {
+                length: SequenceLengthFn::from(|mapping, _vm| Ok(PyArray::mapping_downcast(mapping).len())),
+                subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                     PyArray::mapping_downcast(mapping)._getitem(needle, vm)
                 }),
-                ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                ass_subscript: MappingAssSubscriptFn::from(|mapping, needle, value, vm| {
                     let zelf = PyArray::mapping_downcast(mapping);
                     if let Some(value) = value {
                         PyArray::_setitem(zelf.to_owned(), needle, value, vm)

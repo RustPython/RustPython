@@ -1,5 +1,4 @@
 use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
-use crate::atomic_func;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
@@ -8,7 +7,12 @@ use crate::{
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     iter::PyExactSizeIterator,
-    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+    protocol::{
+        MappingAssSubscriptFn, MappingLengthFn, MappingSubscriptFn, PyIterReturn, PyMappingMethods,
+        PySequenceMethods, SequenceAssItemFn, SequenceConcatFn, SequenceContainsFn,
+        SequenceInplaceConcatFn, SequenceInplaceRepeatFn, SequenceItemFn, SequenceLengthFn,
+        SequenceRepeatFn,
+    },
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
@@ -403,11 +407,13 @@ impl Initializer for PyList {
 impl AsMapping for PyList {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyList::mapping_downcast(mapping).len())),
-            subscript: atomic_func!(
-                |mapping, needle, vm| PyList::mapping_downcast(mapping)._getitem(needle, vm)
-            ),
-            ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+            length: MappingLengthFn::from(|mapping, _vm| {
+                Ok(PyList::mapping_downcast(mapping).len())
+            }),
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
+                PyList::mapping_downcast(mapping)._getitem(needle, vm)
+            }),
+            ass_subscript: MappingAssSubscriptFn::from(|mapping, needle, value, vm| {
                 let zelf = PyList::mapping_downcast(mapping);
                 if let Some(value) = value {
                     zelf._setitem(needle, value, vm)
@@ -423,23 +429,23 @@ impl AsMapping for PyList {
 impl AsSequence for PyList {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyList::sequence_downcast(seq).len())),
-            concat: atomic_func!(|seq, other, vm| {
+            length: SequenceLengthFn::from(|seq, _vm| Ok(PyList::sequence_downcast(seq).len())),
+            concat: SequenceConcatFn::from(|seq, other, vm| {
                 PyList::sequence_downcast(seq)
                     .concat(other, vm)
                     .map(|x| x.into())
             }),
-            repeat: atomic_func!(|seq, n, vm| {
+            repeat: SequenceRepeatFn::from(|seq, n, vm| {
                 PyList::sequence_downcast(seq)
                     .mul(n as isize, vm)
                     .map(|x| x.into())
             }),
-            item: atomic_func!(|seq, i, vm| {
+            item: SequenceItemFn::from(|seq, i, vm| {
                 PyList::sequence_downcast(seq)
                     .borrow_vec()
                     .getitem_by_index(vm, i)
             }),
-            ass_item: atomic_func!(|seq, i, value, vm| {
+            ass_item: SequenceAssItemFn::from(|seq, i, value, vm| {
                 let zelf = PyList::sequence_downcast(seq);
                 if let Some(value) = value {
                     zelf.borrow_vec_mut().setitem_by_index(vm, i, value)
@@ -447,15 +453,15 @@ impl AsSequence for PyList {
                     zelf.borrow_vec_mut().del_item_by_index(vm, i)
                 }
             }),
-            contains: atomic_func!(|seq, target, vm| {
+            contains: SequenceContainsFn::from(|seq, target, vm| {
                 let zelf = PyList::sequence_downcast(seq);
                 zelf.mut_contains(vm, target)
             }),
-            inplace_concat: atomic_func!(|seq, other, vm| {
+            inplace_concat: SequenceInplaceConcatFn::from(|seq, other, vm| {
                 let zelf = PyList::sequence_downcast(seq);
                 PyList::inplace_concat(zelf, other, vm)
             }),
-            inplace_repeat: atomic_func!(|seq, n, vm| {
+            inplace_repeat: SequenceInplaceRepeatFn::from(|seq, n, vm| {
                 let zelf = PyList::sequence_downcast(seq);
                 zelf.borrow_vec_mut().imul(vm, n as isize)?;
                 Ok(zelf.to_owned().into())
