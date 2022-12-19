@@ -154,7 +154,7 @@ pub type LexResult = Result<Spanned, LexicalError>;
 
 #[inline]
 pub fn make_tokenizer(source: &str) -> impl Iterator<Item = LexResult> + '_ {
-    make_tokenizer_located(source, Location::new(0, 0))
+    make_tokenizer_located(source, Location::new(1, 0))
 }
 
 pub fn make_tokenizer_located(
@@ -240,8 +240,6 @@ where
         if let Some('\u{feff}') = lxr.window[0] {
             lxr.window.slide();
         }
-        // Start at top row (=1) left column (=1)
-        lxr.location.reset();
         lxr
     }
 
@@ -681,7 +679,13 @@ where
             }
         } else {
             let kind = if is_fstring {
-                StringKind::F
+                // `offset` represents the number of characters preceding the f-string content
+                // f"a {b}"      => offset = 2 (f")
+                // rf"a {b}"     => offset = 3 (rf")
+                // f"""a {b}"""  => offset = 4 (f""")
+                // rf"""a {b}""" => offset = 5 (rf""")
+                let offset = if triple_quoted { 3 } else { 1 } + is_raw as u8 + is_fstring as u8;
+                StringKind::F(offset)
             } else if is_unicode {
                 StringKind::U
             } else {

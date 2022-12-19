@@ -110,7 +110,7 @@ pub enum Tok {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum StringKind {
     Normal,
-    F,
+    F(u8),
     U,
 }
 
@@ -124,7 +124,7 @@ impl fmt::Display for Tok {
             Complex { real, imag } => write!(f, "{real}j{imag}"),
             String { value, kind } => {
                 match kind {
-                    StringKind::F => f.write_str("f")?,
+                    StringKind::F(_) => f.write_str("f")?,
                     StringKind::U => f.write_str("u")?,
                     StringKind::Normal => {}
                 }

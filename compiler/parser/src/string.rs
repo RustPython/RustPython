@@ -49,14 +49,14 @@ pub fn parse_strings(
     for (start, (string, string_kind), end) in values {
         match string_kind {
             StringKind::Normal | StringKind::U => current.push(string),
-            StringKind::F => {
+            StringKind::F(offset) => {
                 has_fstring = true;
-                for value in
-                    parse_located_fstring(&string, start, end).map_err(|e| LexicalError {
+                for value in parse_located_fstring(&string, start, end, offset).map_err(|e| {
+                    LexicalError {
                         location: start,
                         error: LexicalErrorType::FStringError(e.error),
-                    })?
-                {
+                    }
+                })? {
                     match value.node {
                         ExprKind::FormattedValue { .. } => {
                             if !current.is_empty() {
