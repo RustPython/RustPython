@@ -67,11 +67,9 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
   9     >>   54 LoadNameAny          (3, self)
              55 LoadMethod           (fail)
              56 LoadConst            ("")
-
-  1          57 LoadNameAny          (2, stop_exc)
+             57 LoadNameAny          (2, stop_exc)
              58 FormatValue          (None)
-
-  9          59 LoadConst            (" was suppressed")
+             59 LoadConst            (" was suppressed")
              60 BuildString          (2)
              61 CallMethodPositional (1)
              62 Pop
