@@ -2,8 +2,13 @@ pub(crate) use decl::make_module;
 
 pub(super) use decl::crc32;
 
+pub fn decode<T: AsRef<[u8]>>(input: T) -> Result<Vec<u8>, base64::DecodeError> {
+    base64::decode_config(input, base64::STANDARD.decode_allow_trailing_bits(true))
+}
+
 #[pymodule(name = "binascii")]
 mod decl {
+    use super::decode;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyIntRef, PyTypeRef},
         function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
@@ -168,7 +173,7 @@ mod decl {
 
         s.with_ref(|b| {
             let decoded = if b.len() % 4 == 0 {
-                base64::decode(b)
+                decode(b)
             } else {
                 Err(base64::DecodeError::InvalidLength)
             };
@@ -181,7 +186,7 @@ mod decl {
                 if buf.len() % 4 != 0 {
                     return Err(base64::DecodeError::InvalidLength);
                 }
-                base64::decode(&buf)
+                decode(&buf)
             })
         })
         .map_err(|err| new_binascii_error(format!("error decoding base64: {err}"), vm))
