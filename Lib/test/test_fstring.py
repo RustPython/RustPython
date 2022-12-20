@@ -285,8 +285,6 @@ f'{a * x()} {a * x()} {a * x()}'
         self.assertEqual(binop.left.col_offset, 23)
         self.assertEqual(binop.right.col_offset, 27)
 
-    # TODO: RUSTPYTHON err col_offset and missing end_* attributes
-    @unittest.expectedFailure
     def test_ast_numbers_fstring_with_formatting(self):
 
         t = ast.parse('f"Here is that pesky {xxx:.3f} again"')
@@ -391,8 +389,6 @@ a = f'''
         self.assertEqual(t.body[0].value.values[1].value.col_offset, 11)
         self.assertEqual(t.body[0].value.values[1].value.end_col_offset, 16)
 
-    # TODO: RUSTPYTHON lineno, col_offset, end*
-    @unittest.expectedFailure
     def test_ast_line_numbers_with_parentheses(self):
         expr = """
 x = (
