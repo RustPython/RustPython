@@ -1284,7 +1284,7 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) struct PyExceptionDef {
+pub struct PyExceptionDef {
     pub class_name: Ident,
     pub base_class: Ident,
     pub ctx_name: Ident,

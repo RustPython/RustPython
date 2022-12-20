@@ -1,5 +1,4 @@
 use rustpython_codegen::{compile, symboltable};
-use rustpython_compiler_core::CodeObject;
 use rustpython_parser::{
     ast::{fold::Fold, ConstantOptimizer},
     error::ParseErrorType,
@@ -7,6 +6,7 @@ use rustpython_parser::{
 };
 
 pub use rustpython_codegen::compile::CompileOpts;
+pub use rustpython_compiler_core::CodeObject;
 pub use rustpython_compiler_core::{BaseError as CompileErrorBody, Mode};
 
 #[derive(Debug, thiserror::Error)]
