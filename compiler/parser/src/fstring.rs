@@ -30,7 +30,7 @@ impl FStringParser {
         &mut self,
         mut chars: iter::Peekable<str::Chars<'a>>,
         nested: u8,
-        expr_offset: Location,
+        offset: Location,
     ) -> Result<(Vec<Expr>, iter::Peekable<str::Chars<'a>>, String), FStringErrorType> {
         let mut expression = String::new();
         let mut parsed_chars = String::new();
@@ -176,7 +176,7 @@ impl FStringParser {
                     let ret = if !self_documenting {
                         vec![self.expr(ExprKind::FormattedValue {
                             value: Box::new(
-                                parse_fstring_expr(&expression, expr_offset)
+                                parse_fstring_expr(&expression, offset)
                                     .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                             ),
                             conversion: conversion as _,
@@ -194,7 +194,7 @@ impl FStringParser {
                             }),
                             self.expr(ExprKind::FormattedValue {
                                 value: Box::new(
-                                    parse_fstring_expr(&expression, expr_offset)
+                                    parse_fstring_expr(&expression, offset)
                                         .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                                 ),
                                 conversion: (if conversion == ConversionFlag::None && spec.is_none()
@@ -296,7 +296,7 @@ impl FStringParser {
 
         let mut content = String::new();
         let mut values = vec![];
-        let mut expr_offset = Location::new(
+        let mut offset = Location::new(
             self.str_start.row(),
             self.str_start.column() + self.offset as usize,
         );
@@ -305,12 +305,12 @@ impl FStringParser {
             match ch {
                 '{' => {
                     chars.next();
-                    expr_offset.go_right();
+                    offset.go_right();
                     if nested == 0 {
                         match chars.peek() {
                             Some('{') => {
                                 chars.next();
-                                expr_offset.go_right();
+                                offset.go_right();
                                 content.push('{');
                                 continue;
                             }
@@ -326,12 +326,12 @@ impl FStringParser {
                     }
 
                     let (parsed_values, remaining_chars, parsed_chars) =
-                        self.parse_formatted_value(chars, nested, expr_offset)?;
+                        self.parse_formatted_value(chars, nested, offset)?;
                     for ch in parsed_chars.chars() {
                         if ch == '\n' {
-                            expr_offset.newline();
+                            offset.newline();
                         } else {
-                            expr_offset.go_right();
+                            offset.go_right();
                         }
                     }
                     values.extend(parsed_values);
@@ -342,10 +342,10 @@ impl FStringParser {
                         break;
                     }
                     chars.next();
-                    expr_offset.go_right();
+                    offset.go_right();
                     if let Some('}') = chars.peek() {
                         chars.next();
-                        expr_offset.go_right();
+                        offset.go_right();
                         content.push('}');
                     } else {
                         return Err(SingleRbrace);
@@ -355,9 +355,9 @@ impl FStringParser {
                     content.push(ch);
                     chars.next();
                     if ch == '\n' {
-                        expr_offset.newline();
+                        offset.newline();
                     } else {
-                        expr_offset.go_right();
+                        offset.go_right();
                     }
                 }
             }
@@ -374,12 +374,12 @@ impl FStringParser {
     }
 }
 
-fn parse_fstring_expr(source: &str, expr_offset: Location) -> Result<Expr, ParseError> {
+fn parse_fstring_expr(source: &str, offset: Location) -> Result<Expr, ParseError> {
     let fstring_body = format!("({source})");
     parse_expression_located(
         &fstring_body,
         "<fstring>",
-        Location::new(expr_offset.row(), expr_offset.column() - 1),
+        Location::new(offset.row(), offset.column() - 1),
     )
 }
 
