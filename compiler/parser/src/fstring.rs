@@ -31,35 +31,37 @@ impl FStringParser {
         mut chars: iter::Peekable<str::Chars<'a>>,
         nested: u8,
         expr_offset: Location,
-    ) -> Result<(Vec<Expr>, iter::Peekable<str::Chars<'a>>), FStringErrorType> {
-        let mut expression = String::from("{");
+    ) -> Result<(Vec<Expr>, iter::Peekable<str::Chars<'a>>, String), FStringErrorType> {
+        let mut expression = String::new();
+        let mut parsed_chars = String::new();
         let mut spec = None;
         let mut delims = Vec::new();
         let mut conversion = ConversionFlag::None;
         let mut self_documenting = false;
         let mut trailing_seq = String::new();
         while let Some(ch) = chars.next() {
+            parsed_chars.push(ch);
             match ch {
-                // can be integrated better with the remainign code, but as a starting point ok
+                // can be integrated better with the remaining code, but as a starting point ok
                 // in general I would do here a tokenizing of the fstrings to omit this peeking.
                 '!' if chars.peek() == Some(&'=') => {
                     expression.push_str("!=");
-                    chars.next();
+                    parsed_chars.push(chars.next().unwrap());
                 }
 
                 '=' if chars.peek() == Some(&'=') => {
                     expression.push_str("==");
-                    chars.next();
+                    parsed_chars.push(chars.next().unwrap());
                 }
 
                 '>' if chars.peek() == Some(&'=') => {
                     expression.push_str(">=");
-                    chars.next();
+                    parsed_chars.push(chars.next().unwrap());
                 }
 
                 '<' if chars.peek() == Some(&'=') => {
                     expression.push_str("<=");
-                    chars.next();
+                    parsed_chars.push(chars.next().unwrap());
                 }
 
                 '!' if delims.is_empty() && chars.peek() != Some(&'=') => {
@@ -68,18 +70,23 @@ impl FStringParser {
                     }
 
                     conversion = match chars.next() {
-                        Some('s') => ConversionFlag::Str,
-                        Some('a') => ConversionFlag::Ascii,
-                        Some('r') => ConversionFlag::Repr,
-                        Some(_) => {
-                            return Err(if expression[1..].trim().is_empty() {
-                                EmptyExpression
-                            } else {
-                                InvalidConversionFlag
-                            });
+                        Some(ch) => {
+                            parsed_chars.push(ch);
+                            match ch {
+                                's' => ConversionFlag::Str,
+                                'a' => ConversionFlag::Ascii,
+                                'r' => ConversionFlag::Repr,
+                                _ => {
+                                    return Err(if expression.trim().is_empty() {
+                                        EmptyExpression
+                                    } else {
+                                        InvalidConversionFlag
+                                    });
+                                }
+                            }
                         }
                         None => {
-                            return Err(if expression[1..].trim().is_empty() {
+                            return Err(if expression.trim().is_empty() {
                                 EmptyExpression
                             } else {
                                 UnclosedLbrace
@@ -89,14 +96,14 @@ impl FStringParser {
 
                     if let Some(&peek) = chars.peek() {
                         if peek != '}' && peek != ':' {
-                            return Err(if expression[1..].trim().is_empty() {
+                            return Err(if expression.trim().is_empty() {
                                 EmptyExpression
                             } else {
                                 UnclosedLbrace
                             });
                         }
                     } else {
-                        return Err(if expression[1..].trim().is_empty() {
+                        return Err(if expression.trim().is_empty() {
                             EmptyExpression
                         } else {
                             UnclosedLbrace
@@ -111,8 +118,9 @@ impl FStringParser {
                 }
 
                 ':' if delims.is_empty() => {
-                    let (parsed_spec, remaining_chars) = self.parse_spec(chars, nested)?;
-
+                    let (parsed_spec, remaining_chars, parsed_chars_spec) =
+                        self.parse_spec(chars, nested)?;
+                    parsed_chars.push_str(&parsed_chars_spec);
                     spec = Some(Box::new(self.expr(ExprKind::JoinedStr {
                         values: parsed_spec,
                     })));
@@ -161,19 +169,15 @@ impl FStringParser {
                     }
                 }
                 '}' => {
-                    if expression[1..].trim().is_empty() {
+                    if expression.trim().is_empty() {
                         return Err(EmptyExpression);
                     }
-                    expression.push(ch);
 
                     let ret = if !self_documenting {
                         vec![self.expr(ExprKind::FormattedValue {
                             value: Box::new(
-                                parse_fstring_expr(
-                                    &expression[1..expression.len() - 1],
-                                    expr_offset,
-                                )
-                                .map_err(|e| InvalidExpression(Box::new(e.error)))?,
+                                parse_fstring_expr(&expression, expr_offset)
+                                    .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                             ),
                             conversion: conversion as _,
                             format_spec: spec,
@@ -181,9 +185,7 @@ impl FStringParser {
                     } else {
                         vec![
                             self.expr(ExprKind::Constant {
-                                value: Constant::Str(
-                                    expression[1..expression.len() - 1].to_owned() + "=",
-                                ),
+                                value: Constant::Str(expression.to_owned() + "="),
                                 kind: None,
                             }),
                             self.expr(ExprKind::Constant {
@@ -192,11 +194,8 @@ impl FStringParser {
                             }),
                             self.expr(ExprKind::FormattedValue {
                                 value: Box::new(
-                                    parse_fstring_expr(
-                                        &expression[1..expression.len() - 1],
-                                        expr_offset,
-                                    )
-                                    .map_err(|e| InvalidExpression(Box::new(e.error)))?,
+                                    parse_fstring_expr(&expression, expr_offset)
+                                        .map_err(|e| InvalidExpression(Box::new(e.error)))?,
                                 ),
                                 conversion: (if conversion == ConversionFlag::None && spec.is_none()
                                 {
@@ -208,7 +207,7 @@ impl FStringParser {
                             }),
                         ]
                     };
-                    return Ok((ret, chars));
+                    return Ok((ret, chars, parsed_chars));
                 }
                 '"' | '\'' => {
                     expression.push(ch);
@@ -237,7 +236,7 @@ impl FStringParser {
                 }
             }
         }
-        Err(if expression[1..].trim().is_empty() {
+        Err(if expression.trim().is_empty() {
             EmptyExpression
         } else {
             UnclosedLbrace
@@ -248,9 +247,10 @@ impl FStringParser {
         &mut self,
         mut chars: iter::Peekable<str::Chars<'a>>,
         nested: u8,
-    ) -> Result<(Vec<Expr>, iter::Peekable<str::Chars<'a>>), FStringErrorType> {
+    ) -> Result<(Vec<Expr>, iter::Peekable<str::Chars<'a>>, String), FStringErrorType> {
         let mut spec_constructor = Vec::new();
         let mut constant_piece = String::new();
+        let mut parsed_chars = String::new();
         while let Some(&next) = chars.peek() {
             match next {
                 '{' => {
@@ -273,7 +273,7 @@ impl FStringParser {
                     constant_piece.push(next);
                 }
             }
-            chars.next();
+            parsed_chars.push(chars.next().unwrap());
         }
         if !constant_piece.is_empty() {
             spec_constructor.push(self.expr(ExprKind::Constant {
@@ -282,7 +282,7 @@ impl FStringParser {
             }));
             constant_piece.clear();
         }
-        Ok((spec_constructor, chars))
+        Ok((spec_constructor, chars, parsed_chars))
     }
 
     fn parse<'a>(
@@ -325,8 +325,15 @@ impl FStringParser {
                         }));
                     }
 
-                    let (parsed_values, remaining_chars) =
+                    let (parsed_values, remaining_chars, parsed_chars) =
                         self.parse_formatted_value(chars, nested, expr_offset)?;
+                    for ch in parsed_chars.chars() {
+                        if ch == '\n' {
+                            expr_offset.newline();
+                        } else {
+                            expr_offset.go_right();
+                        }
+                    }
                     values.extend(parsed_values);
                     chars = remaining_chars;
                 }
@@ -398,7 +405,7 @@ mod tests {
     use super::*;
 
     fn parse_fstring(source: &str) -> Result<Vec<Expr>, FStringErrorType> {
-        FStringParser::new(Location::default(), Location::default(), 2)
+        FStringParser::new(Location::default(), Location::default(), 0)
             .parse(source.chars().peekable(), 0)
             .map(|(e, _)| e)
     }
@@ -407,7 +414,6 @@ mod tests {
     fn test_parse_fstring() {
         let source = "{a}{ b }{{foo}}";
         let parse_ast = parse_fstring(source).unwrap();
-
         insta::assert_debug_snapshot!(parse_ast);
     }
 
