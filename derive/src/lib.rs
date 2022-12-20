@@ -104,14 +104,30 @@ pub fn pystruct_sequence_try_from_object(
     result_to_tokens(pystructseq::impl_pystruct_sequence_try_from_object(input))
 }
 
+// would be cool to move all the macro implementation to a separate rustpython-derive-shared
+// that just depends on rustpython-compiler-core, and then rustpython-derive would hook -compiler
+// up to it; so that (the bulk of) rustpython-derive and rustpython-codegen could build in parallel
+struct Compiler;
+impl compile_bytecode::Compiler for Compiler {
+    fn compile(
+        &self,
+        source: &str,
+        mode: rustpython_compiler_core::Mode,
+        module_name: String,
+    ) -> Result<rustpython_compiler_core::CodeObject, Box<dyn std::error::Error>> {
+        use rustpython_compiler::{compile, CompileOpts};
+        Ok(compile(source, mode, module_name, CompileOpts::default())?)
+    }
+}
+
 #[proc_macro]
 pub fn py_compile(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    result_to_tokens(compile_bytecode::impl_py_compile(input.into()))
+    result_to_tokens(compile_bytecode::impl_py_compile(input.into(), &Compiler))
 }
 
 #[proc_macro]
 pub fn py_freeze(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    result_to_tokens(compile_bytecode::impl_py_freeze(input.into()))
+    result_to_tokens(compile_bytecode::impl_py_freeze(input.into(), &Compiler))
 }
 
 #[proc_macro_derive(PyPayload)]

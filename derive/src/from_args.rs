@@ -1,4 +1,3 @@
-use crate::util::path_eq;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
@@ -39,39 +38,39 @@ impl ArgAttribute {
         if !attr.path.is_ident("pyarg") {
             return None;
         }
-        let inner = move || match attr.parse_meta()? {
-            Meta::List(list) => {
-                let mut iter = list.nested.iter();
-                let first_arg = iter.next().ok_or_else(|| {
-                    err_span!(list, "There must be at least one argument to #[pyarg()]")
-                })?;
-                let kind = match first_arg {
-                    NestedMeta::Meta(Meta::Path(path)) => {
-                        path.get_ident().and_then(ParameterKind::from_ident)
-                    }
-                    _ => None,
-                };
-                let kind = kind.ok_or_else(|| {
-                    err_span!(
-                        first_arg,
-                        "The first argument to #[pyarg()] must be the parameter type, either \
-                         'positional', 'any', 'named', or 'flatten'."
-                    )
-                })?;
-
-                let mut attribute = ArgAttribute {
-                    name: None,
-                    kind,
-                    default: None,
-                };
-
-                for arg in iter {
-                    attribute.parse_argument(arg)?;
+        let inner = move || {
+            let Meta::List(list) = attr.parse_meta()? else {
+                bail_span!(attr, "pyarg must be a list, like #[pyarg(...)]")
+            };
+            let mut iter = list.nested.iter();
+            let first_arg = iter.next().ok_or_else(|| {
+                err_span!(list, "There must be at least one argument to #[pyarg()]")
+            })?;
+            let kind = match first_arg {
+                NestedMeta::Meta(Meta::Path(path)) => {
+                    path.get_ident().and_then(ParameterKind::from_ident)
                 }
+                _ => None,
+            };
+            let kind = kind.ok_or_else(|| {
+                err_span!(
+                    first_arg,
+                    "The first argument to #[pyarg()] must be the parameter type, either \
+                         'positional', 'any', 'named', or 'flatten'."
+                )
+            })?;
 
-                Ok(attribute)
+            let mut attribute = ArgAttribute {
+                name: None,
+                kind,
+                default: None,
+            };
+
+            for arg in iter {
+                attribute.parse_argument(arg)?;
             }
-            _ => bail_span!(attr, "pyarg must be a list, like #[pyarg(...)]"),
+
+            Ok(attribute)
         };
         Some(inner())
     }
@@ -82,7 +81,7 @@ impl ArgAttribute {
         }
         match arg {
             NestedMeta::Meta(Meta::Path(path)) => {
-                if path_eq(path, "default") || path_eq(path, "optional") {
+                if path.is_ident("default") || path.is_ident("optional") {
                     if self.default.is_none() {
                         self.default = Some(None);
                     }
@@ -91,7 +90,7 @@ impl ArgAttribute {
                 }
             }
             NestedMeta::Meta(Meta::NameValue(name_value)) => {
-                if path_eq(&name_value.path, "default") {
+                if name_value.path.is_ident("default") {
                     if matches!(self.default, Some(Some(_))) {
                         bail_span!(name_value, "Default already set");
                     }
@@ -100,7 +99,7 @@ impl ArgAttribute {
                         Lit::Str(ref val) => self.default = Some(Some(val.parse()?)),
                         _ => bail_span!(name_value, "Expected string value for default argument"),
                     }
-                } else if path_eq(&name_value.path, "name") {
+                } else if name_value.path.is_ident("name") {
                     if self.name.is_some() {
                         bail_span!(name_value, "already have a name")
                     }

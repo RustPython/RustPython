@@ -3,8 +3,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::{HashMap, HashSet};
 use syn::{
-    spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Path, Result, Signature,
-    UseTree,
+    spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Result, Signature, UseTree,
 };
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
@@ -136,12 +135,10 @@ impl ItemMetaInner {
                 if allowed_names.contains(&name.as_str()) {
                     Ok(Some(name))
                 } else {
-                    Err(syn::Error::new_spanned(
+                    Err(err_span!(
                         ident,
-                        format!(
-                            "#[{meta_ident}({name})] is not one of allowed attributes [{}]",
-                            allowed_names.join(", ")
-                        ),
+                        "#[{meta_ident}({name})] is not one of allowed attributes [{}]",
+                        allowed_names.iter().format(", ")
                     ))
                 }
             } else {
@@ -149,10 +146,7 @@ impl ItemMetaInner {
             }
         })?;
         if !lits.is_empty() {
-            return Err(syn::Error::new_spanned(
-                &meta_ident,
-                format!("#[{meta_ident}(..)] cannot contain literal"),
-            ));
+            bail_span!(meta_ident, "#[{meta_ident}(..)] cannot contain literal")
         }
 
         Ok(Self {
@@ -172,22 +166,12 @@ impl ItemMetaInner {
 
     pub fn _optional_str(&self, key: &str) -> Result<Option<String>> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
-            match meta {
-                Meta::NameValue(syn::MetaNameValue {
-                    lit: syn::Lit::Str(lit),
-                    ..
-                }) => Some(lit.value()),
-                other => {
-                    return Err(syn::Error::new_spanned(
-                        other,
-                        format!(
-                            "#[{}({} = ...)] must exist as a string",
-                            self.meta_name(),
-                            key
-                        ),
-                    ));
-                }
-            }
+            let Meta::NameValue(syn::MetaNameValue {
+                lit: syn::Lit::Str(lit), ..
+            }) = meta else {
+                bail_span!(meta, "#[{}({} = ...)] must exist as a string", self.meta_name(), key)
+            };
+            Some(lit.value())
         } else {
             None
         };
@@ -202,12 +186,7 @@ impl ItemMetaInner {
                     ..
                 }) => lit.value,
                 Meta::Path(_) => true,
-                other => {
-                    return Err(syn::Error::new_spanned(
-                        other,
-                        format!("#[{}({})] is expected", self.meta_name(), key),
-                    ))
-                }
+                _ => bail_span!(meta, "#[{}({})] is expected", self.meta_name(), key),
             }
         } else {
             false
@@ -252,10 +231,7 @@ pub(crate) trait ItemMeta: Sized {
 
     fn new_meta_error(&self, msg: &str) -> syn::Error {
         let inner = self.inner();
-        syn::Error::new_spanned(
-            &inner.meta_ident,
-            format!("#[{}] {}", inner.meta_name(), msg),
-        )
+        err_span!(inner.meta_ident, "#[{}] {}", inner.meta_name(), msg)
     }
 }
 pub(crate) struct SimpleItemMeta(pub ItemMetaInner);
@@ -301,25 +277,22 @@ impl ClassItemMeta {
     pub fn class_name(&self) -> Result<String> {
         const KEY: &str = "name";
         let inner = self.inner();
-        let value = if let Some((_, meta)) = inner.meta_map.get(KEY) {
+        if let Some((_, meta)) = inner.meta_map.get(KEY) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
                     lit: syn::Lit::Str(lit),
                     ..
-                }) => Some(lit.value()),
-                Meta::Path(_) => Some(inner.item_name()),
-                _ => None,
+                }) => return Ok(lit.value()),
+                Meta::Path(_) => return Ok(inner.item_name()),
+                _ => {}
             }
-        } else {
-            None
-        }.ok_or_else(|| syn::Error::new_spanned(
-            &inner.meta_ident,
-            format!(
-                "#[{attr_name}(name = ...)] must exist as a string. Try #[{attr_name}(name)] to use rust type name.",
-                attr_name=inner.meta_name()
-            ),
-        ))?;
-        Ok(value)
+        }
+        bail_span!(
+            inner.meta_ident,
+            "#[{attr_name}(name = ...)] must exist as a string. Try \
+             #[{attr_name}(name)] to use rust type name.",
+            attr_name = inner.meta_name()
+        )
     }
 
     pub fn base(&self) -> Result<Option<String>> {
@@ -364,19 +337,13 @@ impl ClassItemMeta {
     // pub fn mandatory_module(&self) -> Result<String> {
     //     let inner = self.inner();
     //     let value = self.module().ok().flatten().
-    //     ok_or_else(|| syn::Error::new_spanned(
-    //         &inner.meta_ident,
-    //         format!(
-    //             "#[{attr_name}(module = ...)] must exist as a string. Built-in module is not allowed here.",
-    //             attr_name=inner.meta_name()
-    //         ),
+    //     ok_or_else(|| err_span!(
+    //         inner.meta_ident,
+    //         "#[{attr_name}(module = ...)] must exist as a string. Built-in module is not allowed here.",
+    //         attr_name = inner.meta_name()
     //     ))?;
     //     Ok(value)
     // }
-}
-
-pub(crate) fn path_eq(path: &Path, s: &str) -> bool {
-    path.get_ident().map_or(false, |id| id == s)
 }
 
 pub(crate) trait AttributeExt: SynAttributeExt {
@@ -392,13 +359,10 @@ impl AttributeExt for Attribute {
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta> {
         let list = self.promoted_list().map_err(|mut e| {
             let name = self.get_ident().unwrap().to_string();
-            e.combine(syn::Error::new_spanned(
+            e.combine(err_span!(
                 self,
-                format!(
-                    "#[{name} = \"...\"] cannot be a name/value, you probably meant \
-                     #[{name}(name = \"...\")]",
-                    name = name,
-                ),
+                "#[{name} = \"...\"] cannot be a name/value, you probably meant \
+                 #[{name}(name = \"...\")]",
             ));
             e
         })?;
@@ -457,7 +421,7 @@ impl AttributeExt for Attribute {
             let has_name = list
                 .nested
                 .iter()
-                .any(|nmeta| nmeta.get_path().map_or(false, |p| path_eq(p, name)));
+                .any(|nmeta| nmeta.get_path().map_or(false, |p| p.is_ident(name)));
             if !has_name {
                 list.nested.push(new_item())
             }
@@ -476,7 +440,7 @@ pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Att
                 .into_iter()
                 .exactly_one()
                 .map_err(|_| {
-                    syn::Error::new_spanned(
+                    err_span!(
                         item_use,
                         "#[pyclass] can only be on single name use statement",
                     )
@@ -484,10 +448,10 @@ pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Att
             &item_use.attrs,
         ),
         other => {
-            return Err(syn::Error::new_spanned(
+            bail_span!(
                 other,
                 "#[pyclass] can only be on a struct, enum or use declaration",
-            ))
+            )
         }
     })
 }
@@ -570,7 +534,7 @@ where
             }
         }
         UseTree::Glob(glob) => {
-            return Err(syn::Error::new_spanned(glob, "#[py*] doesn't allow '*'"))
+            bail_span!(glob, "#[py*] doesn't allow '*'")
         }
     }
     Ok(())
