@@ -1,6 +1,7 @@
 use core::ptr::{self, NonNull};
 pub use core::sync::atomic::*;
 pub use radium::Radium;
+use std::marker::PhantomData;
 
 mod sealed {
     pub trait Sealed {}
@@ -51,6 +52,55 @@ impl<T> sealed::Sealed for *mut T {}
 impl<T> PyAtomicScalar for *mut T {
     type Radium = atomic_ty!(*mut T, AtomicPtr<T>);
 }
+
+pub trait StructConverter {
+    type T: Sized;
+    fn save(val: Self::T) -> usize;
+    fn restore(mem: usize) -> Self::T;
+}
+
+pub struct PyAtomicStruct<W: StructConverter> {
+    inner: PyAtomic<usize>,
+    _marker: PhantomData<W>,
+}
+
+impl<W: StructConverter> PyAtomicStruct<W> {
+    pub fn new(val: W::T) -> Self {
+        Self {
+            inner: Radium::new(W::save(val)),
+            _marker: Default::default(),
+        }
+    }
+
+    pub fn load(&self, order: Ordering) -> W::T {
+        W::restore(self.inner.load(order))
+    }
+
+    pub fn store(&self, val: W::T, order: Ordering) {
+        self.inner.store(W::save(val), order)
+    }
+}
+
+#[macro_export]
+macro_rules! atomic_struct_transmute {
+    ($($vis:vis type $name:ident: $typ:ty;)*) => {
+        $(rustpython_vm::__exports::paste::paste! {
+            struct [<$name Wrapper>]($typ);
+            impl rustpython_common::atomic::StructConverter for [<$name Wrapper>] {
+                type T = $typ;
+                fn save(x: Self::T) -> usize {
+                    unsafe { std::mem::transmute(x) }
+                }
+                fn restore(x: usize) -> Self::T {
+                    unsafe { std::mem::transmute(x) }
+                }
+            }
+
+            $vis type $name = rustpython_common::atomic::PyAtomicStruct::<[<$name Wrapper>]>;
+        })*
+    }
+}
+pub use atomic_struct_transmute;
 
 pub struct OncePtr<T> {
     inner: PyAtomic<*mut T>,
