@@ -6,12 +6,28 @@ use std::fmt::{self, Write};
 /// Python source code can be tokenized in a sequence of these tokens.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tok {
-    Name { name: String },
-    Int { value: BigInt },
-    Float { value: f64 },
-    Complex { real: f64, imag: f64 },
-    String { value: String, kind: StringKind },
-    Bytes { value: Vec<u8> },
+    Name {
+        name: String,
+    },
+    Int {
+        value: BigInt,
+    },
+    Float {
+        value: f64,
+    },
+    Complex {
+        real: f64,
+        imag: f64,
+    },
+    String {
+        value: String,
+        kind: StringKind,
+        triple_quoted: bool,
+        prefix: Option<String>,
+    },
+    Bytes {
+        value: Vec<u8>,
+    },
     Newline,
     Indent,
     Dedent,
@@ -110,7 +126,7 @@ pub enum Tok {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum StringKind {
     Normal,
-    F(u8),
+    F,
     U,
 }
 
@@ -122,9 +138,9 @@ impl fmt::Display for Tok {
             Int { value } => write!(f, "'{value}'"),
             Float { value } => write!(f, "'{value}'"),
             Complex { real, imag } => write!(f, "{real}j{imag}"),
-            String { value, kind } => {
+            String { value, kind, .. } => {
                 match kind {
-                    StringKind::F(_) => f.write_str("f")?,
+                    StringKind::F => f.write_str("f")?,
                     StringKind::U => f.write_str("u")?,
                     StringKind::Normal => {}
                 }

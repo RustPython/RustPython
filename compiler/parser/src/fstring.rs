@@ -9,11 +9,11 @@ use std::{iter, mem, str};
 struct FStringParser {
     str_start: Location,
     str_end: Location,
-    offset: u8,
+    offset: usize,
 }
 
 impl FStringParser {
-    fn new(str_start: Location, str_end: Location, offset: u8) -> Self {
+    fn new(str_start: Location, str_end: Location, offset: usize) -> Self {
         Self {
             str_start,
             str_end,
@@ -389,7 +389,7 @@ pub fn parse_located_fstring(
     source: &str,
     start: Location,
     end: Location,
-    offset: u8,
+    offset: usize,
 ) -> Result<Vec<Expr>, FStringError> {
     FStringParser::new(start, end, offset)
         .parse(source.chars().peekable(), 0)

@@ -7,7 +7,11 @@ use crate::{
 use itertools::Itertools;
 
 pub fn parse_strings(
-    values: Vec<(Location, (String, StringKind), Location)>,
+    values: Vec<(
+        Location,
+        (String, StringKind, Option<String>, bool),
+        Location,
+    )>,
 ) -> Result<Expr, LexicalError> {
     // Preserve the initial location and kind.
     let initial_start = values[0].0;
@@ -15,7 +19,10 @@ pub fn parse_strings(
     let initial_kind = (values[0].1 .1 == StringKind::U).then(|| "u".to_owned());
 
     // Optimization: fast-track the common case of a single string.
-    if matches!(&*values, [(_, (_, StringKind::Normal | StringKind::U), _)]) {
+    if matches!(
+        &*values,
+        [(_, (_, StringKind::Normal | StringKind::U, _, _), _)]
+    ) {
         let value = values.into_iter().last().unwrap().1 .0;
         return Ok(Expr::new(
             initial_start,
@@ -46,11 +53,14 @@ pub fn parse_strings(
         )
     };
 
-    for (start, (string, string_kind), end) in values {
+    for (start, (string, string_kind, prefix, triple_quoted), end) in values {
         match string_kind {
             StringKind::Normal | StringKind::U => current.push(string),
-            StringKind::F(offset) => {
+            StringKind::F => {
                 has_fstring = true;
+                // The number of characters preceding the f-string content.
+                let offset = prefix.map(|prefix| prefix.len()).unwrap_or(0)
+                    + if triple_quoted { 3 } else { 1 };
                 for value in parse_located_fstring(&string, start, end, offset).map_err(|e| {
                     LexicalError {
                         location: start,

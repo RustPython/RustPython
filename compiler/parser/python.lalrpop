@@ -1449,7 +1449,12 @@ extern {
         int => lexer::Tok::Int { value: <BigInt> },
         float => lexer::Tok::Float { value: <f64> },
         complex => lexer::Tok::Complex { real: <f64>, imag: <f64> },
-        string => lexer::Tok::String { value: <String>, kind: <StringKind> },
+        string => lexer::Tok::String {
+            value: <String>,
+            kind: <StringKind>,
+            prefix: <Option<String>>,
+            triple_quoted: <bool>,
+        },
         bytes => lexer::Tok::Bytes { value: <Vec<u8>> },
         name => lexer::Tok::Name { name: <String> },
         "\n" => lexer::Tok::Newline,

@@ -679,21 +679,30 @@ where
             }
         } else {
             let kind = if is_fstring {
-                // `offset` represents the number of characters preceding the f-string content
-                // f"a {b}"      => offset = 2 (f")
-                // rf"a {b}"     => offset = 3 (rf")
-                // f"""a {b}"""  => offset = 4 (f""")
-                // rf"""a {b}""" => offset = 5 (rf""")
-                let offset = if triple_quoted { 3 } else { 1 } + is_raw as u8 + is_fstring as u8;
-                StringKind::F(offset)
+                StringKind::F
             } else if is_unicode {
                 StringKind::U
             } else {
                 StringKind::Normal
             };
+
+            let prefix = if is_raw && is_fstring {
+                Some("rf".to_string())
+            } else if is_raw {
+                Some('r'.to_string())
+            } else if is_fstring {
+                Some('f'.to_string())
+            } else if is_unicode {
+                Some('u'.to_string())
+            } else {
+                None
+            };
+
             Tok::String {
                 value: string_content,
                 kind,
+                triple_quoted,
+                prefix,
             }
         };
 
@@ -1374,6 +1383,8 @@ mod tests {
         Tok::String {
             value: s.to_owned(),
             kind: StringKind::Normal,
+            prefix: None,
+            triple_quoted: false,
         }
     }
 
