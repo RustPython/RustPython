@@ -6,13 +6,9 @@ use crate::{
 };
 use itertools::Itertools;
 
-pub fn parse_strings(
-    values: Vec<(
-        Location,
-        (String, StringKind, Option<String>, bool),
-        Location,
-    )>,
-) -> Result<Expr, LexicalError> {
+type StringToken = (String, StringKind, Option<String>, bool);
+
+pub fn parse_strings(values: Vec<(Location, StringToken, Location)>) -> Result<Expr, LexicalError> {
     // Preserve the initial location and kind.
     let initial_start = values[0].0;
     let last_end = values.last().unwrap().2;
