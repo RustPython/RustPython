@@ -73,7 +73,7 @@ impl PyPathLike {
         self.path.into_os_string().into_vec()
     }
 
-    #[cfg(any(unix, target_os = "wasi"))]
+    // #[cfg(any(unix, target_os = "wasi"))]
     pub fn into_cstring(self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
         ffi::CString::new(self.into_bytes()).map_err(|err| err.into_pyexception(vm))
     }
