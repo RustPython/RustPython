@@ -89,6 +89,7 @@ mod symtable {
                         .filter(|table| table.name == name)
                         .cloned()
                         .collect(),
+                    is_top_scope: self.symtable.name == "top",
                 }
                 .into_ref(vm))
             } else {
@@ -123,6 +124,7 @@ mod symtable {
                             .filter(|&table| table.name == s.name)
                             .cloned()
                             .collect(),
+                        is_top_scope: self.symtable.name == "top",
                     })
                     .into_ref(vm)
                     .into()
@@ -154,6 +156,7 @@ mod symtable {
     struct PySymbol {
         symbol: Symbol,
         namespaces: Vec<SymbolTable>,
+        is_top_scope: bool,
     }
 
     impl fmt::Debug for PySymbol {
