@@ -179,7 +179,7 @@ mod symtable {
 
         #[pymethod]
         fn is_local(&self) -> bool {
-            self.symbol.is_local()
+            self.symbol.is_local() || (self.is_top_scope && self.symbol.is_bound())
         }
 
         #[pymethod]

@@ -150,7 +150,7 @@ impl Symbol {
     }
 
     pub fn is_local(&self) -> bool {
-        self.scope == SymbolScope::Local
+        matches!(self.scope, SymbolScope::Local | SymbolScope::Cell)
     }
 
     pub fn is_bound(&self) -> bool {
