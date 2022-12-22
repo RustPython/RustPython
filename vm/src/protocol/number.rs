@@ -7,11 +7,15 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
-use rustpython_common::atomic::{PyAtomicFn, Ordering};
+use rustpython_common::atomic::{atomic_struct_transmuted, Ordering};
 
-pub type NumberUnaryFn<R = PyObjectRef> = PyAtomicFn<Option<fn(&PyNumber, &VirtualMachine) -> PyResult<R>>>;
-pub type NumberBinaryFn<R = PyObjectRef> =
-    PyAtomicFn<Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult<R>>>;
+atomic_struct_transmuted! {
+    pub type NumberUnaryFn: Option<fn(&PyNumber, &VirtualMachine) -> PyResult>;
+    pub type NumberBinaryFn: Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult>;
+    pub type NumberIntFn: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyIntRef>>;
+    pub type NumberFloatFn: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<PyRef<PyFloat>>>;
+    pub type NumberBooleanFn: Option<fn(&PyNumber, &VirtualMachine) -> PyResult<bool>>;
+}
 
 impl PyObject {
     #[inline]
@@ -139,15 +143,15 @@ pub struct PyNumberMethods {
     pub negative: NumberUnaryFn,
     pub positive: NumberUnaryFn,
     pub absolute: NumberUnaryFn,
-    pub boolean: NumberUnaryFn<bool>,
+    pub boolean: NumberBooleanFn,
     pub invert: NumberUnaryFn,
     pub lshift: NumberBinaryFn,
     pub rshift: NumberBinaryFn,
     pub and: NumberBinaryFn,
     pub xor: NumberBinaryFn,
     pub or: NumberBinaryFn,
-    pub int: NumberUnaryFn<PyRef<PyInt>>,
-    pub float: NumberUnaryFn<PyRef<PyFloat>>,
+    pub int: NumberIntFn,
+    pub float: NumberFloatFn,
 
     pub inplace_add: NumberBinaryFn,
     pub inplace_subtract: NumberBinaryFn,
@@ -166,7 +170,7 @@ pub struct PyNumberMethods {
     pub inplace_floor_divide: NumberBinaryFn,
     pub inplace_true_divide: NumberBinaryFn,
 
-    pub index: NumberUnaryFn<PyRef<PyInt>>,
+    pub index: NumberIntFn,
 
     pub matrix_multiply: NumberBinaryFn,
     pub inplace_matrix_multiply: NumberBinaryFn,
@@ -260,27 +264,29 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn int(&self, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
-        Ok(if let Some(f) = self.methods().int.load(Ordering::Relaxed) {
-            let ret = f(self, vm)?;
-            Some(if !ret.class().is(PyInt::class(vm)) {
-                warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning,
-                    format!(
-                        "__int__ returned non-int (type {}).  \
+        Ok(
+            if let Some(f) = self.methods().int.load(Ordering::Relaxed) {
+                let ret = f(self, vm)?;
+                Some(if !ret.class().is(PyInt::class(vm)) {
+                    warnings::warn(
+                        vm.ctx.exceptions.deprecation_warning,
+                        format!(
+                            "__int__ returned non-int (type {}).  \
                 The ability to return an instance of a strict subclass of int \
                 is deprecated, and may be removed in a future version of Python.",
-                        ret.class()
-                    ),
-                    1,
-                    vm,
-                )?;
-                vm.ctx.new_bigint(ret.as_bigint())
+                            ret.class()
+                        ),
+                        1,
+                        vm,
+                    )?;
+                    vm.ctx.new_bigint(ret.as_bigint())
+                } else {
+                    ret
+                })
             } else {
-                ret
-            })
-        } else {
-            None
-        })
+                None
+            },
+        )
     }
 
     #[inline]
@@ -310,26 +316,28 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn float(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
-        Ok(if let Some(f) = self.methods().float.load(Ordering::Relaxed) {
-            let ret = f(self, vm)?;
-            Some(if !ret.class().is(PyFloat::class(vm)) {
-                warnings::warn(
-                    vm.ctx.exceptions.deprecation_warning,
-                    format!(
-                        "__float__ returned non-float (type {}).  \
+        Ok(
+            if let Some(f) = self.methods().float.load(Ordering::Relaxed) {
+                let ret = f(self, vm)?;
+                Some(if !ret.class().is(PyFloat::class(vm)) {
+                    warnings::warn(
+                        vm.ctx.exceptions.deprecation_warning,
+                        format!(
+                            "__float__ returned non-float (type {}).  \
                 The ability to return an instance of a strict subclass of float \
                 is deprecated, and may be removed in a future version of Python.",
-                        ret.class()
-                    ),
-                    1,
-                    vm,
-                )?;
-                vm.ctx.new_float(ret.to_f64())
+                            ret.class()
+                        ),
+                        1,
+                        vm,
+                    )?;
+                    vm.ctx.new_float(ret.to_f64())
+                } else {
+                    ret
+                })
             } else {
-                ret
-            })
-        } else {
-            None
-        })
+                None
+            },
+        )
     }
 }

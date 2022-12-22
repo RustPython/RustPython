@@ -8,7 +8,7 @@ use crate::{
         PyComparisonValue,
     },
     identifier,
-    protocol::{NumberBinaryFn, NumberUnaryFn, PyNumber, PyNumberMethods},
+    protocol::{NumberBinaryFn, NumberUnaryFn, PyNumber, PyNumberMethods, NumberBooleanFn},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -470,7 +470,7 @@ impl AsNumber for PyComplex {
                 let value = PyComplex::number_downcast(number).value;
                 value.norm().to_pyresult(vm)
             }),
-            boolean: NumberUnaryFn::from(|number, _vm| {
+            boolean: NumberBooleanFn::from(|number, _vm| {
                 Ok(PyComplex::number_downcast(number).value.is_zero())
             }),
             true_divide: NumberBinaryFn::from(|number, other, vm| {

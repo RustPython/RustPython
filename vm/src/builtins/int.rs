@@ -9,7 +9,9 @@ use crate::{
         ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,
         PyComparisonValue,
     },
-    protocol::{NumberBinaryFn, NumberUnaryFn, PyNumber, PyNumberMethods},
+    protocol::{
+        NumberBinaryFn, NumberFloatFn, NumberIntFn, NumberUnaryFn, PyNumber, PyNumberMethods, NumberBooleanFn,
+    },
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, VirtualMachine,
@@ -754,7 +756,7 @@ impl AsNumber for PyInt {
             absolute: NumberUnaryFn::from(|num, vm| {
                 PyInt::number_downcast(num).value.abs().to_pyresult(vm)
             }),
-            boolean: NumberUnaryFn::from(|num, _vm| {
+            boolean: NumberBooleanFn::from(|num, _vm| {
                 Ok(PyInt::number_downcast(num).value.is_zero())
             }),
             invert: NumberUnaryFn::from(|num, vm| {
@@ -775,8 +777,8 @@ impl AsNumber for PyInt {
             or: NumberBinaryFn::from(|num, other, vm| {
                 PyInt::number_int_op(num, other, |a, b| a | b, vm)
             }),
-            int: NumberUnaryFn::from(|num, other| Ok(PyInt::number_int(num, other))),
-            float: NumberUnaryFn::from(|num, vm| {
+            int: NumberIntFn::from(|num, other| Ok(PyInt::number_int(num, other))),
+            float: NumberFloatFn::from(|num, vm| {
                 let zelf = PyInt::number_downcast(num);
                 try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
             }),
@@ -786,7 +788,7 @@ impl AsNumber for PyInt {
             true_divide: NumberBinaryFn::from(|num, other, vm| {
                 PyInt::number_general_op(num, other, inner_truediv, vm)
             }),
-            index: NumberUnaryFn::from(|num, vm| Ok(PyInt::number_int(num, vm))),
+            index: NumberIntFn::from(|num, vm| Ok(PyInt::number_int(num, vm))),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
         &AS_NUMBER

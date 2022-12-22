@@ -4,7 +4,7 @@ use super::{PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
-    protocol::{PyNumberMethods, NumberUnaryFn},
+    protocol::{PyNumberMethods, NumberBooleanFn},
     types::{AsNumber, Constructor},
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
@@ -60,7 +60,7 @@ impl PyNone {
 impl AsNumber for PyNone {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods= PyNumberMethods {
-            boolean: NumberUnaryFn::from(|_number, _vm| Ok(false)),
+            boolean: NumberBooleanFn::from(|_number, _vm| Ok(false)),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER

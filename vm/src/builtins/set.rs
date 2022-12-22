@@ -760,13 +760,13 @@ impl Initializer for PySet {
 
 impl AsSequence for PySet {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
             length: SequenceLengthFn::from(|seq, _vm| Ok(PySet::sequence_downcast(seq).len())),
             contains: SequenceContainsFn::from(|seq, needle, vm| {
                 PySet::sequence_downcast(seq).inner.contains(needle, vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_SEQUENCE
     }
 }

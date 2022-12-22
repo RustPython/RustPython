@@ -9,7 +9,7 @@ use crate::{
     convert::ToPyResult,
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
-use rustpython_common::atomic::{Ordering, PyAtomicFn};
+use rustpython_common::atomic::{atomic_struct_transmuted, Ordering};
 
 // Mapping protocol
 // https://docs.python.org/3/c-api/mapping.html
@@ -20,12 +20,11 @@ impl PyObject {
     }
 }
 
-pub type MappingLengthFn = PyAtomicFn<Option<fn(PyMapping<'a>, &'vm VirtualMachine) -> PyResult<usize>>>;
-pub type MappingSubscriptFn =
-    PyAtomicFn<Option<fn(PyMapping, &PyObject, &VirtualMachine) -> PyResult>>;
-pub type MappingAssSubscriptFn = PyAtomicFn<
-    Option<fn(PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
->;
+atomic_struct_transmuted! {
+    pub type MappingLengthFn: Option<fn(PyMapping, &VirtualMachine) -> PyResult<usize>>;
+    pub type MappingSubscriptFn: Option<fn(PyMapping, &PyObject, &VirtualMachine) -> PyResult>;
+    pub type MappingAssSubscriptFn: Option<fn(PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>;
+}
 
 #[allow(clippy::type_complexity)]
 #[derive(Default)]

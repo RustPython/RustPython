@@ -6,7 +6,7 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
-use rustpython_common::atomic::{Ordering, PyAtomicFn};
+use rustpython_common::atomic::{atomic_struct_transmuted, Ordering};
 use std::fmt::Debug;
 
 // Sequence Protocol
@@ -24,21 +24,18 @@ impl PyObject {
     }
 }
 
-pub type SequenceLengthFn = PyAtomicFn<Option<fn(PySequence, &VirtualMachine) -> PyResult<usize>>>;
-pub type SequenceConcatFn =
-    PyAtomicFn<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>;
-pub type SequenceRepeatFn = PyAtomicFn<Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>>;
-pub type SequenceItemFn = PyAtomicFn<Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>>;
-pub type SequenceAssItemFn =
-    PyAtomicFn<Option<fn(PySequence, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>>;
-pub type SequenceContainsFn =
-    PyAtomicFn<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult<bool>>>;
-pub type SequenceInplaceConcatFn =
-    PyAtomicFn<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>;
-pub type SequenceInplaceRepeatFn =
-    PyAtomicFn<Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>>;
+atomic_struct_transmuted! {
+    pub type SequenceLengthFn: Option<fn(PySequence, &VirtualMachine) -> PyResult<usize>>;
+    pub type SequenceConcatFn: Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>;
+    pub type SequenceRepeatFn: Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>;
+    pub type SequenceItemFn: Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>;
+    pub type SequenceAssItemFn:
+        Option<fn(PySequence, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>;
+    pub type SequenceContainsFn: Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult<bool>>;
+    pub type SequenceInplaceConcatFn: Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>;
+    pub type SequenceInplaceRepeatFn: Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>;
+}
 
-#[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PySequenceMethods {
     pub length: SequenceLengthFn,
