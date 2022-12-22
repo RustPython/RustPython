@@ -1,6 +1,8 @@
+
 use core::ptr::{self, NonNull};
 pub use core::sync::atomic::*;
 pub use radium::Radium;
+use std::{marker::PhantomData, mem::transmute, ptr::null_mut};
 
 mod sealed {
     pub trait Sealed {}
@@ -51,6 +53,166 @@ impl<T> sealed::Sealed for *mut T {}
 impl<T> PyAtomicScalar for *mut T {
     type Radium = atomic_ty!(*mut T, AtomicPtr<T>);
 }
+
+#[const_trait]
+pub trait StructConverter {
+    type T: Sized;
+    fn save(val: Self::T) -> *mut u8;
+    fn restore(mem: *mut u8) -> Self::T;
+}
+
+pub struct PyAtomicStruct<W: StructConverter> {
+    inner: AtomicPtr<u8>,
+    _marker: PhantomData<W>,
+}
+
+impl<T: Default, W: StructConverter<T = T>> Default for PyAtomicStruct<W> {
+    fn default() -> Self {
+        Self {
+            inner: AtomicPtr::<u8>::new(W::save(T::default())),
+            _marker: Default::default(),
+        }
+    }
+}
+
+impl<V, W: ~const StructConverter<T = Option<V>>> PyAtomicStruct<W> {
+    pub const fn from(val: V) -> Self {
+        Self {
+            inner: AtomicPtr::<u8>::new(W::save(Some(val))),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<W: ~const StructConverter> PyAtomicStruct<W> {
+    pub const fn new(val: W::T) -> Self {
+        Self {
+            inner: AtomicPtr::<u8>::new(W::save(val)),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn load(&self, order: Ordering) -> W::T {
+        W::restore(self.inner.load(order))
+    }
+
+    pub fn store(&self, val: W::T, order: Ordering) {
+        self.inner.store(W::save(val), order)
+    }
+}
+
+#[macro_export]
+macro_rules! atomic_struct_transmuted {
+    ($($vis:vis type $name:ident: $typ:ty;)*) => {
+        $(rustpython_vm::__exports::paste::paste! {
+            $vis struct [<$name Wrapper>]($typ);
+            impl const rustpython_common::atomic::StructConverter for [<$name Wrapper>] {
+                type T = $typ;
+                fn save(x: Self::T) -> *mut u8 {
+                    unsafe { std::mem::transmute(x) }
+                }
+                fn restore(x: *mut u8) -> Self::T {
+                    unsafe { std::mem::transmute(x) }
+                }
+            }
+
+            $vis type $name = rustpython_common::atomic::PyAtomicStruct::<[<$name Wrapper>]>;
+        })*
+    }
+}
+pub use atomic_struct_transmuted;
+
+// pub trait FnPtr: Copy + sealed::Sealed {}
+// // pub unsafe trait FnPtr: Copy {}
+
+// pub struct PyAtomicFn<T> {
+//     inner: PyAtomic<*mut u8>,
+//     _marker: PhantomData<T>,
+// }
+
+// impl<T> Clone for PyAtomicFn<T> {
+//     fn clone(&self) -> Self {
+//         Self {
+//             inner: Radium::new(self.inner.load(Ordering::Relaxed)),
+//             _marker: self._marker.clone(),
+//         }
+//     }
+// }
+
+// macro_rules! impl_atomic_fn {
+//     ($($arg:ident),*) => {
+//         impl<Ret, $($arg),*> PyAtomicFn<fn($($arg),*) -> Ret> {
+//             pub fn new(ptr: fn($($arg),*) -> Ret) -> Self {
+//                 Self {
+//                     inner: Radium::new(unsafe { transmute(ptr) }),
+//                     _marker: PhantomData::default(),
+//                 }
+//             }
+
+//             pub fn load(&self, order: Ordering) -> fn($($arg),*) -> Ret {
+//                 unsafe { transmute::<_, fn($($arg),*) -> Ret>(self.inner.load(order)) }
+//             }
+
+//             pub fn store(&self, ptr: fn($($arg),*) -> Ret, order: Ordering) {
+//                 unsafe {
+//                     self.inner.store(transmute(ptr), order);
+//                 }
+//             }
+//         }
+
+//         impl<Ret, $($arg),*> PyAtomicFn<Option<fn($($arg),*) -> Ret>> {
+//             pub fn from(ptr: fn($($arg),*) -> Ret) -> Self {
+//                 Self::new(Some(ptr))
+//             }
+
+//             pub fn new(ptr: Option<fn($($arg),*) -> Ret>) -> Self {
+//                 Self {
+//                     inner: Radium::new(unsafe { transmute(ptr) }),
+//                     _marker: PhantomData::default(),
+//                 }
+//             }
+
+//             pub fn load(&self, order: Ordering) -> Option<fn($($arg),*) -> Ret> {
+//                 unsafe { transmute::<_, Option<fn($($arg),*) -> Ret>>(self.inner.load(order)) }
+//             }
+
+//             pub fn store(&self, ptr: Option<fn($($arg),*) -> Ret>, order: Ordering) {
+//                 unsafe {
+//                     self.inner.store(transmute(ptr), order);
+//                 }
+//             }
+//         }
+//     };
+// }
+
+// impl<T> Default for PyAtomicFn<Option<T>> {
+//     fn default() -> Self {
+//         Self { inner: Radium::new(null_mut()), _marker: Default::default() }
+//     }
+// }
+
+// macro_rules! impl_fn_ptr {
+//     ($($arg:ident),*) => {
+//         impl<Ret, $($arg),*> sealed::Sealed for fn($($arg),*) -> Ret {}
+//         impl<Ret, $($arg),*> FnPtr for fn($($arg),*) -> Ret {}
+//         impl<Ret, $($arg),*> sealed::Sealed for Option<fn($($arg),*) -> Ret> {}
+//         impl<Ret, $($arg),*> FnPtr for Option<fn($($arg),*) -> Ret> {}
+//     };
+// }
+
+// impl_atomic_fn!();
+// impl_atomic_fn!(A);
+// impl_atomic_fn!(A, B);
+// impl_atomic_fn!(A, B, C);
+// impl_atomic_fn!(A, B, C, D);
+// impl_atomic_fn!(A, B, C, D, E);
+// impl_atomic_fn!(A, B, C, D, E, F);
+// impl_atomic_fn!(A, B, C, D, E, F, G);
+// impl_atomic_fn!(A, B, C, D, E, F, G, H);
+// impl_fn_ptr!(A, B, C, D, E, F, G, H, I);
+// impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J);
+// impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J, K);
+// impl_fn_ptr!(A, B, C, D, E, F, G, H, I, J, K, L);
 
 pub struct OncePtr<T> {
     inner: PyAtomic<*mut T>,

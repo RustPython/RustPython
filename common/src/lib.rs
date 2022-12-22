@@ -1,5 +1,6 @@
 //! A crate to hold types and functions common to all rustpython components.
 
+#![feature(const_trait_impl)]
 #[macro_use]
 mod macros;
 pub use macros::*;

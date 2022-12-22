@@ -1,8 +1,9 @@
-use once_cell::sync::Lazy;
-
 use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
-use crate::atomic_func;
 use crate::common::{hash::PyHash, lock::PyMutex};
+use crate::protocol::{
+    MappingLengthFn, MappingSubscriptFn, SequenceConcatFn, SequenceContainsFn, SequenceItemFn,
+    SequenceLengthFn, SequenceRepeatFn,
+};
 use crate::{
     class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject},
@@ -326,22 +327,24 @@ impl PyTuple {
 
 impl AsMapping for PyTuple {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyTuple::mapping_downcast(mapping).len())),
-            subscript: atomic_func!(
-                |mapping, needle, vm| PyTuple::mapping_downcast(mapping)._getitem(needle, vm)
-            ),
+        static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+            length: MappingLengthFn::from(|mapping, _vm| {
+                Ok(PyTuple::mapping_downcast(mapping).len())
+            }),
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
+                PyTuple::mapping_downcast(mapping)._getitem(needle, vm)
+            }),
             ..PyMappingMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_MAPPING
     }
 }
 
 impl AsSequence for PyTuple {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).len())),
-            concat: atomic_func!(|seq, other, vm| {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: SequenceLengthFn::from(|seq, _vm| Ok(PyTuple::sequence_downcast(seq).len())),
+            concat: SequenceConcatFn::from(|seq, other, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
                 match PyTuple::add(zelf.to_owned(), other.to_owned(), vm) {
                     PyArithmeticValue::Implemented(tuple) => Ok(tuple.into()),
@@ -351,20 +354,20 @@ impl AsSequence for PyTuple {
                     ))),
                 }
             }),
-            repeat: atomic_func!(|seq, n, vm| {
+            repeat: SequenceRepeatFn::from(|seq, n, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
                 PyTuple::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
             }),
-            item: atomic_func!(|seq, i, vm| {
+            item: SequenceItemFn::from(|seq, i, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
                 zelf.elements.getitem_by_index(vm, i)
             }),
-            contains: atomic_func!(|seq, needle, vm| {
+            contains: SequenceContainsFn::from(|seq, needle, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
                 zelf._contains(needle, vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_SEQUENCE
     }
 }

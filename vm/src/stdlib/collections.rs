@@ -3,7 +3,6 @@ pub(crate) use _collections::make_module;
 #[pymodule]
 mod _collections {
     use crate::{
-        atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
             PositionIterInternal, PyGenericAlias, PyInt, PyTypeRef,
@@ -11,7 +10,11 @@ mod _collections {
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
         iter::PyExactSizeIterator,
-        protocol::{PyIterReturn, PySequenceMethods},
+        protocol::{
+            PyIterReturn, PySequenceMethods, SequenceAssItemFn, SequenceConcatFn,
+            SequenceContainsFn, SequenceInplaceConcatFn, SequenceInplaceRepeatFn, SequenceItemFn,
+            SequenceLengthFn, SequenceRepeatFn,
+        },
         recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
@@ -517,19 +520,23 @@ mod _collections {
     impl AsSequence for PyDeque {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(PyDeque::sequence_downcast(seq).len())),
-                concat: atomic_func!(|seq, other, vm| {
+                length: SequenceLengthFn::from(|seq, _vm| {
+                    Ok(PyDeque::sequence_downcast(seq).len())
+                }),
+                concat: SequenceConcatFn::from(|seq, other, vm| {
                     PyDeque::sequence_downcast(seq)
                         .concat(other, vm)
                         .map(|x| x.into_ref(vm).into())
                 }),
-                repeat: atomic_func!(|seq, n, vm| {
+                repeat: SequenceRepeatFn::from(|seq, n, vm| {
                     PyDeque::sequence_downcast(seq)
                         .mul(n as isize, vm)
                         .map(|x| x.into_ref(vm).into())
                 }),
-                item: atomic_func!(|seq, i, vm| PyDeque::sequence_downcast(seq).getitem(i, vm)),
-                ass_item: atomic_func!(|seq, i, value, vm| {
+                item: SequenceItemFn::from(|seq, i, vm| {
+                    PyDeque::sequence_downcast(seq).getitem(i, vm)
+                }),
+                ass_item: SequenceAssItemFn::from(|seq, i, value, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     if let Some(value) = value {
                         zelf.setitem(i, value, vm)
@@ -537,15 +544,15 @@ mod _collections {
                         zelf.delitem(i, vm)
                     }
                 }),
-                contains: atomic_func!(
-                    |seq, needle, vm| PyDeque::sequence_downcast(seq)._contains(needle, vm)
-                ),
-                inplace_concat: atomic_func!(|seq, other, vm| {
+                contains: SequenceContainsFn::from(|seq, needle, vm| {
+                    PyDeque::sequence_downcast(seq)._contains(needle, vm)
+                }),
+                inplace_concat: SequenceInplaceConcatFn::from(|seq, other, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     zelf._extend(other, vm)?;
                     Ok(zelf.to_owned().into())
                 }),
-                inplace_repeat: atomic_func!(|seq, n, vm| {
+                inplace_repeat: SequenceInplaceRepeatFn::from(|seq, n, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     PyDeque::imul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
                 }),

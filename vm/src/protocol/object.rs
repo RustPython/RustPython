@@ -1,6 +1,8 @@
 //! Object Protocol
 //! https://docs.python.org/3/c-api/object.html
 
+use rustpython_common::atomic::Ordering;
+
 use crate::{
     builtins::{
         pystr::IntoPyStrRef, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStrRef,
@@ -591,13 +593,13 @@ impl PyObject {
         }
 
         let mapping = self.to_mapping();
-        if let Some(f) = mapping.methods.ass_subscript.load() {
+        if let Some(f) = mapping.methods.ass_subscript.load(Ordering::Relaxed) {
             let needle = needle.to_pyobject(vm);
             return f(mapping, &needle, Some(value), vm);
         }
 
         let seq = self.to_sequence(vm);
-        if let Some(f) = seq.methods.ass_item.load() {
+        if let Some(f) = seq.methods.ass_item.load(Ordering::Relaxed) {
             let i = needle.key_as_isize(vm)?;
             return f(seq, i, Some(value), vm);
         }
@@ -614,12 +616,12 @@ impl PyObject {
         }
 
         let mapping = self.to_mapping();
-        if let Some(f) = mapping.methods.ass_subscript.load() {
+        if let Some(f) = mapping.methods.ass_subscript.load(Ordering::Relaxed) {
             let needle = needle.to_pyobject(vm);
             return f(mapping, &needle, None, vm);
         }
         let seq = self.to_sequence(vm);
-        if let Some(f) = seq.methods.ass_item.load() {
+        if let Some(f) = seq.methods.ass_item.load(Ordering::Relaxed) {
             let i = needle.key_as_isize(vm)?;
             return f(seq, i, None, vm);
         }

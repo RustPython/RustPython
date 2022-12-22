@@ -2,7 +2,6 @@ use super::{
     try_bigint_to_f64, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType, PyTypeRef,
 };
 use crate::{
-    atomic_func,
     class::PyClassImpl,
     common::{float_ops, hash},
     convert::{ToPyObject, ToPyResult},
@@ -12,7 +11,10 @@ use crate::{
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
-    protocol::{PyNumber, PyNumberMethods},
+    protocol::{
+        NumberBinaryFn, NumberBooleanFn, NumberFloatFn, NumberIntFn, NumberUnaryFn, PyNumber,
+        PyNumberMethods,
+    },
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -549,55 +551,45 @@ impl Hashable for PyFloat {
 impl AsNumber for PyFloat {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            add: atomic_func!(|num, other, vm| PyFloat::number_float_op(
-                num,
-                other,
-                |a, b| a + b,
-                vm
-            )),
-            subtract: atomic_func!(|num, other, vm| PyFloat::number_float_op(
-                num,
-                other,
-                |a, b| a - b,
-                vm
-            )),
-            multiply: atomic_func!(|num, other, vm| PyFloat::number_float_op(
-                num,
-                other,
-                |a, b| a * b,
-                vm
-            )),
-            remainder: atomic_func!(|num, other, vm| PyFloat::number_general_op(
-                num, other, inner_mod, vm
-            )),
-            divmod: atomic_func!(|num, other, vm| PyFloat::number_general_op(
-                num,
-                other,
-                inner_divmod,
-                vm
-            )),
-            power: atomic_func!(|num, other, vm| PyFloat::number_general_op(
-                num, other, float_pow, vm
-            )),
-            negative: atomic_func!(|num, vm| {
+            add: NumberBinaryFn::from(|num, other, vm| {
+                PyFloat::number_float_op(num, other, |a, b| a + b, vm)
+            }),
+            subtract: NumberBinaryFn::from(|num, other, vm| {
+                PyFloat::number_float_op(num, other, |a, b| a - b, vm)
+            }),
+            multiply: NumberBinaryFn::from(|num, other, vm| {
+                PyFloat::number_float_op(num, other, |a, b| a * b, vm)
+            }),
+            remainder: NumberBinaryFn::from(|num, other, vm| {
+                PyFloat::number_general_op(num, other, inner_mod, vm)
+            }),
+            divmod: NumberBinaryFn::from(|num, other, vm| {
+                PyFloat::number_general_op(num, other, inner_divmod, vm)
+            }),
+            power: NumberBinaryFn::from(|num, other, vm| {
+                PyFloat::number_general_op(num, other, float_pow, vm)
+            }),
+            negative: NumberUnaryFn::from(|num, vm| {
                 let value = PyFloat::number_downcast(num).value;
                 (-value).to_pyresult(vm)
             }),
-            positive: atomic_func!(|num, vm| PyFloat::number_float(num, vm).to_pyresult(vm)),
-            absolute: atomic_func!(|num, vm| {
+            positive: NumberUnaryFn::from(|num, vm| PyFloat::number_float(num, vm).to_pyresult(vm)),
+            absolute: NumberUnaryFn::from(|num, vm| {
                 let value = PyFloat::number_downcast(num).value;
                 value.abs().to_pyresult(vm)
             }),
-            boolean: atomic_func!(|num, _vm| Ok(PyFloat::number_downcast(num).value.is_zero())),
-            int: atomic_func!(|num, vm| {
+            boolean: NumberBooleanFn::from(|num, _vm| {
+                Ok(PyFloat::number_downcast(num).value.is_zero())
+            }),
+            int: NumberIntFn::from(|num, vm| {
                 let value = PyFloat::number_downcast(num).value;
                 try_to_bigint(value, vm).map(|x| vm.ctx.new_int(x))
             }),
-            float: atomic_func!(|num, vm| Ok(PyFloat::number_float(num, vm))),
-            floor_divide: atomic_func!(|num, other, vm| {
+            float: NumberFloatFn::from(|num, vm| Ok(PyFloat::number_float(num, vm))),
+            floor_divide: NumberBinaryFn::from(|num, other, vm| {
                 PyFloat::number_general_op(num, other, inner_floordiv, vm)
             }),
-            true_divide: atomic_func!(|num, other, vm| {
+            true_divide: NumberBinaryFn::from(|num, other, vm| {
                 PyFloat::number_general_op(num, other, inner_div, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED

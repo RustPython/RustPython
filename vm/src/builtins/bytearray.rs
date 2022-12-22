@@ -5,7 +5,6 @@ use super::{
 };
 use crate::{
     anystr::{self, AnyStr},
-    atomic_func,
     byte::{bytes_from_object, value_from_object},
     bytesinner::{
         bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
@@ -25,8 +24,8 @@ use crate::{
         ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
     },
     protocol::{
-        BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
-        PyMappingMethods, PySequenceMethods,
+        BufferDescriptor, BufferMethods, BufferResizeGuard, MappingAssSubscriptFn, MappingLengthFn,
+        MappingSubscriptFn, PyBuffer, PyIterReturn, PyMappingMethods, PySequenceMethods, SequenceLengthFn, SequenceConcatFn, SequenceRepeatFn, SequenceItemFn, SequenceAssItemFn, SequenceContainsFn, SequenceInplaceConcatFn, SequenceInplaceRepeatFn,
     },
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
@@ -770,11 +769,13 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 impl AsMapping for PyByteArray {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyByteArray::mapping_downcast(mapping).len())),
-            subscript: atomic_func!(|mapping, needle, vm| {
+            length: MappingLengthFn::from(|mapping, _vm| {
+                Ok(PyByteArray::mapping_downcast(mapping).len())
+            }),
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                 PyByteArray::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
             }),
-            ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+            ass_subscript: MappingAssSubscriptFn::from(|mapping, needle, value, vm| {
                 let zelf = PyByteArray::mapping_downcast(mapping);
                 if let Some(value) = value {
                     PyByteArray::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
@@ -790,25 +791,25 @@ impl AsMapping for PyByteArray {
 impl AsSequence for PyByteArray {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyByteArray::sequence_downcast(seq).len())),
-            concat: atomic_func!(|seq, other, vm| {
+            length: SequenceLengthFn::from(|seq, _vm| Ok(PyByteArray::sequence_downcast(seq).len())),
+            concat: SequenceConcatFn::from(|seq, other, vm| {
                 PyByteArray::sequence_downcast(seq)
                     .inner()
                     .concat(other, vm)
                     .map(|x| PyByteArray::from(x).into_pyobject(vm))
             }),
-            repeat: atomic_func!(|seq, n, vm| {
+           repeat: SequenceRepeatFn::from(|seq, n, vm| {
                 PyByteArray::sequence_downcast(seq)
                     .mul(n as isize, vm)
                     .map(|x| x.into_pyobject(vm))
             }),
-            item: atomic_func!(|seq, i, vm| {
+           item: SequenceItemFn::from(|seq, i, vm| {
                 PyByteArray::sequence_downcast(seq)
                     .borrow_buf()
                     .getitem_by_index(vm, i)
                     .map(|x| vm.ctx.new_bytes(vec![x]).into())
             }),
-            ass_item: atomic_func!(|seq, i, value, vm| {
+           ass_item: SequenceAssItemFn::from(|seq, i, value, vm| {
                 let zelf = PyByteArray::sequence_downcast(seq);
                 if let Some(value) = value {
                     zelf._setitem_by_index(i, value, vm)
@@ -816,17 +817,17 @@ impl AsSequence for PyByteArray {
                     zelf.borrow_buf_mut().del_item_by_index(vm, i)
                 }
             }),
-            contains: atomic_func!(|seq, other, vm| {
+            contains: SequenceContainsFn::from(|seq, other, vm| {
                 let other =
                     <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
                 PyByteArray::sequence_downcast(seq).contains(other, vm)
             }),
-            inplace_concat: atomic_func!(|seq, other, vm| {
+            inplace_concat: SequenceInplaceConcatFn::from(|seq, other, vm| {
                 let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;
                 let zelf = PyByteArray::sequence_downcast(seq).to_owned();
                 PyByteArray::iadd(zelf, other, vm).map(|x| x.into())
             }),
-            inplace_repeat: atomic_func!(|seq, n, vm| {
+            inplace_repeat: SequenceInplaceRepeatFn::from(|seq, n, vm| {
                 let zelf = PyByteArray::sequence_downcast(seq).to_owned();
                 PyByteArray::imul(zelf, n as isize, vm).map(|x| x.into())
             }),

@@ -1,6 +1,8 @@
 use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef};
-use crate::atomic_func;
 use crate::common::hash::PyHash;
+use crate::protocol::{
+    MappingLengthFn, MappingSubscriptFn, SequenceContainsFn, SequenceItemFn, SequenceLengthFn,
+};
 use crate::{
     builtins::builtins_iter,
     class::PyClassImpl,
@@ -393,10 +395,10 @@ impl PyRange {
 impl AsMapping for PyRange {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
-            length: atomic_func!(
-                |mapping, vm| PyRange::mapping_downcast(mapping).protocol_length(vm)
-            ),
-            subscript: atomic_func!(|mapping, needle, vm| {
+            length: MappingLengthFn::from(|mapping, vm| {
+                PyRange::mapping_downcast(mapping).protocol_length(vm)
+            }),
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                 PyRange::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
@@ -407,19 +409,21 @@ impl AsMapping for PyRange {
 
 impl AsSequence for PyRange {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, vm| PyRange::sequence_downcast(seq).protocol_length(vm)),
-            item: atomic_func!(|seq, i, vm| {
+        static AS_SEQUENCE: PySequenceMethods =  PySequenceMethods {
+            length: SequenceLengthFn::from(|seq, vm| {
+                PyRange::sequence_downcast(seq).protocol_length(vm)
+            }),
+            item: SequenceItemFn::from(|seq, i, vm| {
                 PyRange::sequence_downcast(seq)
                     .get(&i.into())
                     .map(|x| PyInt::from(x).into_ref(vm).into())
                     .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
             }),
-            contains: atomic_func!(|seq, needle, vm| {
+            contains: SequenceContainsFn::from(|seq, needle, vm| {
                 Ok(PyRange::sequence_downcast(seq).contains(needle.to_owned(), vm))
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_SEQUENCE
     }
 }

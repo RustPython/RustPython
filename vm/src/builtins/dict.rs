@@ -3,7 +3,6 @@ use super::{
     PyMappingProxy, PySet, PyStrRef, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
-    atomic_func,
     builtins::{
         iter::{builtins_iter, builtins_reversed},
         type_::PyAttributes,
@@ -17,7 +16,10 @@ use crate::{
         ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
     },
     iter::PyExactSizeIterator,
-    protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
+    protocol::{
+        MappingAssSubscriptFn, MappingLengthFn, MappingSubscriptFn, PyIterIter, PyIterReturn,
+        PyMappingMethods, PySequenceMethods, SequenceContainsFn, SequenceLengthFn,
+    },
     recursion::ReprGuard,
     types::{
         AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer, IterNext,
@@ -447,11 +449,13 @@ impl Initializer for PyDict {
 impl AsMapping for PyDict {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: atomic_func!(|mapping, _vm| Ok(PyDict::mapping_downcast(mapping).len())),
-            subscript: atomic_func!(|mapping, needle, vm| {
+            length: MappingLengthFn::from(|mapping, _vm| {
+                Ok(PyDict::mapping_downcast(mapping).len())
+            }),
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                 PyDict::mapping_downcast(mapping).inner_getitem(needle, vm)
             }),
-            ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+            ass_subscript: MappingAssSubscriptFn::from(|mapping, needle, value, vm| {
                 let zelf = PyDict::mapping_downcast(mapping);
                 if let Some(value) = value {
                     zelf.inner_setitem(needle, value, vm)
@@ -466,12 +470,12 @@ impl AsMapping for PyDict {
 
 impl AsSequence for PyDict {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            contains: atomic_func!(|seq, target, vm| PyDict::sequence_downcast(seq)
-                .entries
-                .contains(vm, target)),
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            contains: SequenceContainsFn::from(|seq, target, vm| {
+                PyDict::sequence_downcast(seq).entries.contains(vm, target)
+            }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_SEQUENCE
     }
 }
@@ -1054,8 +1058,8 @@ impl Comparable for PyDictKeys {
 impl AsSequence for PyDictKeys {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyDictKeys::sequence_downcast(seq).len())),
-            contains: atomic_func!(|seq, target, vm| {
+            length: SequenceLengthFn::from(|seq, _vm| Ok(PyDictKeys::sequence_downcast(seq).len())),
+            contains: SequenceContainsFn::from(|seq, target, vm| {
                 PyDictKeys::sequence_downcast(seq)
                     .dict
                     .entries
@@ -1110,8 +1114,10 @@ impl Comparable for PyDictItems {
 impl AsSequence for PyDictItems {
     fn as_sequence() -> &'static PySequenceMethods {
         static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyDictItems::sequence_downcast(seq).len())),
-            contains: atomic_func!(|seq, target, vm| {
+            length: SequenceLengthFn::from(
+                |seq, _vm| Ok(PyDictItems::sequence_downcast(seq).len()),
+            ),
+            contains: SequenceContainsFn::from(|seq, target, vm| {
                 PyDictItems::sequence_downcast(seq)
                     .dict
                     .entries
@@ -1134,10 +1140,12 @@ impl Unconstructible for PyDictValues {}
 
 impl AsSequence for PyDictValues {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, _vm| Ok(PyDictValues::sequence_downcast(seq).len())),
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: SequenceLengthFn::from(|seq, _vm| {
+                Ok(PyDictValues::sequence_downcast(seq).len())
+            }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_SEQUENCE
     }
 }

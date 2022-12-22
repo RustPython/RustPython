@@ -1,6 +1,5 @@
 use super::{float, PyStr, PyType, PyTypeRef};
 use crate::{
-    atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, ToPyResult},
     function::{
@@ -9,13 +8,12 @@ use crate::{
         PyComparisonValue,
     },
     identifier,
-    protocol::{PyNumber, PyNumberMethods},
+    protocol::{NumberBinaryFn, NumberUnaryFn, PyNumber, PyNumberMethods, NumberBooleanFn},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
-use once_cell::sync::Lazy;
 use rustpython_common::{float_ops, hash};
 use std::num::Wrapping;
 
@@ -448,41 +446,38 @@ impl Hashable for PyComplex {
 
 impl AsNumber for PyComplex {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            add: atomic_func!(|number, other, vm| PyComplex::number_complex_op(
-                number,
-                other,
-                |a, b| a + b,
-                vm
-            )),
-            subtract: atomic_func!(|number, other, vm| {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            add: NumberBinaryFn::from(|number, other, vm| {
+                PyComplex::number_complex_op(number, other, |a, b| a + b, vm)
+            }),
+            subtract: NumberBinaryFn::from(|number, other, vm| {
                 PyComplex::number_complex_op(number, other, |a, b| a - b, vm)
             }),
-            multiply: atomic_func!(|number, other, vm| {
+            multiply: NumberBinaryFn::from(|number, other, vm| {
                 PyComplex::number_complex_op(number, other, |a, b| a * b, vm)
             }),
-            power: atomic_func!(|number, other, vm| PyComplex::number_general_op(
-                number, other, inner_pow, vm
-            )),
-            negative: atomic_func!(|number, vm| {
+            power: NumberBinaryFn::from(|number, other, vm| {
+                PyComplex::number_general_op(number, other, inner_pow, vm)
+            }),
+            negative: NumberUnaryFn::from(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
                 (-value).to_pyresult(vm)
             }),
-            positive: atomic_func!(
-                |number, vm| PyComplex::number_complex(number, vm).to_pyresult(vm)
-            ),
-            absolute: atomic_func!(|number, vm| {
+            positive: NumberUnaryFn::from(|number, vm| {
+                PyComplex::number_complex(number, vm).to_pyresult(vm)
+            }),
+            absolute: NumberUnaryFn::from(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
                 value.norm().to_pyresult(vm)
             }),
-            boolean: atomic_func!(|number, _vm| Ok(PyComplex::number_downcast(number)
-                .value
-                .is_zero())),
-            true_divide: atomic_func!(|number, other, vm| {
+            boolean: NumberBooleanFn::from(|number, _vm| {
+                Ok(PyComplex::number_downcast(number).value.is_zero())
+            }),
+            true_divide: NumberBinaryFn::from(|number, other, vm| {
                 PyComplex::number_general_op(number, other, inner_div, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }

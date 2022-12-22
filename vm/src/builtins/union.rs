@@ -2,13 +2,12 @@ use once_cell::sync::Lazy;
 
 use super::{genericalias, type_};
 use crate::{
-    atomic_func,
     builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
     function::PyComparisonValue,
-    protocol::PyMappingMethods,
+    protocol::{PyMappingMethods, MappingSubscriptFn},
     types::{AsMapping, Comparable, GetAttr, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -245,12 +244,12 @@ impl PyUnion {
 
 impl AsMapping for PyUnion {
     fn as_mapping() -> &'static PyMappingMethods {
-        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
-            subscript: atomic_func!(|mapping, needle, vm| {
+        static AS_MAPPING: PyMappingMethods= PyMappingMethods {
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                 PyUnion::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
             }),
             ..PyMappingMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_MAPPING
     }
 }

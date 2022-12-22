@@ -8,7 +8,6 @@ mod mmap {
         lock::{MapImmutable, PyMutex, PyMutexGuard},
     };
     use crate::vm::{
-        atomic_func,
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         function::{ArgBytesLike, FuncArgs, OptionalArg},
@@ -24,6 +23,7 @@ mod mmap {
     use memmap2::{Advice, Mmap, MmapMut, MmapOptions};
     use nix::unistd;
     use num_traits::Signed;
+    use rustpython_vm::protocol::{MappingAssSubscriptFn, MappingSubscriptFn, SequenceLengthFn, MappingLengthFn, SequenceAssItemFn, SequenceItemFn};
     use std::fs::File;
     use std::io::Write;
     use std::ops::{Deref, DerefMut};
@@ -426,11 +426,11 @@ mod mmap {
     impl AsMapping for PyMmap {
         fn as_mapping() -> &'static PyMappingMethods {
             static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: atomic_func!(|mapping, _vm| Ok(PyMmap::mapping_downcast(mapping).len())),
-                subscript: atomic_func!(|mapping, needle, vm| {
+                length: MappingLengthFn::from(|mapping, _vm| Ok(PyMmap::mapping_downcast(mapping).len())),
+                subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                     PyMmap::mapping_downcast(mapping)._getitem(needle, vm)
                 }),
-                ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                ass_subscript: MappingAssSubscriptFn::from(|mapping, needle, value, vm| {
                     let zelf = PyMmap::mapping_downcast(mapping);
                     if let Some(value) = value {
                         PyMmap::_setitem(zelf.to_owned(), needle, value, vm)
@@ -448,12 +448,12 @@ mod mmap {
         fn as_sequence() -> &'static PySequenceMethods {
             use once_cell::sync::Lazy;
             static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-                length: atomic_func!(|seq, _vm| Ok(PyMmap::sequence_downcast(seq).len())),
-                item: atomic_func!(|seq, i, vm| {
+                length: SequenceLengthFn::from(|seq, _vm| Ok(PyMmap::sequence_downcast(seq).len())),
+               item: SequenceItemFn::from(|seq, i, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
                     zelf.getitem_by_index(i, vm)
                 }),
-                ass_item: atomic_func!(|seq, i, value, vm| {
+               ass_item: SequenceAssItemFn::from(|seq, i, value, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
                     if let Some(value) = value {
                         PyMmap::setitem_by_index(zelf.to_owned(), i, value, vm)

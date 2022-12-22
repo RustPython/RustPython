@@ -2,10 +2,12 @@ use once_cell::sync::Lazy;
 
 use super::{PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
-    atomic_func,
     class::PyClassImpl,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
-    protocol::{PyMappingMethods, PySequenceMethods},
+    protocol::{
+        MappingLengthFn, MappingSubscriptFn, PyMappingMethods, PySequenceMethods,
+        SequenceContainsFn, SequenceLengthFn, MappingAssSubscriptFn,
+    },
     types::{AsMapping, AsSequence, Comparable, Constructor, GetAttr, PyComparisonOp, SetAttr},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -160,13 +162,13 @@ impl Comparable for PyWeakProxy {
 
 impl AsSequence for PyWeakProxy {
     fn as_sequence() -> &'static PySequenceMethods {
-        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
-            length: atomic_func!(|seq, vm| PyWeakProxy::sequence_downcast(seq).len(vm)),
-            contains: atomic_func!(|seq, needle, vm| {
+        static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+            length: SequenceLengthFn::from(|seq, vm| PyWeakProxy::sequence_downcast(seq).len(vm)),
+            contains: SequenceContainsFn::from(|seq, needle, vm| {
                 PyWeakProxy::sequence_downcast(seq).contains(needle.to_owned(), vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_SEQUENCE
     }
 }
@@ -174,11 +176,13 @@ impl AsSequence for PyWeakProxy {
 impl AsMapping for PyWeakProxy {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: atomic_func!(|mapping, vm| PyWeakProxy::mapping_downcast(mapping).len(vm)),
-            subscript: atomic_func!(|mapping, needle, vm| {
+            length: MappingLengthFn::from(|mapping, vm| {
+                PyWeakProxy::mapping_downcast(mapping).len(vm)
+            }),
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                 PyWeakProxy::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
             }),
-            ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+            ass_subscript: MappingAssSubscriptFn::from(|mapping, needle, value, vm| {
                 let zelf = PyWeakProxy::mapping_downcast(mapping);
                 if let Some(value) = value {
                     zelf.setitem(needle.to_owned(), value, vm)

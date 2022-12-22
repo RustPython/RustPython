@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use crate::{
     builtins::{
         dict::{PyDictItems, PyDictKeys, PyDictValues},
@@ -7,7 +9,7 @@ use crate::{
     convert::ToPyResult,
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
-use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::atomic::{atomic_struct_transmuted, Ordering};
 
 // Mapping protocol
 // https://docs.python.org/3/c-api/mapping.html
@@ -18,14 +20,18 @@ impl PyObject {
     }
 }
 
+atomic_struct_transmuted! {
+    pub type MappingLengthFn: Option<fn(PyMapping, &VirtualMachine) -> PyResult<usize>>;
+    pub type MappingSubscriptFn: Option<fn(PyMapping, &PyObject, &VirtualMachine) -> PyResult>;
+    pub type MappingAssSubscriptFn: Option<fn(PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>;
+}
+
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PyMappingMethods {
-    pub length: AtomicCell<Option<fn(PyMapping, &VirtualMachine) -> PyResult<usize>>>,
-    pub subscript: AtomicCell<Option<fn(PyMapping, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub ass_subscript: AtomicCell<
-        Option<fn(PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
-    >,
+    pub length: MappingLengthFn,
+    pub subscript: MappingSubscriptFn,
+    pub ass_subscript: MappingAssSubscriptFn,
 }
 
 impl std::fmt::Debug for PyMappingMethods {
@@ -36,14 +42,14 @@ impl std::fmt::Debug for PyMappingMethods {
 
 impl PyMappingMethods {
     fn check(&self) -> bool {
-        self.subscript.load().is_some()
+        self.subscript.load(Ordering::Relaxed).is_some()
     }
 
     #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: PyMappingMethods = PyMappingMethods {
-        length: AtomicCell::new(None),
-        subscript: AtomicCell::new(None),
-        ass_subscript: AtomicCell::new(None),
+        length: MappingLengthFn::new(None),
+        subscript: MappingSubscriptFn::new(None),
+        ass_subscript: MappingAssSubscriptFn::new(None),
     };
 }
 
@@ -96,7 +102,10 @@ impl PyMapping<'_> {
     }
 
     pub fn length_opt(self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        self.methods.length.load().map(|f| f(self, vm))
+        self.methods
+            .length
+            .load(Ordering::Relaxed)
+            .map(|f| f(self, vm))
     }
 
     pub fn length(self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -122,10 +131,11 @@ impl PyMapping<'_> {
     }
 
     fn _subscript(self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let f =
-            self.methods.subscript.load().ok_or_else(|| {
-                vm.new_type_error(format!("{} is not a mapping", self.obj.class()))
-            })?;
+        let f = self
+            .methods
+            .subscript
+            .load(Ordering::Relaxed)
+            .ok_or_else(|| vm.new_type_error(format!("{} is not a mapping", self.obj.class())))?;
         f(self, needle, vm)
     }
 
@@ -135,12 +145,16 @@ impl PyMapping<'_> {
         value: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let f = self.methods.ass_subscript.load().ok_or_else(|| {
-            vm.new_type_error(format!(
-                "'{}' object does not support item assignment",
-                self.obj.class()
-            ))
-        })?;
+        let f = self
+            .methods
+            .ass_subscript
+            .load(Ordering::Relaxed)
+            .ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "'{}' object does not support item assignment",
+                    self.obj.class()
+                ))
+            })?;
         f(self, needle, value, vm)
     }
 
