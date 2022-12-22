@@ -769,20 +769,20 @@ impl<'a> BufferResizeGuard<'a> for PyByteArray {
 impl AsMapping for PyByteArray {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: MappingLengthFn::new(Some(|mapping, _vm| {
+            length: MappingLengthFn::from(|mapping, _vm| {
                 Ok(PyByteArray::mapping_downcast(mapping).len())
-            })),
-            subscript: MappingSubscriptFn::new(Some(|mapping, needle, vm| {
+            }),
+            subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                 PyByteArray::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-            })),
-            ass_subscript: MappingAssSubscriptFn::new(Some(|mapping, needle, value, vm| {
+            }),
+            ass_subscript: MappingAssSubscriptFn::from(|mapping, needle, value, vm| {
                 let zelf = PyByteArray::mapping_downcast(mapping);
                 if let Some(value) = value {
                     PyByteArray::setitem(zelf.to_owned(), needle.to_owned(), value, vm)
                 } else {
                     zelf.delitem(needle.to_owned(), vm)
                 }
-            })),
+            }),
         };
         &AS_MAPPING
     }

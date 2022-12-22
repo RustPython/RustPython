@@ -1,3 +1,4 @@
+
 use core::ptr::{self, NonNull};
 pub use core::sync::atomic::*;
 pub use radium::Radium;
@@ -53,41 +54,41 @@ impl<T> PyAtomicScalar for *mut T {
     type Radium = atomic_ty!(*mut T, AtomicPtr<T>);
 }
 
-// #[const_trait]
+#[const_trait]
 pub trait StructConverter {
     type T: Sized;
-    const fn save(val: Self::T) -> usize;
-    fn restore(mem: usize) -> Self::T;
+    fn save(val: Self::T) -> *mut u8;
+    fn restore(mem: *mut u8) -> Self::T;
 }
 
 pub struct PyAtomicStruct<W: StructConverter> {
-    inner: AtomicUsize,
+    inner: AtomicPtr<u8>,
     _marker: PhantomData<W>,
 }
 
 impl<T: Default, W: StructConverter<T = T>> Default for PyAtomicStruct<W> {
     fn default() -> Self {
         Self {
-            inner: Radium::new(W::save(T::default())),
+            inner: AtomicPtr::<u8>::new(W::save(T::default())),
             _marker: Default::default(),
         }
     }
 }
 
-impl<V, W: StructConverter<T = Option<V>>> PyAtomicStruct<W> {
+impl<V, W: ~const StructConverter<T = Option<V>>> PyAtomicStruct<W> {
     pub const fn from(val: V) -> Self {
         Self {
-            inner: AtomicUsize::new(W::save(Some(val))),
+            inner: AtomicPtr::<u8>::new(W::save(Some(val))),
             _marker: PhantomData,
         }
     }
 }
 
-impl<W: StructConverter> PyAtomicStruct<W> {
-    pub fn new(val: W::T) -> Self {
+impl<W: ~const StructConverter> PyAtomicStruct<W> {
+    pub const fn new(val: W::T) -> Self {
         Self {
-            inner: Radium::new(W::save(val)),
-            _marker: Default::default(),
+            inner: AtomicPtr::<u8>::new(W::save(val)),
+            _marker: PhantomData,
         }
     }
 
@@ -104,13 +105,13 @@ impl<W: StructConverter> PyAtomicStruct<W> {
 macro_rules! atomic_struct_transmuted {
     ($($vis:vis type $name:ident: $typ:ty;)*) => {
         $(rustpython_vm::__exports::paste::paste! {
-            struct [<$name Wrapper>]($typ);
+            $vis struct [<$name Wrapper>]($typ);
             impl const rustpython_common::atomic::StructConverter for [<$name Wrapper>] {
                 type T = $typ;
-                fn save(x: Self::T) -> usize {
+                fn save(x: Self::T) -> *mut u8 {
                     unsafe { std::mem::transmute(x) }
                 }
-                fn restore(x: usize) -> Self::T {
+                fn restore(x: *mut u8) -> Self::T {
                     unsafe { std::mem::transmute(x) }
                 }
             }

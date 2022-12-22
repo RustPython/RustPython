@@ -8,7 +8,6 @@ mod mmap {
         lock::{MapImmutable, PyMutex, PyMutexGuard},
     };
     use crate::vm::{
-        atomic_func,
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         function::{ArgBytesLike, FuncArgs, OptionalArg},
@@ -24,6 +23,7 @@ mod mmap {
     use memmap2::{Advice, Mmap, MmapMut, MmapOptions};
     use nix::unistd;
     use num_traits::Signed;
+    use rustpython_vm::protocol::{MappingAssSubscriptFn, MappingSubscriptFn, SequenceLengthFn, MappingLengthFn, SequenceAssItemFn, SequenceItemFn};
     use std::fs::File;
     use std::io::Write;
     use std::ops::{Deref, DerefMut};
@@ -426,7 +426,7 @@ mod mmap {
     impl AsMapping for PyMmap {
         fn as_mapping() -> &'static PyMappingMethods {
             static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: SequenceLengthFn::from(|mapping, _vm| Ok(PyMmap::mapping_downcast(mapping).len())),
+                length: MappingLengthFn::from(|mapping, _vm| Ok(PyMmap::mapping_downcast(mapping).len())),
                 subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                     PyMmap::mapping_downcast(mapping)._getitem(needle, vm)
                 }),

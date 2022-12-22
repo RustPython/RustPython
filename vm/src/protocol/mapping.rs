@@ -46,7 +46,11 @@ impl PyMappingMethods {
     }
 
     #[allow(clippy::declare_interior_mutable_const)]
-    pub const NOT_IMPLEMENTED: PyMappingMethods = PyMappingMethods::default();
+    pub const NOT_IMPLEMENTED: PyMappingMethods = PyMappingMethods {
+        length: MappingLengthFn::new(None),
+        subscript: MappingSubscriptFn::new(None),
+        ass_subscript: MappingAssSubscriptFn::new(None),
+    };
 }
 
 impl<'a> From<&'a PyObject> for PyMapping<'a> {

@@ -12,7 +12,6 @@ mod array {
             str::wchar_t,
         },
         vm::{
-            atomic_func,
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt,
                 PyIntRef, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
@@ -38,6 +37,7 @@ mod array {
     };
     use itertools::Itertools;
     use num_traits::ToPrimitive;
+    use rustpython_vm::protocol::{MappingLengthFn, MappingSubscriptFn, MappingAssSubscriptFn};
     use std::{cmp::Ordering, fmt, os::raw};
 
     macro_rules! def_array_enum {
@@ -1251,7 +1251,7 @@ mod array {
     impl AsMapping for PyArray {
         fn as_mapping() -> &'static PyMappingMethods {
             static AS_MAPPING: PyMappingMethods = PyMappingMethods {
-                length: SequenceLengthFn::from(|mapping, _vm| Ok(PyArray::mapping_downcast(mapping).len())),
+                length: MappingLengthFn::from(|mapping, _vm| Ok(PyArray::mapping_downcast(mapping).len())),
                 subscript: MappingSubscriptFn::from(|mapping, needle, vm| {
                     PyArray::mapping_downcast(mapping)._getitem(needle, vm)
                 }),

@@ -520,42 +520,42 @@ mod _collections {
     impl AsSequence for PyDeque {
         fn as_sequence() -> &'static PySequenceMethods {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-                length: SequenceLengthFn::new(Some(|seq, _vm| {
+                length: SequenceLengthFn::from(|seq, _vm| {
                     Ok(PyDeque::sequence_downcast(seq).len())
-                })),
-                concat: SequenceConcatFn::new(Some(|seq, other, vm| {
+                }),
+                concat: SequenceConcatFn::from(|seq, other, vm| {
                     PyDeque::sequence_downcast(seq)
                         .concat(other, vm)
                         .map(|x| x.into_ref(vm).into())
-                })),
-                repeat: SequenceRepeatFn::new(Some(|seq, n, vm| {
+                }),
+                repeat: SequenceRepeatFn::from(|seq, n, vm| {
                     PyDeque::sequence_downcast(seq)
                         .mul(n as isize, vm)
                         .map(|x| x.into_ref(vm).into())
-                })),
-                item: SequenceItemFn::new(Some(|seq, i, vm| {
+                }),
+                item: SequenceItemFn::from(|seq, i, vm| {
                     PyDeque::sequence_downcast(seq).getitem(i, vm)
-                })),
-                ass_item: SequenceAssItemFn::new(Some(|seq, i, value, vm| {
+                }),
+                ass_item: SequenceAssItemFn::from(|seq, i, value, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     if let Some(value) = value {
                         zelf.setitem(i, value, vm)
                     } else {
                         zelf.delitem(i, vm)
                     }
-                })),
-                contains: SequenceContainsFn::new(Some(|seq, needle, vm| {
+                }),
+                contains: SequenceContainsFn::from(|seq, needle, vm| {
                     PyDeque::sequence_downcast(seq)._contains(needle, vm)
-                })),
-                inplace_concat: SequenceInplaceConcatFn::new(Some(|seq, other, vm| {
+                }),
+                inplace_concat: SequenceInplaceConcatFn::from(|seq, other, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     zelf._extend(other, vm)?;
                     Ok(zelf.to_owned().into())
-                })),
-                inplace_repeat: SequenceInplaceRepeatFn::new(Some(|seq, n, vm| {
+                }),
+                inplace_repeat: SequenceInplaceRepeatFn::from(|seq, n, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     PyDeque::imul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
-                })),
+                }),
             };
 
             &AS_SEQUENCE
