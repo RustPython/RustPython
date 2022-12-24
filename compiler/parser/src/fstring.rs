@@ -296,10 +296,7 @@ impl FStringParser {
 
         let mut content = String::new();
         let mut values = vec![];
-        let mut offset = Location::new(
-            self.str_start.row(),
-            self.str_start.column() + self.offset,
-        );
+        let mut offset = Location::new(self.str_start.row(), self.str_start.column() + self.offset);
 
         while let Some(&ch) = chars.peek() {
             match ch {
