@@ -195,32 +195,28 @@ where
             continue;
         };
         if attr_name == "cfg" {
-            return Err(syn::Error::new_spanned(
-                attr,
-                "#[py*] items must be placed under `cfgs`",
-            ));
+            bail_span!(attr, "#[py*] items must be placed under `cfgs`")
         }
 
         let attr_name = match AttrName::from_str(attr_name.as_str()) {
             Ok(name) => name,
             Err(wrong_name) => {
-                let msg = if !ALL_ALLOWED_NAMES.contains(&wrong_name.as_str()) {
+                if !ALL_ALLOWED_NAMES.contains(&wrong_name.as_str()) {
                     continue;
                 } else if closed {
-                    "Only one #[pyattr] annotated #[py*] item can exist".to_owned()
+                    bail_span!(attr, "Only one #[pyattr] annotated #[py*] item can exist")
                 } else {
-                    format!("#[pymodule] doesn't accept #[{}]", wrong_name)
-                };
-                return Err(syn::Error::new_spanned(attr, msg));
+                    bail_span!(attr, "#[pymodule] doesn't accept #[{}]", wrong_name)
+                }
             }
         };
 
         if attr_name == AttrName::Attr {
             if !result.is_empty() {
-                return Err(syn::Error::new_spanned(
+                bail_span!(
                     attr,
                     "#[pyattr] must be placed on top of other #[py*] items",
-                ));
+                )
             }
             pyattrs.push(i);
             continue;
@@ -234,10 +230,10 @@ where
                     result.push(item_new(i, attr_name, pyattrs.clone()));
                 }
                 _ => {
-                    return Err(syn::Error::new_spanned(
+                    bail_span!(
                         attr,
                         "#[pyclass] or #[pyfunction] only can follow #[pyattr]",
-                    ));
+                    )
                 }
             }
             pyattrs.clear();
@@ -409,14 +405,12 @@ impl ModuleItem for ClassItem {
             if self.pyattrs.is_empty() {
                 // check noattr before ClassItemMeta::from_attr
                 if noattr.is_none() {
-                    return Err(syn::Error::new_spanned(
+                    bail_span!(
                         ident,
-                        format!(
-                            "#[{name}] requires #[pyattr] to be a module attribute. \
-                             To keep it free type, try #[{name}(noattr)]",
-                            name = self.attr_name()
-                        ),
-                    ));
+                        "#[{name}] requires #[pyattr] to be a module attribute. \
+                         To keep it free type, try #[{name}(noattr)]",
+                        name = self.attr_name()
+                    )
                 }
             }
             let noattr = noattr.is_some();

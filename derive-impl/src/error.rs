@@ -33,7 +33,7 @@ use syn::parse::Error;
 
 macro_rules! err_span {
     ($span:expr, $($msg:tt)*) => (
-        syn::Error::new_spanned(&$span, format!($($msg)*))
+        syn::Error::new_spanned(&$span, format_args!($($msg)*))
     )
 }
 
