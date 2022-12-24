@@ -22,8 +22,8 @@ pub enum Tok {
     String {
         value: String,
         kind: StringKind,
-        triple_quoted: bool,
         prefix: Option<String>,
+        triple_quoted: bool,
     },
     Bytes {
         value: Vec<u8>,
