@@ -174,7 +174,12 @@ mod symtable {
 
         #[pymethod]
         fn is_global(&self) -> bool {
-            self.symbol.is_global()
+            self.symbol.is_global() || (self.is_top_scope && self.symbol.is_bound())
+        }
+
+        #[pymethod]
+        fn is_declared_global(&self) -> bool {
+            matches!(self.symbol.scope, SymbolScope::GlobalExplicit)
         }
 
         #[pymethod]
