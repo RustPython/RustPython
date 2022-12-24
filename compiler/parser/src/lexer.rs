@@ -701,8 +701,8 @@ where
             Tok::String {
                 value: string_content,
                 kind,
-                triple_quoted,
                 prefix,
+                triple_quoted,
             }
         };
 
