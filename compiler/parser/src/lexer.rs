@@ -1379,12 +1379,12 @@ mod tests {
         assert_eq!(vec!['b', '\\', '\n'], x);
     }
 
-    fn stok(s: &str) -> Tok {
+    fn stok(s: &str, prefix: Option<String>, triple_quoted: bool) -> Tok {
         Tok::String {
             value: s.to_owned(),
             kind: StringKind::Normal,
-            prefix: None,
-            triple_quoted: false,
+            prefix,
+            triple_quoted,
         }
     }
 
@@ -1392,7 +1392,14 @@ mod tests {
     fn test_raw_string() {
         let source = "r\"\\\\\" \"\\\\\"";
         let tokens = lex_source(source);
-        assert_eq!(tokens, vec![stok("\\\\"), stok("\\"), Tok::Newline,]);
+        assert_eq!(
+            tokens,
+            vec![
+                stok("\\\\", Some('r'.to_string()), false),
+                stok("\\", None, false),
+                Tok::Newline,
+            ]
+        );
     }
 
     #[test]
@@ -1692,15 +1699,15 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                stok("double"),
-                stok("single"),
-                stok("can't"),
-                stok("\\\""),
-                stok("\t\r\n"),
-                stok("\\g"),
-                stok("raw\\'"),
-                stok("Đ"),
-                stok("\u{80}\u{0}a"),
+                stok("double", None, false),
+                stok("single", None, false),
+                stok("can't", None, false),
+                stok("\\\"", None, false),
+                stok("\t\r\n", None, false),
+                stok("\\g", None, false),
+                stok("raw\\'", Some('r'.to_string()), false),
+                stok("Đ", None, false),
+                stok("\u{80}\u{0}a", None, false),
                 Tok::Newline,
             ]
         );
@@ -1716,7 +1723,7 @@ mod tests {
                 assert_eq!(
                     tokens,
                     vec![
-                        stok("abcdef"),
+                        stok("abcdef", None, false),
                         Tok::Newline,
                     ]
                 )
@@ -1803,6 +1810,6 @@ mod tests {
     fn test_escape_unicode_name() {
         let source = r#""\N{EN SPACE}""#;
         let tokens = lex_source(source);
-        assert_eq!(tokens, vec![stok("\u{2002}"), Tok::Newline])
+        assert_eq!(tokens, vec![stok("\u{2002}", None, false), Tok::Newline])
     }
 }
