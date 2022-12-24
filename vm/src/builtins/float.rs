@@ -146,8 +146,8 @@ impl Constructor for PyFloat {
                     return Ok(val);
                 }
 
-                if let Some(f) = val.try_float_opt(vm)? {
-                    f.value
+                if let Some(f) = val.try_float_opt(vm) {
+                    f?.value
                 } else {
                     float_from_string(val, vm)?
                 }
@@ -608,7 +608,7 @@ impl AsNumber for PyFloat {
 
 impl PyFloat {
     fn number_general_op<F, R>(
-        number: &PyNumber,
+        number: PyNumber,
         other: &PyObject,
         op: F,
         vm: &VirtualMachine,
@@ -625,7 +625,7 @@ impl PyFloat {
     }
 
     fn number_float_op<F>(
-        number: &PyNumber,
+        number: PyNumber,
         other: &PyObject,
         op: F,
         vm: &VirtualMachine,
@@ -636,7 +636,7 @@ impl PyFloat {
         Self::number_general_op(number, other, |a, b, _vm| op(a, b), vm)
     }
 
-    fn number_float(number: &PyNumber, vm: &VirtualMachine) -> PyRef<PyFloat> {
+    fn number_float(number: PyNumber, vm: &VirtualMachine) -> PyRef<PyFloat> {
         if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
             zelf.to_owned()
         } else {

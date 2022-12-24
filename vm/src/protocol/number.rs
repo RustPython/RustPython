@@ -9,9 +9,9 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 
-type UnaryFunc<R = PyObjectRef> = AtomicCell<Option<fn(&PyNumber, &VirtualMachine) -> PyResult<R>>>;
+type UnaryFunc<R = PyObjectRef> = AtomicCell<Option<fn(PyNumber, &VirtualMachine) -> PyResult<R>>>;
 type BinaryFunc<R = PyObjectRef> =
-    AtomicCell<Option<fn(&PyNumber, &PyObject, &VirtualMachine) -> PyResult<R>>>;
+    AtomicCell<Option<fn(PyNumber, &PyObject, &VirtualMachine) -> PyResult<R>>>;
 
 impl PyObject {
     #[inline]
@@ -20,16 +20,13 @@ impl PyObject {
     }
 
     pub fn try_index_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        #[allow(clippy::question_mark)]
-        Some(if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
-            Ok(i.to_owned())
+        if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
+            Some(Ok(i.to_owned()))
         } else if let Some(i) = self.payload::<PyInt>() {
-            Ok(vm.ctx.new_bigint(i.as_bigint()))
-        } else if let Some(i) = self.to_number().index(vm).transpose() {
-            i
+            Some(Ok(vm.ctx.new_bigint(i.as_bigint())))
         } else {
-            return None;
-        })
+            self.to_number().index(vm)
+        }
     }
 
     #[inline]
@@ -57,71 +54,57 @@ impl PyObject {
 
         if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
             Ok(i.to_owned())
+        } else if let Some(i) = self.to_number().int(vm).or_else(|| self.try_index_opt(vm)) {
+            i
+        } else if let Ok(Ok(f)) = vm.get_special_method(self.to_owned(), identifier!(vm, __trunc__))
+        {
+            // TODO: Deprecate in 3.11
+            // warnings::warn(
+            //     vm.ctx.exceptions.deprecation_warning.clone(),
+            //     "The delegation of int() to __trunc__ is deprecated.".to_owned(),
+            //     1,
+            //     vm,
+            // )?;
+            let ret = f.invoke((), vm)?;
+            ret.try_index(vm).map_err(|_| {
+                vm.new_type_error(format!(
+                    "__trunc__ returned non-Integral (type {})",
+                    ret.class()
+                ))
+            })
+        } else if let Some(s) = self.payload::<PyStr>() {
+            try_convert(self, s.as_str().as_bytes(), vm)
+        } else if let Some(bytes) = self.payload::<PyBytes>() {
+            try_convert(self, bytes, vm)
+        } else if let Some(bytearray) = self.payload::<PyByteArray>() {
+            try_convert(self, &bytearray.borrow_buf(), vm)
+        } else if let Ok(buffer) = ArgBytesLike::try_from_borrowed_object(vm, self) {
+            // TODO: replace to PyBuffer
+            try_convert(self, &buffer.borrow_buf(), vm)
         } else {
-            let number = self.to_number();
-            if let Some(i) = number.int(vm)? {
-                Ok(i)
-            } else if let Some(i) = self.try_index_opt(vm) {
-                i
-            } else if let Ok(Ok(f)) =
-                vm.get_special_method(self.to_owned(), identifier!(vm, __trunc__))
-            {
-                // TODO: Deprecate in 3.11
-                // warnings::warn(
-                //     vm.ctx.exceptions.deprecation_warning.clone(),
-                //     "The delegation of int() to __trunc__ is deprecated.".to_owned(),
-                //     1,
-                //     vm,
-                // )?;
-                let ret = f.invoke((), vm)?;
-                ret.try_index(vm).map_err(|_| {
-                    vm.new_type_error(format!(
-                        "__trunc__ returned non-Integral (type {})",
-                        ret.class()
-                    ))
-                })
-            } else if let Some(s) = self.payload::<PyStr>() {
-                try_convert(self, s.as_str().as_bytes(), vm)
-            } else if let Some(bytes) = self.payload::<PyBytes>() {
-                try_convert(self, bytes, vm)
-            } else if let Some(bytearray) = self.payload::<PyByteArray>() {
-                try_convert(self, &bytearray.borrow_buf(), vm)
-            } else if let Ok(buffer) = ArgBytesLike::try_from_borrowed_object(vm, self) {
-                // TODO: replace to PyBuffer
-                try_convert(self, &buffer.borrow_buf(), vm)
-            } else {
-                Err(vm.new_type_error(format!(
-                    "int() argument must be a string, a bytes-like object or a real number, not '{}'",
-                    self.class()
-                )))
-            }
+            Err(vm.new_type_error(format!(
+                "int() argument must be a string, a bytes-like object or a real number, not '{}'",
+                self.class()
+            )))
         }
     }
 
-    pub fn try_float_opt(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
-        let value = if let Some(float) = self.downcast_ref_if_exact::<PyFloat>(vm) {
-            Some(float.to_owned())
+    pub fn try_float_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
+        if let Some(float) = self.downcast_ref_if_exact::<PyFloat>(vm) {
+            Some(Ok(float.to_owned()))
+        } else if let Some(f) = self.to_number().float(vm) {
+            Some(f)
         } else {
-            let number = self.to_number();
-            #[allow(clippy::manual_map)]
-            if let Some(f) = number.float(vm)? {
-                Some(f)
-            } else if let Some(i) = self.try_index_opt(vm) {
-                let value = int::try_to_float(i?.as_bigint(), vm)?;
-                Some(vm.ctx.new_float(value))
-            } else if let Some(value) = self.downcast_ref::<PyFloat>() {
-                Some(vm.ctx.new_float(value.to_f64()))
-            } else {
-                None
-            }
-        };
-        Ok(value)
+            self.try_index_opt(vm)
+                .map(|i| Ok(vm.ctx.new_float(int::try_to_float(i?.as_bigint(), vm)?)))
+        }
     }
 
     #[inline]
     pub fn try_float(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-        self.try_float_opt(vm)?
-            .ok_or_else(|| vm.new_type_error(format!("must be real number, not {}", self.class())))
+        self.try_float_opt(vm).ok_or_else(|| {
+            vm.new_type_error(format!("must be real number, not {}", self.class()))
+        })?
     }
 }
 
@@ -259,10 +242,10 @@ impl PyNumber<'_> {
     }
 
     #[inline]
-    pub fn int(&self, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
-        Ok(if let Some(f) = self.methods().int.load() {
+    pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
+        self.methods().int.load().map(|f| {
             let ret = f(self, vm)?;
-            Some(if !ret.class().is(PyInt::class(vm)) {
+            let value = if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
@@ -277,17 +260,16 @@ impl PyNumber<'_> {
                 vm.ctx.new_bigint(ret.as_bigint())
             } else {
                 ret
-            })
-        } else {
-            None
+            };
+            Ok(value)
         })
     }
 
     #[inline]
-    pub fn index(&self, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
-        if let Some(f) = self.methods().index.load() {
+    pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
+        self.methods().index.load().map(|f| {
             let ret = f(self, vm)?;
-            if !ret.class().is(PyInt::class(vm)) {
+            let value = if !ret.class().is(PyInt::class(vm)) {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
@@ -299,20 +281,19 @@ impl PyNumber<'_> {
                     1,
                     vm,
                 )?;
-                Ok(Some(vm.ctx.new_bigint(ret.as_bigint())))
+                vm.ctx.new_bigint(ret.as_bigint())
             } else {
-                Ok(Some(ret))
-            }
-        } else {
-            Ok(None)
-        }
+                ret
+            };
+            Ok(value)
+        })
     }
 
     #[inline]
-    pub fn float(&self, vm: &VirtualMachine) -> PyResult<Option<PyRef<PyFloat>>> {
-        Ok(if let Some(f) = self.methods().float.load() {
+    pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
+        self.methods().float.load().map(|f| {
             let ret = f(self, vm)?;
-            Some(if !ret.class().is(PyFloat::class(vm)) {
+            let value = if !ret.class().is(PyFloat::class(vm)) {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
@@ -327,9 +308,8 @@ impl PyNumber<'_> {
                 vm.ctx.new_float(ret.to_f64())
             } else {
                 ret
-            })
-        } else {
-            None
+            };
+            Ok(value)
         })
     }
 }
