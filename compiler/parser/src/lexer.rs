@@ -686,6 +686,8 @@ where
                 StringKind::Normal
             };
 
+            // Reference for string literal prefixes:
+            // https://docs.python.org/3/reference/lexical_analysis.html#string-and-bytes-literals
             let prefix = if is_raw && is_fstring {
                 Some("rf".to_string())
             } else if is_raw {
