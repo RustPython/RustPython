@@ -274,8 +274,9 @@ where
 
             // Check if we have a string:
             if matches!(self.window[0], Some('"' | '\'')) {
+                let prefix = if name.is_empty() { None } else { Some(name) };
                 return self
-                    .lex_string(saw_b, saw_r, saw_u, saw_f)
+                    .lex_string(saw_b, saw_r, saw_u, saw_f, prefix)
                     .map(|(_, tok, end_pos)| (start_pos, tok, end_pos));
             }
         }
@@ -559,6 +560,7 @@ where
         is_raw: bool,
         is_unicode: bool,
         is_fstring: bool,
+        prefix: Option<String>,
     ) -> LexResult {
         let start_pos = self.get_pos();
         let quote_char = self.next_char().unwrap();
@@ -685,21 +687,6 @@ where
             } else {
                 StringKind::Normal
             };
-
-            // Reference for string literal prefixes:
-            // https://docs.python.org/3/reference/lexical_analysis.html#string-and-bytes-literals
-            let prefix = if is_raw && is_fstring {
-                Some("rf".to_string())
-            } else if is_raw {
-                Some('r'.to_string())
-            } else if is_fstring {
-                Some('f'.to_string())
-            } else if is_unicode {
-                Some('u'.to_string())
-            } else {
-                None
-            };
-
             Tok::String {
                 value: string_content,
                 kind,
@@ -924,7 +911,7 @@ where
                 self.emit(comment);
             }
             '"' | '\'' => {
-                let string = self.lex_string(false, false, false, false)?;
+                let string = self.lex_string(false, false, false, false, None)?;
                 self.emit(string);
             }
             '=' => {
