@@ -1962,38 +1962,36 @@ class NameErrorTests(unittest.TestCase):
 
         self.assertNotIn("something", err.getvalue())
 
-    # TODO: RUSTPYTHON
-    # def test_issue45826(self):
-    #     # regression test for bpo-45826
-    #     def f():
-    #         with self.assertRaisesRegex(NameError, 'aaa'):
-    #             aab
+    def test_issue45826(self):
+        # regression test for bpo-45826
+        def f():
+            with self.assertRaisesRegex(NameError, 'aaa'):
+                aab
 
-    #     try:
-    #         f()
-    #     except self.failureException:
-    #         with support.captured_stderr() as err:
-    #             sys.__excepthook__(*sys.exc_info())
+        try:
+            f()
+        except self.failureException:
+            with support.captured_stderr() as err:
+                sys.__excepthook__(*sys.exc_info())
 
-    #     self.assertIn("aab", err.getvalue())
+        self.assertIn("aab", err.getvalue())
 
-    # TODO: RUSTPYTHON
-    # def test_issue45826_focused(self):
-    #     def f():
-    #         try:
-    #             nonsense
-    #         except BaseException as E:
-    #             E.with_traceback(None)
-    #             raise ZeroDivisionError()
+    def test_issue45826_focused(self):
+        def f():
+            try:
+                nonsense
+            except BaseException as E:
+                E.with_traceback(None)
+                raise ZeroDivisionError()
 
-    #     try:
-    #         f()
-    #     except ZeroDivisionError:
-    #         with support.captured_stderr() as err:
-    #             sys.__excepthook__(*sys.exc_info())
+        try:
+            f()
+        except ZeroDivisionError:
+            with support.captured_stderr() as err:
+                sys.__excepthook__(*sys.exc_info())
 
-    #     self.assertIn("nonsense", err.getvalue())
-    #     self.assertIn("ZeroDivisionError", err.getvalue())
+        self.assertIn("nonsense", err.getvalue())
+        self.assertIn("ZeroDivisionError", err.getvalue())
 
 
 class AttributeErrorTests(unittest.TestCase):
