@@ -265,7 +265,7 @@ mod builtins {
 
                     vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), msg)
                 })?;
-                Ok(Either::A(vm.ctx.new_str(source)))
+                Ok(Either::A(vm.ctx.new_str(source.trim_start())))
             }
             Either::B(code) => Ok(Either::B(code)),
         }?;
