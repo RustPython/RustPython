@@ -256,6 +256,15 @@ mod builtins {
                     ));
                 }
 
+                // Check for newlines, tabs, or whitespaces at start
+                let wsp_arr = [9, 10, 32];
+                let mut i = 0;
+                while i < source.len() && wsp_arr.contains(&source[i]) {
+                    i = i + 1;
+                }
+                // Slice off whitespaces
+                let source = &source[i..source.len()];
+
                 let source = std::str::from_utf8(source).map_err(|err| {
                     let msg = format!(
                         "(unicode error) 'utf-8' codec can't decode byte 0x{:x?} in position {}: invalid start byte",
