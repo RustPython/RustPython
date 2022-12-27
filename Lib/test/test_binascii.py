@@ -32,8 +32,6 @@ class BinASCIITest(unittest.TestCase):
         self.assertTrue(issubclass(binascii.Error, Exception))
         self.assertTrue(issubclass(binascii.Incomplete, Exception))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_functions(self):
         # Check presence of all functions
         for name in all_functions:
@@ -386,8 +384,6 @@ class BinASCIITest(unittest.TestCase):
         self.assertEqual(b2a_qp(type2test(b'a.\n')), b'a.\n')
         self.assertEqual(b2a_qp(type2test(b'.a')[:-1]), b'=2E')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty_string(self):
         # A test for SF bug #1022953.  Make sure SystemError is not raised.
         empty = self.type2test(b'')
