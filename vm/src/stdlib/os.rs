@@ -757,10 +757,10 @@ pub(super) mod _os {
         #[pymethod]
         fn is_symlink(&self, vm: &VirtualMachine) -> PyResult<bool> {
             Ok(self
-               .file_type
-               .as_ref()
-               .map_err(|err| err.into_pyexception(vm))?
-               .is_symlink())
+                .file_type
+                .as_ref()
+                .map_err(|err| err.into_pyexception(vm))?
+                .is_symlink())
         }
 
         #[pymethod]
@@ -877,7 +877,7 @@ pub(super) mod _os {
         #[pymethod]
         fn close(&self) {
             let entryref: &mut Option<fs::ReadDir> = &mut self.entries.write();
-            let _dropped = core::mem::replace(entryref, None);
+            let _dropped = entryref.take();
         }
 
         #[pymethod(magic)]
@@ -909,25 +909,26 @@ pub(super) mod _os {
                             let ino = None;
 
                             Ok(PyIterReturn::Return(
-                            DirEntry {
-                                file_name: entry.file_name(),
-                                pathval: entry.path(),
-                                file_type: entry.file_type(),
-                                mode: zelf.mode,
-                                lstat: OnceCell::new(),
-                                stat: OnceCell::new(),
-                                ino: AtomicCell::new(ino),
-                            }
-                            .into_ref(vm)
+                                DirEntry {
+                                    file_name: entry.file_name(),
+                                    pathval: entry.path(),
+                                    file_type: entry.file_type(),
+                                    mode: zelf.mode,
+                                    lstat: OnceCell::new(),
+                                    stat: OnceCell::new(),
+                                    ino: AtomicCell::new(ino),
+                                }
+                                .into_ref(vm)
                                 .into(),
-                            ))},
+                            ))
+                        }
                         Err(err) => Err(err.into_pyexception(vm)),
                     },
                     None => {
-                        let _dropped = core::mem::replace(entryref, None);
+                        let _dropped = entryref.take();
                         Ok(PyIterReturn::StopIteration(None))
                     }
-                }
+                },
             }
         }
     }
