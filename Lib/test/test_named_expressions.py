@@ -102,6 +102,8 @@ class NamedExpressionInvalidTest(unittest.TestCase):
         with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_named_expression_invalid_17(self):
         code = "[i := 0, j := 1 for i, j in [(1, 2), (3, 4)]]"
 
@@ -176,6 +178,8 @@ class NamedExpressionInvalidTest(unittest.TestCase):
                 with self.assertRaisesRegex(SyntaxError, msg):
                     exec(f"lambda: {code}", {}) # Function scope
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_named_expression_invalid_rebinding_set_comprehension_iteration_variable(self):
         cases = [
             ("Local reuse", 'i', "{i := 0 for i in range(5)}"),
@@ -193,6 +197,8 @@ class NamedExpressionInvalidTest(unittest.TestCase):
                 with self.assertRaisesRegex(SyntaxError, msg):
                     exec(code, {}, {})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_named_expression_invalid_rebinding_set_comprehension_inner_loop(self):
         cases = [
             ("Inner reuse", 'j', "{i for i in range(5) if (j := 0) for j in range(5)}"),
