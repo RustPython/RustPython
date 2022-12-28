@@ -1,16 +1,32 @@
 use crate::{AsObject, PyObject, VirtualMachine};
 use itertools::Itertools;
-use std::{cell::RefCell, ptr::NonNull, thread_local};
+use std::{
+    cell::RefCell,
+    ptr::{null, NonNull},
+    thread_local,
+};
 
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
+    static VM_CURRENT: RefCell<*const VirtualMachine> = null::<VirtualMachine>().into();
+}
+
+pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
+    VM_CURRENT.with(|x| unsafe {
+        f(x.clone()
+            .into_inner()
+            .as_ref()
+            .expect("call with_current_vm() but VM_CURRENT is null"))
+    })
 }
 
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     VM_STACK.with(|vms| {
         vms.borrow_mut().push(vm.into());
+        let prev = VM_CURRENT.with(|current| current.replace(vm));
         let ret = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
         vms.borrow_mut().pop();
+        VM_CURRENT.with(|current| current.replace(prev));
         ret.unwrap_or_else(|e| std::panic::resume_unwind(e))
     })
 }
@@ -35,7 +51,10 @@ where
         // SAFETY: all references in VM_STACK should be valid, and should not be changed or moved
         // at least until this function returns and the stack unwinds to an enter_vm() call
         let vm = unsafe { intp.as_ref() };
-        Some(f(vm))
+        let prev = VM_CURRENT.with(|current| current.replace(vm));
+        let ret = f(vm);
+        VM_CURRENT.with(|current| current.replace(prev));
+        Some(ret)
     })
 }
 

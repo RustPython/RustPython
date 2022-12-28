@@ -1997,14 +1997,21 @@ dependencies = [
 name = "rustpython-derive"
 version = "0.1.2"
 dependencies = [
+ "rustpython-compiler",
+ "rustpython-derive-impl",
+ "syn",
+]
+
+[[package]]
+name = "rustpython-derive-impl"
+version = "0.0.0"
+dependencies = [
  "indexmap",
  "itertools",
  "maplit",
  "once_cell",
  "proc-macro2",
  "quote",
- "rustpython-codegen",
- "rustpython-compiler",
  "rustpython-compiler-core",
  "rustpython-doc",
  "syn",

@@ -802,7 +802,7 @@ impl AsNumber for PyInt {
 
 impl PyInt {
     fn number_general_op<F>(
-        number: &PyNumber,
+        number: PyNumber,
         other: &PyObject,
         op: F,
         vm: &VirtualMachine,
@@ -817,14 +817,14 @@ impl PyInt {
         }
     }
 
-    fn number_int_op<F>(number: &PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    fn number_int_op<F>(number: PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(&BigInt, &BigInt) -> BigInt,
     {
         Self::number_general_op(number, other, |a, b, _vm| op(a, b).to_pyresult(vm), vm)
     }
 
-    fn number_int(number: &PyNumber, vm: &VirtualMachine) -> PyIntRef {
+    fn number_int(number: PyNumber, vm: &VirtualMachine) -> PyIntRef {
         if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
             zelf.to_owned()
         } else {

@@ -150,7 +150,7 @@ impl Symbol {
     }
 
     pub fn is_local(&self) -> bool {
-        self.scope == SymbolScope::Local
+        matches!(self.scope, SymbolScope::Local | SymbolScope::Cell)
     }
 
     pub fn is_bound(&self) -> bool {
@@ -483,7 +483,7 @@ impl SymbolTableAnalyzer {
                     };
                 } else {
                     let mut cloned_sym = symbol.clone();
-                    cloned_sym.scope = SymbolScope::Local;
+                    cloned_sym.scope = SymbolScope::Cell;
                     last.0.insert(cloned_sym.name.to_owned(), cloned_sym);
                 }
             }

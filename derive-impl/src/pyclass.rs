@@ -1,6 +1,6 @@
 use super::Diagnostic;
 use crate::util::{
-    path_eq, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem, ContentItemInner,
+    pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem, ContentItemInner,
     ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::{Span, TokenStream};
@@ -222,7 +222,7 @@ fn generate_class_def(
     };
     let basicsize = quote!(std::mem::size_of::<#ident>());
     let is_pystruct = attrs.iter().any(|attr| {
-        path_eq(&attr.path, "derive")
+        attr.path.is_ident("derive")
             && if let Ok(Meta::List(l)) = attr.parse_meta() {
                 l.nested
                     .into_iter()
@@ -232,10 +232,7 @@ fn generate_class_def(
             }
     });
     if base.is_some() && is_pystruct {
-        return Err(syn::Error::new_spanned(
-            ident,
-            "PyStructSequence cannot have `base` class attr",
-        ));
+        bail_span!(ident, "PyStructSequence cannot have `base` class attr",);
     }
     let base_class = if is_pystruct {
         Some(quote! { rustpython_vm::builtins::PyTuple })
@@ -331,9 +328,9 @@ pub(crate) fn impl_pyexception(attr: AttributeArgs, item: Item) -> Result<TokenS
     // We also need to strip `Py` prefix from `class_name`,
     // due to implementation and Python naming conventions mismatch:
     // `PyKeyboardInterrupt` -> `KeyboardInterrupt`
-    let class_name = class_name.strip_prefix("Py").ok_or_else(|| {
-        syn::Error::new_spanned(&item, "We require 'class_name' to have 'Py' prefix")
-    })?;
+    let class_name = class_name
+        .strip_prefix("Py")
+        .ok_or_else(|| err_span!(item, "We require 'class_name' to have 'Py' prefix"))?;
 
     // We just "proxy" it into `pyclass` macro, because, exception is a class.
     let ret = quote! {
@@ -737,10 +734,7 @@ impl GetSetNursery {
     ) -> Result<()> {
         assert!(!self.validated, "new item is not allowed after validation");
         if !matches!(kind, GetSetItemKind::Get) && !cfgs.is_empty() {
-            return Err(syn::Error::new_spanned(
-                item_ident,
-                "Only the getter can have #[cfg]",
-            ));
+            bail_span!(item_ident, "Only the getter can have #[cfg]",);
         }
         let entry = self.map.entry((name.clone(), cfgs)).or_default();
         let func = match kind {
@@ -749,10 +743,11 @@ impl GetSetNursery {
             GetSetItemKind::Delete => &mut entry.2,
         };
         if func.is_some() {
-            return Err(syn::Error::new_spanned(
+            bail_span!(
                 item_ident,
-                format!("Multiple property accessors with name '{}'", name),
-            ));
+                "Multiple property accessors with name '{}'",
+                name
+            );
         }
         *func = Some(item_ident);
         Ok(())
@@ -762,9 +757,10 @@ impl GetSetNursery {
         let mut errors = Vec::new();
         for ((name, _cfgs), (getter, setter, deleter)) in &self.map {
             if getter.is_none() {
-                errors.push(syn::Error::new_spanned(
+                errors.push(err_span!(
                     setter.as_ref().or(deleter.as_ref()).unwrap(),
-                    format!("GetSet '{}' is missing a getter", name),
+                    "GetSet '{}' is missing a getter",
+                    name
                 ));
             };
         }
@@ -841,10 +837,7 @@ impl MemberNursery {
             MemberItemKind::Set => &mut entry.1,
         };
         if func.is_some() {
-            return Err(syn::Error::new_spanned(
-                item_ident,
-                format!("Multiple member accessors with name '{}'", name),
-            ));
+            bail_span!(item_ident, "Multiple member accessors with name '{}'", name);
         }
         *func = Some(item_ident);
         Ok(())
@@ -854,9 +847,10 @@ impl MemberNursery {
         let mut errors = Vec::new();
         for ((name, _), (getter, setter)) in &self.map {
             if getter.is_none() {
-                errors.push(syn::Error::new_spanned(
+                errors.push(err_span!(
                     setter.as_ref().unwrap(),
-                    format!("Member '{}' is missing a getter", name),
+                    "Member '{}' is missing a getter",
+                    name
                 ));
             };
         }
@@ -950,13 +944,11 @@ impl GetSetItemMeta {
             (true, false) => GetSetItemKind::Set,
             (false, true) => GetSetItemKind::Delete,
             (true, true) => {
-                return Err(syn::Error::new_spanned(
+                bail_span!(
                     &inner.meta_ident,
-                    format!(
-                        "can't have both setter and deleter on a #[{}] fn",
-                        inner.meta_name()
-                    ),
-                ))
+                    "can't have both setter and deleter on a #[{}] fn",
+                    inner.meta_name()
+                )
             }
         };
         let name = inner._optional_str("name")?;
@@ -967,27 +959,23 @@ impl GetSetItemMeta {
             let extract_prefix_name = |prefix, item_typ| {
                 if let Some(name) = sig_name.strip_prefix(prefix) {
                     if name.is_empty() {
-                        Err(syn::Error::new_spanned(
-                            &inner.meta_ident,
-                            format!(
-                                "A #[{}({typ})] fn with a {prefix}* name must \
-                                 have something after \"{prefix}\"",
-                                inner.meta_name(),
-                                typ = item_typ,
-                                prefix = prefix
-                            ),
+                        Err(err_span!(
+                            inner.meta_ident,
+                            "A #[{}({typ})] fn with a {prefix}* name must \
+                             have something after \"{prefix}\"",
+                            inner.meta_name(),
+                            typ = item_typ,
+                            prefix = prefix
                         ))
                     } else {
                         Ok(name.to_owned())
                     }
                 } else {
-                    Err(syn::Error::new_spanned(
-                        &inner.meta_ident,
-                        format!(
-                            "A #[{}(setter)] fn must either have a `name` \
-                             parameter or a fn name along the lines of \"set_*\"",
-                            inner.meta_name()
-                        ),
+                    Err(err_span!(
+                        inner.meta_ident,
+                        "A #[{}(setter)] fn must either have a `name` \
+                         parameter or a fn name along the lines of \"set_*\"",
+                        inner.meta_name()
                     ))
                 }
             };
@@ -1025,17 +1013,14 @@ impl ItemMeta for SlotItemMeta {
         } else {
             Some(HashMap::default())
         };
-        match (meta_map, nested.next()) {
-            (Some(meta_map), None) => Ok(Self::from_inner(ItemMetaInner {
-                item_ident,
-                meta_ident,
-                meta_map,
-            })),
-            _ => Err(syn::Error::new_spanned(
-                meta_ident,
-                "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]",
-            )),
-        }
+        let (Some(meta_map), None) = (meta_map, nested.next()) else {
+            bail_span!(meta_ident, "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]")
+        };
+        Ok(Self::from_inner(ItemMetaInner {
+            item_ident,
+            meta_ident,
+            meta_map,
+        }))
     }
 
     fn from_inner(inner: ItemMetaInner) -> Self {
@@ -1064,8 +1049,8 @@ impl SlotItemMeta {
             Some(name)
         };
         slot_name.ok_or_else(|| {
-            syn::Error::new_spanned(
-                &inner.meta_ident,
+            err_span!(
+                inner.meta_ident,
                 "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]",
             )
         })
@@ -1092,27 +1077,23 @@ impl MemberItemMeta {
         let extract_prefix_name = |prefix, item_typ| {
             if let Some(name) = sig_name.strip_prefix(prefix) {
                 if name.is_empty() {
-                    Err(syn::Error::new_spanned(
-                        &inner.meta_ident,
-                        format!(
-                            "A #[{}({typ})] fn with a {prefix}* name must \
-                             have something after \"{prefix}\"",
-                            inner.meta_name(),
-                            typ = item_typ,
-                            prefix = prefix
-                        ),
+                    Err(err_span!(
+                        inner.meta_ident,
+                        "A #[{}({typ})] fn with a {prefix}* name must \
+                         have something after \"{prefix}\"",
+                        inner.meta_name(),
+                        typ = item_typ,
+                        prefix = prefix
                     ))
                 } else {
                     Ok(name.to_owned())
                 }
             } else {
-                Err(syn::Error::new_spanned(
-                    &inner.meta_ident,
-                    format!(
-                        "A #[{}(setter)] fn must either have a `name` \
-                         parameter or a fn name along the lines of \"set_*\"",
-                        inner.meta_name()
-                    ),
+                Err(err_span!(
+                    inner.meta_ident,
+                    "A #[{}(setter)] fn must either have a `name` \
+                     parameter or a fn name along the lines of \"set_*\"",
+                    inner.meta_name()
                 ))
             }
         };
@@ -1159,15 +1140,12 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
     for attr in attr {
         match attr {
             NestedMeta::Meta(Meta::List(syn::MetaList { path, nested, .. })) => {
-                if path_eq(&path, "with") {
+                if path.is_ident("with") {
                     for meta in nested {
-                        let path = match meta {
-                            NestedMeta::Meta(Meta::Path(path)) => path,
-                            meta => {
-                                bail_span!(meta, "#[pyclass(with(...))] arguments should be paths")
-                            }
+                        let NestedMeta::Meta(Meta::Path(path)) = meta else {
+                            bail_span!(meta, "#[pyclass(with(...))] arguments should be paths")
                         };
-                        let (extend_class, extend_slots) = if path_eq(&path, "PyRef") {
+                        let (extend_class, extend_slots) = if path.is_ident("PyRef") {
                             // special handling for PyRef
                             (
                                 quote!(PyRef::<Self>::impl_extend_class),
@@ -1187,25 +1165,17 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
                             #extend_slots(slots);
                         });
                     }
-                } else if path_eq(&path, "flags") {
+                } else if path.is_ident("flags") {
                     for meta in nested {
-                        match meta {
-                            NestedMeta::Meta(Meta::Path(path)) => {
-                                if let Some(ident) = path.get_ident() {
-                                    flags.push(quote_spanned! { ident.span() =>
-                                         .union(::rustpython_vm::types::PyTypeFlags::#ident)
-                                    });
-                                } else {
-                                    bail_span!(
-                                        path,
-                                        "#[pyclass(flags(...))] arguments should be ident"
-                                    )
-                                }
-                            }
-                            meta => {
-                                bail_span!(meta, "#[pyclass(flags(...))] arguments should be ident")
-                            }
-                        }
+                        let NestedMeta::Meta(Meta::Path(path)) = meta else {
+                            bail_span!(meta, "#[pyclass(flags(...))] arguments should be ident")
+                        };
+                        let ident = path.get_ident().ok_or_else(|| {
+                            err_span!(path, "#[pyclass(flags(...))] arguments should be ident")
+                        })?;
+                        flags.push(quote_spanned! { ident.span() =>
+                             .union(::rustpython_vm::types::PyTypeFlags::#ident)
+                        });
                     }
                 } else {
                     bail_span!(path, "Unknown pyimpl attribute")
@@ -1295,19 +1265,13 @@ where
             continue;
         };
         if attr_name == "cfg" {
-            return Err(syn::Error::new_spanned(
-                attr,
-                "#[py*] items must be placed under `cfgs`",
-            ));
+            bail_span!(attr, "#[py*] items must be placed under `cfgs`",);
         }
         let attr_name = match AttrName::from_str(attr_name.as_str()) {
             Ok(name) => name,
             Err(wrong_name) => {
                 if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
-                    return Err(syn::Error::new_spanned(
-                        attr,
-                        format!("#[pyclass] doesn't accept #[{}]", wrong_name),
-                    ));
+                    bail_span!(attr, "#[pyclass] doesn't accept #[{}]", wrong_name)
                 } else {
                     continue;
                 }
@@ -1320,7 +1284,7 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) struct PyExceptionDef {
+pub struct PyExceptionDef {
     pub class_name: Ident,
     pub base_class: Ident,
     pub ctx_name: Ident,
@@ -1371,14 +1335,13 @@ fn parse_vec_ident(
 ) -> Result<String> {
     Ok(attr
         .get(index)
-        .ok_or_else(|| {
-            syn::Error::new_spanned(item, format!("We require {} argument to be set", &message))
-        })?
+        .ok_or_else(|| err_span!(item, "We require {} argument to be set", message))?
         .get_ident()
         .ok_or_else(|| {
-            syn::Error::new_spanned(
+            err_span!(
                 item,
-                format!("We require {} argument to be ident or string", &message),
+                "We require {} argument to be ident or string",
+                message
             )
         })?
         .to_string())

@@ -154,7 +154,7 @@ pub type LexResult = Result<Spanned, LexicalError>;
 
 #[inline]
 pub fn make_tokenizer(source: &str) -> impl Iterator<Item = LexResult> + '_ {
-    make_tokenizer_located(source, Location::new(0, 0))
+    make_tokenizer_located(source, Location::new(1, 0))
 }
 
 pub fn make_tokenizer_located(
@@ -236,8 +236,10 @@ where
         lxr.window.slide();
         lxr.window.slide();
         lxr.window.slide();
-        // Start at top row (=1) left column (=1)
-        lxr.location.reset();
+        // TODO: Handle possible mismatch between BOM and explicit encoding declaration.
+        if let Some('\u{feff}') = lxr.window[0] {
+            lxr.window.slide();
+        }
         lxr
     }
 

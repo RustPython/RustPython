@@ -69,8 +69,8 @@ impl PyObjectRef {
         if let Some(complex) = self.payload_if_subclass::<PyComplex>(vm) {
             return Ok(Some((complex.value, true)));
         }
-        if let Some(float) = self.try_float_opt(vm)? {
-            return Ok(Some((Complex64::new(float.to_f64(), 0.0), false)));
+        if let Some(float) = self.try_float_opt(vm) {
+            return Ok(Some((Complex64::new(float?.to_f64(), 0.0), false)));
         }
         Ok(None)
     }
@@ -489,7 +489,7 @@ impl AsNumber for PyComplex {
 
 impl PyComplex {
     fn number_general_op<F, R>(
-        number: &PyNumber,
+        number: PyNumber,
         other: &PyObject,
         op: F,
         vm: &VirtualMachine,
@@ -506,7 +506,7 @@ impl PyComplex {
     }
 
     fn number_complex_op<F>(
-        number: &PyNumber,
+        number: PyNumber,
         other: &PyObject,
         op: F,
         vm: &VirtualMachine,
@@ -517,7 +517,7 @@ impl PyComplex {
         Self::number_general_op(number, other, |a, b, _vm| op(a, b), vm)
     }
 
-    fn number_complex(number: &PyNumber, vm: &VirtualMachine) -> PyRef<PyComplex> {
+    fn number_complex(number: PyNumber, vm: &VirtualMachine) -> PyRef<PyComplex> {
         if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
             zelf.to_owned()
         } else {

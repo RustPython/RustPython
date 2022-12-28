@@ -190,21 +190,21 @@ pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize
     Ok(len as usize)
 }
 
-fn int_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+fn int_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
     let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
     ret.downcast::<PyInt>().map_err(|obj| {
         vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
     })
 }
 
-fn index_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
+fn index_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
     let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
     ret.downcast::<PyInt>().map_err(|obj| {
         vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
     })
 }
 
-fn float_wrapper(num: &PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
+fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
     let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
     ret.downcast::<PyFloat>().map_err(|obj| {
         vm.new_type_error(format!(
@@ -968,8 +968,8 @@ pub trait AsNumber: PyPayload {
     fn as_number() -> &'static PyNumberMethods;
 
     #[inline]
-    fn number_downcast<'a>(number: &'a PyNumber) -> &'a Py<Self> {
-        unsafe { number.obj.downcast_unchecked_ref() }
+    fn number_downcast(num: PyNumber) -> &Py<Self> {
+        unsafe { num.obj.downcast_unchecked_ref() }
     }
 }
 

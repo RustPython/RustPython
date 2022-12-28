@@ -52,7 +52,7 @@ pub fn offer_suggestions(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Optio
         calculate_suggestions(vm.dir(Some(obj)).ok()?.borrow_vec().iter(), &name)
     } else if exc.class().is(vm.ctx.exceptions.name_error) {
         let name = exc.as_object().to_owned().get_attr("name", vm).unwrap();
-        let mut tb = exc.traceback().unwrap();
+        let mut tb = exc.traceback()?;
         for traceback in tb.iter() {
             tb = traceback;
         }

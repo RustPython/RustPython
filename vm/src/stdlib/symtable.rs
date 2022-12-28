@@ -89,6 +89,7 @@ mod symtable {
                         .filter(|table| table.name == name)
                         .cloned()
                         .collect(),
+                    is_top_scope: self.symtable.name == "top",
                 }
                 .into_ref(vm))
             } else {
@@ -123,6 +124,7 @@ mod symtable {
                             .filter(|&table| table.name == s.name)
                             .cloned()
                             .collect(),
+                        is_top_scope: self.symtable.name == "top",
                     })
                     .into_ref(vm)
                     .into()
@@ -154,6 +156,7 @@ mod symtable {
     struct PySymbol {
         symbol: Symbol,
         namespaces: Vec<SymbolTable>,
+        is_top_scope: bool,
     }
 
     impl fmt::Debug for PySymbol {
@@ -171,12 +174,17 @@ mod symtable {
 
         #[pymethod]
         fn is_global(&self) -> bool {
-            self.symbol.is_global()
+            self.symbol.is_global() || (self.is_top_scope && self.symbol.is_bound())
+        }
+
+        #[pymethod]
+        fn is_declared_global(&self) -> bool {
+            matches!(self.symbol.scope, SymbolScope::GlobalExplicit)
         }
 
         #[pymethod]
         fn is_local(&self) -> bool {
-            self.symbol.is_local()
+            self.symbol.is_local() || (self.is_top_scope && self.symbol.is_bound())
         }
 
         #[pymethod]
