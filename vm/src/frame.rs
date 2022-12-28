@@ -541,7 +541,7 @@ impl ExecutingFrame<'_> {
                 let result = self.locals.mapping().subscript(name, vm);
                 match result {
                     Ok(x) => self.push_value(x),
-                    Err(e) if e.class().is(vm.ctx.exceptions.key_error) => {
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
                         self.push_value(self.load_global_or_builtin(name, vm)?);
                     }
                     Err(e) => return Err(e),
