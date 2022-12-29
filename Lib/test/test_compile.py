@@ -42,8 +42,6 @@ class TestSpecifics(unittest.TestCase):
         self.assertEqual(__debug__, prev)
         setattr(builtins, '__debug__', prev)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_argument_handling(self):
         # detect duplicate positional and keyword arguments
         self.assertRaises(SyntaxError, eval, 'lambda a,a:0')
