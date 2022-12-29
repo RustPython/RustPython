@@ -621,8 +621,6 @@ class BuiltinTest(unittest.TestCase):
 
         self.assertRaises(TypeError, divmod)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_eval(self):
         self.assertEqual(eval('1+1'), 2)
         self.assertEqual(eval(' 1+1\n'), 2)

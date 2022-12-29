@@ -538,11 +538,14 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::LoadNameAny(idx) => {
                 let name = self.code.names[*idx as usize];
-                let value = self.locals.mapping().subscript(name, vm).ok();
-                self.push_value(match value {
-                    Some(x) => x,
-                    None => self.load_global_or_builtin(name, vm)?,
-                });
+                let result = self.locals.mapping().subscript(name, vm);
+                match result {
+                    Ok(x) => self.push_value(x),
+                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
+                        self.push_value(self.load_global_or_builtin(name, vm)?);
+                    }
+                    Err(e) => return Err(e),
+                }
                 Ok(None)
             }
             bytecode::Instruction::LoadGlobal(idx) => {
