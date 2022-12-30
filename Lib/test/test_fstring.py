@@ -83,8 +83,6 @@ f'{a * x()}'"""
         # Make sure x was called.
         self.assertTrue(x.called)
 
-    # TODO: RUSTPYTHON - binop lineno
-    @unittest.expectedFailure 
     def test_ast_line_numbers(self):
         expr = """
 a = 10
@@ -116,8 +114,6 @@ f'{a * x()}'"""
         self.assertEqual(binop.left.col_offset, 3)
         self.assertEqual(binop.right.col_offset, 7)
 
-    # TODO: RUSTPYTHON binops lineno and col_offset
-    @unittest.expectedFailure
     def test_ast_line_numbers_multiple_formattedvalues(self):
         expr = """
 f'no formatted values'
@@ -170,8 +166,6 @@ f'eggs {a * x()} spam {b + y()}'"""
         self.assertEqual(binop2.left.col_offset, 23)
         self.assertEqual(binop2.right.col_offset, 27)
 
-    # TODO: RUSTPYTHON binops lineno and col_offset
-    @unittest.expectedFailure
     def test_ast_line_numbers_nested(self):
         expr = """
 a = 10
@@ -217,8 +211,6 @@ f'{a * f"-{x()}-"}'"""
         self.assertEqual(call.lineno, 3)
         self.assertEqual(call.col_offset, 11)
 
-    # TODO: RUSTPYTHON binops lineno and col_offset
-    @unittest.expectedFailure
     def test_ast_line_numbers_duplicate_expression(self):
         expr = """
 a = 10
@@ -285,8 +277,6 @@ f'{a * x()} {a * x()} {a * x()}'
         self.assertEqual(binop.left.col_offset, 23)
         self.assertEqual(binop.right.col_offset, 27)
 
-    # TODO: RUSTPYTHON err col_offset and missing end_* attributes
-    @unittest.expectedFailure
     def test_ast_numbers_fstring_with_formatting(self):
 
         t = ast.parse('f"Here is that pesky {xxx:.3f} again"')
@@ -310,8 +300,6 @@ f'{a * x()} {a * x()} {a * x()}'
         self.assertEqual(name.col_offset, 22)
         self.assertEqual(name.end_col_offset, 25)
 
-    # TODO: RUSTPYTHON col_offset and binop lineno and col_offset
-    @unittest.expectedFailure
     def test_ast_line_numbers_multiline_fstring(self):
         # See bpo-30465 for details.
         expr = """
@@ -391,8 +379,6 @@ a = f'''
         self.assertEqual(t.body[0].value.values[1].value.col_offset, 11)
         self.assertEqual(t.body[0].value.values[1].value.end_col_offset, 16)
 
-    # TODO: RUSTPYTHON lineno, col_offset, end*
-    @unittest.expectedFailure
     def test_ast_line_numbers_with_parentheses(self):
         expr = """
 x = (
@@ -470,8 +456,6 @@ x = (
         exec(c)
         self.assertEqual(x[0], 'foo3')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compile_time_concat_errors(self):
         self.assertAllRaise(SyntaxError,
                             'cannot mix bytes and nonbytes literals',
@@ -1083,8 +1067,6 @@ x = (
                              "del '' f''",
                              ])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mismatched_braces(self):
         self.assertAllRaise(SyntaxError, "f-string: single '}' is not allowed",
                             ["f'{{}'",
