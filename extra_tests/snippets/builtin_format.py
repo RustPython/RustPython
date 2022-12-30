@@ -28,3 +28,4 @@ assert f'{1024:_}' == '1_024'
 assert f'{65536:,}' == '65,536'
 assert f'{4294967296:,}' == '4,294,967,296'
 assert 'F' == "{0:{base}}".format(15, base="X")
+assert f'{255:#X}' == "0XFF"
