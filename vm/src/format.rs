@@ -477,7 +477,17 @@ impl FormatSpec {
             },
             Some(FormatType::Number) => self.format_int_radix(magnitude, 10),
             Some(FormatType::String) => Err("Unknown format code 's' for object of type 'int'"),
-            Some(FormatType::Character) => Err("Unknown format code 'c' for object of type 'int'"),
+            Some(FormatType::Character) => match (self.sign, self.alternate_form) {
+                (Some(_), _) => Err("Sign not allowed with integer format specifier 'c'"),
+                (_, true) => {
+                    Err("Alternate form (#) not allowed with integer format specifier 'c'")
+                }
+                (_, _) => match num.to_u32() {
+                    Some(n) if n <= 0x10ffff => Ok(std::char::from_u32(n).unwrap().to_string()),
+                    // TODO: raise OverflowError
+                    Some(_) | None => Err("%c arg not in range(0x110000)"),
+                },
+            },
             Some(FormatType::GeneralFormatUpper) => {
                 Err("Unknown format code 'G' for object of type 'int'")
             }
