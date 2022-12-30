@@ -456,7 +456,7 @@ impl FormatSpec {
                 Some(FormatType::Binary) => "0b",
                 Some(FormatType::Octal) => "0o",
                 Some(FormatType::HexLower) => "0x",
-                Some(FormatType::HexUpper) => "0x",
+                Some(FormatType::HexUpper) => "0X",
                 _ => "",
             }
         } else {
