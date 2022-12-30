@@ -33,5 +33,3 @@ assert f"{65:c}" == "A"
 assert f"{0x1f5a5:c}" == "🖥"
 assert_raises(ValueError, "{:+c}".format, 1, _msg="Sign not allowed with integer format specifier 'c'")
 assert_raises(ValueError, "{:#c}".format, 1, _msg="Alternate form (#) not allowed with integer format specifier 'c'")
-# TODO: raise OverflowError
-assert_raises(ValueError, "{:c}".format, -1, _msg="%c arg not in range(0x110000)")
