@@ -1897,6 +1897,7 @@ dependencies = [
 name = "rustpython"
 version = "0.1.2"
 dependencies = [
+ "atty",
  "cfg-if",
  "clap",
  "cpython",

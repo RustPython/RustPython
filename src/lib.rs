@@ -50,6 +50,7 @@ mod interpreter;
 mod settings;
 mod shell;
 
+use atty::Stream;
 use rustpython_vm::{scope::Scope, PyResult, VirtualMachine};
 use std::{env, process::ExitCode};
 
@@ -63,6 +64,9 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     env_logger::init();
 
     let (settings, run_mode) = opts_with_clap();
+
+    // Be quiet if "quiet" arg is set OR stdin is not connected to a terminal
+    let quiet_var = settings.quiet || !atty::is(Stream::Stdin);
 
     // don't translate newlines (\r\n <=> \n)
     #[cfg(windows)]
@@ -85,7 +89,7 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     config = config.init_hook(Box::new(init));
 
     let interp = config.interpreter();
-    let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
+    let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode, quiet_var));
 
     ExitCode::from(exitcode)
 }
@@ -151,7 +155,7 @@ fn install_pip(_installer: &str, _scope: Scope, vm: &VirtualMachine) -> PyResult
     ))
 }
 
-fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
+fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
 
@@ -182,7 +186,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
             if let Some(script) = script {
                 debug!("Running script {}", &script);
                 vm.run_script(scope.clone(), &script)?;
-            } else {
+            } else if !quiet {
                 println!(
                     "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
                     crate_version!()
