@@ -33,3 +33,13 @@ assert f"{65:c}" == "A"
 assert f"{0x1f5a5:c}" == "🖥"
 assert_raises(ValueError, "{:+c}".format, 1, _msg="Sign not allowed with integer format specifier 'c'")
 assert_raises(ValueError, "{:#c}".format, 1, _msg="Alternate form (#) not allowed with integer format specifier 'c'")
+assert f"{256:#010x}" == "0x00000100"
+assert f"{256:0=#10x}" == "0x00000100"
+assert f"{256:0>#10x}" == "000000x100"
+assert f"{256:0^#10x}" == "000x100000"
+assert f"{256:0<#10x}" == "0x10000000"
+assert f"{512:+#010x}" == "+0x0000200"
+assert f"{512:0=+#10x}" == "+0x0000200"
+assert f"{512:0>+#10x}" == "0000+0x200"
+assert f"{512:0^+#10x}" == "00+0x20000"
+assert f"{512:0<+#10x}" == "+0x2000000"
