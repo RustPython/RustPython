@@ -29,3 +29,7 @@ assert f'{65536:,}' == '65,536'
 assert f'{4294967296:,}' == '4,294,967,296'
 assert 'F' == "{0:{base}}".format(15, base="X")
 assert f'{255:#X}' == "0XFF"
+assert f"{65:c}" == "A"
+assert f"{0x1f5a5:c}" == "🖥"
+assert_raises(ValueError, "{:+c}".format, 1, _msg="Sign not allowed with integer format specifier 'c'")
+assert_raises(ValueError, "{:#c}".format, 1, _msg="Alternate form (#) not allowed with integer format specifier 'c'")
