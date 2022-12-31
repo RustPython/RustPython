@@ -451,11 +451,11 @@ mod _sqlite {
                 let text2 = vm.ctx.new_str(text2);
 
                 let val = vm.invoke(callable, (text1, text2))?;
-                let Some(val) = val.to_number().index(vm)? else {
+                let Some(val) = val.to_number().index(vm) else {
                     return Ok(0);
                 };
 
-                let val = match val.as_bigint().sign() {
+                let val = match val?.as_bigint().sign() {
                     num_bigint::Sign::Plus => 1,
                     num_bigint::Sign::Minus => -1,
                     num_bigint::Sign::NoSign => 0,
