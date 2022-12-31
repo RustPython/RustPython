@@ -67,7 +67,7 @@ impl PyPathLike {
         }
     }
 
-    #[cfg(any(unix, target_os = "wasi"))]
+    // #[cfg(any(unix, target_os = "wasi"))]
     pub fn into_bytes(self) -> Vec<u8> {
         use ffi_ext::OsStringExt;
         self.path.into_os_string().into_vec()
