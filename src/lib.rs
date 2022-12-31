@@ -50,9 +50,9 @@ mod interpreter;
 mod settings;
 mod shell;
 
+use atty::Stream;
 use rustpython_vm::{scope::Scope, PyResult, VirtualMachine};
 use std::{env, process::ExitCode};
-use atty::Stream;
 
 pub use interpreter::InterpreterConfig;
 pub use rustpython_vm as vm;
@@ -186,13 +186,11 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResu
             if let Some(script) = script {
                 debug!("Running script {}", &script);
                 vm.run_script(scope.clone(), &script)?;
-            } else {
-                if !quiet {
-                    println!(
-                        "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-                        crate_version!()
-                    );
-                }
+            } else if !quiet {
+                println!(
+                    "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
+                    crate_version!()
+                );
             }
             if interactive {
                 shell::run_shell(vm, scope)?;
