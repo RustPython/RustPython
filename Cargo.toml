@@ -48,6 +48,7 @@ flamescope = { version = "0.1.2", optional = true }
 libc = "0.2.133"
 log = "0.4.16"
 num-traits = "0.2.14"
+atty = "0.2.14"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = "10.0.0"
