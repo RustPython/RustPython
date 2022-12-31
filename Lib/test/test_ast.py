@@ -2031,16 +2031,12 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, try_stmt.body[0], 'raise RuntimeError')
         self._check_content(s, try_stmt.handlers[0].type, 'TypeError')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fstring(self):
         s = 'x = f"abc {x + y} abc"'
         fstr = self._parse_value(s)
         binop = fstr.values[1].value
         self._check_content(s, binop, 'x + y')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fstring_multi_line(self):
         s = dedent('''
             f"""Some multi-line text.
