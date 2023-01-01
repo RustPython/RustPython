@@ -316,6 +316,37 @@ impl FormatSpec {
         result
     }
 
+    fn separate_integer(
+        magnitude_str: String,
+        inter: i32,
+        sep: char,
+        disp_digit_cnt: i32,
+    ) -> String {
+        let magnitude_len = magnitude_str.len() as i32;
+        let offset = (disp_digit_cnt % (inter + 1) == 0) as i32;
+        let disp_digit_cnt = disp_digit_cnt + offset;
+        let pad_cnt = disp_digit_cnt - magnitude_len;
+        if pad_cnt > 0 {
+            // separate with 0 padding
+            let sep_cnt = disp_digit_cnt / (inter + 1);
+            let padding = "0".repeat((pad_cnt - sep_cnt) as usize);
+            let padded_num = format!("{}{}", padding, magnitude_str);
+            FormatSpec::insert_separator(padded_num, inter, sep, sep_cnt)
+        } else {
+            // separate without padding
+            let sep_cnt = (magnitude_len - 1) / (inter as i32);
+            FormatSpec::insert_separator(magnitude_str, inter, sep, sep_cnt)
+        }
+    }
+
+    fn insert_separator(mut magnitude_str: String, inter: i32, sep: char, sep_cnt: i32) -> String {
+        let magnitude_len = magnitude_str.len() as i32;
+        for i in 1..sep_cnt + 1 {
+            magnitude_str.insert((magnitude_len - inter * i) as usize, sep);
+        }
+        magnitude_str
+    }
+
     fn get_separator_interval(&self) -> usize {
         match self.format_type {
             Some(FormatType::Binary) => 4,
