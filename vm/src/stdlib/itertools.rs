@@ -924,6 +924,35 @@ mod decl {
             .into_ref_with_type(vm, cls)
             .map(Into::into)
         }
+
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+            let cls = zelf.class().to_owned();
+            let itr = zelf.iterable.clone();
+            let cur = zelf.cur.take();
+            let next = zelf.next.take();
+            let step = zelf.step;
+            match zelf.stop {
+                Some(stop) => Ok(vm.new_tuple((cls, (itr, next, stop, step), (cur,)))),
+                _ => Ok(vm.new_tuple((cls, (itr, next, vm.new_pyobj(()), step), (cur,)))),
+            }
+        }
+
+        #[pymethod(magic)]
+        fn setstate(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
+            let args = state.as_slice();
+            if args.len() != 1 {
+                let msg = format!("function takes exactly 1 argument ({} given)", args.len());
+                return Err(vm.new_type_error(msg));
+            }
+            let cur = &args[0];
+            if let Ok(cur) = usize::try_from_object(vm, cur.clone()) {
+                zelf.cur.store(cur);
+            } else {
+                return Err(vm.new_type_error(String::from("Argument must be usize.")));
+            }
+            Ok(())
+        }
     }
 
     impl IterNextIterable for PyItertoolsIslice {}
