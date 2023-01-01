@@ -504,12 +504,7 @@ impl FormatSpec {
             },
             None => self.format_int_radix(magnitude, 10),
         };
-        let magnitude_string = format!(
-            "{}{}",
-            prefix,
-            self.add_magnitude_separators(raw_magnitude_string_result?)
-        );
-
+        let magnitude_string = self.add_magnitude_separators(raw_magnitude_string_result?);
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
         let sign_str = match num.sign() {
             Sign::Minus => "-",
@@ -519,8 +514,8 @@ impl FormatSpec {
                 FormatSign::MinusOrSpace => " ",
             },
         };
-
-        self.format_sign_and_align(&magnitude_string, sign_str, FormatAlign::Right)
+        let sign_prefix = format!("{}{}", sign_str, prefix);
+        self.format_sign_and_align(&magnitude_string, &sign_prefix, FormatAlign::Right)
     }
 
     pub(crate) fn format_string(&self, s: &str) -> Result<String, &'static str> {
