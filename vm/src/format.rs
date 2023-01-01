@@ -292,26 +292,19 @@ impl FormatSpec {
     }
 
     fn add_magnitude_separators_for_char(
-        magnitude_string: String,
-        interval: usize,
-        separator: char,
+        magnitude_str: String,
+        inter: i32,
+        sep: char,
+        disp_digit_cnt: i32,
     ) -> String {
-        let mut result = String::new();
-
         // Don't add separators to the floating decimal point of numbers
-        let mut parts = magnitude_string.splitn(2, '.');
-        let magnitude_integer_string = parts.next().unwrap();
-        let mut remaining: usize = magnitude_integer_string.len();
-        for c in magnitude_integer_string.chars() {
-            result.push(c);
-            remaining -= 1;
-            if remaining % interval == 0 && remaining > 0 {
-                result.push(separator);
-            }
-        }
+        let mut parts = magnitude_str.splitn(2, '.');
+        let magnitude_int_str = parts.next().unwrap().to_string();
+        let dec_digit_cnt = magnitude_str.len() as i32 - magnitude_int_str.len() as i32;
+        let int_digit_cnt = disp_digit_cnt - dec_digit_cnt;
+        let mut result = FormatSpec::separate_integer(magnitude_int_str, inter, sep, int_digit_cnt);
         if let Some(part) = parts.next() {
-            result.push('.');
-            result.push_str(part);
+            result.push_str(&format!(".{}", part))
         }
         result
     }
@@ -361,19 +354,25 @@ impl FormatSpec {
         }
     }
 
-    fn add_magnitude_separators(&self, magnitude_string: String) -> String {
-        match self.grouping_option {
-            Some(FormatGrouping::Comma) => FormatSpec::add_magnitude_separators_for_char(
-                magnitude_string,
-                self.get_separator_interval(),
-                ',',
-            ),
-            Some(FormatGrouping::Underscore) => FormatSpec::add_magnitude_separators_for_char(
-                magnitude_string,
-                self.get_separator_interval(),
-                '_',
-            ),
-            None => magnitude_string,
+    fn add_magnitude_separators(&self, magnitude_str: String, prefix: &str) -> String {
+        match &self.grouping_option {
+            Some(fg) => {
+                let sep = match fg {
+                    FormatGrouping::Comma => ',',
+                    FormatGrouping::Underscore => '_',
+                };
+                let inter = self.get_separator_interval().try_into().unwrap();
+                let magnitude_len = magnitude_str.len();
+                let width = self.width.unwrap_or(magnitude_len) as i32 - prefix.len() as i32;
+                let disp_digit_cnt = cmp::max(width, magnitude_len as i32);
+                FormatSpec::add_magnitude_separators_for_char(
+                    magnitude_str,
+                    inter,
+                    sep,
+                    disp_digit_cnt,
+                )
+            }
+            None => magnitude_str,
         }
     }
 
@@ -456,8 +455,6 @@ impl FormatSpec {
                 },
             },
         };
-
-        let magnitude_string = self.add_magnitude_separators(raw_magnitude_string_result?);
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
         let sign_str = if num.is_sign_negative() && !num.is_nan() {
             "-"
@@ -468,7 +465,8 @@ impl FormatSpec {
                 FormatSign::MinusOrSpace => " ",
             }
         };
-
+        let magnitude_string =
+            self.add_magnitude_separators(raw_magnitude_string_result?, sign_str);
         self.format_sign_and_align(&magnitude_string, sign_str, FormatAlign::Right)
     }
 
@@ -535,7 +533,6 @@ impl FormatSpec {
             },
             None => self.format_int_radix(magnitude, 10),
         };
-        let magnitude_string = self.add_magnitude_separators(raw_magnitude_string_result?);
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
         let sign_str = match num.sign() {
             Sign::Minus => "-",
@@ -546,6 +543,8 @@ impl FormatSpec {
             },
         };
         let sign_prefix = format!("{}{}", sign_str, prefix);
+        let magnitude_string =
+            self.add_magnitude_separators(raw_magnitude_string_result?, &sign_prefix);
         self.format_sign_and_align(&magnitude_string, &sign_prefix, FormatAlign::Right)
     }
 
