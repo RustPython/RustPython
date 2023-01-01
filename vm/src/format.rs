@@ -379,7 +379,7 @@ impl FormatSpec {
     pub(crate) fn format_float(&self, num: f64) -> Result<String, &'static str> {
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
-        let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
+        let raw_magnitude_str: Result<String, &'static str> = match self.format_type {
             Some(FormatType::FixedPointUpper) => Ok(float_ops::format_fixed(
                 precision,
                 magnitude,
@@ -465,9 +465,8 @@ impl FormatSpec {
                 FormatSign::MinusOrSpace => " ",
             }
         };
-        let magnitude_string =
-            self.add_magnitude_separators(raw_magnitude_string_result?, sign_str);
-        self.format_sign_and_align(&magnitude_string, sign_str, FormatAlign::Right)
+        let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, sign_str);
+        self.format_sign_and_align(&magnitude_str, sign_str, FormatAlign::Right)
     }
 
     #[inline]
@@ -491,7 +490,7 @@ impl FormatSpec {
         } else {
             ""
         };
-        let raw_magnitude_string_result: Result<String, &'static str> = match self.format_type {
+        let raw_magnitude_str: Result<String, &'static str> = match self.format_type {
             Some(FormatType::Binary) => self.format_int_radix(magnitude, 2),
             Some(FormatType::Decimal) => self.format_int_radix(magnitude, 10),
             Some(FormatType::Octal) => self.format_int_radix(magnitude, 8),
@@ -543,9 +542,8 @@ impl FormatSpec {
             },
         };
         let sign_prefix = format!("{}{}", sign_str, prefix);
-        let magnitude_string =
-            self.add_magnitude_separators(raw_magnitude_string_result?, &sign_prefix);
-        self.format_sign_and_align(&magnitude_string, &sign_prefix, FormatAlign::Right)
+        let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, &sign_prefix);
+        self.format_sign_and_align(&magnitude_str, &sign_prefix, FormatAlign::Right)
     }
 
     pub(crate) fn format_string(&self, s: &str) -> Result<String, &'static str> {
