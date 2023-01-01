@@ -226,12 +226,10 @@ impl PyByteArray {
 
     pub fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "bytearray")? {
-            SequenceIndex::Int(i) => self.try_resizable(vm)?.elements.del_item_by_index(vm, i),
+            SequenceIndex::Int(i) => self.try_resizable(vm)?.elements.delitem_by_index(vm, i),
             SequenceIndex::Slice(slice) => {
                 // TODO: delete 0 elements don't need resizable
-                self.try_resizable(vm)?
-                    .elements
-                    .del_item_by_slice(vm, slice)
+                self.try_resizable(vm)?.elements.delitem_by_slice(vm, slice)
             }
         }
     }
@@ -813,7 +811,7 @@ impl AsSequence for PyByteArray {
                 if let Some(value) = value {
                     zelf._setitem_by_index(i, value, vm)
                 } else {
-                    zelf.borrow_buf_mut().del_item_by_index(vm, i)
+                    zelf.borrow_buf_mut().delitem_by_index(vm, i)
                 }
             }),
             contains: atomic_func!(|seq, other, vm| {

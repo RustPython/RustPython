@@ -337,7 +337,7 @@ mod array {
                 fn delitem_by_index(&mut self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.del_item_by_index(vm, i)
+                            v.delitem_by_index(vm, i)
                         })*
                     }
                 }
@@ -345,7 +345,7 @@ mod array {
                 fn delitem_by_slice(&mut self, slice: SaturatedSlice, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.del_item_by_slice(vm, slice)
+                            v.delitem_by_slice(vm, slice)
                         })*
                     }
                 }
