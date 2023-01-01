@@ -4,7 +4,7 @@ use crate::{
         pystr, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef,
     },
     byte::bytes_from_object,
-    cformat::CFormatBytes,
+    cformat::cformat_bytes,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     identifier,
     protocol::PyBuffer,
@@ -911,9 +911,7 @@ impl PyBytesInner {
     }
 
     pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        CFormatBytes::parse_from_bytes(self.elements.as_slice())
-            .map_err(|err| vm.new_value_error(err.to_string()))?
-            .format(vm, values)
+        cformat_bytes(vm, self.elements.as_slice(), values)
     }
 
     pub fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {

@@ -3,9 +3,9 @@ use crate::{
     atomic_func,
     bytesinner::PyBytesInner,
     class::PyClassImpl,
+    common::format::FormatSpec,
     common::hash,
     convert::{ToPyObject, ToPyResult},
-    format::FormatSpec,
     function::{
         ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,
         PyComparisonValue,

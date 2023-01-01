@@ -1950,8 +1950,10 @@ name = "rustpython-common"
 version = "0.0.0"
 dependencies = [
  "ascii",
+ "bitflags",
  "cfg-if",
  "hexf-parse",
+ "itertools",
  "lexical-parse-float",
  "libc",
  "lock_api",

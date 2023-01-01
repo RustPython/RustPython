@@ -4,9 +4,9 @@ use super::{
 use crate::{
     atomic_func,
     class::PyClassImpl,
+    common::format::FormatSpec,
     common::{float_ops, hash},
     convert::{ToPyObject, ToPyResult},
-    format::FormatSpec,
     function::{
         ArgBytesLike, OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
