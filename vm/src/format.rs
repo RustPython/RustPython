@@ -327,7 +327,7 @@ impl FormatSpec {
             FormatSpec::insert_separator(padded_num, inter, sep, sep_cnt)
         } else {
             // separate without padding
-            let sep_cnt = (magnitude_len - 1) / (inter as i32);
+            let sep_cnt = (magnitude_len - 1) / inter;
             FormatSpec::insert_separator(magnitude_str, inter, sep, sep_cnt)
         }
     }
