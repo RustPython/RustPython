@@ -7,8 +7,9 @@ use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
     atomic_func,
     class::PyClassImpl,
+    common::format::{FormatSpec, FormatString, FromTemplate},
     convert::{ToPyException, ToPyObject},
-    format::{FormatSpec, FormatString, FromTemplate},
+    format::{format, format_map},
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
@@ -768,9 +769,8 @@ impl PyStr {
 
     #[pymethod]
     fn format(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
-        let format_string =
-            FormatString::from_str(self.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        format_string.format(&args, vm)
+        let format_str = FormatString::from_str(self.as_str()).map_err(|e| e.to_pyexception(vm))?;
+        format(&format_str, &args, vm)
     }
 
     /// S.format_map(mapping) -> str
@@ -779,20 +779,16 @@ impl PyStr {
     /// The substitutions are identified by braces ('{' and '}').
     #[pymethod]
     fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatString::from_str(self.as_str()) {
-            Ok(format_string) => format_string.format_map(&mapping, vm),
-            Err(err) => Err(err.to_pyexception(vm)),
-        }
+        let format_string =
+            FormatString::from_str(self.as_str()).map_err(|err| err.to_pyexception(vm))?;
+        format_map(&format_string, &mapping, vm)
     }
 
     #[pymethod(name = "__format__")]
     fn format_str(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        match FormatSpec::parse(spec.as_str())
+        FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_string(self.as_str()))
-        {
-            Ok(string) => Ok(string),
-            Err(err) => Err(vm.new_value_error(err.to_string())),
-        }
+            .map_err(|err| vm.new_value_error(err.to_string()))
     }
 
     /// Return a titlecased version of the string where words start with an

@@ -1,11 +1,10 @@
 use crate::{
     builtins::{PyIntRef, PyTupleRef},
-    cformat::CFormatString,
+    cformat::cformat_string,
     function::OptionalOption,
     PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
-use std::str::FromStr;
 
 #[derive(FromArgs)]
 pub struct SplitArgs<'s, T: TryFromObject + AnyStrWrapper<'s>> {
@@ -437,9 +436,7 @@ pub trait AnyStr<'s>: 's {
 
     fn py_cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
         let format_string = self.as_utf8_str().unwrap();
-        CFormatString::from_str(format_string)
-            .map_err(|err| vm.new_value_error(err.to_string()))?
-            .format(vm, values)
+        cformat_string(vm, format_string, values)
     }
 }
 
