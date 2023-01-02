@@ -9,6 +9,8 @@ use rustpython_vm::{
     AsObject, PyResult, VirtualMachine,
 };
 
+use rustpython_parser::token::Tok;
+
 enum ShellExecResult {
     Ok,
     PyErr(PyBaseExceptionRef),
@@ -19,7 +21,6 @@ fn shell_exec(
     vm: &VirtualMachine,
     source: &str,
     scope: Scope,
-    last_row: &mut usize,
     empty_line_given: bool,
     continuing: bool,
 ) -> ShellExecResult {
@@ -27,7 +28,6 @@ fn shell_exec(
         Ok(code) => {
             if empty_line_given || !continuing {
                 // We want to execute the full code
-                *last_row = 0;
                 match vm.run_code_obj(code, scope) {
                     Ok(_val) => ShellExecResult::Ok,
                     Err(err) => ShellExecResult::PyErr(err),
@@ -54,28 +54,26 @@ fn shell_exec(
             ..
         }) => ShellExecResult::Continue,
         Err(err) => {
-            // Indent error or something else?
-            let indent_error = match err.body.error {
-                CompileErrorType::Parse(ref p) => p.is_indentation_error(),
+            let bad_error = match err.body.error {
+                CompileErrorType::Parse(ref p) => {
+                    if matches!(
+                        p,
+                        ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+                    ) {
+                        true && continuing
+                    } else if matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _)) {
+                        false
+                    } else {
+                        true
+                    }
+                }
                 _ => false,
             };
 
-            if indent_error && !empty_line_given {
-                // The input line is not empty and it threw an indentation error
-                let l = err.body.location;
-
-                // This is how we can mask unnecesary errors
-                if l.row() > *last_row {
-                    *last_row = l.row();
-                    ShellExecResult::Continue
-                } else {
-                    *last_row = 0;
-                    ShellExecResult::PyErr(vm.new_syntax_error(&err))
-                }
-            } else {
-                // Throw the error for all other cases
-                *last_row = 0;
+            if empty_line_given || bad_error {
                 ShellExecResult::PyErr(vm.new_syntax_error(&err))
+            } else {
+                ShellExecResult::Continue
             }
         }
     }
@@ -100,7 +98,6 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     }
 
     let mut continuing = false;
-    let mut last_row: usize = 0;
 
     loop {
         let prompt_name = if continuing { "ps2" } else { "ps1" };
@@ -128,14 +125,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 }
                 full_input.push('\n');
 
-                match shell_exec(
-                    vm,
-                    &full_input,
-                    scope.clone(),
-                    &mut last_row,
-                    empty_line_given,
-                    continuing,
-                ) {
+                match shell_exec(vm, &full_input, scope.clone(), empty_line_given, continuing) {
                     ShellExecResult::Ok => {
                         if continuing {
                             if empty_line_given {
@@ -150,7 +140,6 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                             }
                         } else {
                             // We aren't in continue mode so proceed normally
-                            last_row = 0;
                             continuing = false;
                             full_input.clear();
                             Ok(())
@@ -168,7 +157,6 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 }
             }
             ReadlineResult::Interrupt => {
-                last_row = 0;
                 continuing = false;
                 full_input.clear();
                 let keyboard_interrupt =
