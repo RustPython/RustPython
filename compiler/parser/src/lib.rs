@@ -33,3 +33,4 @@ mod python;
 mod context;
 mod string;
 pub mod token;
+pub mod peg_parser;
