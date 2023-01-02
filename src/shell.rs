@@ -15,7 +15,14 @@ enum ShellExecResult {
     Continue,
 }
 
-fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope, last_row: &mut usize, empty_line_given: bool, continuing: bool) -> ShellExecResult {
+fn shell_exec(
+    vm: &VirtualMachine,
+    source: &str,
+    scope: Scope,
+    last_row: &mut usize,
+    empty_line_given: bool,
+    continuing: bool,
+) -> ShellExecResult {
     match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
         Ok(code) => {
             if empty_line_given || !continuing {
@@ -29,7 +36,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope, last_row: &mut us
                 // We can just return an ok result
                 ShellExecResult::Ok
             }
-        },
+        }
         Err(CompileError {
             body:
                 CompileErrorBody {
@@ -50,7 +57,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope, last_row: &mut us
             // Indent error or something else?
             let indent_error = match err.body.error {
                 CompileErrorType::Parse(ref p) => p.is_indentation_error(),
-                _ => false
+                _ => false,
             };
 
             if indent_error && !empty_line_given {
@@ -70,7 +77,7 @@ fn shell_exec(vm: &VirtualMachine, source: &str, scope: Scope, last_row: &mut us
                 *last_row = 0;
                 ShellExecResult::PyErr(vm.new_syntax_error(&err))
             }
-        }  
+        }
     }
 }
 
@@ -121,7 +128,6 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 }
                 full_input.push('\n');
 
-
                 match shell_exec(
                     vm,
                     &full_input,
@@ -132,7 +138,6 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 ) {
                     ShellExecResult::Ok => {
                         if continuing {
-
                             if empty_line_given {
                                 // We should be exiting continue mode
                                 continuing = false;
@@ -143,15 +148,12 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                                 continuing = true;
                                 Ok(())
                             }
-
                         } else {
-
                             // We aren't in continue mode so proceed normally
                             last_row = 0;
                             continuing = false;
                             full_input.clear();
                             Ok(())
-                            
                         }
                     }
                     ShellExecResult::Continue => {
