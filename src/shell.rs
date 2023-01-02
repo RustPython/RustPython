@@ -60,11 +60,9 @@ fn shell_exec(
                         p,
                         ParseErrorType::Lexical(LexicalErrorType::IndentationError)
                     ) {
-                        true && continuing
-                    } else if matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _)) {
-                        false
+                        continuing
                     } else {
-                        true
+                        !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
                     }
                 }
                 _ => false,
