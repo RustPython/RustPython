@@ -513,13 +513,9 @@ impl FormatSpec {
                     Some(_) | None => Err("%c arg not in range(0x110000)"),
                 },
             },
-            Some(FormatType::GeneralFormatUpper) => {
-                Err("Unknown format code 'G' for object of type 'int'")
-            }
-            Some(FormatType::GeneralFormatLower) => {
-                Err("Unknown format code 'g' for object of type 'int'")
-            }
-            Some(FormatType::FixedPointUpper)
+            Some(FormatType::GeneralFormatUpper)
+            | Some(FormatType::GeneralFormatLower)
+            | Some(FormatType::FixedPointUpper)
             | Some(FormatType::FixedPointLower)
             | Some(FormatType::ExponentUpper)
             | Some(FormatType::ExponentLower)
