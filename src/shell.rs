@@ -122,7 +122,14 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                 full_input.push('\n');
 
 
-                match shell_exec(vm, &full_input, scope.clone(), &mut last_row, empty_line_given, continuing) {
+                match shell_exec(
+                    vm,
+                    &full_input,
+                    scope.clone(),
+                    &mut last_row,
+                    empty_line_given,
+                    continuing,
+                ) {
                     ShellExecResult::Ok => {
                         if continuing {
 
