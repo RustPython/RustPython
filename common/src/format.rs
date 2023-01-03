@@ -359,6 +359,33 @@ impl FormatSpec {
         magnitude_str
     }
 
+    fn validate_format(&self, default_format_type: FormatType) -> Result<(), String> {
+        let format_type = self.format_type.as_ref().unwrap_or(&default_format_type);
+        match (&self.grouping_option, format_type) {
+            (
+                Some(FormatGrouping::Comma),
+                FormatType::String
+                | FormatType::Character
+                | FormatType::Binary
+                | FormatType::Octal
+                | FormatType::HexLower
+                | FormatType::HexUpper
+                | FormatType::Number,
+            ) => {
+                let ch = char::from(format_type);
+                Err(format!("Cannot specify ',' with '{}'.", ch))
+            }
+            (
+                Some(FormatGrouping::Underscore),
+                FormatType::String | FormatType::Character | FormatType::Number,
+            ) => {
+                let ch = char::from(format_type);
+                Err(format!("Cannot specify '_' with '{}'.", ch))
+            }
+            _ => Ok(()),
+        }
+    }
+
     fn get_separator_interval(&self) -> usize {
         match self.format_type {
             Some(FormatType::Binary) => 4,
