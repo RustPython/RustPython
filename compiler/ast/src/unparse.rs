@@ -284,6 +284,12 @@ impl<'a> Unparser<'a> {
                 format_spec,
             } => self.unparse_formatted(value, *conversion, format_spec.as_deref())?,
             ExprKind::JoinedStr { values } => self.unparse_joinedstr(values, false)?,
+            #[cfg(feature = "implicit-concat")]
+            ExprKind::ImplicitConcat { values } => {
+                for value in values {
+                    self.unparse_expr(value, precedence::ATOM)?;
+                }
+            }
             ExprKind::Constant { value, kind } => {
                 if let Some(kind) = kind {
                     self.p(kind)?;

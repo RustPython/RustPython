@@ -8,7 +8,7 @@ edition = "2021"
 default = ["constant-optimization", "fold"]
 constant-optimization = ["fold"]
 fold = []
-implicit-concatenation = []
+implicit-concat = []
 unparse = ["rustpython-common"]
 
 [dependencies]

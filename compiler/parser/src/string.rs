@@ -10,7 +10,7 @@ pub fn parse_strings(
     values: Vec<(Location, (String, StringKind, bool), Location)>,
 ) -> Result<Expr, LexicalError> {
     // Preserve the initial location and kind.
-    let is_implicit_concatenation = cfg!(feature = "implicit-concatenation") && values.len() > 1;
+    let is_implicit_concat = cfg!(feature = "implicit-concat") && values.len() > 1;
     let initial_start = values[0].0;
     let last_end = values.last().unwrap().2;
     let initial_kind = (values[0].1 .1 == StringKind::Unicode).then(|| "u".to_owned());
@@ -30,8 +30,8 @@ pub fn parse_strings(
         });
     }
 
-    #[cfg(feature = "implicit-concatenation")]
-    if is_implicit_concatenation {
+    #[cfg(feature = "implicit-concat")]
+    if is_implicit_concat {
         let mut exprs: Vec<Expr> = vec![];
         for (start, (source, kind, triple_quoted), end) in values {
             let expr = parse_string(&source, kind, triple_quoted, start, end)?;
@@ -40,7 +40,7 @@ pub fn parse_strings(
         return Ok(Expr::new(
             initial_start,
             last_end,
-            ExprKind::ImplicitConcatenation { values: exprs },
+            ExprKind::ImplicitConcat { values: exprs },
         ));
     }
 

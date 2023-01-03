@@ -10,7 +10,7 @@ edition = "2021"
 
 [features]
 default = ["lalrpop"]  # removing this causes potential build failure
-implicit-concatenation = ["rustpython-ast/implicit-concatenation"]
+implicit-concat = ["rustpython-ast/implicit-concat"]
 
 [build-dependencies]
 anyhow = "1.0.45"
