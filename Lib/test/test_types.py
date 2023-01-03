@@ -223,8 +223,6 @@ class TypesTests(unittest.TestCase):
         self.assertRaises(TypeError, type, 1, 2)
         self.assertRaises(TypeError, type, 1, 2, 3, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_int__format__(self):
         def test(i, format_spec, result):
             # just make sure we have the unified type for integers
@@ -576,8 +574,6 @@ class TypesTests(unittest.TestCase):
         test(12345.6, "1=20", '111111111111112345.6')
         test(12345.6, "*=20", '*************12345.6')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_spec_errors(self):
         # int, float, and string all share the same format spec
         # mini-language parser.
