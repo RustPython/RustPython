@@ -54,20 +54,26 @@ fn shell_exec(
             ..
         }) => ShellExecResult::Continue,
         Err(err) => {
+            // bad_error == true if we are handling an error that should be thrown even if we are continuing
+            // if its an indentation error, set to true if we are continuing and the error is on column 0,
+            // since indentations errors on columns other than 0 should be ignored.
+            // if its an unrecognized token for dedent, set to false
+
             let bad_error = match err.body.error {
                 CompileErrorType::Parse(ref p) => {
                     if matches!(
                         p,
                         ParseErrorType::Lexical(LexicalErrorType::IndentationError)
                     ) {
-                        continuing
+                        continuing && err.body.location.column() != 0
                     } else {
                         !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
                     }
                 }
-                _ => false,
+                _ => true, // It is a bad error for everything else
             };
 
+            // If we are handling an error on an empty line or an error worthy of throwing
             if empty_line_given || bad_error {
                 ShellExecResult::PyErr(vm.new_syntax_error(&err))
             } else {
