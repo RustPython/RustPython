@@ -137,6 +137,28 @@ pub enum FormatType {
     Percentage,
 }
 
+impl From<&FormatType> for char {
+    fn from(from: &FormatType) -> char {
+        match from {
+            FormatType::String => 's',
+            FormatType::Binary => 'b',
+            FormatType::Character => 'c',
+            FormatType::Decimal => 'd',
+            FormatType::Octal => 'o',
+            FormatType::HexLower => 'x',
+            FormatType::HexUpper => 'X',
+            FormatType::Number => 'n',
+            FormatType::ExponentLower => 'e',
+            FormatType::ExponentUpper => 'E',
+            FormatType::GeneralFormatLower => 'g',
+            FormatType::GeneralFormatUpper => 'G',
+            FormatType::FixedPointLower => 'f',
+            FormatType::FixedPointUpper => 'F',
+            FormatType::Percentage => '%',
+        }
+    }
+}
+
 impl FormatParse for FormatType {
     fn parse(text: &str) -> (Option<Self>, &str) {
         let mut chars = text.chars();
