@@ -516,14 +516,15 @@ impl FormatSpec {
     }
 
     #[inline]
-    fn format_int_radix(&self, magnitude: BigInt, radix: u32) -> Result<String, &'static str> {
+    fn format_int_radix(&self, magnitude: BigInt, radix: u32) -> Result<String, String> {
         match self.precision {
-            Some(_) => Err("Precision not allowed in integer format specifier"),
+            Some(_) => Err("Precision not allowed in integer format specifier".to_owned()),
             None => Ok(magnitude.to_str_radix(radix)),
         }
     }
 
-    pub fn format_int(&self, num: &BigInt) -> Result<String, &'static str> {
+    pub fn format_int(&self, num: &BigInt) -> Result<String, String> {
+        self.validate_format(FormatType::Decimal)?;
         let magnitude = num.abs();
         let prefix = if self.alternate_form {
             match self.format_type {
@@ -536,13 +537,13 @@ impl FormatSpec {
         } else {
             ""
         };
-        let raw_magnitude_str: Result<String, &'static str> = match self.format_type {
+        let raw_magnitude_str: Result<String, String> = match self.format_type {
             Some(FormatType::Binary) => self.format_int_radix(magnitude, 2),
             Some(FormatType::Decimal) => self.format_int_radix(magnitude, 10),
             Some(FormatType::Octal) => self.format_int_radix(magnitude, 8),
             Some(FormatType::HexLower) => self.format_int_radix(magnitude, 16),
             Some(FormatType::HexUpper) => match self.precision {
-                Some(_) => Err("Precision not allowed in integer format specifier"),
+                Some(_) => Err("Precision not allowed in integer format specifier".to_owned()),
                 None => {
                     let mut result = magnitude.to_str_radix(16);
                     result.make_ascii_uppercase();
@@ -550,16 +551,20 @@ impl FormatSpec {
                 }
             },
             Some(FormatType::Number) => self.format_int_radix(magnitude, 10),
-            Some(FormatType::String) => Err("Unknown format code 's' for object of type 'int'"),
+            Some(FormatType::String) => {
+                Err("Unknown format code 's' for object of type 'int'".to_owned())
+            }
             Some(FormatType::Character) => match (self.sign, self.alternate_form) {
-                (Some(_), _) => Err("Sign not allowed with integer format specifier 'c'"),
-                (_, true) => {
-                    Err("Alternate form (#) not allowed with integer format specifier 'c'")
+                (Some(_), _) => {
+                    Err("Sign not allowed with integer format specifier 'c'".to_owned())
                 }
+                (_, true) => Err(
+                    "Alternate form (#) not allowed with integer format specifier 'c'".to_owned(),
+                ),
                 (_, _) => match num.to_u32() {
                     Some(n) if n <= 0x10ffff => Ok(std::char::from_u32(n).unwrap().to_string()),
                     // TODO: raise OverflowError
-                    Some(_) | None => Err("%c arg not in range(0x110000)"),
+                    Some(_) | None => Err("%c arg not in range(0x110000)".to_owned()),
                 },
             },
             Some(FormatType::GeneralFormatUpper)
@@ -569,8 +574,8 @@ impl FormatSpec {
             | Some(FormatType::ExponentUpper)
             | Some(FormatType::ExponentLower)
             | Some(FormatType::Percentage) => match num.to_f64() {
-                Some(float) => return self.format_float(float),
-                _ => Err("Unable to convert int to float"),
+                Some(float) => return self.format_float(float).map_err(|msg| msg.to_owned()),
+                _ => Err("Unable to convert int to float".to_owned()),
             },
             None => self.format_int_radix(magnitude, 10),
         };
@@ -586,6 +591,7 @@ impl FormatSpec {
         let sign_prefix = format!("{}{}", sign_str, prefix);
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, &sign_prefix);
         self.format_sign_and_align(&magnitude_str, &sign_prefix, FormatAlign::Right)
+            .map_err(|msg| msg.to_owned())
     }
 
     pub fn format_string(&self, s: &str) -> Result<String, &'static str> {
