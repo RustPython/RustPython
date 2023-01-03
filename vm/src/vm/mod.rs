@@ -757,6 +757,19 @@ impl VirtualMachine {
                 writeln!(stderr, "{msg}");
             }
             1
+        } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
+            #[allow(clippy::if_same_then_else)]
+            {
+                self.print_exception(exc);
+                #[cfg(unix)]
+                {
+                    (libc::SIGINT as u8) + 128u8
+                }
+                #[cfg(not(unix))]
+                {
+                    1
+                }
+            }
         } else {
             self.print_exception(exc);
             1
