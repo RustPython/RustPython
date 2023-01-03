@@ -502,13 +502,14 @@ impl<'a> StringParser<'a> {
         }))
     }
 
-    pub fn parse(&mut self) -> Result<Vec<Expr>, LexicalError> {
+    pub fn parse(&mut self) -> Result<Expr, LexicalError> {
         if self.kind.is_fstring() {
             self.parse_fstring(0)
+                .map(|values| self.expr(ExprKind::JoinedStr { values }))
         } else if self.kind.is_bytes() {
-            self.parse_bytes().map(|expr| vec![expr])
+            self.parse_bytes()
         } else {
-            self.parse_string().map(|expr| vec![expr])
+            self.parse_string()
         }
     }
 }
@@ -528,7 +529,7 @@ pub fn parse_string(
     triple_quoted: bool,
     start: Location,
     end: Location,
-) -> Result<Vec<Expr>, LexicalError> {
+) -> Result<Expr, LexicalError> {
     StringParser::new(source, kind, triple_quoted, start, end).parse()
 }
 
@@ -536,7 +537,7 @@ pub fn parse_string(
 mod tests {
     use super::*;
 
-    fn parse_fstring(source: &str) -> Result<Vec<Expr>, FStringErrorType> {
+    fn parse_fstring(source: &str) -> Result<Expr, FStringErrorType> {
         StringParser::new(
             source,
             StringKind::FString,

@@ -50,6 +50,8 @@ impl<U> ExprKind<U> {
                     "literal"
                 }
             }
+            #[cfg(feature = "implicit-concatenation")]
+            ExprKind::ImplicitConcatenation { .. } => "implicit concatenation",
             ExprKind::FormattedValue { .. } => "f-string expression",
             ExprKind::Name { .. } => "name",
             ExprKind::Lambda { .. } => "lambda",

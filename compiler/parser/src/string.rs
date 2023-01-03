@@ -10,6 +10,7 @@ pub fn parse_strings(
     values: Vec<(Location, (String, StringKind, bool), Location)>,
 ) -> Result<Expr, LexicalError> {
     // Preserve the initial location and kind.
+    let is_implicit_concatenation = cfg!(feature = "implicit-concatenation") && values.len() > 1;
     let initial_start = values[0].0;
     let last_end = values.last().unwrap().2;
     let initial_kind = (values[0].1 .1 == StringKind::Unicode).then(|| "u".to_owned());
@@ -29,17 +30,30 @@ pub fn parse_strings(
         });
     }
 
+    #[cfg(feature = "implicit-concatenation")]
+    if is_implicit_concatenation {
+        let mut exprs: Vec<Expr> = vec![];
+        for (start, (source, kind, triple_quoted), end) in values {
+            let expr = parse_string(&source, kind, triple_quoted, start, end)?;
+            exprs.push(expr);
+        }
+        return Ok(Expr::new(
+            initial_start,
+            last_end,
+            ExprKind::ImplicitConcatenation { values: exprs },
+        ));
+    }
+
     if has_bytes {
         let mut content: Vec<u8> = vec![];
         for (start, (source, kind, triple_quoted), end) in values {
-            for value in parse_string(&source, kind, triple_quoted, start, end)? {
-                match value.node {
-                    ExprKind::Constant {
-                        value: Constant::Bytes(value),
-                        ..
-                    } => content.extend(value),
-                    _ => unreachable!("Unexpected non-bytes expression."),
-                }
+            let expr = parse_string(&source, kind, triple_quoted, start, end)?;
+            match expr.node {
+                ExprKind::Constant {
+                    value: Constant::Bytes(value),
+                    ..
+                } => content.extend(value),
+                _ => unreachable!("Unexpected non-bytes expression."),
             }
         }
         return Ok(Expr::new(
@@ -55,14 +69,13 @@ pub fn parse_strings(
     if !has_fstring {
         let mut content: Vec<String> = vec![];
         for (start, (source, kind, triple_quoted), end) in values {
-            for value in parse_string(&source, kind, triple_quoted, start, end)? {
-                match value.node {
-                    ExprKind::Constant {
-                        value: Constant::Str(value),
-                        ..
-                    } => content.push(value),
-                    _ => unreachable!("Unexpected non-string expression."),
-                }
+            let expr = parse_string(&source, kind, triple_quoted, start, end)?;
+            match expr.node {
+                ExprKind::Constant {
+                    value: Constant::Str(value),
+                    ..
+                } => content.push(value),
+                _ => unreachable!("Unexpected non-string expression."),
             }
         }
         return Ok(Expr::new(
@@ -91,20 +104,31 @@ pub fn parse_strings(
     };
 
     for (start, (source, kind, triple_quoted), end) in values {
-        for value in parse_string(&source, kind, triple_quoted, start, end)? {
-            match value.node {
-                ExprKind::FormattedValue { .. } => {
-                    if !current.is_empty() {
-                        deduped.push(take_current(&mut current));
+        let expr = parse_string(&source, kind, triple_quoted, start, end)?;
+
+        match expr.node {
+            ExprKind::Constant {
+                value: Constant::Str(s),
+                ..
+            } => current.push(s),
+            ExprKind::JoinedStr { values } => {
+                for value in values {
+                    match &value.node {
+                        ExprKind::FormattedValue { .. } => {
+                            if !current.is_empty() {
+                                deduped.push(take_current(&mut current));
+                            }
+                            deduped.push(value)
+                        }
+                        ExprKind::Constant {
+                            value: Constant::Str(s),
+                            ..
+                        } => current.push(s.to_owned()),
+                        _ => unreachable!("Unexpected expression for JoinedStr value"),
                     }
-                    deduped.push(value)
                 }
-                ExprKind::Constant {
-                    value: Constant::Str(value),
-                    ..
-                } => current.push(value),
-                _ => unreachable!("Unexpected non-string expression."),
             }
+            _ => unreachable!("Unexpected non-string expression."),
         }
     }
     if !current.is_empty() {

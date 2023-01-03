@@ -245,6 +245,10 @@ pub enum ExprKind<U = ()> {
     JoinedStr {
         values: Vec<Expr<U>>,
     },
+    #[cfg(feature = "implicit-concatenation")]
+    ImplicitConcatenation {
+        values: Vec<Expr<U>>,
+    },
     Constant {
         value: Constant,
         kind: Option<String>,
@@ -861,6 +865,10 @@ pub mod fold {
                 format_spec: Foldable::fold(format_spec, folder)?,
             }),
             ExprKind::JoinedStr { values } => Ok(ExprKind::JoinedStr {
+                values: Foldable::fold(values, folder)?,
+            }),
+            #[cfg(feature = "implicit-concatenation")]
+            ExprKind::ImplicitConcatenation { values } => Ok(ExprKind::JoinedStr {
                 values: Foldable::fold(values, folder)?,
             }),
             ExprKind::Constant { value, kind } => Ok(ExprKind::Constant {
