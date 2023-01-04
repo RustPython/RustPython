@@ -580,7 +580,7 @@ impl FormatSpec {
             | Some(FormatType::ExponentUpper)
             | Some(FormatType::ExponentLower)
             | Some(FormatType::Percentage) => match num.to_f64() {
-                Some(float) => return self.format_float(float).map_err(|msg| msg.to_owned()),
+                Some(float) => return self.format_float(float),
                 _ => Err("Unable to convert int to float".to_owned()),
             },
             None => self.format_int_radix(magnitude, 10),
