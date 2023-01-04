@@ -422,10 +422,11 @@ impl FormatSpec {
         }
     }
 
-    pub fn format_float(&self, num: f64) -> Result<String, &'static str> {
+    pub fn format_float(&self, num: f64) -> Result<String, String> {
+        self.validate_format(FormatType::FixedPointLower)?;
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
-        let raw_magnitude_str: Result<String, &'static str> = match self.format_type {
+        let raw_magnitude_str: Result<String, String> = match self.format_type {
             Some(FormatType::FixedPointUpper) => Ok(float_ops::format_fixed(
                 precision,
                 magnitude,
@@ -436,17 +437,21 @@ impl FormatSpec {
                 magnitude,
                 float_ops::Case::Lower,
             )),
-            Some(FormatType::Decimal) => Err("Unknown format code 'd' for object of type 'float'"),
-            Some(FormatType::Binary) => Err("Unknown format code 'b' for object of type 'float'"),
-            Some(FormatType::Octal) => Err("Unknown format code 'o' for object of type 'float'"),
-            Some(FormatType::HexLower) => Err("Unknown format code 'x' for object of type 'float'"),
-            Some(FormatType::HexUpper) => Err("Unknown format code 'X' for object of type 'float'"),
-            Some(FormatType::String) => Err("Unknown format code 's' for object of type 'float'"),
-            Some(FormatType::Character) => {
-                Err("Unknown format code 'c' for object of type 'float'")
+            Some(FormatType::Decimal)
+            | Some(FormatType::Binary)
+            | Some(FormatType::Octal)
+            | Some(FormatType::HexLower)
+            | Some(FormatType::HexUpper)
+            | Some(FormatType::String)
+            | Some(FormatType::Character) => {
+                let ch = char::from(self.format_type.as_ref().unwrap());
+                Err(format!(
+                    "Unknown format code '{}' for object of type 'float'",
+                    ch
+                ))
             }
             Some(FormatType::Number) => {
-                Err("Format code 'n' for object of type 'float' not implemented yet")
+                Err("Format code 'n' for object of type 'float' not implemented yet".to_owned())
             }
             Some(FormatType::GeneralFormatUpper) => {
                 let precision = if precision == 0 { 1 } else { precision };
@@ -513,6 +518,7 @@ impl FormatSpec {
         };
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, sign_str);
         self.format_sign_and_align(&magnitude_str, sign_str, FormatAlign::Right)
+            .map_err(|msg| msg.to_owned())
     }
 
     #[inline]
