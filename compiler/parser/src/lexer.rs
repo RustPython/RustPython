@@ -245,8 +245,8 @@ where
         let start_pos = self.get_pos();
 
         // Check if we have a string
-        match self.window[..3] {
-            [Some(c1), Some(c2), Some(c3)] => match (c1, c2, c3) {
+        if let [Some(c1), Some(c2), Some(c3)] = self.window[..3] {
+            match (c1, c2, c3) {
                 // No prefix
                 ('"' | '\'', ..) => {
                     return self
@@ -272,8 +272,7 @@ where
                         .map(|(_, tok, end_pos)| (start_pos, tok, end_pos));
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         };
 
         while self.is_identifier_continuation() {
