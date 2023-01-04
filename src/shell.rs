@@ -1,6 +1,6 @@
 mod helper;
 
-use rustpython_parser::error::{LexicalErrorType, ParseErrorType};
+use rustpython_parser::error::{LexicalErrorType, ParseErrorType, Tok};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compiler::{self, CompileError, CompileErrorBody, CompileErrorType},
@@ -8,8 +8,6 @@ use rustpython_vm::{
     scope::Scope,
     AsObject, PyResult, VirtualMachine,
 };
-
-use rustpython_parser::token::Tok;
 
 enum ShellExecResult {
     Ok,
