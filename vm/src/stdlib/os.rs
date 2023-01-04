@@ -693,10 +693,14 @@ pub(super) mod _os {
     #[pyclass(name)]
     #[derive(Debug, PyPayload)]
     struct DirEntry {
-        entry: fs::DirEntry,
+        file_name: std::ffi::OsString,
+        pathval: PathBuf,
+        file_type: io::Result<fs::FileType>,
         mode: OutputMode,
         stat: OnceCell<PyObjectRef>,
         lstat: OnceCell<PyObjectRef>,
+        #[cfg(unix)]
+        ino: AtomicCell<u64>,
         #[cfg(not(unix))]
         ino: AtomicCell<Option<u64>>,
     }
@@ -705,12 +709,12 @@ pub(super) mod _os {
     impl DirEntry {
         #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
-            self.mode.process_path(self.entry.file_name(), vm)
+            self.mode.process_path(&self.file_name, vm)
         }
 
         #[pygetset]
         fn path(&self, vm: &VirtualMachine) -> PyResult {
-            self.mode.process_path(self.entry.path(), vm)
+            self.mode.process_path(&self.pathval, vm)
         }
 
         fn perform_on_metadata(
@@ -719,7 +723,7 @@ pub(super) mod _os {
             action: fn(fs::Metadata) -> bool,
             vm: &VirtualMachine,
         ) -> PyResult<bool> {
-            match super::fs_metadata(self.entry.path(), follow_symlinks.0) {
+            match super::fs_metadata(&self.pathval, follow_symlinks.0) {
                 Ok(meta) => Ok(action(meta)),
                 Err(e) => {
                     // FileNotFoundError is caught and not raised
@@ -753,8 +757,8 @@ pub(super) mod _os {
         #[pymethod]
         fn is_symlink(&self, vm: &VirtualMachine) -> PyResult<bool> {
             Ok(self
-                .entry
-                .file_type()
+                .file_type
+                .as_ref()
                 .map_err(|err| err.into_pyexception(vm))?
                 .is_symlink())
         }
@@ -769,7 +773,7 @@ pub(super) mod _os {
             let do_stat = |follow_symlinks| {
                 stat(
                     PathOrFd::Path(PyPathLike {
-                        path: self.entry.path(),
+                        path: self.pathval.clone(),
                         mode: OutputMode::String,
                     }),
                     dir_fd,
@@ -801,7 +805,7 @@ pub(super) mod _os {
                 None => {
                     let stat = stat_inner(
                         PathOrFd::Path(PyPathLike {
-                            path: self.entry.path(),
+                            path: self.pathval.clone(),
                             mode: OutputMode::String,
                         }),
                         DirFd::default(),
@@ -819,8 +823,7 @@ pub(super) mod _os {
         #[cfg(unix)]
         #[pymethod]
         fn inode(&self, _vm: &VirtualMachine) -> PyResult<u64> {
-            use std::os::unix::fs::DirEntryExt;
-            Ok(self.entry.ino())
+            Ok(self.ino.load())
         }
 
         #[pymethod(magic)]
@@ -865,8 +868,7 @@ pub(super) mod _os {
     #[pyclass(name = "ScandirIter")]
     #[derive(Debug, PyPayload)]
     struct ScandirIterator {
-        entries: PyRwLock<fs::ReadDir>,
-        exhausted: AtomicCell<bool>,
+        entries: PyRwLock<Option<fs::ReadDir>>,
         mode: OutputMode,
     }
 
@@ -874,7 +876,8 @@ pub(super) mod _os {
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
-            self.exhausted.store(true);
+            let entryref: &mut Option<fs::ReadDir> = &mut self.entries.write();
+            let _dropped = entryref.take();
         }
 
         #[pymethod(magic)]
@@ -890,30 +893,42 @@ pub(super) mod _os {
     impl IterNextIterable for ScandirIterator {}
     impl IterNext for ScandirIterator {
         fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            if zelf.exhausted.load() {
-                return Ok(PyIterReturn::StopIteration(None));
-            }
+            let entryref: &mut Option<fs::ReadDir> = &mut zelf.entries.write();
 
-            match zelf.entries.write().next() {
-                Some(entry) => match entry {
-                    Ok(entry) => Ok(PyIterReturn::Return(
-                        DirEntry {
-                            entry,
-                            mode: zelf.mode,
-                            lstat: OnceCell::new(),
-                            stat: OnceCell::new(),
+            match entryref {
+                None => Ok(PyIterReturn::StopIteration(None)),
+                Some(inner) => match inner.next() {
+                    Some(entry) => match entry {
+                        Ok(entry) => {
+                            #[cfg(unix)]
+                            let ino = {
+                                use std::os::unix::fs::DirEntryExt;
+                                entry.ino()
+                            };
                             #[cfg(not(unix))]
-                            ino: AtomicCell::new(None),
+                            let ino = None;
+
+                            Ok(PyIterReturn::Return(
+                                DirEntry {
+                                    file_name: entry.file_name(),
+                                    pathval: entry.path(),
+                                    file_type: entry.file_type(),
+                                    mode: zelf.mode,
+                                    lstat: OnceCell::new(),
+                                    stat: OnceCell::new(),
+                                    ino: AtomicCell::new(ino),
+                                }
+                                .into_ref(vm)
+                                .into(),
+                            ))
                         }
-                        .into_ref(vm)
-                        .into(),
-                    )),
-                    Err(err) => Err(err.into_pyexception(vm)),
+                        Err(err) => Err(err.into_pyexception(vm)),
+                    },
+                    None => {
+                        let _dropped = entryref.take();
+                        Ok(PyIterReturn::StopIteration(None))
+                    }
                 },
-                None => {
-                    zelf.exhausted.store(true);
-                    Ok(PyIterReturn::StopIteration(None))
-                }
             }
         }
     }
@@ -923,8 +938,7 @@ pub(super) mod _os {
         let path = path.unwrap_or_else(|| PyPathLike::new_str("."));
         let entries = fs::read_dir(path.path).map_err(|err| err.into_pyexception(vm))?;
         Ok(ScandirIterator {
-            entries: PyRwLock::new(entries),
-            exhausted: AtomicCell::new(false),
+            entries: PyRwLock::new(Some(entries)),
             mode: path.mode,
         }
         .into_ref(vm)
