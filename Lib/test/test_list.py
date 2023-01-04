@@ -198,7 +198,6 @@ class ListTest(list_tests.CommonTest):
         self.assertEqual(iter_size, sys.getsizeof(list([0] * 10)))
         self.assertEqual(iter_size, sys.getsizeof(list(range(10))))
 
-    @unittest.skip("TODO: RUSTPYTHON; hang")
     def test_count_index_remove_crashes(self):
         # bpo-38610: The count(), index(), and remove() methods were not
         # holding strong references to list elements while calling

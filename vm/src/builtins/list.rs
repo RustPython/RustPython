@@ -300,7 +300,8 @@ impl PyList {
 
         if let Some(index) = index.into() {
             // defer delete out of borrow
-            Ok(self.borrow_vec_mut().remove(index))
+            let is_inside_range = index < self.borrow_vec().len();
+            Ok(is_inside_range.then(|| self.borrow_vec_mut().remove(index)))
         } else {
             Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
         }
