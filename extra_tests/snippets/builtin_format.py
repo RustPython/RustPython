@@ -68,3 +68,5 @@ assert f"{1234:.3g}" == "1.23e+03"
 assert f"{1234567:.6G}" == "1.23457E+06"
 assert_raises(ValueError, "{:,o}".format, 1, _msg="ValueError: Cannot specify ',' with 'o'.")
 assert_raises(ValueError, "{:_n}".format, 1, _msg="ValueError: Cannot specify '_' with 'n'.")
+assert_raises(ValueError, "{:,o}".format, 1.0, _msg="ValueError: Cannot specify ',' with 'o'.")
+assert_raises(ValueError, "{:_n}".format, 1.0, _msg="ValueError: Cannot specify '_' with 'n'.")
