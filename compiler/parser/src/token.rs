@@ -240,6 +240,23 @@ pub enum StringKind {
     Unicode,
 }
 
+impl TryFrom<String> for StringKind {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+            "" => Ok(StringKind::String),
+            "r" | "R" => Ok(StringKind::RawString),
+            "b" | "B" => Ok(StringKind::Bytes),
+            "f" | "F" => Ok(StringKind::FString),
+            "u" | "U" => Ok(StringKind::Unicode),
+            "rb" | "rB" | "Rb" | "RB" => Ok(StringKind::RawBytes),
+            "rf" | "rF" | "Rf" | "RF" => Ok(StringKind::RawFString),
+            s => Err(format!("Invalid string prefix: {s}")),
+        }
+    }
+}
+
 impl fmt::Display for StringKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use StringKind::*;

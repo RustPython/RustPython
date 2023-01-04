@@ -244,55 +244,37 @@ where
         let mut name = String::new();
         let start_pos = self.get_pos();
 
-        // Detect potential string like rb'' b'' f'' u'' r''
-        let mut saw_b = false;
-        let mut saw_r = false;
-        let mut saw_u = false;
-        let mut saw_f = false;
-        loop {
-            // Detect r"", f"", b"" and u""
-            if !(saw_b || saw_u || saw_f) && matches!(self.window[0], Some('b' | 'B')) {
-                saw_b = true;
-            } else if !(saw_b || saw_r || saw_u || saw_f)
-                && matches!(self.window[0], Some('u' | 'U'))
-            {
-                saw_u = true;
-            } else if !(saw_r || saw_u) && matches!(self.window[0], Some('r' | 'R')) {
-                saw_r = true;
-            } else if !(saw_b || saw_u || saw_f) && matches!(self.window[0], Some('f' | 'F')) {
-                saw_f = true;
-            } else {
-                break;
-            }
-
-            // Take up char into name:
-            name.push(self.next_char().unwrap());
-
-            // Check if we have a string:
-            if matches!(self.window[0], Some('"' | '\'')) {
-                let kind = if saw_r {
-                    if saw_b {
-                        StringKind::RawBytes
-                    } else if saw_f {
-                        StringKind::RawFString
-                    } else {
-                        StringKind::RawString
-                    }
-                } else if saw_b {
-                    StringKind::Bytes
-                } else if saw_u {
-                    StringKind::Unicode
-                } else if saw_f {
-                    StringKind::FString
-                } else {
-                    StringKind::String
-                };
-
-                return self
-                    .lex_string(kind)
-                    .map(|(_, tok, end_pos)| (start_pos, tok, end_pos));
-            }
-        }
+        // Check if we have a string
+        match self.window[..3] {
+            [Some(c1), Some(c2), Some(c3)] => match (c1, c2, c3) {
+                // No prefix
+                ('"' | '\'', ..) => {
+                    return self
+                        .lex_string(StringKind::String)
+                        .map(|(_, tok, end_pos)| (start_pos, tok, end_pos));
+                }
+                // One prefix
+                ('r' | 'R' | 'b' | 'B' | 'f' | 'F' | 'u' | 'U', '"' | '\'', ..) => {
+                    self.next_char().unwrap();
+                    return self
+                        .lex_string(c1.to_string().try_into().unwrap())
+                        .map(|(_, tok, end_pos)| (start_pos, tok, end_pos));
+                }
+                // Two prefixes
+                ('b' | 'B', 'r' | 'R', '"' | '\'')
+                | ('r' | 'R', 'b' | 'B', '"' | '\'')
+                | ('f' | 'F', 'r' | 'R', '"' | '\'')
+                | ('r' | 'R', 'f' | 'F', '"' | '\'') => {
+                    self.next_char().unwrap();
+                    self.next_char().unwrap();
+                    return self
+                        .lex_string(format!("{c1}{c2}").try_into().unwrap())
+                        .map(|(_, tok, end_pos)| (start_pos, tok, end_pos));
+                }
+                _ => {}
+            },
+            _ => {}
+        };
 
         while self.is_identifier_continuation() {
             name.push(self.next_char().unwrap());
