@@ -7,7 +7,10 @@ use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
     atomic_func,
     class::PyClassImpl,
-    common::format::{FormatSpec, FormatString, FromTemplate},
+    common::{
+        format::{FormatSpec, FormatString, FromTemplate},
+        str::{BorrowedStr, PyStrKind, PyStrKindData},
+    },
     convert::{ToPyException, ToPyObject},
     format::{format, format_map},
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
@@ -38,48 +41,6 @@ use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
 use unicode_casing::CharExt;
-
-/// Utf8 + state.ascii (+ PyUnicode_Kind in future)
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) enum PyStrKind {
-    Ascii,
-    Utf8,
-}
-
-impl std::ops::BitOr for PyStrKind {
-    type Output = Self;
-    fn bitor(self, other: Self) -> Self {
-        match (self, other) {
-            (Self::Ascii, Self::Ascii) => Self::Ascii,
-            _ => Self::Utf8,
-        }
-    }
-}
-
-impl PyStrKind {
-    fn new_data(self) -> PyStrKindData {
-        match self {
-            PyStrKind::Ascii => PyStrKindData::Ascii,
-            PyStrKind::Utf8 => PyStrKindData::Utf8(Radium::new(usize::MAX)),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum PyStrKindData {
-    Ascii,
-    // uses usize::MAX as a sentinel for "uncomputed"
-    Utf8(PyAtomic<usize>),
-}
-
-impl PyStrKindData {
-    fn kind(&self) -> PyStrKind {
-        match self {
-            PyStrKindData::Ascii => PyStrKind::Ascii,
-            PyStrKindData::Utf8(_) => PyStrKind::Utf8,
-        }
-    }
-}
 
 impl TryFromBorrowedObject for String {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
@@ -385,6 +346,10 @@ impl PyStr {
             PyStrKind::Utf8 => self.as_str().chars().all(test),
         }
     }
+
+    fn borrow(&self) -> &BorrowedStr {
+        unsafe { std::mem::transmute(self) }
+    }
 }
 
 #[pyclass(
@@ -475,28 +440,7 @@ impl PyStr {
     #[pymethod(name = "__len__")]
     #[inline]
     pub fn char_len(&self) -> usize {
-        match self.kind {
-            PyStrKindData::Ascii => self.bytes.len(),
-            PyStrKindData::Utf8(ref len) => match len.load(atomic::Ordering::Relaxed) {
-                usize::MAX => self._compute_char_len(),
-                len => len,
-            },
-        }
-    }
-    #[cold]
-    fn _compute_char_len(&self) -> usize {
-        match self.kind {
-            PyStrKindData::Utf8(ref char_len) => {
-                let len = self.as_str().chars().count();
-                // len cannot be usize::MAX, since vec.capacity() < sys.maxsize
-                char_len.store(len, atomic::Ordering::Relaxed);
-                len
-            }
-            _ => unsafe {
-                debug_assert!(false); // invalid for non-utf8 strings
-                std::hint::unreachable_unchecked()
-            },
-        }
+        self.borrow().char_len()
     }
 
     #[pymethod(name = "isascii")]
@@ -787,7 +731,7 @@ impl PyStr {
     #[pymethod(name = "__format__")]
     fn format_str(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_string(self.as_str()))
+            .and_then(|format_spec| format_spec.format_string(self.borrow()))
             .map_err(|err| vm.new_value_error(err.to_string()))
     }
 
