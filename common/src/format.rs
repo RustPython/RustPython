@@ -522,7 +522,6 @@ impl FormatSpec {
             sign_str,
             FormatAlign::Right,
         )
-        .map_err(|msg| msg.to_owned())
     }
 
     #[inline]
@@ -605,10 +604,10 @@ impl FormatSpec {
             &sign_prefix,
             FormatAlign::Right,
         )
-        .map_err(|msg| msg.to_owned())
     }
 
-    pub fn format_string(&self, s: &BorrowedStr) -> Result<String, &'static str> {
+    pub fn format_string(&self, s: &BorrowedStr) -> Result<String, String> {
+        self.validate_format(FormatType::String)?;
         match self.format_type {
             Some(FormatType::String) | None => self
                 .format_sign_and_align(s, "", FormatAlign::Left)
@@ -618,7 +617,13 @@ impl FormatSpec {
                     }
                     value
                 }),
-            _ => Err("Unknown format code for object of type 'str'"),
+            _ => {
+                let ch = char::from(self.format_type.as_ref().unwrap());
+                Err(format!(
+                    "Unknown format code '{}' for object of type 'str'",
+                    ch
+                ))
+            }
         }
     }
 
@@ -627,7 +632,7 @@ impl FormatSpec {
         magnitude_str: &BorrowedStr,
         sign_str: &str,
         default_align: FormatAlign,
-    ) -> Result<String, &'static str> {
+    ) -> Result<String, String> {
         let align = self.align.unwrap_or(default_align);
 
         let num_chars = magnitude_str.char_len();

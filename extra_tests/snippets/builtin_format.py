@@ -72,3 +72,5 @@ assert_raises(ValueError, "{:,o}".format, 1, _msg="ValueError: Cannot specify ',
 assert_raises(ValueError, "{:_n}".format, 1, _msg="ValueError: Cannot specify '_' with 'n'.")
 assert_raises(ValueError, "{:,o}".format, 1.0, _msg="ValueError: Cannot specify ',' with 'o'.")
 assert_raises(ValueError, "{:_n}".format, 1.0, _msg="ValueError: Cannot specify '_' with 'n'.")
+assert_raises(ValueError, "{:,}".format, "abc", _msg="ValueError: Cannot specify ',' with 's'.")
+assert_raises(ValueError, "{:,x}".format, "abc", _msg="ValueError: Cannot specify ',' with 'x'.")
