@@ -240,6 +240,34 @@ pub enum StringKind {
     Unicode,
 }
 
+impl TryFrom<char> for StringKind {
+    type Error = String;
+
+    fn try_from(ch: char) -> Result<Self, String> {
+        match ch {
+            'r' | 'R' => Ok(StringKind::RawString),
+            'f' | 'F' => Ok(StringKind::FString),
+            'u' | 'U' => Ok(StringKind::Unicode),
+            'b' | 'B' => Ok(StringKind::Bytes),
+            c => Err(format!("Unexpected string prefix: {c}")),
+        }
+    }
+}
+
+impl TryFrom<[char; 2]> for StringKind {
+    type Error = String;
+
+    fn try_from(chars: [char; 2]) -> Result<Self, String> {
+        match chars {
+            ['r' | 'R', 'f' | 'F'] => Ok(StringKind::RawFString),
+            ['f' | 'F', 'r' | 'R'] => Ok(StringKind::RawFString),
+            ['r' | 'R', 'b' | 'B'] => Ok(StringKind::RawBytes),
+            ['b' | 'B', 'r' | 'R'] => Ok(StringKind::RawBytes),
+            [c1, c2] => Err(format!("Unexpected string prefix: {c1}{c2}")),
+        }
+    }
+}
+
 impl fmt::Display for StringKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use StringKind::*;
@@ -273,5 +301,14 @@ impl StringKind {
 
     pub fn is_unicode(&self) -> bool {
         matches!(self, StringKind::Unicode)
+    }
+
+    pub fn prefix_len(&self) -> usize {
+        use StringKind::*;
+        match self {
+            String => 0,
+            RawString | FString | Unicode | Bytes => 1,
+            RawFString | RawBytes => 2,
+        }
     }
 }
