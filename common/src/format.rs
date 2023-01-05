@@ -522,7 +522,6 @@ impl FormatSpec {
             sign_str,
             FormatAlign::Right,
         )
-        .map_err(|msg| msg.to_owned())
     }
 
     #[inline]
@@ -605,7 +604,6 @@ impl FormatSpec {
             &sign_prefix,
             FormatAlign::Right,
         )
-        .map_err(|msg| msg.to_owned())
     }
 
     pub fn format_string(&self, s: &BorrowedStr) -> Result<String, String> {
@@ -618,8 +616,7 @@ impl FormatSpec {
                         value.truncate(precision);
                     }
                     value
-                })
-                .map_err(|msg| msg.to_owned()),
+                }),
             _ => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(format!(
@@ -635,7 +632,7 @@ impl FormatSpec {
         magnitude_str: &BorrowedStr,
         sign_str: &str,
         default_align: FormatAlign,
-    ) -> Result<String, &'static str> {
+    ) -> Result<String, String> {
         let align = self.align.unwrap_or(default_align);
 
         let num_chars = magnitude_str.char_len();
