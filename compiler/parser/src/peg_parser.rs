@@ -152,11 +152,11 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         begin:position!() [Raise] {
             zelf.new_located_single(begin, ast::StmtKind::Raise { exc: None, cause: None })
         }
-    
+
     rule global_stmt() -> ast::Stmt = begin:position!() [Global] a:([Name { name }] { name.clone() }) ++ [Comma] end:position!() {
         zelf.new_located(begin, end, ast::StmtKind::Global { names: a })
     }
-    
+
     rule nonlocal_stmt() -> ast::Stmt = begin:position!() [Nonlocal] a:([Name { name }] { name.clone() }) ++ [Comma] end:position!() {
         zelf.new_located(begin, end, ast::StmtKind::Nonlocal { names: a })
     }
@@ -186,12 +186,12 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         begin:position!() [From] a:[Dot | Ellipsis]+ [Import] b:import_from_targets() end:position!() {
             zelf.new_located(begin, end, ast::StmtKind::ImportFrom { module: None, names: b, level: count_dots(a) })
         }
-    
+
     rule import_from_targets() -> Vec<ast::Alias> =
         [Lpar] a:import_from_as_names() [Comma]? [Rpar] { a } /
         a:import_from_as_names() ![Comma] { a } /
         begin:position!() [Star] { vec![zelf.new_located_single(begin, ast::AliasData { name: "*".to_owned(), asname: None })] }
-    
+
     rule import_from_as_names() -> Vec<ast::Alias> = import_from_as_name() ++ [Comma]
 
     rule import_from_as_name() -> ast::Alias = begin:position!() [Name { name }] b:([As] [Name { name }] { name })? end:position!() {
@@ -210,6 +210,23 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
             format!("{}.{}", a, name)
         } /
         [Name { name }] { name.clone() }
+
+    rule block() -> Vec<ast::Stmt> =
+        [Newline] [Indent] a:statements() [Dedent] { a } /
+        simple_stmts()
+
+    rule decorators() -> Vec<ast::Expr> = ([At] f:named_expression() [Newline] { f })+
+
+    // rule class_def() -> ast::Stmt =
+    //     a:decorators() b:class_def_raw() {
+
+    //     } /
+    //     class_def_raw()
+
+    // rule class_def_raw() -> ast::StmtKind =
+    //     begin:position!() [Class] [Name { name }] b:([Lpar] z:arguments()? [Rpar]) [Colon] c:block() end:position!() {
+    //         zelf.new_located(begin, end, ast::StmtKind::ClassDef { name: name.clone(), bases: b, keywords: b, body: c, decorator_list: vec![] })
+    //     }
 
     rule expressions() -> Vec<ast::Expr> = a:expression() ++ [Comma] [Comma]? { a }
 
