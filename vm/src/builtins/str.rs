@@ -730,9 +730,11 @@ impl PyStr {
 
     #[pymethod(name = "__format__")]
     fn format_str(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_string(self.borrow()))
-            .map_err(|err| vm.new_value_error(err.to_string()))
+        let format_spec =
+            FormatSpec::parse(spec.as_str()).map_err(|err| vm.new_value_error(err.to_string()))?;
+        format_spec
+            .format_string(self.borrow())
+            .map_err(|msg| vm.new_value_error(msg))
     }
 
     /// Return a titlecased version of the string where words start with an

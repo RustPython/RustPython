@@ -608,7 +608,8 @@ impl FormatSpec {
         .map_err(|msg| msg.to_owned())
     }
 
-    pub fn format_string(&self, s: &BorrowedStr) -> Result<String, &'static str> {
+    pub fn format_string(&self, s: &BorrowedStr) -> Result<String, String> {
+        self.validate_format(FormatType::String)?;
         match self.format_type {
             Some(FormatType::String) | None => self
                 .format_sign_and_align(s, "", FormatAlign::Left)
@@ -617,8 +618,15 @@ impl FormatSpec {
                         value.truncate(precision);
                     }
                     value
-                }),
-            _ => Err("Unknown format code for object of type 'str'"),
+                })
+                .map_err(|msg| msg.to_owned()),
+            _ => {
+                let ch = char::from(self.format_type.as_ref().unwrap());
+                Err(format!(
+                    "Unknown format code '{}' for object of type 'str'",
+                    ch
+                ))
+            }
         }
     }
 
