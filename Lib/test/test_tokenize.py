@@ -647,8 +647,6 @@ def"', """\
     DEDENT     ''            (4, 0) (4, 0)
     """)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_ascii_identifiers(self):
         # Non-ascii identifiers
         self.check_tokenize("Örter = 'places'\ngrün = 'green'", """\
@@ -661,8 +659,6 @@ def"', """\
     STRING     "'green'"     (2, 7) (2, 14)
     """)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicode(self):
         # Legacy unicode literals:
         self.check_tokenize("Örter = u'places'\ngrün = U'green'", """\

@@ -1,4 +1,4 @@
-use crate::float_ops;
+use crate::{float_ops, str::BorrowedStr};
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
 use num_traits::{cast::ToPrimitive, Signed};
@@ -517,8 +517,12 @@ impl FormatSpec {
             }
         };
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, sign_str);
-        self.format_sign_and_align(&magnitude_str, sign_str, FormatAlign::Right)
-            .map_err(|msg| msg.to_owned())
+        self.format_sign_and_align(
+            unsafe { &BorrowedStr::from_ascii_unchecked(magnitude_str.as_bytes()) },
+            sign_str,
+            FormatAlign::Right,
+        )
+        .map_err(|msg| msg.to_owned())
     }
 
     #[inline]
@@ -596,11 +600,15 @@ impl FormatSpec {
         };
         let sign_prefix = format!("{}{}", sign_str, prefix);
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, &sign_prefix);
-        self.format_sign_and_align(&magnitude_str, &sign_prefix, FormatAlign::Right)
-            .map_err(|msg| msg.to_owned())
+        self.format_sign_and_align(
+            unsafe { &BorrowedStr::from_ascii_unchecked(magnitude_str.as_bytes()) },
+            &sign_prefix,
+            FormatAlign::Right,
+        )
+        .map_err(|msg| msg.to_owned())
     }
 
-    pub fn format_string(&self, s: &str) -> Result<String, &'static str> {
+    pub fn format_string(&self, s: &BorrowedStr) -> Result<String, &'static str> {
         match self.format_type {
             Some(FormatType::String) | None => self
                 .format_sign_and_align(s, "", FormatAlign::Left)
@@ -616,14 +624,13 @@ impl FormatSpec {
 
     fn format_sign_and_align(
         &self,
-        magnitude_string: &str,
+        magnitude_str: &BorrowedStr,
         sign_str: &str,
         default_align: FormatAlign,
     ) -> Result<String, &'static str> {
         let align = self.align.unwrap_or(default_align);
 
-        // Use the byte length as the string length since we're in ascii
-        let num_chars = magnitude_string.len();
+        let num_chars = magnitude_str.char_len();
         let fill_char = self.fill.unwrap_or(' ');
         let fill_chars_needed: i32 = self.width.map_or(0, |w| {
             cmp::max(0, (w as i32) - (num_chars as i32) - (sign_str.len() as i32))
@@ -632,20 +639,20 @@ impl FormatSpec {
             FormatAlign::Left => format!(
                 "{}{}{}",
                 sign_str,
-                magnitude_string,
+                magnitude_str,
                 FormatSpec::compute_fill_string(fill_char, fill_chars_needed)
             ),
             FormatAlign::Right => format!(
                 "{}{}{}",
                 FormatSpec::compute_fill_string(fill_char, fill_chars_needed),
                 sign_str,
-                magnitude_string
+                magnitude_str
             ),
             FormatAlign::AfterSign => format!(
                 "{}{}{}",
                 sign_str,
                 FormatSpec::compute_fill_string(fill_char, fill_chars_needed),
-                magnitude_string
+                magnitude_str
             ),
             FormatAlign::Center => {
                 let left_fill_chars_needed = fill_chars_needed / 2;
@@ -654,7 +661,7 @@ impl FormatSpec {
                     FormatSpec::compute_fill_string(fill_char, left_fill_chars_needed);
                 let right_fill_string =
                     FormatSpec::compute_fill_string(fill_char, right_fill_chars_needed);
-                format!("{left_fill_string}{sign_str}{magnitude_string}{right_fill_string}")
+                format!("{left_fill_string}{sign_str}{magnitude_str}{right_fill_string}")
             }
         })
     }
