@@ -103,7 +103,9 @@ pub(crate) mod _signal {
             .clone()
             .get_attr("default_int_handler", vm)
             .expect("_signal does not have this attr?");
-        signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+        if !vm.state.settings.no_sig_int {
+            signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+        }
     }
 
     #[pyfunction]
