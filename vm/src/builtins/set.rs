@@ -383,16 +383,15 @@ impl PySetInner {
         others: impl std::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let mut temp_inner = self.copy();
-        self.clear();
-        for iterable in others {
-            for item in iterable.iter(vm)? {
-                let obj = item?;
-                if temp_inner.contains(&obj, vm)? {
-                    self.add(obj, vm)?;
+        // For each set in other
+        //  remove all elements from LHS (self) that are not in set
+        for other_set_iter in others {
+            let other_set = Self::from_iter(other_set_iter.iter(vm)?, vm)?;
+            for item in self.elements().into_iter() {
+                if !other_set.contains(&item, vm)? {
+                    self.remove(item, vm)?;
                 }
             }
-            temp_inner = self.copy()
         }
         Ok(())
     }
@@ -402,9 +401,14 @@ impl PySetInner {
         others: impl std::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        for iterable in others {
-            for item in iterable.iter(vm)? {
-                self.content.delete_if_exists(vm, &*item?)?;
+        // For each set in other
+        //  remove all elements from LHS (self) that are also in set
+        for other_set_iter in others {
+            let other_set = Self::from_iter(other_set_iter.iter(vm)?, vm)?;
+            for item in self.elements().into_iter() {
+                if other_set.contains(&item, vm)? {
+                    self.remove(item, vm)?;
+                }
             }
         }
         Ok(())
