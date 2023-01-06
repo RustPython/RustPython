@@ -271,7 +271,7 @@ fn parse_precision(text: &str) -> Result<(Option<usize>, &str), &'static str> {
 }
 
 impl FormatSpec {
-    pub fn parse(text: &str) -> Result<Self, &'static str> {
+    pub fn parse(text: &str) -> Result<Self, String> {
         // get_integer in CPython
         let (preconversor, text) = FormatPreconversor::parse(text);
         let (mut fill, mut align, text) = parse_fill_and_align(text);
@@ -283,7 +283,7 @@ impl FormatSpec {
         let (precision, text) = parse_precision(text)?;
         let (format_type, text) = FormatType::parse(text);
         if !text.is_empty() {
-            return Err("Invalid format specifier");
+            return Err("Invalid format specifier".to_owned());
         }
 
         if zero && fill.is_none() {
@@ -685,7 +685,7 @@ pub enum FormatParseError {
 }
 
 impl FromStr for FormatSpec {
-    type Err = &'static str;
+    type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         FormatSpec::parse(s)
     }
