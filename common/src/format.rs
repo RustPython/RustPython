@@ -1104,13 +1104,34 @@ mod tests {
 
     #[test]
     fn test_format_invalid_specification() {
-        assert_eq!(FormatSpec::parse("%3"), Err("Invalid format specifier"));
-        assert_eq!(FormatSpec::parse(".2fa"), Err("Invalid format specifier"));
-        assert_eq!(FormatSpec::parse("ds"), Err("Invalid format specifier"));
-        assert_eq!(FormatSpec::parse("x+"), Err("Invalid format specifier"));
-        assert_eq!(FormatSpec::parse("b4"), Err("Invalid format specifier"));
-        assert_eq!(FormatSpec::parse("o!"), Err("Invalid format specifier"));
-        assert_eq!(FormatSpec::parse("d "), Err("Invalid format specifier"));
+        assert_eq!(
+            FormatSpec::parse("%3"),
+            Err("Invalid format specifier".to_owned())
+        );
+        assert_eq!(
+            FormatSpec::parse(".2fa"),
+            Err("Invalid format specifier".to_owned())
+        );
+        assert_eq!(
+            FormatSpec::parse("ds"),
+            Err("Invalid format specifier".to_owned())
+        );
+        assert_eq!(
+            FormatSpec::parse("x+"),
+            Err("Invalid format specifier".to_owned())
+        );
+        assert_eq!(
+            FormatSpec::parse("b4"),
+            Err("Invalid format specifier".to_owned())
+        );
+        assert_eq!(
+            FormatSpec::parse("o!"),
+            Err("Invalid format specifier".to_owned())
+        );
+        assert_eq!(
+            FormatSpec::parse("d "),
+            Err("Invalid format specifier".to_owned())
+        );
     }
 
     #[test]
