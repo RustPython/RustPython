@@ -189,10 +189,8 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
 impl PyFloat {
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|msg| vm.new_value_error(msg.to_owned()))?;
-        format_spec
-            .format_float(self.value)
+        FormatSpec::parse(spec.as_str())
+            .and_then(|format_spec| format_spec.format_float(self.value))
             .map_err(|msg| vm.new_value_error(msg))
     }
 

@@ -730,10 +730,8 @@ impl PyStr {
 
     #[pymethod(name = "__format__")]
     fn format_str(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|err| vm.new_value_error(err.to_string()))?;
-        format_spec
-            .format_string(self.borrow())
+        FormatSpec::parse(spec.as_str())
+            .and_then(|format_spec| format_spec.format_string(self.borrow()))
             .map_err(|msg| vm.new_value_error(msg))
     }
 
