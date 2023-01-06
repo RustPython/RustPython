@@ -1096,8 +1096,8 @@ mod _sqlite {
             let Some(data )= CallbackData::new(callable, vm) else {
                 unsafe {
                     sqlite3_create_collation_v2(db.db, name.as_ptr(), SQLITE_UTF8, null_mut(), None, None);
-                    return Ok(());
                 }
+                return Ok(());
             };
             let data = Box::into_raw(Box::new(data));
 
@@ -1208,7 +1208,7 @@ mod _sqlite {
         ) -> PyResult<()> {
             let db = self.db_lock(vm)?;
             let Some(data )= CallbackData::new(callable, vm) else {
-                unsafe {sqlite3_progress_handler(db.db, n, None, null_mut())};
+                unsafe { sqlite3_progress_handler(db.db, n, None, null_mut()) };
                 return Ok(());
             };
 
@@ -1530,11 +1530,7 @@ mod _sqlite {
             let script = script.to_cstring(vm)?;
             let mut ptr = script.as_ptr();
 
-            // while unsafe { *ptr } != 0 {
             while let Some(st) = db.prepare(ptr, &mut ptr, vm)? {
-                // dbg!(unsafe {*ptr});
-                // let st = db.prepare(ptr, &mut ptr, vm)?;
-                // dbg!(unsafe {*ptr});
                 while st.step_row_else_done(vm)? {}
             }
 
