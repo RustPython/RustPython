@@ -317,8 +317,6 @@ class TestWeakSet(unittest.TestCase):
             else:
                 self.assertNotIn(c, self.s)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inplace_on_self(self):
         t = self.s.copy()
         t |= t
