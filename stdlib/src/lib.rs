@@ -50,7 +50,7 @@ mod resource;
 mod scproxy;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod sqlite;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
@@ -119,6 +119,9 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "select" => select::make_module,
             "_socket" => socket::make_module,
             "faulthandler" => faulthandler::make_module,
+        }
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        {
             "_sqlite3" => sqlite::make_module,
         }
         #[cfg(feature = "ssl")]
