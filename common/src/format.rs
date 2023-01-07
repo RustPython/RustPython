@@ -600,7 +600,7 @@ impl FormatSpec {
         let sign_prefix = format!("{}{}", sign_str, prefix);
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, &sign_prefix);
         self.format_sign_and_align(
-            unsafe { &BorrowedStr::from_ascii_unchecked(magnitude_str.as_bytes()) },
+            &BorrowedStr::from_bytes(magnitude_str.as_bytes()),
             &sign_prefix,
             FormatAlign::Right,
         )
