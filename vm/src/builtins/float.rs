@@ -6,7 +6,7 @@ use crate::{
     class::PyClassImpl,
     common::format::FormatSpec,
     common::{float_ops, hash},
-    convert::{ToPyObject, ToPyResult},
+    convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         ArgBytesLike, OptionalArg, OptionalOption,
         PyArithmeticValue::{self, *},
@@ -191,7 +191,7 @@ impl PyFloat {
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_float(self.value))
-            .map_err(|msg| vm.new_value_error(msg))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pystaticmethod(magic)]

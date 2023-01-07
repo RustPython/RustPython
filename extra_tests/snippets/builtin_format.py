@@ -67,10 +67,10 @@ assert f"{123.456:+011,}" == "+00,123.456"
 assert f"{1234:.3g}" == "1.23e+03"
 assert f"{1234567:.6G}" == "1.23457E+06"
 assert f'{"🐍":4}' == "🐍   "
-
 assert_raises(ValueError, "{:,o}".format, 1, _msg="ValueError: Cannot specify ',' with 'o'.")
 assert_raises(ValueError, "{:_n}".format, 1, _msg="ValueError: Cannot specify '_' with 'n'.")
 assert_raises(ValueError, "{:,o}".format, 1.0, _msg="ValueError: Cannot specify ',' with 'o'.")
 assert_raises(ValueError, "{:_n}".format, 1.0, _msg="ValueError: Cannot specify '_' with 'n'.")
 assert_raises(ValueError, "{:,}".format, "abc", _msg="ValueError: Cannot specify ',' with 's'.")
 assert_raises(ValueError, "{:,x}".format, "abc", _msg="ValueError: Cannot specify ',' with 'x'.")
+assert_raises(OverflowError, "{:c}".format, 0x110000, _msg="OverflowError: %c arg not in range(0x110000)")

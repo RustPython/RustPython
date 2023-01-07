@@ -1,11 +1,53 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::format::*,
-    convert::ToPyException,
+    convert::{IntoPyException, ToPyException},
     function::FuncArgs,
     stdlib::builtins,
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
+
+impl IntoPyException for FormatSpecError {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            FormatSpecError::DecimalDigitsTooMany => {
+                vm.new_value_error("Too many decimal digits in format string".to_owned())
+            }
+            FormatSpecError::PrecisionTooBig => vm.new_value_error("Precision too big".to_owned()),
+            FormatSpecError::InvalidFormatSpecifier => {
+                vm.new_value_error("Invalid format specifier".to_owned())
+            }
+            FormatSpecError::UnspecifiedFormat(c1, c2) => {
+                let msg = format!("Cannot specify '{}' with '{}'.", c1, c2);
+                vm.new_value_error(msg)
+            }
+            FormatSpecError::UnknownFormatCode(c, s) => {
+                let msg = format!("Unknown format code '{}' for object of type '{}'", c, s);
+                vm.new_value_error(msg)
+            }
+            FormatSpecError::PrecisionNotAllowed => {
+                vm.new_value_error("Precision not allowed in integer format specifier".to_owned())
+            }
+            FormatSpecError::NotAllowed(s) => {
+                let msg = format!("{} not allowed with integer format specifier 'c'", s);
+                vm.new_value_error(msg)
+            }
+            FormatSpecError::UnableToConvert => {
+                vm.new_value_error("Unable to convert int to float".to_owned())
+            }
+            FormatSpecError::CodeNotInRange => {
+                vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
+            }
+            FormatSpecError::NotImplemented(c, s) => {
+                let msg = format!(
+                    "Format code '{}' for object of type '{}' not implemented yet",
+                    c, s
+                );
+                vm.new_value_error(msg)
+            }
+        }
+    }
+}
 
 impl ToPyException for FormatParseError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
