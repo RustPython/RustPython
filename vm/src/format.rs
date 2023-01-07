@@ -19,7 +19,7 @@ impl IntoPyException for FormatSpecError {
             }
             FormatSpecError::UnspecifiedFormat(c1, c2) => {
                 let msg = format!("Cannot specify '{}' with '{}'.", c1, c2);
-                vm.new_value_error(msg.to_owned())
+                vm.new_value_error(msg)
             }
             FormatSpecError::UnknownFormatCode(c, s) => {
                 let msg = format!("Unknown format code '{}' for object of type '{}'", c, s);
