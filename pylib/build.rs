@@ -9,14 +9,13 @@ fn main() {
 
     if cfg!(windows) {
         if let Ok(real_path) = std::fs::read_to_string("Lib") {
-            println!("rustc-env:win_lib_path={:?}", real_path);
+            println!("rustc-env:win_lib_path={real_path:?}");
         }
     }
 }
 
 fn rerun_if_changed(pattern: &str) {
-    let glob =
-        glob::glob(pattern).unwrap_or_else(|e| panic!("failed to glob {:?}: {}", pattern, e));
+    let glob = glob::glob(pattern).unwrap_or_else(|e| panic!("failed to glob {pattern:?}: {e}"));
     for entry in glob.flatten() {
         if entry.is_dir() {
             continue;
@@ -25,6 +24,6 @@ fn rerun_if_changed(pattern: &str) {
         if display.to_string().ends_with(".pyc") {
             continue;
         }
-        println!("cargo:rerun-if-changed={}", display);
+        println!("cargo:rerun-if-changed={display}");
     }
 }

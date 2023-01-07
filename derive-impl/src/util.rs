@@ -399,10 +399,7 @@ impl AttributeExt for Attribute {
                 if found.is_some() {
                     return Err(syn::Error::new(
                         item.span(),
-                        format!(
-                            "#[py..({}...)] must be unique but found multiple times",
-                            item_name,
-                        ),
+                        format!("#[py..({item_name}...)] must be unique but found multiple times"),
                     ));
                 }
                 found = Some(i);
@@ -545,7 +542,7 @@ where
 pub(crate) fn text_signature(sig: &Signature, name: &str) -> String {
     let signature = func_sig(sig);
     if signature.starts_with("$self") {
-        format!("{}({})", name, signature)
+        format!("{name}({signature})")
     } else {
         format!("{}({}, {})", name, "$module", signature)
     }
@@ -583,4 +580,8 @@ fn func_sig(sig: &Signature) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+pub(crate) fn format_doc(sig: &str, doc: &str) -> String {
+    format!("{sig}\n--\n\n{doc}")
 }

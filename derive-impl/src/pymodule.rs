@@ -1,8 +1,8 @@
 use crate::error::Diagnostic;
 use crate::util::{
-    iter_use_idents, pyclass_ident_and_attrs, text_signature, AttrItemMeta, AttributeExt,
-    ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery, SimpleItemMeta,
-    ALL_ALLOWED_NAMES,
+    format_doc, iter_use_idents, pyclass_ident_and_attrs, text_signature, AttrItemMeta,
+    AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery,
+    SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
@@ -328,7 +328,7 @@ impl ModuleItem for FunctionItem {
                     .map(str::to_owned)
             });
             let doc = if let Some(doc) = doc {
-                format!("{}\n--\n\n{}", sig_doc, doc)
+                format_doc(&sig_doc, &doc)
             } else {
                 sig_doc
             };

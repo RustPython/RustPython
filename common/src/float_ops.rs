@@ -126,7 +126,7 @@ fn format_inf(case: Case) -> String {
 
 pub fn format_fixed(precision: usize, magnitude: f64, case: Case) -> String {
     match magnitude {
-        magnitude if magnitude.is_finite() => format!("{:.*}", precision, magnitude),
+        magnitude if magnitude.is_finite() => format!("{magnitude:.precision$}"),
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
         _ => "".to_string(),
@@ -138,7 +138,7 @@ pub fn format_fixed(precision: usize, magnitude: f64, case: Case) -> String {
 pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
-            let r_exp = format!("{:.*e}", precision, magnitude);
+            let r_exp = format!("{magnitude:.precision$e}");
             let mut parts = r_exp.splitn(2, 'e');
             let base = parts.next().unwrap();
             let exponent = parts.next().unwrap().parse::<i64>().unwrap();
@@ -146,7 +146,7 @@ pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
                 Case::Lower => 'e',
                 Case::Upper => 'E',
             };
-            format!("{}{}{:+#03}", base, e, exponent)
+            format!("{base}{e}{exponent:+#03}")
         }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
@@ -206,12 +206,12 @@ pub fn format_general(
                     format!("{:.*}", precision + 1, base),
                     alternate_form,
                 );
-                format!("{}{}{:+#03}", base, e, exponent)
+                format!("{base}{e}{exponent:+#03}")
             } else {
                 let precision = (precision as i64) - 1 - exponent;
                 let precision = precision as usize;
                 maybe_remove_trailing_redundant_chars(
-                    format!("{:.*}", precision, magnitude),
+                    format!("{magnitude:.precision$}"),
                     alternate_form,
                 )
             }
@@ -223,19 +223,19 @@ pub fn format_general(
 }
 
 pub fn to_string(value: f64) -> String {
-    let lit = format!("{:e}", value);
+    let lit = format!("{value:e}");
     if let Some(position) = lit.find('e') {
         let significand = &lit[..position];
         let exponent = &lit[position + 1..];
         let exponent = exponent.parse::<i32>().unwrap();
         if exponent < 16 && exponent > -5 {
             if is_integer(value) {
-                format!("{:.1?}", value)
+                format!("{value:.1?}")
             } else {
                 value.to_string()
             }
         } else {
-            format!("{}e{:+#03}", significand, exponent)
+            format!("{significand}e{exponent:+#03}")
         }
     } else {
         let mut s = value.to_string();
@@ -296,8 +296,8 @@ pub fn to_hex(value: f64) -> String {
     let (mantissa, exponent, sign) = value.integer_decode();
     let sign_fmt = if sign < 0 { "-" } else { "" };
     match value {
-        value if value.is_zero() => format!("{}0x0.0p+0", sign_fmt),
-        value if value.is_infinite() => format!("{}inf", sign_fmt),
+        value if value.is_zero() => format!("{sign_fmt}0x0.0p+0"),
+        value if value.is_infinite() => format!("{sign_fmt}inf"),
         value if value.is_nan() => "nan".to_owned(),
         _ => {
             const BITS: i16 = 52;
