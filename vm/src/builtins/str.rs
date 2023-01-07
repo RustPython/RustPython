@@ -11,7 +11,7 @@ use crate::{
         format::{FormatSpec, FormatString, FromTemplate},
         str::{BorrowedStr, PyStrKind, PyStrKindData},
     },
-    convert::{ToPyException, ToPyObject},
+    convert::{IntoPyException, ToPyException, ToPyObject},
     format::{format, format_map},
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
@@ -732,7 +732,7 @@ impl PyStr {
     fn format_str(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_string(self.borrow()))
-            .map_err(|msg| vm.new_value_error(msg))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     /// Return a titlecased version of the string where words start with an
