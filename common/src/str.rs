@@ -81,6 +81,20 @@ impl<'a> BorrowedStr<'a> {
     }
 
     #[inline]
+    pub fn from_bytes(s: &'a [u8]) -> Self {
+        let k = if s.is_ascii() {
+            PyStrKind::Ascii.new_data()
+        } else {
+            PyStrKind::Utf8.new_data()
+        };
+        Self {
+            bytes: s,
+            kind: k,
+            hash: PyAtomic::<PyHash>::new(0),
+        }
+    }
+
+    #[inline]
     pub fn as_str(&self) -> &str {
         unsafe {
             // SAFETY: Both PyStrKind::{Ascii, Utf8} are valid utf8 string
