@@ -570,7 +570,10 @@ impl PyInt {
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_int(&self.value))
-            .map_err(|msg| vm.new_value_error(msg))
+            .map_err(|msg| match &*msg {
+                FormatSpec::NOT_IN_RANGE => vm.new_overflow_error(msg),
+                _ => vm.new_value_error(msg),
+            })
     }
 
     #[pymethod(magic)]
