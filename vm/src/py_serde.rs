@@ -123,7 +123,7 @@ impl<'de> DeserializeSeed<'de> for PyObjectDeserializer<'de> {
     where
         D: serde::Deserializer<'de>,
     {
-        deserializer.deserialize_any(self.clone())
+        deserializer.deserialize_any(self)
     }
 }
 

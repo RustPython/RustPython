@@ -51,7 +51,7 @@ pub fn repr_with(b: &[u8], prefixes: &[&str], suffix: &str) -> String {
                 }
                 res.push(ch);
             }
-            _ => write!(res, "\\x{:02x}", ch).unwrap(),
+            _ => write!(res, "\\x{ch:02x}").unwrap(),
         }
     }
     res.push(quote);

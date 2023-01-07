@@ -196,8 +196,8 @@ unsafe impl RawRwLockRecursive for RawCellRwLock {
 
 #[cold]
 #[inline(never)]
-fn deadlock(lockkind: &str, ty: &str) -> ! {
-    panic!("deadlock: tried to {}lock a Cell{} twice", lockkind, ty)
+fn deadlock(lock_kind: &str, ty: &str) -> ! {
+    panic!("deadlock: tried to {lock_kind}lock a Cell{ty} twice")
 }
 
 pub struct SingleThreadId(());

@@ -1,7 +1,8 @@
 use super::Diagnostic;
 use crate::util::{
-    pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem, ContentItemInner,
-    ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
+    format_doc, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem,
+    ContentItemInner, ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta,
+    ALL_ALLOWED_NAMES,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
@@ -212,7 +213,7 @@ fn generate_class_def(
         quote!(None)
     };
     let module_class_name = if let Some(module_name) = module_name {
-        format!("{}.{}", module_name, name)
+        format!("{module_name}.{name}")
     } else {
         name.to_owned()
     };
@@ -504,7 +505,7 @@ where
 
         let tokens = {
             let doc = args.attrs.doc().map_or_else(TokenStream::new, |mut doc| {
-                doc = format!("{}\n--\n\n{}", sig_doc, doc);
+                doc = format_doc(&sig_doc, &doc);
                 quote!(.with_doc(#doc.to_owned(), ctx))
             });
             let build_func = match self.inner.attr_name {
@@ -597,7 +598,7 @@ where
             }
         };
 
-        let pyname = format!("(slot {})", slot_name);
+        let pyname = format!("(slot {slot_name})");
         args.context.extend_slots_items.add_item(
             ident.clone(),
             vec![pyname],
@@ -914,7 +915,7 @@ impl MethodItemMeta {
         } else {
             let name = inner.item_name();
             if magic {
-                format!("__{}__", name)
+                format!("__{name}__")
             } else {
                 name
             }
@@ -985,7 +986,7 @@ impl GetSetItemMeta {
                 GetSetItemKind::Delete => extract_prefix_name("del_", "deleter")?,
             };
             if magic {
-                format!("__{}__", name)
+                format!("__{name}__")
             } else {
                 name
             }
@@ -1107,7 +1108,7 @@ impl MemberItemMeta {
             MemberItemKind::Get => sig_name,
             MemberItemKind::Set => extract_prefix_name("set_", "setter")?,
         };
-        Ok((if magic { format!("__{}__", name) } else { name }, kind))
+        Ok((if magic { format!("__{name}__") } else { name }, kind))
     }
 
     fn member_kind(&self) -> Result<Option<String>> {

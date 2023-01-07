@@ -109,7 +109,7 @@ impl CompilationSource {
                 let source = fs::read_to_string(&path).map_err(|err| {
                     Diagnostic::spans_error(
                         self.span,
-                        format!("Error reading file {:?}: {}", path, err),
+                        format!("Error reading file {path:?}: {err}"),
                     )
                 })?;
                 self.compile_string(&source, mode, module_name, compiler, || rel_path.display())
@@ -143,15 +143,15 @@ impl CompilationSource {
                 Err(e)
             })
             .map_err(|err| {
-                Diagnostic::spans_error(self.span, format!("Error listing dir {:?}: {}", path, err))
+                Diagnostic::spans_error(self.span, format!("Error listing dir {path:?}: {err}"))
             })?;
         for path in paths {
             let path = path.map_err(|err| {
-                Diagnostic::spans_error(self.span, format!("Failed to list file: {}", err))
+                Diagnostic::spans_error(self.span, format!("Failed to list file: {err}"))
             })?;
             let path = path.path();
             let file_name = path.file_name().unwrap().to_str().ok_or_else(|| {
-                Diagnostic::spans_error(self.span, format!("Invalid UTF-8 in file name {:?}", path))
+                Diagnostic::spans_error(self.span, format!("Invalid UTF-8 in file name {path:?}"))
             })?;
             if path.is_dir() {
                 code_map.extend(self.compile_dir(
@@ -159,7 +159,7 @@ impl CompilationSource {
                     if parent.is_empty() {
                         file_name.to_string()
                     } else {
-                        format!("{}.{}", parent, file_name)
+                        format!("{parent}.{file_name}")
                     },
                     mode,
                     compiler,
@@ -172,14 +172,14 @@ impl CompilationSource {
                 } else if parent.is_empty() {
                     stem.to_owned()
                 } else {
-                    format!("{}.{}", parent, stem)
+                    format!("{parent}.{stem}")
                 };
 
                 let compile_path = |src_path: &Path| {
                     let source = fs::read_to_string(src_path).map_err(|err| {
                         Diagnostic::spans_error(
                             self.span,
-                            format!("Error reading file {:?}: {}", path, err),
+                            format!("Error reading file {path:?}: {err}"),
                         )
                     })?;
                     self.compile_string(&source, mode, module_name.clone(), compiler, || {

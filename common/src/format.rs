@@ -323,7 +323,7 @@ impl FormatSpec {
         let int_digit_cnt = disp_digit_cnt - dec_digit_cnt;
         let mut result = FormatSpec::separate_integer(magnitude_int_str, inter, sep, int_digit_cnt);
         if let Some(part) = parts.next() {
-            result.push_str(&format!(".{}", part))
+            result.push_str(&format!(".{part}"))
         }
         result
     }
@@ -342,7 +342,7 @@ impl FormatSpec {
             // separate with 0 padding
             let sep_cnt = disp_digit_cnt / (inter + 1);
             let padding = "0".repeat((pad_cnt - sep_cnt) as usize);
-            let padded_num = format!("{}{}", padding, magnitude_str);
+            let padded_num = format!("{padding}{magnitude_str}");
             FormatSpec::insert_separator(padded_num, inter, sep, sep_cnt)
         } else {
             // separate without padding
@@ -373,14 +373,14 @@ impl FormatSpec {
                 | FormatType::Number,
             ) => {
                 let ch = char::from(format_type);
-                Err(format!("Cannot specify ',' with '{}'.", ch))
+                Err(format!("Cannot specify ',' with '{ch}'."))
             }
             (
                 Some(FormatGrouping::Underscore),
                 FormatType::String | FormatType::Character | FormatType::Number,
             ) => {
                 let ch = char::from(format_type);
-                Err(format!("Cannot specify '_' with '{}'.", ch))
+                Err(format!("Cannot specify '_' with '{ch}'."))
             }
             _ => Ok(()),
         }
@@ -446,8 +446,7 @@ impl FormatSpec {
             | Some(FormatType::Character) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(format!(
-                    "Unknown format code '{}' for object of type 'float'",
-                    ch
+                    "Unknown format code '{ch}' for object of type 'float'",
                 ))
             }
             Some(FormatType::Number) => {
@@ -597,7 +596,7 @@ impl FormatSpec {
                 FormatSign::MinusOrSpace => " ",
             },
         };
-        let sign_prefix = format!("{}{}", sign_str, prefix);
+        let sign_prefix = format!("{sign_str}{prefix}");
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, &sign_prefix);
         self.format_sign_and_align(
             unsafe { &BorrowedStr::from_ascii_unchecked(magnitude_str.as_bytes()) },
@@ -620,8 +619,7 @@ impl FormatSpec {
             _ => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(format!(
-                    "Unknown format code '{}' for object of type 'str'",
-                    ch
+                    "Unknown format code '{ch}' for object of type 'str'",
                 ))
             }
         }
