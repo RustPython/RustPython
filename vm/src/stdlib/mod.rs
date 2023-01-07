@@ -19,7 +19,7 @@ mod string;
 mod symtable;
 mod sysconfigdata;
 #[cfg(feature = "threading")]
-mod thread;
+pub mod thread;
 pub mod time;
 pub mod warnings;
 mod weakref;
