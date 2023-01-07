@@ -271,6 +271,8 @@ fn parse_precision(text: &str) -> Result<(Option<usize>, &str), &'static str> {
 }
 
 impl FormatSpec {
+    pub const NOT_IN_RANGE: &str = "%c arg not in range(0x110000)";
+
     pub fn parse(text: &str) -> Result<Self, String> {
         // get_integer in CPython
         let (preconversor, text) = FormatPreconversor::parse(text);
@@ -571,8 +573,7 @@ impl FormatSpec {
                 ),
                 (_, _) => match num.to_u32() {
                     Some(n) if n <= 0x10ffff => Ok(std::char::from_u32(n).unwrap().to_string()),
-                    // TODO: raise OverflowError
-                    Some(_) | None => Err("%c arg not in range(0x110000)".to_owned()),
+                    Some(_) | None => Err(FormatSpec::NOT_IN_RANGE.to_owned()),
                 },
             },
             Some(FormatType::GeneralFormatUpper)
