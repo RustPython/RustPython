@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-common"
-version = "0.0.0"
+version = "0.2.0"
 authors = ["RustPython Team"]
 edition = "2021"
 

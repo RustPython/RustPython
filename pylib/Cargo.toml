@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-pylib"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["RustPython Team"]
 description = "A subset of the Python standard library for use with RustPython"
 repository = "https://github.com/RustPython/RustPython"
@@ -12,8 +12,8 @@ include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"
 freeze-stdlib = []
 
 [dependencies]
-rustpython-compiler-core = { version = "0.1.2", path = "../compiler/core" }
-rustpython-derive = { version = "0.1.2", path = "../derive" }
+rustpython-compiler-core = { version = "0.2.0", path = "../compiler/core" }
+rustpython-derive = { version = "0.2.0", path = "../derive" }
 
 [build-dependencies]
 glob = "0.3"

@@ -1,6 +1,6 @@
 [package]
 name = "rustpython_wasm"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["RustPython Team"]
 license = "MIT"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust, compiled to WASM"
@@ -16,12 +16,12 @@ freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib"
 no-start-func = []
 
 [dependencies]
-rustpython-common = { path = "../../common" }
-rustpython-parser = { path = "../../compiler/parser" }
-rustpython-pylib = { path = "../../pylib", default-features = false, optional = true }
-rustpython-stdlib = { path = "../../stdlib", default-features = false, optional = true }
+rustpython-common = { path = "../../common", version = "0.2.0" }
+rustpython-parser = { path = "../../compiler/parser", version = "0.2.0" }
+rustpython-pylib = { path = "../../pylib", version = "0.2.0", default-features = false, optional = true }
+rustpython-stdlib = { path = "../../stdlib", version = "0.2.0", default-features = false, optional = true }
 # make sure no threading! otherwise wasm build will fail
-rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler", "encodings"] }
+rustpython-vm = { path = "../../vm", version = "0.2.0", default-features = false, features = ["compiler", "encodings"] }
 
 console_error_panic_hook = "0.1"
 js-sys = "0.3"

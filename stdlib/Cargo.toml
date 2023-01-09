@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-stdlib"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -14,9 +14,9 @@ ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
 
 [dependencies]
 # rustpython crates
-rustpython-derive = { path = "../derive" }
-rustpython-vm = { path = "../vm" }
-rustpython-common = { path = "../common" }
+rustpython-derive = { path = "../derive", version = "0.2.0" }
+rustpython-vm = { path = "../vm", version = "0.2.0" }
+rustpython-common = { path = "../common", version = "0.2.0" }
 
 # random
 rand = "0.8.5"

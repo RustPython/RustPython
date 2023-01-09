@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-jit"
-version = "0.1.2"
+version = "0.2.0"
 description = "Experimental JIT(just in time) compiler for python code."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
@@ -10,7 +10,7 @@ edition = "2021"
 autotests = false
 
 [dependencies]
-rustpython-compiler-core = { path = "../compiler/core", version = "0.1.2" }
+rustpython-compiler-core = { path = "../compiler/core", version = "0.2.0" }
 
 cranelift = "0.88.0"
 cranelift-jit = "0.88.0"
@@ -20,7 +20,7 @@ num-traits = "0.2"
 thiserror = "1.0"
 
 [dev-dependencies]
-rustpython-derive = { path = "../derive", version = "0.1.2" }
+rustpython-derive = { path = "../derive", version = "0.2.0" }
 
 approx = "0.5.1"
 
