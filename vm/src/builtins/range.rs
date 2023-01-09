@@ -169,7 +169,7 @@ impl PyRange {
 
 pub fn init(context: &Context) {
     PyRange::extend_class(context, context.types.range_type);
-    PyLongRangeIterator::extend_class(context, context.types.longrange_iterator_type);
+    PyLongRangeIterator::extend_class(context, context.types.long_range_iterator_type);
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
 }
 
@@ -529,7 +529,7 @@ pub struct PyLongRangeIterator {
 
 impl PyPayload for PyLongRangeIterator {
     fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.longrange_iterator_type
+        vm.ctx.types.long_range_iterator_type
     }
 }
 

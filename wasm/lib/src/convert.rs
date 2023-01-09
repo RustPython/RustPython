@@ -187,7 +187,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 .collect();
             vm.ctx.new_list(elems).into()
         } else if ArrayBuffer::is_view(&js_val) || js_val.is_instance_of::<ArrayBuffer>() {
-            // unchecked_ref because if it's not an ArrayByffer it could either be a TypedArray
+            // unchecked_ref because if it's not an ArrayBuffer it could either be a TypedArray
             // or a DataView, but they all have a `buffer` property
             let u8_array = js_sys::Uint8Array::new(
                 &js_val

@@ -401,19 +401,19 @@ impl ModuleItem for ClassItem {
         let (ident, _) = pyclass_ident_and_attrs(args.item)?;
         let (class_name, class_new) = {
             let class_attr = &mut args.attrs[self.inner.index];
-            let noattr = class_attr.try_remove_name("noattr")?;
+            let no_attr = class_attr.try_remove_name("no_attr")?;
             if self.pyattrs.is_empty() {
-                // check noattr before ClassItemMeta::from_attr
-                if noattr.is_none() {
+                // check no_attr before ClassItemMeta::from_attr
+                if no_attr.is_none() {
                     bail_span!(
                         ident,
                         "#[{name}] requires #[pyattr] to be a module attribute. \
-                         To keep it free type, try #[{name}(noattr)]",
+                         To keep it free type, try #[{name}(no_attr)]",
                         name = self.attr_name()
                     )
                 }
             }
-            let noattr = noattr.is_some();
+            let no_attr = no_attr.is_some();
             let is_use = matches!(&args.item, syn::Item::Use(_));
 
             let class_meta = ClassItemMeta::from_attr(ident.clone(), class_attr)?;
@@ -426,7 +426,7 @@ impl ModuleItem for ClassItem {
                 })?;
                 module_name
             };
-            let class_name = if noattr && is_use {
+            let class_name = if no_attr && is_use {
                 "<NO ATTR>".to_owned()
             } else {
                 class_meta.class_name()?

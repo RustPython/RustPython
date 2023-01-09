@@ -818,9 +818,9 @@ mod windows {
             }
             (kernel_time.assume_init(), user_time.assume_init())
         };
-        let ktime = u64_from_filetime(kernel_time);
-        let utime = u64_from_filetime(user_time);
-        Ok(Duration::from_nanos((ktime + utime) * 100))
+        let k_time = u64_from_filetime(kernel_time);
+        let u_time = u64_from_filetime(user_time);
+        Ok(Duration::from_nanos((k_time + u_time) * 100))
     }
 
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
@@ -843,8 +843,8 @@ mod windows {
             }
             (kernel_time.assume_init(), user_time.assume_init())
         };
-        let ktime = u64_from_filetime(kernel_time);
-        let utime = u64_from_filetime(user_time);
-        Ok(Duration::from_nanos((ktime + utime) * 100))
+        let k_time = u64_from_filetime(kernel_time);
+        let u_time = u64_from_filetime(user_time);
+        Ok(Duration::from_nanos((k_time + u_time) * 100))
     }
 }

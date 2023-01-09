@@ -700,7 +700,7 @@ impl VirtualMachine {
     }
 
     pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
-        // don't be holding the refcell guard while __del__ is called
+        // don't be holding the RefCell guard while __del__ is called
         let prev = std::mem::replace(&mut self.exceptions.borrow_mut().exc, exc);
         drop(prev);
     }
