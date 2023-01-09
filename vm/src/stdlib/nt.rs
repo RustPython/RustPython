@@ -45,7 +45,7 @@ pub(crate) mod module {
     }
 
     #[derive(FromArgs)]
-    pub(super) struct SimlinkArgs {
+    pub(super) struct SymlinkArgs {
         src: PyPathLike,
         dst: PyPathLike,
         #[pyarg(flatten)]
@@ -55,7 +55,7 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    pub(super) fn symlink(args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(args: SymlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
         use std::os::windows::fs as win_fs;
         let dir = args.target_is_directory.target_is_directory
             || args

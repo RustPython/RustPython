@@ -80,7 +80,7 @@ pub fn add_init_func(f: fn(&mut VirtualMachine)) {
 }
 
 // It's fine that it's thread local, since WASM doesn't even have threads yet. thread_local!
-// probably gets compiled down to a normal-ish static varible, like Atomic* types do:
+// probably gets compiled down to a normal-ish static variable, like Atomic* types do:
 // https://rustwasm.github.io/2018/10/24/multithreading-rust-and-wasm.html#atomic-instructions
 thread_local! {
     static STORED_VMS: RefCell<HashMap<String, Rc<StoredVirtualMachine>>> = RefCell::default();

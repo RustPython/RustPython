@@ -82,7 +82,7 @@ mod _js {
     }
 
     impl JsProperty {
-        fn into_jsvalue(self) -> JsValue {
+        fn into_js_value(self) -> JsValue {
             match self {
                 JsProperty::Str(s) => s.as_str().into(),
                 JsProperty::Js(value) => value.value.clone(),
@@ -149,12 +149,12 @@ mod _js {
 
         #[pymethod]
         fn has_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<bool> {
-            has_prop(&self.value, &name.into_jsvalue()).map_err(|err| new_js_error(vm, err))
+            has_prop(&self.value, &name.into_js_value()).map_err(|err| new_js_error(vm, err))
         }
 
         #[pymethod]
         fn get_prop(&self, name: JsProperty, vm: &VirtualMachine) -> PyResult<PyJsValue> {
-            let name = &name.into_jsvalue();
+            let name = &name.into_js_value();
             if has_prop(&self.value, name).map_err(|err| new_js_error(vm, err))? {
                 get_prop(&self.value, name)
                     .map(PyJsValue::new)
@@ -171,7 +171,7 @@ mod _js {
             value: PyJsValueRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            set_prop(&self.value, &name.into_jsvalue(), &value.value)
+            set_prop(&self.value, &name.into_js_value(), &value.value)
                 .map_err(|err| new_js_error(vm, err))
         }
 
@@ -202,7 +202,7 @@ mod _js {
             vm: &VirtualMachine,
         ) -> PyResult<PyJsValue> {
             let js_args = args.iter().map(|x| -> &PyJsValue { x }).collect::<Array>();
-            call_method(&self.value, &name.into_jsvalue(), &js_args)
+            call_method(&self.value, &name.into_js_value(), &js_args)
                 .map(PyJsValue::new)
                 .map_err(|err| new_js_error(vm, err))
         }
@@ -346,7 +346,7 @@ mod _js {
             self.closure
                 .borrow()
                 .as_ref()
-                .map(|(_, jsval)| jsval.clone())
+                .map(|(_, js_val)| js_val.clone())
         }
         #[pygetset]
         fn destroyed(&self) -> bool {
@@ -370,14 +370,14 @@ mod _js {
         }
         #[pymethod]
         fn detach(&self, vm: &VirtualMachine) -> PyResult<PyJsValueRef> {
-            let (closure, jsval) = self.closure.replace(None).ok_or_else(|| {
+            let (closure, js_val) = self.closure.replace(None).ok_or_else(|| {
                 vm.new_value_error(
                     "can't detach closure has already been detached or destroyed".to_owned(),
                 )
             })?;
             closure.forget();
             self.detached.set(true);
-            Ok(jsval)
+            Ok(js_val)
         }
     }
 
@@ -554,7 +554,7 @@ mod _js {
         }
     }
 
-    #[pyclass(noattr, module = "_js", name = "AwaitPromise")]
+    #[pyclass(no_attr, module = "_js", name = "AwaitPromise")]
     #[derive(PyPayload)]
     struct AwaitPromise {
         obj: cell::Cell<Option<PyObjectRef>>,

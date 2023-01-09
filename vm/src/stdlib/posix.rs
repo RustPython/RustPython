@@ -306,7 +306,7 @@ pub mod module {
     }
 
     #[derive(FromArgs)]
-    pub(super) struct SimlinkArgs {
+    pub(super) struct SymlinkArgs {
         src: PyPathLike,
         dst: PyPathLike,
         #[pyarg(flatten)]
@@ -316,7 +316,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    pub(super) fn symlink(args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(args: SymlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
         let src = args.src.into_cstring(vm)?;
         let dst = args.dst.into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]

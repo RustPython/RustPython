@@ -555,7 +555,7 @@ impl Context {
     }
 
     pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
-        let code = code.into_codeobj(self);
+        let code = code.into_code_object(self);
         PyRef::new_ref(PyCode { code }, self.types.code_type.to_owned(), None)
     }
 }

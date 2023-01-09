@@ -651,7 +651,7 @@ mod sys {
     /// sys.flags
     ///
     /// Flags provided through command line arguments or environment vars.
-    #[pyclass(noattr, name = "flags", module = "sys")]
+    #[pyclass(no_attr, name = "flags", module = "sys")]
     #[derive(Debug, PyStructSequence)]
     pub(super) struct Flags {
         /// -d
@@ -718,7 +718,7 @@ mod sys {
     }
 
     #[cfg(feature = "threading")]
-    #[pyclass(noattr, name = "thread_info")]
+    #[pyclass(no_attr, name = "thread_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyThreadInfo {
         name: Option<&'static str>,
@@ -738,7 +738,7 @@ mod sys {
         };
     }
 
-    #[pyclass(noattr, name = "float_info")]
+    #[pyclass(no_attr, name = "float_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyFloatInfo {
         max: f64,
@@ -771,7 +771,7 @@ mod sys {
         };
     }
 
-    #[pyclass(noattr, name = "hash_info")]
+    #[pyclass(no_attr, name = "hash_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyHashInfo {
         width: usize,
@@ -803,7 +803,7 @@ mod sys {
         };
     }
 
-    #[pyclass(noattr, name = "int_info")]
+    #[pyclass(no_attr, name = "int_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyIntInfo {
         bits_per_digit: usize,
@@ -818,7 +818,7 @@ mod sys {
         };
     }
 
-    #[pyclass(noattr, name = "version_info")]
+    #[pyclass(no_attr, name = "version_info")]
     #[derive(Default, Debug, PyStructSequence)]
     pub struct VersionInfo {
         major: usize,
@@ -848,7 +848,7 @@ mod sys {
     }
 
     #[cfg(windows)]
-    #[pyclass(noattr, name = "getwindowsversion")]
+    #[pyclass(no_attr, name = "getwindowsversion")]
     #[derive(Default, Debug, PyStructSequence)]
     pub(super) struct WindowsVersion {
         major: u32,
@@ -867,7 +867,7 @@ mod sys {
     #[pyclass(with(PyStructSequence))]
     impl WindowsVersion {}
 
-    #[pyclass(noattr, name = "UnraisableHookArgs")]
+    #[pyclass(no_attr, name = "UnraisableHookArgs")]
     #[derive(Debug, PyStructSequence, TryIntoPyStructSequence)]
     pub struct UnraisableHookArgs {
         pub exc_type: PyTypeRef,

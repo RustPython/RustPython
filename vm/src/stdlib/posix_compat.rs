@@ -28,7 +28,7 @@ pub(crate) mod module {
 
     #[derive(FromArgs)]
     #[allow(unused)]
-    pub(super) struct SimlinkArgs {
+    pub(super) struct SymlinkArgs {
         src: PyPathLike,
         dst: PyPathLike,
         #[pyarg(flatten)]
@@ -38,7 +38,7 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    pub(super) fn symlink(_args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(_args: SymlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
         os_unimpl("os.symlink", vm)
     }
 

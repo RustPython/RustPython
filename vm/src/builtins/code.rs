@@ -136,17 +136,17 @@ impl ConstantBag for PyObjBag<'_> {
 pub type CodeObject = bytecode::CodeObject<Literal>;
 
 pub trait IntoCodeObject {
-    fn into_codeobj(self, ctx: &Context) -> CodeObject;
+    fn into_code_object(self, ctx: &Context) -> CodeObject;
 }
 
 impl IntoCodeObject for CodeObject {
-    fn into_codeobj(self, _ctx: &Context) -> CodeObject {
+    fn into_code_object(self, _ctx: &Context) -> CodeObject {
         self
     }
 }
 
 impl IntoCodeObject for bytecode::CodeObject {
-    fn into_codeobj(self, ctx: &Context) -> CodeObject {
+    fn into_code_object(self, ctx: &Context) -> CodeObject {
         self.map_bag(PyObjBag(ctx))
     }
 }

@@ -57,7 +57,7 @@ impl VirtualMachine {
         // TODO: add repr of args into logging?
 
         PyRef::new_ref(
-            // TODO: this costructor might be invalid, because multiple
+            // TODO: this constructor might be invalid, because multiple
             // exception (even builtin ones) are using custom constructors,
             // see `OSError` as an example:
             PyBaseException::new(args, self),
@@ -96,7 +96,7 @@ impl VirtualMachine {
         dict: PyDictRef,
     ) -> PyBaseExceptionRef {
         PyRef::new_ref(
-            // TODO: this costructor might be invalid, because multiple
+            // TODO: this constructor might be invalid, because multiple
             // exception (even builtin ones) are using custom constructors,
             // see `OSError` as an example:
             PyBaseException::new(vec![self.ctx.new_str(msg).into()], self),
