@@ -1,8 +1,13 @@
+use itertools::Itertools;
+use lexer::Tok;
+
 use self::FStringErrorType::*;
 use crate::{
-    ast::{Constant, ConversionFlag, Expr, ExprKind, Location},
+    ast::{self, Constant, ConversionFlag, Expr, ExprKind, Location},
     error::{FStringError, FStringErrorType, LexicalError, LexicalErrorType, ParseError},
-    parser::parse_expression_located,
+    lexer::{self, LexResult},
+    mode::Mode,
+    python,
     token::StringKind,
 };
 use std::{iter, str};
@@ -518,12 +523,45 @@ impl<'a> StringParser<'a> {
 }
 
 fn parse_fstring_expr(source: &str, location: Location) -> Result<Expr, ParseError> {
-    let trimmed = source.trim_start();
-    parse_expression_located(
-        trimmed,
-        "<fstring>",
-        location.with_col_offset(source.chars().count() - trimmed.chars().count()),
-    )
+    // The parentheses are needed in order to allow for leading whitespace and newlines.
+    let fstring_body = format!("({source})");
+    let lxr = lexer::make_tokenizer_located(&fstring_body, location.with_col_offset(-1));
+    let marker_token = (
+        Location::default(),
+        Mode::Expression.to_marker(),
+        Location::default(),
+    );
+    let mut tokens: Vec<LexResult> = iter::once(Ok(marker_token))
+        .chain(lxr)
+        .filter_ok(|(_, tok, _)| !matches!(tok, Tok::Comment { .. }))
+        .collect();
+    // Remove the first `Lpar` token
+    let lpar_index = tokens
+        .iter()
+        .position(|tok| {
+            tok.as_ref()
+                .map(|(_, t, _)| matches!(t, Tok::Lpar))
+                .unwrap_or_default()
+        })
+        .unwrap();
+    tokens.remove(lpar_index).unwrap();
+    // Remove the last `Rpar` token
+    let rpar_index = tokens
+        .iter()
+        .rposition(|tok| {
+            tok.as_ref()
+                .map(|(_, t, _)| matches!(t, Tok::Rpar))
+                .unwrap_or_default()
+        })
+        .unwrap();
+    tokens.remove(rpar_index).unwrap();
+    python::TopParser::new()
+        .parse(tokens)
+        .map_err(|e| crate::error::parse_error_from_lalrpop(e, "<fstring>"))
+        .map(|top| match top {
+            ast::Mod::Expression { body } => *body,
+            _ => unreachable!(),
+        })
 }
 
 pub fn parse_string(
