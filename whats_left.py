@@ -441,7 +441,7 @@ def remove_one_indent(s):
 compare_src = inspect.getsourcelines(compare)[0][1:]
 output += "".join(remove_one_indent(line) for line in compare_src)
 
-with open(GENERATED_FILE, "w") as f:
+with open(GENERATED_FILE, "w", encoding='utf-8') as f:
     f.write(output + "\n")
 
 
