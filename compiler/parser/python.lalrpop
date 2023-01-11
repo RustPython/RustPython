@@ -1088,7 +1088,11 @@ Atom<Goal>: ast::Expr = {
     },
     <location:@L> "(" <elts:OneOrMore<Test<"all">>> <trailing_comma:","?> ")" <end_location:@R> if Goal != "no-withitems" => {
         if elts.len() == 1 && trailing_comma.is_none() {
-            elts.into_iter().next().unwrap()
+            ast::Expr::new(
+                location,
+                end_location,
+                elts.into_iter().next().unwrap().node,
+            )
         } else {
             ast::Expr::new(
                 location,

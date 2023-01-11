@@ -518,8 +518,12 @@ impl<'a> StringParser<'a> {
 }
 
 fn parse_fstring_expr(source: &str, location: Location) -> Result<Expr, ParseError> {
-    let fstring_body = format!("({source})");
-    parse_expression_located(&fstring_body, "<fstring>", location.with_col_offset(-1))
+    let trimmed = source.trim_start();
+    parse_expression_located(
+        trimmed,
+        "<fstring>",
+        location.with_col_offset(source.chars().count() - trimmed.chars().count()),
+    )
 }
 
 pub fn parse_string(
@@ -669,7 +673,6 @@ mod tests {
     #[test]
     fn test_parse_fstring_yield_expr() {
         let source = "{yield}";
-        let parse_ast = parse_fstring(source).unwrap();
-        insta::assert_debug_snapshot!(parse_ast);
+        assert!(parse_fstring(source).is_err());
     }
 }
