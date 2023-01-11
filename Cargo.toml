@@ -3,7 +3,7 @@
 # REDOX END
 [package]
 name = "rustpython"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["RustPython Team"]
 edition = "2021"
 description = "A python interpreter written in rust."
@@ -33,11 +33,11 @@ ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 
 [dependencies]
-rustpython-compiler = { path = "compiler", version = "0.1.1" }
-rustpython-parser = { path = "compiler/parser", version = "0.1.1" }
+rustpython-compiler = { path = "compiler", version = "0.2.0" }
+rustpython-parser = { path = "compiler/parser", version = "0.2.0" }
 rustpython-pylib = { path = "pylib", optional = true, default-features = false }
 rustpython-stdlib = { path = "stdlib", optional = true, default-features = false }
-rustpython-vm = { path = "vm", version = "0.1.1", default-features = false, features = ["compiler"] }
+rustpython-vm = { path = "vm", version = "0.2.0", default-features = false, features = ["compiler"] }
 
 cfg-if = "1.0.0"
 clap = "2.34"

@@ -1,6 +1,6 @@
 [package]
 name = "rustpython_wasm"
-version = "0.1.2"
+version = "0.2.0"
 authors = ["RustPython Team"]
 license = "MIT"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust, compiled to WASM"

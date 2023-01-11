@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-derive"
-version = "0.1.2"
+version = "0.2.0"
 description = "Rust language extensions and macros specific to rustpython."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
@@ -11,6 +11,6 @@ edition = "2021"
 proc-macro = true
 
 [dependencies]
-rustpython-compiler = { path = "../compiler", version = "0.1.1" }
+rustpython-compiler = { path = "../compiler", version = "0.2.0" }
 rustpython-derive-impl = { path = "../derive-impl" }
 syn = "1.0.91"

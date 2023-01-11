@@ -1,10 +1,10 @@
 [package]
 name = "rustpython-derive-impl"
-version = "0.0.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-rustpython-compiler-core = { path = "../compiler/core", version = "0.1.1" }
+rustpython-compiler-core = { path = "../compiler/core", version = "0.2.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main" }
 
 indexmap = "1.8.1"

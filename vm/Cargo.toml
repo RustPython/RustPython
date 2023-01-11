@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-vm"
-version = "0.1.2"
+version = "0.2.0"
 description = "Rust Python virtual machine."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
@@ -23,14 +23,14 @@ codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 
 [dependencies]
-rustpython-compiler = { path = "../compiler", optional = true, version = "0.1.2" }
-rustpython-ast = { path = "../compiler/ast", optional = true, version = "0.1" }
-rustpython-parser = { path = "../compiler/parser", optional = true, version = "0.1.2" }
-rustpython-codegen = { path = "../compiler/codegen", optional = true, version = "0.1.2" }
-rustpython-compiler-core = { path = "../compiler/core", version = "0.1.2" }
+rustpython-compiler = { path = "../compiler", optional = true, version = "0.2.0" }
+rustpython-ast = { path = "../compiler/ast", optional = true, version = "0.2.0" }
+rustpython-parser = { path = "../compiler/parser", optional = true, version = "0.2.0" }
+rustpython-codegen = { path = "../compiler/codegen", optional = true, version = "0.2.0" }
+rustpython-compiler-core = { path = "../compiler/core", version = "0.2.0" }
 rustpython-common = { path = "../common" }
-rustpython-derive = { path = "../derive", version = "0.1.2" }
-rustpython-jit = { path = "../jit", optional = true, version = "0.1.2" }
+rustpython-derive = { path = "../derive", version = "0.2.0" }
+rustpython-jit = { path = "../jit", optional = true, version = "0.2.0" }
 
 num-complex = { version = "0.4.0", features = ["serde"] }
 num-bigint = { version = "0.4.3", features = ["serde"] }
