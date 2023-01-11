@@ -316,4 +316,11 @@ with (0 as a, 1 as b,): pass
             assert!(parse_program(source, "<test>").is_err());
         }
     }
+
+    #[test]
+    fn test_parenthesized_expression() {
+        let source = String::from("( 1 )");
+        let parse_ast = parse_expression(&source, "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
 }

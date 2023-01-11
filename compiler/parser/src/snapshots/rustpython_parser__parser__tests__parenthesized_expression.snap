@@ -1,0 +1,23 @@
+---
+source: compiler/parser/src/parser.rs
+expression: parse_ast
+---
+Located {
+    location: Location {
+        row: 1,
+        column: 0,
+    },
+    end_location: Some(
+        Location {
+            row: 1,
+            column: 5,
+        },
+    ),
+    custom: (),
+    node: Constant {
+        value: Int(
+            1,
+        ),
+        kind: None,
+    },
+}
