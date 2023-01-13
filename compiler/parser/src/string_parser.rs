@@ -533,7 +533,7 @@ fn parse_fstring_expr(source: &str, location: Location) -> Result<Expr, ParseErr
     );
     let mut tokens: Vec<LexResult> = iter::once(Ok(marker_token))
         .chain(lxr)
-        .filter_ok(|(_, tok, _)| !matches!(tok, Tok::Comment { .. }))
+        .filter_ok(|(_, tok, _)| !matches!(tok, Tok::Comment { .. } | Tok::NonLogicalNewline))
         .collect();
     // Remove the first `Lpar` token
     let lpar_index = tokens
