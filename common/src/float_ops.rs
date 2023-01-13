@@ -219,7 +219,7 @@ pub fn format_general(
                 };
                 let magnitude = format!("{:.*}", precision + 1, base);
                 let base = maybe_remove_trailing_redundant_chars(magnitude, alternate_form);
-                let dot = get_dot(precision.checked_sub(1).unwrap_or(0), alternate_form);
+                let dot = get_dot(precision.saturating_sub(1), alternate_form);
                 format!("{base}{dot}{e}{exponent:+#03}")
             } else {
                 let precision = ((precision as i64) - 1 - exponent) as usize;
