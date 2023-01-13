@@ -422,8 +422,6 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(len(format(0, lfmt)), len(format(x, lfmt)))
             self.assertEqual(len(format(0, cfmt)), len(format(x, cfmt)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_float__format__(self):
         def test(f, format_spec, result):
             self.assertEqual(f.__format__(format_spec), result)
