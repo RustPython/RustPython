@@ -2,23 +2,23 @@
 source: compiler/codegen/src/compile.rs
 expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n    with self.subTest(type=type(stop_exc)):\n        try:\n            async with woohoo():\n                raise stop_exc\n        except Exception as ex:\n            self.assertIs(ex, stop_exc)\n        else:\n            self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
-  1           0 SetupLoop            (69)
+  1           0 SetupLoop
               1 LoadNameAny          (0, StopIteration)
               2 LoadConst            ("spam")
-              3 CallFunctionPositional (1)
+              3 CallFunctionPositional(1)
               4 LoadNameAny          (1, StopAsyncIteration)
               5 LoadConst            ("ham")
-              6 CallFunctionPositional (1)
-              7 BuildTuple           (2, false)
+              6 CallFunctionPositional(1)
+              7 BuildTuple           (2)
               8 GetIter
         >>    9 ForIter              (68)
              10 StoreLocal           (2, stop_exc)
 
   2          11 LoadNameAny          (3, self)
-             12 LoadMethod           (subTest)
+             12 LoadMethod           (4, subTest)
              13 LoadNameAny          (5, type)
              14 LoadNameAny          (2, stop_exc)
-             15 CallFunctionPositional (1)
+             15 CallFunctionPositional(1)
              16 LoadConst            (("type"))
              17 CallMethodKeyword    (1)
              18 SetupWith            (65)
@@ -27,7 +27,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
   3          20 SetupExcept          (40)
 
   4          21 LoadNameAny          (6, woohoo)
-             22 CallFunctionPositional (0)
+             22 CallFunctionPositional(0)
              23 BeforeAsyncWith
              24 GetAwaitable
              25 LoadConst            (None)
@@ -55,7 +55,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              44 StoreLocal           (8, ex)
 
   7          45 LoadNameAny          (3, self)
-             46 LoadMethod           (assertIs)
+             46 LoadMethod           (9, assertIs)
              47 LoadNameAny          (8, ex)
              48 LoadNameAny          (2, stop_exc)
              49 CallMethodPositional (2)
@@ -65,7 +65,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
         >>   53 Raise                (Reraise)
 
   9     >>   54 LoadNameAny          (3, self)
-             55 LoadMethod           (fail)
+             55 LoadMethod           (10, fail)
              56 LoadConst            ("")
              57 LoadNameAny          (2, stop_exc)
              58 FormatValue          (None)
@@ -80,6 +80,6 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              66 WithCleanupFinish
              67 Jump                 (9)
         >>   68 PopBlock
-        >>   69 LoadConst            (None)
+             69 LoadConst            (None)
              70 ReturnValue
 

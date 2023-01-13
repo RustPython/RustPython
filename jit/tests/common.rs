@@ -1,6 +1,7 @@
-use rustpython_compiler_core::{CodeObject, ConstantData, Instruction};
+use rustpython_compiler_core::{CodeObject, ConstantData, Instruction, OpArg, OpArgState};
 use rustpython_jit::{CompiledCode, JitType};
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -62,27 +63,30 @@ impl StackMachine {
     }
 
     pub fn run(&mut self, code: CodeObject) {
-        for instruction in code.instructions.into_vec() {
-            if self.process_instruction(instruction, &code.constants, &code.names) {
-                break;
-            }
-        }
+        let mut oparg_state = OpArgState::default();
+        code.instructions.iter().try_for_each(|&word| {
+            let (instruction, arg) = oparg_state.get(word);
+            self.process_instruction(instruction, arg, &code.constants, &code.names)
+        });
     }
 
     fn process_instruction(
         &mut self,
         instruction: Instruction,
+        arg: OpArg,
         constants: &[ConstantData],
         names: &[String],
-    ) -> bool {
+    ) -> ControlFlow<()> {
         match instruction {
             Instruction::LoadConst { idx } => {
+                let idx = idx.get(arg);
                 self.stack.push(constants[idx as usize].clone().into())
             }
             Instruction::LoadNameAny(idx) => self
                 .stack
-                .push(StackValue::String(names[idx as usize].clone())),
+                .push(StackValue::String(names[idx.get(arg) as usize].clone())),
             Instruction::StoreLocal(idx) => {
+                let idx = idx.get(arg);
                 self.locals
                     .insert(names[idx as usize].clone(), self.stack.pop().unwrap());
             }
@@ -93,7 +97,7 @@ impl StackMachine {
             }
             Instruction::BuildMap { size, .. } => {
                 let mut map = HashMap::new();
-                for _ in 0..size {
+                for _ in 0..size.get(arg) {
                     let value = self.stack.pop().unwrap();
                     let name = if let Some(StackValue::String(name)) = self.stack.pop() {
                         name
@@ -135,13 +139,14 @@ impl StackMachine {
                 let i = self.stack.len() - 3;
                 self.stack[i..].rotate_right(1);
             }
-            Instruction::ReturnValue => return true,
+            Instruction::ReturnValue => return ControlFlow::Break(()),
+            Instruction::ExtendedArg => {}
             _ => unimplemented!(
                 "instruction {:?} isn't yet supported in py_function!",
                 instruction
             ),
         }
-        false
+        ControlFlow::Continue(())
     }
 
     pub fn get_function(&self, name: &str) -> Function {

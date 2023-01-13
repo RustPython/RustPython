@@ -1,12 +1,47 @@
+use std::ops;
+
 use crate::IndexSet;
-use rustpython_compiler_core::{CodeFlags, CodeObject, ConstantData, Instruction, Label, Location};
+use rustpython_compiler_core::{
+    CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label,
+    Location, OpArg,
+};
 
-pub type BlockIdx = Label;
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub struct BlockIdx(pub u32);
+impl BlockIdx {
+    pub const NULL: BlockIdx = BlockIdx(u32::MAX);
+    const fn idx(self) -> usize {
+        self.0 as usize
+    }
+}
+impl ops::Index<BlockIdx> for [Block] {
+    type Output = Block;
+    fn index(&self, idx: BlockIdx) -> &Block {
+        &self[idx.idx()]
+    }
+}
+impl ops::IndexMut<BlockIdx> for [Block] {
+    fn index_mut(&mut self, idx: BlockIdx) -> &mut Block {
+        &mut self[idx.idx()]
+    }
+}
+impl ops::Index<BlockIdx> for Vec<Block> {
+    type Output = Block;
+    fn index(&self, idx: BlockIdx) -> &Block {
+        &self[idx.idx()]
+    }
+}
+impl ops::IndexMut<BlockIdx> for Vec<Block> {
+    fn index_mut(&mut self, idx: BlockIdx) -> &mut Block {
+        &mut self[idx.idx()]
+    }
+}
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct InstructionInfo {
-    /// If the instruction has a Label argument, it's actually a BlockIdx, not a code offset
     pub instr: Instruction,
+    pub arg: OpArg,
+    pub target: BlockIdx,
     pub location: Location,
 }
 
@@ -21,7 +56,7 @@ impl Default for Block {
     fn default() -> Self {
         Block {
             instructions: Vec::new(),
-            next: Label(u32::MAX),
+            next: BlockIdx::NULL,
         }
     }
 }
@@ -45,12 +80,12 @@ pub struct CodeInfo {
 }
 impl CodeInfo {
     pub fn finalize_code(mut self, optimize: u8) -> CodeObject {
-        let max_stackdepth = self.max_stackdepth();
-        let cell2arg = self.cell2arg();
-
         if optimize > 0 {
             self.dce();
         }
+
+        let max_stackdepth = self.max_stackdepth();
+        let cell2arg = self.cell2arg();
 
         let CodeInfo {
             flags,
@@ -61,7 +96,7 @@ impl CodeInfo {
             first_line_number,
             obj_name,
 
-            blocks,
+            mut blocks,
             current_block: _,
             constants,
             name_cache,
@@ -70,26 +105,50 @@ impl CodeInfo {
             freevar_cache,
         } = self;
 
-        let mut num_instructions = 0;
+        let mut instructions = Vec::new();
+        let mut locations = Vec::new();
+
         let mut block_to_offset = vec![Label(0); blocks.len()];
-
-        for (idx, block) in iter_blocks(&blocks) {
-            block_to_offset[idx.0 as usize] = Label(num_instructions as u32);
-            num_instructions += block.instructions.len();
-        }
-
-        let mut instructions = Vec::with_capacity(num_instructions);
-        let mut locations = Vec::with_capacity(num_instructions);
-
-        for (_, block) in iter_blocks(&blocks) {
-            for info in &block.instructions {
-                let mut instr = info.instr.clone();
-                if let Some(l) = instr.label_arg_mut() {
-                    *l = block_to_offset[l.0 as usize];
+        loop {
+            let mut num_instructions = 0;
+            for (idx, block) in iter_blocks(&blocks) {
+                block_to_offset[idx.idx()] = Label(num_instructions as u32);
+                for instr in &block.instructions {
+                    num_instructions += instr.arg.instr_size()
                 }
-                instructions.push(instr);
-                locations.push(info.location);
             }
+
+            instructions.reserve_exact(num_instructions);
+            locations.reserve_exact(num_instructions);
+
+            let mut recompile_extended_arg = false;
+            let mut next_block = BlockIdx(0);
+            while next_block != BlockIdx::NULL {
+                let block = &mut blocks[next_block];
+                for info in &mut block.instructions {
+                    let (op, arg, target) = (info.instr, &mut info.arg, info.target);
+                    if target != BlockIdx::NULL {
+                        let new_arg = OpArg(block_to_offset[target.idx()].0);
+                        recompile_extended_arg |= new_arg.instr_size() != arg.instr_size();
+                        *arg = new_arg;
+                    }
+                    let (extras, lo_arg) = arg.split();
+                    locations.extend(std::iter::repeat(info.location).take(arg.instr_size()));
+                    instructions.extend(
+                        extras
+                            .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))
+                            .chain([CodeUnit { op, arg: lo_arg }]),
+                    );
+                }
+                next_block = block.next;
+            }
+
+            if !recompile_extended_arg {
+                break;
+            }
+
+            instructions.clear();
+            locations.clear()
         }
 
         CodeObject {
@@ -166,40 +225,48 @@ impl CodeInfo {
         let mut stack = Vec::with_capacity(self.blocks.len());
         let mut startdepths = vec![u32::MAX; self.blocks.len()];
         startdepths[0] = 0;
-        stack.push(Label(0));
+        stack.push(BlockIdx(0));
         const DEBUG: bool = false;
         'process_blocks: while let Some(block) = stack.pop() {
-            let mut depth = startdepths[block.0 as usize];
+            let mut depth = startdepths[block.idx()];
             if DEBUG {
                 eprintln!("===BLOCK {}===", block.0);
             }
-            let block = &self.blocks[block.0 as usize];
+            let block = &self.blocks[block];
             for i in &block.instructions {
                 let instr = &i.instr;
-                let effect = instr.stack_effect(false);
+                let effect = instr.stack_effect(i.arg, false);
                 if DEBUG {
-                    eprint!("{instr:?}: {depth} {effect:+} => ");
+                    let display_arg = if i.target == BlockIdx::NULL {
+                        i.arg
+                    } else {
+                        OpArg(i.target.0)
+                    };
+                    let instr_display = instr.display(display_arg, self);
+                    eprint!("{instr_display}: {depth} {effect:+} => ");
                 }
-                let new_depth = add_ui(depth, effect);
+                let new_depth = depth.checked_add_signed(effect).unwrap();
                 if DEBUG {
                     eprintln!("{new_depth}");
                 }
                 if new_depth > maxdepth {
                     maxdepth = new_depth
                 }
-                // we don't want to worry about Continue, it uses unwinding to jump to
-                // its targets and as such the stack size is taken care of in frame.rs by setting
+                // we don't want to worry about Break/Continue, they use unwinding to jump to
+                // their targets and as such the stack size is taken care of in frame.rs by setting
                 // it back to the level it was at when SetupLoop was run
-                let jump_label = instr
-                    .label_arg()
-                    .filter(|_| !matches!(instr, Instruction::Continue { .. }));
-                if let Some(&target_block) = jump_label {
-                    let effect = instr.stack_effect(true);
-                    let target_depth = add_ui(depth, effect);
+                if i.target != BlockIdx::NULL
+                    && !matches!(
+                        instr,
+                        Instruction::Continue { .. } | Instruction::Break { .. }
+                    )
+                {
+                    let effect = instr.stack_effect(i.arg, true);
+                    let target_depth = depth.checked_add_signed(effect).unwrap();
                     if target_depth > maxdepth {
                         maxdepth = target_depth
                     }
-                    stackdepth_push(&mut stack, &mut startdepths, target_block, target_depth);
+                    stackdepth_push(&mut stack, &mut startdepths, i.target, target_depth);
                 }
                 depth = new_depth;
                 if instr.unconditional_branch() {
@@ -215,23 +282,46 @@ impl CodeInfo {
     }
 }
 
-fn stackdepth_push(stack: &mut Vec<Label>, startdepths: &mut [u32], target: Label, depth: u32) {
-    let block_depth = &mut startdepths[target.0 as usize];
+impl InstrDisplayContext for CodeInfo {
+    type Constant = ConstantData;
+    fn get_constant(&self, i: usize) -> &ConstantData {
+        &self.constants[i]
+    }
+    fn get_name(&self, i: usize) -> &str {
+        self.name_cache[i].as_ref()
+    }
+    fn get_varname(&self, i: usize) -> &str {
+        self.varname_cache[i].as_ref()
+    }
+    fn get_cellname(&self, i: usize) -> &str {
+        self.cellvar_cache
+            .get_index(i)
+            .unwrap_or_else(|| &self.freevar_cache[i - self.cellvar_cache.len()])
+            .as_ref()
+    }
+}
+
+fn stackdepth_push(
+    stack: &mut Vec<BlockIdx>,
+    startdepths: &mut [u32],
+    target: BlockIdx,
+    depth: u32,
+) {
+    let block_depth = &mut startdepths[target.idx()];
     if *block_depth == u32::MAX || depth > *block_depth {
         *block_depth = depth;
         stack.push(target);
     }
 }
 
-fn add_ui(a: u32, b: i32) -> u32 {
-    if b < 0 {
-        a - b.wrapping_abs() as u32
-    } else {
-        a + b as u32
-    }
-}
-
 fn iter_blocks(blocks: &[Block]) -> impl Iterator<Item = (BlockIdx, &Block)> + '_ {
-    let get_idx = move |i: BlockIdx| blocks.get(i.0 as usize).map(|b| (i, b));
-    std::iter::successors(get_idx(Label(0)), move |(_, b)| get_idx(b.next)) // if b.next is u32::MAX that's the end
+    let mut next = BlockIdx(0);
+    std::iter::from_fn(move || {
+        if next == BlockIdx::NULL {
+            return None;
+        }
+        let (idx, b) = (next, &blocks[next]);
+        next = b.next;
+        Some((idx, b))
+    })
 }

@@ -15,7 +15,10 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
-use rustpython_compiler_core::{self as bytecode, CodeObject, ConstantData, Instruction, Location};
+use rustpython_compiler_core::{
+    self as bytecode, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, Location, NameIdx,
+    OpArg, OpArgType,
+};
 use std::borrow::Cow;
 
 pub use rustpython_compiler_core::Mode;
@@ -33,23 +36,6 @@ enum CallType {
     Positional { nargs: u32 },
     Keyword { nargs: u32 },
     Ex { has_kwargs: bool },
-}
-
-impl CallType {
-    fn normal_call(self) -> Instruction {
-        match self {
-            CallType::Positional { nargs } => Instruction::CallFunctionPositional { nargs },
-            CallType::Keyword { nargs } => Instruction::CallFunctionKeyword { nargs },
-            CallType::Ex { has_kwargs } => Instruction::CallFunctionEx { has_kwargs },
-        }
-    }
-    fn method_call(self) -> Instruction {
-        match self {
-            CallType::Positional { nargs } => Instruction::CallMethodPositional { nargs },
-            CallType::Keyword { nargs } => Instruction::CallMethodKeyword { nargs },
-            CallType::Ex { has_kwargs } => Instruction::CallMethodEx { has_kwargs },
-        }
-    }
 }
 
 fn is_forbidden_name(name: &str) -> bool {
@@ -197,6 +183,21 @@ pub fn compile_expression(
     )
 }
 
+macro_rules! emit {
+    ($c:expr, Instruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
+        $c.emit_arg($arg, |x| Instruction::$op { $arg: x })
+    };
+    ($c:expr, Instruction::$op:ident { $arg:ident : $argval:expr $(,)? }$(,)?) => {
+        $c.emit_arg($argval, |x| Instruction::$op { $arg: x })
+    };
+    ($c:expr, Instruction::$op:ident( $argval:expr $(,)? )$(,)?) => {
+        $c.emit_arg($argval, Instruction::$op)
+    };
+    ($c:expr, Instruction::$op:ident$(,)?) => {
+        $c.emit_noarg(Instruction::$op)
+    };
+}
+
 impl Compiler {
     fn new(opts: CompileOpts, source_path: String, code_name: String) -> Self {
         let module_code = ir::CodeInfo {
@@ -209,7 +210,7 @@ impl Compiler {
             obj_name: code_name,
 
             blocks: vec![ir::Block::default()],
-            current_block: bytecode::Label(0),
+            current_block: ir::BlockIdx(0),
             constants: IndexSet::default(),
             name_cache: IndexSet::default(),
             varname_cache: IndexSet::default(),
@@ -290,7 +291,7 @@ impl Compiler {
             obj_name,
 
             blocks: vec![ir::Block::default()],
-            current_block: bytecode::Label(0),
+            current_block: ir::BlockIdx(0),
             constants: IndexSet::default(),
             name_cache: IndexSet::default(),
             varname_cache: IndexSet::default(),
@@ -341,11 +342,11 @@ impl Compiler {
         if let Some(value) = doc {
             self.emit_constant(ConstantData::Str { value });
             let doc = self.name("__doc__");
-            self.emit(Instruction::StoreGlobal(doc))
+            emit!(self, Instruction::StoreGlobal(doc))
         }
 
         if Self::find_ann(statements) {
-            self.emit(Instruction::SetupAnnotation);
+            emit!(self, Instruction::SetupAnnotation);
         }
 
         self.compile_statements(statements)?;
@@ -354,7 +355,7 @@ impl Compiler {
 
         // Emit None at end:
         self.emit_constant(ConstantData::None);
-        self.emit(Instruction::ReturnValue);
+        emit!(self, Instruction::ReturnValue);
         Ok(())
     }
 
@@ -369,7 +370,7 @@ impl Compiler {
             for statement in body {
                 if let ast::StmtKind::Expr { value } = &statement.node {
                     self.compile_expression(value)?;
-                    self.emit(Instruction::PrintExpr);
+                    emit!(self, Instruction::PrintExpr);
                 } else {
                     self.compile_statement(statement)?;
                 }
@@ -377,8 +378,8 @@ impl Compiler {
 
             if let ast::StmtKind::Expr { value } = &last.node {
                 self.compile_expression(value)?;
-                self.emit(Instruction::Duplicate);
-                self.emit(Instruction::PrintExpr);
+                emit!(self, Instruction::Duplicate);
+                emit!(self, Instruction::PrintExpr);
             } else {
                 self.compile_statement(last)?;
                 self.emit_constant(ConstantData::None);
@@ -387,7 +388,7 @@ impl Compiler {
             self.emit_constant(ConstantData::None);
         };
 
-        self.emit(Instruction::ReturnValue);
+        emit!(self, Instruction::ReturnValue);
         Ok(())
     }
 
@@ -409,13 +410,13 @@ impl Compiler {
                 | ast::StmtKind::AsyncFunctionDef { .. }
                 | ast::StmtKind::ClassDef { .. } => {
                     let store_inst = self.current_block().instructions.pop().unwrap(); // pop Instruction::Store
-                    self.emit(Instruction::Duplicate);
+                    emit!(self, Instruction::Duplicate);
                     self.current_block().instructions.push(store_inst);
                 }
                 _ => self.emit_constant(ConstantData::None),
             }
         }
-        self.emit(Instruction::ReturnValue);
+        emit!(self, Instruction::ReturnValue);
 
         Ok(())
     }
@@ -428,7 +429,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
         self.compile_expression(expression)?;
-        self.emit(Instruction::ReturnValue);
+        emit!(self, Instruction::ReturnValue);
         Ok(())
     }
 
@@ -530,7 +531,7 @@ impl Compiler {
                 NameUsage::Delete => Instruction::DeleteLocal,
             },
         };
-        self.emit(op(idx as u32));
+        self.emit_arg(idx as NameIdx, op);
 
         Ok(())
     }
@@ -560,11 +561,11 @@ impl Compiler {
                     });
                     self.emit_constant(ConstantData::None);
                     let idx = self.name(&name.name);
-                    self.emit(Instruction::ImportName { idx });
+                    emit!(self, Instruction::ImportName { idx });
                     if let Some(alias) = &name.asname {
                         for part in name.name.split('.').skip(1) {
                             let idx = self.name(part);
-                            self.emit(Instruction::LoadAttr { idx });
+                            emit!(self, Instruction::LoadAttr { idx });
                         }
                         self.store_name(alias)?
                     } else {
@@ -606,14 +607,14 @@ impl Compiler {
                     elements: from_list,
                 });
                 if let Some(idx) = module_idx {
-                    self.emit(Instruction::ImportName { idx });
+                    emit!(self, Instruction::ImportName { idx });
                 } else {
-                    self.emit(Instruction::ImportNameless);
+                    emit!(self, Instruction::ImportNameless);
                 }
 
                 if import_star {
                     // from .... import *
-                    self.emit(Instruction::ImportStar);
+                    emit!(self, Instruction::ImportStar);
                 } else {
                     // from mod import a, b as c
 
@@ -621,7 +622,7 @@ impl Compiler {
                         let name = &name.node;
                         let idx = self.name(&name.name);
                         // import symbol from module:
-                        self.emit(Instruction::ImportFrom { idx });
+                        emit!(self, Instruction::ImportFrom { idx });
 
                         // Store module under proper name:
                         if let Some(alias) = &name.asname {
@@ -632,14 +633,14 @@ impl Compiler {
                     }
 
                     // Pop module from stack:
-                    self.emit(Instruction::Pop);
+                    emit!(self, Instruction::Pop);
                 }
             }
             Expr { value } => {
                 self.compile_expression(value)?;
 
                 // Pop result of stack, since we not use it:
-                self.emit(Instruction::Pop);
+                emit!(self, Instruction::Pop);
             }
             Global { .. } | Nonlocal { .. } => {
                 // Handled during symbol table construction.
@@ -655,9 +656,12 @@ impl Compiler {
                     let else_block = self.new_block();
                     self.compile_jump_if(test, false, else_block)?;
                     self.compile_statements(body)?;
-                    self.emit(Instruction::Jump {
-                        target: after_block,
-                    });
+                    emit!(
+                        self,
+                        Instruction::Jump {
+                            target: after_block,
+                        }
+                    );
 
                     // else:
                     self.switch_to_block(else_block);
@@ -697,7 +701,7 @@ impl Compiler {
                     }
                     None => bytecode::RaiseKind::Reraise,
                 };
-                self.emit(Instruction::Raise { kind });
+                emit!(self, Instruction::Raise { kind });
             }
             Try {
                 body,
@@ -749,26 +753,29 @@ impl Compiler {
                     self.compile_jump_if(test, true, after_block)?;
 
                     let assertion_error = self.name("AssertionError");
-                    self.emit(Instruction::LoadGlobal(assertion_error));
+                    emit!(self, Instruction::LoadGlobal(assertion_error));
                     match msg {
                         Some(e) => {
                             self.compile_expression(e)?;
-                            self.emit(Instruction::CallFunctionPositional { nargs: 1 });
+                            emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
                         }
                         None => {
-                            self.emit(Instruction::CallFunctionPositional { nargs: 0 });
+                            emit!(self, Instruction::CallFunctionPositional { nargs: 0 });
                         }
                     }
-                    self.emit(Instruction::Raise {
-                        kind: bytecode::RaiseKind::Raise,
-                    });
+                    emit!(
+                        self,
+                        Instruction::Raise {
+                            kind: bytecode::RaiseKind::Raise,
+                        }
+                    );
 
                     self.switch_to_block(after_block);
                 }
             }
             Break => match self.ctx.loop_data {
                 Some((_, end)) => {
-                    self.emit(Instruction::Break { target: end });
+                    emit!(self, Instruction::Break { target: end });
                 }
                 None => {
                     return Err(self.error_loc(CodegenErrorType::InvalidBreak, statement.location));
@@ -776,7 +783,7 @@ impl Compiler {
             },
             Continue => match self.ctx.loop_data {
                 Some((start, _)) => {
-                    self.emit(Instruction::Continue { target: start });
+                    emit!(self, Instruction::Continue { target: start });
                 }
                 None => {
                     return Err(
@@ -808,14 +815,14 @@ impl Compiler {
                     }
                 }
 
-                self.emit(Instruction::ReturnValue);
+                emit!(self, Instruction::ReturnValue);
             }
             Assign { targets, value, .. } => {
                 self.compile_expression(value)?;
 
                 for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
-                        self.emit(Instruction::Duplicate);
+                        emit!(self, Instruction::Duplicate);
                     }
                     self.compile_store(target)?;
                 }
@@ -846,12 +853,12 @@ impl Compiler {
                 self.check_forbidden_name(attr, NameUsage::Delete)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr);
-                self.emit(Instruction::DeleteAttr { idx });
+                emit!(self, Instruction::DeleteAttr { idx });
             }
             ast::ExprKind::Subscript { value, slice, .. } => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
-                self.emit(Instruction::DeleteSubscript);
+                emit!(self, Instruction::DeleteSubscript);
             }
             ast::ExprKind::Tuple { elts, .. } | ast::ExprKind::List { elts, .. } => {
                 for element in elts {
@@ -878,10 +885,7 @@ impl Compiler {
             for element in &args.defaults {
                 self.compile_expression(element)?;
             }
-            self.emit(Instruction::BuildTuple {
-                size,
-                unpack: false,
-            });
+            emit!(self, Instruction::BuildTuple { size });
         }
 
         if !args.kw_defaults.is_empty() {
@@ -895,11 +899,12 @@ impl Compiler {
                 });
                 self.compile_expression(default)?;
             }
-            self.emit(Instruction::BuildMap {
-                size: args.kw_defaults.len() as u32,
-                unpack: false,
-                for_call: false,
-            });
+            emit!(
+                self,
+                Instruction::BuildMap {
+                    size: args.kw_defaults.len() as u32,
+                }
+            );
         }
 
         let mut funcflags = bytecode::MakeFunctionFlags::empty();
@@ -955,7 +960,7 @@ impl Compiler {
     fn apply_decorators(&mut self, decorator_list: &[ast::Expr]) {
         // Apply decorators:
         for _ in decorator_list {
-            self.emit(Instruction::CallFunctionPositional { nargs: 1 });
+            emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
         }
     }
 
@@ -971,20 +976,26 @@ impl Compiler {
 
         // Setup a finally block if we have a finally statement.
         if !finalbody.is_empty() {
-            self.emit(Instruction::SetupFinally {
-                handler: finally_block,
-            });
+            emit!(
+                self,
+                Instruction::SetupFinally {
+                    handler: finally_block,
+                }
+            );
         }
 
         let else_block = self.new_block();
 
         // try:
-        self.emit(Instruction::SetupExcept {
-            handler: handler_block,
-        });
+        emit!(
+            self,
+            Instruction::SetupExcept {
+                handler: handler_block,
+            }
+        );
         self.compile_statements(body)?;
-        self.emit(Instruction::PopBlock);
-        self.emit(Instruction::Jump { target: else_block });
+        emit!(self, Instruction::PopBlock);
+        emit!(self, Instruction::Jump { target: else_block });
 
         // except handlers:
         self.switch_to_block(handler_block);
@@ -997,45 +1008,54 @@ impl Compiler {
             // check if this handler can handle the exception:
             if let Some(exc_type) = type_ {
                 // Duplicate exception for test:
-                self.emit(Instruction::Duplicate);
+                emit!(self, Instruction::Duplicate);
 
                 // Check exception type:
                 self.compile_expression(exc_type)?;
-                self.emit(Instruction::TestOperation {
-                    op: bytecode::TestOperator::ExceptionMatch,
-                });
+                emit!(
+                    self,
+                    Instruction::TestOperation {
+                        op: bytecode::TestOperator::ExceptionMatch,
+                    }
+                );
 
                 // We cannot handle this exception type:
-                self.emit(Instruction::JumpIfFalse {
-                    target: next_handler,
-                });
+                emit!(
+                    self,
+                    Instruction::JumpIfFalse {
+                        target: next_handler,
+                    }
+                );
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
                     self.store_name(alias)?
                 } else {
                     // Drop exception from top of stack:
-                    self.emit(Instruction::Pop);
+                    emit!(self, Instruction::Pop);
                 }
             } else {
                 // Catch all!
                 // Drop exception from top of stack:
-                self.emit(Instruction::Pop);
+                emit!(self, Instruction::Pop);
             }
 
             // Handler code:
             self.compile_statements(body)?;
-            self.emit(Instruction::PopException);
+            emit!(self, Instruction::PopException);
 
             if !finalbody.is_empty() {
-                self.emit(Instruction::PopBlock); // pop excepthandler block
-                                                  // We enter the finally block, without exception.
-                self.emit(Instruction::EnterFinally);
+                emit!(self, Instruction::PopBlock); // pop excepthandler block
+                                                    // We enter the finally block, without exception.
+                emit!(self, Instruction::EnterFinally);
             }
 
-            self.emit(Instruction::Jump {
-                target: finally_block,
-            });
+            emit!(
+                self,
+                Instruction::Jump {
+                    target: finally_block,
+                }
+            );
 
             // Emit a new label for the next handler
             self.switch_to_block(next_handler);
@@ -1043,9 +1063,12 @@ impl Compiler {
 
         // If code flows here, we have an unhandled exception,
         // raise the exception again!
-        self.emit(Instruction::Raise {
-            kind: bytecode::RaiseKind::Reraise,
-        });
+        emit!(
+            self,
+            Instruction::Raise {
+                kind: bytecode::RaiseKind::Reraise,
+            }
+        );
 
         // We successfully ran the try block:
         // else:
@@ -1053,17 +1076,17 @@ impl Compiler {
         self.compile_statements(orelse)?;
 
         if !finalbody.is_empty() {
-            self.emit(Instruction::PopBlock); // pop finally block
+            emit!(self, Instruction::PopBlock); // pop finally block
 
             // We enter the finallyhandler block, without return / exception.
-            self.emit(Instruction::EnterFinally);
+            emit!(self, Instruction::EnterFinally);
         }
 
         // finally:
         self.switch_to_block(finally_block);
         if !finalbody.is_empty() {
             self.compile_statements(finalbody)?;
-            self.emit(Instruction::EndFinally);
+            emit!(self, Instruction::EndFinally);
         }
 
         Ok(())
@@ -1122,7 +1145,7 @@ impl Compiler {
             }
             _ => {
                 self.emit_constant(ConstantData::None);
-                self.emit(Instruction::ReturnValue);
+                emit!(self, Instruction::ReturnValue);
             }
         }
 
@@ -1163,11 +1186,12 @@ impl Compiler {
 
         if num_annotations > 0 {
             funcflags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
-            self.emit(Instruction::BuildMap {
-                size: num_annotations,
-                unpack: false,
-                for_call: false,
-            });
+            emit!(
+                self,
+                Instruction::BuildMap {
+                    size: num_annotations,
+                }
+            );
         }
 
         if self.build_closure(&code) {
@@ -1182,13 +1206,13 @@ impl Compiler {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction(funcflags));
+        emit!(self, Instruction::MakeFunction(funcflags));
 
-        self.emit(Instruction::Duplicate);
+        emit!(self, Instruction::Duplicate);
         self.load_docstring(doc_str);
-        self.emit(Instruction::Rotate2);
+        emit!(self, Instruction::Rotate2);
         let doc = self.name("__doc__");
-        self.emit(Instruction::StoreAttr { idx: doc });
+        emit!(self, Instruction::StoreAttr { idx: doc });
 
         self.apply_decorators(decorator_list);
 
@@ -1221,12 +1245,14 @@ impl Compiler {
             if let SymbolScope::Free = symbol.scope {
                 idx += parent_code.cellvar_cache.len();
             }
-            self.emit(Instruction::LoadClosure(idx as u32))
+            emit!(self, Instruction::LoadClosure(idx as u32))
         }
-        self.emit(Instruction::BuildTuple {
-            size: code.freevars.len() as u32,
-            unpack: false,
-        });
+        emit!(
+            self,
+            Instruction::BuildTuple {
+                size: code.freevars.len() as u32,
+            }
+        );
         true
     }
 
@@ -1266,7 +1292,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
-        self.emit(Instruction::LoadBuildClass);
+        emit!(self, Instruction::LoadBuildClass);
 
         let prev_ctx = self.ctx;
         self.ctx = CompileContext {
@@ -1294,20 +1320,20 @@ impl Compiler {
         let (doc_str, body) = split_doc(body);
 
         let dunder_name = self.name("__name__");
-        self.emit(Instruction::LoadGlobal(dunder_name));
+        emit!(self, Instruction::LoadGlobal(dunder_name));
         let dunder_module = self.name("__module__");
-        self.emit(Instruction::StoreLocal(dunder_module));
+        emit!(self, Instruction::StoreLocal(dunder_module));
         self.emit_constant(ConstantData::Str {
             value: qualified_name,
         });
         let qualname = self.name("__qualname__");
-        self.emit(Instruction::StoreLocal(qualname));
+        emit!(self, Instruction::StoreLocal(qualname));
         self.load_docstring(doc_str);
         let doc = self.name("__doc__");
-        self.emit(Instruction::StoreLocal(doc));
+        emit!(self, Instruction::StoreLocal(doc));
         // setup annotations
         if Self::find_ann(body) {
-            self.emit(Instruction::SetupAnnotation);
+            emit!(self, Instruction::SetupAnnotation);
         }
         self.compile_statements(body)?;
 
@@ -1320,15 +1346,15 @@ impl Compiler {
             .position(|var| *var == "__class__");
 
         if let Some(classcell_idx) = classcell_idx {
-            self.emit(Instruction::LoadClosure(classcell_idx as u32));
-            self.emit(Instruction::Duplicate);
+            emit!(self, Instruction::LoadClosure(classcell_idx as u32));
+            emit!(self, Instruction::Duplicate);
             let classcell = self.name("__classcell__");
-            self.emit(Instruction::StoreLocal(classcell));
+            emit!(self, Instruction::StoreLocal(classcell));
         } else {
             self.emit_constant(ConstantData::None);
         }
 
-        self.emit(Instruction::ReturnValue);
+        emit!(self, Instruction::ReturnValue);
 
         let code = self.pop_code_object();
 
@@ -1351,14 +1377,14 @@ impl Compiler {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction(funcflags));
+        emit!(self, Instruction::MakeFunction(funcflags));
 
         self.emit_constant(ConstantData::Str {
             value: name.to_owned(),
         });
 
         let call = self.compile_call_inner(2, bases, keywords)?;
-        self.emit(call.normal_call());
+        self.compile_normal_call(call);
 
         self.apply_decorators(decorator_list);
 
@@ -1386,9 +1412,7 @@ impl Compiler {
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        self.emit(Instruction::SetupLoop {
-            break_target: after_block,
-        });
+        emit!(self, Instruction::SetupLoop);
         self.switch_to_block(while_block);
 
         self.compile_jump_if(test, false, else_block)?;
@@ -1396,11 +1420,14 @@ impl Compiler {
         let was_in_loop = self.ctx.loop_data.replace((while_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
-        self.emit(Instruction::Jump {
-            target: while_block,
-        });
+        emit!(
+            self,
+            Instruction::Jump {
+                target: while_block,
+            }
+        );
         self.switch_to_block(else_block);
-        self.emit(Instruction::PopBlock);
+        emit!(self, Instruction::PopBlock);
         self.compile_statements(orelse)?;
         self.switch_to_block(after_block);
         Ok(())
@@ -1424,13 +1451,13 @@ impl Compiler {
 
             self.set_source_location(with_location);
             if is_async {
-                self.emit(Instruction::BeforeAsyncWith);
-                self.emit(Instruction::GetAwaitable);
+                emit!(self, Instruction::BeforeAsyncWith);
+                emit!(self, Instruction::GetAwaitable);
                 self.emit_constant(ConstantData::None);
-                self.emit(Instruction::YieldFrom);
-                self.emit(Instruction::SetupAsyncWith { end: final_block });
+                emit!(self, Instruction::YieldFrom);
+                emit!(self, Instruction::SetupAsyncWith { end: final_block });
             } else {
-                self.emit(Instruction::SetupWith { end: final_block });
+                emit!(self, Instruction::SetupWith { end: final_block });
             }
 
             match &item.optional_vars {
@@ -1439,7 +1466,7 @@ impl Compiler {
                     self.compile_store(var)?;
                 }
                 None => {
-                    self.emit(Instruction::Pop);
+                    emit!(self, Instruction::Pop);
                 }
             }
             final_block
@@ -1458,20 +1485,20 @@ impl Compiler {
         // sort of "stack up" the layers of with blocks:
         // with a, b: body -> start_with(a) start_with(b) body() end_with(b) end_with(a)
         self.set_source_location(with_location);
-        self.emit(Instruction::PopBlock);
+        emit!(self, Instruction::PopBlock);
 
-        self.emit(Instruction::EnterFinally);
+        emit!(self, Instruction::EnterFinally);
 
         self.switch_to_block(final_block);
-        self.emit(Instruction::WithCleanupStart);
+        emit!(self, Instruction::WithCleanupStart);
 
         if is_async {
-            self.emit(Instruction::GetAwaitable);
+            emit!(self, Instruction::GetAwaitable);
             self.emit_constant(ConstantData::None);
-            self.emit(Instruction::YieldFrom);
+            emit!(self, Instruction::YieldFrom);
         }
 
-        self.emit(Instruction::WithCleanupFinish);
+        emit!(self, Instruction::WithCleanupFinish);
 
         Ok(())
     }
@@ -1489,31 +1516,32 @@ impl Compiler {
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        self.emit(Instruction::SetupLoop {
-            break_target: after_block,
-        });
+        emit!(self, Instruction::SetupLoop);
 
         // The thing iterated:
         self.compile_expression(iter)?;
 
         if is_async {
-            self.emit(Instruction::GetAIter);
+            emit!(self, Instruction::GetAIter);
 
             self.switch_to_block(for_block);
-            self.emit(Instruction::SetupExcept {
-                handler: else_block,
-            });
-            self.emit(Instruction::GetANext);
+            emit!(
+                self,
+                Instruction::SetupExcept {
+                    handler: else_block,
+                }
+            );
+            emit!(self, Instruction::GetANext);
             self.emit_constant(ConstantData::None);
-            self.emit(Instruction::YieldFrom);
+            emit!(self, Instruction::YieldFrom);
             self.compile_store(target)?;
-            self.emit(Instruction::PopBlock);
+            emit!(self, Instruction::PopBlock);
         } else {
             // Retrieve Iterator
-            self.emit(Instruction::GetIter);
+            emit!(self, Instruction::GetIter);
 
             self.switch_to_block(for_block);
-            self.emit(Instruction::ForIter { target: else_block });
+            emit!(self, Instruction::ForIter { target: else_block });
 
             // Start of loop iteration, set targets:
             self.compile_store(target)?;
@@ -1522,13 +1550,13 @@ impl Compiler {
         let was_in_loop = self.ctx.loop_data.replace((for_block, after_block));
         self.compile_statements(body)?;
         self.ctx.loop_data = was_in_loop;
-        self.emit(Instruction::Jump { target: for_block });
+        emit!(self, Instruction::Jump { target: for_block });
 
         self.switch_to_block(else_block);
         if is_async {
-            self.emit(Instruction::EndAsyncFor);
+            emit!(self, Instruction::EndAsyncFor);
         }
-        self.emit(Instruction::PopBlock);
+        emit!(self, Instruction::PopBlock);
         self.compile_statements(orelse)?;
 
         self.switch_to_block(after_block);
@@ -1557,37 +1585,19 @@ impl Compiler {
         let (last_op, mid_ops) = ops.split_last().unwrap();
         let (last_val, mid_vals) = vals.split_last().unwrap();
 
-        let compile_cmpop = |op: &ast::Cmpop| match op {
-            ast::Cmpop::Eq => Instruction::CompareOperation {
-                op: bytecode::ComparisonOperator::Equal,
-            },
-            ast::Cmpop::NotEq => Instruction::CompareOperation {
-                op: bytecode::ComparisonOperator::NotEqual,
-            },
-            ast::Cmpop::Lt => Instruction::CompareOperation {
-                op: bytecode::ComparisonOperator::Less,
-            },
-            ast::Cmpop::LtE => Instruction::CompareOperation {
-                op: bytecode::ComparisonOperator::LessOrEqual,
-            },
-            ast::Cmpop::Gt => Instruction::CompareOperation {
-                op: bytecode::ComparisonOperator::Greater,
-            },
-            ast::Cmpop::GtE => Instruction::CompareOperation {
-                op: bytecode::ComparisonOperator::GreaterOrEqual,
-            },
-            ast::Cmpop::In => Instruction::TestOperation {
-                op: bytecode::TestOperator::In,
-            },
-            ast::Cmpop::NotIn => Instruction::TestOperation {
-                op: bytecode::TestOperator::NotIn,
-            },
-            ast::Cmpop::Is => Instruction::TestOperation {
-                op: bytecode::TestOperator::Is,
-            },
-            ast::Cmpop::IsNot => Instruction::TestOperation {
-                op: bytecode::TestOperator::IsNot,
-            },
+        use bytecode::ComparisonOperator::*;
+        use bytecode::TestOperator::*;
+        let compile_cmpop = |c: &mut Self, op: &ast::Cmpop| match op {
+            ast::Cmpop::Eq => emit!(c, Instruction::CompareOperation { op: Equal }),
+            ast::Cmpop::NotEq => emit!(c, Instruction::CompareOperation { op: NotEqual }),
+            ast::Cmpop::Lt => emit!(c, Instruction::CompareOperation { op: Less }),
+            ast::Cmpop::LtE => emit!(c, Instruction::CompareOperation { op: LessOrEqual }),
+            ast::Cmpop::Gt => emit!(c, Instruction::CompareOperation { op: Greater }),
+            ast::Cmpop::GtE => emit!(c, Instruction::CompareOperation { op: GreaterOrEqual }),
+            ast::Cmpop::In => emit!(c, Instruction::TestOperation { op: In }),
+            ast::Cmpop::NotIn => emit!(c, Instruction::TestOperation { op: NotIn }),
+            ast::Cmpop::Is => emit!(c, Instruction::TestOperation { op: Is }),
+            ast::Cmpop::IsNot => emit!(c, Instruction::TestOperation { op: IsNot }),
         };
 
         // a == b == c == d
@@ -1613,32 +1623,38 @@ impl Compiler {
         for (op, val) in mid_ops.iter().zip(mid_vals) {
             self.compile_expression(val)?;
             // store rhs for the next comparison in chain
-            self.emit(Instruction::Duplicate);
-            self.emit(Instruction::Rotate3);
+            emit!(self, Instruction::Duplicate);
+            emit!(self, Instruction::Rotate3);
 
-            self.emit(compile_cmpop(op));
+            compile_cmpop(self, op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
             if let Some((break_block, _)) = end_blocks {
-                self.emit(Instruction::JumpIfFalseOrPop {
-                    target: break_block,
-                });
+                emit!(
+                    self,
+                    Instruction::JumpIfFalseOrPop {
+                        target: break_block,
+                    }
+                );
             }
         }
 
         // handle the last comparison
         self.compile_expression(last_val)?;
-        self.emit(compile_cmpop(last_op));
+        compile_cmpop(self, last_op);
 
         if let Some((break_block, after_block)) = end_blocks {
-            self.emit(Instruction::Jump {
-                target: after_block,
-            });
+            emit!(
+                self,
+                Instruction::Jump {
+                    target: after_block,
+                }
+            );
 
             // early exit left us with stack: `rhs, comparison_result`. We need to clean up rhs.
             self.switch_to_block(break_block);
-            self.emit(Instruction::Rotate2);
-            self.emit(Instruction::Pop);
+            emit!(self, Instruction::Rotate2);
+            emit!(self, Instruction::Pop);
 
             self.switch_to_block(after_block);
         }
@@ -1679,14 +1695,14 @@ impl Compiler {
         if let ast::ExprKind::Name { id, .. } = &target.node {
             // Store as dict entry in __annotations__ dict:
             let annotations = self.name("__annotations__");
-            self.emit(Instruction::LoadNameAny(annotations));
+            emit!(self, Instruction::LoadNameAny(annotations));
             self.emit_constant(ConstantData::Str {
                 value: self.mangle(id).into_owned(),
             });
-            self.emit(Instruction::StoreSubscript);
+            emit!(self, Instruction::StoreSubscript);
         } else {
             // Drop annotation if not assigned to simple identifier.
-            self.emit(Instruction::Pop);
+            emit!(self, Instruction::Pop);
         }
 
         Ok(())
@@ -1698,13 +1714,13 @@ impl Compiler {
             ast::ExprKind::Subscript { value, slice, .. } => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
-                self.emit(Instruction::StoreSubscript);
+                emit!(self, Instruction::StoreSubscript);
             }
             ast::ExprKind::Attribute { value, attr, .. } => {
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr);
-                self.emit(Instruction::StoreAttr { idx });
+                emit!(self, Instruction::StoreAttr { idx });
             }
             ast::ExprKind::List { elts, .. } | ast::ExprKind::Tuple { elts, .. } => {
                 let mut seen_star = false;
@@ -1725,15 +1741,19 @@ impl Compiler {
                                         target.location,
                                     )
                                 })?;
-                            self.emit(Instruction::UnpackEx { before, after });
+                            let args = bytecode::UnpackExArgs { before, after };
+                            emit!(self, Instruction::UnpackEx { args });
                         }
                     }
                 }
 
                 if !seen_star {
-                    self.emit(Instruction::UnpackSequence {
-                        size: elts.len() as u32,
-                    });
+                    emit!(
+                        self,
+                        Instruction::UnpackSequence {
+                            size: elts.len() as u32,
+                        }
+                    );
                 }
 
                 for element in elts {
@@ -1777,16 +1797,16 @@ impl Compiler {
             ast::ExprKind::Subscript { value, slice, .. } => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
-                self.emit(Instruction::Duplicate2);
-                self.emit(Instruction::Subscript);
+                emit!(self, Instruction::Duplicate2);
+                emit!(self, Instruction::Subscript);
                 AugAssignKind::Subscript
             }
             ast::ExprKind::Attribute { value, attr, .. } => {
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
-                self.emit(Instruction::Duplicate);
+                emit!(self, Instruction::Duplicate);
                 let idx = self.name(attr);
-                self.emit(Instruction::LoadAttr { idx });
+                emit!(self, Instruction::LoadAttr { idx });
                 AugAssignKind::Attr { idx }
             }
             _ => {
@@ -1804,13 +1824,13 @@ impl Compiler {
             }
             AugAssignKind::Subscript => {
                 // stack: CONTAINER SLICE RESULT
-                self.emit(Instruction::Rotate3);
-                self.emit(Instruction::StoreSubscript);
+                emit!(self, Instruction::Rotate3);
+                emit!(self, Instruction::StoreSubscript);
             }
             AugAssignKind::Attr { idx } => {
                 // stack: CONTAINER RESULT
-                self.emit(Instruction::Rotate2);
-                self.emit(Instruction::StoreAttr { idx });
+                emit!(self, Instruction::Rotate2);
+                emit!(self, Instruction::StoreAttr { idx });
             }
         }
 
@@ -1833,12 +1853,11 @@ impl Compiler {
             ast::Operator::BitXor => bytecode::BinaryOperator::Xor,
             ast::Operator::BitAnd => bytecode::BinaryOperator::And,
         };
-        let ins = if inplace {
-            Instruction::BinaryOperationInplace { op }
+        if inplace {
+            emit!(self, Instruction::BinaryOperationInplace { op })
         } else {
-            Instruction::BinaryOperation { op }
-        };
-        self.emit(ins);
+            emit!(self, Instruction::BinaryOperation { op })
+        }
     }
 
     /// Implement boolean short circuit evaluation logic.
@@ -1913,13 +1932,19 @@ impl Compiler {
                 // Fall back case which always will work!
                 self.compile_expression(expression)?;
                 if condition {
-                    self.emit(Instruction::JumpIfTrue {
-                        target: target_block,
-                    });
+                    emit!(
+                        self,
+                        Instruction::JumpIfTrue {
+                            target: target_block,
+                        }
+                    );
                 } else {
-                    self.emit(Instruction::JumpIfFalse {
-                        target: target_block,
-                    });
+                    emit!(
+                        self,
+                        Instruction::JumpIfFalse {
+                            target: target_block,
+                        }
+                    );
                 }
             }
         }
@@ -1937,14 +1962,20 @@ impl Compiler {
 
             match op {
                 ast::Boolop::And => {
-                    self.emit(Instruction::JumpIfFalseOrPop {
-                        target: after_block,
-                    });
+                    emit!(
+                        self,
+                        Instruction::JumpIfFalseOrPop {
+                            target: after_block,
+                        }
+                    );
                 }
                 ast::Boolop::Or => {
-                    self.emit(Instruction::JumpIfTrueOrPop {
-                        target: after_block,
-                    });
+                    emit!(
+                        self,
+                        Instruction::JumpIfTrueOrPop {
+                            target: after_block,
+                        }
+                    );
                 }
             }
         }
@@ -1964,15 +1995,11 @@ impl Compiler {
             self.compile_expression(value)?;
             size += 1;
         }
-        self.emit(Instruction::BuildMap {
-            size,
-            unpack: false,
-            for_call: false,
-        });
+        emit!(self, Instruction::BuildMap { size });
 
         for value in unpacked_values {
             self.compile_expression(value)?;
-            self.emit(Instruction::DictUpdate);
+            emit!(self, Instruction::DictUpdate);
         }
 
         Ok(())
@@ -2000,25 +2027,24 @@ impl Compiler {
             Subscript { value, slice, .. } => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
-                self.emit(Instruction::Subscript);
+                emit!(self, Instruction::Subscript);
             }
             UnaryOp { op, operand } => {
                 self.compile_expression(operand)?;
 
                 // Perform operation:
-                let i = match op {
+                let op = match op {
                     ast::Unaryop::UAdd => bytecode::UnaryOperator::Plus,
                     ast::Unaryop::USub => bytecode::UnaryOperator::Minus,
                     ast::Unaryop::Not => bytecode::UnaryOperator::Not,
                     ast::Unaryop::Invert => bytecode::UnaryOperator::Invert,
                 };
-                let i = Instruction::UnaryOperation { op: i };
-                self.emit(i);
+                emit!(self, Instruction::UnaryOperation { op });
             }
             Attribute { value, attr, .. } => {
                 self.compile_expression(value)?;
                 let idx = self.name(attr);
-                self.emit(Instruction::LoadAttr { idx });
+                emit!(self, Instruction::LoadAttr { idx });
             }
             Compare {
                 left,
@@ -2032,15 +2058,27 @@ impl Compiler {
             }
             List { elts, .. } => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
-                self.emit(Instruction::BuildList { size, unpack });
+                if unpack {
+                    emit!(self, Instruction::BuildListUnpack { size });
+                } else {
+                    emit!(self, Instruction::BuildList { size });
+                }
             }
             Tuple { elts, .. } => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
-                self.emit(Instruction::BuildTuple { size, unpack });
+                if unpack {
+                    emit!(self, Instruction::BuildTupleUnpack { size });
+                } else {
+                    emit!(self, Instruction::BuildTuple { size });
+                }
             }
             Set { elts, .. } => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
-                self.emit(Instruction::BuildSet { size, unpack });
+                if unpack {
+                    emit!(self, Instruction::BuildSetUnpack { size });
+                } else {
+                    emit!(self, Instruction::BuildSet { size });
+                }
             }
             Dict { keys, values } => {
                 self.compile_dict(keys, values)?;
@@ -2059,7 +2097,7 @@ impl Compiler {
                     self.compile_expression(step)?;
                 }
                 let step = step.is_some();
-                self.emit(Instruction::BuildSlice { step });
+                emit!(self, Instruction::BuildSlice { step });
             }
             Yield { value } => {
                 if !self.ctx.in_func() {
@@ -2070,16 +2108,16 @@ impl Compiler {
                     Some(expression) => self.compile_expression(expression)?,
                     Option::None => self.emit_constant(ConstantData::None),
                 };
-                self.emit(Instruction::YieldValue);
+                emit!(self, Instruction::YieldValue);
             }
             Await { value } => {
                 if self.ctx.func != FunctionContext::AsyncFunction {
                     return Err(self.error(CodegenErrorType::InvalidAwait));
                 }
                 self.compile_expression(value)?;
-                self.emit(Instruction::GetAwaitable);
+                emit!(self, Instruction::GetAwaitable);
                 self.emit_constant(ConstantData::None);
-                self.emit(Instruction::YieldFrom);
+                emit!(self, Instruction::YieldFrom);
             }
             YieldFrom { value } => {
                 match self.ctx.func {
@@ -2093,9 +2131,9 @@ impl Compiler {
                 }
                 self.mark_generator();
                 self.compile_expression(value)?;
-                self.emit(Instruction::GetIter);
+                emit!(self, Instruction::GetIter);
                 self.emit_constant(ConstantData::None);
-                self.emit(Instruction::YieldFrom);
+                emit!(self, Instruction::YieldFrom);
             }
             ast::ExprKind::JoinedStr { values } => {
                 if let Some(value) = try_get_constant_string(values) {
@@ -2104,9 +2142,12 @@ impl Compiler {
                     for value in values {
                         self.compile_expression(value)?;
                     }
-                    self.emit(Instruction::BuildString {
-                        size: values.len() as u32,
-                    })
+                    emit!(
+                        self,
+                        Instruction::BuildString {
+                            size: values.len() as u32,
+                        }
+                    )
                 }
             }
             ast::ExprKind::FormattedValue {
@@ -2121,9 +2162,13 @@ impl Compiler {
                     }),
                 };
                 self.compile_expression(value)?;
-                self.emit(Instruction::FormatValue {
-                    conversion: (*conversion).try_into().expect("invalid conversion flag"),
-                });
+                emit!(
+                    self,
+                    Instruction::FormatValue {
+                        conversion: bytecode::ConversionFlag::try_from(*conversion)
+                            .expect("invalid conversion flag"),
+                    },
+                );
             }
             Name { id, .. } => self.load_name(id)?,
             Lambda { args, body } => {
@@ -2143,7 +2188,7 @@ impl Compiler {
                     .insert_full(ConstantData::None);
 
                 self.compile_expression(body)?;
-                self.emit(Instruction::ReturnValue);
+                emit!(self, Instruction::ReturnValue);
                 let code = self.pop_code_object();
                 if self.build_closure(&code) {
                     funcflags |= bytecode::MakeFunctionFlags::CLOSURE;
@@ -2153,7 +2198,7 @@ impl Compiler {
                 });
                 self.emit_constant(ConstantData::Str { value: name });
                 // Turn code object into function object:
-                self.emit(Instruction::MakeFunction(funcflags));
+                emit!(self, Instruction::MakeFunction(funcflags));
 
                 self.ctx = prev_ctx;
             }
@@ -2161,15 +2206,17 @@ impl Compiler {
                 self.compile_comprehension(
                     "<listcomp>",
                     Some(Instruction::BuildList {
-                        size: 0,
-                        unpack: false,
+                        size: OpArgMarker::marker(),
                     }),
                     generators,
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
-                        compiler.emit(Instruction::ListAppend {
-                            i: generators.len() as u32,
-                        });
+                        emit!(
+                            compiler,
+                            Instruction::ListAppend {
+                                i: generators.len() as u32,
+                            }
+                        );
                         Ok(())
                     },
                 )?;
@@ -2178,15 +2225,17 @@ impl Compiler {
                 self.compile_comprehension(
                     "<setcomp>",
                     Some(Instruction::BuildSet {
-                        size: 0,
-                        unpack: false,
+                        size: OpArgMarker::marker(),
                     }),
                     generators,
                     &|compiler| {
                         compiler.compile_comprehension_element(elt)?;
-                        compiler.emit(Instruction::SetAdd {
-                            i: generators.len() as u32,
-                        });
+                        emit!(
+                            compiler,
+                            Instruction::SetAdd {
+                                i: generators.len() as u32,
+                            }
+                        );
                         Ok(())
                     },
                 )?;
@@ -2199,9 +2248,7 @@ impl Compiler {
                 self.compile_comprehension(
                     "<dictcomp>",
                     Some(Instruction::BuildMap {
-                        size: 0,
-                        for_call: false,
-                        unpack: false,
+                        size: OpArgMarker::marker(),
                     }),
                     generators,
                     &|compiler| {
@@ -2209,9 +2256,12 @@ impl Compiler {
                         compiler.compile_expression(key)?;
                         compiler.compile_expression(value)?;
 
-                        compiler.emit(Instruction::MapAdd {
-                            i: generators.len() as u32,
-                        });
+                        emit!(
+                            compiler,
+                            Instruction::MapAdd {
+                                i: generators.len() as u32,
+                            }
+                        );
 
                         Ok(())
                     },
@@ -2221,8 +2271,8 @@ impl Compiler {
                 self.compile_comprehension("<genexpr>", None, generators, &|compiler| {
                     compiler.compile_comprehension_element(elt)?;
                     compiler.mark_generator();
-                    compiler.emit(Instruction::YieldValue);
-                    compiler.emit(Instruction::Pop);
+                    emit!(compiler, Instruction::YieldValue);
+                    emit!(compiler, Instruction::Pop);
 
                     Ok(())
                 })?;
@@ -2237,9 +2287,12 @@ impl Compiler {
 
                 // True case
                 self.compile_expression(body)?;
-                self.emit(Instruction::Jump {
-                    target: after_block,
-                });
+                emit!(
+                    self,
+                    Instruction::Jump {
+                        target: after_block,
+                    }
+                );
 
                 // False case
                 self.switch_to_block(else_block);
@@ -2251,7 +2304,7 @@ impl Compiler {
 
             NamedExpr { target, value } => {
                 self.compile_expression(value)?;
-                self.emit(Instruction::Duplicate);
+                emit!(self, Instruction::Duplicate);
                 self.compile_store(target)?;
             }
         }
@@ -2278,20 +2331,12 @@ impl Compiler {
                         subsize += 1;
                     }
                 }
-                self.emit(Instruction::BuildMap {
-                    size: subsize,
-                    unpack: false,
-                    for_call: false,
-                });
+                emit!(self, Instruction::BuildMap { size: subsize });
                 size += 1;
             }
         }
         if size > 1 {
-            self.emit(Instruction::BuildMap {
-                size,
-                unpack: true,
-                for_call: true,
-            });
+            emit!(self, Instruction::BuildMapForCall { size });
         }
         Ok(())
     }
@@ -2305,19 +2350,38 @@ impl Compiler {
         let method = if let ast::ExprKind::Attribute { value, attr, .. } = &func.node {
             self.compile_expression(value)?;
             let idx = self.name(attr);
-            self.emit(Instruction::LoadMethod { idx });
+            emit!(self, Instruction::LoadMethod { idx });
             true
         } else {
             self.compile_expression(func)?;
             false
         };
         let call = self.compile_call_inner(0, args, keywords)?;
-        self.emit(if method {
-            call.method_call()
+        if method {
+            self.compile_method_call(call)
         } else {
-            call.normal_call()
-        });
+            self.compile_normal_call(call)
+        }
         Ok(())
+    }
+
+    fn compile_normal_call(&mut self, ty: CallType) {
+        match ty {
+            CallType::Positional { nargs } => {
+                emit!(self, Instruction::CallFunctionPositional { nargs })
+            }
+            CallType::Keyword { nargs } => emit!(self, Instruction::CallFunctionKeyword { nargs }),
+            CallType::Ex { has_kwargs } => emit!(self, Instruction::CallFunctionEx { has_kwargs }),
+        }
+    }
+    fn compile_method_call(&mut self, ty: CallType) {
+        match ty {
+            CallType::Positional { nargs } => {
+                emit!(self, Instruction::CallMethodPositional { nargs })
+            }
+            CallType::Keyword { nargs } => emit!(self, Instruction::CallMethodKeyword { nargs }),
+            CallType::Ex { has_kwargs } => emit!(self, Instruction::CallMethodEx { has_kwargs }),
+        }
     }
 
     fn compile_call_inner(
@@ -2340,7 +2404,11 @@ impl Compiler {
 
         let call = if unpack || has_double_star {
             // Create a tuple with positional args:
-            self.emit(Instruction::BuildTuple { size, unpack });
+            if unpack {
+                emit!(self, Instruction::BuildTupleUnpack { size });
+            } else {
+                emit!(self, Instruction::BuildTuple { size });
+            }
 
             // Create an optional map with kw-args:
             let has_kwargs = !keywords.is_empty();
@@ -2389,10 +2457,7 @@ impl Compiler {
             let mut size = 0;
 
             if before > 0 {
-                self.emit(Instruction::BuildTuple {
-                    size: before,
-                    unpack: false,
-                });
+                emit!(self, Instruction::BuildTuple { size: before });
                 size += 1;
             }
 
@@ -2416,10 +2481,7 @@ impl Compiler {
                 if starred {
                     size += run_size
                 } else {
-                    self.emit(Instruction::BuildTuple {
-                        size: run_size,
-                        unpack: false,
-                    });
+                    emit!(self, Instruction::BuildTuple { size: run_size });
                     size += 1
                 }
             }
@@ -2478,7 +2540,7 @@ impl Compiler {
         let return_none = init_collection.is_none();
         // Create empty object of proper type:
         if let Some(init_collection) = init_collection {
-            self.emit(init_collection)
+            self._emit(init_collection, OpArg(0), ir::BlockIdx::NULL)
         }
 
         let mut loop_labels = vec![];
@@ -2492,21 +2554,24 @@ impl Compiler {
 
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
-                self.emit(Instruction::LoadFast(arg0));
+                emit!(self, Instruction::LoadFast(arg0));
             } else {
                 // Evaluate iterated item:
                 self.compile_expression(&generator.iter)?;
 
                 // Get iterator / turn item into an iterator
-                self.emit(Instruction::GetIter);
+                emit!(self, Instruction::GetIter);
             }
 
             loop_labels.push((loop_block, after_block));
 
             self.switch_to_block(loop_block);
-            self.emit(Instruction::ForIter {
-                target: after_block,
-            });
+            emit!(
+                self,
+                Instruction::ForIter {
+                    target: after_block,
+                }
+            );
 
             self.compile_store(&generator.target)?;
 
@@ -2520,7 +2585,7 @@ impl Compiler {
 
         for (loop_block, after_block) in loop_labels.iter().rev().copied() {
             // Repeat:
-            self.emit(Instruction::Jump { target: loop_block });
+            emit!(self, Instruction::Jump { target: loop_block });
 
             // End of for loop:
             self.switch_to_block(after_block);
@@ -2531,7 +2596,7 @@ impl Compiler {
         }
 
         // Return freshly filled list:
-        self.emit(Instruction::ReturnValue);
+        emit!(self, Instruction::ReturnValue);
 
         // Fetch code for listcomp function:
         let code = self.pop_code_object();
@@ -2554,16 +2619,16 @@ impl Compiler {
         });
 
         // Turn code object into function object:
-        self.emit(Instruction::MakeFunction(funcflags));
+        emit!(self, Instruction::MakeFunction(funcflags));
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;
 
         // Get iterator / turn item into an iterator
-        self.emit(Instruction::GetIter);
+        emit!(self, Instruction::GetIter);
 
         // Call just created <listcomp> function:
-        self.emit(Instruction::CallFunctionPositional { nargs: 1 });
+        emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
         Ok(())
     }
 
@@ -2587,12 +2652,28 @@ impl Compiler {
     }
 
     // Low level helper functions:
-    fn emit(&mut self, instr: Instruction) {
+    fn _emit(&mut self, instr: Instruction, arg: OpArg, target: ir::BlockIdx) {
         let location = compile_location(&self.current_source_location);
         // TODO: insert source filename
-        self.current_block()
-            .instructions
-            .push(ir::InstructionInfo { instr, location });
+        self.current_block().instructions.push(ir::InstructionInfo {
+            instr,
+            arg,
+            target,
+            location,
+        });
+    }
+
+    fn emit_noarg(&mut self, ins: Instruction) {
+        self._emit(ins, OpArg::null(), ir::BlockIdx::NULL)
+    }
+
+    fn emit_arg<A: OpArgType, T: EmitArg<A>>(
+        &mut self,
+        arg: T,
+        f: impl FnOnce(OpArgMarker<A>) -> Instruction,
+    ) {
+        let (op, arg, target) = arg.emit(f);
+        self._emit(op, arg, target)
     }
 
     // fn block_done()
@@ -2600,7 +2681,7 @@ impl Compiler {
     fn emit_constant(&mut self, constant: ConstantData) {
         let info = self.current_codeinfo();
         let idx = info.constants.insert_full(constant).0 as u32;
-        self.emit(Instruction::LoadConst { idx })
+        self.emit_arg(idx, |idx| Instruction::LoadConst { idx })
     }
 
     fn current_codeinfo(&mut self) -> &mut ir::CodeInfo {
@@ -2609,12 +2690,12 @@ impl Compiler {
 
     fn current_block(&mut self) -> &mut ir::Block {
         let info = self.current_codeinfo();
-        &mut info.blocks[info.current_block.0 as usize]
+        &mut info.blocks[info.current_block]
     }
 
     fn new_block(&mut self) -> ir::BlockIdx {
         let code = self.current_codeinfo();
-        let idx = bytecode::Label(code.blocks.len() as u32);
+        let idx = ir::BlockIdx(code.blocks.len() as u32);
         code.blocks.push(ir::Block::default());
         idx
     }
@@ -2623,8 +2704,8 @@ impl Compiler {
         let code = self.current_codeinfo();
         let prev = code.current_block;
         assert_eq!(
-            code.blocks[block.0 as usize].next.0,
-            u32::MAX,
+            code.blocks[block].next,
+            ir::BlockIdx::NULL,
             "switching to completed block"
         );
         let prev_block = &mut code.blocks[prev.0 as usize];
@@ -2651,6 +2732,30 @@ impl Compiler {
 
     fn mark_generator(&mut self) {
         self.current_codeinfo().flags |= bytecode::CodeFlags::IS_GENERATOR
+    }
+}
+
+trait EmitArg<Arg: OpArgType> {
+    fn emit(
+        self,
+        f: impl FnOnce(OpArgMarker<Arg>) -> Instruction,
+    ) -> (Instruction, OpArg, ir::BlockIdx);
+}
+impl<T: OpArgType> EmitArg<T> for T {
+    fn emit(
+        self,
+        f: impl FnOnce(OpArgMarker<T>) -> Instruction,
+    ) -> (Instruction, OpArg, ir::BlockIdx) {
+        let (marker, arg) = OpArgMarker::new(self);
+        (f(marker), arg, ir::BlockIdx::NULL)
+    }
+}
+impl EmitArg<bytecode::Label> for ir::BlockIdx {
+    fn emit(
+        self,
+        f: impl FnOnce(OpArgMarker<bytecode::Label>) -> Instruction,
+    ) -> (Instruction, OpArg, ir::BlockIdx) {
+        (f(OpArgMarker::marker()), OpArg::null(), self)
     }
 }
 

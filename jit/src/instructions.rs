@@ -2,7 +2,7 @@ use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::{
     self as bytecode, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator,
-    Instruction, Label, UnaryOperator,
+    Instruction, Label, OpArg, OpArgState, UnaryOperator,
 };
 use std::collections::HashMap;
 
@@ -155,7 +155,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         // label_targets alone
         let label_targets = bytecode.label_targets();
 
+        let mut arg_state = OpArgState::default();
         for (offset, instruction) in bytecode.instructions.iter().enumerate() {
+            let (instruction, arg) = arg_state.get(*instruction);
             let label = Label(offset as u32);
             if label_targets.contains(&label) {
                 let block = self.get_or_create_block(label);
@@ -175,7 +177,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 continue;
             }
 
-            self.add_instruction(instruction, &bytecode.constants)?;
+            self.add_instruction(instruction, arg, &bytecode.constants)?;
         }
 
         Ok(())
@@ -214,15 +216,17 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
     pub fn add_instruction<C: bytecode::Constant>(
         &mut self,
-        instruction: &Instruction,
+        instruction: Instruction,
+        arg: OpArg,
         constants: &[C],
     ) -> Result<(), JitCompileError> {
         match instruction {
+            Instruction::ExtendedArg => Ok(()),
             Instruction::JumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
                 let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(*target);
+                let then_block = self.get_or_create_block(target.get(arg));
                 self.builder.ins().brz(val, then_block, &[]);
 
                 let block = self.builder.create_block();
@@ -235,7 +239,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
                 let val = self.boolean_val(cond)?;
-                let then_block = self.get_or_create_block(*target);
+                let then_block = self.get_or_create_block(target.get(arg));
                 self.builder.ins().brnz(val, then_block, &[]);
 
                 let block = self.builder.create_block();
@@ -245,13 +249,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::Jump { target } => {
-                let target_block = self.get_or_create_block(*target);
+                let target_block = self.get_or_create_block(target.get(arg));
                 self.builder.ins().jump(target_block, &[]);
 
                 Ok(())
             }
             Instruction::LoadFast(idx) => {
-                let local = self.variables[*idx as usize]
+                let local = self.variables[idx.get(arg) as usize]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
                 self.stack.push(JitValue::from_type_and_value(
@@ -262,13 +266,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::StoreFast(idx) => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                self.store_variable(*idx, val)
+                self.store_variable(idx.get(arg), val)
             }
             Instruction::LoadConst { idx } => {
-                self.load_const(constants[*idx as usize].borrow_constant())
+                self.load_const(constants[idx.get(arg) as usize].borrow_constant())
             }
-            Instruction::BuildTuple { unpack, size } if !unpack => {
-                let elements = self.pop_multiple(*size as usize);
+            Instruction::BuildTuple { size } => {
+                let elements = self.pop_multiple(size.get(arg) as usize);
                 self.stack.push(JitValue::Tuple(elements));
                 Ok(())
             }
@@ -280,7 +284,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     _ => return Err(JitCompileError::NotSupported),
                 };
 
-                if elements.len() != *size as usize {
+                if elements.len() != size.get(arg) as usize {
                     return Err(JitCompileError::NotSupported);
                 }
 
@@ -306,6 +310,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 Ok(())
             }
             Instruction::CompareOperation { op, .. } => {
+                let op = op.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -347,6 +352,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 }
             }
             Instruction::UnaryOperation { op, .. } => {
+                let op = op.get(arg);
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 match (op, a) {
                     (UnaryOperator::Minus, JitValue::Int(val)) => {
@@ -371,6 +377,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 }
             }
             Instruction::BinaryOperation { op } | Instruction::BinaryOperationInplace { op } => {
+                let op = op.get(arg);
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
@@ -406,7 +413,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             TrapCode::User(CustomTrapCode::NegativeShiftCount as u16),
                         );
 
-                        let out = if *op == BinaryOperator::Lshift {
+                        let out = if op == BinaryOperator::Lshift {
                             self.builder.ins().ishl(a, b)
                         } else {
                             self.builder.ins().sshr(a, b)

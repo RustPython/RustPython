@@ -2002,8 +2002,8 @@ dependencies = [
  "lz4_flex",
  "num-bigint",
  "num-complex",
+ "num_enum",
  "serde",
- "static_assertions",
  "thiserror",
 ]
 
