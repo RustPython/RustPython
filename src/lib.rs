@@ -37,8 +37,6 @@
 //! it will have your modules loaded into the vm.
 #![allow(clippy::needless_doctest_main)]
 
-#[macro_use]
-extern crate clap;
 extern crate env_logger;
 #[macro_use]
 extern crate log;
@@ -51,6 +49,7 @@ mod settings;
 mod shell;
 
 use atty::Stream;
+use clap::crate_version;
 use rustpython_vm::{scope::Scope, PyResult, VirtualMachine};
 use std::{env, process::ExitCode};
 

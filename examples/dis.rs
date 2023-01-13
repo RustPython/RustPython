@@ -1,10 +1,10 @@
-/// This an example usage of the rustpython_compiler crate.
-/// This program reads, parses, and compiles a file you provide
-/// to RustPython bytecode, and then displays the output in the
-/// `dis.dis` format.
-///
-/// example usage:
-/// $ cargo run --release --example dis demo*.py
+//! This an example usage of the rustpython_compiler crate.
+//! This program reads, parses, and compiles a file you provide
+//! to RustPython bytecode, and then displays the output in the
+//! `dis.dis` format.
+//!
+//! example usage:
+//! $ cargo run --release --example dis demo*.py
 extern crate env_logger;
 #[macro_use]
 extern crate log;

@@ -1,4 +1,4 @@
-use clap::{Arg, ArgAction, ArgMatches, Command};
+use clap::{crate_authors, crate_version, Arg, ArgAction, ArgMatches, Command};
 use rustpython_vm::Settings;
 use std::{env, str::FromStr};
 
