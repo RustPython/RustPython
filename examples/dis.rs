@@ -9,11 +9,11 @@ extern crate env_logger;
 #[macro_use]
 extern crate log;
 
-use clap::{crate_authors, crate_version, Arg, ArgAction, Command};
+use clap::{crate_authors, crate_version, value_parser, Arg, ArgAction, Command};
 use rustpython_compiler as compiler;
 use std::error::Error;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 fn main() {
     env_logger::init();
@@ -25,6 +25,7 @@ fn main() {
             Arg::new("scripts")
                 .help("Scripts to scan")
                 .action(ArgAction::Append)
+                .value_parser(value_parser!(PathBuf))
                 .required(true),
         )
         .arg(
@@ -57,14 +58,14 @@ fn main() {
     let mode = matches.get_one::<String>("mode").unwrap().parse().unwrap();
     let expand_codeobjects = !matches.get_flag("no_expand");
     let optimize = matches.get_count("optimize");
-    let scripts = matches.get_raw("scripts").unwrap();
+    let scripts = matches.get_many::<PathBuf>("scripts").unwrap();
 
     let opts = compiler::CompileOpts {
         optimize,
         ..Default::default()
     };
 
-    for script in scripts.map(Path::new) {
+    for script in scripts {
         if script.exists() && script.is_file() {
             let res = display_script(script, mode, opts.clone(), expand_codeobjects);
             if let Err(e) = res {

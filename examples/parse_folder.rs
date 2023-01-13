@@ -5,16 +5,14 @@
 //! example usage:
 //! $ RUST_LOG=info cargo run --release parse_folder /usr/lib/python3.7
 
-#[macro_use]
-extern crate clap;
 extern crate env_logger;
 #[macro_use]
 extern crate log;
 
-use clap::{Arg, Command};
+use clap::{crate_authors, crate_version, value_parser, Arg, Command};
 
 use rustpython_parser::{ast, parser};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 fn main() {
@@ -23,10 +21,15 @@ fn main() {
         .version(crate_version!())
         .author(crate_authors!())
         .about("Walks over all .py files in a folder, and parses them.")
-        .arg(Arg::new("folder").help("Folder to scan").required(true));
+        .arg(
+            Arg::new("folder")
+                .value_parser(value_parser!(PathBuf))
+                .help("Folder to scan")
+                .required(true),
+        );
     let matches = app.get_matches();
 
-    let folder = Path::new(matches.get_one::<String>("folder").unwrap());
+    let folder = matches.get_one::<PathBuf>("folder").unwrap();
     if folder.exists() && folder.is_dir() {
         println!("Parsing folder of python code: {folder:?}");
         let t1 = Instant::now();
