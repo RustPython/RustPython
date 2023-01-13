@@ -869,7 +869,7 @@ impl FormatString {
         let mut left = String::new();
 
         // There may be one layer nesting brackets in spec
-        for (idx, c) in text.chars().enumerate() {
+        for (idx, c) in text.char_indices() {
             if idx == 0 {
                 if c != '{' {
                     return Err(FormatParseError::MissingStartBracket);
@@ -1074,6 +1074,11 @@ mod tests {
         });
 
         assert_eq!(FormatString::from_str("abcd{1}:{key}"), expected);
+    }
+
+    #[test]
+    fn test_format_parse_multi_byte_char() {
+        assert!(FormatString::from_str("{a:%ЫйЯЧ}").is_ok());
     }
 
     #[test]
