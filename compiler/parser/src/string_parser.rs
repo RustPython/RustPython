@@ -711,6 +711,7 @@ mod tests {
     #[test]
     fn test_parse_fstring_yield_expr() {
         let source = "{yield}";
-        assert!(parse_fstring(source).is_err());
+        let parse_ast = parse_fstring(source).unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
     }
 }
