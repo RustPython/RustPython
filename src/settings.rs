@@ -26,7 +26,7 @@ fn parse_arguments(app: Command) -> ArgMatches {
             Arg::new("script")
                 .required(false)
                 .action(ArgAction::Append)
-                .allow_hyphen_values(true)
+                //.allow_hyphen_values(true)
                 .value_name("script, args")
                 .num_args(1..)
         )
