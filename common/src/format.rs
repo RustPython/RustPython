@@ -431,11 +431,13 @@ impl FormatSpec {
                 precision,
                 magnitude,
                 float_ops::Case::Upper,
+                self.alternate_form,
             )),
             Some(FormatType::FixedPointLower) => Ok(float_ops::format_fixed(
                 precision,
                 magnitude,
                 float_ops::Case::Lower,
+                self.alternate_form,
             )),
             Some(FormatType::Decimal)
             | Some(FormatType::Binary)
@@ -454,7 +456,7 @@ impl FormatSpec {
                     precision,
                     magnitude,
                     float_ops::Case::Upper,
-                    false,
+                    self.alternate_form,
                     false,
                 ))
             }
@@ -464,7 +466,7 @@ impl FormatSpec {
                     precision,
                     magnitude,
                     float_ops::Case::Lower,
-                    false,
+                    self.alternate_form,
                     false,
                 ))
             }
@@ -472,16 +474,22 @@ impl FormatSpec {
                 precision,
                 magnitude,
                 float_ops::Case::Upper,
+                self.alternate_form,
             )),
             Some(FormatType::ExponentLower) => Ok(float_ops::format_exponent(
                 precision,
                 magnitude,
                 float_ops::Case::Lower,
+                self.alternate_form,
             )),
             Some(FormatType::Percentage) => match magnitude {
                 magnitude if magnitude.is_nan() => Ok("nan%".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
-                _ => Ok(format!("{:.*}%", precision, magnitude * 100.0)),
+                _ => {
+                    let result = format!("{:.*}", precision, magnitude * 100.0);
+                    let dot = float_ops::get_dot(precision, self.alternate_form);
+                    Ok(format!("{result}{dot}%"))
+                }
             },
             None => match magnitude {
                 magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
@@ -493,7 +501,7 @@ impl FormatSpec {
                             precision,
                             magnitude,
                             float_ops::Case::Lower,
-                            false,
+                            self.alternate_form,
                             true,
                         ))
                     }
