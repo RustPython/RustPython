@@ -17,7 +17,7 @@ use crate::{extract_spans, Diagnostic};
 use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use rustpython_compiler_core::{CodeObject, FrozenModule, Mode};
+use rustpython_compiler_core::{frozen_lib, CodeObject, Mode};
 use std::{
     collections::HashMap,
     env, fs,
@@ -42,6 +42,11 @@ enum CompilationSourceKind {
     SourceCode(String),
     /// Source is a directory
     Dir(PathBuf),
+}
+
+struct CompiledModule {
+    code: CodeObject,
+    package: bool,
 }
 
 struct CompilationSource {
@@ -80,7 +85,7 @@ impl CompilationSource {
         mode: Mode,
         module_name: String,
         compiler: &dyn Compiler,
-    ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
+    ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
         match &self.kind {
             CompilationSourceKind::Dir(rel_path) => self.compile_dir(
                 &CARGO_MANIFEST_DIR.join(rel_path),
@@ -89,7 +94,7 @@ impl CompilationSource {
                 compiler,
             ),
             _ => Ok(hashmap! {
-                module_name.clone() => FrozenModule {
+                module_name.clone() => CompiledModule {
                     code: self.compile_single(mode, module_name, compiler)?,
                     package: false,
                 },
@@ -131,7 +136,7 @@ impl CompilationSource {
         parent: String,
         mode: Mode,
         compiler: &dyn Compiler,
-    ) -> Result<HashMap<String, FrozenModule>, Diagnostic> {
+    ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
         let mut code_map = HashMap::new();
         let paths = fs::read_dir(path)
             .or_else(|e| {
@@ -217,7 +222,7 @@ impl CompilationSource {
 
                 code_map.insert(
                     module_name,
-                    FrozenModule {
+                    CompiledModule {
                         code,
                         package: is_init,
                     },
@@ -369,12 +374,11 @@ pub fn impl_py_compile(
         .source
         .compile_single(args.mode, args.module_name, compiler)?;
 
-    let bytes = code.to_bytes();
-    let bytes = LitByteStr::new(&bytes, Span::call_site());
+    let frozen = frozen_lib::FrozenCodeObject::encode(&code);
+    let bytes = LitByteStr::new(&frozen.bytes, Span::call_site());
 
     let output = quote! {
-        #crate_name::CodeObject::from_bytes(#bytes)
-            .expect("Deserializing CodeObject failed")
+        #crate_name::frozen_lib::FrozenCodeObject { bytes: &#bytes[..] }
     };
 
     Ok(output)
@@ -390,12 +394,17 @@ pub fn impl_py_freeze(
     let crate_name = args.crate_name;
     let code_map = args.source.compile(args.mode, args.module_name, compiler)?;
 
-    let data =
-        rustpython_compiler_core::frozen_lib::encode_lib(code_map.iter().map(|(k, v)| (&**k, v)));
-    let bytes = LitByteStr::new(&data, Span::call_site());
+    let data = frozen_lib::FrozenLib::encode(code_map.iter().map(|(k, v)| {
+        let v = frozen_lib::FrozenModule {
+            code: frozen_lib::FrozenCodeObject::encode(&v.code),
+            package: v.package,
+        };
+        (&**k, v)
+    }));
+    let bytes = LitByteStr::new(&data.bytes, Span::call_site());
 
     let output = quote! {
-        #crate_name::frozen_lib::decode_lib(#bytes)
+        #crate_name::frozen_lib::FrozenLib::from_ref(#bytes)
     };
 
     Ok(output)

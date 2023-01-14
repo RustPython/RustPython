@@ -21,7 +21,7 @@ use crate::{
         tuple::{PyTuple, PyTupleTyped},
         PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStrInterned, PyStrRef, PyTypeRef,
     },
-    bytecode,
+    bytecode::frozen_lib::FrozenModule,
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::ToPyObject,
@@ -88,7 +88,7 @@ struct ExceptionStack {
 pub struct PyGlobalState {
     pub settings: Settings,
     pub module_inits: stdlib::StdlibMap,
-    pub frozen: HashMap<String, bytecode::FrozenModule, ahash::RandomState>,
+    pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
@@ -330,7 +330,7 @@ impl VirtualMachine {
     /// Can only be used in the initialization closure passed to [`Interpreter::with_init`]
     pub fn add_frozen<I>(&mut self, frozen: I)
     where
-        I: IntoIterator<Item = (String, bytecode::FrozenModule)>,
+        I: IntoIterator<Item = (&'static str, FrozenModule)>,
     {
         self.state_mut().frozen.extend(frozen);
     }
