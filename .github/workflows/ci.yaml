@@ -129,6 +129,7 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
+
       - uses: Swatinem/rust-cache@v2
 
       - name: run clippy
@@ -253,6 +254,7 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
+
       - uses: Swatinem/rust-cache@v2
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
@@ -372,6 +374,7 @@ jobs:
         with:
             toolchain: nightly
             components: miri
+
       - uses: Swatinem/rust-cache@v2
       - name: Run tests under miri
         # miri-ignore-leaks because the type-object circular reference means that there will always be
@@ -391,6 +394,7 @@ jobs:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
+
       - uses: Swatinem/rust-cache@v2
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -442,6 +446,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasi
+
       - uses: Swatinem/rust-cache@v2
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v1
