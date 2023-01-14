@@ -487,8 +487,8 @@ impl FormatSpec {
                 magnitude if magnitude.is_infinite() => Ok("inf%".to_owned()),
                 _ => {
                     let result = format!("{:.*}", precision, magnitude * 100.0);
-                    let dot = float_ops::get_dot(precision, self.alternate_form);
-                    Ok(format!("{result}{dot}%"))
+                    let point = float_ops::decimal_point_or_empty(precision, self.alternate_form);
+                    Ok(format!("{result}{point}%"))
                 }
             },
             None => match magnitude {

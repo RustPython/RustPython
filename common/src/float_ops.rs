@@ -124,7 +124,7 @@ fn format_inf(case: Case) -> String {
     inf.to_string()
 }
 
-pub fn get_dot(precision: usize, alternate_form: bool) -> &'static str {
+pub fn decimal_point_or_empty(precision: usize, alternate_form: bool) -> &'static str {
     match (precision, alternate_form) {
         (0, true) => ".",
         _ => "",
@@ -134,8 +134,8 @@ pub fn get_dot(precision: usize, alternate_form: bool) -> &'static str {
 pub fn format_fixed(precision: usize, magnitude: f64, case: Case, alternate_form: bool) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
-            let dot = get_dot(precision, alternate_form);
-            format!("{magnitude:.precision$}{dot}")
+            let point = decimal_point_or_empty(precision, alternate_form);
+            format!("{magnitude:.precision$}{point}")
         }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
@@ -161,8 +161,8 @@ pub fn format_exponent(
                 Case::Lower => 'e',
                 Case::Upper => 'E',
             };
-            let dot = get_dot(precision, alternate_form);
-            format!("{base}{dot}{e}{exponent:+#03}")
+            let point = decimal_point_or_empty(precision, alternate_form);
+            format!("{base}{point}{e}{exponent:+#03}")
         }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
@@ -219,14 +219,14 @@ pub fn format_general(
                 };
                 let magnitude = format!("{:.*}", precision + 1, base);
                 let base = maybe_remove_trailing_redundant_chars(magnitude, alternate_form);
-                let dot = get_dot(precision.saturating_sub(1), alternate_form);
-                format!("{base}{dot}{e}{exponent:+#03}")
+                let point = decimal_point_or_empty(precision.saturating_sub(1), alternate_form);
+                format!("{base}{point}{e}{exponent:+#03}")
             } else {
                 let precision = ((precision as i64) - 1 - exponent) as usize;
                 let magnitude = format!("{magnitude:.precision$}");
                 let base = maybe_remove_trailing_redundant_chars(magnitude, alternate_form);
-                let dot = get_dot(precision, alternate_form);
-                format!("{base}{dot}")
+                let point = decimal_point_or_empty(precision, alternate_form);
+                format!("{base}{point}")
             }
         }
         magnitude if magnitude.is_nan() => format_nan(case),
