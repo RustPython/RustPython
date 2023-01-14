@@ -124,9 +124,19 @@ fn format_inf(case: Case) -> String {
     inf.to_string()
 }
 
-pub fn format_fixed(precision: usize, magnitude: f64, case: Case) -> String {
+pub fn decimal_point_or_empty(precision: usize, alternate_form: bool) -> &'static str {
+    match (precision, alternate_form) {
+        (0, true) => ".",
+        _ => "",
+    }
+}
+
+pub fn format_fixed(precision: usize, magnitude: f64, case: Case, alternate_form: bool) -> String {
     match magnitude {
-        magnitude if magnitude.is_finite() => format!("{magnitude:.precision$}"),
+        magnitude if magnitude.is_finite() => {
+            let point = decimal_point_or_empty(precision, alternate_form);
+            format!("{magnitude:.precision$}{point}")
+        }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
         _ => "".to_string(),
@@ -135,7 +145,12 @@ pub fn format_fixed(precision: usize, magnitude: f64, case: Case) -> String {
 
 // Formats floats into Python style exponent notation, by first formatting in Rust style
 // exponent notation (`1.0000e0`), then convert to Python style (`1.0000e+00`).
-pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
+pub fn format_exponent(
+    precision: usize,
+    magnitude: f64,
+    case: Case,
+    alternate_form: bool,
+) -> String {
     match magnitude {
         magnitude if magnitude.is_finite() => {
             let r_exp = format!("{magnitude:.precision$e}");
@@ -146,7 +161,8 @@ pub fn format_exponent(precision: usize, magnitude: f64, case: Case) -> String {
                 Case::Lower => 'e',
                 Case::Upper => 'E',
             };
-            format!("{base}{e}{exponent:+#03}")
+            let point = decimal_point_or_empty(precision, alternate_form);
+            format!("{base}{point}{e}{exponent:+#03}")
         }
         magnitude if magnitude.is_nan() => format_nan(case),
         magnitude if magnitude.is_infinite() => format_inf(case),
@@ -201,19 +217,16 @@ pub fn format_general(
                     Case::Lower => 'e',
                     Case::Upper => 'E',
                 };
-
-                let base = maybe_remove_trailing_redundant_chars(
-                    format!("{:.*}", precision + 1, base),
-                    alternate_form,
-                );
-                format!("{base}{e}{exponent:+#03}")
+                let magnitude = format!("{:.*}", precision + 1, base);
+                let base = maybe_remove_trailing_redundant_chars(magnitude, alternate_form);
+                let point = decimal_point_or_empty(precision.saturating_sub(1), alternate_form);
+                format!("{base}{point}{e}{exponent:+#03}")
             } else {
-                let precision = (precision as i64) - 1 - exponent;
-                let precision = precision as usize;
-                maybe_remove_trailing_redundant_chars(
-                    format!("{magnitude:.precision$}"),
-                    alternate_form,
-                )
+                let precision = ((precision as i64) - 1 - exponent) as usize;
+                let magnitude = format!("{magnitude:.precision$}");
+                let base = maybe_remove_trailing_redundant_chars(magnitude, alternate_form);
+                let point = decimal_point_or_empty(precision, alternate_form);
+                format!("{base}{point}")
             }
         }
         magnitude if magnitude.is_nan() => format_nan(case),

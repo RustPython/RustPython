@@ -758,8 +758,6 @@ class FormatTestCase(unittest.TestCase):
         self.assertEqual(format(INF, 'f'), 'inf')
         self.assertEqual(format(INF, 'F'), 'INF')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_IEEE_754
     def test_format_testfile(self):
         with open(format_testfile, encoding="utf-8") as testfile:
