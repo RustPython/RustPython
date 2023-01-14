@@ -89,9 +89,8 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     config = config.init_hook(Box::new(init));
 
     let interp = config.interpreter();
-    let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode, quiet_var));
 
-    ExitCode::from(exitcode)
+    interp.run(move |vm| run_rustpython(vm, run_mode, quiet_var))
 }
 
 fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {

@@ -22,5 +22,5 @@ fn main() -> ExitCode {
     let result = result.map(|result| {
         println!("name: {result}");
     });
-    ExitCode::from(interp.run(|_vm| result))
+    interp.run(|_vm| result)
 }

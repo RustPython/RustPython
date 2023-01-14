@@ -3,7 +3,7 @@ use crate::{
     stdlib::{atexit, sys},
     PyResult,
 };
-use std::sync::atomic::Ordering;
+use std::{process::ExitCode, sync::atomic::Ordering};
 
 /// The general interface for the VM
 ///
@@ -59,7 +59,7 @@ impl Interpreter {
         thread::enter_vm(&self.vm, || f(&self.vm))
     }
 
-    pub fn run<F, R>(self, f: F) -> u8
+    pub fn run<F, R>(self, f: F) -> ExitCode
     where
         F: FnOnce(&VirtualMachine) -> PyResult<R>,
     {
@@ -69,7 +69,7 @@ impl Interpreter {
 
             // See if any exception leaked out:
             let exit_code = res
-                .map(|_| 0)
+                .map(|_| ExitCode::from(0))
                 .map_err(|exc| vm.handle_exit_exception(exc))
                 .unwrap_or_else(|code| code);
 
