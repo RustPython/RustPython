@@ -14,7 +14,7 @@ jobs:
     needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -65,7 +65,7 @@ jobs:
     needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -100,7 +100,7 @@ jobs:
     needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -138,7 +138,7 @@ jobs:
     needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -191,7 +191,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on:  ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:

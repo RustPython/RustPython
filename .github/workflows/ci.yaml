@@ -111,7 +111,7 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -129,7 +129,7 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
 
       - name: run clippy
         run: cargo clippy ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
@@ -162,7 +162,7 @@ jobs:
     needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -233,7 +233,7 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest]
       fail-fast: false
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -253,7 +253,7 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
       - uses: actions/setup-python@v2
@@ -296,7 +296,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on:  ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -326,7 +326,7 @@ jobs:
     needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -362,7 +362,7 @@ jobs:
     needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -372,7 +372,7 @@ jobs:
         with:
             toolchain: nightly
             components: miri
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests under miri
         # miri-ignore-leaks because the type-object circular reference means that there will always be
         # a memory leak, at least until we have proper cyclic gc
@@ -384,14 +384,14 @@ jobs:
     needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       - name: install geckodriver
@@ -433,7 +433,7 @@ jobs:
     needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Cache generated parser
         uses: actions/cache@v2
         with:
@@ -442,7 +442,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasi
-      - uses: Swatinem/rust-cache@v1
+      - uses: Swatinem/rust-cache@v2
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v1
       - name: Install clang
