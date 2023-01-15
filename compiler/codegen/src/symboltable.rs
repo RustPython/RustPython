@@ -885,16 +885,10 @@ impl SymbolTableBuilder {
                 self.scan_expression(value, ExpressionContext::Load)?;
             }
             Dict { keys, values } => {
-                let (packed, unpacked): (Vec<_>, Vec<_>) = keys
-                    .iter()
-                    .zip(values.iter())
-                    .partition(|(key, _)| key.is_some());
-                for (key, value) in packed {
-                    self.scan_expression(key.as_ref().unwrap(), context)?;
-                    self.scan_expression(value, context)?;
-                }
-                for (_, value) in unpacked {
-                    // dict unpacking marker
+                for (key, value) in keys.iter().zip(values.iter()) {
+                    if let Some(key) = key {
+                        self.scan_expression(key, context)?;
+                    }
                     self.scan_expression(value, context)?;
                 }
             }
