@@ -1992,18 +1992,18 @@ impl Compiler {
         values: &[ast::Expr],
     ) -> CompileResult<()> {
         let mut size = 0;
-
-        let (packed_values, unpacked_values) = values.split_at(keys.len());
-        for (key, value) in keys.iter().zip(packed_values) {
-            if let Some(key) = key {
-                self.compile_expression(key)?;
-            }
+        let (packed, unpacked): (Vec<_>, Vec<_>) = keys
+            .iter()
+            .zip(values.iter())
+            .partition(|(k, _)| k.is_some());
+        for (key, value) in packed {
+            self.compile_expression(&key.as_ref().unwrap())?;
             self.compile_expression(value)?;
             size += 1;
         }
         emit!(self, Instruction::BuildMap { size });
 
-        for value in unpacked_values {
+        for (_, value) in unpacked {
             self.compile_expression(value)?;
             emit!(self, Instruction::DictUpdate);
         }
