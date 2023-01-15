@@ -128,8 +128,6 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqual(float(memoryview(b'12.3A')[1:4]), 2.3)
         self.assertEqual(float(memoryview(b'12.34')[1:4]), 2.3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_error_message(self):
         def check(s):
             with self.assertRaises(ValueError, msg='float(%r)' % (s,)) as cm:
