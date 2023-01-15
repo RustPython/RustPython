@@ -36,6 +36,8 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
+#[cfg(windows)]
+use std::os::windows::process::ExitCodeExt;
 use std::{
     borrow::Cow,
     cell::{Cell, Ref, RefCell},
@@ -764,6 +766,10 @@ impl VirtualMachine {
                 #[cfg(unix)]
                 {
                     ExitCode::from((libc::SIGINT as u8) + 128u8)
+                }
+                #[cfg(windows)]
+                {
+                    ExitCode::from_raw(winapi::um::winnt::STATUS_CONTROL_C_EXIT)
                 }
                 #[cfg(not(any(unix, windows)))]
                 {
