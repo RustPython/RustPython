@@ -1120,6 +1120,24 @@ pub(crate) fn call_slot_new(
     args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
+    let mut static_base = Some(subtype.clone());
+    while let Some(ref basetype) = static_base {
+        if (basetype.flags() & PyTypeFlags::HEAPTYPE.bits()) != 0 {
+            static_base = basetype.base().clone();
+        } else {
+            break;
+        }
+    }
+    if let Some(ref basetype) = static_base {
+        if !PyType::subclasscheck(basetype.to_owned(), typ.to_owned()) {
+            return Err(vm.new_type_error(format!(
+                "{}.__new__({}) is not safe, use {}.__new__()",
+                typ.name(),
+                subtype.name(),
+                basetype.name()
+            )));
+        }
+    }
     for cls in typ.deref().iter_mro() {
         if let Some(slot_new) = cls.slots.new.load() {
             return slot_new(subtype, args, vm);
