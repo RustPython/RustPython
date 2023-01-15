@@ -1997,7 +1997,7 @@ impl Compiler {
             .zip(values.iter())
             .partition(|(k, _)| k.is_some());
         for (key, value) in packed {
-            self.compile_expression(&key.as_ref().unwrap())?;
+            self.compile_expression(key.as_ref().unwrap())?;
             self.compile_expression(value)?;
             size += 1;
         }
