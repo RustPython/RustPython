@@ -1,4 +1,5 @@
 use crate::{float_ops, str::BorrowedStr};
+use float_ops::Case;
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
 use num_traits::{cast::ToPrimitive, Signed};
@@ -125,15 +126,11 @@ pub enum FormatType {
     Character,
     Decimal,
     Octal,
-    HexLower,
-    HexUpper,
     Number,
-    ExponentLower,
-    ExponentUpper,
-    GeneralFormatLower,
-    GeneralFormatUpper,
-    FixedPointLower,
-    FixedPointUpper,
+    Hex(Case),
+    Exponent(Case),
+    GeneralFormat(Case),
+    FixedPoint(Case),
     Percentage,
 }
 
@@ -145,15 +142,15 @@ impl From<&FormatType> for char {
             FormatType::Character => 'c',
             FormatType::Decimal => 'd',
             FormatType::Octal => 'o',
-            FormatType::HexLower => 'x',
-            FormatType::HexUpper => 'X',
             FormatType::Number => 'n',
-            FormatType::ExponentLower => 'e',
-            FormatType::ExponentUpper => 'E',
-            FormatType::GeneralFormatLower => 'g',
-            FormatType::GeneralFormatUpper => 'G',
-            FormatType::FixedPointLower => 'f',
-            FormatType::FixedPointUpper => 'F',
+            FormatType::Hex(Case::Lower) => 'x',
+            FormatType::Hex(Case::Upper) => 'X',
+            FormatType::Exponent(Case::Lower) => 'e',
+            FormatType::Exponent(Case::Upper) => 'E',
+            FormatType::GeneralFormat(Case::Lower) => 'g',
+            FormatType::GeneralFormat(Case::Upper) => 'G',
+            FormatType::FixedPoint(Case::Lower) => 'f',
+            FormatType::FixedPoint(Case::Upper) => 'F',
             FormatType::Percentage => '%',
         }
     }
@@ -168,15 +165,15 @@ impl FormatParse for FormatType {
             Some('c') => (Some(Self::Character), chars.as_str()),
             Some('d') => (Some(Self::Decimal), chars.as_str()),
             Some('o') => (Some(Self::Octal), chars.as_str()),
-            Some('x') => (Some(Self::HexLower), chars.as_str()),
-            Some('X') => (Some(Self::HexUpper), chars.as_str()),
-            Some('e') => (Some(Self::ExponentLower), chars.as_str()),
-            Some('E') => (Some(Self::ExponentUpper), chars.as_str()),
-            Some('f') => (Some(Self::FixedPointLower), chars.as_str()),
-            Some('F') => (Some(Self::FixedPointUpper), chars.as_str()),
-            Some('g') => (Some(Self::GeneralFormatLower), chars.as_str()),
-            Some('G') => (Some(Self::GeneralFormatUpper), chars.as_str()),
             Some('n') => (Some(Self::Number), chars.as_str()),
+            Some('x') => (Some(Self::Hex(Case::Lower)), chars.as_str()),
+            Some('X') => (Some(Self::Hex(Case::Upper)), chars.as_str()),
+            Some('e') => (Some(Self::Exponent(Case::Lower)), chars.as_str()),
+            Some('E') => (Some(Self::Exponent(Case::Upper)), chars.as_str()),
+            Some('f') => (Some(Self::FixedPoint(Case::Lower)), chars.as_str()),
+            Some('F') => (Some(Self::FixedPoint(Case::Upper)), chars.as_str()),
+            Some('g') => (Some(Self::GeneralFormat(Case::Lower)), chars.as_str()),
+            Some('G') => (Some(Self::GeneralFormat(Case::Upper)), chars.as_str()),
             Some('%') => (Some(Self::Percentage), chars.as_str()),
             _ => (None, text),
         }
@@ -368,8 +365,7 @@ impl FormatSpec {
                 | FormatType::Character
                 | FormatType::Binary
                 | FormatType::Octal
-                | FormatType::HexLower
-                | FormatType::HexUpper
+                | FormatType::Hex(_)
                 | FormatType::Number,
             ) => {
                 let ch = char::from(format_type);
@@ -388,13 +384,8 @@ impl FormatSpec {
 
     fn get_separator_interval(&self) -> usize {
         match self.format_type {
-            Some(FormatType::Binary) => 4,
-            Some(FormatType::Decimal) => 3,
-            Some(FormatType::Octal) => 4,
-            Some(FormatType::HexLower) => 4,
-            Some(FormatType::HexUpper) => 4,
-            Some(FormatType::Number) => 3,
-            Some(FormatType::FixedPointLower) | Some(FormatType::FixedPointUpper) => 3,
+            Some(FormatType::Binary | FormatType::Octal | FormatType::Hex(_)) => 4,
+            Some(FormatType::Decimal | FormatType::Number | FormatType::FixedPoint(_)) => 3,
             None => 3,
             _ => panic!("Separators only valid for numbers!"),
         }
@@ -423,63 +414,40 @@ impl FormatSpec {
     }
 
     pub fn format_float(&self, num: f64) -> Result<String, FormatSpecError> {
-        self.validate_format(FormatType::FixedPointLower)?;
+        self.validate_format(FormatType::FixedPoint(Case::Lower))?;
         let precision = self.precision.unwrap_or(6);
         let magnitude = num.abs();
-        let raw_magnitude_str: Result<String, FormatSpecError> = match self.format_type {
-            Some(FormatType::FixedPointUpper) => Ok(float_ops::format_fixed(
+        let raw_magnitude_str: Result<String, FormatSpecError> = match &self.format_type {
+            Some(FormatType::FixedPoint(case)) => Ok(float_ops::format_fixed(
                 precision,
                 magnitude,
-                float_ops::Case::Upper,
-                self.alternate_form,
-            )),
-            Some(FormatType::FixedPointLower) => Ok(float_ops::format_fixed(
-                precision,
-                magnitude,
-                float_ops::Case::Lower,
+                *case,
                 self.alternate_form,
             )),
             Some(FormatType::Decimal)
             | Some(FormatType::Binary)
             | Some(FormatType::Octal)
-            | Some(FormatType::HexLower)
-            | Some(FormatType::HexUpper)
+            | Some(FormatType::Hex(_))
             | Some(FormatType::String)
             | Some(FormatType::Character) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "float"))
             }
             Some(FormatType::Number) => Err(FormatSpecError::NotImplemented('n', "float")),
-            Some(FormatType::GeneralFormatUpper) => {
+            Some(FormatType::GeneralFormat(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
                 Ok(float_ops::format_general(
                     precision,
                     magnitude,
-                    float_ops::Case::Upper,
+                    *case,
                     self.alternate_form,
                     false,
                 ))
             }
-            Some(FormatType::GeneralFormatLower) => {
-                let precision = if precision == 0 { 1 } else { precision };
-                Ok(float_ops::format_general(
-                    precision,
-                    magnitude,
-                    float_ops::Case::Lower,
-                    self.alternate_form,
-                    false,
-                ))
-            }
-            Some(FormatType::ExponentUpper) => Ok(float_ops::format_exponent(
+            Some(FormatType::Exponent(case)) => Ok(float_ops::format_exponent(
                 precision,
                 magnitude,
-                float_ops::Case::Upper,
-                self.alternate_form,
-            )),
-            Some(FormatType::ExponentLower) => Ok(float_ops::format_exponent(
-                precision,
-                magnitude,
-                float_ops::Case::Lower,
+                *case,
                 self.alternate_form,
             )),
             Some(FormatType::Percentage) => match magnitude {
@@ -542,8 +510,8 @@ impl FormatSpec {
             match self.format_type {
                 Some(FormatType::Binary) => "0b",
                 Some(FormatType::Octal) => "0o",
-                Some(FormatType::HexLower) => "0x",
-                Some(FormatType::HexUpper) => "0X",
+                Some(FormatType::Hex(Case::Lower)) => "0x",
+                Some(FormatType::Hex(Case::Upper)) => "0X",
                 _ => "",
             }
         } else {
@@ -553,8 +521,8 @@ impl FormatSpec {
             Some(FormatType::Binary) => self.format_int_radix(magnitude, 2),
             Some(FormatType::Decimal) => self.format_int_radix(magnitude, 10),
             Some(FormatType::Octal) => self.format_int_radix(magnitude, 8),
-            Some(FormatType::HexLower) => self.format_int_radix(magnitude, 16),
-            Some(FormatType::HexUpper) => match self.precision {
+            Some(FormatType::Hex(Case::Lower)) => self.format_int_radix(magnitude, 16),
+            Some(FormatType::Hex(Case::Upper)) => match self.precision {
                 Some(_) => Err(FormatSpecError::PrecisionNotAllowed),
                 None => {
                     let mut result = magnitude.to_str_radix(16);
@@ -572,12 +540,9 @@ impl FormatSpec {
                     Some(_) | None => Err(FormatSpecError::CodeNotInRange),
                 },
             },
-            Some(FormatType::GeneralFormatUpper)
-            | Some(FormatType::GeneralFormatLower)
-            | Some(FormatType::FixedPointUpper)
-            | Some(FormatType::FixedPointLower)
-            | Some(FormatType::ExponentUpper)
-            | Some(FormatType::ExponentLower)
+            Some(FormatType::GeneralFormat(_))
+            | Some(FormatType::FixedPoint(_))
+            | Some(FormatType::Exponent(_))
             | Some(FormatType::Percentage) => match num.to_f64() {
                 Some(float) => return self.format_float(float),
                 _ => Err(FormatSpecError::UnableToConvert),
