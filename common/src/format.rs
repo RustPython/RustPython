@@ -465,7 +465,7 @@ impl FormatSpec {
                     true,
                 ))
             },
-            Some(FormatType::GeneralFormatUpper) => {
+            Some(FormatType::GeneralFormat(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
                 Ok(float_ops::format_general(
                     precision,
