@@ -887,7 +887,9 @@ impl SymbolTableBuilder {
             Dict { keys, values } => {
                 let (packed, unpacked) = values.split_at(keys.len());
                 for (key, value) in keys.iter().zip(packed) {
-                    self.scan_expression(key, context)?;
+                    if let Some(key) = key {
+                        self.scan_expression(key, context)?;
+                    }
                     self.scan_expression(value, context)?;
                 }
                 for value in unpacked {

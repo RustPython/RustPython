@@ -1986,12 +1986,18 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_dict(&mut self, keys: &[ast::Expr], values: &[ast::Expr]) -> CompileResult<()> {
+    fn compile_dict(
+        &mut self,
+        keys: &[Option<ast::Expr>],
+        values: &[ast::Expr],
+    ) -> CompileResult<()> {
         let mut size = 0;
 
         let (packed_values, unpacked_values) = values.split_at(keys.len());
         for (key, value) in keys.iter().zip(packed_values) {
-            self.compile_expression(key)?;
+            if let Some(key) = key {
+                self.compile_expression(key)?;
+            }
             self.compile_expression(value)?;
             size += 1;
         }
