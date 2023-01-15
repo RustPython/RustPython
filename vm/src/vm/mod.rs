@@ -36,6 +36,11 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
+#[cfg(unix)]
+use nix::{
+    sys::signal::{kill, sigaction, SaFlags, SigAction, SigSet, Signal::SIGINT},
+    unistd::getpid,
+};
 use std::sync::atomic::AtomicBool;
 use std::{
     borrow::Cow,
@@ -763,6 +768,37 @@ impl VirtualMachine {
                 self.print_exception(exc);
                 #[cfg(unix)]
                 {
+                    unsafe {
+                        if sigaction(
+                            SIGINT,
+                            &SigAction::new(
+                                nix::sys::signal::SigHandler::SigDfl,
+                                SaFlags::SA_ONSTACK,
+                                SigSet::empty(),
+                            ),
+                        )
+                        .is_ok()
+                        {
+                            // FIXME: flush sys.stdout and sys.stderr before killing process.
+                            if let Ok(stdout) = stdlib::sys::get_stdout(self) {
+                                let _ = self.call_method(
+                                    &stdout,
+                                    identifier!(self, flush).as_str(),
+                                    (),
+                                );
+                            }
+                            if let Ok(stderr) = stdlib::sys::get_stderr(self) {
+                                let _ = self.call_method(
+                                    &stderr,
+                                    identifier!(self, flush).as_str(),
+                                    (),
+                                );
+                            }
+
+                            kill(getpid(), SIGINT).expect("Expect to be killed.");
+                        }
+                    }
+
                     (libc::SIGINT as u8) + 128u8
                 }
                 #[cfg(not(unix))]
