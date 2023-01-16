@@ -312,14 +312,20 @@ impl FormatSpec {
         inter: i32,
         sep: char,
         disp_digit_cnt: i32,
-        use_whitespace_padding: bool
+        use_whitespace_padding: bool,
     ) -> String {
         // Don't add separators to the floating decimal point of numbers
         let mut parts = magnitude_str.splitn(2, '.');
         let magnitude_int_str = parts.next().unwrap().to_string();
         let dec_digit_cnt = magnitude_str.len() as i32 - magnitude_int_str.len() as i32;
         let int_digit_cnt = disp_digit_cnt - dec_digit_cnt;
-        let mut result = FormatSpec::separate_integer(magnitude_int_str, inter, sep, int_digit_cnt, use_whitespace_padding);
+        let mut result = FormatSpec::separate_integer(
+            magnitude_int_str,
+            inter,
+            sep,
+            int_digit_cnt,
+            use_whitespace_padding,
+        );
         if let Some(part) = parts.next() {
             result.push_str(&format!(".{part}"))
         }
@@ -396,7 +402,12 @@ impl FormatSpec {
         }
     }
 
-    fn add_magnitude_separators(&self, magnitude_str: String, prefix: &str, use_whitespace_padding: bool) -> String {
+    fn add_magnitude_separators(
+        &self,
+        magnitude_str: String,
+        prefix: &str,
+        use_whitespace_padding: bool,
+    ) -> String {
         match &self.grouping_option {
             Some(fg) => {
                 let sep = match fg {
@@ -438,7 +449,7 @@ impl FormatSpec {
             | Some(FormatType::Character) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "float"))
-            },
+            }
             Some(FormatType::Number) => {
                 const LOWER_BOUND: f64 = 100000.0;
                 let show_as_exponential = magnitude >= LOWER_BOUND;
@@ -464,7 +475,7 @@ impl FormatSpec {
                     disp_digit_cnt.try_into().unwrap(),
                     true,
                 ))
-            },
+            }
             Some(FormatType::GeneralFormat(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
                 Ok(float_ops::format_general(
