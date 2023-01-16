@@ -180,7 +180,7 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     };
     float_ops::parse_bytes(b).ok_or_else(|| {
         val.repr(vm)
-            .map(|repr| vm.new_value_error(format!("could not convert string to float: '{repr}'")))
+            .map(|repr| vm.new_value_error(format!("could not convert string to float: {repr}")))
             .unwrap_or_else(|e| e)
     })
 }
