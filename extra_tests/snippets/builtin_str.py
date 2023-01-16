@@ -609,6 +609,28 @@ assert '{:.7g}'.format(1.020e-13) == '1.02e-13'
 assert '{:g}'.format(1.020e-13) == '1.02e-13'
 assert "{:g}".format(1.020e-4) == '0.000102'
 
+# Test n formatting
+assert '{:n}'.format(1) == '1'
+assert '{:2n}'.format(1) == ' 1'
+assert '{:3n}'.format(1) == '  1'
+assert '{:4n}'.format(1) == '   1'
+assert '{:5n}'.format(1) == '    1'
+assert '{:n}'.format(10) == '10'
+assert '{:2n}'.format(10) == '10'
+assert '{:3n}'.format(10) == ' 10'
+assert '{:4n}'.format(10) == '  10'
+assert '{:5n}'.format(10) == '   10'
+assert '{:n}'.format(999999.1234) == '999999'
+assert '{:n}'.format(1000000.1234) == '1e+06' 
+assert '{:7n}'.format(1000000.1234) == ' 1e+06'
+assert '{:.8n}'.format(1000000.1234) == '1e+06'
+assert '{:.11n}'.format(1000000.1234) == '1e+06'
+assert '{:n}'.format(float('inf')) == 'inf'
+assert '{:2n}'.format(float('inf')) == 'inf'
+assert '{:3n}'.format(float('inf')) == 'inf'
+assert '{:4n}'.format(float('inf')) == ' inf'
+assert '{:5n}'.format(float('inf')) == '  inf'
+
 # remove*fix test
 def test_removeprefix():
     s = 'foobarfoo'
