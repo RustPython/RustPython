@@ -96,8 +96,6 @@ class PosixTests(unittest.TestCase):
         self.assertNotIn(signal.NSIG, s)
         self.assertLess(len(s), signal.NSIG)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(sys.executable, "sys.executable required.")
     def test_keyboard_interrupt_exit_code(self):
         """KeyboardInterrupt triggers exit via SIGINT."""
