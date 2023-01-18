@@ -779,22 +779,7 @@ impl VirtualMachine {
                         )
                         .is_ok()
                         {
-                            // FIXME: flush sys.stdout and sys.stderr before killing process.
-                            if let Ok(stdout) = stdlib::sys::get_stdout(self) {
-                                let _ = self.call_method(
-                                    &stdout,
-                                    identifier!(self, flush).as_str(),
-                                    (),
-                                );
-                            }
-                            if let Ok(stderr) = stdlib::sys::get_stderr(self) {
-                                let _ = self.call_method(
-                                    &stderr,
-                                    identifier!(self, flush).as_str(),
-                                    (),
-                                );
-                            }
-
+                            interpreter::flush_std(self);
                             kill(getpid(), SIGINT).expect("Expect to be killed.");
                         }
                     }

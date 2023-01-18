@@ -84,7 +84,7 @@ impl Interpreter {
     }
 }
 
-fn flush_std(vm: &VirtualMachine) {
+pub(crate) fn flush_std(vm: &VirtualMachine) {
     if let Ok(stdout) = sys::get_stdout(vm) {
         let _ = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ());
     }
