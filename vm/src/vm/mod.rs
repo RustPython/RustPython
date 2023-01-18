@@ -36,12 +36,14 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use std::sync::atomic::AtomicBool;
+#[cfg(windows)]
+use std::os::windows::process::ExitCodeExt;
 use std::{
     borrow::Cow,
     cell::{Cell, Ref, RefCell},
     collections::{HashMap, HashSet},
 };
+use std::{process::ExitCode, sync::atomic::AtomicBool};
 
 pub use context::Context;
 pub use interpreter::Interpreter;
@@ -732,19 +734,19 @@ impl VirtualMachine {
         }
     }
 
-    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u8 {
+    pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> ExitCode {
         if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
             let args = exc.args();
             let msg = match args.as_slice() {
-                [] => return 0,
+                [] => return ExitCode::from(0),
                 [arg] => match_class!(match arg {
                     ref i @ PyInt => {
                         use num_traits::cast::ToPrimitive;
-                        return i.as_bigint().to_u8().unwrap_or(0);
+                        return ExitCode::from(i.as_bigint().to_u8().unwrap_or(0));
                     }
                     arg => {
                         if self.is_none(arg) {
-                            return 0;
+                            return ExitCode::from(0);
                         } else {
                             arg.str(self).ok()
                         }
@@ -756,23 +758,27 @@ impl VirtualMachine {
                 let stderr = stdlib::sys::PyStderr(self);
                 writeln!(stderr, "{msg}");
             }
-            1
+            ExitCode::from(1)
         } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
             #[allow(clippy::if_same_then_else)]
             {
                 self.print_exception(exc);
                 #[cfg(unix)]
                 {
-                    (libc::SIGINT as u8) + 128u8
+                    ExitCode::from((libc::SIGINT as u8) + 128u8)
                 }
-                #[cfg(not(unix))]
+                #[cfg(windows)]
                 {
-                    1
+                    ExitCode::from_raw(winapi::um::winnt::STATUS_CONTROL_C_EXIT)
+                }
+                #[cfg(not(any(unix, windows)))]
+                {
+                    ExitCode::from(1)
                 }
             }
         } else {
             self.print_exception(exc);
-            1
+            ExitCode::from(1)
         }
     }
 
