@@ -117,6 +117,8 @@ mod builtins {
         {
             use crate::{class::PyClassImpl, stdlib::ast};
 
+            ast::make_module(vm);
+
             if args._feature_version.is_present() {
                 eprintln!("TODO: compile() got `_feature_version` but ignored");
             }
