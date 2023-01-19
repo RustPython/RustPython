@@ -466,7 +466,7 @@ class FormatTest(unittest.TestCase):
         self.assertIs(text % (), text)
         self.assertIs(text.format(), text)
 
-    # TODO: RustPython missing complex.__format__ implementation
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_precision(self):
         f = 1.2

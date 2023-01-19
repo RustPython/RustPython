@@ -609,6 +609,39 @@ assert '{:.7g}'.format(1.020e-13) == '1.02e-13'
 assert '{:g}'.format(1.020e-13) == '1.02e-13'
 assert "{:g}".format(1.020e-4) == '0.000102'
 
+def test_number_formatting():
+    assert '{:n}'.format(0) == '0'
+    assert '{:2n}'.format(1) == ' 1'
+    assert '{:5n}'.format(10) == '   10'
+    assert '{:5n}'.format(100) == '  100'
+    assert '{:5n}'.format(1000) == ' 1000'
+    assert '{:5n}'.format(10000) == '10000'
+    #TODO: should remove trailing zero if the `magnitude` is given by exponential style
+    assert '{:n}'.format(123.123) == '123.123'
+    assert '{:2n}'.format(123.123) == '123.123'
+    assert '{:5n}'.format(123.123) == '123.123'
+    assert '{:.1n}'.format(1.12345) == '1'
+    assert '{:.2n}'.format(1.12345) == '1.1'
+    assert '{:.3n}'.format(1.12345) == '1.12'
+    assert '{:.4n}'.format(1.12345) == '1.123'
+    assert '{:.6n}'.format(1.12345) == '1.12345'
+    assert '{:.1n}'.format(12345.12345) == '1e+04'
+    assert '{:.2n}'.format(12345.12345) == '1.2e+04'
+    assert '{:.3n}'.format(12345.12345) == '1.23e+04'
+    assert '{:.4n}'.format(12345.12345) == '1.235e+04'
+    assert '{:5n}'.format(1234567.0) == '1.23457e+06'
+    assert '{:5n}'.format(1234567.1) == '1.23457e+06'
+    assert '{:.6n}'.format(12345.12345) == '12345.1'
+    assert '{:.7n}'.format(12345.12345) == '12345.12'
+    assert '{:.8n}'.format(12345.12345) == '12345.123'
+    assert '{:.9n}'.format(12345.12345) == '12345.1234'
+    assert '{:.10n}'.format(12345.12345) == '12345.12345'
+    assert '{:.11n}'.format(12345.12345) == '12345.12345'
+
+    ##TODO `nan` and `inf` are not fully supported yet
+    assert '{:n}'.format(float('nan')) == 'nan'
+    assert '{:n}'.format(float('-nan')) == 'nan'
+
 # remove*fix test
 def test_removeprefix():
     s = 'foobarfoo'

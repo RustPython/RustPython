@@ -3,7 +3,10 @@ use float_ops::Case;
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
 use num_traits::{cast::ToPrimitive, Signed};
-use std::{cmp, str::FromStr};
+use std::{
+    cmp::{self, Ordering},
+    str::FromStr,
+};
 
 trait FormatParse {
     fn parse(text: &str) -> (Option<Self>, &str)
@@ -116,6 +119,19 @@ impl FormatParse for FormatGrouping {
             Some(',') => (Some(Self::Comma), chars.as_str()),
             _ => (None, text),
         }
+    }
+}
+
+#[derive(Debug)]
+#[repr(u8)]
+enum PaddingStyle {
+    Whitespace = b' ',
+    Zero = b'0',
+}
+
+impl From<PaddingStyle> for char {
+    fn from(from: PaddingStyle) -> char {
+        from as u8 as char
     }
 }
 
@@ -312,13 +328,15 @@ impl FormatSpec {
         inter: i32,
         sep: char,
         disp_digit_cnt: i32,
+        padding: PaddingStyle,
     ) -> String {
         // Don't add separators to the floating decimal point of numbers
         let mut parts = magnitude_str.splitn(2, '.');
         let magnitude_int_str = parts.next().unwrap().to_string();
         let dec_digit_cnt = magnitude_str.len() as i32 - magnitude_int_str.len() as i32;
         let int_digit_cnt = disp_digit_cnt - dec_digit_cnt;
-        let mut result = FormatSpec::separate_integer(magnitude_int_str, inter, sep, int_digit_cnt);
+        let mut result =
+            FormatSpec::separate_integer(magnitude_int_str, inter, sep, int_digit_cnt, padding);
         if let Some(part) = parts.next() {
             result.push_str(&format!(".{part}"))
         }
@@ -330,6 +348,7 @@ impl FormatSpec {
         inter: i32,
         sep: char,
         disp_digit_cnt: i32,
+        padding: PaddingStyle,
     ) -> String {
         let magnitude_len = magnitude_str.len() as i32;
         let offset = (disp_digit_cnt % (inter + 1) == 0) as i32;
@@ -338,7 +357,8 @@ impl FormatSpec {
         if pad_cnt > 0 {
             // separate with 0 padding
             let sep_cnt = disp_digit_cnt / (inter + 1);
-            let padding = "0".repeat((pad_cnt - sep_cnt) as usize);
+            let padding_char = padding.into();
+            let padding = FormatSpec::compute_fill_string(padding_char, pad_cnt - sep_cnt);
             let padded_num = format!("{padding}{magnitude_str}");
             FormatSpec::insert_separator(padded_num, inter, sep, sep_cnt)
         } else {
@@ -384,14 +404,20 @@ impl FormatSpec {
 
     fn get_separator_interval(&self) -> usize {
         match self.format_type {
+            Some(FormatType::Number) => 9999,
             Some(FormatType::Binary | FormatType::Octal | FormatType::Hex(_)) => 4,
-            Some(FormatType::Decimal | FormatType::Number | FormatType::FixedPoint(_)) => 3,
+            Some(FormatType::Decimal | FormatType::FixedPoint(_)) => 3,
             None => 3,
             _ => panic!("Separators only valid for numbers!"),
         }
     }
 
-    fn add_magnitude_separators(&self, magnitude_str: String, prefix: &str) -> String {
+    fn add_magnitude_separators(
+        &self,
+        magnitude_str: String,
+        prefix: &str,
+        padding: PaddingStyle,
+    ) -> String {
         match &self.grouping_option {
             Some(fg) => {
                 let sep = match fg {
@@ -407,6 +433,7 @@ impl FormatSpec {
                     inter,
                     sep,
                     disp_digit_cnt,
+                    padding,
                 )
             }
             None => magnitude_str,
@@ -433,7 +460,42 @@ impl FormatSpec {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "float"))
             }
-            Some(FormatType::Number) => Err(FormatSpecError::NotImplemented('n', "float")),
+            Some(FormatType::Number) => {
+                const UPPER_BOUND: f64 = 1e+5;
+                const LOWER_BOUND: f64 = 1e-4;
+                const ZERO_SEP: char = '\x00';
+
+                let show_as_exponential = magnitude >= UPPER_BOUND || magnitude <= LOWER_BOUND;
+                let precision = if precision == 0 { 1 } else { precision };
+                let mut inter = self.get_separator_interval();
+
+                let width = self.width.unwrap_or(precision);
+                let disp_digit_cnt = width;
+
+                let magnitude_str: String = if show_as_exponential {
+                    float_ops::format_general(
+                        precision,
+                        magnitude,
+                        Case::Lower,
+                        self.alternate_form,
+                        true,
+                    )
+                } else {
+                    // TODO: currently, `nan` and `inf` are not work properly. should handle this
+                    if magnitude.is_nan() {
+                        return Ok("nan".to_string());
+                    }
+                    self.check_number_formatting_cases(magnitude, width, precision, &mut inter)
+                };
+
+                Ok(FormatSpec::add_magnitude_separators_for_char(
+                    magnitude_str,
+                    inter as i32,
+                    ZERO_SEP,
+                    disp_digit_cnt as i32,
+                    PaddingStyle::Whitespace,
+                ))
+            }
             Some(FormatType::GeneralFormat(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
                 Ok(float_ops::format_general(
@@ -487,12 +549,47 @@ impl FormatSpec {
                 FormatSign::MinusOrSpace => " ",
             }
         };
-        let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, sign_str);
+        let magnitude_str =
+            self.add_magnitude_separators(raw_magnitude_str?, sign_str, PaddingStyle::Zero);
         self.format_sign_and_align(
             unsafe { &BorrowedStr::from_ascii_unchecked(magnitude_str.as_bytes()) },
             sign_str,
             FormatAlign::Right,
         )
+    }
+
+    fn check_number_formatting_cases(
+        &self,
+        magnitude: f64,
+        width: usize,
+        precision: usize,
+        inter: &mut usize,
+    ) -> String {
+        let magnitude_string = magnitude.to_string();
+        let (integer, decimal) = magnitude_string
+            .split_once('.')
+            .unwrap_or((&magnitude_string, "0"));
+        let integer_len = integer.len();
+
+        match integer_len.cmp(&width) {
+            Ordering::Less => {
+                let diff: usize = precision - integer_len;
+                let mut decimal_string: String = decimal.to_string();
+                decimal_string.truncate(diff);
+                // TODO: add round up
+                *inter += 1;
+
+                integer.to_string() + "." + &decimal_string
+            }
+            Ordering::Greater => float_ops::format_general(
+                precision,
+                magnitude,
+                Case::Lower,
+                self.alternate_form,
+                true,
+            ),
+            Ordering::Equal => integer.to_string(),
+        }
     }
 
     #[inline]
@@ -559,7 +656,8 @@ impl FormatSpec {
             },
         };
         let sign_prefix = format!("{sign_str}{prefix}");
-        let magnitude_str = self.add_magnitude_separators(raw_magnitude_str, &sign_prefix);
+        let magnitude_str =
+            self.add_magnitude_separators(raw_magnitude_str, &sign_prefix, PaddingStyle::Zero);
         self.format_sign_and_align(
             &BorrowedStr::from_bytes(magnitude_str.as_bytes()),
             &sign_prefix,
