@@ -114,8 +114,6 @@ class BinASCIITest(unittest.TestCase):
         # empty strings. TBD: shouldn't it raise an exception instead ?
         self.assertEqual(binascii.a2b_base64(self.type2test(fillers)), b'')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_base64_strict_mode(self):
         # Test base64 with strict mode on
         def _assertRegexTemplate(assert_regex: str, data: bytes, non_strict_mode_expected_result: bytes):
