@@ -5,7 +5,7 @@
 //! parse a whole program, a single statement, or a single
 //! expression.
 
-use crate::lexer::{LexResult, Tok};
+use crate::{lexer::{LexResult, Tok}, peg_parser};
 pub use crate::mode::Mode;
 use crate::{ast, error::ParseError, lexer, python};
 use ast::Location;
@@ -97,19 +97,11 @@ pub fn parse_located(
 }
 
 // Parse a given token iterator.
-pub fn parse_tokens(
-    lxr: impl IntoIterator<Item = LexResult>,
-    mode: Mode,
-    source_path: &str,
-) -> Result<ast::Mod, ParseError> {
-    let marker_token = (Default::default(), mode.to_marker(), Default::default());
-    let tokenizer = iter::once(Ok(marker_token))
-        .chain(lxr)
-        .filter_ok(|(_, tok, _)| !matches!(tok, Tok::Comment { .. } | Tok::NonLogicalNewline));
-
-    python::TopParser::new()
-        .parse(tokenizer)
-        .map_err(|e| crate::error::parse_error_from_lalrpop(e, source_path))
+fn parse_tokens(lxr: impl IntoIterator<Item = LexResult>, mode: Mode, source_path: &str) -> Result<ast::Mod, ParseError> {
+    let parser = peg_parser::Parser::from(lxr).unwrap();
+    dbg!(mode);
+    dbg!(&parser);
+    Ok(parser.parse(mode).unwrap())
 }
 
 #[cfg(test)]
@@ -119,6 +111,12 @@ mod tests {
     #[test]
     fn test_parse_empty() {
         let parse_ast = parse_program("", "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+    
+    #[test]
+    fn test_parse_pass() {
+        let parse_ast = parse_program("pass", "<test>").unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 

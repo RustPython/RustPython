@@ -1,6 +1,6 @@
 use ast::{Located, Location};
 
-use crate::{ast, error::LexicalError, lexer::LexResult, token::Tok};
+use crate::{ast, error::LexicalError, lexer::LexResult, mode::Mode, token::Tok};
 
 #[derive(Debug, Clone)]
 pub struct Parser {
@@ -9,7 +9,7 @@ pub struct Parser {
 }
 
 impl Parser {
-    fn from(lexer: impl Iterator<Item = LexResult>) -> Result<Self, LexicalError> {
+    pub fn from(lexer: impl IntoIterator<Item = LexResult>) -> Result<Self, LexicalError> {
         let mut tokens = vec![];
         let mut locations = vec![];
         for tok in lexer {
@@ -19,6 +19,14 @@ impl Parser {
         }
 
         Ok(Self { tokens, locations })
+    }
+
+    pub fn parse(&self, mode: Mode) -> Result<ast::Mod, peg::error::ParseError<usize>> {
+        match mode {
+            Mode::Module => python_parser::file(self, self),
+            Mode::Interactive => python_parser::interactive(self, self),
+            Mode::Expression => python_parser::eval(self, self),
+        }
     }
 
     fn new_located<T>(&self, begin: usize, end: usize, node: T) -> Located<T> {
@@ -72,17 +80,23 @@ impl<'input> peg::ParseSlice<'input> for Parser {
 peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     use Tok::*;
     use crate::token::StringKind;
-    use ast::{Expr, Stmt, ExprKind, StmtKind, ExprContext, Withitem, Cmpop, Keyword, KeywordData, Comprehension};
+    use ast::{
+        Expr, Stmt, ExprKind, StmtKind, ExprContext, Withitem, Cmpop, Keyword, KeywordData, Comprehension
+        // Arguments
+    };
     use std::option::Option::{Some, None};
     use std::string::String;
 
-    pub rule file() -> ast::Mod = a:statements() [EndOfFile] { ast::Mod::Module { body: a, type_ignores: vec![] } }
+    pub rule file() -> ast::Mod = a:statements()? [EndOfFile]? { ast::Mod::Module { body: none_vec(a), type_ignores: vec![] } }
+
     pub rule interactive() -> ast::Mod = a:statement_newline() { ast::Mod::Interactive { body: a } }
-    pub rule eval() -> ast::Mod = a:expression() [Newline]* [EndOfFile] {
-        ast::Mod::Expression { body: Box::new(a) }
-    }
-    // func_type
-    // fstring
+
+    pub rule eval() -> ast::Mod = a:expression() [Newline]* [EndOfFile]? { ast::Mod::Expression { body: Box::new(a) } }
+
+    // pub rule func_type() -> ast::Mod
+    //     = [Lpar] a:type_expressions()
+
+    pub rule fstring() -> Expr = star_expressions()
 
     rule statements() -> Vec<Stmt> = a:statement()+ { a.into_iter().flatten().collect() }
 
@@ -95,78 +109,80 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         simple_stmts() /
         begin:position!() [Newline] {
             vec![zelf.new_located_single(begin, StmtKind::Pass)]
-        }
-        // TODO: Error if EOF
+        } /
+        [EndOfFile] {? Err("unexpected EOF") }
 
-    rule simple_stmts() -> Vec<Stmt> = a:simple_stmt() ++ [Comma] [Comma]? [Newline] { a }
+    rule simple_stmts() -> Vec<Stmt> = a:simple_stmt() ++ [Semi] [Semi]? [Newline] {a}
 
+    #[cache]
     rule simple_stmt() -> Stmt =
         assignment() /
-        begin:position!() a:star_expressions() end:position!() {
-            zelf.new_located(begin, end, StmtKind::Expr { value: Box::new(a) })
-        } /
-        return_stmt() /
-        import_stmt() /
-        raise_stmt() /
+        loc(<a:star_expressions() {
+            StmtKind::Expr { value: Box::new(a) }
+        }>) /
+        &[Return] a:return_stmt() {a} /
+        &[Import | From] a:import_stmt() {a} /
+        &[Raise] a:raise_stmt() {a} /
         begin:position!() [Pass] {
             zelf.new_located_single(begin, StmtKind::Pass)
         } /
-        del_stmt() /
-        yield_stmt() /
-        assert_stmt() /
+        &[Del] a:del_stmt() {a} /
+        &[Yield] a:yield_stmt() {a} /
+        &[Assert] a:assert_stmt() {a} /
         begin:position!() [Break] {
             zelf.new_located_single(begin, StmtKind::Break)
         } /
         begin:position!() [Continue] {
             zelf.new_located_single(begin, StmtKind::Continue)
         } /
-        global_stmt() /
-        nonlocal_stmt()
+        &[Global] a:global_stmt() {a} /
+        &[Nonlocal] a:nonlocal_stmt() {a}
 
     rule compound_stmt() -> Stmt =
         // function_def() /
-        if_stmt() /
-        // class_def() /
-        with_stmt() /
-        for_stmt() /
+        &[If] a:if_stmt() {a} /
+        &[Class | At] a:class_def() {a} /
+        &[With | Async] a:with_stmt() {a} /
+        &[For | Async] a:for_stmt() {a} /
         // try_stmt() /
-        while_stmt()
+        &[While] a:while_stmt() {a}
         // match_stmt()
 
     rule assignment() -> Stmt =
-        begin:position!() [Name { name }] [Colon] b:expression() c:([Equal] d:annotated_rhs() { d })? end:position!() {
+        begin:position!() id:name() [Colon] b:expression() c:([Equal] z:annotated_rhs() {z})? end:position!() {
+            let target = zelf.new_located_single(begin, ExprKind::Name { id, ctx: ExprContext::Store });
             zelf.new_located(begin, end, StmtKind::AnnAssign {
-                target: Box::new(zelf.new_located_single(begin, ExprKind::Name { id: name.clone(), ctx: ExprContext::Store })),
+                target: Box::new(target),
                 annotation: Box::new(b),
-                value: c.map(|x| Box::new(x)),
+                value: option_box(c),
                 simple: 1,
             })
         } /
-        begin:position!()
-        a:([Lpar] z:single_target() [Rpar] {z} / single_subscript_attribute_target())
-        [Colon] b:expression() c:([Equal] z:annotated_rhs() {z})?
-        end:position!() {
-            zelf.new_located(begin, end, StmtKind::AnnAssign { target: Box::new(a), annotation: Box::new(b), value: option_box(c), simple: 0 })
-        }
+        // begin:position!() a:([Lpar] z:single_target() [Rpar] {z} / single_subscript_attribute_target())
+        loc(<a:(pard(<single_target()>) / single_subscript_attribute_target())
+            [Colon] b:expression() c:([Equal] z:annotated_rhs() {z})? {
+                StmtKind::AnnAssign { target: Box::new(a), annotation: Box::new(b), value: option_box(c), simple: 0 }
+        }>)
+        // begin:position!() a:(z:star_targets() [Equal] {z})+ b:(yield_expr() / star_expressions()) ![Equal] tc:
         // TODO: assign augassign
 
     rule annotated_rhs() -> Expr = yield_expr() / star_expressions()
 
-    rule return_stmt() -> Stmt = begin:position!() [Return] a:star_expressions()? end:position!() {
-        zelf.new_located(begin, end, StmtKind::Return { value: option_box(a) })
-    }
+    rule return_stmt() -> Stmt = loc(<[Return] a:star_expressions()? {
+        StmtKind::Return { value: option_box(a) }
+    }>)
 
     rule raise_stmt() -> Stmt =
-        begin:position!() [Raise] a:expression() b:([From] z:expression() { z })? end:position!() {
-            zelf.new_located(begin, end, StmtKind::Raise { exc: Some(Box::new(a)), cause: option_box(b) })
-        } /
-        begin:position!() [Raise] {
-            zelf.new_located_single(begin, StmtKind::Raise { exc: None, cause: None })
-        }
+        loc(<[Raise] a:expression() b:([From] z:expression() {z})? {
+            StmtKind::Raise { exc: Some(Box::new(a)), cause: option_box(b) }
+        }>) /
+        loc(<[Raise] {
+            StmtKind::Raise { exc: None, cause: None }
+        }>)
 
-    rule global_stmt() -> Stmt = begin:position!() [Global] a:([Name { name }] { name.clone() }) ++ [Comma] end:position!() {
-        zelf.new_located(begin, end, StmtKind::Global { names: a })
-    }
+    rule global_stmt() -> Stmt = loc(<[Global] names:name() ++ [Comma] {
+        StmtKind::Global { names }
+    }>)
 
     rule nonlocal_stmt() -> Stmt = begin:position!() [Nonlocal] a:([Name { name }] { name.clone() }) ++ [Comma] end:position!() {
         zelf.new_located(begin, end, StmtKind::Nonlocal { names: a })
@@ -199,7 +215,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }
 
     rule import_from_targets() -> Vec<ast::Alias> =
-        [Lpar] a:import_from_as_names() [Comma]? [Rpar] { a } /
+        pard(<a:import_from_as_names() [Comma]? {a}>) /
         a:import_from_as_names() ![Comma] { a } /
         begin:position!() [Star] { vec![zelf.new_located_single(begin, ast::AliasData { name: "*".to_owned(), asname: None })] }
 
@@ -216,28 +232,32 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     }
 
     #[cache_left_rec]
-    rule dotted_name() -> std::string::String =
+    rule dotted_name() -> String =
         a:dotted_name() [Dot] [Name { name }] {
             format!("{}.{}", a, name)
         } /
         [Name { name }] { name.clone() }
 
+    #[cache]
     rule block() -> Vec<Stmt> =
         [Newline] [Indent] a:statements() [Dedent] { a } /
         simple_stmts()
 
-    rule decorators() -> Vec<Expr> = ([At] f:named_expression() [Newline] { f })+
+    rule decorator() -> Expr = [At] f:named_expression() [Newline] { f }
 
-    // rule class_def() -> Stmt =
-    //     a:decorators() b:class_def_raw() {
+    rule class_def() -> Stmt =
+        begin:position!() dec:decorator()* [Class] [Name { name }] arg:([Lpar] z:arguments()? [Rpar] {z})? [Colon] b:block() end:position!() {
+            let (bases, keywords) = none_vec2(arg.flatten());
+            zelf.new_located(begin, end, StmtKind::ClassDef { name: name.clone(), bases, keywords, body: b, decorator_list: dec })
+        }
 
-    //     } /
-    //     class_def_raw()
-
-    // rule class_def_raw() -> StmtKind =
-    //     begin:position!() [Class] [Name { name }] b:([Lpar] z:arguments()? [Rpar]) [Colon] c:block() end:position!() {
-    //         zelf.new_located(begin, end, StmtKind::ClassDef { name: name.clone(), bases: b, keywords: b, body: c, decorator_list: vec![] })
+    // rule function_def() -> Stmt =
+    //     begin:position!() dec:decorator()* [Def] [Name { name }] &[Lpar] p:params() [Rpar]
+    //     r:([Rarrow] z:expression() {z})? &[Colon] tc:func_type_comment()? b:block() end:position!() {
+    //         zelf.new_located(begin, end, StmtKind::FunctionDef { name: name.clone(), args: p, body: b, decorator_list: dec, returns: option_box(r), type_comment: tc })
     //     }
+    
+    // rule params() -> Arguments =
 
     rule if_stmt() -> Stmt =
         begin:position!() [If] a:named_expression() [Colon] b:block() c:elif_stmt() end:position!() {
@@ -729,7 +749,16 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         begin:position!() [Lsqb] a:del_targets() [Rsqb] end:position!() {
             zelf.new_located(begin, end, ExprKind::List { elts: a, ctx: ExprContext::Del })
         }
+    
+    rule loc<T>(r: rule<T>) -> Located<T> = begin:position!() z:r() end:position!() {
+        zelf.new_located(begin, end, z)
+    }
 
+    rule name() -> String = [Name { name }] { name.clone() }
+
+    rule pard<T>(r: rule<T>) -> T = [Lpar] z:r() [Rpar] {z}
+
+    rule commas_ppq<T>(r: rule<T>) -> Vec<T> = z:(r() ++ [Comma]) [Comma]? {z}
 }}
 
 fn count_dots(toks: Vec<&Tok>) -> Option<usize> {
@@ -753,6 +782,14 @@ fn none_vec<T>(v: Option<Vec<T>>) -> Vec<T> {
         v
     } else {
         vec![]
+    }
+}
+
+fn none_vec2<T1, T2>(v: Option<(Vec<T1>, Vec<T2>)>) -> (Vec<T1>, Vec<T2>) {
+    if let Some(v) = v {
+        v
+    } else {
+        (vec![], vec![])
     }
 }
 
@@ -812,10 +849,10 @@ mod tests {
 
     #[test]
     fn test_return() {
-        let source = "return";
+        let source = "'Hello'";
         let lexer = make_tokenizer(source);
         let parser = Parser::from(lexer).unwrap();
         dbg!(&parser);
-        dbg!(python_parser::interactive(&parser, &parser));
+        dbg!(python_parser::file(&parser, &parser));
     }
 }
