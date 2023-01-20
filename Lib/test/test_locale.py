@@ -170,8 +170,6 @@ class EnUSNumberFormatting(BaseFormattingTest):
         self._test_format("%f", -42, grouping=1, out='-42.000000')
         self._test_format("%+f", -42, grouping=1, out='-42.000000')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_grouping_and_padding(self):
         self._test_format("%20.f", -42, grouping=1, out='-42'.rjust(20))
         if self.sep:
@@ -197,8 +195,6 @@ class EnUSNumberFormatting(BaseFormattingTest):
         self._test_format("%f", -42, grouping=0, out='-42.000000')
         self._test_format("%+f", -42, grouping=0, out='-42.000000')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_padding(self):
         self._test_format("%20.f", -42, grouping=0, out='-42'.rjust(20))
         self._test_format("%+10.f", -4200, grouping=0, out='-4200'.rjust(10))

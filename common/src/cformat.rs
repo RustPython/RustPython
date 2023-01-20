@@ -34,7 +34,7 @@ impl fmt::Display for CFormatError {
         use CFormatErrorType::*;
         match self.typ {
             UnmatchedKeyParentheses => write!(f, "incomplete format key"),
-            CFormatErrorType::IncompleteFormat => write!(f, "incomplete format"),
+            IncompleteFormat => write!(f, "incomplete format"),
             UnsupportedFormatChar(c) => write!(
                 f,
                 "unsupported format character '{}' ({:#x}) at index {}",
@@ -76,6 +76,18 @@ pub enum CFormatType {
     String(CFormatPreconversor),
 }
 
+#[derive(Debug, PartialEq)]
+pub enum CFormatPrecision {
+    Quantity(CFormatQuantity),
+    Dot,
+}
+
+impl From<CFormatQuantity> for CFormatPrecision {
+    fn from(quantity: CFormatQuantity) -> Self {
+        CFormatPrecision::Quantity(quantity)
+    }
+}
+
 bitflags! {
     pub struct CConversionFlags: u32 {
         const ALTERNATE_FORM = 0b0000_0001;
@@ -110,7 +122,7 @@ pub struct CFormatSpec {
     pub mapping_key: Option<String>,
     pub flags: CConversionFlags,
     pub min_field_width: Option<CFormatQuantity>,
-    pub precision: Option<CFormatQuantity>,
+    pub precision: Option<CFormatPrecision>,
     pub format_type: CFormatType,
     pub format_char: char,
     // chars_consumed: usize,
@@ -143,10 +155,6 @@ impl CFormatSpec {
         let precision = parse_precision(iter)?;
         consume_length(iter);
         let (format_type, format_char) = parse_format_type(iter)?;
-        let precision = precision.or(match format_type {
-            CFormatType::Float(_) => Some(CFormatQuantity::Amount(6)),
-            _ => None,
-        });
 
         Ok(CFormatSpec {
             mapping_key,
@@ -169,20 +177,14 @@ impl CFormatSpec {
         string: String,
         fill_char: char,
         num_prefix_chars: Option<usize>,
-        fill_with_precision: bool,
     ) -> String {
-        let target_width = if fill_with_precision {
-            &self.precision
-        } else {
-            &self.min_field_width
-        };
         let mut num_chars = string.chars().count();
         if let Some(num_prefix_chars) = num_prefix_chars {
             num_chars += num_prefix_chars;
         }
         let num_chars = num_chars;
 
-        let width = match target_width {
+        let width = match &self.min_field_width {
             Some(CFormatQuantity::Amount(width)) => cmp::max(width, &num_chars),
             _ => &num_chars,
         };
@@ -190,10 +192,7 @@ impl CFormatSpec {
         let fill_string = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
 
         if !fill_string.is_empty() {
-            // Don't left-adjust if precision-filling: that will always be prepending 0s to %d
-            // arguments, the LEFT_ADJUST flag will be used by a later call to fill_string with
-            // the 0-filled string as the string param.
-            if !fill_with_precision && self.flags.contains(CConversionFlags::LEFT_ADJUST) {
+            if self.flags.contains(CConversionFlags::LEFT_ADJUST) {
                 format!("{string}{fill_string}")
             } else {
                 format!("{fill_string}{string}")
@@ -203,19 +202,47 @@ impl CFormatSpec {
         }
     }
 
+    fn fill_string_with_precision(&self, string: String, fill_char: char) -> String {
+        let num_chars = string.chars().count();
+
+        let width = match &self.precision {
+            Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(width))) => {
+                cmp::max(width, &num_chars)
+            }
+            _ => &num_chars,
+        };
+        let fill_chars_needed = width.saturating_sub(num_chars);
+        let fill_string = CFormatSpec::compute_fill_string(fill_char, fill_chars_needed);
+
+        if !fill_string.is_empty() {
+            // Don't left-adjust if precision-filling: that will always be prepending 0s to %d
+            // arguments, the LEFT_ADJUST flag will be used by a later call to fill_string with
+            // the 0-filled string as the string param.
+            format!("{fill_string}{string}")
+        } else {
+            string
+        }
+    }
+
     fn format_string_with_precision(
         &self,
         string: String,
-        precision: Option<&CFormatQuantity>,
+        precision: Option<&CFormatPrecision>,
     ) -> String {
         // truncate if needed
         let string = match precision {
-            Some(CFormatQuantity::Amount(precision)) if string.chars().count() > *precision => {
+            Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(precision)))
+                if string.chars().count() > *precision =>
+            {
                 string.chars().take(*precision).collect::<String>()
+            }
+            Some(CFormatPrecision::Dot) => {
+                // truncate to 0
+                String::new()
             }
             _ => string,
         };
-        self.fill_string(string, ' ', None, false)
+        self.fill_string(string, ' ', None)
     }
 
     #[inline]
@@ -225,11 +252,16 @@ impl CFormatSpec {
 
     #[inline]
     pub fn format_char(&self, ch: char) -> String {
-        self.format_string_with_precision(ch.to_string(), Some(&CFormatQuantity::Amount(1)))
+        self.format_string_with_precision(
+            ch.to_string(),
+            Some(&(CFormatQuantity::Amount(1).into())),
+        )
     }
 
     pub fn format_bytes(&self, bytes: &[u8]) -> Vec<u8> {
-        let bytes = if let Some(CFormatQuantity::Amount(precision)) = self.precision {
+        let bytes = if let Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(precision))) =
+            self.precision
+        {
             &bytes[..cmp::min(bytes.len(), precision)]
         } else {
             bytes
@@ -282,7 +314,7 @@ impl CFormatSpec {
             _ => self.flags.sign_string(),
         };
 
-        let padded_magnitude_string = self.fill_string(magnitude_string, '0', None, true);
+        let padded_magnitude_string = self.fill_string_with_precision(magnitude_string, '0');
 
         if self.flags.contains(CConversionFlags::ZERO_PAD) {
             let fill_char = if !self.flags.contains(CConversionFlags::LEFT_ADJUST) {
@@ -298,7 +330,6 @@ impl CFormatSpec {
                     padded_magnitude_string,
                     fill_char,
                     Some(signed_prefix.chars().count()),
-                    false
                 ),
             )
         } else {
@@ -306,7 +337,6 @@ impl CFormatSpec {
                 format!("{sign_string}{prefix}{padded_magnitude_string}"),
                 ' ',
                 None,
-                false,
             )
         }
     }
@@ -318,9 +348,13 @@ impl CFormatSpec {
             self.flags.sign_string()
         };
 
-        let precision = match self.precision {
-            Some(CFormatQuantity::Amount(p)) => p,
-            _ => 6,
+        let precision = match &self.precision {
+            Some(CFormatPrecision::Quantity(quantity)) => match quantity {
+                CFormatQuantity::Amount(amount) => *amount,
+                CFormatQuantity::FromValuesTuple => 6,
+            },
+            Some(CFormatPrecision::Dot) => 0,
+            None => 6,
         };
 
         let magnitude_string = match &self.format_type {
@@ -381,11 +415,10 @@ impl CFormatSpec {
                     magnitude_string,
                     fill_char,
                     Some(sign_string.chars().count()),
-                    false
                 )
             )
         } else {
-            self.fill_string(format!("{sign_string}{magnitude_string}"), ' ', None, false)
+            self.fill_string(format!("{sign_string}{magnitude_string}"), ' ', None)
         }
     }
 }
@@ -510,7 +543,7 @@ where
     Ok(None)
 }
 
-fn parse_precision<T, I>(iter: &mut ParseIter<I>) -> Result<Option<CFormatQuantity>, ParsingError>
+fn parse_precision<T, I>(iter: &mut ParseIter<I>) -> Result<Option<CFormatPrecision>, ParsingError>
 where
     T: Into<char> + Copy,
     I: Iterator<Item = T>,
@@ -518,7 +551,11 @@ where
     if let Some(&(_, c)) = iter.peek() {
         if c.into() == '.' {
             iter.next().unwrap();
-            return parse_quantity(iter);
+            return Ok(Some(
+                parse_quantity(iter)?
+                    .map(CFormatPrecision::Quantity)
+                    .unwrap_or(CFormatPrecision::Dot),
+            ));
         }
     }
     Ok(None)
@@ -848,6 +885,20 @@ mod tests {
                 .format_string("Hello, World!".to_owned()),
             "Hell ".to_owned()
         );
+        assert_eq!(
+            "%.s"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_string("Hello, World!".to_owned()),
+            "".to_owned()
+        );
+        assert_eq!(
+            "%5.s"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_string("Hello, World!".to_owned()),
+            "     ".to_owned()
+        );
     }
 
     #[test]
@@ -864,7 +915,21 @@ mod tests {
     #[test]
     fn test_parse_and_format_number() {
         assert_eq!(
+            "%5d"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(27)),
+            "   27".to_owned()
+        );
+        assert_eq!(
             "%05d"
+                .parse::<CFormatSpec>()
+                .unwrap()
+                .format_number(&BigInt::from(27)),
+            "00027".to_owned()
+        );
+        assert_eq!(
+            "%.5d"
                 .parse::<CFormatSpec>()
                 .unwrap()
                 .format_number(&BigInt::from(27)),
@@ -926,6 +991,18 @@ mod tests {
         assert_eq!(
             "%f".parse::<CFormatSpec>().unwrap().format_float(1.2345),
             "1.234500"
+        );
+        assert_eq!(
+            "%.2f".parse::<CFormatSpec>().unwrap().format_float(1.2345),
+            "1.23"
+        );
+        assert_eq!(
+            "%.f".parse::<CFormatSpec>().unwrap().format_float(1.2345),
+            "1"
+        );
+        assert_eq!(
+            "%+.f".parse::<CFormatSpec>().unwrap().format_float(1.2345),
+            "+1"
         );
         assert_eq!(
             "%+f".parse::<CFormatSpec>().unwrap().format_float(1.2345),

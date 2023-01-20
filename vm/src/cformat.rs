@@ -223,6 +223,31 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     }
 }
 
+fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
+    vm: &VirtualMachine,
+    elements: &mut I,
+    p: &mut Option<CFormatPrecision>,
+) -> PyResult<()> {
+    match p {
+        Some(CFormatPrecision::Quantity(CFormatQuantity::FromValuesTuple)) => match elements.next()
+        {
+            Some(width_obj) => {
+                if let Some(i) = width_obj.payload::<PyInt>() {
+                    let i = i.try_to_primitive::<i32>(vm)?.unsigned_abs();
+                    *p = Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(
+                        i as usize,
+                    )));
+                    Ok(())
+                } else {
+                    Err(vm.new_type_error("* wants int".to_owned()))
+                }
+            }
+            None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
+        },
+        _ => Ok(()),
+    }
+}
+
 fn specifier_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_type_error("format requires a mapping".to_owned())
 }
@@ -299,7 +324,7 @@ pub(crate) fn cformat_bytes(
             CFormatPart::Literal(literal) => result.append(literal),
             CFormatPart::Spec(spec) => {
                 try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width)?;
-                try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
+                try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
                 let value = match value_iter.next() {
                     Some(obj) => Ok(obj.clone()),
@@ -393,7 +418,7 @@ pub(crate) fn cformat_string(
             CFormatPart::Literal(literal) => result.push_str(literal),
             CFormatPart::Spec(spec) => {
                 try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width)?;
-                try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
+                try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
                 let value = match value_iter.next() {
                     Some(obj) => Ok(obj.clone()),
