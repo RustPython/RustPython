@@ -551,11 +551,9 @@ where
     if let Some(&(_, c)) = iter.peek() {
         if c.into() == '.' {
             iter.next().unwrap();
-            return Ok(Some(
-                parse_quantity(iter)?
-                    .map(CFormatPrecision::Quantity)
-                    .unwrap_or(CFormatPrecision::Dot),
-            ));
+            let quantity = parse_quantity(iter)?;
+            let precision = quantity.map_or(CFormatPrecision::Dot, CFormatPrecision::Quantity);
+            return Ok(Some(precision));
         }
     }
     Ok(None)

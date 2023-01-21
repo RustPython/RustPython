@@ -201,26 +201,34 @@ fn spec_format_string(
     }
 }
 
+fn try_update_quantity_from_element(
+    vm: &VirtualMachine,
+    element: Option<&PyObjectRef>,
+) -> PyResult<CFormatQuantity> {
+    match element {
+        Some(width_obj) => {
+            if let Some(i) = width_obj.payload::<PyInt>() {
+                let i = i.try_to_primitive::<i32>(vm)?.unsigned_abs();
+                Ok(CFormatQuantity::Amount(i as usize))
+            } else {
+                Err(vm.new_type_error("* wants int".to_owned()))
+            }
+        }
+        None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
+    }
+}
+
 fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     vm: &VirtualMachine,
     elements: &mut I,
     q: &mut Option<CFormatQuantity>,
 ) -> PyResult<()> {
-    match q {
-        Some(CFormatQuantity::FromValuesTuple) => match elements.next() {
-            Some(width_obj) => {
-                if let Some(i) = width_obj.payload::<PyInt>() {
-                    let i = i.try_to_primitive::<i32>(vm)?.unsigned_abs();
-                    *q = Some(CFormatQuantity::Amount(i as usize));
-                    Ok(())
-                } else {
-                    Err(vm.new_type_error("* wants int".to_owned()))
-                }
-            }
-            None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
-        },
-        _ => Ok(()),
-    }
+    let Some(CFormatQuantity::FromValuesTuple) = q else {
+        return Ok(());
+    };
+    let quantity = try_update_quantity_from_element(vm, elements.next())?;
+    *q = Some(quantity);
+    Ok(())
 }
 
 fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
@@ -228,24 +236,12 @@ fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     elements: &mut I,
     p: &mut Option<CFormatPrecision>,
 ) -> PyResult<()> {
-    match p {
-        Some(CFormatPrecision::Quantity(CFormatQuantity::FromValuesTuple)) => match elements.next()
-        {
-            Some(width_obj) => {
-                if let Some(i) = width_obj.payload::<PyInt>() {
-                    let i = i.try_to_primitive::<i32>(vm)?.unsigned_abs();
-                    *p = Some(CFormatPrecision::Quantity(CFormatQuantity::Amount(
-                        i as usize,
-                    )));
-                    Ok(())
-                } else {
-                    Err(vm.new_type_error("* wants int".to_owned()))
-                }
-            }
-            None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
-        },
-        _ => Ok(()),
-    }
+    let Some(CFormatPrecision::Quantity(CFormatQuantity::FromValuesTuple)) = p else {
+        return Ok(());
+    };
+    let quantity = try_update_quantity_from_element(vm, elements.next())?;
+    *p = Some(CFormatPrecision::Quantity(quantity));
+    Ok(())
 }
 
 fn specifier_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
