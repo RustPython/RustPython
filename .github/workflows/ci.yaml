@@ -127,7 +127,7 @@ jobs:
           echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
-        run: brew install autoconf automake libtool
+        run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
 
       - uses: Swatinem/rust-cache@v2
@@ -252,7 +252,7 @@ jobs:
           echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
-        run: brew install autoconf automake libtool
+        run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
 
       - uses: Swatinem/rust-cache@v2
