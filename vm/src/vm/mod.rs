@@ -242,6 +242,7 @@ impl VirtualMachine {
         let mut essential_init = || -> PyResult {
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "_signal")?;
+            #[cfg(any(feature = "parser", feature = "compiler"))]
             import::import_builtin(self, "_ast")?;
             #[cfg(not(feature = "threading"))]
             import::import_frozen(self, "_thread")?;
