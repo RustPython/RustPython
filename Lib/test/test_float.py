@@ -347,8 +347,6 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertRaises(OverflowError, float("inf").__ceil__)
         self.assertRaises(OverflowError, float("-inf").__ceil__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_IEEE_754
     def test_float_mod(self):
         # Check behaviour of % operator for IEEE 754 special cases.
