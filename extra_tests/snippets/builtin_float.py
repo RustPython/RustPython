@@ -513,3 +513,6 @@ assert_raises(ValueError, lambda: float('0_'))
 assert_raises(ValueError, lambda: float('0._'))
 assert_raises(ValueError, lambda: float('_.0'))
 assert_raises(ValueError, lambda: float('._0'))
+
+assert 3.0 % -2.0 == -1.0
+assert -3.0 % 2.0 == 1.0

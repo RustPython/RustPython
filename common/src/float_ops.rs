@@ -336,11 +336,12 @@ pub fn div(v1: f64, v2: f64) -> Option<f64> {
 
 pub fn mod_(v1: f64, v2: f64) -> Option<f64> {
     if v2 != 0.0 {
-        let mut val = v1 % v2;
-        if (val < 0.0) != (v2 < 0.0) {
-            val += v2;
+        let val = v1 % v2;
+        match (v1.signum() as i32, v2.signum() as i32) {
+            (1, 1) | (-1, -1) => Some(val),
+            _ if (v1 == 0.0) || (v1.abs() == v2.abs()) => Some(val.copysign(v2)),
+            _ => Some((val + v2).copysign(v2)),
         }
-        Some(val)
     } else {
         None
     }
