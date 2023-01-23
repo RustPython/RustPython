@@ -1160,6 +1160,23 @@ mod array {
                 zelf.as_object().dict(),
             ))
         }
+
+        #[pymethod(magic)]
+        fn contains(&self, value: PyObjectRef, vm: &VirtualMachine) -> bool {
+            let array = self.array.read();
+            for element in array
+                .iter(vm)
+                .map(|x| x.expect("Expected to be checked by array.len() and read lock."))
+            {
+                if let Ok(true) =
+                    element.rich_compare_bool(value.as_object(), PyComparisonOp::Eq, vm)
+                {
+                    return true;
+                }
+            }
+
+            false
+        }
     }
 
     impl Comparable for PyArray {

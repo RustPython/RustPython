@@ -112,3 +112,8 @@ assert str(a.__class__.__name__) == "array"
 # test arrayiterator name
 i = iter(a)
 assert str(i.__class__.__name__) == "arrayiterator"
+
+# teset array.__contains__
+a = array('B', [0])
+assert a.__contains__(0)
+assert not a.__contains__(1)
