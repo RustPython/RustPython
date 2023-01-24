@@ -5,7 +5,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 
     let array = module
         .get_attr("array", vm)
-        .expect("Expect array has arrat type.");
+        .expect("Expect array has array type.");
 
     // TODO: RUSTPYTHON
     // FIXME: it should import 'collections.abc' instead of '_collection_abc'
