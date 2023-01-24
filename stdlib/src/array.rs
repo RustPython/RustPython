@@ -7,12 +7,13 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         .get_attr("array", vm)
         .expect("Expect array has array type.");
 
-    // TODO: RUSTPYTHON
-    // FIXME: it should import 'collections.abc' instead of '_collection_abc'
     let collections_abc = vm
-        .import("_collections_abc", None, 0)
-        .expect("Expect collections.abc exist.");
-    let mutable_sequence = collections_abc
+        .import("collections.abc", None, 0)
+        .expect("Expect collections exist.");
+    let abc = collections_abc
+        .get_attr("abc", vm)
+        .expect("Expect collections has abc submodule.");
+    let mutable_sequence = abc
         .get_attr("MutableSequence", vm)
         .expect("Expect collections.abc has MutableSequence type.");
 
