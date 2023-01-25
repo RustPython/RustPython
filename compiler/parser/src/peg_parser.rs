@@ -993,7 +993,7 @@ fn make_arguments(
         .chain(param_with_default.iter().map(|x| x.1.clone()))
         .collect();
 
-    // TODO: refactor
+    // TODO: refactor remove option wrap for star_etc
     let (vararg, kwonly, kwarg) = star_etc.unwrap_or_default();
     let kwonlyargs: Vec<ast::Arg> = kwonly.iter().map(|x| x.0.clone()).collect();
     let kw_defaults: Vec<ast::Expr> = kwonly.iter().filter_map(|x| x.1.clone()).collect();
