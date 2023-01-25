@@ -87,12 +87,22 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     use std::option::Option::{Some, None};
     use std::string::String;
 
-    pub rule file() -> ast::Mod = a:statements()? [EndOfFile]? { ast::Mod::Module { body: a.unwrap_or_default(), type_ignores: vec![] } }
+    pub rule file() -> ast::Mod =
+        a:statements()? [EndOfFile]? {
+            ast::Mod::Module { body: a.unwrap_or_default(), type_ignores: vec![] }
+        }
 
-    pub rule interactive() -> ast::Mod = a:statement_newline() { ast::Mod::Interactive { body: a } }
+    pub rule interactive() -> ast::Mod =
+        a:statement_newline() {
+            ast::Mod::Interactive { body: a }
+        }
 
-    pub rule eval() -> ast::Mod = a:expression() [Newline]* [EndOfFile]? { ast::Mod::Expression { body: Box::new(a) } }
+    pub rule eval() -> ast::Mod =
+        a:expression() [Newline]* [EndOfFile]? {
+            ast::Mod::Expression { body: Box::new(a) }
+        }
 
+    // TODO:
     // pub rule func_type() -> ast::Mod
     //     = [Lpar] a:type_expressions()
 
@@ -146,6 +156,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         &[For | Async] a:for_stmt() {a} /
         &[Try] a:try_stmt() {a} /
         &[While] a:while_stmt() {a}
+        // TODO:
         // match_stmt()
 
     rule assignment() -> Stmt =
@@ -167,7 +178,6 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         loc(<a:single_target() b:augassign() c:(yield_expr() / star_expressions()) {
             StmtKind::AugAssign { target: Box::new(a), op: b, value: Box::new(c) }
         }>)
-        // begin:position!() a:(z:star_targets() [Equal] {z})+ b:(yield_expr() / star_expressions()) ![Equal] tc:
 
     rule annotated_rhs() -> Expr = yield_expr() / star_expressions()
 
@@ -368,25 +378,28 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>)
 
     rule for_stmt() -> Stmt =
-        loc(<[For] t:star_targets() [In] ex:star_expressions() [Colon] tc:type_comment() b:block() el:else_block_opt() {
-            StmtKind::For { target: Box::new(t), iter: Box::new(ex), body: b, orelse: el, type_comment: tc }
-        }>) /
-        loc(<[Async] [For] t:star_targets() [In] ex:star_expressions() [Colon] tc:type_comment() b:block() el:else_block_opt() {
-            StmtKind::AsyncFor { target: Box::new(t), iter: Box::new(ex), body: b, orelse: el, type_comment: tc }
+        loc(<is_async:[Async]? [For] t:star_targets() [In] ex:star_expressions() [Colon] tc:type_comment() b:block() el:else_block_opt() {
+            if is_async.is_none() {
+                StmtKind::For { target: Box::new(t), iter: Box::new(ex), body: b, orelse: el, type_comment: tc }
+            } else {
+                StmtKind::AsyncFor { target: Box::new(t), iter: Box::new(ex), body: b, orelse: el, type_comment: tc }
+            }
         }>)
 
     rule with_stmt() -> Stmt =
-        loc(<[With] a:par(<z:with_item() ++ [Comma] [Comma]? {z}>) [Colon] b:block() {
-            StmtKind::With { items: a, body: b, type_comment: None }
+        loc(<is_async:[Async]? [With] a:par(<z:with_item() ++ [Comma] [Comma]? {z}>) [Colon] b:block() {
+            if is_async.is_none() {
+                StmtKind::With { items: a, body: b, type_comment: None }
+            } else {
+                StmtKind::AsyncWith { items: a, body: b, type_comment: None }
+            }
         }>) /
-        loc(<[With] a:with_item() ++ [Comma] [Colon] tc:type_comment() b:block() {
-            StmtKind::With { items: a, body: b, type_comment: tc }
-        }>) /
-        loc(<[Async] [With] a:par(<z:with_item() ++ [Comma] [Comma]? {z}>) [Colon] b:block() {
-            StmtKind::AsyncWith { items: a, body: b, type_comment: None }
-        }>) /
-        loc(<[Async] [With] a:with_item() ++ [Comma] [Colon] tc:type_comment() b:block() {
-            StmtKind::AsyncWith { items: a, body: b, type_comment: tc }
+        loc(<is_async:[Async]? [With] a:with_item() ++ [Comma] [Colon] tc:type_comment() b:block() {
+            if is_async.is_none() {
+                StmtKind::With { items: a, body: b, type_comment: tc }
+            } else {
+                StmtKind::AsyncWith { items: a, body: b, type_comment: tc }
+            }
         }>)
 
     rule with_item() -> Withitem =
