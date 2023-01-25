@@ -81,13 +81,13 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     use Tok::*;
     use crate::token::StringKind;
     use ast::{
-        Expr, Stmt, ExprKind, StmtKind, ExprContext, Withitem, Cmpop, Keyword, KeywordData, Comprehension
-        // Arguments
+        Expr, Stmt, ExprKind, StmtKind, ExprContext, Withitem, Cmpop, Keyword, KeywordData, Comprehension,
+        Operator, Excepthandler, ExcepthandlerKind, Arguments, Arg, ArgData
     };
     use std::option::Option::{Some, None};
     use std::string::String;
 
-    pub rule file() -> ast::Mod = a:statements()? [EndOfFile]? { ast::Mod::Module { body: none_vec(a), type_ignores: vec![] } }
+    pub rule file() -> ast::Mod = a:statements()? [EndOfFile]? { ast::Mod::Module { body: a.unwrap_or_default(), type_ignores: vec![] } }
 
     pub rule interactive() -> ast::Mod = a:statement_newline() { ast::Mod::Interactive { body: a } }
 
@@ -139,34 +139,52 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         &[Nonlocal] a:nonlocal_stmt() {a}
 
     rule compound_stmt() -> Stmt =
-        // function_def() /
+        &[Def | At | Async] a:function_def() {a} /
         &[If] a:if_stmt() {a} /
         &[Class | At] a:class_def() {a} /
         &[With | Async] a:with_stmt() {a} /
         &[For | Async] a:for_stmt() {a} /
-        // try_stmt() /
+        &[Try] a:try_stmt() {a} /
         &[While] a:while_stmt() {a}
         // match_stmt()
 
     rule assignment() -> Stmt =
-        begin:position!() id:name() [Colon] b:expression() c:([Equal] z:annotated_rhs() {z})? end:position!() {
-            let target = zelf.new_located_single(begin, ExprKind::Name { id, ctx: ExprContext::Store });
-            zelf.new_located(begin, end, StmtKind::AnnAssign {
-                target: Box::new(target),
+        loc(<a:name_expr(ExprContext::Store) [Colon] b:expression() c:([Equal] z:annotated_rhs() {z})? {
+            StmtKind::AnnAssign {
+                target: Box::new(a),
                 annotation: Box::new(b),
                 value: option_box(c),
                 simple: 1,
-            })
-        } /
-        // begin:position!() a:([Lpar] z:single_target() [Rpar] {z} / single_subscript_attribute_target())
-        loc(<a:(pard(<single_target()>) / single_subscript_attribute_target())
+            }
+        }>) /
+        loc(<a:(par(<single_target()>) / single_subscript_attribute_target(ExprContext::Store))
             [Colon] b:expression() c:([Equal] z:annotated_rhs() {z})? {
                 StmtKind::AnnAssign { target: Box::new(a), annotation: Box::new(b), value: option_box(c), simple: 0 }
+        }>) /
+        loc(<a:(z:star_targets() [Equal] {z})+ b:(yield_expr() / star_expressions()) ![Equal] tc:type_comment() {
+            StmtKind::Assign { targets: a, value: Box::new(b), type_comment: tc }
+        }>) /
+        loc(<a:single_target() b:augassign() c:(yield_expr() / star_expressions()) {
+            StmtKind::AugAssign { target: Box::new(a), op: b, value: Box::new(c) }
         }>)
         // begin:position!() a:(z:star_targets() [Equal] {z})+ b:(yield_expr() / star_expressions()) ![Equal] tc:
-        // TODO: assign augassign
 
     rule annotated_rhs() -> Expr = yield_expr() / star_expressions()
+
+    rule augassign() -> Operator =
+        [PlusEqual] { Operator::Add } /
+        [MinusEqual] { Operator::Sub } /
+        [StarEqual] { Operator::Mult } /
+        [AtEqual] { Operator::MatMult } /
+        [SlashEqual] { Operator::Div } /
+        [PercentEqual] { Operator::Mod } /
+        [AmperEqual] { Operator::BitAnd } /
+        [VbarEqual] { Operator::BitOr } /
+        [CircumflexEqual] { Operator::BitXor } /
+        [LeftShiftEqual] { Operator::LShift } /
+        [RightShiftEqual] { Operator::RShift } /
+        [DoubleStarEqual] { Operator::Pow } /
+        [DoubleSlashEqual] { Operator::FloorDiv }
 
     rule return_stmt() -> Stmt = loc(<[Return] a:star_expressions()? {
         StmtKind::Return { value: option_box(a) }
@@ -184,125 +202,192 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         StmtKind::Global { names }
     }>)
 
-    rule nonlocal_stmt() -> Stmt = begin:position!() [Nonlocal] a:([Name { name }] { name.clone() }) ++ [Comma] end:position!() {
-        zelf.new_located(begin, end, StmtKind::Nonlocal { names: a })
-    }
+    rule nonlocal_stmt() -> Stmt = loc(<[Nonlocal] names:name() ++ [Comma] {
+        StmtKind::Nonlocal { names }
+    }>)
 
-    rule del_stmt() -> Stmt = begin:position!() [Del] a:del_targets() &[Comma | Newline] end:position!() {
-        zelf.new_located(begin, end, StmtKind::Delete { targets: a })
-    }
+    rule del_stmt() -> Stmt = loc(<[Del] a:del_targets() &[Comma | Newline] {
+        StmtKind::Delete { targets: a }
+    }>)
 
-    rule yield_stmt() -> Stmt = begin:position!() a:yield_expr() end:position!() {
-        zelf.new_located(begin, end, StmtKind::Expr { value: Box::new(a) })
-    }
+    rule yield_stmt() -> Stmt = loc(<a:yield_expr() {
+        StmtKind::Expr { value: Box::new(a) }
+    }>)
 
-    rule assert_stmt() -> Stmt = begin:position!() [Assert] a:expression() b:([Comma] z:expression() { z })? end:position!() {
-        zelf.new_located(begin, end, StmtKind::Assert { test: Box::new(a), msg: b.map(|x| Box::new(x)) })
-    }
+    rule assert_stmt() -> Stmt = loc(<[Assert] a:expression() b:([Comma] z:expression() { z })? {
+        StmtKind::Assert { test: Box::new(a), msg: option_box(b) }
+    }>)
 
     rule import_stmt() -> Stmt = import_name() / import_from()
 
-    rule import_name() -> Stmt = begin:position!() [Import] a:dotted_as_names() end:position!() {
-        zelf.new_located(begin, end, StmtKind::Import { names: a })
-    }
+    rule import_name() -> Stmt = loc(<[Import] a:dotted_as_names() {
+        StmtKind::Import { names: a }
+    }>)
 
     rule import_from() -> Stmt =
-        begin:position!() [From] a:[Dot | Ellipsis]* b:dotted_name() [Import] c:import_from_targets() end:position!() {
-            zelf.new_located(begin, end, StmtKind::ImportFrom { module: Some(b), names: c, level: count_dots(a) })
-        } /
-        begin:position!() [From] a:[Dot | Ellipsis]+ [Import] b:import_from_targets() end:position!() {
-            zelf.new_located(begin, end, StmtKind::ImportFrom { module: None, names: b, level: count_dots(a) })
-        }
+        loc(<[From] a:[Dot | Ellipsis]* b:dotted_name() [Import] c:import_from_targets() {
+            StmtKind::ImportFrom { module: Some(b), names: c, level: count_dots(a) }
+        }>) /
+        loc(<[From] a:[Dot | Ellipsis]+ [Import] b:import_from_targets() {
+            StmtKind::ImportFrom { module: None, names: b, level: count_dots(a) }
+        }>)
 
     rule import_from_targets() -> Vec<ast::Alias> =
-        pard(<a:import_from_as_names() [Comma]? {a}>) /
-        a:import_from_as_names() ![Comma] { a } /
-        begin:position!() [Star] { vec![zelf.new_located_single(begin, ast::AliasData { name: "*".to_owned(), asname: None })] }
+        par(<a:import_from_as_names() [Comma]? {a}>) /
+        a:import_from_as_names() ![Comma] {a} /
+        a:loc(<[Star] {
+            ast::AliasData { name: "*".to_owned(), asname: None }
+        }>) { vec![a] }
 
     rule import_from_as_names() -> Vec<ast::Alias> = import_from_as_name() ++ [Comma]
 
-    rule import_from_as_name() -> ast::Alias = begin:position!() [Name { name }] b:([As] [Name { name }] { name })? end:position!() {
-        zelf.new_located(begin, end, ast::AliasData { name: name.clone(), asname: b.cloned() })
-    }
+    rule import_from_as_name() -> ast::Alias = loc(<a:name() b:([As] z:name() {z})? {
+        ast::AliasData { name: a, asname: b }
+    }>)
 
     rule dotted_as_names() -> Vec<ast::Alias> = dotted_as_name() ++ [Comma]
 
-    rule dotted_as_name() -> ast::Alias = begin:position!() a:dotted_name() b:([As] [Name { name }] { name })? end:position!() {
-        zelf.new_located(begin, end, ast::AliasData { name: a, asname: b.cloned() })
-    }
+    rule dotted_as_name() -> ast::Alias = loc(<a:dotted_name() b:([As] z:name() {z})? {
+        ast::AliasData { name: a, asname: b }
+    }>)
 
     #[cache_left_rec]
     rule dotted_name() -> String =
-        a:dotted_name() [Dot] [Name { name }] {
-            format!("{}.{}", a, name)
+        a:dotted_name() [Dot] b:name() {
+            format!("{}.{}", a, b)
         } /
-        [Name { name }] { name.clone() }
+        name()
 
     #[cache]
     rule block() -> Vec<Stmt> =
-        [Newline] [Indent] a:statements() [Dedent] { a } /
+        [Newline] [Indent] a:statements() [Dedent] {a} /
         simple_stmts()
 
-    rule decorator() -> Expr = [At] f:named_expression() [Newline] { f }
+    rule decorator() -> Expr = [At] f:named_expression() [Newline] {f}
 
     rule class_def() -> Stmt =
-        begin:position!() dec:decorator()* [Class] [Name { name }] arg:([Lpar] z:arguments()? [Rpar] {z})? [Colon] b:block() end:position!() {
-            let (bases, keywords) = none_vec2(arg.flatten());
-            zelf.new_located(begin, end, StmtKind::ClassDef { name: name.clone(), bases, keywords, body: b, decorator_list: dec })
+        loc(<dec:decorator()* [Class] name:name() arg:par(<arguments()?>)? [Colon] b:block() {
+            let (bases, keywords) = arg.flatten().unwrap_or_default();
+            StmtKind::ClassDef { name, bases, keywords, body: b, decorator_list: dec }
+        }>)
+
+    rule function_def() -> Stmt =
+        loc(<dec:decorator()* [Def] name:name() p:par(<params()>)
+        r:([Rarrow] z:expression() {z})? [Colon] tc:func_type_comment() b:block() {
+            StmtKind::FunctionDef { name, args: Box::new(p), body: b, decorator_list: dec, returns: option_box(r), type_comment: tc }
+        }>)
+
+    rule params() -> Arguments = parameters()
+
+    rule parameters() -> Arguments =
+        a:slash_no_default() c:param_no_default()* d:param_with_default()* e:star_etc()? {
+            make_arguments(a, Default::default(), c, d, e)
+        } /
+        b:slash_with_default() d:param_with_default()* e:star_etc()? {
+            make_arguments(vec![], b, vec![], d, e)
+        } /
+        c:param_no_default()+ d:param_with_default()* e:star_etc()? {
+            make_arguments(vec![], Default::default(), c, d, e)
+        } /
+        d:param_with_default()+ e:star_etc()? {
+            make_arguments(vec![], Default::default(), vec![], d, e)
+        } /
+        e:star_etc() {
+            make_arguments(vec![], Default::default(), vec![], vec![], Some(e))
         }
 
-    // rule function_def() -> Stmt =
-    //     begin:position!() dec:decorator()* [Def] [Name { name }] &[Lpar] p:params() [Rpar]
-    //     r:([Rarrow] z:expression() {z})? &[Colon] tc:func_type_comment()? b:block() end:position!() {
-    //         zelf.new_located(begin, end, StmtKind::FunctionDef { name: name.clone(), args: p, body: b, decorator_list: dec, returns: option_box(r), type_comment: tc })
-    //     }
-    
-    // rule params() -> Arguments =
+    rule slash_no_default() -> Vec<Arg> =
+        a:param_no_default()+ [Slash] ([Comma] / &[Rpar]) {a}
+
+    rule slash_with_default() -> (Vec<Arg>, Vec<(Arg, Expr)>) =
+        a:param_no_default()* b:param_with_default()+ [Slash] ([Comma] / &[Rpar]) {
+            (a, b)
+        }
+
+    rule star_etc() -> (Option<Arg>, Vec<(Arg, Option<Expr>)>, Option<Arg>) =
+        [Star] a:param_no_default() b:param_maybe_default()* c:kwds()? {
+            (Some(a), b, c)
+        } /
+        [Star] a:param_no_default_star_annotation() b:param_maybe_default()* c:kwds()? {
+            (Some(a), b, c)
+        } /
+        [Star] [Comma] b:param_maybe_default()+ c:kwds()? {
+            (None, b, c)
+        } /
+        c:kwds() {
+            (None, vec![], Some(c))
+        }
+
+    rule kwds() -> Arg = [DoubleStar] a:param_no_default() {a}
+
+    rule param_no_default() -> Arg = a:param() [Comma]? {a}
+    rule param_no_default_star_annotation() -> Arg = param_star_annotation()
+    rule param_with_default() -> (Arg, Expr) =
+        a:param() c:default() [Comma]? tc:type_comment() {
+            (a, c)
+        }
+    rule param_maybe_default() -> (Arg, Option<Expr>) =
+        a:param() c:default()? [Comma]? tc:type_comment() {
+            (a, c)
+        }
+        // TODO: type_comment
+    rule param() -> Arg =
+        loc(<a:name() b:annotation()? {
+            ArgData { arg: a, annotation: option_box(b), type_comment: None }
+        }>)
+    rule param_star_annotation() -> Arg =
+        loc(<a:name() b:star_annotation() {
+            ArgData { arg: a, annotation: Some(Box::new(b)), type_comment: None }
+        }>)
+    rule annotation() -> Expr = [Colon] a:expression() {a}
+    rule star_annotation() -> Expr = [Colon] a:star_annotation() {a}
+    rule default() -> Expr = [Equal] a:expression() {a}
 
     rule if_stmt() -> Stmt =
         begin:position!() [If] a:named_expression() [Colon] b:block() c:elif_stmt() end:position!() {
             zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: vec![c] })
         } /
-        begin:position!() [If] a:named_expression() [Colon] b:block() c:else_block()? end:position!() {
-            zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: none_vec(c) })
+        begin:position!() [If] a:named_expression() [Colon] b:block() end:position!() c:else_block_opt() {
+            zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: c })
         }
 
     rule elif_stmt() -> Stmt =
-        begin:position!() [Elif] a:named_expression() [Colon] b:block() c:elif_stmt() end:position!() {
+        begin:position!() [Elif] a:named_expression() [Colon] b:block() end:position!() c:elif_stmt() {
             zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: vec![c] })
         } /
-        begin:position!() [Elif] a:named_expression() [Colon] b:block() c:else_block()? end:position!() {
-            zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: none_vec(c) })
+        begin:position!() [Elif] a:named_expression() [Colon] b:block() end:position!() c:else_block_opt() {
+            zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: c })
         }
 
-    rule else_block() -> Vec<Stmt> = [Else] b:block() { b }
+    rule else_block() -> Vec<Stmt> = [Else] [Colon] b:block() {b}
+    rule else_block_opt() -> Vec<Stmt> = a:else_block()? { a.unwrap_or_default() }
 
     rule while_stmt() -> Stmt =
-        begin:position!() [While] a:named_expression() [Colon] b:block() c:else_block()? end:position!() {
-            zelf.new_located(begin, end, StmtKind::While { test: Box::new(a), body: b, orelse: none_vec(c) })
-        }
+        loc(<[While] a:named_expression() [Colon] b:block() c:else_block_opt() {
+            StmtKind::While { test: Box::new(a), body: b, orelse: c }
+        }>)
 
     rule for_stmt() -> Stmt =
-        begin:position!() [For] t:star_targets() [In] ex:star_expressions() [Colon] tc:([Name { name }] { name })? b:block() el:else_block()? end:position!() {
-            zelf.new_located(begin, end, StmtKind::For { target: Box::new(t), iter: Box::new(ex), body: b, orelse: none_vec(el), type_comment: tc.cloned() })
-        } /
-        begin:position!() [Async] [For] t:star_targets() [In] ex:star_expressions() [Colon] tc:([Name { name }] { name })? b:block() el:else_block()? end:position!() {
-            zelf.new_located(begin, end, StmtKind::AsyncFor { target: Box::new(t), iter: Box::new(ex), body: b, orelse: none_vec(el), type_comment: tc.cloned() })
-        }
+        loc(<[For] t:star_targets() [In] ex:star_expressions() [Colon] tc:type_comment() b:block() el:else_block_opt() {
+            StmtKind::For { target: Box::new(t), iter: Box::new(ex), body: b, orelse: el, type_comment: tc }
+        }>) /
+        loc(<[Async] [For] t:star_targets() [In] ex:star_expressions() [Colon] tc:type_comment() b:block() el:else_block_opt() {
+            StmtKind::AsyncFor { target: Box::new(t), iter: Box::new(ex), body: b, orelse: el, type_comment: tc }
+        }>)
 
     rule with_stmt() -> Stmt =
-        begin:position!() [With] [Lpar] a:with_item() ++ [Comma] [Comma]? [Rpar] [Colon] b:block() end:position!() {
-            zelf.new_located(begin, end, StmtKind::With { items: a, body: b, type_comment: None })
-        } /
-        begin:position!() [With] a:with_item() ++ [Comma] [Colon] tc:([Name { name }] { name })? b:block() end:position!() {
-            zelf.new_located(begin, end, StmtKind::With { items: a, body: b, type_comment: tc.cloned() })
-        } /
-        begin:position!() [Async] [With] [Lpar] a:with_item() ++ [Comma] [Comma]? [Rpar] [Colon] b:block() end:position!() {
-            zelf.new_located(begin, end, StmtKind::AsyncWith { items: a, body: b, type_comment: None })
-        } /
-        begin:position!() [Async] [With] a:with_item() ++ [Comma] [Colon] tc:([Name { name }] { name })? b:block() end:position!() {
-            zelf.new_located(begin, end, StmtKind::AsyncWith { items: a, body: b, type_comment: tc.cloned() })
-        }
+        loc(<[With] a:par(<z:with_item() ++ [Comma] [Comma]? {z}>) [Colon] b:block() {
+            StmtKind::With { items: a, body: b, type_comment: None }
+        }>) /
+        loc(<[With] a:with_item() ++ [Comma] [Colon] tc:type_comment() b:block() {
+            StmtKind::With { items: a, body: b, type_comment: tc }
+        }>) /
+        loc(<[Async] [With] a:par(<z:with_item() ++ [Comma] [Comma]? {z}>) [Colon] b:block() {
+            StmtKind::AsyncWith { items: a, body: b, type_comment: None }
+        }>) /
+        loc(<[Async] [With] a:with_item() ++ [Comma] [Colon] tc:type_comment() b:block() {
+            StmtKind::AsyncWith { items: a, body: b, type_comment: tc }
+        }>)
 
     rule with_item() -> Withitem =
         e:expression() [As] t:star_target() &[Comma | Rpar | Colon] {
@@ -312,83 +397,100 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
             Withitem { context_expr: e, optional_vars: None }
         }
 
-    rule expressions() -> Expr =
-        begin:position!() a:expression() **<2,> [Comma] [Comma]? end:position!() {
-            zelf.new_located(begin, end, ExprKind::Tuple { elts: a, ctx: ExprContext::Load })
-        } /
-        begin:position!() a:expression() [Comma] end:position!() {
-            zelf.new_located(begin, end, ExprKind::Tuple { elts: vec![a], ctx: ExprContext::Load })
-        } /
-        expression()
+    rule try_stmt() -> Stmt =
+        loc(<[Try] [Colon] b:block() ex:except_block()* el:else_block_opt() f:finally_block() {
+            StmtKind::Try { body: b, handlers: ex, orelse: el, finalbody: f }
+        }>)
+
+    rule except_block() -> Excepthandler =
+        loc(<[Except] e:expression() t:([As] z:name() {z})? [Colon] b:block() {
+            ExcepthandlerKind::ExceptHandler { type_: Some(Box::new(e)), name: t, body: b }
+        }>) /
+        loc(<[Except] [Colon] b:block() {
+            ExcepthandlerKind::ExceptHandler { type_: None, name: None, body: b }
+        }>)
+
+    // except_star
+
+    rule finally_block() -> Vec<Stmt> = [Finally] [Colon] b:block() {b}
+
+    // rule match_stmt() -> Stmt =
+    //     [Match]
+
+    rule expressions() -> Expr = pack_tuple_expr(<star_expression()>, ExprContext::Load)
 
     rule expression() -> Expr =
-        begin:position!() a:disjunction() [If] b:disjunction() [Else] c:expression() end:position!() {
-            zelf.new_located(begin, end, ExprKind::IfExp { test: Box::new(b), body: Box::new(a), orelse: Box::new(c) })
-        } /
+        loc(<a:disjunction() [If] b:disjunction() [Else] c:expression() {
+            ExprKind::IfExp { test: Box::new(b), body: Box::new(a), orelse: Box::new(c) }
+        }>) /
         disjunction()
         // TODO: lambdef
 
     rule yield_expr() -> Expr =
-        begin:position!() [Yield] [From] a:expression() end:position!() {
-            zelf.new_located(begin, end, ExprKind::YieldFrom { value: Box::new(a) })
-        } /
-        begin:position!() [Yield] a:expression()? end:position!() {
-            zelf.new_located(begin, end, ExprKind::Yield { value: a.map(|x| Box::new(x)) })
-        }
+        loc(<[Yield] [From] a:expression() {
+            ExprKind::YieldFrom { value: Box::new(a) }
+        }>) /
+        loc(<[Yield] a:expression()? {
+            ExprKind::Yield { value: option_box(a) }
+        }>)
 
-    rule star_expressions() -> Expr =
-        begin:position!() a:star_expression() **<2,> [Comma] [Comma]? end:position!() {
-            zelf.new_located(begin, end, ExprKind::Tuple { elts: a, ctx: ExprContext::Load })
-        } /
-        begin:position!() a:star_expression() [Comma] end:position!() {
-            zelf.new_located(begin, end, ExprKind::Tuple { elts: vec![a], ctx: ExprContext::Load })
-        } /
-        star_expression()
+    rule star_expressions() -> Expr = pack_tuple_expr(<star_expression()>, ExprContext::Load)
 
     rule star_expression() -> Expr =
-        begin:position!() [Star] a:bitwise_or() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Starred { value: Box::new(a), ctx: ExprContext::Load })
-        } /
+        loc(<[Star] a:bitwise_or() {
+            ExprKind::Starred { value: Box::new(a), ctx: ExprContext::Load }
+        }>) /
         expression()
 
     rule star_named_expressions() -> Vec<Expr> =
-        a:star_named_expression() ++ [Comma] [Comma]? { a }
+        a:star_named_expression() ++ [Comma] [Comma]? {a}
 
     rule star_named_expression() -> Expr =
-        begin:position!() [Star] a:bitwise_or() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Starred { value: Box::new(a), ctx: ExprContext::Load })
-        }
+        loc(<[Star] a:bitwise_or() {
+            ExprKind::Starred { value: Box::new(a), ctx: ExprContext::Load }
+        }>) /
+        named_expression()
 
     rule assignment_expression() -> Expr =
-        begin:position!() [Name { name }] [ColonEqual] b:expression() end:position!() {
-            let target = zelf.new_located_single(begin, ExprKind::Name { id: name.clone(), ctx: ExprContext::Store });
-            zelf.new_located(begin, end, ExprKind::NamedExpr { target: Box::new(target), value: Box::new(b) })
-        }
+        loc(<a:name_expr(ExprContext::Store) [ColonEqual] b:expression() {
+            ExprKind::NamedExpr { target: Box::new(a), value: Box::new(b) }
+        }>)
 
     rule named_expression() -> Expr =
         assignment_expression() /
-        a:expression() ![ColonEqual] { a }
+        a:expression() ![ColonEqual] {a}
 
-    rule disjunction() -> Expr = begin:position!() a:conjunction() ++ [Or] end:position!() {
-        zelf.new_located(begin, end, ExprKind::BoolOp { op: ast::Boolop::Or, values: a })
-    }
+    #[cache]
+    rule disjunction() -> Expr =
+        loc(<a:conjunction() **<2,> [Or] {
+            ExprKind::BoolOp { op: ast::Boolop::Or, values: a }
+        }>) /
+        conjunction()
 
-    rule conjunction() -> Expr = begin:position!() a:inversion() ++ [And] end:position!() {
-        zelf.new_located(begin, end, ExprKind::BoolOp { op: ast::Boolop::And, values: a })
-    }
+    #[cache]
+    rule conjunction() -> Expr =
+        loc(<a:inversion() **<2,> [And] {
+            ExprKind::BoolOp { op: ast::Boolop::And, values: a }
+        }>) /
+        inversion()
 
+    #[cache]
     rule inversion() -> Expr =
-        begin:position!() [Not] a:inversion() end:position!() {
-            zelf.new_located(begin, end, ExprKind::UnaryOp { op: ast::Unaryop::Not, operand: Box::new(a) })
-        } /
+        loc(<[Not] a:inversion() {
+            ExprKind::UnaryOp { op: ast::Unaryop::Not, operand: Box::new(a) }
+        }>) /
         comparison()
 
+    #[cache]
     rule comparison() -> Expr =
-        begin:position!() a:bitwise_or() b:compare_op_bitwise_or_pair()+ end:position!() {
+        loc(<a:bitwise_or() b:compare_op_bitwise_or_pair()+ {
             let (ops, comparators) = comparison_ops_comparators(b);
-            zelf.new_located(begin, end, ExprKind::Compare { left: Box::new(a), ops, comparators })
-        }
+            ExprKind::Compare { left: Box::new(a), ops, comparators }
+        }>) /
+        bitwise_or()
 
+    // TODO: simplify
+    #[cache]
     rule compare_op_bitwise_or_pair() -> (Cmpop, Expr) =
         eq_bitwise_or() /
         noteq_bitwise_or() /
@@ -414,142 +516,155 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
 
     #[cache_left_rec]
     rule bitwise_or() -> Expr =
-        begin:position!() a:bitwise_or() [Or] b:bitwise_xor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitOr, right: Box::new(b) })
-        } /
+        loc(<a:bitwise_or() [Or] b:bitwise_xor() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitOr, right: Box::new(b) }
+        }>) /
         bitwise_xor()
 
     #[cache_left_rec]
     rule bitwise_xor() -> Expr =
-        begin:position!() a:bitwise_xor() [CircumFlex] b:bitwise_and() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitXor, right: Box::new(b) })
-        } /
+        loc(<a:bitwise_xor() [CircumFlex] b:bitwise_and() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitXor, right: Box::new(b) }
+        }>) /
         bitwise_and()
 
     #[cache_left_rec]
     rule bitwise_and() -> Expr =
-        begin:position!() a:bitwise_and() [Amper] b:shift_expr() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitAnd, right: Box::new(b) })
-        } /
+        loc(<a:bitwise_and() [Amper] b:shift_expr() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitAnd, right: Box::new(b) }
+        }>) /
         shift_expr()
 
     #[cache_left_rec]
     rule shift_expr() -> Expr =
-        begin:position!() a:shift_expr() [LeftShift] b:sum() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::LShift, right: Box::new(b) })
-        } /
-        begin:position!() a:shift_expr() [RightShift] b:sum() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::RShift, right: Box::new(b) })
-        } /
+        loc(<a:shift_expr() [LeftShift] b:sum() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::LShift, right: Box::new(b) }
+        }>) /
+        loc(<a:shift_expr() [RightShift] b:sum() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::RShift, right: Box::new(b) }
+        }>) /
         sum()
 
     #[cache_left_rec]
     rule sum() -> Expr =
-        begin:position!() a:sum() [Plus] b:term() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Add, right: Box::new(b) })
-        } /
-        begin:position!() a:sum() [Minus] b:term() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Sub, right: Box::new(b) })
-        } /
+        loc(<a:sum() [Plus] b:term() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Add, right: Box::new(b) }
+        }>) /
+        loc(<a:sum() [Minus] b:term() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Sub, right: Box::new(b) }
+        }>) /
         term()
 
     #[cache_left_rec]
     rule term() -> Expr =
-        begin:position!() a:term() [Star] b:factor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Mult, right: Box::new(b) })
-        } /
-        begin:position!() a:term() [Slash] b:factor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Div, right: Box::new(b) })
-        } /
-        begin:position!() a:term() [DoubleSlash] b:factor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::FloorDiv, right: Box::new(b) })
-        } /
-        begin:position!() a:term() [Percent] b:factor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Mod, right: Box::new(b) })
-        } /
-        begin:position!() a:term() [At] b:factor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::MatMult, right: Box::new(b) })
-        } /
+        loc(<a:term() [Star] b:factor() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Mult, right: Box::new(b) }
+        }>) /
+        loc(<a:term() [Slash] b:factor() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Div, right: Box::new(b) }
+        }>) /
+        loc(<a:term() [DoubleSlash] b:factor() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::FloorDiv, right: Box::new(b) }
+        }>) /
+        loc(<a:term() [Percent] b:factor() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Mod, right: Box::new(b) }
+        }>) /
+        loc(<a:term() [At] b:factor() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::MatMult, right: Box::new(b) }
+        }>) /
         factor()
 
+    #[cache]
     rule factor() -> Expr =
-        begin:position!() [Plus] a:factor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::UnaryOp { op: ast::Unaryop::UAdd, operand: Box::new(a) })
-        } /
-        begin:position!() [Minus] a:factor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::UnaryOp { op: ast::Unaryop::USub, operand: Box::new(a) })
-        } /
-        begin:position!() [Tilde] a:factor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::UnaryOp { op: ast::Unaryop::Invert, operand: Box::new(a) })
-        } /
+        loc(<[Plus] a:factor() {
+            ExprKind::UnaryOp { op: ast::Unaryop::UAdd, operand: Box::new(a) }
+        }>) /
+        loc(<[Minus] a:factor() {
+            ExprKind::UnaryOp { op: ast::Unaryop::USub, operand: Box::new(a) }
+        }>) /
+        loc(<[Tilde] a:factor() {
+            ExprKind::UnaryOp { op: ast::Unaryop::Invert, operand: Box::new(a) }
+        }>) /
         power()
 
     rule power() -> Expr =
-        begin:position!() a:await_primary() [DoubleStar] b:factor() end:position!() {
-            zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Pow, right: Box::new(b) })
-        } /
+        loc(<a:await_primary() [DoubleStar] b:factor() {
+            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Pow, right: Box::new(b) }
+        }>) /
         await_primary()
 
+    #[cache]
     rule await_primary() -> Expr =
-        begin:position!() [Await] a:primary() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Await { value: Box::new(a) })
-        } /
+        loc(<[Await] a:primary() {
+            ExprKind::Await { value: Box::new(a) }
+        }>) /
         primary()
 
     #[cache_left_rec]
     rule primary() -> Expr =
-        begin:position!() a:primary() [Dot] [Name { name }] end:position!() {
-            zelf.new_located(begin, end, ExprKind::Attribute { value: Box::new(a), attr: name.clone(), ctx: ExprContext::Load })
-        } /
-        begin:position!() a:primary() b:genexp() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Call { func: Box::new(a), args: vec![b], keywords: vec![] })
-        } /
-        begin:position!() a:primary() [Lpar] b:arguments()? [Rpar] end:position!() {
-            let (args, keywords) = if let Some(b) = b {
-                (b.0, b.1)
-            } else {
-                (vec![], vec![])
-            };
-            zelf.new_located(begin, end, ExprKind::Call { func: Box::new(a), args, keywords })
-        } /
-        begin:position!() a:primary() [Lsqb] b:slices() [Rsqb] end:position!() {
-            zelf.new_located(begin, end, ExprKind::Subscript { value: Box::new(a), slice: Box::new(b), ctx: ExprContext::Load })
-        } /
+        loc(<a:primary() [Dot] b:name() {
+            ExprKind::Attribute { value: Box::new(a), attr: b, ctx: ExprContext::Load }
+        }>) /
+        loc(<a:primary() b:genexp() {
+            ExprKind::Call { func: Box::new(a), args: vec![b], keywords: vec![] }
+        }>) /
+        loc(<a:primary() b:par(<arguments()?>) {
+            let (args, keywords) = b.unwrap_or_default();
+            ExprKind::Call { func: Box::new(a), args, keywords }
+        }>) /
+        loc(<a:primary() b:sqb(<slices()>) {
+            ExprKind::Subscript { value: Box::new(a), slice: Box::new(b), ctx: ExprContext::Load }
+        }>) /
         atom()
 
     rule slices() -> Expr =
-        a:slice() ![Comma] { a } /
-        begin:position!() a:(slice() / starred_expression()) ++ [Comma] [Comma]? end:position!() {
-            zelf.new_located(begin, end, ExprKind::Tuple { elts: a, ctx: ExprContext::Load })
-        }
+        a:slice() ![Comma] {a} /
+        loc(<a:(slice() / starred_expression()) ++ [Comma] [Comma]? {
+            ExprKind::Tuple { elts: a, ctx: ExprContext::Load }
+        }>)
 
     rule slice() -> Expr =
-        begin:position!() a:expression()? [Colon] b:expression()? c:([Colon] d:expression() { d })? end:position!() {
-            zelf.new_located(begin, end, ExprKind::Slice { lower: option_box(a), upper: option_box(b), step: option_box(c) })
-        } /
+        loc(<a:expression()? [Colon] b:expression()? c:([Colon] d:expression() { d })? {
+            ExprKind::Slice { lower: option_box(a), upper: option_box(b), step: option_box(c) }
+        }>) /
         named_expression()
 
     rule atom() -> Expr =
-        begin:position!() [Name { name }] {
-            zelf.new_located_single(begin, ExprKind::Name { id: name.clone(), ctx: ExprContext::Load })
-        } /
-        begin:position!() [True] {
-            zelf.new_located_single(begin, ExprKind::Constant { value: ast::Constant::Bool(true), kind: None })
-        } /
-        begin:position!() [False] {
-            zelf.new_located_single(begin, ExprKind::Constant { value: ast::Constant::Bool(false), kind: None })
-        } /
-        begin:position!() [Tok::None] {
-            zelf.new_located_single(begin, ExprKind::Constant { value: ast::Constant::None, kind: None })
-        }
-        // TODO: string
+        name_expr(ExprContext::Load) /
+        loc(<[True] {
+            ExprKind::Constant { value: ast::Constant::Bool(true), kind: None }
+        }>) /
+        loc(<[False] {
+            ExprKind::Constant { value: ast::Constant::Bool(false), kind: None }
+        }>) /
+        loc(<[Tok::None] {
+            ExprKind::Constant { value: ast::Constant::None, kind: None }
+        }>) /
+        strings() /
+        loc(<[Int { value }] {
+            ExprKind::Constant { value: ast::Constant::Int(value.clone()), kind: None }
+        }>) /
+        loc(<[Float { value }] {
+            ExprKind::Constant { value: ast::Constant::Float(value.clone()), kind: None }
+        }>) /
+        loc(<[Complex { real, imag }] {
+            ExprKind::Constant { value: ast::Constant::Complex { real: *real, imag: *imag }, kind: None }
+        }>) /
+        &[Lpar] a:(tuple() / group() / genexp()) {a} /
+        &[Lsqb] a:(list() / listcomp()) {a} /
+        &[Lbrace] a:(dict() / set() / dictcomp() / setcomp()) {a} /
+        loc(<[Ellipse] {
+            ExprKind::Constant { value: ast::Constant::Ellipsis, kind: None }
+        }>)
 
+    rule group() -> Expr = par(<yield_expr() / named_expression()>)
     // rule bitwise() -> Expr = precedence!{
     //     begin:position!() a:@ [BitOr] b:@ { zelf.new_located() }
     // }
 
     // rule compound_stmt() -> StmtKind = [Def]
 
+    #[cache]
     rule strings() -> Expr = a:string()+ {?
         // TODO: error handling
         crate::string::parse_strings(a).map_err(|_| "string format error")
@@ -561,32 +676,28 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }
 
     rule list() -> Expr =
-        begin:position!() [Lsqb] a:star_named_expressions()? [Rsqb] end:position!() {
-            zelf.new_located(begin, end, ExprKind::List { elts: none_vec(a), ctx: ExprContext::Load })
-        }
+        loc(<a:sqb(<star_named_expressions()?>) {
+            ExprKind::List { elts: a.unwrap_or_default(), ctx: ExprContext::Load }
+        }>)
 
     rule tuple() -> Expr =
-        begin:position!() [Lpar] a:star_named_expressions()? [Rpar] end:position!() {
-            zelf.new_located(begin, end, ExprKind::Tuple { elts: none_vec(a), ctx: ExprContext::Load })
-        }
+        loc(<a:par(<star_named_expressions()?>) {
+            ExprKind::Tuple { elts: a.unwrap_or_default(), ctx: ExprContext::Load }
+        }>)
 
     rule set() -> Expr =
-        begin:position!() [Lbrace] a:star_named_expressions() [Rbrace] end:position!() {
-            zelf.new_located(begin, end, ExprKind::Set { elts: a })
-        }
+        loc(<a:brace(<star_named_expressions()>) {
+            ExprKind::Set { elts: a }
+        }>)
 
     rule dict() -> Expr =
-        begin:position!() [Lbrace] a:double_starred_kvpairs()? [Rbrace] end:position!() {
-            let (keys, values) = if let Some(a) = a {
-                dict_kvpairs(a)
-            } else {
-                (vec![], vec![])
-            };
-            zelf.new_located(begin, end, ExprKind::Dict { keys, values })
-        }
+        loc(<a:brace(<double_starred_kvpairs()?>) {
+            let (keys, values) = dict_kvpairs(a.unwrap_or_default());
+            ExprKind::Dict { keys, values }
+        }>)
 
     rule double_starred_kvpairs() -> Vec<(Option<Expr>, Expr)> =
-        a:double_starred_kvpair() ++ [Comma] [Comma]? { a }
+        a:double_starred_kvpair() ++ [Comma] [Comma]? {a}
 
     rule double_starred_kvpair() -> (Option<Expr>, Expr) =
         [DoubleStar] a:bitwise_or() { (None, a) } /
@@ -598,39 +709,40 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule for_if_clauses() -> Vec<Comprehension> = for_if_clause()+
 
     rule for_if_clause() -> Comprehension =
-        [Async] [For] a:star_targets() [In] b:disjunction() c:([If] z:disjunction() { z })* {
-            Comprehension { target: a, iter: b, ifs: c, is_async: 1 }
-        } /
-        [For] a:star_targets() [In] b:disjunction() c:([If] z:disjunction() { z })* {
-            Comprehension { target: a, iter: b, ifs: c, is_async: 0 }
+        is_async:[Async]? [For] a:star_targets() [In] b:disjunction() c:([If] z:disjunction() { z })* {
+            Comprehension { target: a, iter: b, ifs: c, is_async: if is_async.is_some() {1} else {0} }
         }
 
     rule listcomp() -> Expr =
-        begin:position!() [Lsqb] a:named_expression() b:for_if_clauses() [Rsqb] end:position!() {
-            zelf.new_located(begin, end, ExprKind::ListComp { elt: Box::new(a), generators: b })
-        }
+        loc(<sqb(<a:named_expression() b:for_if_clauses() {
+            ExprKind::ListComp { elt: Box::new(a), generators: b }
+        }>)>)
 
     rule setcomp() -> Expr =
-        begin:position!() [Lbrace] a:named_expression() b:for_if_clauses() [Rbrace] end:position!() {
-            zelf.new_located(begin, end, ExprKind::SetComp { elt: Box::new(a), generators: b })
-        }
+        loc(<brace(<a:named_expression() b:for_if_clauses() {
+            ExprKind::SetComp { elt: Box::new(a), generators: b }
+        }>)>)
 
     rule genexp() -> Expr =
-        begin:position!() [Lpar] a:(assignment_expression() / z:expression() ![ColonEqual] { z }) b:for_if_clauses() [Rpar] end:position!() {
-            zelf.new_located(begin, end, ExprKind::GeneratorExp { elt: Box::new(a), generators: b })
-        }
+        loc(<par(<a:(assignment_expression() / z:expression() ![ColonEqual] {z}) b:for_if_clauses() {
+            ExprKind::GeneratorExp { elt: Box::new(a), generators: b }
+        }>)>)
 
     rule dictcomp() -> Expr =
-        begin:position!() [Lbrace] a:kvpair() b:for_if_clauses() [Rbrace] end:position!() {
-            zelf.new_located(begin, end, ExprKind::DictComp { key: Box::new(a.0), value: Box::new(a.1), generators: b })
-        }
+        loc(<brace(<a:kvpair() b:for_if_clauses() {
+            ExprKind::DictComp { key: Box::new(a.0), value: Box::new(a.1), generators: b }
+        }>)>)
 
-    rule arguments() -> (Vec<Expr>, Vec<Keyword>) = a:args() [Comma]? &[Rpar] { a }
+    #[cache]
+    rule arguments() -> (Vec<Expr>, Vec<Keyword>) = a:args() [Comma]? &[Rpar] {a}
 
     rule args() -> (Vec<Expr>, Vec<Keyword>) =
-        // a:(starred_expression() / (assignment_expression() / expression() ![ColonEqual]) ![Equal]) ++ [Comma] b:([Comma] k:kwargs() { k })? {
-        //     (a, none_vec(b))
-        // } /
+        a:(starred_expression() / z:(assignment_expression() / z:expression() ![ColonEqual] {z}) ![Equal] {z}) ++ [Comma] b:([Comma] k:kwargs() {k})? {
+            let (mut ex, kw) = keyword_or_starred_partition(b.unwrap_or_default());
+            let mut a = a;
+            a.append(&mut ex);
+            (a, kw)
+        } /
         a:kwargs() {
             keyword_or_starred_partition(a)
         }
@@ -646,119 +758,136 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         kwarg_or_double_starred() ++ [Comma]
 
     rule starred_expression() -> Expr =
-        begin:position!() [Star] a:expression() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Starred { value: Box::new(a), ctx: ExprContext::Load })
-        }
+        loc(<[Star] a:expression() {
+            ExprKind::Starred { value: Box::new(a), ctx: ExprContext::Load }
+        }>)
 
     rule kwarg_or_starred() -> KeywordOrStarred =
-        begin:position!() [Name { name }] [Equal] b:expression() end:position!() {
-            KeywordOrStarred::Keyword(zelf.new_located(begin, end, KeywordData { arg: Some(name.clone()), value: b }))
-        } /
+        a:loc(<a:name() [Equal] b:expression() {
+            KeywordData { arg: Some(a), value: b }
+        }>) { KeywordOrStarred::Keyword(a) } /
         a:starred_expression() {
             KeywordOrStarred::Starred(a)
         }
 
     rule kwarg_or_double_starred() -> KeywordOrStarred =
-        begin:position!() [Name { name }] [Equal] b:expression() end:position!() {
-            KeywordOrStarred::Keyword(zelf.new_located(begin, end, KeywordData { arg: Some(name.clone()), value: b }))
-        } /
-        begin:position!() [DoubleStar] a:expression() end:position!() {
-            KeywordOrStarred::Keyword(zelf.new_located(begin, end, KeywordData { arg: None, value: a }))
-        }
+        a:loc(<a:name() [Equal] b:expression() {
+            KeywordData { arg: Some(a), value: b }
+        }>) { KeywordOrStarred::Keyword(a) } /
+        a:loc(<[DoubleStar] a:expression() {
+            KeywordData { arg: None, value: a }
+        }>) { KeywordOrStarred::Keyword(a) }
 
     rule star_targets() -> Expr =
-        a:star_target() ![Comma] { a } /
-        begin:position!() a:star_target() ++ [Comma] [Comma]? end:position!() {
-            zelf.new_located(begin, end, ExprKind::Tuple { elts: a, ctx: ExprContext::Store })
-        }
+        a:star_target() ![Comma] {a} /
+        loc(<a:star_target() ++ [Comma] [Comma]? {
+            ExprKind::Tuple { elts: a, ctx: ExprContext::Store }
+        }>)
 
-    rule star_targets_list() -> Vec<Expr> = a:star_target() ++ [Comma] [Comma]? { a }
+    rule star_targets_list() -> Vec<Expr> = a:star_target() ++ [Comma] [Comma]? {a}
 
     rule star_targets_tuple() -> Vec<Expr> =
-        a:star_target() **<2,> [Comma] [Comma]? { a } /
+        a:star_target() **<2,> [Comma] [Comma]? {a} /
         a:star_target() [Comma] { vec![a] }
 
+    #[cache]
     rule star_target() -> Expr =
-        begin:position!() [Star] ![Star] a:star_target() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Starred { value: Box::new(a), ctx: ExprContext::Store })
-        } /
+        loc(<[Star] ![Star] a:star_target() {
+            ExprKind::Starred { value: Box::new(a), ctx: ExprContext::Store }
+        }>) /
         target_with_star_atom()
 
+    #[cache]
     rule target_with_star_atom() -> Expr =
-        single_subscript_attribute_target() /
+        single_subscript_attribute_target(ExprContext::Store) /
         star_atom()
 
     rule star_atom() -> Expr =
-        begin:position!() [Name { name }] {
-            zelf.new_located_single(begin, ExprKind::Name { id: name.clone(), ctx: ExprContext::Store })
-        } /
-        [Lpar] a:target_with_star_atom() [Rpar] { a } /
-        begin:position!() [Lpar] a:star_targets_tuple() [Rpar] end:position!() {
-            zelf.new_located(begin, end, ExprKind::Tuple { elts: a, ctx: ExprContext::Store })
-        } /
-        begin:position!() [Lsqb] a:star_targets_list() [Rsqb] end:position!() {
-            zelf.new_located(begin, end, ExprKind::List { elts: a, ctx: ExprContext::Store })
-        }
+        name_expr(ExprContext::Store) /
+        par(<target_with_star_atom()>) /
+        loc(<a:par(<star_targets_tuple()>) {
+            ExprKind::Tuple { elts: a, ctx: ExprContext::Store }
+        }>) /
+        loc(<a:sqb(<star_targets_list()>) {
+            ExprKind::List { elts: a, ctx: ExprContext::Store }
+        }>)
 
     rule single_target() -> Expr =
-        single_subscript_attribute_target() /
-        begin:position!() [Name { name }] {
-            zelf.new_located_single(begin, ExprKind::Name { id: name.clone(), ctx: ExprContext::Store })
-        } /
-        [Lpar] a:single_target() [Rpar] { a }
+        single_subscript_attribute_target(ExprContext::Store) /
+        name_expr(ExprContext::Store) /
+        par(<single_target()>)
 
-    rule single_subscript_attribute_target() -> Expr =
-        begin:position!() a:t_primary() [Dot] [Name { name }] !t_lookahead() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Attribute { value: Box::new(a), attr: name.clone(), ctx: ExprContext::Store })
-        } /
-        begin:position!() a:t_primary() [Lsqb] b:slices() [Rsqb] !t_lookahead() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Subscript { value: Box::new(a), slice: Box::new(b), ctx: ExprContext::Store })
-        }
+    rule single_subscript_attribute_target(ctx: ExprContext) -> Expr =
+        loc(<a:t_primary() [Dot] attr:name() !t_lookahead() {
+            ExprKind::Attribute { value: Box::new(a), attr, ctx: ctx.clone() }
+        }>) /
+        loc(<a:t_primary() b:sqb(<slices()>) !t_lookahead() {
+            ExprKind::Subscript { value: Box::new(a), slice: Box::new(b), ctx: ctx.clone() }
+        }>)
 
     #[cache_left_rec]
     rule t_primary() -> Expr =
-        begin:position!() a:t_primary() [Dot] [Name { name }] &t_lookahead() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Attribute { value: Box::new(a), attr: name.clone(), ctx: ExprContext::Load })
-        } /
-        begin:position!() a:t_primary() [Lsqb] b:slices() [Rsqb] &t_lookahead() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Subscript { value: Box::new(a), slice: Box::new(b), ctx: ExprContext::Load })
-        }
-        // TODO:
+        loc(<a:t_primary() [Dot] attr:name() &t_lookahead() {
+            ExprKind::Attribute { value: Box::new(a), attr, ctx: ExprContext::Load }
+        }>) /
+        loc(<a:t_primary() b:sqb(<slices()>) &t_lookahead() {
+            ExprKind::Subscript { value: Box::new(a), slice: Box::new(b), ctx: ExprContext::Load }
+        }>) /
+        loc(<a:t_primary() b:genexp() &t_lookahead() {
+            ExprKind::Call { func: Box::new(a), args: vec![b], keywords: vec![] }
+        }>) /
+        loc(<a:t_primary() b:par(<arguments()?>) &t_lookahead() {
+            let (ex, kw) = b.unwrap_or_default();
+            ExprKind::Call { func: Box::new(a), args: ex, keywords: kw }
+        }>) /
+        a:atom() &t_lookahead() {a}
 
     rule t_lookahead() = [Lpar] / [Lsqb] / [Dot]
 
-    rule del_targets() -> Vec<Expr> = a:del_target() ++ [Comma] [Comma]? { a }
+    rule del_targets() -> Vec<Expr> = a:del_target() ++ [Comma] [Comma]? {a}
 
+    #[cache]
     rule del_target() -> Expr =
-        begin:position!() a:t_primary() [Dot] [Name { name }] !t_lookahead() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Attribute { value: Box::new(a), attr: name.clone(), ctx: ExprContext::Del })
-        } /
-        begin:position!() a:t_primary() [Lsqb] b:slices() [Rsqb] !t_lookahead() end:position!() {
-            zelf.new_located(begin, end, ExprKind::Subscript { value: Box::new(a), slice: Box::new(b), ctx: ExprContext::Del })
-        } /
+        single_subscript_attribute_target(ExprContext::Del) /
         del_t_atom()
 
     rule del_t_atom() -> Expr =
-        begin:position!() [Name { name }] {
-            zelf.new_located_single(begin, ExprKind::Name { id: name.clone(), ctx: ExprContext::Del })
-        } /
-        begin:position!() [Lpar] a:del_target() [Rpar] end:position!() { a } /
-        begin:position!() [Lpar] a:del_targets() [Rpar] end:position!() {
-            zelf.new_located(begin, end, ExprKind::Tuple { elts: a, ctx: ExprContext::Del })
-        } /
-        begin:position!() [Lsqb] a:del_targets() [Rsqb] end:position!() {
-            zelf.new_located(begin, end, ExprKind::List { elts: a, ctx: ExprContext::Del })
-        }
-    
+        name_expr(ExprContext::Del) /
+        par(<del_target()>) /
+        loc(<a:par(<del_targets()>) {
+            ExprKind::Tuple { elts: a, ctx: ExprContext::Del }
+        }>) /
+        loc(<a:sqb(<del_targets()>) {
+            ExprKind::List { elts: a, ctx: ExprContext::Del }
+        }>)
+
     rule loc<T>(r: rule<T>) -> Located<T> = begin:position!() z:r() end:position!() {
         zelf.new_located(begin, end, z)
     }
 
     rule name() -> String = [Name { name }] { name.clone() }
+    rule name_expr(ctx: ExprContext) -> Expr =
+        loc(<id:name() {
+            ExprKind::Name { id, ctx: ctx.clone() }
+        }>)
 
-    rule pard<T>(r: rule<T>) -> T = [Lpar] z:r() [Rpar] {z}
+    rule par<T>(r: rule<T>) -> T = [Lpar] z:r() [Rpar] {z}
+    rule sqb<T>(r: rule<T>) -> T = [Lsqb] z:r() [Rsqb] {z}
+    rule brace<T>(r: rule<T>) -> T = [Lbrace] z:r() [Rbrace] {z}
 
-    rule commas_ppq<T>(r: rule<T>) -> Vec<T> = z:(r() ++ [Comma]) [Comma]? {z}
+    // not yet supported by lexer
+    rule type_comment() -> Option<String> = { None }
+    // not yet supported by lexer
+    rule func_type_comment() -> Option<String> = { None }
+
+    rule pack_tuple_expr(r:rule<Expr>, ctx: ExprContext) -> Expr =
+        loc(<z:r() **<2,> [Comma] [Comma]? {
+            ExprKind::Tuple { elts: z, ctx: ctx.clone() }
+        }>) /
+        loc(<z:r() [Comma] {
+            ExprKind::Tuple { elts: vec![z], ctx: ctx.clone() }
+        }>) /
+        r()
 }}
 
 fn count_dots(toks: Vec<&Tok>) -> Option<usize> {
@@ -775,22 +904,6 @@ fn count_dots(toks: Vec<&Tok>) -> Option<usize> {
         };
     }
     Some(count)
-}
-
-fn none_vec<T>(v: Option<Vec<T>>) -> Vec<T> {
-    if let Some(v) = v {
-        v
-    } else {
-        vec![]
-    }
-}
-
-fn none_vec2<T1, T2>(v: Option<(Vec<T1>, Vec<T2>)>) -> (Vec<T1>, Vec<T2>) {
-    if let Some(v) = v {
-        v
-    } else {
-        (vec![], vec![])
-    }
 }
 
 fn option_box<T>(val: Option<T>) -> Option<Box<T>> {
@@ -840,6 +953,47 @@ fn comparison_ops_comparators(
         comparators.push(x.1);
     }
     (ops, comparators)
+}
+
+fn make_arguments(
+    slash_no_default: Vec<ast::Arg>,
+    slash_with_default: (Vec<ast::Arg>, Vec<(ast::Arg, ast::Expr)>),
+    param_no_default: Vec<ast::Arg>,
+    param_with_default: Vec<(ast::Arg, ast::Expr)>,
+    star_etc: Option<(
+        Option<ast::Arg>,
+        Vec<(ast::Arg, Option<ast::Expr>)>,
+        Option<ast::Arg>,
+    )>,
+) -> ast::Arguments {
+    let mut posonlyargs = slash_no_default;
+    posonlyargs.extend(slash_with_default.0.iter().cloned());
+    posonlyargs.extend(slash_with_default.1.iter().map(|x| x.0.clone()));
+
+    let mut posargs = param_no_default;
+    posargs.extend(param_with_default.iter().map(|x| x.0.clone()));
+
+    let posdefaults: Vec<ast::Expr> = slash_with_default
+        .1
+        .iter()
+        .map(|x| x.1.clone())
+        .chain(param_with_default.iter().map(|x| x.1.clone()))
+        .collect();
+
+    // TODO: refactor
+    let (vararg, kwonly, kwarg) = star_etc.unwrap_or_default();
+    let kwonlyargs: Vec<ast::Arg> = kwonly.iter().map(|x| x.0.clone()).collect();
+    let kw_defaults: Vec<ast::Expr> = kwonly.iter().filter_map(|x| x.1.clone()).collect();
+
+    ast::Arguments {
+        posonlyargs,
+        args: posargs,
+        vararg: option_box(vararg),
+        kwonlyargs,
+        kw_defaults,
+        kwarg: option_box(kwarg),
+        defaults: posdefaults,
+    }
 }
 
 #[cfg(test)]
