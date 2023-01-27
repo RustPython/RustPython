@@ -157,7 +157,8 @@ class TimeTestCase(unittest.TestCase):
         self.assertRaises(ValueError, time.sleep, -1)
         time.sleep(1.2)
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'a Display implementation returned an error unexpectedly: Error'")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_strftime(self):
         tt = time.gmtime(self.t)
         for directive in ('a', 'A', 'b', 'B', 'c', 'd', 'H', 'I',

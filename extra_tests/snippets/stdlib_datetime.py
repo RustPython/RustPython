@@ -131,6 +131,10 @@ assert_raises(NotImplementedError, ne.tzname, dt)
 assert_raises(NotImplementedError, ne.utcoffset, dt)
 assert_raises(NotImplementedError, ne.dst, dt)
 
+# unsupport format in strptime should returns arg itself
+# XXX this fails because it runs in python not rustpython
+assert_equal(_time.strftime("%4Y"), "%4Y")
+
 # XXX: bug #1302
 # def test_normal(self):
 #fo = FixedOffset(3, "Three")

@@ -207,8 +207,18 @@ mod time {
 
     #[pyfunction]
     fn strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
+        use std::fmt::Write;
+
         let instant = t.naive_or_local(vm)?;
-        let formatted_time = instant.format(format.as_str()).to_string();
+        let mut formatted_time = String::new();
+
+        /*
+         * chrono doesn't support all formats and it
+         * raises an error if unsupported format is supplied.
+         * If error happens, we set result as input arg.
+         */
+        write!(&mut formatted_time, "{}", instant.format(format.as_str()))
+            .unwrap_or_else(|_| formatted_time = format.to_string());
         Ok(vm.ctx.new_str(formatted_time).into())
     }
 
