@@ -101,7 +101,7 @@ impl PyFunction {
             if nargs > nexpected_args {
                 return Err(vm.new_type_error(format!(
                     "{}() takes {} positional arguments but {} were given",
-                    &self.code.obj_name, nexpected_args, nargs
+                    self.qualname(), nexpected_args, nargs
                 )));
             }
         }
@@ -133,7 +133,10 @@ impl PyFunction {
                 let slot = &mut fastlocals[pos];
                 if slot.is_some() {
                     return Err(
-                        vm.new_type_error(format!("Got multiple values for argument '{name}'"))
+                        vm.new_type_error(format!("{}() got multiple values for argument '{}'",
+                            self.qualname(),
+                            name
+                        ))
                     );
                 }
                 *slot = Some(value);
@@ -143,14 +146,17 @@ impl PyFunction {
                 posonly_passed_as_kwarg.push(name);
             } else {
                 return Err(
-                    vm.new_type_error(format!("got an unexpected keyword argument '{name}'"))
+                    vm.new_type_error(format!("{}() got an unexpected keyword argument '{}'",
+                        self.qualname(),
+                        name
+                    ))
                 );
             }
         }
         if !posonly_passed_as_kwarg.is_empty() {
             return Err(vm.new_type_error(format!(
                 "{}() got some positional-only arguments passed as keyword arguments: '{}'",
-                &self.code.obj_name,
+                self.qualname(),
                 posonly_passed_as_kwarg.into_iter().format(", "),
             )));
         }
@@ -207,7 +213,7 @@ impl PyFunction {
 
                 return Err(vm.new_type_error(format!(
                     "{}() missing {} required positional argument{}: '{}{}{}'",
-                    &self.code.obj_name,
+                    self.qualname(),
                     missing_args_len,
                     if missing_args_len == 1 { "" } else { "s" },
                     missing.iter().join("', '"),
