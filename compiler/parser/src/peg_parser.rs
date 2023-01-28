@@ -307,12 +307,10 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }
 
     rule slash_no_default() -> Vec<Arg> =
-        a:param_no_default()+ [Slash] ([Comma] / &[Rpar]) {a}
+        a:param_no_default()+ [Slash] param_split() {a}
 
     rule slash_with_default() -> (Vec<Arg>, Vec<(Arg, Expr)>) =
-        a:param_no_default()* b:param_with_default()+ [Slash] ([Comma] / &[Rpar]) {
-            (a, b)
-        }
+        a:param_no_default()* b:param_with_default()+ [Slash] param_split() {(a, b)}
 
     rule star_etc() -> (Option<Arg>, Vec<(Arg, Option<Expr>)>, Option<Arg>) =
         [Star] a:param_no_default() b:param_maybe_default()* c:kwds()? {
@@ -330,17 +328,11 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
 
     rule kwds() -> Arg = [DoubleStar] a:param_no_default() {a}
 
-    rule param_no_default() -> Arg = a:param() [Comma]? {a}
-    rule param_no_default_star_annotation() -> Arg = param_star_annotation()
-    rule param_with_default() -> (Arg, Expr) =
-        a:param() c:default() [Comma]? tc:type_comment() {
-            (a, c)
-        }
-    rule param_maybe_default() -> (Arg, Option<Expr>) =
-        a:param() c:default()? [Comma]? tc:type_comment() {
-            (a, c)
-        }
-        // TODO: type_comment
+    // TODO: type_comment
+    rule param_no_default() -> Arg = a:param() param_split() {a}
+    rule param_no_default_star_annotation() -> Arg = a:param_star_annotation() param_split() {a}
+    rule param_with_default() -> (Arg, Expr) = a:param() c:default() param_split() {(a, c)}
+    rule param_maybe_default() -> (Arg, Option<Expr>) = a:param() c:default()? param_split() {(a, c)}
     rule param() -> Arg =
         loc(<a:name() b:annotation()? {
             ArgData { arg: a, annotation: option_box(b), type_comment: None }
@@ -352,6 +344,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule annotation() -> Expr = [Colon] a:expression() {a}
     rule star_annotation() -> Expr = [Colon] a:star_annotation() {a}
     rule default() -> Expr = [Equal] a:expression() {a}
+    rule param_split() = [Comma] / &[Rpar]
 
     rule if_stmt() -> Stmt =
         begin:position!() [If] a:named_expression() [Colon] b:block() c:elif_stmt() end:position!() {
@@ -436,8 +429,8 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         loc(<a:disjunction() [If] b:disjunction() [Else] c:expression() {
             ExprKind::IfExp { test: Box::new(b), body: Box::new(a), orelse: Box::new(c) }
         }>) /
-        disjunction()
-        // TODO: lambdef
+        disjunction() /
+        lambdef()
 
     rule yield_expr() -> Expr =
         loc(<[Yield] [From] a:expression() {
@@ -671,11 +664,62 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>)
 
     rule group() -> Expr = par(<yield_expr() / named_expression()>)
-    // rule bitwise() -> Expr = precedence!{
-    //     begin:position!() a:@ [BitOr] b:@ { zelf.new_located() }
-    // }
 
-    // rule compound_stmt() -> StmtKind = [Def]
+    rule lambdef() -> Expr =
+        loc(<[Lambda] a:lambda_params() [Colon] b:expression() {
+            ExprKind::Lambda { args: Box::new(a), body: Box::new(b) }
+        }>)
+    
+    rule lambda_params() -> Arguments = lambda_parameters()
+
+    rule lambda_parameters() -> Arguments =
+        a:lambda_slash_no_default() c:lambda_param_no_default()* d:lambda_param_with_default()* e:lambda_star_etc()? {
+            make_arguments(a, Default::default(), c, d, e)
+        } /
+        b:lambda_slash_with_default() d:lambda_param_with_default()* e:lambda_star_etc()? {
+            make_arguments(vec![], b, vec![], d, e)
+        } /
+        c:lambda_param_no_default()+ d:lambda_param_with_default()* e:lambda_star_etc()? {
+            make_arguments(vec![], Default::default(), c, d, e)
+        } /
+        d:lambda_param_with_default()+ e:lambda_star_etc()? {
+            make_arguments(vec![], Default::default(), vec![], d, e)
+        } /
+        e:lambda_star_etc() {
+            make_arguments(vec![], Default::default(), vec![], vec![], Some(e))
+        }
+    
+    // rule lambda_slash_no_default() -> Vec<Arg> =
+    //     a:lambda
+
+    rule lambda_slash_no_default() -> Vec<Arg> =
+        a:lambda_param_no_default()+ [Slash] lambda_param_split() {a}
+
+    rule lambda_slash_with_default() -> (Vec<Arg>, Vec<(Arg, Expr)>) =
+        a:lambda_param_no_default()* b:lambda_param_with_default()+ [Slash] lambda_param_split() {(a, b)}
+
+    rule lambda_star_etc() -> (Option<Arg>, Vec<(Arg, Option<Expr>)>, Option<Arg>) =
+        [Star] a:lambda_param_no_default() b:lambda_param_maybe_default()* c:lambda_kwds()? {
+            (Some(a), b, c)
+        } /
+        [Star] [Comma] b:lambda_param_maybe_default()+ c:lambda_kwds()? {
+            (None, b, c)
+        } /
+        c:lambda_kwds() {
+            (None, vec![], Some(c))
+        }
+
+    rule lambda_kwds() -> Arg =
+        [DoubleStar] a:lambda_param_no_default() {a}
+
+    rule lambda_param_no_default() -> Arg = a:lambda_param() lambda_param_split() {a}
+    rule lambda_param_with_default() -> (Arg, Expr) = a:lambda_param() c:default() lambda_param_split() {(a, c)}
+    rule lambda_param_maybe_default() -> (Arg, Option<Expr>) = a:lambda_param() c:default()? lambda_param_split() {(a, c)}
+    rule lambda_param() -> Arg =
+        loc(<a:name() {
+            ArgData { arg: a, annotation: None, type_comment: None }
+        }>)
+    rule lambda_param_split() = [Comma] / &[Colon]
 
     #[cache]
     rule strings() -> Expr = a:string()+ {?
