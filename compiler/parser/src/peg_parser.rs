@@ -411,7 +411,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     // rule match_stmt() -> Stmt =
     //     [Match]
 
-    rule expressions() -> Expr = pack_tuple_expr(<star_expression()>, ExprContext::Load)
+    rule expressions() -> Expr = pack_tuple_expr(<expression()>, ExprContext::Load)
 
     rule expression() -> Expr =
         loc(<a:disjunction() [If] b:disjunction() [Else] c:expression() {
@@ -925,6 +925,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     // not yet supported by lexer
     rule func_type_comment() -> Option<String> = { None }
 
+    // TODO: optimize
     rule pack_tuple_expr(r:rule<Expr>, ctx: ExprContext) -> Expr =
         loc(<z:r() **<2,> [Comma] [Comma]? {
             ExprKind::Tuple { elts: z, ctx: ctx.clone() }
@@ -1038,20 +1039,5 @@ fn make_arguments(
         kw_defaults,
         kwarg: option_box(kwarg),
         defaults: posdefaults,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lexer::make_tokenizer;
-
-    #[test]
-    fn test_return() {
-        let source = "'Hello'";
-        let lexer = make_tokenizer(source);
-        let parser = Parser::from(lexer).unwrap();
-        dbg!(&parser);
-        dbg!(python_parser::file(&parser, &parser));
     }
 }

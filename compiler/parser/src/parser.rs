@@ -99,8 +99,8 @@ pub fn parse_located(
 // Parse a given token iterator.
 fn parse_tokens(lxr: impl IntoIterator<Item = LexResult>, mode: Mode, source_path: &str) -> Result<ast::Mod, ParseError> {
     let parser = peg_parser::Parser::from(lxr).unwrap();
-    dbg!(mode);
-    dbg!(&parser);
+    // dbg!(mode);
+    // dbg!(&parser);
     Ok(parser.parse(mode).unwrap())
 }
 
