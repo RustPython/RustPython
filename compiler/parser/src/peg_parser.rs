@@ -127,24 +127,16 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     #[cache]
     rule simple_stmt() -> Stmt =
         assignment() /
-        loc(<a:star_expressions() {
-            StmtKind::Expr { value: Box::new(a) }
-        }>) /
+        loc(<a:star_expressions() { StmtKind::Expr { value: Box::new(a) } }>) /
         &[Return] a:return_stmt() {a} /
         &[Import | From] a:import_stmt() {a} /
         &[Raise] a:raise_stmt() {a} /
-        begin:position!() [Pass] {
-            zelf.new_located_single(begin, StmtKind::Pass)
-        } /
+        loc(<[Pass] { StmtKind::Pass }>) /
         &[Del] a:del_stmt() {a} /
         &[Yield] a:yield_stmt() {a} /
         &[Assert] a:assert_stmt() {a} /
-        begin:position!() [Break] {
-            zelf.new_located_single(begin, StmtKind::Break)
-        } /
-        begin:position!() [Continue] {
-            zelf.new_located_single(begin, StmtKind::Continue)
-        } /
+        loc(<[Break] { StmtKind::Break }>) /
+        loc(<[Continue] { StmtKind::Continue }>) /
         &[Global] a:global_stmt() {a} /
         &[Nonlocal] a:nonlocal_stmt() {a}
 
@@ -161,12 +153,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
 
     rule assignment() -> Stmt =
         loc(<a:name_expr(ExprContext::Store) [Colon] b:expression() c:([Equal] z:annotated_rhs() {z})? {
-            StmtKind::AnnAssign {
-                target: Box::new(a),
-                annotation: Box::new(b),
-                value: option_box(c),
-                simple: 1,
-            }
+            StmtKind::AnnAssign { target: Box::new(a), annotation: Box::new(b), value: option_box(c), simple: 1, }
         }>) /
         loc(<a:(par(<single_target()>) / single_subscript_attribute_target(ExprContext::Store))
             [Colon] b:expression() c:([Equal] z:annotated_rhs() {z})? {
@@ -224,7 +211,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         StmtKind::Expr { value: Box::new(a) }
     }>)
 
-    rule assert_stmt() -> Stmt = loc(<[Assert] a:expression() b:([Comma] z:expression() { z })? {
+    rule assert_stmt() -> Stmt = loc(<[Assert] a:expression() b:([Comma] z:expression() {z})? {
         StmtKind::Assert { test: Box::new(a), msg: option_box(b) }
     }>)
 
@@ -233,7 +220,6 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule import_name() -> Stmt = loc(<[Import] a:dotted_as_names() {
         StmtKind::Import { names: a }
     }>)
-
     rule import_from() -> Stmt =
         loc(<[From] a:[Dot | Ellipsis]* b:dotted_name() [Import] c:import_from_targets() {
             StmtKind::ImportFrom { module: Some(b), names: c, level: count_dots(a) }
@@ -241,22 +227,17 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         loc(<[From] a:[Dot | Ellipsis]+ [Import] b:import_from_targets() {
             StmtKind::ImportFrom { module: None, names: b, level: count_dots(a) }
         }>)
-
     rule import_from_targets() -> Vec<ast::Alias> =
         par(<a:import_from_as_names() [Comma]? {a}>) /
         a:import_from_as_names() ![Comma] {a} /
         a:loc(<[Star] {
             ast::AliasData { name: "*".to_owned(), asname: None }
         }>) { vec![a] }
-
     rule import_from_as_names() -> Vec<ast::Alias> = import_from_as_name() ++ [Comma]
-
     rule import_from_as_name() -> ast::Alias = loc(<a:name() b:([As] z:name() {z})? {
         ast::AliasData { name: a, asname: b }
     }>)
-
     rule dotted_as_names() -> Vec<ast::Alias> = dotted_as_name() ++ [Comma]
-
     rule dotted_as_name() -> ast::Alias = loc(<a:dotted_name() b:([As] z:name() {z})? {
         ast::AliasData { name: a, asname: b }
     }>)
@@ -308,7 +289,6 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
 
     rule slash_no_default() -> Vec<Arg> =
         a:param_no_default()+ [Slash] param_split() {a}
-
     rule slash_with_default() -> (Vec<Arg>, Vec<(Arg, Expr)>) =
         a:param_no_default()* b:param_with_default()+ [Slash] param_split() {(a, b)}
 
@@ -404,9 +384,16 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }
 
     rule try_stmt() -> Stmt =
-        loc(<[Try] [Colon] b:block() ex:except_block()* el:else_block_opt() f:finally_block() {
+        loc(<[Try] [Colon] b:block() f:finally_block() {
+            StmtKind::Try { body: b, handlers: vec![], orelse: vec![], finalbody: f }
+        }>) /
+        loc(<[Try] [Colon] b:block() ex:except_block()+ el:else_block_opt() f:finally_block() {
             StmtKind::Try { body: b, handlers: ex, orelse: el, finalbody: f }
         }>)
+        // TODO: except star
+        // loc(<[Try] [Colon] b:block() ex:except_star_block()+ el:else_block_opt() f:finally_block() {
+        //     StmtKind::{ body: b, handlers: ex, orelse: el, finalbody: f }
+        // }>)
 
     rule except_block() -> Excepthandler =
         loc(<[Except] e:expression() t:([As] z:name() {z})? [Colon] b:block() {
@@ -415,9 +402,10 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         loc(<[Except] [Colon] b:block() {
             ExcepthandlerKind::ExceptHandler { type_: None, name: None, body: b }
         }>)
-
-    // except_star
-
+    rule except_star_block() -> Excepthandler =
+        loc(<[Except] [Star] e:expression() t:([As] z:name() {z})? [Colon] b:block() {
+            ExcepthandlerKind::ExceptHandler { type_: Some(Box::new(e)), name: t, body: b }
+        }>)
     rule finally_block() -> Vec<Stmt> = [Finally] [Colon] b:block() {b}
 
     // rule match_stmt() -> Stmt =
@@ -522,7 +510,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
 
     #[cache_left_rec]
     rule bitwise_or() -> Expr =
-        loc(<a:bitwise_or() [Or] b:bitwise_xor() {
+        loc(<a:bitwise_or() [Vbar] b:bitwise_xor() {
             ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitOr, right: Box::new(b) }
         }>) /
         bitwise_xor()
@@ -630,7 +618,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>)
 
     rule slice() -> Expr =
-        loc(<a:expression()? [Colon] b:expression()? c:([Colon] d:expression() { d })? {
+        loc(<a:expression()? [Colon] b:expression()? c:([Colon] d:expression() {d})? {
             ExprKind::Slice { lower: option_box(a), upper: option_box(b), step: option_box(c) }
         }>) /
         named_expression()
@@ -659,7 +647,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         &[Lpar] a:(tuple() / group() / genexp()) {a} /
         &[Lsqb] a:(list() / listcomp()) {a} /
         &[Lbrace] a:(dict() / set() / dictcomp() / setcomp()) {a} /
-        loc(<[Ellipse] {
+        loc(<[Ellipsis] {
             ExprKind::Constant { value: ast::Constant::Ellipsis, kind: None }
         }>)
 
@@ -689,9 +677,6 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
             make_arguments(vec![], Default::default(), vec![], vec![], Some(e))
         }
     
-    // rule lambda_slash_no_default() -> Vec<Arg> =
-    //     a:lambda
-
     rule lambda_slash_no_default() -> Vec<Arg> =
         a:lambda_param_no_default()+ [Slash] lambda_param_split() {a}
 
@@ -837,8 +822,11 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
 
     rule star_targets() -> Expr =
         a:star_target() ![Comma] {a} /
-        loc(<a:star_target() ++ [Comma] [Comma]? {
+        loc(<a:star_target() **<2,> [Comma] [Comma]? {
             ExprKind::Tuple { elts: a, ctx: ExprContext::Store }
+        }>) /
+        loc(<a:star_target() [Comma] {
+            ExprKind::Tuple { elts: vec![a], ctx: ExprContext::Store }
         }>)
 
     rule star_targets_list() -> Vec<Expr> = a:star_target() ++ [Comma] [Comma]? {a}
