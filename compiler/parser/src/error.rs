@@ -2,7 +2,6 @@
 //! The goal is to provide a matching and a safe error API, maksing errors from LALR
 
 use crate::{ast::Location, token::Tok};
-use lalrpop_util::ParseError as LalrpopError;
 use std::fmt;
 
 /// Represents an error during lexical scanning.
@@ -156,17 +155,6 @@ impl fmt::Display for FStringErrorType {
     }
 }
 
-impl From<FStringError> for LalrpopError<Location, Tok, LexicalError> {
-    fn from(err: FStringError) -> Self {
-        lalrpop_util::ParseError::User {
-            error: LexicalError {
-                error: LexicalErrorType::FStringError(err.error),
-                location: err.location,
-            },
-        }
-    }
-}
-
 /// Represents an error during parsing
 pub type ParseError = rustpython_compiler_core::BaseError<ParseErrorType>;
 
@@ -182,59 +170,6 @@ pub enum ParseErrorType {
     UnrecognizedToken(Tok, Option<String>),
     /// Maps to `User` type from `lalrpop-util`
     Lexical(LexicalErrorType),
-}
-
-/// Convert `lalrpop_util::ParseError` to our internal type
-pub(crate) fn parse_error_from_lalrpop(
-    err: LalrpopError<Location, Tok, LexicalError>,
-    source_path: &str,
-) -> ParseError {
-    let source_path = source_path.to_owned();
-    match err {
-        // TODO: Are there cases where this isn't an EOF?
-        LalrpopError::InvalidToken { location } => ParseError {
-            error: ParseErrorType::Eof,
-            location,
-            source_path,
-        },
-        LalrpopError::ExtraToken { token } => ParseError {
-            error: ParseErrorType::ExtraToken(token.1),
-            location: token.0,
-            source_path,
-        },
-        LalrpopError::User { error } => ParseError {
-            error: ParseErrorType::Lexical(error.error),
-            location: error.location,
-            source_path,
-        },
-        LalrpopError::UnrecognizedToken { token, expected } => {
-            // Hacky, but it's how CPython does it. See PyParser_AddToken,
-            // in particular "Only one possible expected token" comment.
-            let expected = (expected.len() == 1).then(|| expected[0].clone());
-            ParseError {
-                error: ParseErrorType::UnrecognizedToken(token.1, expected),
-                location: token.0.with_col_offset(1),
-                source_path,
-            }
-        }
-        LalrpopError::UnrecognizedEOF { location, expected } => {
-            // This could be an initial indentation error that we should ignore
-            let indent_error = expected == ["Indent"];
-            if indent_error {
-                ParseError {
-                    error: ParseErrorType::Lexical(LexicalErrorType::IndentationError),
-                    location,
-                    source_path,
-                }
-            } else {
-                ParseError {
-                    error: ParseErrorType::Eof,
-                    location,
-                    source_path,
-                }
-            }
-        }
-    }
 }
 
 impl fmt::Display for ParseErrorType {

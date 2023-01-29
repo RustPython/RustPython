@@ -5,12 +5,10 @@
 //! parse a whole program, a single statement, or a single
 //! expression.
 
-use crate::{lexer::{LexResult, Tok}, peg_parser};
 pub use crate::mode::Mode;
-use crate::{ast, error::ParseError, lexer, python};
+use crate::{ast, error::ParseError, lexer};
+use crate::{lexer::LexResult, peg_parser};
 use ast::Location;
-use itertools::Itertools;
-use std::iter;
 
 /*
  * Parse python code.
@@ -113,7 +111,7 @@ mod tests {
         let parse_ast = parse_program("", "<test>").unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
-    
+
     #[test]
     fn test_parse_pass() {
         let parse_ast = parse_program("pass", "<test>").unwrap();

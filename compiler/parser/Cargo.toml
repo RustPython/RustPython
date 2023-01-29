@@ -8,12 +8,8 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 edition = "2021"
 
-[features]
-default = ["lalrpop"]  # removing this causes potential build failure
-
 [build-dependencies]
 anyhow = "1.0.45"
-lalrpop = { version = "0.19.8", optional = true }
 phf_codegen = "0.11.1"
 tiny-keccak = { version = "2", features = ["sha3"] }
 
@@ -23,7 +19,6 @@ rustpython-compiler-core = { path = "../core", version = "0.2.0" }
 
 ahash = "0.7.6"
 itertools = "0.10.3"
-lalrpop-util = "0.19.8"
 log = "0.4.16"
 num-bigint = "0.4.3"
 num-traits = "0.2.14"
