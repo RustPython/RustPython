@@ -72,7 +72,7 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
         }
         None => vm.new_exception_msg(
             vm.ctx.exceptions.exception_type.to_owned(),
-            format!("{:?}", js_err),
+            format!("{js_err:?}"),
         ),
     }
 }
@@ -246,7 +246,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
 }
 
 pub fn syntax_err(err: CompileError) -> SyntaxError {
-    let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
+    let js_err = SyntaxError::new(&format!("Error parsing Python code: {err}"));
     let _ = Reflect::set(&js_err, &"row".into(), &(err.location.row() as u32).into());
     let _ = Reflect::set(
         &js_err,

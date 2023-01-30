@@ -160,7 +160,7 @@ mod _js {
                     .map(PyJsValue::new)
                     .map_err(|err| new_js_error(vm, err))
             } else {
-                Err(vm.new_attribute_error(format!("No attribute {:?} on JS value", name)))
+                Err(vm.new_attribute_error(format!("No attribute {name:?} on JS value")))
             }
         }
 
