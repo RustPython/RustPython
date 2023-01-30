@@ -571,10 +571,7 @@ pub mod module {
             let priority_type = priority_class.name();
             let priority = self.sched_priority.clone();
             let value = priority.downcast::<PyInt>().map_err(|_| {
-                vm.new_type_error(format!(
-                    "an integer is required (got type {})",
-                    priority_type
-                ))
+                vm.new_type_error(format!("an integer is required (got type {priority_type})"))
             })?;
             let sched_priority = value.try_to_primitive(vm)?;
             Ok(libc::sched_param { sched_priority })
@@ -1991,7 +1988,7 @@ pub mod module {
     #[pyfunction]
     fn getrandom(size: isize, flags: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let size = usize::try_from(size)
-            .map_err(|_| vm.new_os_error(format!("Invalid argument for size: {}", size)))?;
+            .map_err(|_| vm.new_os_error(format!("Invalid argument for size: {size}")))?;
         let mut buf = Vec::with_capacity(size);
         unsafe {
             let len = sys_getrandom(
