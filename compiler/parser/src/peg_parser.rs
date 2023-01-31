@@ -127,7 +127,9 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         } /
         [EndOfFile] {? Err("unexpected EOF") }
 
-    rule simple_stmts() -> Vec<Stmt> = a:simple_stmt() ++ [Semi] [Semi]? [Newline] {a}
+    rule simple_stmts() -> Vec<Stmt> =
+        a:simple_stmt() ![Semi] [Newline] {vec![a]} /
+        a:simple_stmt() ++ [Semi] [Semi]? [Newline] {a}
 
     #[cache]
     rule simple_stmt() -> Stmt =
@@ -208,7 +210,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         StmtKind::Nonlocal { names }
     }>)
 
-    rule del_stmt() -> Stmt = loc(<[Del] a:del_targets() &[Comma | Newline] {
+    rule del_stmt() -> Stmt = loc(<[Del] a:del_targets() &[Semi | Newline] {
         StmtKind::Delete { targets: a }
     }>)
 
