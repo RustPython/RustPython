@@ -58,7 +58,7 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
         }
     } else {
         Err(new_jit_error(
-            format!("argument {} needs annotation", name),
+            format!("argument {name} needs annotation"),
             vm,
         ))
     }

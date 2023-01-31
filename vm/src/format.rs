@@ -18,18 +18,18 @@ impl IntoPyException for FormatSpecError {
                 vm.new_value_error("Invalid format specifier".to_owned())
             }
             FormatSpecError::UnspecifiedFormat(c1, c2) => {
-                let msg = format!("Cannot specify '{}' with '{}'.", c1, c2);
+                let msg = format!("Cannot specify '{c1}' with '{c2}'.");
                 vm.new_value_error(msg)
             }
             FormatSpecError::UnknownFormatCode(c, s) => {
-                let msg = format!("Unknown format code '{}' for object of type '{}'", c, s);
+                let msg = format!("Unknown format code '{c}' for object of type '{s}'");
                 vm.new_value_error(msg)
             }
             FormatSpecError::PrecisionNotAllowed => {
                 vm.new_value_error("Precision not allowed in integer format specifier".to_owned())
             }
             FormatSpecError::NotAllowed(s) => {
-                let msg = format!("{} not allowed with integer format specifier 'c'", s);
+                let msg = format!("{s} not allowed with integer format specifier 'c'");
                 vm.new_value_error(msg)
             }
             FormatSpecError::UnableToConvert => {
@@ -39,10 +39,7 @@ impl IntoPyException for FormatSpecError {
                 vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
             }
             FormatSpecError::NotImplemented(c, s) => {
-                let msg = format!(
-                    "Format code '{}' for object of type '{}' not implemented yet",
-                    c, s
-                );
+                let msg = format!("Format code '{c}' for object of type '{s}' not implemented yet");
                 vm.new_value_error(msg)
             }
         }
