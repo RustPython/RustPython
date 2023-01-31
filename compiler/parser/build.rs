@@ -5,7 +5,8 @@ use std::path::{Path, PathBuf};
 use tiny_keccak::{Hasher, Sha3};
 
 fn main() {
-    gen_phf();
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    gen_phf(&out_dir);
 }
 
 fn gen_phf(out_dir: &Path) {

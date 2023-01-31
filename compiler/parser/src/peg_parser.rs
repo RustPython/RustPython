@@ -1,4 +1,5 @@
 use ast::{Located, Location};
+use itertools::Itertools;
 
 use crate::{ast, error::LexicalError, lexer::LexResult, mode::Mode, token::Tok};
 
@@ -6,22 +7,23 @@ use crate::{ast, error::LexicalError, lexer::LexResult, mode::Mode, token::Tok};
 pub struct Parser {
     tokens: Vec<Tok>,
     locations: Vec<(Location, Location)>,
+    source_path: String,
 }
 
 impl Parser {
-    pub fn from(lexer: impl IntoIterator<Item = LexResult>) -> Result<Self, LexicalError> {
+    pub fn from(lexer: impl IntoIterator<Item = LexResult>, source_path: &str) -> Result<Self, LexicalError> {
         let mut tokens = vec![];
         let mut locations = vec![];
+        let lexer = lexer
+            .into_iter()
+            .filter_ok(|(_, tok, _)| !matches!(tok, Tok::Comment { .. } | Tok::NonLogicalNewline));
         for tok in lexer {
             let (begin, tok, end) = tok?;
-            if tok == Tok::Comment {
-                continue;
-            }
             tokens.push(tok);
             locations.push((begin, end));
         }
 
-        Ok(Self { tokens, locations })
+        Ok(Self { tokens, locations, source_path: source_path.to_owned() })
     }
 
     pub fn parse(&self, mode: Mode) -> Result<ast::Mod, peg::error::ParseError<String>> {
@@ -57,7 +59,7 @@ impl peg::Parse for Parser {
     }
 
     fn position_repr<'input>(&'input self, p: usize) -> Self::PositionRepr {
-        format!("p: {}, curr: {}", p, self.tokens[p])
+        format!("source: {}, p: {}, loc: {:?}, curr: {}", &self.source_path, p, self.locations[p], self.tokens[p])
     }
 }
 
@@ -290,8 +292,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
             make_arguments(vec![], Default::default(), vec![], vec![], Some(e))
         }
 
-    rule slash_no_default() -> Vec<Arg> =
-        a:param_no_default()+ [Slash] param_split() {a}
+    rule slash_no_default() -> Vec<Arg> = a:param_no_default()+ [Slash] param_split() {a}
     rule slash_with_default() -> (Vec<Arg>, Vec<(Arg, Expr)>) =
         a:param_no_default()* b:param_with_default()+ [Slash] param_split() {(a, b)}
 
@@ -427,7 +428,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         loc(<[Yield] [From] a:expression() {
             ExprKind::YieldFrom { value: Box::new(a) }
         }>) /
-        loc(<[Yield] a:expression()? {
+        loc(<[Yield] a:star_expressions()? {
             ExprKind::Yield { value: option_box(a) }
         }>)
 
@@ -793,7 +794,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }
 
     rule kwargs() -> Vec<KeywordOrStarred> =
-        a:kwarg_or_starred() ++ [Comma] b:kwarg_or_double_starred() ++ [Comma] {
+        a:kwarg_or_starred() ++ [Comma] [Comma] b:kwarg_or_double_starred() ++ [Comma] {
             let mut a = a;
             let mut b = b;
             a.append(&mut b);
@@ -976,18 +977,23 @@ fn keyword_or_starred_partition(v: Vec<KeywordOrStarred>) -> (Vec<ast::Expr>, Ve
     (ex_vec, kw_vec)
 }
 
-fn dict_kvpairs(v: Vec<(Option<ast::Expr>, ast::Expr)>) -> (Vec<ast::Expr>, Vec<ast::Expr>) {
+fn dict_kvpairs(v: Vec<(Option<ast::Expr>, ast::Expr)>) -> (Vec<Option<ast::Expr>>, Vec<ast::Expr>) {
     let mut keys = Vec::with_capacity(v.len());
     let mut values = Vec::with_capacity(v.len());
 
-    let (packed, unpacked) = v.into_iter().partition::<Vec<_>, _>(|x| x.0.is_some());
-    for x in packed {
-        keys.push(x.0.unwrap());
-        values.push(x.1);
+    for (key, value) in v {
+        keys.push(key);
+        values.push(value);
     }
-    for x in unpacked {
-        values.push(x.1);
-    }
+
+    // let (packed, unpacked) = v.into_iter().partition::<Vec<_>, _>(|x| x.0.is_some());
+    // for x in packed {
+    //     keys.push(x.0.unwrap());
+    //     values.push(x.1);
+    // }
+    // for x in unpacked {
+    //     values.push(x.1);
+    // }
     (keys, values)
 }
 

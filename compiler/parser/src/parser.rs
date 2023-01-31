@@ -96,7 +96,7 @@ pub fn parse_located(
 
 // Parse a given token iterator.
 fn parse_tokens(lxr: impl IntoIterator<Item = LexResult>, mode: Mode, source_path: &str) -> Result<ast::Mod, ParseError> {
-    let parser = peg_parser::Parser::from(lxr).unwrap();
+    let parser = peg_parser::Parser::from(lxr, source_path).unwrap();
     // dbg!(mode);
     // dbg!(&parser);
     Ok(parser.parse(mode).unwrap())
@@ -149,6 +149,13 @@ mod tests {
     #[test]
     fn test_parse_kwargs() {
         let source = "my_func('positional', keyword=2)";
+        let parse_ast = parse_program(source, "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_kwds() {
+        let source = "func(token, serializer, incref=incref, **kwds)";
         let parse_ast = parse_program(source, "<test>").unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
