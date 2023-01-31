@@ -161,6 +161,13 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_assigment() {
+        let source = "[] = gen_b";
+        let parse_ast = parse_program(source, "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
     fn test_parse_if_elif_else() {
         let source = "if 1: 10\nelif 2: 20\nelse: 30";
         let parse_ast = parse_program(source, "<test>").unwrap();

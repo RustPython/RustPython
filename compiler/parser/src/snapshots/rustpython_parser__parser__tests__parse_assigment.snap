@@ -1,0 +1,58 @@
+---
+source: compiler/parser/src/parser.rs
+expression: parse_ast
+---
+[
+    Located {
+        location: Location {
+            row: 1,
+            column: 0,
+        },
+        end_location: Some(
+            Location {
+                row: 1,
+                column: 10,
+            },
+        ),
+        custom: (),
+        node: Assign {
+            targets: [
+                Located {
+                    location: Location {
+                        row: 1,
+                        column: 0,
+                    },
+                    end_location: Some(
+                        Location {
+                            row: 1,
+                            column: 2,
+                        },
+                    ),
+                    custom: (),
+                    node: List {
+                        elts: [],
+                        ctx: Store,
+                    },
+                },
+            ],
+            value: Located {
+                location: Location {
+                    row: 1,
+                    column: 5,
+                },
+                end_location: Some(
+                    Location {
+                        row: 1,
+                        column: 10,
+                    },
+                ),
+                custom: (),
+                node: Name {
+                    id: "gen_b",
+                    ctx: Load,
+                },
+            },
+            type_comment: None,
+        },
+    },
+]

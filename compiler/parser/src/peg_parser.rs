@@ -860,11 +860,11 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule star_atom() -> Expr =
         name_expr(ExprContext::Store) /
         par(<target_with_star_atom()>) /
-        loc(<a:par(<star_targets_tuple()>) {
-            ExprKind::Tuple { elts: a, ctx: ExprContext::Store }
+        loc(<a:par(<star_targets_tuple()?>) {
+            ExprKind::Tuple { elts: a.unwrap_or_default(), ctx: ExprContext::Store }
         }>) /
-        loc(<a:sqb(<star_targets_list()>) {
-            ExprKind::List { elts: a, ctx: ExprContext::Store }
+        loc(<a:sqb(<star_targets_list()?>) {
+            ExprKind::List { elts: a.unwrap_or_default(), ctx: ExprContext::Store }
         }>)
 
     rule single_target() -> Expr =
