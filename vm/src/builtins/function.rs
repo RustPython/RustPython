@@ -101,7 +101,9 @@ impl PyFunction {
             if nargs > nexpected_args {
                 return Err(vm.new_type_error(format!(
                     "{}() takes {} positional arguments but {} were given",
-                    self.qualname(), nexpected_args, nargs
+                    self.qualname(),
+                    nexpected_args,
+                    nargs
                 )));
             }
         }
@@ -132,12 +134,11 @@ impl PyFunction {
             if let Some(pos) = argpos(code.posonlyarg_count..total_args, &name) {
                 let slot = &mut fastlocals[pos];
                 if slot.is_some() {
-                    return Err(
-                        vm.new_type_error(format!("{}() got multiple values for argument '{}'",
-                            self.qualname(),
-                            name
-                        ))
-                    );
+                    return Err(vm.new_type_error(format!(
+                        "{}() got multiple values for argument '{}'",
+                        self.qualname(),
+                        name
+                    )));
                 }
                 *slot = Some(value);
             } else if let Some(kwargs) = kwargs.as_ref() {
@@ -145,12 +146,11 @@ impl PyFunction {
             } else if argpos(0..code.posonlyarg_count, &name).is_some() {
                 posonly_passed_as_kwarg.push(name);
             } else {
-                return Err(
-                    vm.new_type_error(format!("{}() got an unexpected keyword argument '{}'",
-                        self.qualname(),
-                        name
-                    ))
-                );
+                return Err(vm.new_type_error(format!(
+                    "{}() got an unexpected keyword argument '{}'",
+                    self.qualname(),
+                    name
+                )));
             }
         }
         if !posonly_passed_as_kwarg.is_empty() {
