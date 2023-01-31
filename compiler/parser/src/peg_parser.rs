@@ -626,8 +626,8 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>)
 
     rule slice() -> Expr =
-        loc(<a:expression()? [Colon] b:expression()? c:([Colon] d:expression() {d})? {
-            ExprKind::Slice { lower: option_box(a), upper: option_box(b), step: option_box(c) }
+        loc(<a:expression()? [Colon] b:expression()? c:([Colon] z:expression()? {z})? {
+            ExprKind::Slice { lower: option_box(a), upper: option_box(b), step: option_box(c.flatten()) }
         }>) /
         named_expression()
 
