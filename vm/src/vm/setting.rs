@@ -16,6 +16,9 @@ pub struct Settings {
     /// -O optimization switch counter
     pub optimize: u8,
 
+    /// Not set SIGINT handler(i.e. for embedded mode)
+    pub no_sig_int: bool,
+
     /// -s
     pub no_user_site: bool,
 
@@ -85,6 +88,7 @@ impl Default for Settings {
             inspect: false,
             interactive: false,
             optimize: 0,
+            no_sig_int: false,
             no_user_site: false,
             no_site: false,
             ignore_environment: false,

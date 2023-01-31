@@ -245,6 +245,9 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
             if name == "warn_default_encoding" {
                 warn_default_encoding = true
             }
+            if name == "no_sig_int" {
+                settings.no_sig_int = true;
+            }
             let value = parts.next().map(ToOwned::to_owned);
             (name, value)
         }));
