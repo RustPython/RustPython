@@ -1673,7 +1673,7 @@ pub(super) mod _os {
                 Err(vm.new_value_error(format!("Invalid wait status: {status}")))
             } else {
                 i32::try_from(status.rotate_right(8))
-                    .map_err(|_| vm.new_value_error(format!("invalid wait status: {}", status)))
+                    .map_err(|_| vm.new_value_error(format!("invalid wait status: {status}")))
             }
         }
     }
@@ -1694,7 +1694,7 @@ pub(super) mod _os {
                     _ => 0,
                 };
 
-                Ok(Some(format!("cp{}", cp)))
+                Ok(Some(format!("cp{cp}")))
             } else {
                 let encoding = unsafe {
                     let encoding = libc::nl_langinfo(libc::CODESET);

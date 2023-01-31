@@ -557,13 +557,13 @@ mod _sqlite {
                     context.result_exception(
                         vm,
                         exc,
-                        &format!("user-defined aggregate's '{}' method not defined\0", name),
+                        &format!("user-defined aggregate's '{name}' method not defined\0"),
                     )
                 } else {
                     context.result_exception(
                         vm,
                         exc,
-                        &format!("user-defined aggregate's '{}' method raised error\0", name),
+                        &format!("user-defined aggregate's '{name}' method raised error\0"),
                     )
                 }
             }
@@ -591,13 +591,13 @@ mod _sqlite {
                     context.result_exception(
                         vm,
                         exc,
-                        &format!("user-defined aggregate's '{}' method not defined\0", name),
+                        &format!("user-defined aggregate's '{name}' method not defined\0"),
                     )
                 } else {
                     context.result_exception(
                         vm,
                         exc,
-                        &format!("user-defined aggregate's '{}' method raised error\0", name),
+                        &format!("user-defined aggregate's '{name}' method raised error\0"),
                     )
                 }
             }
@@ -1739,8 +1739,7 @@ mod _sqlite {
                         }
                         _ => {
                             return Err(vm.new_not_implemented_error(format!(
-                                "unknown column type: {}",
-                                col_type
+                                "unknown column type: {col_type}"
                             )));
                         }
                     }
