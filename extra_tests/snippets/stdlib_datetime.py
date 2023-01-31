@@ -131,9 +131,10 @@ assert_raises(NotImplementedError, ne.tzname, dt)
 assert_raises(NotImplementedError, ne.utcoffset, dt)
 assert_raises(NotImplementedError, ne.dst, dt)
 
-# unsupport format in strptime should returns arg itself
-# XXX this fails because it runs in python not rustpython
-assert_equal(_time.strftime("%4Y"), "%4Y")
+# unsupport format in strptime returns arg itself
+# in linux. Todo: add cases for Mac/Windows
+if sys.platform in ('linux'):
+    assert_equal(_time.strftime("%?"), "%?")
 
 # XXX: bug #1302
 # def test_normal(self):
