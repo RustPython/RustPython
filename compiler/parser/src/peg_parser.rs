@@ -268,9 +268,13 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>)
 
     rule function_def() -> Stmt =
-        loc(<dec:decorator()* [Def] name:name() p:par(<params()?>)
+        loc(<dec:decorator()* is_async:[Async]? [Def] name:name() p:par(<params()?>)
         r:([Rarrow] z:expression() {z})? [Colon] tc:func_type_comment() b:block() {
-            StmtKind::FunctionDef { name, args: Box::new(p.unwrap_or_else(make_empty_arguments)), body: b, decorator_list: dec, returns: option_box(r), type_comment: tc }
+            if is_async.is_none() {
+                StmtKind::FunctionDef { name, args: Box::new(p.unwrap_or_else(make_empty_arguments)), body: b, decorator_list: dec, returns: option_box(r), type_comment: tc }
+            } else {
+                StmtKind::AsyncFunctionDef { name, args: Box::new(p.unwrap_or_else(make_empty_arguments)), body: b, decorator_list: dec, returns: option_box(r), type_comment: tc }
+            }
         }>)
 
     rule params() -> Arguments = parameters()
