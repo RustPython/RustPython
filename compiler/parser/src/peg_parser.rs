@@ -14,6 +14,9 @@ impl Parser {
         let mut locations = vec![];
         for tok in lexer {
             let (begin, tok, end) = tok?;
+            if tok == Tok::Comment {
+                continue;
+            }
             tokens.push(tok);
             locations.push((begin, end));
         }
@@ -21,7 +24,7 @@ impl Parser {
         Ok(Self { tokens, locations })
     }
 
-    pub fn parse(&self, mode: Mode) -> Result<ast::Mod, peg::error::ParseError<usize>> {
+    pub fn parse(&self, mode: Mode) -> Result<ast::Mod, peg::error::ParseError<String>> {
         match mode {
             Mode::Module => python_parser::file(self, self),
             Mode::Interactive => python_parser::interactive(self, self),
@@ -43,7 +46,7 @@ impl Parser {
 }
 
 impl peg::Parse for Parser {
-    type PositionRepr = usize;
+    type PositionRepr = String;
 
     fn start<'input>(&'input self) -> usize {
         0
@@ -54,7 +57,7 @@ impl peg::Parse for Parser {
     }
 
     fn position_repr<'input>(&'input self, p: usize) -> Self::PositionRepr {
-        p
+        format!("p: {}, curr: {}", p, self.tokens[p])
     }
 }
 
@@ -263,9 +266,9 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>)
 
     rule function_def() -> Stmt =
-        loc(<dec:decorator()* [Def] name:name() p:par(<params()>)
+        loc(<dec:decorator()* [Def] name:name() p:par(<params()?>)
         r:([Rarrow] z:expression() {z})? [Colon] tc:func_type_comment() b:block() {
-            StmtKind::FunctionDef { name, args: Box::new(p), body: b, decorator_list: dec, returns: option_box(r), type_comment: tc }
+            StmtKind::FunctionDef { name, args: Box::new(p.unwrap_or_else(make_empty_arguments)), body: b, decorator_list: dec, returns: option_box(r), type_comment: tc }
         }>)
 
     rule params() -> Arguments = parameters()
@@ -387,8 +390,8 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         loc(<[Try] [Colon] b:block() f:finally_block() {
             StmtKind::Try { body: b, handlers: vec![], orelse: vec![], finalbody: f }
         }>) /
-        loc(<[Try] [Colon] b:block() ex:except_block()+ el:else_block_opt() f:finally_block() {
-            StmtKind::Try { body: b, handlers: ex, orelse: el, finalbody: f }
+        loc(<[Try] [Colon] b:block() ex:except_block()+ el:else_block_opt() f:finally_block()? {
+            StmtKind::Try { body: b, handlers: ex, orelse: el, finalbody: f.unwrap_or_default() }
         }>)
         // TODO: except star
         // loc(<[Try] [Colon] b:block() ex:except_star_block()+ el:else_block_opt() f:finally_block() {
@@ -654,10 +657,10 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule group() -> Expr = par(<yield_expr() / named_expression()>)
 
     rule lambdef() -> Expr =
-        loc(<[Lambda] a:lambda_params() [Colon] b:expression() {
-            ExprKind::Lambda { args: Box::new(a), body: Box::new(b) }
+        loc(<[Lambda] a:lambda_params()? [Colon] b:expression() {
+            ExprKind::Lambda { args: Box::new(a.unwrap_or_else(make_empty_arguments)), body: Box::new(b) }
         }>)
-    
+
     rule lambda_params() -> Arguments = lambda_parameters()
 
     rule lambda_parameters() -> Arguments =
@@ -676,7 +679,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         e:lambda_star_etc() {
             make_arguments(vec![], Default::default(), vec![], vec![], Some(e))
         }
-    
+
     rule lambda_slash_no_default() -> Vec<Arg> =
         a:lambda_param_no_default()+ [Slash] lambda_param_split() {a}
 
@@ -1039,5 +1042,17 @@ fn make_arguments(
         kw_defaults,
         kwarg: option_box(kwarg),
         defaults: posdefaults,
+    }
+}
+
+fn make_empty_arguments() -> ast::Arguments {
+    ast::Arguments {
+        posonlyargs: Default::default(),
+        args: Default::default(),
+        vararg: Default::default(),
+        kwonlyargs: Default::default(),
+        kw_defaults: Default::default(),
+        kwarg: Default::default(),
+        defaults: Default::default(),
     }
 }
