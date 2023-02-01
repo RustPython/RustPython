@@ -59,7 +59,8 @@ impl peg::Parse for Parser {
     }
 
     fn position_repr<'input>(&'input self, p: usize) -> Self::PositionRepr {
-        format!("source: {}, p: {}, loc: {:?}, curr: {}", &self.source_path, p, self.locations[p], self.tokens[p])
+        format!("p: {}", p)
+        // format!("source: {}, p: {}, loc: {:?}, curr: {}", &self.source_path, p, self.locations[p], self.tokens[p])
     }
 }
 
@@ -97,13 +98,14 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
             ast::Mod::Module { body: a.unwrap_or_default(), type_ignores: vec![] }
         }
 
+    #[no_eof]
     pub rule interactive() -> ast::Mod =
         a:statement_newline() {
             ast::Mod::Interactive { body: a }
         }
 
     pub rule eval() -> ast::Mod =
-        a:expression() [Newline]* [EndOfFile]? {
+        a:expressions() [Newline]* [EndOfFile]? {
             ast::Mod::Expression { body: Box::new(a) }
         }
 
