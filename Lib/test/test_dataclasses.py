@@ -1954,8 +1954,6 @@ class TestCase(unittest.TestCase):
                     self.assertEqual(new_sample.x, another_new_sample.x)
                     self.assertEqual(sample.y, another_new_sample.y)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dataclasses_qualnames(self):
         @dataclass(order=True, unsafe_hash=True, frozen=True)
         class A:
@@ -3442,8 +3440,6 @@ class TestReplace(unittest.TestCase):
         self.assertEqual(c1.x, 3)
         self.assertEqual(c1.y, 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_frozen(self):
         @dataclass(frozen=True)
         class C:
@@ -3476,8 +3472,6 @@ class TestReplace(unittest.TestCase):
                                              "keyword argument 'a'"):
             c1 = replace(c, x=20, a=5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_invalid_field_name(self):
         @dataclass(frozen=True)
         class C:
@@ -3521,8 +3515,6 @@ class TestReplace(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'init=False'):
             replace(c, y=30)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_classvar(self):
         @dataclass
         class C:
