@@ -18,8 +18,8 @@ use unic_ucd_ident::{is_xid_continue, is_xid_start};
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 struct IndentationLevel {
-    tabs: usize,
-    spaces: usize,
+    tabs: u32,
+    spaces: u32,
 }
 
 impl IndentationLevel {
@@ -225,7 +225,8 @@ where
             at_begin_of_line: true,
             nesting: 0,
             indentations: Indentations::default(),
-            pending: Vec::new(),
+            // Usually we have less than 5 tokens pending.
+            pending: Vec::with_capacity(5),
             location: start,
             window: CharWindow::new(input),
         };
@@ -257,13 +258,13 @@ where
         };
 
         let start_pos = self.get_pos();
-        let mut name = String::new();
+        let mut name = String::with_capacity(8);
         while self.is_identifier_continuation() {
             name.push(self.next_char().unwrap());
         }
         let end_pos = self.get_pos();
 
-        if let Some(tok) = KEYWORDS.get(name.as_str()) {
+        if let Some(tok) = KEYWORDS.get(&name) {
             Ok((start_pos, tok.clone(), end_pos))
         } else {
             Ok((start_pos, Tok::Name { name }, end_pos))
@@ -464,7 +465,7 @@ where
             self.next_char();
         }
         let quote_char = self.next_char().unwrap();
-        let mut string_content = String::new();
+        let mut string_content = String::with_capacity(5);
 
         // If the next two characters are also the quote character, then we have a triple-quoted
         // string; consume those two characters and ensure that we require a triple-quote to close
@@ -534,12 +535,15 @@ where
     }
 
     fn is_identifier_start(&self, c: char) -> bool {
-        c == '_' || is_xid_start(c)
+        match c {
+            'a'..='z' | 'A'..='Z' | '_' => true,
+            _ => is_xid_start(c),
+        }
     }
 
     fn is_identifier_continuation(&self) -> bool {
         match self.window[0] {
-            Some('_' | '0'..='9') => true,
+            Some('a'..='z' | 'A'..='Z' | '_' | '0'..='9') => true,
             Some(c) => is_xid_continue(c),
             _ => false,
         }
@@ -564,8 +568,8 @@ where
     /// Given we are at the start of a line, count the number of spaces and/or tabs until the first character.
     fn eat_indentation(&mut self) -> Result<IndentationLevel, LexicalError> {
         // Determine indentation:
-        let mut spaces: usize = 0;
-        let mut tabs: usize = 0;
+        let mut spaces: u32 = 0;
+        let mut tabs: u32 = 0;
         loop {
             match self.window[0] {
                 Some(' ') => {
@@ -686,21 +690,9 @@ where
     fn consume_normal(&mut self) -> Result<(), LexicalError> {
         // Check if we have some character:
         if let Some(c) = self.window[0] {
-            // First check identifier:
             if self.is_identifier_start(c) {
                 let identifier = self.lex_identifier()?;
                 self.emit(identifier);
-            } else if is_emoji_presentation(c) {
-                let tok_start = self.get_pos();
-                self.next_char();
-                let tok_end = self.get_pos();
-                self.emit((
-                    tok_start,
-                    Tok::Name {
-                        name: c.to_string(),
-                    },
-                    tok_end,
-                ));
             } else {
                 self.consume_character(c)?;
             }
@@ -1047,10 +1039,7 @@ where
                 }
             }
             ',' => {
-                let tok_start = self.get_pos();
-                self.next_char();
-                let tok_end = self.get_pos();
-                self.emit((tok_start, Tok::Comma, tok_end));
+                self.eat_single_char(Tok::Comma);
             }
             '.' => {
                 if let Some('0'..='9') = self.window[1] {
@@ -1109,13 +1098,25 @@ where
                     });
                 }
             }
-
             _ => {
-                let c = self.next_char();
-                return Err(LexicalError {
-                    error: LexicalErrorType::UnrecognizedToken { tok: c.unwrap() },
-                    location: self.get_pos(),
-                });
+                if is_emoji_presentation(c) {
+                    let tok_start = self.get_pos();
+                    self.next_char();
+                    let tok_end = self.get_pos();
+                    self.emit((
+                        tok_start,
+                        Tok::Name {
+                            name: c.to_string(),
+                        },
+                        tok_end,
+                    ));
+                } else {
+                    let c = self.next_char();
+                    return Err(LexicalError {
+                        error: LexicalErrorType::UnrecognizedToken { tok: c.unwrap() },
+                        location: self.get_pos(),
+                    });
+                }
             } // Ignore all the rest..
         }
 
@@ -1124,7 +1125,11 @@ where
 
     fn eat_single_char(&mut self, ty: Tok) {
         let tok_start = self.get_pos();
-        self.next_char().unwrap();
+        self.next_char().unwrap_or_else(|| unsafe {
+            // SAFETY: eat_single_char has been called only after a character has been read
+            // from the window, so the window is guaranteed to be non-empty.
+            std::hint::unreachable_unchecked()
+        });
         let tok_end = self.get_pos();
         self.emit((tok_start, ty, tok_end));
     }
