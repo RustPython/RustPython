@@ -4,7 +4,7 @@ use num_bigint::BigInt;
 
 use crate::{
     ast,
-    error::LexicalError,
+    error::{LexicalError, ParseErrorType},
     lexer::LexResult,
     mode::Mode,
     token::{StringKind, Tok},
@@ -12,7 +12,6 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct Parser {
-    source_path: String,
     tokens: Vec<PegTok>,
     locations: Vec<(Location, Location)>,
     names: Vec<String>,
@@ -26,7 +25,6 @@ pub struct Parser {
 impl Parser {
     pub fn from(
         lexer: impl IntoIterator<Item = LexResult>,
-        source_path: &str,
     ) -> Result<Self, LexicalError> {
         let mut tokens = vec![];
         let mut locations = vec![];
@@ -50,15 +48,15 @@ impl Parser {
                 },
                 Tok::Float { value } => {
                     floats.push(value);
-                    PegTok::Float((ints.len() - 1) as u32)
+                    PegTok::Float((floats.len() - 1) as u32)
                 },
                 Tok::Complex { real, imag } => {
                     complexes.push((real, imag));
-                    PegTok::Complex((ints.len() - 1) as u32)
+                    PegTok::Complex((complexes.len() - 1) as u32)
                 },
                 Tok::String { value, kind, triple_quoted } => {
                     strings.push((value, kind, triple_quoted));
-                    PegTok::String((ints.len() - 1) as u32)
+                    PegTok::String((strings.len() - 1) as u32)
                 },
                 Tok::Newline => PegTok::Newline,
                 Tok::Indent => PegTok::Indent,
@@ -153,7 +151,6 @@ impl Parser {
         }
 
         Ok(Self {
-            source_path: source_path.to_owned(),
             tokens,
             locations,
             names,
@@ -165,12 +162,18 @@ impl Parser {
         })
     }
 
-    pub fn parse(&self, mode: Mode) -> Result<ast::Mod, peg::error::ParseError<String>> {
+    fn _parse(&self, mode: Mode) -> Result<ast::Mod, peg::error::ParseError<PegParseError>> {
         match mode {
             Mode::Module => python_parser::file(self, self),
             Mode::Interactive => python_parser::interactive(self, self),
             Mode::Expression => python_parser::eval(self, self),
         }
+    }
+
+    pub fn parse(&self, mode: Mode, source_path: &str) -> Result<ast::Mod, crate::error::ParseError> {
+        self._parse(mode).map_err(|e| {
+            crate::error::ParseError { error: e.location.error, location: e.location.location, source_path: source_path.to_owned() }
+        })
     }
 
     fn new_located<T>(&self, begin: usize, end: usize, node: T) -> Located<T> {
@@ -289,8 +292,19 @@ pub enum PegTok {
     Yield,
 }
 
+pub struct PegParseError {
+    location: Location,
+    error: ParseErrorType,
+}
+
+impl std::fmt::Display for PegParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.location.fmt_with(f, &self.error)
+    }
+}
+
 impl peg::Parse for Parser {
-    type PositionRepr = String;
+    type PositionRepr = PegParseError;
 
     fn start<'input>(&'input self) -> usize {
         0
@@ -301,8 +315,14 @@ impl peg::Parse for Parser {
     }
 
     fn position_repr<'input>(&'input self, p: usize) -> Self::PositionRepr {
-        format!("p: {}", p)
         // format!("source: {}, p: {}, loc: {:?}, curr: {}", &self.source_path, p, self.locations[p], self.tokens[p])
+        if self.is_eof(p) {
+            PegParseError { location: Default::default(), error: ParseErrorType::Eof }
+        } else {
+            // TODO: UnrecognizedToken
+            // ParseErrorType::InvalidToken
+            PegParseError { location: self.locations[p].0, error: ParseErrorType::InvalidToken }
+        }
     }
 }
 

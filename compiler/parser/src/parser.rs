@@ -5,6 +5,7 @@
 //! parse a whole program, a single statement, or a single
 //! expression.
 
+use crate::error::ParseErrorType;
 pub use crate::mode::Mode;
 use crate::{ast, error::ParseError, lexer};
 use crate::{lexer::LexResult, peg_parser};
@@ -95,11 +96,19 @@ pub fn parse_located(
 }
 
 // Parse a given token iterator.
-fn parse_tokens(lxr: impl IntoIterator<Item = LexResult>, mode: Mode, source_path: &str) -> Result<ast::Mod, ParseError> {
-    let parser = peg_parser::Parser::from(lxr, source_path).unwrap();
+fn parse_tokens(
+    lxr: impl IntoIterator<Item = LexResult>,
+    mode: Mode,
+    source_path: &str,
+) -> Result<ast::Mod, ParseError> {
+    let parser = peg_parser::Parser::from(lxr).map_err(|e| ParseError {
+        error: ParseErrorType::Lexical(e.error),
+        location: e.location,
+        source_path: source_path.to_owned(),
+    })?;
     // dbg!(mode);
     // dbg!(&parser);
-    Ok(parser.parse(mode).unwrap())
+    parser.parse(mode, source_path)
 }
 
 #[cfg(test)]
