@@ -1,14 +1,11 @@
-use ast::{Located, Location};
-use itertools::Itertools;
-use num_bigint::BigInt;
-
 use crate::{
-    ast,
+    ast::{self, Located, Location},
     error::{LexicalError, ParseErrorType},
     lexer::LexResult,
     mode::Mode,
     token::{StringKind, Tok},
 };
+use num_bigint::BigInt;
 
 #[derive(Debug, Clone)]
 pub struct Parser {
@@ -19,13 +16,11 @@ pub struct Parser {
     floats: Vec<f64>,
     complexes: Vec<(f64, f64)>,
     strings: Vec<(String, StringKind, bool)>,
-    comments: Vec<String>,
+    // comments: Vec<String>,
 }
 
 impl Parser {
-    pub fn from(
-        lexer: impl IntoIterator<Item = LexResult>,
-    ) -> Result<Self, LexicalError> {
+    pub fn from(lexer: impl IntoIterator<Item = LexResult>) -> Result<Self, LexicalError> {
         let mut tokens = vec![];
         let mut locations = vec![];
         let mut names = vec![];
@@ -33,7 +28,7 @@ impl Parser {
         let mut floats = vec![];
         let mut complexes = vec![];
         let mut strings = vec![];
-        let mut comments = vec![];
+        // let mut comments = vec![];
 
         for tok in lexer {
             let (begin, tok, end) = tok?;
@@ -41,23 +36,27 @@ impl Parser {
                 Tok::Name { name } => {
                     names.push(name);
                     PegTok::Name((names.len() - 1) as u32)
-                },
+                }
                 Tok::Int { value } => {
                     ints.push(value);
                     PegTok::Int((ints.len() - 1) as u32)
-                },
+                }
                 Tok::Float { value } => {
                     floats.push(value);
                     PegTok::Float((floats.len() - 1) as u32)
-                },
+                }
                 Tok::Complex { real, imag } => {
                     complexes.push((real, imag));
                     PegTok::Complex((complexes.len() - 1) as u32)
-                },
-                Tok::String { value, kind, triple_quoted } => {
+                }
+                Tok::String {
+                    value,
+                    kind,
+                    triple_quoted,
+                } => {
                     strings.push((value, kind, triple_quoted));
                     PegTok::String((strings.len() - 1) as u32)
-                },
+                }
                 Tok::Newline => PegTok::Newline,
                 Tok::Indent => PegTok::Indent,
                 Tok::Dedent => PegTok::Dedent,
@@ -158,7 +157,7 @@ impl Parser {
             floats,
             complexes,
             strings,
-            comments,
+            // comments,
         })
     }
 
@@ -170,9 +169,15 @@ impl Parser {
         }
     }
 
-    pub fn parse(&self, mode: Mode, source_path: &str) -> Result<ast::Mod, crate::error::ParseError> {
-        self._parse(mode).map_err(|e| {
-            crate::error::ParseError { error: e.location.error, location: e.location.location, source_path: source_path.to_owned() }
+    pub fn parse(
+        &self,
+        mode: Mode,
+        source_path: &str,
+    ) -> Result<ast::Mod, crate::error::ParseError> {
+        self._parse(mode).map_err(|e| crate::error::ParseError {
+            error: e.location.error,
+            location: e.location.location,
+            source_path: source_path.to_owned(),
         })
     }
 
@@ -317,11 +322,119 @@ impl peg::Parse for Parser {
     fn position_repr<'input>(&'input self, p: usize) -> Self::PositionRepr {
         // format!("source: {}, p: {}, loc: {:?}, curr: {}", &self.source_path, p, self.locations[p], self.tokens[p])
         if self.is_eof(p) {
-            PegParseError { location: Default::default(), error: ParseErrorType::Eof }
+            PegParseError {
+                location: Default::default(),
+                error: ParseErrorType::Eof,
+            }
         } else {
             // TODO: UnrecognizedToken
             // ParseErrorType::InvalidToken
-            PegParseError { location: self.locations[p].0, error: ParseErrorType::InvalidToken }
+            let tok = self.tokens[p];
+            let tok = match tok {
+                PegTok::Name(id) => Tok::Name {
+                    name: self.names[id as usize].clone(),
+                },
+                PegTok::Int(id) => Tok::Int { value: self.ints[id as usize].clone() },
+                PegTok::Float(id) => Tok::Float { value: self.floats[id as usize].clone() },
+                PegTok::Complex(id) => {
+                    let value = self.complexes[id as usize];
+                    Tok::Complex { real: value.0, imag: value.1 }
+                },
+                PegTok::String(id) => {
+                    let value = self.strings[id as usize].clone();
+                    Tok::String { value: value.0, kind: value.1, triple_quoted: value.2 }
+                },
+                PegTok::Newline => Tok::Newline,
+                PegTok::Indent => Tok::Indent,
+                PegTok::Dedent => Tok::Dedent,
+                PegTok::EndOfFile => Tok::EndOfFile,
+                PegTok::Lpar => Tok::Lpar,
+                PegTok::Rpar => Tok::Rpar,
+                PegTok::Lsqb => Tok::Lsqb,
+                PegTok::Rsqb => Tok::Rsqb,
+                PegTok::Colon => Tok::Colon,
+                PegTok::Comma => Tok::Comma,
+                PegTok::Semi => Tok::Semi,
+                PegTok::Plus => Tok::Plus,
+                PegTok::Minus => Tok::Minus,
+                PegTok::Star => Tok::Star,
+                PegTok::Slash => Tok::Slash,
+                PegTok::Vbar => Tok::Vbar,
+                PegTok::Amper => Tok::Amper,
+                PegTok::Less => Tok::Less,
+                PegTok::Greater => Tok::Greater,
+                PegTok::Equal => Tok::Equal,
+                PegTok::Dot => Tok::Dot,
+                PegTok::Percent => Tok::Percent,
+                PegTok::Lbrace => Tok::Lbrace,
+                PegTok::Rbrace => Tok::Rbrace,
+                PegTok::EqEqual => Tok::EqEqual,
+                PegTok::NotEqual => Tok::NotEqual,
+                PegTok::LessEqual => Tok::LessEqual,
+                PegTok::GreaterEqual => Tok::GreaterEqual,
+                PegTok::Tilde => Tok::Tilde,
+                PegTok::CircumFlex => Tok::CircumFlex,
+                PegTok::LeftShift => Tok::LeftShift,
+                PegTok::RightShift => Tok::RightShift,
+                PegTok::DoubleStar => Tok::DoubleStar,
+                PegTok::DoubleStarEqual => Tok::DoubleStarEqual,
+                PegTok::PlusEqual => Tok::PlusEqual,
+                PegTok::MinusEqual => Tok::MinusEqual,
+                PegTok::StarEqual => Tok::StarEqual,
+                PegTok::SlashEqual => Tok::SlashEqual,
+                PegTok::PercentEqual => Tok::PercentEqual,
+                PegTok::AmperEqual => Tok::AmperEqual,
+                PegTok::VbarEqual => Tok::VbarEqual,
+                PegTok::CircumflexEqual => Tok::CircumflexEqual,
+                PegTok::LeftShiftEqual => Tok::LeftShiftEqual,
+                PegTok::RightShiftEqual => Tok::RightShiftEqual,
+                PegTok::DoubleSlash => Tok::DoubleSlash,
+                PegTok::DoubleSlashEqual => Tok::DoubleSlashEqual,
+                PegTok::ColonEqual => Tok::ColonEqual,
+                PegTok::At => Tok::At,
+                PegTok::AtEqual => Tok::AtEqual,
+                PegTok::Rarrow => Tok::Rarrow,
+                PegTok::Ellipsis => Tok::Ellipsis,
+                PegTok::False => Tok::False,
+                PegTok::None => Tok::None,
+                PegTok::True => Tok::True,
+                PegTok::And => Tok::And,
+                PegTok::As => Tok::As,
+                PegTok::Assert => Tok::Assert,
+                PegTok::Async => Tok::Async,
+                PegTok::Await => Tok::Await,
+                PegTok::Break => Tok::Break,
+                PegTok::Class => Tok::Class,
+                PegTok::Continue => Tok::Continue,
+                PegTok::Def => Tok::Def,
+                PegTok::Del => Tok::Del,
+                PegTok::Elif => Tok::Elif,
+                PegTok::Else => Tok::Else,
+                PegTok::Except => Tok::Except,
+                PegTok::Finally => Tok::Finally,
+                PegTok::For => Tok::For,
+                PegTok::From => Tok::From,
+                PegTok::Global => Tok::Global,
+                PegTok::If => Tok::If,
+                PegTok::Import => Tok::Import,
+                PegTok::In => Tok::In,
+                PegTok::Is => Tok::Is,
+                PegTok::Lambda => Tok::Lambda,
+                PegTok::Nonlocal => Tok::Nonlocal,
+                PegTok::Not => Tok::Not,
+                PegTok::Or => Tok::Or,
+                PegTok::Pass => Tok::Pass,
+                PegTok::Raise => Tok::Raise,
+                PegTok::Return => Tok::Return,
+                PegTok::Try => Tok::Try,
+                PegTok::While => Tok::While,
+                PegTok::With => Tok::With,
+                PegTok::Yield => Tok::Yield,
+            };
+            PegParseError {
+                location: self.locations[p].0,
+                error: ParseErrorType::UnrecognizedToken(tok, None),
+            }
         }
     }
 }
@@ -360,9 +473,9 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
             ast::Mod::Module { body: a.unwrap_or_default(), type_ignores: vec![] }
         }
 
-    #[no_eof]
     pub rule interactive() -> ast::Mod =
-        a:statement_newline() {
+        // a:statement_newline() {
+        a:statement() {
             ast::Mod::Interactive { body: a }
         }
 

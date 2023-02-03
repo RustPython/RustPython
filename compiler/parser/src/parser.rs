@@ -106,8 +106,6 @@ fn parse_tokens(
         location: e.location,
         source_path: source_path.to_owned(),
     })?;
-    // dbg!(mode);
-    // dbg!(&parser);
     parser.parse(mode, source_path)
 }
 
