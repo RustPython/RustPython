@@ -96,7 +96,7 @@ pub fn parse_located(
 }
 
 // Parse a given token iterator.
-fn parse_tokens(
+pub fn parse_tokens(
     lxr: impl IntoIterator<Item = LexResult>,
     mode: Mode,
     source_path: &str,

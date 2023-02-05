@@ -641,10 +641,11 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule decorator() -> Expr = [At] f:named_expression() [Newline] {f}
 
     rule class_def() -> Stmt =
-        loc(<dec:decorator()* [Class] name:name() arg:par(<arguments()?>)? [Colon] b:block() {
+        dec:decorator()* begin:position!() [Class] name:name() arg:par(<arguments()?>)? [Colon] b:block() end:position!() {
             let (bases, keywords) = arg.flatten().unwrap_or_default();
-            StmtKind::ClassDef { name, bases, keywords, body: b, decorator_list: dec }
-        }>)
+            let stmt = StmtKind::ClassDef { name, bases, keywords, body: b, decorator_list: dec };
+            zelf.new_located(begin, end, stmt)
+        }
 
     rule function_def() -> Stmt =
         loc(<dec:decorator()* is_async:[Async]? [Def] name:name() p:par(<params()?>)
