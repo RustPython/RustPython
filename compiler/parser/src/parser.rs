@@ -5,12 +5,11 @@
 //! parse a whole program, a single statement, or a single
 //! expression.
 
-use crate::lexer::{LexResult, Tok};
+use crate::error::ParseErrorType;
 pub use crate::mode::Mode;
-use crate::{ast, error::ParseError, lexer, python};
+use crate::{ast, error::ParseError, lexer};
+use crate::{lexer::LexResult, peg_parser};
 use ast::Location;
-use itertools::Itertools;
-use std::iter;
 
 /*
  * Parse python code.
@@ -102,14 +101,12 @@ pub fn parse_tokens(
     mode: Mode,
     source_path: &str,
 ) -> Result<ast::Mod, ParseError> {
-    let marker_token = (Default::default(), mode.to_marker(), Default::default());
-    let tokenizer = iter::once(Ok(marker_token))
-        .chain(lxr)
-        .filter_ok(|(_, tok, _)| !matches!(tok, Tok::Comment { .. } | Tok::NonLogicalNewline));
-
-    python::TopParser::new()
-        .parse(tokenizer)
-        .map_err(|e| crate::error::parse_error_from_lalrpop(e, source_path))
+    let parser = peg_parser::Parser::from(lxr).map_err(|e| ParseError {
+        error: ParseErrorType::Lexical(e.error),
+        location: e.location,
+        source_path: source_path.to_owned(),
+    })?;
+    parser.parse(mode, source_path)
 }
 
 #[cfg(test)]
@@ -119,6 +116,12 @@ mod tests {
     #[test]
     fn test_parse_empty() {
         let parse_ast = parse_program("", "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_pass() {
+        let parse_ast = parse_program("pass", "<test>").unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
 
@@ -153,6 +156,20 @@ mod tests {
     #[test]
     fn test_parse_kwargs() {
         let source = "my_func('positional', keyword=2)";
+        let parse_ast = parse_program(source, "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_kwds() {
+        let source = "func(token, serializer, incref=incref, **kwds)";
+        let parse_ast = parse_program(source, "<test>").unwrap();
+        insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    #[test]
+    fn test_parse_assigment() {
+        let source = "[] = gen_b";
         let parse_ast = parse_program(source, "<test>").unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }

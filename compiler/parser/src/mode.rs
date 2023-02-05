@@ -1,6 +1,6 @@
 use crate::token::Tok;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum Mode {
     Module,
     Interactive,
