@@ -634,14 +634,14 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         name()
 
     #[cache]
-    rule block() -> Vec<Stmt> =
-        [Newline] [Indent] a:statements() [Dedent] {a} /
-        simple_stmts()
+    rule block() -> Vec<Stmt>
+      = [Newline] [Indent] a:statements() [Dedent] {a}
+      / simple_stmts()
 
     rule decorator() -> Expr = [At] f:named_expression() [Newline] {f}
 
     rule class_def() -> Stmt =
-        dec:decorator()* begin:position!() [Class] name:name() arg:par(<arguments()?>)? [Colon] b:block() end:position!() {
+        dec:decorator()* begin:position!() [Class] name:name() arg:par(<arguments()?>)? [Colon] b:block() end:block_end() {
             let (bases, keywords) = arg.flatten().unwrap_or_default();
             let stmt = StmtKind::ClassDef { name, bases, keywords, body: b, decorator_list: dec };
             zelf.new_located(begin, end, stmt)
@@ -649,7 +649,7 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
 
     rule function_def() -> Stmt =
         dec:decorator()* begin:position!() is_async:[Async]? [Def] name:name() p:par(<params()?>)
-        r:([Rarrow] z:expression() {z})? [Colon] tc:func_type_comment() b:block() end:position!() {
+        r:([Rarrow] z:expression() {z})? [Colon] tc:func_type_comment() b:block() end:block_end() {
             let stmt = if is_async.is_none() {
                 StmtKind::FunctionDef { name, args: Box::new(p.unwrap_or_else(make_empty_arguments)), body: b, decorator_list: dec, returns: option_box(r), type_comment: tc }
             } else {
@@ -716,18 +716,23 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule param_split() = [Comma] / &[Rpar]
 
     rule if_stmt() -> Stmt =
-        begin:position!() [If] a:named_expression() [Colon] b:block() c:elif_stmt() end:position!() {
-            zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: vec![c] })
-        } /
-        begin:position!() [If] a:named_expression() [Colon] b:block() end:position!() c:else_block_opt() {
+        begin:position!() [If] a:named_expression() [Colon] b:block() c:(
+            z:elif_stmt() {vec![z]} / else_block_opt()
+        ) end:block_end() {
             zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: c })
         }
+        // begin:position!() [If] a:named_expression() [Colon] b:block() c:elif_stmt() end:position!() {
+        //     zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: vec![c] })
+        // } /
+        // begin:position!() [If] a:named_expression() [Colon] b:block() end:position!() c:else_block()? {
+        //     zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: c })
+        // }
 
     rule elif_stmt() -> Stmt =
-        begin:position!() [Elif] a:named_expression() [Colon] b:block() end:position!() c:elif_stmt() {
+        begin:position!() [Elif] a:named_expression() [Colon] b:block() end:block_end() c:elif_stmt() {
             zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: vec![c] })
         } /
-        begin:position!() [Elif] a:named_expression() [Colon] b:block() end:position!() c:else_block_opt() {
+        begin:position!() [Elif] a:named_expression() [Colon] b:block() end:block_end() c:else_block_opt() {
             zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: c })
         }
 
@@ -735,12 +740,12 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule else_block_opt() -> Vec<Stmt> = a:else_block()? { a.unwrap_or_default() }
 
     rule while_stmt() -> Stmt =
-        loc(<[While] a:named_expression() [Colon] b:block() c:else_block_opt() {
+        loc_block_end(<[While] a:named_expression() [Colon] b:block() c:else_block_opt() {
             StmtKind::While { test: Box::new(a), body: b, orelse: c }
         }>)
 
     rule for_stmt() -> Stmt =
-        loc(<is_async:[Async]? [For] t:star_targets() [In] ex:star_expressions() [Colon] tc:type_comment() b:block() el:else_block_opt() {
+        loc_block_end(<is_async:[Async]? [For] t:star_targets() [In] ex:star_expressions() [Colon] tc:type_comment() b:block() el:else_block_opt() {
             if is_async.is_none() {
                 StmtKind::For { target: Box::new(t), iter: Box::new(ex), body: b, orelse: el, type_comment: tc }
             } else {
@@ -749,14 +754,14 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>)
 
     rule with_stmt() -> Stmt =
-        loc(<is_async:[Async]? [With] a:par(<z:with_item() ++ [Comma] [Comma]? {z}>) [Colon] b:block() {
+        loc_block_end(<is_async:[Async]? [With] a:par(<z:with_item() ++ [Comma] [Comma]? {z}>) [Colon] b:block() {
             if is_async.is_none() {
                 StmtKind::With { items: a, body: b, type_comment: None }
             } else {
                 StmtKind::AsyncWith { items: a, body: b, type_comment: None }
             }
         }>) /
-        loc(<is_async:[Async]? [With] a:with_item() ++ [Comma] [Colon] tc:type_comment() b:block() {
+        loc_block_end(<is_async:[Async]? [With] a:with_item() ++ [Comma] [Colon] tc:type_comment() b:block() {
             if is_async.is_none() {
                 StmtKind::With { items: a, body: b, type_comment: tc }
             } else {
@@ -773,10 +778,10 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }
 
     rule try_stmt() -> Stmt =
-        loc(<[Try] [Colon] b:block() f:finally_block() {
+        loc_block_end(<[Try] [Colon] b:block() f:finally_block() {
             StmtKind::Try { body: b, handlers: vec![], orelse: vec![], finalbody: f }
         }>) /
-        loc(<[Try] [Colon] b:block() ex:except_block()+ el:else_block_opt() f:finally_block()? {
+        loc_block_end(<[Try] [Colon] b:block() ex:except_block()+ el:else_block_opt() f:finally_block()? {
             StmtKind::Try { body: b, handlers: ex, orelse: el, finalbody: f.unwrap_or_default() }
         }>)
         // TODO: except star
@@ -785,14 +790,14 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         // }>)
 
     rule except_block() -> Excepthandler =
-        loc(<[Except] e:expression() t:([As] z:name() {z})? [Colon] b:block() {
+        loc_block_end(<[Except] e:expression() t:([As] z:name() {z})? [Colon] b:block() {
             ExcepthandlerKind::ExceptHandler { type_: Some(Box::new(e)), name: t, body: b }
         }>) /
-        loc(<[Except] [Colon] b:block() {
+        loc_block_end(<[Except] [Colon] b:block() {
             ExcepthandlerKind::ExceptHandler { type_: None, name: None, body: b }
         }>)
     rule except_star_block() -> Excepthandler =
-        loc(<[Except] [Star] e:expression() t:([As] z:name() {z})? [Colon] b:block() {
+        loc_block_end(<[Except] [Star] e:expression() t:([As] z:name() {z})? [Colon] b:block() {
             ExcepthandlerKind::ExceptHandler { type_: Some(Box::new(e)), name: t, body: b }
         }>)
     rule finally_block() -> Vec<Stmt> = [Finally] [Colon] b:block() {b}
@@ -1298,6 +1303,18 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
 
     rule loc<T>(r: rule<T>) -> Located<T> = begin:position!() z:r() end:position!() {
         zelf.new_located(begin, end, z)
+    }
+
+    rule loc_block_end<T>(r: rule<T>) -> Located<T> = begin:position!() z:r() end:block_end() {
+        zelf.new_located(begin, end, z)
+    }
+
+    rule block_end() -> usize = p:position!() {
+        let mut p = p - 1;
+        while zelf.tokens[p] == Dedent {
+            p -= 1;
+        }
+        p
     }
 
     rule name() -> String = [Name(id)] { zelf.names[id as usize].clone() }
