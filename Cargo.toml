@@ -18,6 +18,45 @@ members = [
     ".", "common", "derive", "jit", "vm", "pylib", "stdlib", "wasm/lib", "derive-impl",
 ]
 
+[workspace.dependencies]
+ahash = "0.7.6"
+anyhow = "1.0.45"
+ascii = "1.0"
+atty = "0.2.14"
+bincode = "1.3.3"
+bitflags = "1.3.2"
+bstr = "0.2.17"
+cfg-if = "1.0"
+chrono = "0.4.19"
+crossbeam-utils = "0.8.9"
+flame = "0.2.2"
+glob = "0.3"
+hex = "0.4.3"
+indexmap = "1.8.1"
+insta = "1.14.0"
+itertools = "0.10.3"
+libc = "0.2.133"
+log = "0.4.16"
+nix = "0.24"
+num-complex = "0.4.0"
+num-bigint = "0.4.3"
+num-integer = "0.1.44"
+num-rational = "0.4.0"
+num-traits = "0.2"
+num_enum = "0.5.7"
+once_cell = "1.13"
+parking_lot = "0.12"
+paste = "1.0.7"
+rand = "0.8.5"
+rustyline = "10.0.0"
+serde = "1.0"
+schannel = "0.1.19"
+static_assertions = "1.1"
+syn = "1.0.91"
+thiserror = "1.0"
+thread_local = "1.1.4"
+widestring = "0.5.1"
+
 [features]
 default = ["threading", "stdlib", "zlib", "importlib", "encodings", "rustpython-parser/lalrpop"]
 importlib = ["rustpython-vm/importlib"]
@@ -39,19 +78,21 @@ rustpython-pylib = { path = "pylib", optional = true, default-features = false }
 rustpython-stdlib = { path = "stdlib", optional = true, default-features = false }
 rustpython-vm = { path = "vm", version = "0.2.0", default-features = false, features = ["compiler"] }
 
-cfg-if = "1.0.0"
+atty = { workspace = true }
+cfg-if = { workspace = true }
+log = { workspace = true }
+flame = { workspace = true, optional = true }
+
 clap = "2.34"
 dirs = { package = "dirs-next", version = "2.0.0" }
 env_logger = { version = "0.9.0", default-features = false, features = ["atty", "termcolor"] }
-flame = { version = "0.2.2", optional = true }
 flamescope = { version = "0.1.2", optional = true }
-libc = "0.2.133"
-log = "0.4.16"
-num-traits = "0.2.14"
-atty = "0.2.14"
+
+[target.'cfg(windows)'.dependencies]
+libc = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rustyline = "10.0.0"
+rustyline = { workspace = true }
 
 [dev-dependencies]
 cpython = "0.7.0"

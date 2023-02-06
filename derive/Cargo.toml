@@ -13,4 +13,4 @@ proc-macro = true
 [dependencies]
 rustpython-compiler = { path = "../compiler", version = "0.2.0" }
 rustpython-derive-impl = { path = "../derive-impl" }
-syn = "1.0.91"
+syn = { workspace = true }

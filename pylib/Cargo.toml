@@ -16,4 +16,4 @@ rustpython-compiler-core = { version = "0.2.0", path = "../compiler/core" }
 rustpython-derive = { version = "0.2.0", path = "../derive" }
 
 [build-dependencies]
-glob = "0.3"
+glob = { workspace = true }

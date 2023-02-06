@@ -18,8 +18,32 @@ rustpython-derive = { path = "../derive" }
 rustpython-vm = { path = "../vm" }
 rustpython-common = { path = "../common" }
 
+ahash = { workspace = true }
+ascii = { workspace = true }
+cfg-if = { workspace = true }
+crossbeam-utils = { workspace = true }
+hex = { workspace = true }
+itertools = { workspace = true }
+libc = { workspace = true }
+nix = { workspace = true }
+num-complex = { workspace = true }
+num-bigint = { workspace = true }
+num-integer = { workspace = true }
+num-rational = { workspace = true }
+num-traits = { workspace = true }
+num_enum = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+
+memchr = "2.4.1"
+base64 = "0.13.0"
+csv-core = "0.1.10"
+libz-sys = { version = "1.1.5", optional = true }
+puruspe = "0.1.5"
+xml-rs = "0.8.4"
+
 # random
-rand = "0.8.5"
+rand = { workspace = true }
 rand_core = "0.6.3"
 mt19937 = "2.0.1"
 
@@ -50,31 +74,6 @@ crc32fast = "1.3.2"
 flate2 = "1.0.23"
 bzip2 = { version = "0.4", optional = true }
 
-num-complex = "0.4.0"
-num-bigint = "0.4.3"
-num-integer = "0.1.44"
-num-rational = "0.4.1"
-
-crossbeam-utils = "0.8.9"
-itertools = "0.10.3"
-lexical-parse-float = "0.8.3"
-num-traits = "0.2.14"
-memchr = "2.4.1"
-base64 = "0.13.0"
-csv-core = "0.1.10"
-hex = "0.4.3"
-puruspe = "0.1.5"
-nix = "0.24"
-xml-rs = "0.8.4"
-libc = "0.2.133"
-cfg-if = "1.0.0"
-ahash = "0.7.6"
-libz-sys = { version = "1.1.5", optional = true }
-num_enum = "0.5.7"
-ascii = "1.0.0"
-parking_lot = "0.12.0"
-once_cell = "1.13.0"
-
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32")))'.dependencies]
 mac_address = "1.1.3"
@@ -101,9 +100,9 @@ foreign-types-shared = { version = "0.1.1", optional = true }
 libsqlite3-sys = { version = "0.25", features = ["min_sqlite_version_3_7_16", "bundled"] }
 
 [target.'cfg(windows)'.dependencies]
-schannel = "0.1.19"
-widestring = "0.5.1"
-paste = "1.0.7"
+paste = { workspace = true }
+schannel = { workspace = true }
+widestring = { workspace = true }
 
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3.9"
