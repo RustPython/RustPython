@@ -1928,7 +1928,6 @@ dependencies = [
  "flamescope",
  "libc",
  "log",
- "num-traits",
  "python3-sys",
  "rustpython-compiler",
  "rustpython-parser",
@@ -2120,7 +2119,6 @@ dependencies = [
  "gethostname",
  "hex",
  "itertools",
- "lexical-parse-float",
  "libc",
  "libsqlite3-sys",
  "libz-sys",
@@ -2174,7 +2172,6 @@ dependencies = [
 name = "rustpython-vm"
 version = "0.2.0"
 dependencies = [
- "adler32",
  "ahash",
  "ascii",
  "atty",
@@ -2187,12 +2184,10 @@ dependencies = [
  "exitcode",
  "flame",
  "flamer",
- "flate2",
  "getrandom",
  "glob",
  "half",
  "hex",
- "hexf-parse",
  "indexmap",
  "is-macro",
  "itertools",
@@ -2253,7 +2248,6 @@ version = "0.2.0"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
- "parking_lot",
  "rustpython-common",
  "rustpython-parser",
  "rustpython-pylib",

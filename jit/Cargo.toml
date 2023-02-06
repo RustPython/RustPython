@@ -12,12 +12,13 @@ autotests = false
 [dependencies]
 rustpython-compiler-core = { path = "../compiler/core", version = "0.2.0" }
 
+num-traits = { workspace = true }
+thiserror = { workspace = true }
+
 cranelift = "0.88.0"
 cranelift-jit = "0.88.0"
 cranelift-module = "0.88.0"
 libffi = "2.0.0"
-num-traits = "0.2"
-thiserror = "1.0"
 
 [dev-dependencies]
 rustpython-derive = { path = "../derive", version = "0.2.0" }
