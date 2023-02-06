@@ -32,45 +32,46 @@ rustpython-common = { path = "../common" }
 rustpython-derive = { path = "../derive", version = "0.2.0" }
 rustpython-jit = { path = "../jit", optional = true, version = "0.2.0" }
 
-num-complex = { version = "0.4.0", features = ["serde"] }
-num-bigint = { version = "0.4.3", features = ["serde"] }
-num-traits = "0.2.14"
-num-integer = "0.1.44"
-num-rational = "0.4.0"
-rand = "0.8.5"
-getrandom = { version = "0.2.6", features = ["js"] }
-log = "0.4.16"
-serde = { version = "1.0.136", features = ["derive"] }
+ascii = { workspace = true }
+ahash = { workspace = true }
+atty = { workspace = true }
+bitflags = { workspace = true }
+bstr = { workspace = true }
+cfg-if = { workspace = true }
+crossbeam-utils = { workspace = true }
+chrono = { workspace = true, features = ["wasmbind"] }
+flame = { workspace = true, optional = true }
+hex = { workspace = true }
+indexmap = { workspace = true }
+itertools = { workspace = true }
+libc = { workspace = true }
+log = { workspace = true }
+nix = { workspace = true }
+num-bigint = { workspace = true, features = ["serde"] }
+num-complex = { workspace = true, features = ["serde"] }
+num-integer = { workspace = true }
+num-rational = { workspace = true }
+num-traits = { workspace = true }
+num_enum = { workspace = true }
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+paste = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+static_assertions = { workspace = true }
+thiserror = { workspace = true }
+thread_local = { workspace = true }
+
 caseless = "0.2.1"
-chrono = { version = "0.4.19", features = ["wasmbind"] }
-itertools = "0.10.3"
-hex = "0.4.3"
-hexf-parse = "0.2.1"
-indexmap = "1.8.1"
-ahash = "0.7.6"
-bitflags = "1.3.2"
-libc = "0.2.133"
-nix = "0.24.2"
-paste = "1.0.7"
-is-macro = "0.2.0"
-result-like = "0.4.5"
-num_enum = "0.5.7"
-bstr = "0.2.17"
-crossbeam-utils = "0.8.9"
-parking_lot = "0.12.0"
-thread_local = "1.1.4"
-cfg-if = "1.0.0"
-timsort = "0.1.2"
-thiserror = "1.0"
-atty = "0.2.14"
-static_assertions = "1.1.0"
+getrandom = { version = "0.2.6", features = ["js"] }
+flamer = { version = "0.4", optional = true }
 half = "1.8.2"
+is-macro = "0.2.0"
 memchr = "2.4.1"
-adler32 = "1.2.0"
-flate2 = "1.0.23"
-once_cell = "1.10.0"
 memoffset = "0.6.5"
 optional = "0.5.0"
+result-like = "0.4.5"
+timsort = "0.1.2"
 
 # RustPython crates implementing functionality based on CPython
 sre-engine = "0.4.1"
@@ -89,11 +90,6 @@ unic-ucd-bidi      = "0.9.0"
 unic-ucd-category  = "0.9.0"
 unic-ucd-ident     = "0.9.0"
 
-flame = { version = "0.2", optional = true }
-flamer = { version = "0.4", optional = true }
-
-ascii = "1.0.0"
-
 [target.'cfg(unix)'.dependencies]
 exitcode = "1.1.2"
 uname = "0.1.1"
@@ -101,16 +97,16 @@ strum = "0.24.0"
 strum_macros = "0.24.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rustyline = "10.0.0"
+rustyline = { workspace = true }
 which = "4.2.5"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.13.1"
 
 [target.'cfg(windows)'.dependencies]
+schannel = { workspace = true }
+widestring = { workspace = true }
 winreg = "0.10.1"
-schannel = "0.1.19"
-widestring = "0.5.1"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.39.0"
@@ -130,6 +126,6 @@ features = [
 wasm-bindgen = "0.2.80"
 
 [build-dependencies]
-itertools = "0.10.3"
+glob = { workspace = true }
+itertools = { workspace = true }
 rustc_version = "0.4.0"
-glob = "0.3"

@@ -23,13 +23,12 @@ rustpython-stdlib = { path = "../../stdlib", default-features = false, optional 
 # make sure no threading! otherwise wasm build will fail
 rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler", "encodings"] }
 
+serde = { workspace = true }
+
 console_error_panic_hook = "0.1"
 js-sys = "0.3"
-# make parking_lot use wasm-bingden for instant
-parking_lot = { version = "0.12.0" }
-serde = "1.0"
 serde-wasm-bindgen = "0.3.1"
-wasm-bindgen = "0.2"
+wasm-bindgen = "0.2.80"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "console",
