@@ -91,8 +91,8 @@ termios = "0.3.3"
 gethostname = "0.2.3"
 socket2 = { version = "0.4.4", features = ["all"] }
 dns-lookup = "1.0.8"
-openssl = { version = "0.10.43", optional = true }
-openssl-sys = { version = "0.9.72", optional = true }
+openssl = { version = "0.10.45", optional = true }
+openssl-sys = { version = "0.9.80", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
 
