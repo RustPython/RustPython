@@ -1,14 +1,17 @@
-use rustpython_vm::{
+use rustpython::vm::{
     pyclass, pymodule, PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 
-pub(crate) use rust_py_module::make_module;
-
 pub fn main() {
-    let interp = rustpython_vm::Interpreter::with_init(Default::default(), |vm| {
-        vm.add_native_modules(rustpython_stdlib::get_module_inits());
-        vm.add_native_module("rust_py_module".to_owned(), Box::new(make_module));
-    });
+    let interp = rustpython::InterpreterConfig::new()
+        .init_stdlib()
+        .init_hook(Box::new(|vm| {
+            vm.add_native_module(
+                "rust_py_module".to_owned(),
+                Box::new(rust_py_module::make_module),
+            );
+        }))
+        .interpreter();
 
     interp.enter(|vm| {
         vm.insert_sys_path(vm.new_pyobj("examples"))
@@ -30,7 +33,7 @@ pub fn main() {
 #[pymodule]
 mod rust_py_module {
     use super::*;
-    use rustpython_vm::{builtins::PyList, convert::ToPyObject, PyObjectRef};
+    use rustpython::vm::{builtins::PyList, convert::ToPyObject, PyObjectRef};
 
     #[pyfunction]
     fn rust_function(
