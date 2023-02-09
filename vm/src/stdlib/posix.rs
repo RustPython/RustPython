@@ -1091,13 +1091,9 @@ pub mod module {
 
     #[pyfunction]
     fn ttyname(fd: i32, vm: &VirtualMachine) -> PyResult {
-        let name = unsafe { libc::ttyname(fd) };
-        if name.is_null() {
-            Err(errno_err(vm))
-        } else {
-            let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_str(name).into())
-        }
+        let name = unistd::ttyname(fd).map_err(|e| e.into_pyexception(vm))?;
+        let name = name.into_os_string().into_string().unwrap();
+        Ok(vm.ctx.new_str(name).into())
     }
 
     #[pyfunction]
@@ -1129,30 +1125,24 @@ pub mod module {
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn getresuid(vm: &VirtualMachine) -> PyResult<(u32, u32, u32)> {
-        let mut ruid = 0;
-        let mut euid = 0;
-        let mut suid = 0;
-        let ret = unsafe { libc::getresuid(&mut ruid, &mut euid, &mut suid) };
-        if ret == 0 {
-            Ok((ruid, euid, suid))
-        } else {
-            Err(errno_err(vm))
-        }
+        let ret = unistd::getresuid().map_err(|e| e.into_pyexception(vm))?;
+        Ok((
+            ret.real.as_raw(),
+            ret.effective.as_raw(),
+            ret.saved.as_raw(),
+        ))
     }
 
     // cfg from nix
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn getresgid(vm: &VirtualMachine) -> PyResult<(u32, u32, u32)> {
-        let mut rgid = 0;
-        let mut egid = 0;
-        let mut sgid = 0;
-        let ret = unsafe { libc::getresgid(&mut rgid, &mut egid, &mut sgid) };
-        if ret == 0 {
-            Ok((rgid, egid, sgid))
-        } else {
-            Err(errno_err(vm))
-        }
+        let ret = unistd::getresgid().map_err(|e| e.into_pyexception(vm))?;
+        Ok((
+            ret.real.as_raw(),
+            ret.effective.as_raw(),
+            ret.saved.as_raw(),
+        ))
     }
 
     // cfg from nix

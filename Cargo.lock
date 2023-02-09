@@ -1349,7 +1349,20 @@ dependencies = [
  "bitflags",
  "cfg-if",
  "libc",
- "memoffset 0.6.5",
+]
+
+[[package]]
+name = "nix"
+version = "0.26.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfdda3d196821d6af13126e40375cdf7da646a96114af134d5f417a9a1dc8e1a"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
+ "memoffset 0.7.1",
+ "pin-utils",
+ "static_assertions",
 ]
 
 [[package]]
@@ -1610,6 +1623,12 @@ name = "pico-args"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db8bcd96cb740d03149cbad5518db9fd87126a10ab519c011893b1754134c468"
+
+[[package]]
+name = "pin-utils"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 
 [[package]]
 name = "pkg-config"
@@ -2120,7 +2139,7 @@ dependencies = [
  "memchr",
  "memmap2",
  "mt19937",
- "nix 0.24.2",
+ "nix 0.26.2",
  "num-bigint",
  "num-complex",
  "num-integer",
@@ -2188,7 +2207,7 @@ dependencies = [
  "log",
  "memchr",
  "memoffset 0.6.5",
- "nix 0.24.2",
+ "nix 0.26.2",
  "num-bigint",
  "num-complex",
  "num-integer",
