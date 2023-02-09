@@ -891,53 +891,8 @@ mod _socket {
                     use std::os::unix::ffi::OsStrExt;
                     let buf = crate::vm::function::ArgStrOrBytesLike::try_from_object(vm, addr)?;
                     let path = &*buf.borrow_bytes();
-                    if cfg!(any(target_os = "linux", target_os = "android"))
-                        && path.first() == Some(&0)
-                    {
-                        use libc::{sa_family_t, socklen_t};
-                        use {socket2::SockAddr, std::ptr};
-                        unsafe {
-                            // based on SockAddr::unix
-                            // TODO: upstream or fix socklen check for SockAddr::unix()?
-                            SockAddr::init(|storage, len| {
-                                // Safety: `SockAddr::init` zeros the address, which is a valid
-                                // representation.
-                                let storage: &mut libc::sockaddr_un = &mut *storage.cast();
-                                let len: &mut socklen_t = &mut *len;
-
-                                let bytes = path;
-                                if bytes.len() > storage.sun_path.len() {
-                                    return Err(io::Error::new(
-                                        io::ErrorKind::InvalidInput,
-                                        "path must be shorter than SUN_LEN",
-                                    ));
-                                }
-
-                                storage.sun_family = libc::AF_UNIX as sa_family_t;
-                                // Safety: `bytes` and `addr.sun_path` are not overlapping and
-                                // both point to valid memory.
-                                // `SockAddr::init` zeroes the memory, so the path is already
-                                // null terminated.
-                                ptr::copy_nonoverlapping(
-                                    bytes.as_ptr(),
-                                    storage.sun_path.as_mut_ptr() as *mut u8,
-                                    bytes.len(),
-                                );
-
-                                let base = storage as *const _ as usize;
-                                let path = &storage.sun_path as *const _ as usize;
-                                let sun_path_offset = path - base;
-                                let length = sun_path_offset + bytes.len();
-                                *len = length as socklen_t;
-
-                                Ok(())
-                            })
-                        }
-                        .map(|(_, addr)| addr)
-                    } else {
-                        socket2::SockAddr::unix(ffi::OsStr::from_bytes(path))
-                    }
-                    .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()).into())
+                    socket2::SockAddr::unix(ffi::OsStr::from_bytes(path))
+                        .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()).into())
                 }
                 c::AF_INET => {
                     let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
@@ -1087,20 +1042,7 @@ mod _socket {
                     _ => {}
                 }
                 if socket_kind == -1 {
-                    // TODO: when socket2 cuts a new release, type will be available on all os
-                    // socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
-                    let res = unsafe {
-                        c::getsockopt(
-                            sock_fileno(&sock) as _,
-                            c::SOL_SOCKET,
-                            c::SO_TYPE,
-                            &mut socket_kind as *mut libc::c_int as *mut _,
-                            &mut (std::mem::size_of::<i32>() as _),
-                        )
-                    };
-                    if res < 0 {
-                        return Err(crate::common::os::errno().into());
-                    }
+                    socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
                 }
                 cfg_if::cfg_if! {
                     if #[cfg(any(
@@ -1601,30 +1543,23 @@ mod _socket {
         if let Some(addr) = addr.as_socket() {
             return get_ip_addr_tuple(&addr, vm);
         }
-        match addr.family() as i32 {
-            #[cfg(unix)]
-            libc::AF_UNIX => {
-                let addr_len = addr.len() as usize;
-                let unix_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_un) };
-                let path_u8 = unsafe { &*(&unix_addr.sun_path[..] as *const [_] as *const [u8]) };
-                let sun_path_offset =
-                    &unix_addr.sun_path as *const _ as usize - unix_addr as *const _ as usize;
-                if cfg!(any(target_os = "linux", target_os = "android"))
-                    && addr_len > sun_path_offset
-                    && unix_addr.sun_path[0] == 0
-                {
-                    let abstractaddrlen = addr_len - sun_path_offset;
-                    let abstractpath = &path_u8[..abstractaddrlen];
-                    vm.ctx.new_bytes(abstractpath.to_vec()).into()
-                } else {
-                    let len = memchr::memchr(b'\0', path_u8).unwrap_or(path_u8.len());
-                    let path = &path_u8[..len];
-                    vm.ctx.new_str(String::from_utf8_lossy(path)).into()
-                }
+        #[cfg(unix)]
+        use nix::sys::socket::{SockaddrLike, UnixAddr};
+        #[cfg(unix)]
+        if let Some(unix_addr) = unsafe { UnixAddr::from_raw(addr.as_ptr(), Some(addr.len())) } {
+            use std::os::unix::ffi::OsStrExt;
+            #[cfg(any(target_os = "android", target_os = "linux"))]
+            if let Some(abstractpath) = unix_addr.as_abstract() {
+                return vm.ctx.new_bytes([b"\0", abstractpath].concat()).into();
             }
-            // TODO: support more address families
-            _ => (String::new(), 0).to_pyobject(vm),
+            // necessary on macos
+            let path = ffi::OsStr::as_bytes(unix_addr.path().unwrap_or("".as_ref()).as_ref());
+            let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
+            let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
+            return vm.ctx.new_str(path.to_string_lossy()).into();
         }
+        // TODO: support more address families
+        (String::new(), 0).to_pyobject(vm)
     }
 
     #[pyfunction]
@@ -1764,25 +1699,19 @@ mod _socket {
         let fd = sock_fileno(sock);
         #[cfg(unix)]
         {
-            let mut pollfd = libc::pollfd {
-                fd,
-                events: match kind {
-                    SelectKind::Read => libc::POLLIN,
-                    SelectKind::Write => libc::POLLOUT,
-                    SelectKind::Connect => libc::POLLOUT | libc::POLLERR,
-                },
-                revents: 0,
+            use nix::poll::*;
+            let events = match kind {
+                SelectKind::Read => PollFlags::POLLIN,
+                SelectKind::Write => PollFlags::POLLOUT,
+                SelectKind::Connect => PollFlags::POLLOUT | PollFlags::POLLERR,
             };
+            let mut pollfd = [PollFd::new(fd, events)];
             let timeout = match interval {
                 Some(d) => d.as_millis() as _,
                 None => -1,
             };
-            let ret = unsafe { libc::poll(&mut pollfd, 1, timeout) };
-            if ret < 0 {
-                Err(io::Error::last_os_error())
-            } else {
-                Ok(ret == 0)
-            }
+            let ret = poll(&mut pollfd, timeout)?;
+            Ok(ret == 0)
         }
         #[cfg(windows)]
         {
