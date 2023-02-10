@@ -30,6 +30,7 @@
     "bindgen",
     "cstring",
     "chrono",
+    "insta",
     "peekable",
     "lalrpop",
     "memmap",
