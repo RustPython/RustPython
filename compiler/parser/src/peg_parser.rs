@@ -480,21 +480,14 @@ use ast::{
 use std::option::Option::{Some, None};
 use std::string::String;
 
-pub rule file() -> ast::Mod =
-    a:statements()? [EndOfFile]? {
-        ast::Mod::Module { body: a.unwrap_or_default(), type_ignores: vec![] }
-    }
+pub rule file() -> ast::Mod
+  = a:(statements() / {vec![]}) { ast::Mod::Module { body: a, type_ignores: vec![] } }
 
-pub rule interactive() -> ast::Mod =
-    // a:statement_newline() {
-    a:statement() {
-        ast::Mod::Interactive { body: a }
-    }
+pub rule interactive() -> ast::Mod
+  = a:statement() { ast::Mod::Interactive { body: a } }
 
-pub rule eval() -> ast::Mod =
-    a:expressions() [Newline]* [EndOfFile]? {
-        ast::Mod::Expression { body: Box::new(a) }
-    }
+pub rule eval() -> ast::Mod
+  = a:expressions() [Newline]* { ast::Mod::Expression { body: Box::new(a) } }
 
 // TODO:
 // pub rule func_type() -> ast::Mod
@@ -504,37 +497,35 @@ pub rule fstring() -> Expr = star_expressions()
 
 rule statements() -> Vec<Stmt> = a:statement()+ { a.into_iter().flatten().collect() }
 
-rule statement() -> Vec<Stmt> =
-    a:compound_stmt() { vec![a] } /
-    simple_stmts()
+rule statement() -> Vec<Stmt>
+  = a:compound_stmt() { vec![a] }
+  / simple_stmts()
 
-rule statement_newline() -> Vec<Stmt> =
-    a:compound_stmt() [Newline] { vec![a] } /
-    simple_stmts() /
-    begin:position!() [Newline] {
-        vec![zelf.new_located_single(begin, StmtKind::Pass)]
-    } /
-    [EndOfFile] {? Err("unexpected EOF") }
+rule statement_newline() -> Vec<Stmt>
+  = a:compound_stmt() [Newline] { vec![a] }
+  / simple_stmts()
+  / begin:position!() [Newline] { vec![zelf.new_located_single(begin, StmtKind::Pass)] }
+  / [EndOfFile] {? Err("unexpected EOF") }
 
-rule simple_stmts() -> Vec<Stmt> =
-    a:simple_stmt() ![Semi] [Newline] {vec![a]} /
-    a:simple_stmt() ++ [Semi] [Semi]? [Newline] {a}
+rule simple_stmts() -> Vec<Stmt>
+  = a:simple_stmt() ![Semi] [Newline] { vec![a] }
+  / a:simple_stmt() ++ [Semi] [Semi]? [Newline] {a}
 
 #[cache]
-rule simple_stmt() -> Stmt =
-    assignment() /
-    loc(<a:star_expressions() { StmtKind::Expr { value: Box::new(a) } }>) /
-    &[Return] a:return_stmt() {a} /
-    &[Import | From] a:import_stmt() {a} /
-    &[Raise] a:raise_stmt() {a} /
-    loc(<[Pass] { StmtKind::Pass }>) /
-    &[Del] a:del_stmt() {a} /
-    &[Yield] a:yield_stmt() {a} /
-    &[Assert] a:assert_stmt() {a} /
-    loc(<[Break] { StmtKind::Break }>) /
-    loc(<[Continue] { StmtKind::Continue }>) /
-    &[Global] a:global_stmt() {a} /
-    &[Nonlocal] a:nonlocal_stmt() {a}
+rule simple_stmt() -> Stmt
+  = assignment()
+  / loc(<a:star_expressions() { StmtKind::Expr { value: Box::new(a) } }>)
+  / &[Return] a:return_stmt() {a}
+  / &[Import | From] a:import_stmt() {a}
+  / &[Raise] a:raise_stmt() {a}
+  / loc(<[Pass] { StmtKind::Pass }>)
+  / &[Del] a:del_stmt() {a}
+  / &[Yield] a:yield_stmt() {a}
+  / &[Assert] a:assert_stmt() {a}
+  / loc(<[Break] { StmtKind::Break }>)
+  / loc(<[Continue] { StmtKind::Continue }>)
+  / &[Global] a:global_stmt() {a}
+  / &[Nonlocal] a:nonlocal_stmt() {a}
 
 rule compound_stmt() -> Stmt =
     &[Def | At | Async] a:function_def() {a} /
@@ -1110,7 +1101,9 @@ rule list() -> Expr =
     }>)
 
 rule tuple() -> Expr =
-    loc(<a:par(<star_named_expressions() / {vec![]}>) {
+    loc(<a:par(<a:star_named_expression() [Comma] v:(star_named_expressions() / {vec![]}) {
+        insert_front(v, a)
+    } / {vec![]}>) {
         ExprKind::Tuple { elts: a, ctx: ExprContext::Load }
     }>)
 
@@ -1255,11 +1248,11 @@ rule single_target() -> Expr =
     name_expr(ExprContext::Store) /
     par(<single_target()>)
 
-rule single_subscript_attribute_target(ctx: ExprContext) -> Expr =
-    loc(<a:t_primary() [Dot] attr:name() !t_lookahead() {
+rule single_subscript_attribute_target(ctx: ExprContext) -> Expr = loc(<
+    a:t_primary() [Dot] attr:name() !t_lookahead() {
         ExprKind::Attribute { value: Box::new(a), attr, ctx: ctx.clone() }
-    }>) /
-    loc(<a:t_primary() b:sqb(<slices()>) !t_lookahead() {
+    }
+  / a:t_primary() b:sqb(<slices()>) !t_lookahead() {
         ExprKind::Subscript { value: Box::new(a), slice: Box::new(b), ctx: ctx.clone() }
     }>)
 
@@ -1331,14 +1324,21 @@ rule type_comment() -> Option<String> = { None }
 rule func_type_comment() -> Option<String> = { None }
 
 // TODO: optimize
-rule pack_tuple_expr(r:rule<Expr>, ctx: ExprContext) -> Expr =
-    loc(<z:r() **<2,> [Comma] [Comma]? {
-        ExprKind::Tuple { elts: z, ctx: ctx.clone() }
-    }>) /
-    loc(<z:r() [Comma] {
-        ExprKind::Tuple { elts: vec![z], ctx: ctx.clone() }
-    }>) /
-    r()
+rule pack_tuple_expr(r: rule<Expr>, ctx: ExprContext) -> Expr
+  = begin:position!() a:r() v:([Comma] z:r() {z})* tail:[Comma]? end:position!() {
+        if tail.is_none() && v.is_empty() {
+            a
+        } else {
+            zelf.new_located(begin, end, ExprKind::Tuple { elts: insert_front(v, a), ctx: ctx.clone() })
+        }
+    }
+    // loc(<z:r() **<2,> [Comma] [Comma]? {
+    //     ExprKind::Tuple { elts: z, ctx: ctx.clone() }
+    // }>) /
+    // loc(<z:r() [Comma] {
+    //     ExprKind::Tuple { elts: vec![z], ctx: ctx.clone() }
+    // }>) /
+    // r()
 
 }}
 
