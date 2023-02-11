@@ -332,4 +332,12 @@ with (0 as a, 1 as b,): pass
         let parse_ast = parse_expression(r#"{"a": "b", **c, "d": "e"}"#, "<test>").unwrap();
         insta::assert_debug_snapshot!(parse_ast);
     }
+
+    #[test]
+    fn test_pyfile() {
+        let fname = "/home/skz/Projects/cpython/Tools/c-analyzer/c_parser/parser/_delim.py";
+        let source = std::fs::read_to_string(fname).unwrap();
+        let parse_ast = parse_program(&source, fname).unwrap();
+        dbg!(parse_ast);
+    }
 }

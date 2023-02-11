@@ -334,16 +334,27 @@ impl peg::Parse for Parser {
                 PegTok::Name(id) => Tok::Name {
                     name: self.names[id as usize].clone(),
                 },
-                PegTok::Int(id) => Tok::Int { value: self.ints[id as usize].clone() },
-                PegTok::Float(id) => Tok::Float { value: self.floats[id as usize].clone() },
+                PegTok::Int(id) => Tok::Int {
+                    value: self.ints[id as usize].clone(),
+                },
+                PegTok::Float(id) => Tok::Float {
+                    value: self.floats[id as usize].clone(),
+                },
                 PegTok::Complex(id) => {
                     let value = self.complexes[id as usize];
-                    Tok::Complex { real: value.0, imag: value.1 }
-                },
+                    Tok::Complex {
+                        real: value.0,
+                        imag: value.1,
+                    }
+                }
                 PegTok::String(id) => {
                     let value = self.strings[id as usize].clone();
-                    Tok::String { value: value.0, kind: value.1, triple_quoted: value.2 }
-                },
+                    Tok::String {
+                        value: value.0,
+                        kind: value.1,
+                        triple_quoted: value.2,
+                    }
+                }
                 PegTok::Newline => Tok::Newline,
                 PegTok::Indent => Tok::Indent,
                 PegTok::Dedent => Tok::Dedent,
@@ -715,29 +726,22 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule default() -> Expr = [Equal] a:expression() {a}
     rule param_split() = [Comma] / &[Rpar]
 
-    rule if_stmt() -> Stmt =
-        begin:position!() [If] a:named_expression() [Colon] b:block() c:(
-            z:elif_stmt() {vec![z]} / else_block_opt()
+    rule if_stmt() -> Stmt
+      = begin:position!() [If] a:named_expression() [Colon] b:block() c:(
+            z:elif_stmt() {vec![z]} / else_block() / {vec![]}
         ) end:block_end() {
             zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: c })
         }
-        // begin:position!() [If] a:named_expression() [Colon] b:block() c:elif_stmt() end:position!() {
-        //     zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: vec![c] })
-        // } /
-        // begin:position!() [If] a:named_expression() [Colon] b:block() end:position!() c:else_block()? {
-        //     zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: c })
-        // }
 
-    rule elif_stmt() -> Stmt =
-        begin:position!() [Elif] a:named_expression() [Colon] b:block() end:block_end() c:elif_stmt() {
-            zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: vec![c] })
-        } /
-        begin:position!() [Elif] a:named_expression() [Colon] b:block() end:block_end() c:else_block_opt() {
+    rule elif_stmt() -> Stmt
+      = begin:position!() [Elif] a:named_expression() [Colon] b:block() end:block_end() c:(
+            z:elif_stmt() {vec![z]} / else_block() / {vec![]}
+        ) {
             zelf.new_located(begin, end, StmtKind::If { test: Box::new(a), body: b, orelse: c })
         }
 
     rule else_block() -> Vec<Stmt> = [Else] [Colon] b:block() {b}
-    rule else_block_opt() -> Vec<Stmt> = a:else_block()? { a.unwrap_or_default() }
+    rule else_block_opt() -> Vec<Stmt> = else_block() / {vec![]}
 
     rule while_stmt() -> Stmt =
         loc_block_end(<[While] a:named_expression() [Colon] b:block() c:else_block_opt() {
@@ -770,19 +774,16 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>)
 
     rule with_item() -> Withitem =
-        e:expression() [As] t:star_target() &[Comma | Rpar | Colon] {
-            Withitem { context_expr: e, optional_vars: Some(Box::new(t)) }
-        } /
-        e:expression() {
-            Withitem { context_expr: e, optional_vars: None }
+        e:expression() vars:([As] t:star_target() &[Comma | Rpar | Colon] {t})? {
+            Withitem { context_expr: e, optional_vars: option_box(vars) }
         }
 
-    rule try_stmt() -> Stmt =
-        loc_block_end(<[Try] [Colon] b:block() f:finally_block() {
-            StmtKind::Try { body: b, handlers: vec![], orelse: vec![], finalbody: f }
-        }>) /
-        loc_block_end(<[Try] [Colon] b:block() ex:except_block()+ el:else_block_opt() f:finally_block()? {
-            StmtKind::Try { body: b, handlers: ex, orelse: el, finalbody: f.unwrap_or_default() }
+    rule try_stmt() -> Stmt
+      = loc_block_end(<[Try] [Colon] b:block() x:(
+            f:finally_block() {(vec![], vec![], f)}
+          / ex:except_block()+ el:else_block_opt() f:(finally_block() / {vec![]}) {(ex, el, f)}
+        ) {
+            StmtKind::Try { body: b, handlers: x.0, orelse: x.1, finalbody: x.2 }
         }>)
         // TODO: except star
         // loc(<[Try] [Colon] b:block() ex:except_star_block()+ el:else_block_opt() f:finally_block() {
@@ -848,19 +849,27 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         assignment_expression() /
         a:expression() ![ColonEqual] {a}
 
+    // #[cache]
+    // rule disjunction() -> Expr =
+    //     loc(<a:conjunction() **<2,> [Or] {
+    //         ExprKind::BoolOp { op: ast::Boolop::Or, values: a }
+    //     }>) /
+    //     conjunction()
     #[cache]
-    rule disjunction() -> Expr =
-        loc(<a:conjunction() **<2,> [Or] {
-            ExprKind::BoolOp { op: ast::Boolop::Or, values: a }
-        }>) /
-        conjunction()
+    rule disjunction() -> Expr
+      = begin:position!() a:conjunction() v:([Or] z:conjunction() ++ [Or] {z})? end:position!() {
+            if let Some(v) = v {
+                zelf.new_located(begin, end, ExprKind::BoolOp { op: ast::Boolop::Or, values: insert_front(v, a) })
+            } else { a }
+        }
 
     #[cache]
-    rule conjunction() -> Expr =
-        loc(<a:inversion() **<2,> [And] {
-            ExprKind::BoolOp { op: ast::Boolop::And, values: a }
-        }>) /
-        inversion()
+    rule conjunction() -> Expr
+      = begin:position!() a:inversion() v:([And] z:inversion() ++ [And] {z})? end:position!() {
+            if let Some(v) = v {
+                zelf.new_located(begin, end, ExprKind::BoolOp { op: ast::Boolop::And, values: insert_front(v, a) })
+            } else { a }
+        }
 
     #[cache]
     rule inversion() -> Expr =
@@ -870,12 +879,12 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         comparison()
 
     #[cache]
-    rule comparison() -> Expr =
-        loc(<a:bitwise_or() b:compare_op_bitwise_or_pair()+ {
+    rule comparison() -> Expr
+      = begin:position!() a:bitwise_or() b:compare_op_bitwise_or_pair()* end:position!() {
+            if b.is_empty() { return a; }
             let (ops, comparators) = comparison_ops_comparators(b);
-            ExprKind::Compare { left: Box::new(a), ops, comparators }
-        }>) /
-        bitwise_or()
+            zelf.new_located(begin, end, ExprKind::Compare { left: Box::new(a), ops, comparators })
+        }
 
     // TODO: simplify
     #[cache]
@@ -905,105 +914,97 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     #[cache_left_rec]
     rule bitwise_or() -> Expr =
         loc(<a:bitwise_or() [Vbar] b:bitwise_xor() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitOr, right: Box::new(b) }
+            ExprKind::BinOp { left: Box::new(a), op: Operator::BitOr, right: Box::new(b) }
         }>) /
         bitwise_xor()
 
     #[cache_left_rec]
     rule bitwise_xor() -> Expr =
         loc(<a:bitwise_xor() [CircumFlex] b:bitwise_and() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitXor, right: Box::new(b) }
+            ExprKind::BinOp { left: Box::new(a), op: Operator::BitXor, right: Box::new(b) }
         }>) /
         bitwise_and()
 
     #[cache_left_rec]
     rule bitwise_and() -> Expr =
         loc(<a:bitwise_and() [Amper] b:shift_expr() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::BitAnd, right: Box::new(b) }
+            ExprKind::BinOp { left: Box::new(a), op: Operator::BitAnd, right: Box::new(b) }
         }>) /
         shift_expr()
 
     #[cache_left_rec]
-    rule shift_expr() -> Expr =
-        loc(<a:shift_expr() [LeftShift] b:sum() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::LShift, right: Box::new(b) }
-        }>) /
-        loc(<a:shift_expr() [RightShift] b:sum() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::RShift, right: Box::new(b) }
-        }>) /
-        sum()
+    rule shift_expr() -> Expr
+      = loc(<a:shift_expr() op:shift_op() b:sum() {
+            ExprKind::BinOp { left: Box::new(a), op, right: Box::new(b) }
+        }>)
+      / sum()
+    rule shift_op() -> Operator
+      = [LeftShift] { Operator::LShift }
+      / [RightShift] { Operator::RShift }
 
     #[cache_left_rec]
     rule sum() -> Expr =
-        loc(<a:sum() [Plus] b:term() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Add, right: Box::new(b) }
-        }>) /
-        loc(<a:sum() [Minus] b:term() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Sub, right: Box::new(b) }
-        }>) /
-        term()
+        loc(<a:sum() op:sum_op() b:term() {
+            ExprKind::BinOp { left: Box::new(a), op, right: Box::new(b) }
+        }>)
+      / term()
+    rule sum_op() -> Operator
+      = [Plus] { Operator::Add }
+      / [Minus] { Operator::Sub }
 
     #[cache_left_rec]
-    rule term() -> Expr =
-        loc(<a:term() [Star] b:factor() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Mult, right: Box::new(b) }
-        }>) /
-        loc(<a:term() [Slash] b:factor() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Div, right: Box::new(b) }
-        }>) /
-        loc(<a:term() [DoubleSlash] b:factor() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::FloorDiv, right: Box::new(b) }
-        }>) /
-        loc(<a:term() [Percent] b:factor() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Mod, right: Box::new(b) }
-        }>) /
-        loc(<a:term() [At] b:factor() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::MatMult, right: Box::new(b) }
-        }>) /
-        factor()
+    rule term() -> Expr
+      = loc(<a:term() op:term_op() b:factor() {
+            ExprKind::BinOp { left: Box::new(a), op, right: Box::new(b) }
+        }>)
+      / factor()
+    rule term_op() -> Operator
+      = [Star] { Operator::Mult }
+      / [Slash] { Operator::Div }
+      / [DoubleSlash] { Operator::FloorDiv }
+      / [Percent] { Operator::Mod }
+      / [At] { Operator::MatMult }
 
     #[cache]
     rule factor() -> Expr =
-        loc(<[Plus] a:factor() {
-            ExprKind::UnaryOp { op: ast::Unaryop::UAdd, operand: Box::new(a) }
-        }>) /
-        loc(<[Minus] a:factor() {
-            ExprKind::UnaryOp { op: ast::Unaryop::USub, operand: Box::new(a) }
-        }>) /
-        loc(<[Tilde] a:factor() {
-            ExprKind::UnaryOp { op: ast::Unaryop::Invert, operand: Box::new(a) }
+        loc(<op:factor_op() a:factor() {
+            ExprKind::UnaryOp { op, operand: Box::new(a) }
         }>) /
         power()
+    rule factor_op() -> ast::Unaryop
+      = [Plus] { ast::Unaryop::UAdd }
+      / [Minus] { ast::Unaryop::USub }
+      / [Tilde] { ast::Unaryop::Invert }
 
-    rule power() -> Expr =
-        loc(<a:await_primary() [DoubleStar] b:factor() {
-            ExprKind::BinOp { left: Box::new(a), op: ast::Operator::Pow, right: Box::new(b) }
-        }>) /
-        await_primary()
+    rule power() -> Expr
+      = begin:position!() a:await_primary() b:([DoubleStar] z:factor() {z})? end:position!() {
+            if let Some(b) = b {
+                zelf.new_located(begin, end, ExprKind::BinOp { left: Box::new(a), op: Operator::Pow, right: Box::new(b) })
+            } else { a }
+        }
 
     #[cache]
-    rule await_primary() -> Expr =
-        loc(<[Await] a:primary() {
+    rule await_primary() -> Expr
+      = loc(<[Await] a:primary() {
             ExprKind::Await { value: Box::new(a) }
-        }>) /
-        primary()
+        }>)
+      / primary()
 
     #[cache_left_rec]
-    rule primary() -> Expr =
-        loc(<a:primary() [Dot] b:name() {
+    rule primary() -> Expr
+      = loc(<a:primary() [Dot] b:name() {
             ExprKind::Attribute { value: Box::new(a), attr: b, ctx: ExprContext::Load }
-        }>) /
-        loc(<a:primary() b:genexp() {
+        }>)
+      / loc(<a:primary() b:genexp() {
             ExprKind::Call { func: Box::new(a), args: vec![b], keywords: vec![] }
-        }>) /
-        loc(<a:primary() b:par(<arguments()?>) {
-            let (args, keywords) = b.unwrap_or_default();
-            ExprKind::Call { func: Box::new(a), args, keywords }
-        }>) /
-        loc(<a:primary() b:sqb(<slices()>) {
+        }>)
+      / loc(<a:primary() b:par(<arguments() / {Default::default()}>) {
+            ExprKind::Call { func: Box::new(a), args: b.0, keywords: b.1 }
+        }>)
+      / loc(<a:primary() b:sqb(<slices()>) {
             ExprKind::Subscript { value: Box::new(a), slice: Box::new(b), ctx: ExprContext::Load }
-        }>) /
-        atom()
+        }>)
+      / atom()
 
     rule slices() -> Expr =
         a:slice() ![Comma] {a} /
@@ -1017,34 +1018,24 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>) /
         named_expression()
 
-    rule atom() -> Expr =
-        name_expr(ExprContext::Load) /
-        loc(<[True] {
-            ExprKind::Constant { value: ast::Constant::Bool(true), kind: None }
-        }>) /
-        loc(<[False] {
-            ExprKind::Constant { value: ast::Constant::Bool(false), kind: None }
-        }>) /
-        loc(<[PegTok::None] {
-            ExprKind::Constant { value: ast::Constant::None, kind: None }
-        }>) /
-        strings() /
-        loc(<[Int(id)] {
-            ExprKind::Constant { value: ast::Constant::Int(zelf.ints[id as usize].clone()), kind: None }
-        }>) /
-        loc(<[Float(id)] {
-            ExprKind::Constant { value: ast::Constant::Float(zelf.floats[id as usize]), kind: None }
-        }>) /
-        loc(<[Complex(id)] {
-            let (real, imag) = zelf.complexes[id as usize];
-            ExprKind::Constant { value: ast::Constant::Complex { real, imag }, kind: None }
-        }>) /
-        &[Lpar] a:(tuple() / group() / genexp()) {a} /
-        &[Lsqb] a:(list() / listcomp()) {a} /
-        &[Lbrace] a:(dict() / set() / dictcomp() / setcomp()) {a} /
-        loc(<[Ellipsis] {
-            ExprKind::Constant { value: ast::Constant::Ellipsis, kind: None }
-        }>)
+    rule atom() -> Expr
+      = name_expr(ExprContext::Load)
+      / loc(<
+            [True] { ExprKind::Constant { value: ast::Constant::Bool(true), kind: None } }
+          / [False] { ExprKind::Constant { value: ast::Constant::Bool(false), kind: None } }
+          / [PegTok::None] { ExprKind::Constant { value: ast::Constant::None, kind: None } }
+          / [Int(id)] { ExprKind::Constant { value: ast::Constant::Int(zelf.ints[id as usize].clone()), kind: None } }
+          / [Float(id)] { ExprKind::Constant { value: ast::Constant::Float(zelf.floats[id as usize]), kind: None } }
+          / [Complex(id)] {
+               let (real, imag) = zelf.complexes[id as usize];
+                ExprKind::Constant { value: ast::Constant::Complex { real, imag }, kind: None }
+            }
+          / [Ellipsis] { ExprKind::Constant { value: ast::Constant::Ellipsis, kind: None } }
+        >)
+      / strings()
+      / &[Lpar] a:(tuple() / group() / genexp()) {a}
+      / &[Lsqb] a:(list() / listcomp()) {a}
+      / &[Lbrace] a:(dict() / set() / dictcomp() / setcomp()) {a}
 
     rule group() -> Expr = par(<yield_expr() / named_expression()>)
 
@@ -1113,13 +1104,13 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }
 
     rule list() -> Expr =
-        loc(<a:sqb(<star_named_expressions()?>) {
-            ExprKind::List { elts: a.unwrap_or_default(), ctx: ExprContext::Load }
+        loc(<a:sqb(<star_named_expressions() / {vec![]}>) {
+            ExprKind::List { elts: a, ctx: ExprContext::Load }
         }>)
 
     rule tuple() -> Expr =
-        loc(<a:par(<star_named_expressions()?>) {
-            ExprKind::Tuple { elts: a.unwrap_or_default(), ctx: ExprContext::Load }
+        loc(<a:par(<star_named_expressions() / {vec![]}>) {
+            ExprKind::Tuple { elts: a, ctx: ExprContext::Load }
         }>)
 
     rule set() -> Expr =
@@ -1128,8 +1119,8 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>)
 
     rule dict() -> Expr =
-        loc(<a:brace(<double_starred_kvpairs()?>) {
-            let (keys, values) = dict_kvpairs(a.unwrap_or_default());
+        loc(<a:brace(<double_starred_kvpairs() / {vec![]}>) {
+            let (keys, values) = dict_kvpairs(a);
             ExprKind::Dict { keys, values }
         }>)
 
@@ -1174,8 +1165,9 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     rule arguments() -> (Vec<Expr>, Vec<Keyword>) = a:args() [Comma]? &[Rpar] {a}
 
     rule args() -> (Vec<Expr>, Vec<Keyword>) =
-        a:(starred_expression() / z:(assignment_expression() / z:expression() ![ColonEqual] {z}) ![Equal] {z}) ++ [Comma] b:([Comma] k:kwargs() {k})? {
-            let (mut ex, kw) = keyword_or_starred_partition(b.unwrap_or_default());
+        a:(starred_expression() / z:(assignment_expression() / z:expression() ![ColonEqual] {z}) ![Equal] {z}) ++ [Comma]
+        b:([Comma] k:kwargs() {k} / {vec![]}) {
+            let (mut ex, kw) = keyword_or_starred_partition(b);
             let mut a = a;
             a.append(&mut ex);
             (a, kw)
@@ -1217,18 +1209,23 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
 
     rule star_targets() -> Expr =
         a:star_target() ![Comma] {a} /
-        loc(<a:star_target() **<2,> [Comma] [Comma]? {
-            ExprKind::Tuple { elts: a, ctx: ExprContext::Store }
-        }>) /
-        loc(<a:star_target() [Comma] {
-            ExprKind::Tuple { elts: vec![a], ctx: ExprContext::Store }
+        loc(<a:star_target() v:([Comma] z:star_target() {z})* [Comma]? {
+            ExprKind::Tuple { elts: insert_front(v, a), ctx: ExprContext::Store }
         }>)
 
     rule star_targets_list() -> Vec<Expr> = a:star_target() ++ [Comma] [Comma]? {a}
 
-    rule star_targets_tuple() -> Vec<Expr> =
-        a:star_target() **<2,> [Comma] [Comma]? {a} /
-        a:star_target() [Comma] { vec![a] }
+    rule star_targets_tuple() -> Vec<Expr>
+      = a:star_target() [Comma] v:star_target() ** [Comma] tail:[Comma]? {?
+            if tail.is_some() && v.is_empty() {
+                Err("invalid token ','")
+            } else {
+                Ok(insert_front(v, a))
+            }
+        }
+        // a:star_target() ([Comma] v:star_target())+ [Comma]? {}
+        // begin:position!() a:star_target() v:([Comma z:star_target() {z}])+ [Comma]? {a} /
+        // a:star_target() [Comma] { vec![a] }
 
     #[cache]
     rule star_target() -> Expr =
@@ -1242,14 +1239,14 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         single_subscript_attribute_target(ExprContext::Store) /
         star_atom()
 
-    rule star_atom() -> Expr =
-        name_expr(ExprContext::Store) /
-        par(<target_with_star_atom()>) /
-        loc(<a:par(<star_targets_tuple()?>) {
-            ExprKind::Tuple { elts: a.unwrap_or_default(), ctx: ExprContext::Store }
-        }>) /
-        loc(<a:sqb(<star_targets_list()?>) {
-            ExprKind::List { elts: a.unwrap_or_default(), ctx: ExprContext::Store }
+    rule star_atom() -> Expr
+      = name_expr(ExprContext::Store)
+      / par(<target_with_star_atom()>)
+      / loc(<a:par(<star_targets_tuple() / {vec![]}>) {
+            ExprKind::Tuple { elts: a, ctx: ExprContext::Store }
+        }>)
+      / loc(<a:sqb(<star_targets_list() / {vec![]}>) {
+            ExprKind::List { elts: a, ctx: ExprContext::Store }
         }>)
 
     rule single_target() -> Expr =
@@ -1310,8 +1307,8 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
     }
 
     rule block_end() -> usize = p:position!() {
-        let mut p = p - 1;
-        while zelf.tokens[p] == Dedent {
+        let mut p = p;
+        while zelf.tokens[p - 1] == Newline || zelf.tokens[p - 1] == Dedent {
             p -= 1;
         }
         p
@@ -1342,6 +1339,13 @@ peg::parser! { grammar python_parser(zelf: &Parser) for Parser {
         }>) /
         r()
 }}
+
+#[cold]
+#[inline(always)]
+fn insert_front<T>(mut v: Vec<T>, a: T) -> Vec<T> {
+    v.insert(0, a);
+    v
+}
 
 fn count_dots(toks: Vec<PegTok>) -> Option<usize> {
     if toks.is_empty() {
