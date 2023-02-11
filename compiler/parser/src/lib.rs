@@ -23,12 +23,10 @@ extern crate log;
 pub use rustpython_ast as ast;
 
 pub mod error;
-mod function;
 pub mod lexer;
 pub mod mode;
 pub mod parser;
 mod string_parser;
-mod context;
 mod string;
 pub mod token;
 pub mod peg_parser;

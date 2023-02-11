@@ -1,20 +1,8 @@
-use crate::token::Tok;
-
 #[derive(Debug, Clone, Copy)]
 pub enum Mode {
     Module,
     Interactive,
     Expression,
-}
-
-impl Mode {
-    pub(crate) fn to_marker(self) -> Tok {
-        match self {
-            Self::Module => Tok::StartModule,
-            Self::Interactive => Tok::StartInteractive,
-            Self::Expression => Tok::StartExpression,
-        }
-    }
 }
 
 impl From<rustpython_compiler_core::Mode> for Mode {
