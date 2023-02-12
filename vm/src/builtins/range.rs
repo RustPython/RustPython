@@ -295,12 +295,12 @@ impl PyRange {
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
-        let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
+        let range_parameters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
             .map(|x| x.as_object().to_owned())
             .collect();
-        let range_paramters_tuple = vm.ctx.new_tuple(range_paramters);
-        (vm.ctx.types.range_type.to_owned(), range_paramters_tuple)
+        let range_parameters_tuple = vm.ctx.new_tuple(range_parameters);
+        (vm.ctx.types.range_type.to_owned(), range_parameters_tuple)
     }
 
     #[pymethod]

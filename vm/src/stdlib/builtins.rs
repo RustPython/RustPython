@@ -996,7 +996,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "NotImplemented" => ctx.not_implemented(),
         "Ellipsis" => vm.ctx.ellipsis.clone(),
 
-        // ordered by exception_hierarachy.txt
+        // ordered by exception_hierarchy.txt
         // Exceptions:
         "BaseException" => ctx.exceptions.base_exception_type.to_owned(),
         "SystemExit" => ctx.exceptions.system_exit.to_owned(),
