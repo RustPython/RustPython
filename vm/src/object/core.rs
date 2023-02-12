@@ -1077,7 +1077,7 @@ impl<T: PyObjectPayload> PyWeakRef<T> {
     }
 }
 
-/// Paritally initialize a struct, ensuring that all fields are
+/// Partially initialize a struct, ensuring that all fields are
 /// either given values or explicitly left uninitialized
 macro_rules! partially_init {
     (

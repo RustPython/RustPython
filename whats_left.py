@@ -345,7 +345,7 @@ def compare():
     import json
     import platform
 
-    def method_incompatability_reason(typ, method_name, real_method_value):
+    def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)
         if not has_method:
             return ""
@@ -364,7 +364,7 @@ def compare():
     for name, (typ, real_value, methods) in expected_methods.items():
         missing_methods = {}
         for method, real_method_value in methods:
-            reason = method_incompatability_reason(typ, method, real_method_value)
+            reason = method_incompatibility_reason(typ, method, real_method_value)
             if reason is not None:
                 missing_methods[method] = reason
         if missing_methods:

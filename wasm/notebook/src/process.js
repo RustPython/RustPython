@@ -19,7 +19,7 @@ function renderMarkdown(md) {
 
 // Render Math with Katex
 function renderMath(math) {
-    // TODO: definetly add error handling.
+    // TODO: definitely add error handling.
     return katex.renderToString(math, {
         macros: { '\\f': '#1f(#2)' },
     });

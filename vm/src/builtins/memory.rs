@@ -486,7 +486,7 @@ impl PyMemoryView {
             }
         }
         if !is_adjusted {
-            // no suboffset setted, stride must be positive
+            // no suboffset set, stride must be positive
             self.start += stride as usize * range.start;
         }
         let newlen = range.len();
@@ -507,7 +507,7 @@ impl PyMemoryView {
             }
         }
         if !is_adjusted_suboffset {
-            // no suboffset setted, stride must be positive
+            // no suboffset set, stride must be positive
             self.start += stride as usize
                 * if step.is_negative() {
                     range.end - 1
@@ -521,7 +521,7 @@ impl PyMemoryView {
         Ok(())
     }
 
-    /// return the length of the first dimention
+    /// return the length of the first dimension
     #[pymethod(magic)]
     fn len(&self, vm: &VirtualMachine) -> PyResult<usize> {
         self.try_not_released(vm)?;

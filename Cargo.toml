@@ -128,5 +128,5 @@ opt-level = 3
 lto = "thin"
 
 [patch.crates-io]
-# REDOX START, Uncommment when you want to compile/check with redoxer
+# REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END

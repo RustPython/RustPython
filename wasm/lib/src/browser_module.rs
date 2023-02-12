@@ -29,7 +29,7 @@ mod _browser {
                 "json" => Ok(FetchResponseFormat::Json),
                 "text" => Ok(FetchResponseFormat::Text),
                 "array_buffer" => Ok(FetchResponseFormat::ArrayBuffer),
-                _ => Err(vm.new_type_error("Unkown fetch response_format".into())),
+                _ => Err(vm.new_type_error("Unknown fetch response_format".into())),
             }
         }
         fn get_response(&self, response: &web_sys::Response) -> Result<Promise, JsValue> {
