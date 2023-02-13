@@ -592,25 +592,41 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn lstrip(&self, chars: OptionalOption<PyStrRef>) -> String {
-        self.as_str()
-            .py_strip(
-                chars,
-                |s, chars| s.trim_start_matches(|c| chars.contains(c)),
-                |s| s.trim_start(),
-            )
-            .to_owned()
+    fn lstrip(
+        zelf: PyRef<Self>,
+        chars: OptionalOption<PyStrRef>,
+        vm: &VirtualMachine,
+    ) -> PyRef<Self> {
+        let s = zelf.as_str();
+        let stripped = s.py_strip(
+            chars,
+            |s, chars| s.trim_start_matches(|c| chars.contains(c)),
+            |s| s.trim_start(),
+        );
+        if s == stripped {
+            zelf
+        } else {
+            stripped.into_pystr_ref(vm)
+        }
     }
 
     #[pymethod]
-    fn rstrip(&self, chars: OptionalOption<PyStrRef>) -> String {
-        self.as_str()
-            .py_strip(
-                chars,
-                |s, chars| s.trim_end_matches(|c| chars.contains(c)),
-                |s| s.trim_end(),
-            )
-            .to_owned()
+    fn rstrip(
+        zelf: PyRef<Self>,
+        chars: OptionalOption<PyStrRef>,
+        vm: &VirtualMachine,
+    ) -> PyRef<Self> {
+        let s = zelf.as_str();
+        let stripped = s.py_strip(
+            chars,
+            |s, chars| s.trim_end_matches(|c| chars.contains(c)),
+            |s| s.trim_end(),
+        );
+        if s == stripped {
+            zelf
+        } else {
+            stripped.into_pystr_ref(vm)
+        }
     }
 
     #[pymethod]
