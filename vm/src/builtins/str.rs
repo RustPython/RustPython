@@ -876,13 +876,24 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn join(&self, iterable: ArgIterable<PyStrRef>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn join(
+        zelf: PyRef<Self>,
+        iterable: ArgIterable<PyStrRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyStrRef> {
         let iter = iterable.iter(vm)?;
-
-        match iter.exactly_one() {
-            Ok(first) => first,
-            Err(iter) => Ok(vm.ctx.new_str(self.as_str().py_join(iter)?)),
-        }
+        let joined = match iter.exactly_one() {
+            Ok(first) => {
+                let first = first?;
+                if first.as_object().class().is(vm.ctx.types.str_type) {
+                    return Ok(first);
+                } else {
+                    first.as_str().to_owned()
+                }
+            }
+            Err(iter) => zelf.as_str().py_join(iter)?,
+        };
+        Ok(joined.into_pystr_ref(vm))
     }
 
     // FIXME: two traversals of str is expensive
