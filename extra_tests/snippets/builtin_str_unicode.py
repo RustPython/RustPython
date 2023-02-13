@@ -22,7 +22,7 @@ assert unicodedata.normalize('NFC', 'bla') == 'bla'
 
 # testing unicodedata.ucd_3_2_0 for idna
 assert "abcСĤ".encode("idna") == b'xn--abc-7sa390b'
-# TODO: fix: assert "abc䄣Ĳ".encode("idna") == b'xn--abcij-zb5f'
+assert "abc䄣Ĳ".encode("idna") == b'xn--abcij-zb5f'
 
 # from CPython tests
 assert "python.org".encode("idna") == b"python.org"

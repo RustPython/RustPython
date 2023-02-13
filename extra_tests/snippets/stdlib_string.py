@@ -8,17 +8,15 @@ assert string.digits == '0123456789'
 assert string.hexdigits == '0123456789abcdefABCDEF'
 assert string.octdigits == '01234567'
 assert string.punctuation == '!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~'
-# FIXME
-#assert string.whitespace == ' \t\n\r\x0b\x0c', string.whitespace
-#assert string.printable == '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c'
+assert string.whitespace == ' \t\n\r\x0b\x0c', string.whitespace
+assert string.printable == '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~ \t\n\r\x0b\x0c'
 
 assert string.capwords('bla bla', ' ') == 'Bla Bla'
 
 from string import Template
 s = Template('$who likes $what')
-# TODO:
-# r = s.substitute(who='tim', what='kung pow')
-# print(r)
+r = s.substitute(who='tim', what='kung pow')
+assert r == 'tim likes kung pow'
 
 from string import Formatter
 
