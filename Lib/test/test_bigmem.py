@@ -765,16 +765,6 @@ class StrTest(unittest.TestCase, BaseStrTest):
         self.assertEqual(s.count(_('!')), repeats * 2)
         self.assertEqual(s.count(_('z')), repeats * 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_lstrip(self, size):
-        super().test_lstrip(size)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_rstrip(self, size):
-        super().test_rstrip(size)
-
 
 class BytesTest(unittest.TestCase, BaseStrTest):
 
