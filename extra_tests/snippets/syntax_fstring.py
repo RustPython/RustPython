@@ -60,14 +60,13 @@ assert f'{10:{"#"}1{0}{"x"}}' == '       0xa'
 assert f'{-10:-{"#"}1{0}x}' == '      -0xa'
 assert f'{-10:{"-"}#{1}0{"x"}}' == '      -0xa'
 
-# TODO:
-# spec = "bla"
-# assert_raises(ValueError, lambda: f"{16:{spec}}")
+spec = "bla"
+assert_raises(ValueError, lambda: f"{16:{spec}}")
 
 # Normally `!` cannot appear outside of delimiters in the expression but
 # cpython makes an exception for `!=`, so we should too.
 
-# assert f'{1 != 2}' == 'True'
+assert f'{1 != 2}' == 'True'
 
 
 # conversion flags
@@ -103,17 +102,15 @@ assert f'>{v!s}' == '>\u262e'
 assert f'>{v!a}' == r">'\u262e'"
 
 
-
 # Test format specifier after conversion flag
-#assert f'{"42"!s:<5}' == '42   ', '#' + f'{"42"!s:5}' +'#' # TODO: default alignment in cpython is left
+assert f'{"42"!s:<5}' == '42   ', '#' + f'{"42"!s:5}' +'#'
 
 assert f'{"42"!s:<5}' == '42   ', '#' + f'{"42"!s:<5}' +'#'
 assert f'{"42"!s:>5}' == '   42', '#' + f'{"42"!s:>5}' +'#'
 
-#assert f'{"42"=!s:5}' == '"42"=42   ', '#'+ f'{"42"=!s:5}' +'#' # TODO default alingment in cpython is left
+assert f'{"42"=!s:5}' == '"42"=42   ', '#'+ f'{"42"=!s:5}' +'#'
 assert f'{"42"=!s:<5}' == '"42"=42   ', '#'+ f'{"42"=!s:<5}' +'#'
 assert f'{"42"=!s:>5}' == '"42"=   42', '#'+ f'{"42"=!s:>5}' +'#'
-
 
 
 ### Tests for fstring selfdocumenting form CPython
@@ -126,16 +123,16 @@ self=C()
 
 x = 'A string'
 self.assertEqual(f'{10=}', '10=10')
-# self.assertEqual(f'{x=}', 'x=' + x )#repr(x)) # TODO: add  ' when printing strings
-# self.assertEqual(f'{x =}', 'x =' + x )# + repr(x)) # TODO: implement '  handling
+self.assertEqual(f'{x=}', 'x=' + repr(x))
+self.assertEqual(f'{x =}', 'x =' + repr(x))
 self.assertEqual(f'{x=!s}', 'x=' + str(x))
-# # self.assertEqual(f'{x=!r}', 'x=' + x) #repr(x)) # !r not supported
-# self.assertEqual(f'{x=!a}', 'x=' + ascii(x))
+self.assertEqual(f'{x=!r}', 'x=' + repr(x))
+self.assertEqual(f'{x=!a}', 'x=' + ascii(x))
 
 x = 2.71828
 self.assertEqual(f'{x=:.2f}', 'x=' + format(x, '.2f'))
 self.assertEqual(f'{x=:}', 'x=' + format(x, ''))
-self.assertEqual(f'{x=!r:^20}', 'x=' + format(repr(x), '^20')) # TODO formatspecifier after conversion flsg is currently not supported (also for classical fstrings)
+self.assertEqual(f'{x=!r:^20}', 'x=' + format(repr(x), '^20'))
 self.assertEqual(f'{x=!s:^20}', 'x=' + format(str(x), '^20'))
 self.assertEqual(f'{x=!a:^20}', 'x=' + format(ascii(x), '^20'))
 
@@ -170,14 +167,13 @@ self.assertEqual(f'{0<=1}', 'True')
 self.assertEqual(f'{0>=1}', 'False')
 
 # Make sure leading and following text works.
-# x = 'foo'
-#self.assertEqual(f'X{x=}Y', 'Xx='+repr(x)+'Y') # TODO ' 
-# self.assertEqual(f'X{x=}Y', 'Xx='+x+'Y') # just for the moment
+x = 'foo'
+self.assertEqual(f'X{x=}Y', 'Xx='+repr(x)+'Y')
 
 # Make sure whitespace around the = works.
-# self.assertEqual(f'X{x  =}Y', 'Xx  ='+repr(x)+'Y')  # TODO '
-# self.assertEqual(f'X{x=  }Y', 'Xx=  '+repr(x)+'Y') # TODO '
-# self.assertEqual(f'X{x  =  }Y', 'Xx  =  '+repr(x)+'Y') # TODO '
+self.assertEqual(f'X{x  =}Y', 'Xx  ='+repr(x)+'Y')
+self.assertEqual(f'X{x=  }Y', 'Xx=  '+repr(x)+'Y')
+self.assertEqual(f'X{x  =  }Y', 'Xx  =  '+repr(x)+'Y')
 
 # self.assertEqual(f'X{x  =}Y', 'Xx  ='+x+'Y')
 # self.assertEqual(f'X{x=  }Y', 'Xx=  '+x+'Y')

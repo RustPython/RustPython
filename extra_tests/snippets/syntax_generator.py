@@ -102,9 +102,9 @@ def binary(n):
 with assert_raises(StopIteration):
     try:
         next(binary(5))
-    except StopIteration as stopiter:
-        # TODO: StopIteration.value
-        assert stopiter.args[0] == 31
+    except StopIteration as stop_iter:
+        assert stop_iter.value == 31
+        assert stop_iter.args[0] == 31
         raise
 
 class SpamException(Exception):
