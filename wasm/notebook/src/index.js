@@ -229,7 +229,7 @@ async function executeNotebook() {
 	*/
     let parsedCode = iomdParser(mainCode);
     for (const chunk of parsedCode) {
-        // For each type of chunk, do somthing
+        // For each type of chunk, do something
         // so far have py for python, md for markdown and math for math ;p
         let content = chunk.chunkContent;
         switch (chunk.chunkType) {

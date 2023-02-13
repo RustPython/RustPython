@@ -1552,7 +1552,7 @@ mod _io {
             }
             let flush_res = data.flush(vm);
             let close_res = vm.call_method(data.raw.as_ref().unwrap(), "close", ());
-            exeption_chain(flush_res, close_res)
+            exception_chain(flush_res, close_res)
         }
 
         #[pymethod]
@@ -1568,7 +1568,7 @@ mod _io {
             let data = zelf.lock(vm)?;
             let raw = data.raw.as_ref().unwrap();
             let close_res = vm.call_method(raw, "close", ());
-            exeption_chain(flush_res, close_res)
+            exception_chain(flush_res, close_res)
         }
 
         #[pymethod]
@@ -1657,7 +1657,7 @@ mod _io {
         }
     }
 
-    fn exeption_chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
+    fn exception_chain<T>(e1: PyResult<()>, e2: PyResult<T>) -> PyResult<T> {
         match (e1, e2) {
             (Err(e1), Err(e)) => {
                 e.set_context(Some(e1));
@@ -1858,7 +1858,7 @@ mod _io {
         fn close(&self, vm: &VirtualMachine) -> PyResult {
             let write_res = self.write.close_strict(vm).map(drop);
             let read_res = self.read.close_strict(vm);
-            exeption_chain(write_res, read_res)
+            exception_chain(write_res, read_res)
         }
     }
 
@@ -2897,7 +2897,7 @@ mod _io {
             }
             let flush_res = vm.call_method(zelf.as_object(), "flush", ()).map(drop);
             let close_res = vm.call_method(&buffer, "close", ()).map(drop);
-            exeption_chain(flush_res, close_res)
+            exception_chain(flush_res, close_res)
         }
         #[pygetset]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
