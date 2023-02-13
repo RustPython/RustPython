@@ -493,10 +493,10 @@ mod _sqlite {
         unsafe extern "C" fn authorizer_callback(
             data: *mut c_void,
             action: c_int,
-            arg1: *const i8,
-            arg2: *const i8,
-            db_name: *const i8,
-            access: *const i8,
+            arg1: *const libc::c_char,
+            arg2: *const libc::c_char,
+            db_name: *const libc::c_char,
+            access: *const libc::c_char,
         ) -> c_int {
             let (callable, vm) = (*data.cast::<Self>()).retrive();
             let f = || -> PyResult<c_int> {
@@ -2304,7 +2304,7 @@ mod _sqlite {
             raise_exception(typ.to_owned(), extended_errcode, errmsg, vm)
         }
 
-        fn open(path: *const i8, uri: bool, vm: &VirtualMachine) -> PyResult<Self> {
+        fn open(path: *const libc::c_char, uri: bool, vm: &VirtualMachine) -> PyResult<Self> {
             let mut db = null_mut();
             let ret = unsafe {
                 sqlite3_open_v2(
@@ -2328,8 +2328,8 @@ mod _sqlite {
 
         fn prepare(
             self,
-            sql: *const i8,
-            tail: *mut *const i8,
+            sql: *const libc::c_char,
+            tail: *mut *const libc::c_char,
             vm: &VirtualMachine,
         ) -> PyResult<Option<SqliteStatement>> {
             let mut st = null_mut();
@@ -2412,7 +2412,7 @@ mod _sqlite {
         #[allow(clippy::too_many_arguments)]
         fn create_function(
             self,
-            name: *const i8,
+            name: *const libc::c_char,
             narg: c_int,
             flags: c_int,
             data: *mut c_void,
@@ -2631,7 +2631,7 @@ mod _sqlite {
             unsafe { sqlite3_column_text(self.st, pos) }
         }
 
-        fn column_decltype(self, pos: c_int) -> *const i8 {
+        fn column_decltype(self, pos: c_int) -> *const libc::c_char {
             unsafe { sqlite3_column_decltype(self.st, pos) }
         }
 
@@ -2639,7 +2639,7 @@ mod _sqlite {
             unsafe { sqlite3_column_bytes(self.st, pos) }
         }
 
-        fn column_name(self, pos: c_int) -> *const i8 {
+        fn column_name(self, pos: c_int) -> *const libc::c_char {
             unsafe { sqlite3_column_name(self.st, pos) }
         }
 
@@ -2803,7 +2803,7 @@ mod _sqlite {
         Ok(obj)
     }
 
-    fn ptr_to_str<'a>(p: *const i8, vm: &VirtualMachine) -> PyResult<&'a str> {
+    fn ptr_to_str<'a>(p: *const libc::c_char, vm: &VirtualMachine) -> PyResult<&'a str> {
         if p.is_null() {
             return Err(vm.new_memory_error("string pointer is null".to_owned()));
         }
@@ -2840,7 +2840,7 @@ mod _sqlite {
         }
     }
 
-    fn str_to_ptr_len(s: &PyStr, vm: &VirtualMachine) -> PyResult<(*const i8, i32)> {
+    fn str_to_ptr_len(s: &PyStr, vm: &VirtualMachine) -> PyResult<(*const libc::c_char, i32)> {
         let len = c_int::try_from(s.byte_len())
             .map_err(|_| vm.new_overflow_error("TEXT longer than INT_MAX bytes".to_owned()))?;
         let ptr = s.as_str().as_ptr().cast();
@@ -2909,7 +2909,7 @@ mod _sqlite {
     fn begin_statement_ptr_from_isolation_level(
         s: &PyStr,
         vm: &VirtualMachine,
-    ) -> PyResult<*const i8> {
+    ) -> PyResult<*const libc::c_char> {
         BEGIN_STATEMENTS
             .iter()
             .find(|&&x| x[6..].eq_ignore_ascii_case(s.as_str().as_bytes()))
