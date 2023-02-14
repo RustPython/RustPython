@@ -366,13 +366,23 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner.lstrip(chars).into()
+    fn lstrip(zelf: PyRef<Self>, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<Self> {
+        let stripped = zelf.inner.lstrip(chars);
+        if stripped == zelf.as_bytes().to_vec() {
+            zelf
+        } else {
+            vm.ctx.new_bytes(stripped)
+        }
     }
 
     #[pymethod]
-    fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner.rstrip(chars).into()
+    fn rstrip(zelf: PyRef<Self>, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<Self> {
+        let stripped = zelf.inner.rstrip(chars);
+        if stripped == zelf.as_bytes().to_vec() {
+            zelf
+        } else {
+            vm.ctx.new_bytes(stripped)
+        }
     }
 
     /// removeprefix($self, prefix, /)
