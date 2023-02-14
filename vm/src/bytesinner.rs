@@ -79,9 +79,7 @@ impl ByteInnerNewOptions {
                 // construct an exact bytes from an exact bytes do not clone
                 let obj = if cls.is(PyBytes::class(vm)) {
                     match obj.downcast_exact::<PyBytes>(vm) {
-                        Ok(b) => {
-                            return Ok(b);
-                        }
+                        Ok(b) => return Ok(b.into_pyref()),
                         Err(obj) => obj,
                     }
                 } else {

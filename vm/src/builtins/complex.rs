@@ -128,7 +128,7 @@ impl Constructor for PyComplex {
                 let val = if cls.is(vm.ctx.types.complex_type) && imag_missing {
                     match val.downcast_exact::<PyComplex>(vm) {
                         Ok(c) => {
-                            return Ok(c.into());
+                            return Ok(c.into_pyref().into());
                         }
                         Err(val) => val,
                     }
