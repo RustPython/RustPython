@@ -366,7 +366,11 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn lstrip(zelf: PyRef<Self>, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<Self> {
+    fn lstrip(
+        zelf: PyRef<Self>,
+        chars: OptionalOption<PyBytesInner>,
+        vm: &VirtualMachine,
+    ) -> PyRef<Self> {
         let stripped = zelf.inner.lstrip(chars);
         if stripped == zelf.as_bytes().to_vec() {
             zelf
@@ -376,7 +380,11 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn rstrip(zelf: PyRef<Self>, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<Self> {
+    fn rstrip(
+        zelf: PyRef<Self>,
+        chars: OptionalOption<PyBytesInner>,
+        vm: &VirtualMachine,
+    ) -> PyRef<Self> {
         let stripped = zelf.inner.rstrip(chars);
         if stripped == zelf.as_bytes().to_vec() {
             zelf
