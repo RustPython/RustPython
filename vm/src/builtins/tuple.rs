@@ -95,7 +95,7 @@ impl Constructor for PyTuple {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(vm.ctx.types.tuple_type) {
                 match iterable.downcast_exact::<Self>(vm) {
-                    Ok(tuple) => return Ok(tuple.into()),
+                    Ok(tuple) => return Ok(tuple.into_pyref().into()),
                     Err(iterable) => iterable,
                 }
             } else {

@@ -11,7 +11,6 @@ use crate::{
     },
     class::{PyClassDef, PyClassImpl},
     common::ascii,
-    convert::ToPyObject,
     dictdatatype::{self, DictKey},
     function::{
         ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
@@ -24,7 +23,8 @@ use crate::{
         IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::VirtualMachine,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+    TryFromObject,
 };
 use once_cell::sync::Lazy;
 use rustpython_common::lock::PyMutex;
@@ -65,8 +65,9 @@ impl PyDict {
 
     // Used in update and ior.
     pub(crate) fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let other = match other.downcast_exact(vm) {
-            Ok(dict_other) => return self.merge_dict(dict_other, vm),
+        let casted: Result<PyRefExact<PyDict>, _> = other.downcast_exact(vm);
+        let other = match casted {
+            Ok(dict_other) => return self.merge_dict(dict_other.into_pyref(), vm),
             Err(other) => other,
         };
         let dict = &self.entries;
@@ -227,7 +228,7 @@ impl PyDict {
                 for key in iterable.iter(vm)? {
                     pydict.setitem(key?, value.clone(), vm)?;
                 }
-                Ok(pydict.to_pyobject(vm))
+                Ok(pydict.into_pyref().into())
             }
             Err(pyobj) => {
                 for key in iterable.iter(vm)? {

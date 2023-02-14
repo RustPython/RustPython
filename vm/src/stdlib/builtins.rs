@@ -872,7 +872,11 @@ mod builtins {
         // Use downcast_exact to keep ref to old object on error.
         let metaclass = kwargs
             .pop_kwarg("metaclass")
-            .map(|metaclass| metaclass.downcast_exact::<PyType>(vm))
+            .map(|metaclass| {
+                metaclass
+                    .downcast_exact::<PyType>(vm)
+                    .map(|m| m.into_pyref())
+            })
             .unwrap_or_else(|| Ok(vm.ctx.types.type_type.to_owned()));
 
         let (metaclass, meta_name) = match metaclass {

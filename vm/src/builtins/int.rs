@@ -231,7 +231,7 @@ impl Constructor for PyInt {
                 let val = if cls.is(vm.ctx.types.int_type) {
                     match val.downcast_exact::<PyInt>(vm) {
                         Ok(i) => {
-                            return Ok(i.to_pyobject(vm));
+                            return Ok(i.into_pyref().into());
                         }
                         Err(val) => val,
                     }
