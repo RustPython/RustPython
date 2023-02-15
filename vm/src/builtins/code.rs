@@ -219,6 +219,18 @@ impl PyRef<PyCode> {
     }
 
     #[pygetset]
+    pub fn co_cellvars(self, vm: &VirtualMachine) -> PyTupleRef {
+        let cellvars = self
+            .code
+            .cellvars
+            .deref()
+            .iter()
+            .map(|name| name.to_pyobject(vm))
+            .collect();
+        vm.ctx.new_tuple(cellvars)
+    }
+
+    #[pygetset]
     fn co_firstlineno(self) -> usize {
         self.code.first_line_number
     }
