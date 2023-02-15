@@ -1427,8 +1427,6 @@ class MixinStrUnicodeUserStringTest:
 class MixinStrUnicodeTest:
     # Additional tests that only work with str.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug1001011(self):
         # Make sure join returns a NEW object for single item sequences
         # involving a subclass.
