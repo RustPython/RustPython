@@ -264,12 +264,13 @@ impl PyRef<PyCode> {
 
     #[pygetset]
     pub fn co_freevars(self, vm: &VirtualMachine) -> PyTupleRef {
-        let names = self.code
-                        .freevars
-                        .deref()
-                        .iter()
-                        .map(|name| name.to_pyobject(vm))
-                        .collect();
+        let names = self
+            .code
+            .freevars
+            .deref()
+            .iter()
+            .map(|name| name.to_pyobject(vm))
+            .collect();
         vm.ctx.new_tuple(names)
     }
 
