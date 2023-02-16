@@ -219,6 +219,18 @@ impl PyRef<PyCode> {
     }
 
     #[pygetset]
+    pub fn co_cellvars(self, vm: &VirtualMachine) -> PyTupleRef {
+        let cellvars = self
+            .code
+            .cellvars
+            .deref()
+            .iter()
+            .map(|name| name.to_pyobject(vm))
+            .collect();
+        vm.ctx.new_tuple(cellvars)
+    }
+
+    #[pygetset]
     fn co_firstlineno(self) -> usize {
         self.code.first_line_number
     }
@@ -260,6 +272,18 @@ impl PyRef<PyCode> {
     pub fn co_varnames(self, vm: &VirtualMachine) -> PyTupleRef {
         let varnames = self.code.varnames.iter().map(|s| s.to_object()).collect();
         vm.ctx.new_tuple(varnames)
+    }
+
+    #[pygetset]
+    pub fn co_freevars(self, vm: &VirtualMachine) -> PyTupleRef {
+        let names = self
+            .code
+            .freevars
+            .deref()
+            .iter()
+            .map(|name| name.to_pyobject(vm))
+            .collect();
+        vm.ctx.new_tuple(names)
     }
 
     #[pymethod]
