@@ -262,6 +262,18 @@ impl PyRef<PyCode> {
         vm.ctx.new_tuple(varnames)
     }
 
+    #[pygetset]
+    pub fn co_freevars(self, vm: &VirtualMachine) -> PyTupleRef {
+        let names = self
+            .code
+            .freevars
+            .deref()
+            .iter()
+            .map(|name| name.to_pyobject(vm))
+            .collect();
+        vm.ctx.new_tuple(names)
+    }
+
     #[pymethod]
     pub fn replace(self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
         let posonlyarg_count = match args.co_posonlyargcount {
