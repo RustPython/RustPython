@@ -374,8 +374,6 @@ class AnnotationsFutureTestCase(unittest.TestCase):
                 "object.__debug__: int"
             )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_annotations_symbol_table_pass(self):
         namespace = self._exec_future(dedent("""
         from __future__ import annotations
