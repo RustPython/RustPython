@@ -1,6 +1,6 @@
 use super::{
     set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias,
-    PyMappingProxy, PySet, PyStrRef, PyTupleRef, PyType, PyTypeRef,
+    PyMappingProxy, PySet, PyStr, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     atomic_func,
@@ -534,9 +534,8 @@ impl Py<PyDict> {
     pub fn to_attributes(&self, vm: &VirtualMachine) -> PyAttributes {
         let mut attrs = PyAttributes::default();
         for (key, value) in self {
-            // TODO: use PyRefExact for interning
-            let key: PyStrRef = key.downcast().expect("dict has non-string keys");
-            attrs.insert(vm.ctx.intern_str(key.as_str()), value);
+            let key: PyRefExact<PyStr> = key.downcast_exact(vm).expect("dict has non-string keys");
+            attrs.insert(vm.ctx.intern_str(key), value);
         }
         attrs
     }
