@@ -606,11 +606,11 @@ impl PyInt {
     ) -> PyResult<PyRef<Self>> {
         let signed = args.signed.map_or(false, Into::into);
         let value = match (args.byteorder, signed) {
-            (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(&args.bytes.elements),
-            (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, &args.bytes.elements),
-            (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(&args.bytes.elements),
+            (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(args.bytes.as_bytes()),
+            (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, args.bytes.as_bytes()),
+            (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(args.bytes.as_bytes()),
             (ArgByteOrder::Little, false) => {
-                BigInt::from_bytes_le(Sign::Plus, &args.bytes.elements)
+                BigInt::from_bytes_le(Sign::Plus, args.bytes.as_bytes())
             }
         };
         Self::with_value(cls, value, vm)
