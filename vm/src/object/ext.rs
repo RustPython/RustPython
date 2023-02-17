@@ -107,6 +107,7 @@ impl<T: PyPayload> std::borrow::ToOwned for PyExact<T> {
     }
 }
 
+/// PyRef but guaranteed not to be a subtype instance
 #[derive(Debug)]
 #[repr(transparent)]
 pub struct PyRefExact<T: PyObjectPayload> {

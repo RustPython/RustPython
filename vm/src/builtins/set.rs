@@ -354,7 +354,7 @@ impl PySetInner {
             self.merge_set(any_set, vm)
         // check Dict
         } else if let Ok(dict) = iterable.to_owned().downcast_exact::<PyDict>(vm) {
-            self.merge_dict(dict, vm)
+            self.merge_dict(dict.into_pyref(), vm)
         } else {
             // add iterable that is not AnySet or Dict
             for item in iterable.try_into_value::<ArgIterable>(vm)?.iter(vm)? {
@@ -799,7 +799,7 @@ impl Constructor for PyFrozenSet {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(vm.ctx.types.frozenset_type) {
                 match iterable.downcast_exact::<Self>(vm) {
-                    Ok(fs) => return Ok(fs.into()),
+                    Ok(fs) => return Ok(fs.into_pyref().into()),
                     Err(iterable) => iterable,
                 }
             } else {
