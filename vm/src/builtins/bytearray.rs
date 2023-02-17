@@ -507,13 +507,37 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner().lstrip(chars).into()
+    fn lstrip(
+        zelf: PyRef<Self>,
+        chars: OptionalOption<PyBytesInner>,
+        vm: &VirtualMachine,
+    ) -> PyRef<Self> {
+        let inner = zelf.inner();
+        let stripped = inner.lstrip(chars);
+        let elements = &inner.elements;
+        if stripped == elements {
+            drop(inner);
+            zelf
+        } else {
+            vm.new_pyref(PyByteArray::from(stripped.to_vec()))
+        }
     }
 
     #[pymethod]
-    fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner().rstrip(chars).into()
+    fn rstrip(
+        zelf: PyRef<Self>,
+        chars: OptionalOption<PyBytesInner>,
+        vm: &VirtualMachine,
+    ) -> PyRef<Self> {
+        let inner = zelf.inner();
+        let stripped = inner.rstrip(chars);
+        let elements = &inner.elements;
+        if stripped == elements {
+            drop(inner);
+            zelf
+        } else {
+            vm.new_pyref(PyByteArray::from(stripped.to_vec()))
+        }
     }
 
     /// removeprefix($self, prefix, /)
