@@ -358,6 +358,7 @@ impl Py<PyType> {
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
+    /// Similar to CPython PyType_IsSubtype
     pub fn fast_issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
         self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
     }
