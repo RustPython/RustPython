@@ -61,18 +61,18 @@ impl Deref for PyBytes {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        &self.inner.elements
+        self.as_bytes()
     }
 }
 
 impl AsRef<[u8]> for PyBytes {
     fn as_ref(&self) -> &[u8] {
-        &self.inner.elements
+        self.as_bytes()
     }
 }
 impl AsRef<[u8]> for PyBytesRef {
     fn as_ref(&self) -> &[u8] {
-        &self.inner.elements
+        self.as_bytes()
     }
 }
 
@@ -133,7 +133,7 @@ impl PyBytes {
 
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
-        &self.inner.elements
+        self.inner.as_bytes()
     }
 
     #[pymethod(magic)]
@@ -147,7 +147,7 @@ impl PyBytes {
 
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.inner.elements.len() * size_of::<u8>()
+        size_of::<Self>() + self.len() * size_of::<u8>()
     }
 
     #[pymethod(magic)]
@@ -172,13 +172,9 @@ impl PyBytes {
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
         match SequenceIndex::try_from_borrowed_object(vm, needle, "byte")? {
             SequenceIndex::Int(i) => self
-                .inner
-                .elements
                 .getitem_by_index(vm, i)
                 .map(|x| vm.ctx.new_int(x).into()),
             SequenceIndex::Slice(slice) => self
-                .inner
-                .elements
                 .getitem_by_slice(vm, slice)
                 .map(|x| vm.ctx.new_bytes(x).into()),
         }
@@ -294,7 +290,7 @@ impl PyBytes {
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let (affix, substr) =
-            match options.prepare(&self.inner.elements[..], self.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -302,7 +298,7 @@ impl PyBytes {
             affix,
             "endswith",
             "bytes",
-            |s, x: &PyBytesInner| s.ends_with(&x.elements[..]),
+            |s, x: &PyBytesInner| s.ends_with(x.as_bytes()),
             vm,
         )
     }
@@ -314,7 +310,7 @@ impl PyBytes {
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         let (affix, substr) =
-            match options.prepare(&self.inner.elements[..], self.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -322,7 +318,7 @@ impl PyBytes {
             affix,
             "startswith",
             "bytes",
-            |s, x: &PyBytesInner| s.starts_with(&x.elements[..]),
+            |s, x: &PyBytesInner| s.starts_with(x.as_bytes()),
             vm,
         )
     }
@@ -539,12 +535,7 @@ impl PyBytes {
 
     #[pymethod(magic)]
     fn getnewargs(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let param: Vec<PyObjectRef> = self
-            .inner
-            .elements
-            .iter()
-            .map(|x| x.to_pyobject(vm))
-            .collect();
+        let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
         PyTuple::new_ref(param, &vm.ctx)
     }
 
@@ -562,7 +553,7 @@ impl PyBytes {
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
     ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        let bytes = PyBytes::from(zelf.inner.elements.clone()).to_pyobject(vm);
+        let bytes = PyBytes::from(zelf.to_vec()).to_pyobject(vm);
         (
             zelf.class().to_owned(),
             PyTuple::new_ref(vec![bytes], &vm.ctx),
@@ -620,8 +611,7 @@ impl AsSequence for PyBytes {
             }),
             item: atomic_func!(|seq, i, vm| {
                 PyBytes::sequence_downcast(seq)
-                    .inner
-                    .elements
+                    .as_bytes()
                     .getitem_by_index(vm, i)
                     .map(|x| vm.ctx.new_bytes(vec![x]).into())
             }),
