@@ -382,7 +382,7 @@ impl PyBytes {
         vm: &VirtualMachine,
     ) -> PyRef<Self> {
         let stripped = zelf.inner.rstrip(chars);
-        if stripped == zelf.as_bytes().to_vec() {
+        if stripped == zelf.as_bytes() {
             zelf
         } else {
             vm.ctx.new_bytes(stripped.to_vec())
