@@ -20,7 +20,7 @@ use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyBytesInner {
-    pub(crate) elements: Vec<u8>,
+    pub(super) elements: Vec<u8>,
 }
 
 impl From<Vec<u8>> for PyBytesInner {
@@ -241,6 +241,11 @@ impl ByteInnerTranslateOptions {
 pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
 
 impl PyBytesInner {
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.elements
+    }
+
     pub fn repr(&self, class_name: Option<&str>) -> String {
         if let Some(class_name) = class_name {
             rustpython_common::bytes::repr_with(&self.elements, &[class_name, "("], ")")
