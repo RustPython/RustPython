@@ -576,24 +576,20 @@ impl PyBytesInner {
             .to_vec()
     }
 
-    pub fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Vec<u8> {
-        self.elements
-            .py_strip(
-                chars,
-                |s, chars| s.trim_start_with(|c| chars.contains(&(c as u8))),
-                |s| s.trim_start(),
-            )
-            .to_vec()
+    pub fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> &[u8] {
+        self.elements.py_strip(
+            chars,
+            |s, chars| s.trim_start_with(|c| chars.contains(&(c as u8))),
+            |s| s.trim_start(),
+        )
     }
 
-    pub fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Vec<u8> {
-        self.elements
-            .py_strip(
-                chars,
-                |s, chars| s.trim_end_with(|c| chars.contains(&(c as u8))),
-                |s| s.trim_end(),
-            )
-            .to_vec()
+    pub fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> &[u8] {
+        self.elements.py_strip(
+            chars,
+            |s, chars| s.trim_end_with(|c| chars.contains(&(c as u8))),
+            |s| s.trim_end(),
+        )
     }
 
     // new in Python 3.9
