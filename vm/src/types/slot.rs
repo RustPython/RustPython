@@ -334,7 +334,8 @@ fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResu
     Ok(())
 }
 
-fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+// = slot_tp_new
+pub(crate) fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     let new = cls.get_attr(identifier!(vm, __new__)).unwrap();
     args.prepend_arg(cls.into());
     vm.invoke(&new, args)

@@ -383,7 +383,36 @@ impl PyType {
                 subtype = subtype.name(),
             )));
         }
-        call_slot_new(zelf, subtype, args, vm)
+
+        let typ = zelf;
+        // Check that the use doesn't do something silly and unsafe like
+        // object.__new__(dict).  To do this, we check that the
+        // most derived base that's not a heap type is this type. */
+        let mut static_base = subtype.clone();
+        loop {
+            if static_base
+                .slots
+                .new
+                .load()
+                .map_or(false, |f| f as usize == crate::types::new_wrapper as usize)
+            {
+                static_base = static_base.base().unwrap();
+            } else {
+                break;
+            }
+        }
+        if static_base.slots.new.load().map_or(0, |f| f as usize)
+            != typ.slots.new.load().map_or(0, |f| f as usize)
+        {
+            return Err(vm.new_type_error(format!(
+                "{}.__new__({}) is not safe, use {}.__new__()",
+                typ.name(),
+                subtype.name(),
+                static_base.name()
+            )));
+        }
+
+        call_slot_new(typ, subtype, args, vm)
     }
 
     #[pygetset(name = "__mro__")]
@@ -1114,30 +1143,13 @@ pub(crate) fn init(ctx: &Context) {
     PyType::extend_class(ctx, ctx.types.type_type);
 }
 
+// part of tp_new_wrapper *after* subtype check
 pub(crate) fn call_slot_new(
     typ: PyTypeRef,
     subtype: PyTypeRef,
     args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
-    let mut static_base = Some(subtype.clone());
-    while let Some(ref basetype) = static_base {
-        if (basetype.flags() & PyTypeFlags::HEAPTYPE.bits()) != 0 {
-            static_base = basetype.base().clone();
-        } else {
-            break;
-        }
-    }
-    if let Some(ref basetype) = static_base {
-        if !PyType::subclasscheck(basetype.to_owned(), typ.to_owned()) {
-            return Err(vm.new_type_error(format!(
-                "{}.__new__({}) is not safe, use {}.__new__()",
-                typ.name(),
-                subtype.name(),
-                basetype.name()
-            )));
-        }
-    }
     for cls in typ.deref().iter_mro() {
         if let Some(slot_new) = cls.slots.new.load() {
             return slot_new(subtype, args, vm);
