@@ -26,7 +26,9 @@ mod _ssl {
     use crate::{
         common::{
             ascii,
-            lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
+            lock::{
+                PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+            },
         },
         socket::{self, PySocket},
         vm::{
@@ -504,12 +506,8 @@ mod _ssl {
         fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
             self.ctx.write()
         }
-        fn exec_ctx<F, R>(&self, func: F) -> R
-        where
-            F: Fn(&ssl::SslContextRef) -> R,
-        {
-            let c = self.ctx.read();
-            func(builder_as_ctx(&c))
+        fn ctx(&self) -> PyMappedRwLockReadGuard<'_, ssl::SslContextRef> {
+            PyRwLockReadGuard::map(self.ctx.read(), builder_as_ctx)
         }
 
         #[pygetset]
@@ -554,7 +552,7 @@ mod _ssl {
         }
         #[pygetset]
         fn verify_mode(&self) -> i32 {
-            let mode = self.exec_ctx(|ctx| ctx.verify_mode());
+            let mode = self.ctx().verify_mode();
             if mode == SslVerifyMode::NONE {
                 CertRequirements::None.into()
             } else if mode == SslVerifyMode::PEER {
@@ -703,16 +701,15 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
             let binary_form = binary_form.unwrap_or(false);
-            self.exec_ctx(|ctx| {
-                let certs = ctx
-                    .cert_store()
-                    .objects()
-                    .iter()
-                    .filter_map(|obj| obj.x509())
-                    .map(|cert| cert_to_py(vm, cert, binary_form))
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(certs)
-            })
+            let certs = self
+                .ctx()
+                .cert_store()
+                .objects()
+                .iter()
+                .filter_map(|obj| obj.x509())
+                .map(|cert| cert_to_py(vm, cert, binary_form))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(certs)
         }
 
         #[pymethod]
@@ -746,9 +743,7 @@ mod _ssl {
             args: WrapSocketArgs,
             vm: &VirtualMachine,
         ) -> PyResult<PySslSocket> {
-            let mut ssl = zelf
-                .exec_ctx(ssl::Ssl::new)
-                .map_err(|e| convert_openssl_error(vm, e))?;
+            let mut ssl = ssl::Ssl::new(&zelf.ctx()).map_err(|e| convert_openssl_error(vm, e))?;
 
             let socket_type = if args.server_side {
                 ssl.set_accept_state();

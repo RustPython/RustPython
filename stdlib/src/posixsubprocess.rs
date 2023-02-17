@@ -177,6 +177,8 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
 
     let mut first_err = None;
     for exec in args.exec_list.as_slice() {
+        // not using nix's versions of these functions because those allocate the char-ptr array,
+        // and we can't allocate
         if let Some(envp) = procargs.envp {
             unsafe { libc::execve(exec.s.as_ptr(), procargs.argv.as_ptr(), envp.as_ptr()) };
         } else {
@@ -195,9 +197,8 @@ fn close_fds(above: i32, keep: &[i32]) -> nix::Result<()> {
     use nix::{dir::Dir, fcntl::OFlag};
     // TODO: close fds by brute force if readdir doesn't work:
     // https://github.com/python/cpython/blob/3.8/Modules/_posixsubprocess.c#L220
-    let path = unsafe { CStr::from_bytes_with_nul_unchecked(FD_DIR_NAME) };
     let mut dir = Dir::open(
-        path,
+        FD_DIR_NAME,
         OFlag::O_RDONLY | OFlag::O_DIRECTORY,
         nix::sys::stat::Mode::empty(),
     )?;
@@ -219,10 +220,10 @@ fn close_fds(above: i32, keep: &[i32]) -> nix::Result<()> {
     target_os = "openbsd",
     target_vendor = "apple",
 ))]
-const FD_DIR_NAME: &[u8] = b"/dev/fd\0";
+const FD_DIR_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"/dev/fd\0") };
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-const FD_DIR_NAME: &[u8] = b"/proc/self/fd\0";
+const FD_DIR_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"/proc/self/fd\0") };
 
 #[cfg(not(target_os = "redox"))]
 fn pos_int_from_ascii(name: &CStr) -> Option<i32> {
