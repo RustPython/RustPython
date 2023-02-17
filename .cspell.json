@@ -80,11 +80,13 @@
     "rdiv",
     "idiv",
     "ndim",
+    "unionable",
     "varnames",
     "getweakrefs",
     "getweakrefcount",
     "stacklevel",
     "MemoryView",
+    "metatype",
     "warningregistry",
     "defaultaction",
     "unraisablehook",
@@ -129,7 +131,12 @@
     "posonlyargs",
     "kwonlyargs",
     "uninit",
-    "miri"
+    "miri",
+    // cpython
+    "linearise",
+    "dictoffset",
+    "heaptype",
+    "IMMUTABLETYPE"
   ],
   // flagWords - list of words to be always considered incorrect
   "flagWords": [

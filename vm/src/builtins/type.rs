@@ -868,11 +868,11 @@ impl PyType {
                 })?;
         }
 
-        if let Some(initter) = typ.get_super_attr(identifier!(vm, __init_subclass__)) {
-            let initter = vm
-                .call_get_descriptor_specific(initter.clone(), None, Some(typ.clone().into()))
-                .unwrap_or(Ok(initter))?;
-            vm.invoke(&initter, kwargs)?;
+        if let Some(init_subclass) = typ.get_super_attr(identifier!(vm, __init_subclass__)) {
+            let init_subclass = vm
+                .call_get_descriptor_specific(init_subclass.clone(), None, Some(typ.clone().into()))
+                .unwrap_or(Ok(init_subclass))?;
+            vm.invoke(&init_subclass, kwargs)?;
         };
 
         Ok(typ.into())
@@ -1156,14 +1156,14 @@ fn take_next_base(bases: &mut [Vec<PyTypeRef>]) -> Option<PyTypeRef> {
 }
 
 fn linearise_mro(mut bases: Vec<Vec<PyTypeRef>>) -> Result<Vec<PyTypeRef>, String> {
-    vm_trace!("Linearising MRO: {:?}", bases);
+    vm_trace!("Linearise MRO: {:?}", bases);
     // Python requires that the class direct bases are kept in the same order.
     // This is called local precedence ordering.
     // This means we must verify that for classes A(), B(A) we must reject C(A, B) even though this
     // algorithm will allow the mro ordering of [C, B, A, object].
     // To verify this, we make sure non of the direct bases are in the mro of bases after them.
     for (i, base_mro) in bases.iter().enumerate() {
-        let base = &base_mro[0]; // Mros cannot be empty.
+        let base = &base_mro[0]; // MROs cannot be empty.
         for later_mro in &bases[i + 1..] {
             // We start at index 1 to skip direct bases.
             // This will not catch duplicate bases, but such a thing is already tested for.
