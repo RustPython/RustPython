@@ -295,6 +295,8 @@ jobs:
         run: |
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
+      - name: Check whats_left is not broken
+        run: python -I whats_left.py
 
   lalrpop:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -361,8 +363,6 @@ jobs:
         run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
       - name: Check update_asdl.sh consistency
         run: bash scripts/update_asdl.sh && git diff --exit-code
-      - name: Check whats_left is not broken
-        run: python -I whats_left.py
 
   miri:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}

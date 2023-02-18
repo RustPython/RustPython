@@ -121,7 +121,7 @@ mod _ssl {
     #[pyattr]
     const PROTO_MAXIMUM_SUPPORTED: i32 = ProtoVersion::MaxSupported as i32;
     #[pyattr]
-    const OP_ALL: libc::c_ulong = sys::SSL_OP_ALL & !sys::SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS;
+    const OP_ALL: libc::c_ulong = (sys::SSL_OP_ALL & !sys::SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) as _;
     #[pyattr]
     const HAS_TLS_UNIQUE: bool = true;
     #[pyattr]
