@@ -5,6 +5,7 @@ use crate::{
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
+    convert::ToPyException,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     identifier,
     protocol::PyBuffer,
@@ -241,16 +242,16 @@ impl ByteInnerTranslateOptions {
 pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
 
 impl PyBytesInner {
-    #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         &self.elements
     }
 
-    pub fn repr(&self, class_name: Option<&str>) -> String {
+    pub fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
         if let Some(class_name) = class_name {
             rustpython_common::bytes::repr_with(&self.elements, &[class_name, "("], ")")
+                .map_err(|err| err.to_pyexception(vm))
         } else {
-            rustpython_common::bytes::repr(&self.elements)
+            rustpython_common::bytes::repr(&self.elements).map_err(|err| err.to_pyexception(vm))
         }
     }
 

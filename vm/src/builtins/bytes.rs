@@ -116,8 +116,8 @@ impl PyBytes {
 )]
 impl PyBytes {
     #[pymethod(magic)]
-    pub(crate) fn repr(&self) -> String {
-        self.inner.repr(None)
+    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+        self.inner.repr(None, vm)
     }
 
     #[pymethod(magic)]

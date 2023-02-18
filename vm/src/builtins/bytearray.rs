@@ -126,8 +126,8 @@ impl PyByteArray {
     fn repr(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         let class = zelf.class();
         let class_name = class.name();
-        let s = zelf.inner().repr(Some(&class_name));
-        Ok(s)
+        let s = zelf.inner().repr(Some(&class_name), _vm);
+        s
     }
 
     #[pymethod(magic)]
