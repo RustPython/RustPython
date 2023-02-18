@@ -242,6 +242,7 @@ impl ByteInnerTranslateOptions {
 pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
 
 impl PyBytesInner {
+    #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         &self.elements
     }
