@@ -18,8 +18,7 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         "east_asian_width",
         "normalize",
     ]
-    .iter()
-    .copied()
+    .into_iter()
     {
         crate::vm::extend_module!(vm, &module, {
             attr => ucd.get_attr(attr, vm).unwrap(),
