@@ -2174,6 +2174,7 @@ dependencies = [
  "socket2",
  "system-configuration",
  "termios",
+ "ucd",
  "unic-char-property",
  "unic-normal",
  "unic-ucd-age",
@@ -2752,6 +2753,12 @@ name = "typenum"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "497961ef93d974e23eb6f433eb5fe1b7930b659f06d12dec6fc44a8f554c0bba"
+
+[[package]]
+name = "ucd"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe4fa6e588762366f1eb4991ce59ad1b93651d0b769dfb4e4d1c5c4b943d1159"
 
 [[package]]
 name = "uname"

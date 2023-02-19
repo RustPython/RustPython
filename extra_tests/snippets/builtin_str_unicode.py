@@ -18,6 +18,7 @@ assert unicodedata.category('A') == 'Lu'
 assert unicodedata.name('a') == 'LATIN SMALL LETTER A'
 assert unicodedata.lookup('LATIN SMALL LETTER A') == 'a'
 assert unicodedata.bidirectional('a') == 'L'
+assert unicodedata.east_asian_width('\u231a') == 'W'
 assert unicodedata.normalize('NFC', 'bla') == 'bla'
 
 # testing unicodedata.ucd_3_2_0 for idna
