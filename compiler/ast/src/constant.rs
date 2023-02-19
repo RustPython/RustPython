@@ -44,10 +44,8 @@ impl std::fmt::Display for Constant {
             Constant::None => f.pad("None"),
             Constant::Bool(b) => f.pad(if *b { "True" } else { "False" }),
             Constant::Str(s) => rustpython_common::str::repr(s).fmt(f),
-            Constant::Bytes(b) => f.pad(match &rustpython_common::bytes::repr(b) {
-                Ok(repr) => repr,
-                Err(_e) => return Err(Error),
-            }),
+            Constant::Bytes(b) => f.pad(&rustpython_common::bytes::repr(b)
+                .map_err(|_err| Error)?),
             Constant::Int(i) => i.fmt(f),
             Constant::Tuple(tup) => {
                 if let [elt] = &**tup {

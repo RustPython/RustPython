@@ -10,7 +10,7 @@ use crate::{
     protocol::PyBuffer,
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine, convert::ToPyException,
 };
 use bstr::ByteSlice;
 use itertools::Itertools;
@@ -247,13 +247,12 @@ impl PyBytesInner {
     }
 
     pub fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
-        if let Some(class_name) = class_name {
+        let repr = if let Some(class_name) = class_name {
             rustpython_common::bytes::repr_with(&self.elements, &[class_name, "("], ")")
-                .map_err(|err| vm.new_overflow_error(err.to_string()))
         } else {
             rustpython_common::bytes::repr(&self.elements)
-                .map_err(|err| vm.new_overflow_error(err.to_string()))
-        }
+        };
+        repr.map_err(|err| err.to_pyexception(vm))
     }
 
     #[inline]
