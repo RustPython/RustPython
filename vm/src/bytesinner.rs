@@ -5,7 +5,6 @@ use crate::{
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
-    convert::ToPyException,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     identifier,
     protocol::PyBuffer,
@@ -250,9 +249,10 @@ impl PyBytesInner {
     pub fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
         if let Some(class_name) = class_name {
             rustpython_common::bytes::repr_with(&self.elements, &[class_name, "("], ")")
-                .map_err(|err| err.to_pyexception(vm))
+                .map_err(|err| vm.new_overflow_error(err.to_string()))
         } else {
-            rustpython_common::bytes::repr(&self.elements).map_err(|err| err.to_pyexception(vm))
+            rustpython_common::bytes::repr(&self.elements)
+                .map_err(|err| vm.new_overflow_error(err.to_string()))
         }
     }
 
