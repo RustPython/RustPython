@@ -243,8 +243,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
     # For tests of unicodedata.is_normalized / self.db.is_normalized ,
     # see test_normalization.py .
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_east_asian_width(self):
         eaw = self.db.east_asian_width
         self.assertRaises(TypeError, eaw, b'a')

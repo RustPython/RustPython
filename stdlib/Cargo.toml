@@ -67,6 +67,7 @@ unic-ucd-bidi      = "0.9.0"
 unic-ucd-category  = "0.9.0"
 unic-ucd-age       = "0.9.0"
 unic-ucd-ident     = "0.9.0"
+ucd = "0.1.1"
 
 # compression
 adler32 = "1.2.0"

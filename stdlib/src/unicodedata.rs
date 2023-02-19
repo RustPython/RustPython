@@ -10,9 +10,16 @@ pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         .into_ref(vm)
         .into();
 
-    for attr in ["category", "lookup", "name", "bidirectional", "normalize"]
-        .iter()
-        .copied()
+    for attr in [
+        "category",
+        "lookup",
+        "name",
+        "bidirectional",
+        "east_asian_width",
+        "normalize",
+    ]
+    .iter()
+    .copied()
     {
         crate::vm::extend_module!(vm, &module, {
             attr => ucd.get_attr(attr, vm).unwrap(),
@@ -29,6 +36,7 @@ mod unicodedata {
         VirtualMachine,
     };
     use itertools::Itertools;
+    use ucd::{Codepoint, EastAsianWidth};
     use unic_char_property::EnumeratedCharProperty;
     use unic_normal::StrNormalForm;
     use unic_ucd_age::{Age, UnicodeVersion, UNICODE_VERSION};
@@ -113,6 +121,16 @@ mod unicodedata {
             Ok(bidi.to_owned())
         }
 
+        /// NOTE: This function uses 9.0.0 database instead of 3.2.0
+        #[pymethod]
+        fn east_asian_width(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+            Ok(self
+                .extract_char(character, vm)?
+                .map_or(EastAsianWidth::Neutral, |c| c.east_asian_width())
+                .abbr_name()
+                .to_owned())
+        }
+
         #[pymethod]
         fn normalize(
             &self,
@@ -135,6 +153,23 @@ mod unicodedata {
         #[pygetset]
         fn unidata_version(&self) -> String {
             self.unic_version.to_string()
+        }
+    }
+
+    trait EastAsianWidthAbbrName {
+        fn abbr_name(&self) -> &'static str;
+    }
+
+    impl EastAsianWidthAbbrName for EastAsianWidth {
+        fn abbr_name(&self) -> &'static str {
+            match self {
+                EastAsianWidth::Narrow => "Na",
+                EastAsianWidth::Wide => "W",
+                EastAsianWidth::Neutral => "N",
+                EastAsianWidth::Ambiguous => "A",
+                EastAsianWidth::FullWidth => "F",
+                EastAsianWidth::HalfWidth => "H",
+            }
         }
     }
 
