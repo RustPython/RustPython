@@ -1,8 +1,10 @@
-pub fn repr(b: &[u8]) -> String {
+use crate::str::ReprOverflowError;
+
+pub fn repr(b: &[u8]) -> Result<String, ReprOverflowError> {
     repr_with(b, &[], "")
 }
 
-pub fn repr_with(b: &[u8], prefixes: &[&str], suffix: &str) -> String {
+pub fn repr_with(b: &[u8], prefixes: &[&str], suffix: &str) -> Result<String, ReprOverflowError> {
     use std::fmt::Write;
 
     let mut out_len = 0usize;
@@ -23,8 +25,7 @@ pub fn repr_with(b: &[u8], prefixes: &[&str], suffix: &str) -> String {
             0x20..=0x7e => 1,
             _ => 4, // \xHH
         };
-        // TODO: OverflowError
-        out_len = out_len.checked_add(incr).unwrap();
+        out_len = out_len.checked_add(incr).ok_or(ReprOverflowError)?;
     }
 
     let (quote, num_escaped_quotes) = crate::str::choose_quotes_for_repr(squote, dquote);
@@ -57,5 +58,5 @@ pub fn repr_with(b: &[u8], prefixes: &[&str], suffix: &str) -> String {
     res.push(quote);
     res.push_str(suffix);
 
-    res
+    Ok(res)
 }

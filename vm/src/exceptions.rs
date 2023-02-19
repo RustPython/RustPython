@@ -1,6 +1,7 @@
 use self::types::{PyBaseException, PyBaseExceptionRef};
 use crate::builtins::tuple::IntoPyTuple;
 use crate::common::lock::PyRwLock;
+use crate::common::str::ReprOverflowError;
 use crate::{
     builtins::{
         traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
@@ -1619,5 +1620,11 @@ pub(super) mod types {
         PyWarning,
         encoding_warning,
         "Base class for warnings about encodings."
+    }
+}
+
+impl ToPyException for ReprOverflowError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_overflow_error(self.to_string())
     }
 }
