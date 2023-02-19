@@ -1625,6 +1625,6 @@ pub(super) mod types {
 
 impl ToPyException for ReprOverflowError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_value_error(String::from("This object has overflow repr"))
+        vm.new_overflow_error(String::from("This object has overflow repr"))
     }
 }

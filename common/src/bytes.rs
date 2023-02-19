@@ -25,11 +25,7 @@ pub fn repr_with(b: &[u8], prefixes: &[&str], suffix: &str) -> Result<String, Re
             0x20..=0x7e => 1,
             _ => 4, // \xHH
         };
-        // TODO: OverflowError
-        out_len = match out_len.checked_add(incr) {
-            Some(valid) => valid,
-            None => return Err(ReprOverflowError),
-        };
+        out_len = out_len.checked_add(incr).ok_or(ReprOverflowError)?;
     }
 
     let (quote, num_escaped_quotes) = crate::str::choose_quotes_for_repr(squote, dquote);
