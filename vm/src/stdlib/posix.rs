@@ -901,7 +901,7 @@ pub mod module {
                     PyPathLike::try_from_object(vm, v)?.into_bytes(),
                 );
 
-                if memchr::memchr(b'=', &key).is_some() {
+                if &key.iter().any(|&x| x == b'=') {
                     return Err(vm.new_value_error("illegal environment variable name".to_owned()));
                 }
 

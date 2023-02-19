@@ -1554,7 +1554,7 @@ mod _socket {
             }
             // necessary on macos
             let path = ffi::OsStr::as_bytes(unix_addr.path().unwrap_or("".as_ref()).as_ref());
-            let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
+            let nul_pos = path.iter().position(|&x| x == b'\0').unwrap_or(path.len());
             let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
             return vm.ctx.new_str(path.to_string_lossy()).into();
         }

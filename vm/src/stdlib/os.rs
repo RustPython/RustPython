@@ -119,7 +119,7 @@ impl FsPath {
     pub fn try_from(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResult<Self> {
         // PyOS_FSPath in CPython
         let check_nul = |b: &[u8]| {
-            if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
+            if !check_for_nul || !b.iter().any(|&x| x == b'\0') {
                 Ok(())
             } else {
                 Err(crate::exceptions::cstring_error(vm))

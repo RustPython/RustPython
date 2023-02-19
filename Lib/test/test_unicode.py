@@ -208,7 +208,7 @@ class UnicodeTest(string_tests.CommonTest,
 
     def test_find(self):
         string_tests.CommonTest.test_find(self)
-        # test implementation details of the memchr fast path
+        # test implementation details of the std::iter fast path
         self.checkequal(100, 'a' * 100 + '\u0102', 'find', '\u0102')
         self.checkequal(-1, 'a' * 100 + '\u0102', 'find', '\u0201')
         self.checkequal(-1, 'a' * 100 + '\u0102', 'find', '\u0120')

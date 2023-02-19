@@ -67,7 +67,6 @@ getrandom = { version = "0.2.6", features = ["js"] }
 flamer = { version = "0.4", optional = true }
 half = "1.8.2"
 is-macro = "0.2.0"
-memchr = "2.4.1"
 memoffset = "0.6.5"
 optional = "0.5.0"
 result-like = "0.4.5"

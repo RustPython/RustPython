@@ -1902,7 +1902,9 @@ mod _io {
                 Newlines::Universal | Newlines::Lf => s.find('\n').map(|p| p + 1).ok_or(len),
                 Newlines::Passthrough => {
                     let bytes = s.as_bytes();
-                    memchr::memchr2(b'\n', b'\r', bytes)
+                    bytes
+                        .iter()
+                        .position(|&x| x == b'\n' || x == b'\r')
                         .map(|p| {
                             let nl_len =
                                 if bytes[p] == b'\r' && bytes.get(p + 1).copied() == Some(b'\n') {
@@ -1920,7 +1922,7 @@ mod _io {
                     let mut searched = 0;
                     let mut remaining = s.as_bytes();
                     loop {
-                        match memchr::memchr(b'\r', remaining) {
+                        match remaining.iter().position(|&x| x == b'\r') {
                             Some(p) => match remaining.get(p + 1) {
                                 Some(&ch_after_cr) => {
                                     let pos_after = p + 2;

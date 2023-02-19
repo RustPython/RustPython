@@ -35,7 +35,6 @@ num_enum = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
 
-memchr = "2.4.1"
 base64 = "0.13.0"
 csv-core = "0.1.10"
 libz-sys = { version = "1.1.5", optional = true }
