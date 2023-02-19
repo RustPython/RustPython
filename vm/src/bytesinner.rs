@@ -5,12 +5,13 @@ use crate::{
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
+    convert::ToPyException,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     identifier,
     protocol::PyBuffer,
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine, convert::ToPyException,
+    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use bstr::ByteSlice;
 use itertools::Itertools;
