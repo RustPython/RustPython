@@ -6,7 +6,7 @@ assert _imp.is_builtin("os") == False
 assert _imp.is_builtin("not existing module") == False
 
 assert _imp.is_frozen("__hello__") == True
-assert _imp.is_frozen("os") == False
+assert _imp.is_frozen("math") == False
 
 class FakeSpec:
 	def __init__(self, name):
