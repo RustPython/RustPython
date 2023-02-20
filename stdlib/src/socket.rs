@@ -1835,7 +1835,7 @@ mod _socket {
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
-        let addr = get_addr(vm, name, c::AF_UNSPEC)?;
+        let addr = get_addr(vm, name, c::AF_INET)?;
         let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
         Ok((
