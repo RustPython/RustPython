@@ -118,7 +118,7 @@ mod builtins {
             use crate::{class::PyClassImpl, stdlib::ast};
 
             if args._feature_version.is_present() {
-                eprintln!("TODO: compile() got `_feature_version` but ignored");
+                // TODO: add support for _feature_version
             }
 
             let mode_str = args.mode.as_str();
