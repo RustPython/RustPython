@@ -709,6 +709,12 @@ impl Compiler {
                 orelse,
                 finalbody,
             } => self.compile_try_statement(body, handlers, orelse, finalbody)?,
+            TryStar {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => self.compile_try_star_statement(body, handlers, orelse, finalbody)?,
             FunctionDef {
                 name,
                 args,
@@ -1090,6 +1096,16 @@ impl Compiler {
         }
 
         Ok(())
+    }
+
+    fn compile_try_star_statement(
+        &mut self,
+        _body: &[ast::Stmt],
+        _handlers: &[ast::Excepthandler],
+        _orelse: &[ast::Stmt],
+        _finalbody: &[ast::Stmt],
+    ) -> CompileResult<()> {
+        Err(self.error(CodegenErrorType::NotImplementedYet))
     }
 
     fn is_forbidden_arg_name(name: &str) -> bool {
