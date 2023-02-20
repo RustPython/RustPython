@@ -2,6 +2,8 @@ pub(crate) use _contextvars::make_module;
 
 #[pymodule]
 mod _contextvars {
+    use rustpython_vm::builtins::PyGenericAlias;
+
     use crate::vm::{
         builtins::{PyFunction, PyStrRef, PyTypeRef},
         function::{ArgCallable, FuncArgs, OptionalArg},
@@ -130,8 +132,8 @@ mod _contextvars {
         }
 
         #[pyclassmethod(magic)]
-        fn class_getitem(_cls: PyTypeRef, _key: PyStrRef, _vm: &VirtualMachine) -> PyResult<()> {
-            unimplemented!("ContextVar.__class_getitem__() is currently under construction")
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
 
         #[pymethod(magic)]
@@ -187,6 +189,11 @@ mod _contextvars {
         #[pymethod(magic)]
         fn repr(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> String {
             unimplemented!("<Token {{}}var={{}} at {{}}>")
+        }
+
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
         }
     }
 
