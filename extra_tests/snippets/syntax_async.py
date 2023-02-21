@@ -18,9 +18,6 @@ class ContextManager:
         print("Wiedersehen")
 
 
-ls = []
-
-
 class AIterWrap:
     def __init__(self, obj):
         self._it = iter(obj)
@@ -43,19 +40,20 @@ async def a(s, m):
     async for i in AIterWrap(range(0, 2)):
         print(i)
         ls.append(m)
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.2)
+
 
 
 async def main():
     tasks = [
         asyncio.create_task(c)
-        for c in [a(0, "hello1"), a(0.1, "hello2"), a(0.2, "hello3"), a(0.3, "hello4")]
+        for c in [a(0.0, "hello1"), a(0.2, "hello2"), a(0.4, "hello3"), a(0.6, "hello4")]
     ]
     await asyncio.wait(tasks)
 
 
+ls = []
 asyncio.run(main(), debug=True)
-
 
 assert ls == [
     1,
