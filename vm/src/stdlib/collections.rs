@@ -525,7 +525,7 @@ mod _collections {
                 }),
                 repeat: atomic_func!(|seq, n, vm| {
                     PyDeque::sequence_downcast(seq)
-                        .mul(n as isize, vm)
+                        .mul(n, vm)
                         .map(|x| x.into_ref(vm).into())
                 }),
                 item: atomic_func!(|seq, i, vm| PyDeque::sequence_downcast(seq).getitem(i, vm)),
@@ -547,7 +547,7 @@ mod _collections {
                 }),
                 inplace_repeat: atomic_func!(|seq, n, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
-                    PyDeque::imul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
+                    PyDeque::imul(zelf.to_owned(), n, vm).map(|x| x.into())
                 }),
             };
 

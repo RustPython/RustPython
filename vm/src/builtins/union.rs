@@ -6,10 +6,10 @@ use crate::{
     builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
     common::hash,
-    convert::ToPyObject,
+    convert::{ToPyObject, ToPyResult},
     function::PyComparisonValue,
-    protocol::PyMappingMethods,
-    types::{AsMapping, Comparable, GetAttr, Hashable, PyComparisonOp},
+    protocol::{PyMappingMethods, PyNumberMethods},
+    types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -35,7 +35,7 @@ impl PyPayload for PyUnion {
     }
 }
 
-#[pyclass(with(Hashable, Comparable, AsMapping), flags(BASETYPE))]
+#[pyclass(flags(BASETYPE), with(Hashable, Comparable, AsMapping, AsNumber))]
 impl PyUnion {
     pub fn new(args: PyTupleRef, vm: &VirtualMachine) -> Self {
         let parameters = make_parameters(&args, vm);
@@ -252,6 +252,18 @@ impl AsMapping for PyUnion {
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
         &AS_MAPPING
+    }
+}
+
+impl AsNumber for PyUnion {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+            or: atomic_func!(|num, other, vm| {
+                PyUnion::or(num.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        });
+        &AS_NUMBER
     }
 }
 

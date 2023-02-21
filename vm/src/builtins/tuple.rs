@@ -353,7 +353,7 @@ impl AsSequence for PyTuple {
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
-                PyTuple::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
+                PyTuple::mul(zelf.to_owned(), n, vm).map(|x| x.into())
             }),
             item: atomic_func!(|seq, i, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);

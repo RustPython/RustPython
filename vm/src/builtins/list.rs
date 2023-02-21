@@ -431,9 +431,7 @@ impl AsSequence for PyList {
                     .map(|x| x.into())
             }),
             repeat: atomic_func!(|seq, n, vm| {
-                PyList::sequence_downcast(seq)
-                    .mul(n as isize, vm)
-                    .map(|x| x.into())
+                PyList::sequence_downcast(seq).mul(n, vm).map(|x| x.into())
             }),
             item: atomic_func!(|seq, i, vm| {
                 PyList::sequence_downcast(seq)
@@ -458,7 +456,7 @@ impl AsSequence for PyList {
             }),
             inplace_repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyList::sequence_downcast(seq);
-                zelf.borrow_vec_mut().imul(vm, n as isize)?;
+                zelf.borrow_vec_mut().imul(vm, n)?;
                 Ok(zelf.to_owned().into())
             }),
         };

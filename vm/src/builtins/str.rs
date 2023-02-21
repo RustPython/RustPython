@@ -1291,7 +1291,7 @@ impl AsSequence for PyStr {
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
-                PyStr::mul(zelf.to_owned(), n as isize, vm).map(|x| x.into())
+                PyStr::mul(zelf.to_owned(), n, vm).map(|x| x.into())
             }),
             item: atomic_func!(|seq, i, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
