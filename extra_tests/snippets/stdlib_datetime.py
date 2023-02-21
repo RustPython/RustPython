@@ -133,7 +133,7 @@ assert_raises(NotImplementedError, ne.dst, dt)
 
 # unsupport format in strptime returns arg itself
 # in linux. Todo: add cases for Mac/Windows
-if sys.platform == 'linux':
+if sys.platform.startswith("linux"):
     assert_equal(_time.strftime("%?"), "%?")
 
 # XXX: bug #1302
