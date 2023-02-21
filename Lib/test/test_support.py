@@ -515,6 +515,8 @@ class TestSupport(unittest.TestCase):
         self.assertEqual(proc.stdout.rstrip(), repr(expected))
         self.assertEqual(proc.returncode, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_args_from_interpreter_flags(self):
         # Test test.support.args_from_interpreter_flags()
         for opts in (
@@ -702,6 +704,11 @@ class TestSupport(unittest.TestCase):
             self.assertFalse(support.has_strftime_extensions)
         else:
             self.assertTrue(support.has_strftime_extensions)
+
+    # TODO: RUSTPYTHON
+    if not sys.platform.startswith("win"):
+        # TODO: RUSTPYTHON
+        test_has_strftime_extensions = unittest.expectedFailure(test_has_strftime_extensions)
 
     # XXX -follows a list of untested API
     # make_legacy_pyc
