@@ -29,14 +29,14 @@ impl PyObject {
 pub struct PySequenceMethods {
     pub length: AtomicCell<Option<fn(PySequence, &VirtualMachine) -> PyResult<usize>>>,
     pub concat: AtomicCell<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub repeat: AtomicCell<Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>>,
+    pub repeat: AtomicCell<Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>>,
     pub item: AtomicCell<Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>>,
     pub ass_item: AtomicCell<
         Option<fn(PySequence, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
     >,
     pub contains: AtomicCell<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult<bool>>>,
     pub inplace_concat: AtomicCell<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub inplace_repeat: AtomicCell<Option<fn(PySequence, usize, &VirtualMachine) -> PyResult>>,
+    pub inplace_repeat: AtomicCell<Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>>,
 }
 
 impl Debug for PySequenceMethods {
@@ -130,7 +130,7 @@ impl PySequence<'_> {
         )))
     }
 
-    pub fn repeat(self, n: usize, vm: &VirtualMachine) -> PyResult {
+    pub fn repeat(self, n: isize, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.methods.repeat.load() {
             return f(self, n, vm);
         }
@@ -168,7 +168,7 @@ impl PySequence<'_> {
         )))
     }
 
-    pub fn inplace_repeat(self, n: usize, vm: &VirtualMachine) -> PyResult {
+    pub fn inplace_repeat(self, n: isize, vm: &VirtualMachine) -> PyResult {
         if let Some(f) = self.methods.inplace_repeat.load() {
             return f(self, n, vm);
         }
