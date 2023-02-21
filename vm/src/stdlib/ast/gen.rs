@@ -538,6 +538,34 @@ impl NodeTry {
         );
     }
 }
+#[pyclass(module = "_ast", name = "TryStar", base = "NodeKindStmt")]
+struct NodeTryStar;
+#[pyclass(flags(HAS_DICT, BASETYPE))]
+impl NodeTryStar {
+    #[extend_class]
+    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+        class.set_attr(
+            identifier!(ctx, _fields),
+            ctx.new_tuple(vec![
+                ctx.new_str(ascii!("body")).into(),
+                ctx.new_str(ascii!("handlers")).into(),
+                ctx.new_str(ascii!("orelse")).into(),
+                ctx.new_str(ascii!("finalbody")).into(),
+            ])
+            .into(),
+        );
+        class.set_attr(
+            identifier!(ctx, _attributes),
+            ctx.new_list(vec![
+                ctx.new_str(ascii!("lineno")).into(),
+                ctx.new_str(ascii!("col_offset")).into(),
+                ctx.new_str(ascii!("end_lineno")).into(),
+                ctx.new_str(ascii!("end_col_offset")).into(),
+            ])
+            .into(),
+        );
+    }
+}
 #[pyclass(module = "_ast", name = "Assert", base = "NodeKindStmt")]
 struct NodeAssert;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
@@ -2635,6 +2663,30 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
+            ast::StmtKind::TryStar {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => {
+                let _node = AstNode
+                    .into_ref_with_type(_vm, NodeTryStar::static_type().to_owned())
+                    .unwrap();
+                let _dict = _node.as_object().dict().unwrap();
+                _dict
+                    .set_item("body", body.ast_to_object(_vm), _vm)
+                    .unwrap();
+                _dict
+                    .set_item("handlers", handlers.ast_to_object(_vm), _vm)
+                    .unwrap();
+                _dict
+                    .set_item("orelse", orelse.ast_to_object(_vm), _vm)
+                    .unwrap();
+                _dict
+                    .set_item("finalbody", finalbody.ast_to_object(_vm), _vm)
+                    .unwrap();
+                _node.into()
+            }
             ast::StmtKind::Assert { test, msg } => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeAssert::static_type().to_owned())
@@ -2914,6 +2966,22 @@ impl Node for ast::StmtKind {
             }
         } else if _cls.is(NodeTry::static_type()) {
             ast::StmtKind::Try {
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
+                handlers: Node::ast_from_object(
+                    _vm,
+                    get_node_field(_vm, &_object, "handlers", "stmt")?,
+                )?,
+                orelse: Node::ast_from_object(
+                    _vm,
+                    get_node_field(_vm, &_object, "orelse", "stmt")?,
+                )?,
+                finalbody: Node::ast_from_object(
+                    _vm,
+                    get_node_field(_vm, &_object, "finalbody", "stmt")?,
+                )?,
+            }
+        } else if _cls.is(NodeTryStar::static_type()) {
+            ast::StmtKind::TryStar {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 handlers: Node::ast_from_object(
                     _vm,
@@ -4492,6 +4560,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObject) {
         "Match" => NodeMatch::make_class(&vm.ctx),
         "Raise" => NodeRaise::make_class(&vm.ctx),
         "Try" => NodeTry::make_class(&vm.ctx),
+        "TryStar" => NodeTryStar::make_class(&vm.ctx),
         "Assert" => NodeAssert::make_class(&vm.ctx),
         "Import" => NodeImport::make_class(&vm.ctx),
         "ImportFrom" => NodeImportFrom::make_class(&vm.ctx),
