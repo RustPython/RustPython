@@ -206,8 +206,6 @@ class HashLibTestCase(unittest.TestCase):
     def is_fips_mode(self):
         return get_fips_mode()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hash_array(self):
         a = array.array("b", range(10))
         for cons in self.hash_constructors:
@@ -334,8 +332,6 @@ class HashLibTestCase(unittest.TestCase):
                 hashlib.new(h.name, usedforsecurity=False).name
             )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_large_update(self):
         aas = b'a' * 128
         bees = b'b' * 127
