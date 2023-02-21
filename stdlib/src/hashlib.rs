@@ -4,12 +4,13 @@ pub(crate) use hashlib::make_module;
 mod hashlib {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::vm::{
-        builtins::{PyBytes, PyBytesRef, PyStrRef, PyTypeRef},
-        function::{FuncArgs, OptionalArg},
+        builtins::{PyBytes, PyStrRef, PyTypeRef},
+        function::{ArgBytesLike, FuncArgs, OptionalArg},
         PyPayload, PyResult, VirtualMachine,
     };
     use blake2::{Blake2b512, Blake2s256};
     use digest::DynDigest;
+    use dyn_clone::{clone_trait_object, DynClone};
     use md5::Md5;
     use sha1::Sha1;
     use sha2::{Sha224, Sha256, Sha384, Sha512};
@@ -21,7 +22,7 @@ mod hashlib {
         #[pyarg(positional)]
         name: PyStrRef,
         #[pyarg(any, optional)]
-        data: OptionalArg<PyBytesRef>,
+        data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = "true")]
         usedforsecurity: bool,
     }
@@ -30,7 +31,7 @@ mod hashlib {
     #[allow(unused)]
     struct BlakeHashArgs {
         #[pyarg(positional, optional)]
-        data: OptionalArg<PyBytesRef>,
+        data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = "true")]
         usedforsecurity: bool,
     }
@@ -39,7 +40,7 @@ mod hashlib {
     #[allow(unused)]
     struct HashArgs {
         #[pyarg(any, optional)]
-        string: OptionalArg<PyBytesRef>,
+        string: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = "true")]
         usedforsecurity: bool,
     }
@@ -91,8 +92,8 @@ mod hashlib {
         }
 
         #[pymethod]
-        fn update(&self, data: PyBytesRef) {
-            self.write().input(data.as_bytes());
+        fn update(&self, data: ArgBytesLike) {
+            data.with_ref(|bytes| self.write().input(bytes));
         }
 
         #[pymethod]
@@ -104,6 +105,11 @@ mod hashlib {
         fn hexdigest(&self) -> String {
             let result = self.get_digest();
             hex::encode(result)
+        }
+
+        #[pymethod]
+        fn copy(&self) -> Self {
+            PyHasher::new(&self.name, self.buffer.read().clone())
         }
 
         fn get_digest(&self) -> Vec<u8> {
@@ -168,7 +174,7 @@ mod hashlib {
         }
     }
 
-    fn init(hasher: PyHasher, data: OptionalArg<PyBytesRef>) -> PyResult<PyHasher> {
+    fn init(hasher: PyHasher, data: OptionalArg<ArgBytesLike>) -> PyResult<PyHasher> {
         if let OptionalArg::Present(data) = data {
             hasher.update(data);
         }
@@ -260,10 +266,13 @@ mod hashlib {
         init(PyHasher::new("blake2s", HashWrapper::blake2s()), args.data)
     }
 
-    trait ThreadSafeDynDigest: DynDigest + Sync + Send {}
-    impl<T> ThreadSafeDynDigest for T where T: DynDigest + Sync + Send {}
+    trait ThreadSafeDynDigest: DynClone + DynDigest + Sync + Send {}
+    impl<T> ThreadSafeDynDigest for T where T: DynClone + DynDigest + Sync + Send {}
+
+    clone_trait_object!(ThreadSafeDynDigest);
 
     /// Generic wrapper patching around the hashing libraries.
+    #[derive(Clone)]
     struct HashWrapper {
         inner: Box<dyn ThreadSafeDynDigest>,
     }
