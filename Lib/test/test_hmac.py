@@ -331,14 +331,10 @@ class TestVectorsTestCase(unittest.TestCase):
     def test_sha256_rfc4231(self):
         self._rfc4231_test_cases(hashlib.sha256, 'sha256', 32, 64)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha384', openssl=True)
     def test_sha384_rfc4231(self):
         self._rfc4231_test_cases(hashlib.sha384, 'sha384', 48, 128)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha512', openssl=True)
     def test_sha512_rfc4231(self):
         self._rfc4231_test_cases(hashlib.sha512, 'sha512', 64, 128)

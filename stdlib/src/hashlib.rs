@@ -9,7 +9,7 @@ mod hashlib {
         PyPayload, PyResult, VirtualMachine,
     };
     use blake2::{Blake2b512, Blake2s256};
-    use digest::DynDigest;
+    use digest::{core_api::BlockSizeUser, DynDigest};
     use dyn_clone::{clone_trait_object, DynClone};
     use md5::Md5;
     use sha1::Sha1;
@@ -78,7 +78,7 @@ mod hashlib {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Ok(PyHasher::new("md5", HashWrapper::md5()).into_pyobject(vm))
+            Ok(PyHasher::new("md5", HashWrapper::new::<Md5>()).into_pyobject(vm))
         }
 
         #[pygetset]
@@ -89,6 +89,11 @@ mod hashlib {
         #[pygetset]
         fn digest_size(&self) -> usize {
             self.read().digest_size()
+        }
+
+        #[pygetset]
+        fn block_size(&self) -> usize {
+            self.read().block_size()
         }
 
         #[pymethod]
@@ -184,38 +189,53 @@ mod hashlib {
 
     #[pyfunction]
     fn md5(args: HashArgs) -> PyResult<PyHasher> {
-        init(PyHasher::new("md5", HashWrapper::md5()), args.string)
+        init(PyHasher::new("md5", HashWrapper::new::<Md5>()), args.string)
     }
 
     #[pyfunction]
     fn sha1(args: HashArgs) -> PyResult<PyHasher> {
-        init(PyHasher::new("sha1", HashWrapper::sha1()), args.string)
+        init(
+            PyHasher::new("sha1", HashWrapper::new::<Sha1>()),
+            args.string,
+        )
     }
 
     #[pyfunction]
     fn sha224(args: HashArgs) -> PyResult<PyHasher> {
-        init(PyHasher::new("sha224", HashWrapper::sha224()), args.string)
+        init(
+            PyHasher::new("sha224", HashWrapper::new::<Sha224>()),
+            args.string,
+        )
     }
 
     #[pyfunction]
     fn sha256(args: HashArgs) -> PyResult<PyHasher> {
-        init(PyHasher::new("sha256", HashWrapper::sha256()), args.string)
+        init(
+            PyHasher::new("sha256", HashWrapper::new::<Sha256>()),
+            args.string,
+        )
     }
 
     #[pyfunction]
     fn sha384(args: HashArgs) -> PyResult<PyHasher> {
-        init(PyHasher::new("sha384", HashWrapper::sha384()), args.string)
+        init(
+            PyHasher::new("sha384", HashWrapper::new::<Sha384>()),
+            args.string,
+        )
     }
 
     #[pyfunction]
     fn sha512(args: HashArgs) -> PyResult<PyHasher> {
-        init(PyHasher::new("sha512", HashWrapper::sha512()), args.string)
+        init(
+            PyHasher::new("sha512", HashWrapper::new::<Sha512>()),
+            args.string,
+        )
     }
 
     #[pyfunction]
     fn sha3_224(args: HashArgs) -> PyResult<PyHasher> {
         init(
-            PyHasher::new("sha3_224", HashWrapper::sha3_224()),
+            PyHasher::new("sha3_224", HashWrapper::new::<Sha3_224>()),
             args.string,
         )
     }
@@ -223,7 +243,7 @@ mod hashlib {
     #[pyfunction]
     fn sha3_256(args: HashArgs) -> PyResult<PyHasher> {
         init(
-            PyHasher::new("sha3_256", HashWrapper::sha3_256()),
+            PyHasher::new("sha3_256", HashWrapper::new::<Sha3_256>()),
             args.string,
         )
     }
@@ -231,7 +251,7 @@ mod hashlib {
     #[pyfunction]
     fn sha3_384(args: HashArgs) -> PyResult<PyHasher> {
         init(
-            PyHasher::new("sha3_384", HashWrapper::sha3_384()),
+            PyHasher::new("sha3_384", HashWrapper::new::<Sha3_384>()),
             args.string,
         )
     }
@@ -239,7 +259,7 @@ mod hashlib {
     #[pyfunction]
     fn sha3_512(args: HashArgs) -> PyResult<PyHasher> {
         init(
-            PyHasher::new("sha3_512", HashWrapper::sha3_512()),
+            PyHasher::new("sha3_512", HashWrapper::new::<Sha3_512>()),
             args.string,
         )
     }
@@ -257,13 +277,19 @@ mod hashlib {
     #[pyfunction]
     fn blake2b(args: BlakeHashArgs) -> PyResult<PyHasher> {
         // TODO: handle parameters
-        init(PyHasher::new("blake2b", HashWrapper::blake2b()), args.data)
+        init(
+            PyHasher::new("blake2b", HashWrapper::new::<Blake2b512>()),
+            args.data,
+        )
     }
 
     #[pyfunction]
     fn blake2s(args: BlakeHashArgs) -> PyResult<PyHasher> {
         // TODO: handle parameters
-        init(PyHasher::new("blake2s", HashWrapper::blake2s()), args.data)
+        init(
+            PyHasher::new("blake2s", HashWrapper::new::<Blake2s256>()),
+            args.data,
+        )
     }
 
     trait ThreadSafeDynDigest: DynClone + DynDigest + Sync + Send {}
@@ -274,76 +300,27 @@ mod hashlib {
     /// Generic wrapper patching around the hashing libraries.
     #[derive(Clone)]
     struct HashWrapper {
+        block_size: usize,
         inner: Box<dyn ThreadSafeDynDigest>,
     }
 
     impl HashWrapper {
-        fn new<D: 'static>(d: D) -> Self
+        fn new<D>() -> Self
         where
-            D: ThreadSafeDynDigest,
+            D: ThreadSafeDynDigest + BlockSizeUser + Default + 'static,
         {
-            HashWrapper { inner: Box::new(d) }
-        }
-
-        fn md5() -> Self {
-            Self::new(Md5::default())
-        }
-
-        fn sha1() -> Self {
-            Self::new(Sha1::default())
-        }
-
-        fn sha224() -> Self {
-            Self::new(Sha224::default())
-        }
-
-        fn sha256() -> Self {
-            Self::new(Sha256::default())
-        }
-
-        fn sha384() -> Self {
-            Self::new(Sha384::default())
-        }
-
-        fn sha512() -> Self {
-            Self::new(Sha512::default())
-        }
-
-        fn sha3_224() -> Self {
-            Self::new(Sha3_224::default())
-        }
-
-        fn sha3_256() -> Self {
-            Self::new(Sha3_256::default())
-        }
-
-        fn sha3_384() -> Self {
-            Self::new(Sha3_384::default())
-        }
-
-        fn sha3_512() -> Self {
-            Self::new(Sha3_512::default())
-        }
-
-        /* TODO:
-            fn shake_128() -> Self {
-                Self::new(shake_128::default())
+            HashWrapper {
+                block_size: D::block_size(),
+                inner: Box::<D>::default(),
             }
-
-            fn shake_256() -> Self {
-                Self::new(shake_256::default())
-            }
-        */
-        fn blake2b() -> Self {
-            Self::new(Blake2b512::default())
-        }
-
-        fn blake2s() -> Self {
-            Self::new(Blake2s256::default())
         }
 
         fn input(&mut self, data: &[u8]) {
             self.inner.update(data);
+        }
+
+        fn block_size(&self) -> usize {
+            self.block_size
         }
 
         fn digest_size(&self) -> usize {
