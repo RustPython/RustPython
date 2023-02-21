@@ -50,9 +50,7 @@ pub mod module {
         ffi::{CStr, CString},
         fs, io,
         os::unix::{ffi as ffi_ext, io::RawFd},
-        str::FromStr,
     };
-    use strum::VariantNames;
     use strum_macros::{EnumString, EnumVariantNames};
 
     #[pyattr]
@@ -1883,8 +1881,12 @@ pub mod module {
         pathconf(PathOrFd::Fd(fd), name, vm)
     }
 
+    // TODO: this is expected to be run on macOS as a unix, but somehow not.
+    #[cfg(target_os = "linux")]
     #[pyattr]
     fn pathconf_names(vm: &VirtualMachine) -> PyDictRef {
+        use std::str::FromStr;
+        use strum::VariantNames;
         let pathname = vm.ctx.new_dict();
         for variant in PathconfVar::VARIANTS {
             // get the name of variant as a string to use as the dictionary key
