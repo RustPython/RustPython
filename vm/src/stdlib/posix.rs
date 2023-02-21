@@ -51,7 +51,7 @@ pub mod module {
         fs, io,
         os::unix::{ffi as ffi_ext, io::RawFd},
     };
-    use strum_macros::EnumString;
+    use strum_macros::{EnumString, EnumVariantNames};
 
     #[pyattr]
     use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
@@ -1681,7 +1681,7 @@ pub mod module {
 
     // Copy from [nix::unistd::PathconfVar](https://docs.rs/nix/0.21.0/nix/unistd/enum.PathconfVar.html)
     // Change enum name to fit python doc
-    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, EnumString)]
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, EnumString, EnumVariantNames)]
     #[repr(i32)]
     #[allow(non_camel_case_types)]
     pub enum PathconfVar {
@@ -1879,6 +1879,26 @@ pub mod module {
     #[pyfunction]
     fn fpathconf(fd: i32, name: ConfName, vm: &VirtualMachine) -> PyResult<Option<libc::c_long>> {
         pathconf(PathOrFd::Fd(fd), name, vm)
+    }
+
+    // TODO: this is expected to be run on macOS as a unix, but somehow not.
+    #[cfg(target_os = "linux")]
+    #[pyattr]
+    fn pathconf_names(vm: &VirtualMachine) -> PyDictRef {
+        use std::str::FromStr;
+        use strum::VariantNames;
+        let pathname = vm.ctx.new_dict();
+        for variant in PathconfVar::VARIANTS {
+            // get the name of variant as a string to use as the dictionary key
+            let key = vm.ctx.new_str(variant.to_string());
+            // get the enum from the string and convert it to an integer for the dictionary value
+            let value: PyObjectRef = vm
+                .ctx
+                .new_int(PathconfVar::from_str(variant).unwrap() as u8)
+                .into();
+            pathname.set_item(&*key, value, vm).unwrap();
+        }
+        pathname
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
