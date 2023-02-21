@@ -809,6 +809,12 @@ impl SymbolTableBuilder {
                 handlers,
                 orelse,
                 finalbody,
+            }
+            | TryStar {
+                body,
+                handlers,
+                orelse,
+                finalbody,
             } => {
                 self.scan_statements(body)?;
                 for handler in handlers {
