@@ -2843,9 +2843,7 @@ fn compile_constant(value: &ast::Constant) -> ConstantData {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompileOpts, Compiler};
-    use crate::symboltable::SymbolTable;
-    use rustpython_compiler_core::CodeObject;
+    use super::*;
     use rustpython_parser as parser;
 
     fn compile_exec(source: &str) -> CodeObject {

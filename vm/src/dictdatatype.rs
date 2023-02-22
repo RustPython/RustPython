@@ -883,9 +883,8 @@ fn str_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a PyStr> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Dict, DictKey};
-    use crate::common::ascii;
-    use crate::Interpreter;
+    use super::*;
+    use crate::{common::ascii, Interpreter};
 
     #[test]
     fn test_insert() {
