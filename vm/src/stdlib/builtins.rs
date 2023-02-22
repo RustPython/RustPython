@@ -150,7 +150,7 @@ mod builtins {
             {
                 use crate::builtins::PyBytesRef;
                 use num_traits::Zero;
-                use rustpython_parser::parser;
+                use rustpython_parser as parser;
 
                 let source = Either::<PyStrRef, PyBytesRef>::try_from_object(vm, args.source)?;
                 // TODO: compiler::compile should probably get bytes

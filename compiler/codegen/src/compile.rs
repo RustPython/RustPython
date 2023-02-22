@@ -86,7 +86,7 @@ impl CompileContext {
     }
 }
 
-/// Compile an ast::Mod produced from rustpython_parser::parser::parse()
+/// Compile an ast::Mod produced from rustpython_parser::parse()
 pub fn compile_top(
     ast: &ast::Mod,
     source_path: String,
@@ -2846,7 +2846,7 @@ mod tests {
     use super::{CompileOpts, Compiler};
     use crate::symboltable::SymbolTable;
     use rustpython_compiler_core::CodeObject;
-    use rustpython_parser::parser;
+    use rustpython_parser as parser;
 
     fn compile_exec(source: &str) -> CodeObject {
         let mut compiler: Compiler = Compiler::new(

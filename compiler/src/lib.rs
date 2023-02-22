@@ -1,8 +1,7 @@
 use rustpython_codegen::{compile, symboltable};
 use rustpython_parser::{
+    self as parser,
     ast::{fold::Fold, ConstantOptimizer},
-    parser,
-    parser::ParseErrorType,
 };
 
 pub use rustpython_codegen::compile::CompileOpts;
@@ -13,13 +12,13 @@ pub enum CompileErrorType {
     #[error(transparent)]
     Codegen(#[from] rustpython_codegen::error::CodegenErrorType),
     #[error(transparent)]
-    Parse(#[from] rustpython_parser::parser::ParseErrorType),
+    Parse(#[from] parser::ParseErrorType),
 }
 
 pub type CompileError = rustpython_compiler_core::CompileError<CompileErrorType>;
 
-fn error_from_parse(error: rustpython_parser::parser::ParseError, source: &str) -> CompileError {
-    let error: CompileErrorBody<ParseErrorType> = error.into();
+fn error_from_parse(error: parser::ParseError, source: &str) -> CompileError {
+    let error: CompileErrorBody<parser::ParseErrorType> = error.into();
     CompileError::from(error, source)
 }
 

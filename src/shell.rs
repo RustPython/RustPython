@@ -1,6 +1,6 @@
 mod helper;
 
-use rustpython_parser::{lexer::LexicalErrorType, parser::ParseErrorType, token::Tok};
+use rustpython_parser::{lexer::LexicalErrorType, ParseErrorType, Tok};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compiler::{self, CompileError, CompileErrorBody, CompileErrorType},
