@@ -42,7 +42,7 @@ fn main() {
         .arg(
             Arg::with_name("no_expand")
                 .help(
-                    "Don't expand CodeObjectInner LoadConst instructions to show \
+                    "Don't expand CodeObject LoadConst instructions to show \
                      the instructions inside",
                 )
                 .long("no-expand")

@@ -8,7 +8,7 @@
 //!
 //!     // the mode to compile the code in
 //!     mode = "exec", // or "eval" or "single"
-//!     // the path put into the CodeObjectInner, defaults to "frozen"
+//!     // the path put into the CodeObject, defaults to "frozen"
 //!     module_name = "frozen",
 //! )
 //! ```
@@ -376,8 +376,8 @@ pub fn impl_py_compile(
         unsafe {
             // SAFETY: we just deserialized from a serialized CodeObject
             #crate_name::CodeObject::new(
-                #crate_name::CodeObjectInner::from_bytes(#bytes)
-                    .expect("Deserializing CodeObjectInner failed")
+                #crate_name::UnsafeCodeObject::from_bytes(#bytes)
+                    .expect("Deserializing UnsafeCodeObject failed")
             )
         }
     };

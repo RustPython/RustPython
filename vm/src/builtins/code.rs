@@ -5,7 +5,7 @@
 use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyStrInterned,
-    bytecode::{self, BorrowedConstant, CodeFlags, CodeObjectInner, Constant, ConstantBag},
+    bytecode::{self, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg},
@@ -344,7 +344,8 @@ impl PyRef<PyCode> {
             OptionalArg::Missing => self.code.varnames.iter().map(|s| s.to_object()).collect(),
         };
 
-        let code = CodeObjectInner {
+        // SAFETY: none, really, but this is something cpython lets people do, so ¯\_(ツ)_/¯
+        let code = CodeObject {
             flags: CodeFlags::from_bits_truncate(flags),
             posonlyarg_count,
             arg_count,
@@ -369,8 +370,6 @@ impl PyRef<PyCode> {
             freevars: self.code.freevars.clone(),
             cell2arg: self.code.cell2arg.clone(),
         };
-        // SAFETY: none, really, but this is something cpython lets people do, so ¯\_(ツ)_/¯
-        let code = unsafe { CodeObject::new(code) };
         Ok(PyCode { code })
     }
 }

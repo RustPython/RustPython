@@ -378,7 +378,7 @@ mod decl {
                     return Err(too_short_error(vm));
                 }
                 let (bytes, buf) = buf.split_at(len);
-                let code = bytecode::CodeObjectInner::from_bytes(bytes).map_err(|e| match e {
+                let code = bytecode::UnsafeCodeObject::from_bytes(bytes).map_err(|e| match e {
                     bytecode::CodeDeserializeError::Eof => vm.new_exception_msg(
                         vm.ctx.exceptions.eof_error.to_owned(),
                         "End of file while deserializing bytecode".to_owned(),
