@@ -1,7 +1,7 @@
 use crate::js_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use rustpython_parser::error::ParseErrorType;
+use rustpython_parser::ParseErrorType;
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compiler::{CompileError, CompileErrorType},

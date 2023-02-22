@@ -3,7 +3,7 @@ use criterion::{
     criterion_group, criterion_main, Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
-use rustpython_parser::parser::parse_program;
+use rustpython_parser::parse_program;
 use rustpython_vm::{Interpreter, PyResult};
 use std::collections::HashMap;
 use std::path::Path;

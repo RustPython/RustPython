@@ -19,7 +19,7 @@ use rustpython_ast as ast;
 #[cfg(feature = "rustpython-codegen")]
 use rustpython_codegen as codegen;
 #[cfg(feature = "rustpython-parser")]
-use rustpython_parser::parser;
+use rustpython_parser as parser;
 
 #[pymodule]
 mod _ast {
