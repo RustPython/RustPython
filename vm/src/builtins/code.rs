@@ -231,6 +231,11 @@ impl PyRef<PyCode> {
     }
 
     #[pygetset]
+    fn co_nlocals(self) -> usize {
+        self.varnames.len()
+    }
+
+    #[pygetset]
     fn co_firstlineno(self) -> usize {
         self.code.first_line_number
     }
