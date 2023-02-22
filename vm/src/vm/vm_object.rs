@@ -40,7 +40,7 @@ impl VirtualMachine {
             };
             panic!("{msg}; {after}")
         }
-        #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+        #[cfg(all(target_arch = "wasm32", feature = "js", not(target_os = "wasi")))]
         {
             use wasm_bindgen::prelude::*;
             #[wasm_bindgen]
@@ -52,6 +52,11 @@ impl VirtualMachine {
             self.write_exception(&mut s, &exc).unwrap();
             error(&s);
             panic!("{}; exception backtrace above", msg)
+        }
+        #[cfg(all(target_arch = "wasm32", not(feature = "js"), not(target_os = "wasi")))]
+        {
+            let _ = exc;
+            panic!("{}; python exception not available", msg)
         }
     }
 

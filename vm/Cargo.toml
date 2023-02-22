@@ -9,7 +9,7 @@ edition = "2021"
 include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
-default = ["compiler"]
+default = ["compiler", "js"]
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
@@ -21,6 +21,8 @@ compiler = ["parser", "codegen", "rustpython-compiler"]
 ast = ["rustpython-ast"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
+
+js = ["getrandom/js", "chrono/wasmbind", "wasm-bindgen"]
 
 [dependencies]
 rustpython-compiler = { path = "../compiler", optional = true, version = "0.2.0" }
@@ -63,7 +65,7 @@ thiserror = { workspace = true }
 thread_local = { workspace = true }
 
 caseless = "0.2.1"
-getrandom = { version = "0.2.6", features = ["js"] }
+getrandom = { version = "0.2.6" }
 flamer = { version = "0.4", optional = true }
 half = "1.8.2"
 is-macro = "0.2.0"
@@ -122,8 +124,8 @@ features = [
   "impl-default", "vcruntime", "ifdef", "netioapi", "memoryapi",
 ]
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.80"
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = { version = "0.2.80", optional = true }
 
 [build-dependencies]
 glob = { workspace = true }
