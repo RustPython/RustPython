@@ -1,9 +1,10 @@
-use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef};
-use crate::atomic_func;
-use crate::common::hash::PyHash;
+use super::{
+    builtins_iter, tuple::tuple_hash, PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef,
+};
 use crate::{
-    builtins::builtins_iter,
+    atomic_func,
     class::PyClassImpl,
+    common::hash::PyHash,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
@@ -442,7 +443,7 @@ impl Hashable for PyRange {
                 zelf.step().into(),
             ]
         };
-        crate::utils::hash_iter(elements.iter(), vm)
+        tuple_hash(&elements, vm)
     }
 }
 
