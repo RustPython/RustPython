@@ -33,6 +33,11 @@ class AIterWrap:
         return value
 
 
+if sys.platform.startswith("win"):
+    SLEEP_UNIT = 0.5
+else:
+    SLEEP_UNIT = 0.1
+
 async def a(s, m):
     async with ContextManager() as b:
         print(f"val = {b}")
@@ -40,14 +45,14 @@ async def a(s, m):
     async for i in AIterWrap(range(0, 2)):
         print(i)
         ls.append(m)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(SLEEP_UNIT)
 
 
 
 async def main():
     tasks = [
         asyncio.create_task(c)
-        for c in [a(0.0, "hello1"), a(0.2, "hello2"), a(0.4, "hello3"), a(0.6, "hello4")]
+        for c in [a(SLEEP_UNIT * 0, "hello1"), a(SLEEP_UNIT * 1, "hello2"), a(SLEEP_UNIT * 2, "hello3"), a(SLEEP_UNIT * 3, "hello4")]
     ]
     await asyncio.wait(tasks)
 
