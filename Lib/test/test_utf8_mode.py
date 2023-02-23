@@ -161,8 +161,6 @@ class UTF8ModeTests(unittest.TestCase):
                           'stdout: utf-8/namereplace',
                           'stderr: utf-8/backslashreplace'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_io(self):
         code = textwrap.dedent('''
             import sys
@@ -206,8 +204,6 @@ class UTF8ModeTests(unittest.TestCase):
         self._check_io_encoding(module,
                                 encoding="latin1", errors="namereplace")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_io_encoding(self):
         self.check_io_encoding('io')
 
@@ -270,6 +266,8 @@ class UTF8ModeTests(unittest.TestCase):
         out = self.get_output('-X', 'utf8', '-E', '-c', code)
         self.assertEqual(out, '1')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(MS_WINDOWS,
                      "os.device_encoding() doesn't implement "
                      "the UTF-8 Mode on Windows")
