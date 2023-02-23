@@ -44,6 +44,7 @@ mod posixsubprocess;
 // libc is missing constants on redox
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod grp;
+mod locale;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod resource;
 #[cfg(target_os = "macos")]
@@ -107,6 +108,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,
+            "_locale" => locale::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
         #[cfg(any(unix, target_os = "wasi"))]
