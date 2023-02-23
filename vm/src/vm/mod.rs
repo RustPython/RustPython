@@ -96,6 +96,7 @@ pub struct PyGlobalState {
     pub codec_registry: CodecsRegistry,
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
+    pub override_frozen_modules: AtomicCell<isize>,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -172,6 +173,7 @@ impl VirtualMachine {
                 codec_registry,
                 finalizing: AtomicBool::new(false),
                 warnings,
+                override_frozen_modules: AtomicCell::new(0),
             }),
             initialized: false,
             recursion_depth: Cell::new(0),

@@ -117,6 +117,11 @@ mod _imp {
     }
 
     #[pyfunction]
+    fn _override_frozen_modules_for_tests(value: isize, vm: &VirtualMachine) {
+        vm.state.override_frozen_modules.store(value);
+    }
+
+    #[pyfunction]
     fn _fix_co_filename(_code: PyObjectRef, _path: PyStrRef) {
         // TODO:
     }
