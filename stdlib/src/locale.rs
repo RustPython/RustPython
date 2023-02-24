@@ -20,18 +20,18 @@ mod _locale {
         T_FMT_AMPM, YESEXPR,
     };
 
-    use std::ffi::{c_char, CStr};
+    use std::ffi::CStr;
 
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
         vm.ctx.new_int(libc::c_char::MAX)
     }
 
-    unsafe fn copy_grouping(group: *mut c_char, vm: &VirtualMachine) -> PyListRef {
+    unsafe fn copy_grouping(group: *mut libc::c_char, vm: &VirtualMachine) -> PyListRef {
         let mut group_vec: Vec<PyObjectRef> = Vec::new();
         let mut ptr = group;
 
-        while ![0_i8, c_char::MAX as i8].contains(&*ptr) {
+        while ![0_i8, libc::c_char::MAX].contains(&*ptr) {
             let val = vm.ctx.new_int(*ptr);
             group_vec.push(val.into());
             ptr = ptr.offset(1);
@@ -39,7 +39,7 @@ mod _locale {
         vm.ctx.new_list(group_vec)
     }
 
-    unsafe fn _parse_ptr_to_str(vm: &VirtualMachine, raw_ptr: *mut c_char) -> PyResult {
+    unsafe fn _parse_ptr_to_str(vm: &VirtualMachine, raw_ptr: *mut libc::c_char) -> PyResult {
         let slice = unsafe { CStr::from_ptr(raw_ptr) };
         let cstr = slice
             .to_str()
