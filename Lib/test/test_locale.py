@@ -6,7 +6,7 @@ import locale
 import sys
 import codecs
 
-@unittest.SkipTest(reason="Library not completed")
+@unittest.SkipTest(reason="TODO: RUSTPYTHON, Library not completed")
 class BaseLocalizedTest(unittest.TestCase):
     #
     # Base class for tests using a real locale
