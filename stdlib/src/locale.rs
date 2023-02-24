@@ -1,5 +1,7 @@
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) use _locale::make_module;
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 #[pymodule]
 mod _locale {
     extern crate libc;
