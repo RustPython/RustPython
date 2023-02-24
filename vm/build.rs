@@ -2,11 +2,16 @@ use itertools::Itertools;
 use std::{env, io::prelude::*, path::PathBuf, process::Command};
 
 fn main() {
-    #[cfg(feature = "freeze-stdlib")]
-    for entry in glob::glob("Lib/*/*.py").expect("Lib/ exists?").flatten() {
+    let frozen_libs = if cfg!(feature = "freeze-stdlib") {
+        "Lib/*/*.py"
+    } else {
+        "Lib/python_builtins/*.py"
+    };
+    for entry in glob::glob(frozen_libs).expect("Lib/ exists?").flatten() {
         let display = entry.display();
         println!("cargo:rerun-if-changed={display}");
     }
+    println!("cargo:rerun-if-changed=../Lib/importlib/_bootstrap.py");
 
     println!("cargo:rustc-env=RUSTPYTHON_GIT_HASH={}", git_hash());
     println!(
