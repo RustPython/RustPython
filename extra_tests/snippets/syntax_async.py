@@ -34,7 +34,7 @@ class AIterWrap:
 
 
 if sys.platform.startswith("win"):
-    SLEEP_UNIT = 0.5
+    SLEEP_UNIT = 1.0
 else:
     SLEEP_UNIT = 0.1
 
