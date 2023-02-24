@@ -31,7 +31,7 @@ mod _locale {
         let mut group_vec: Vec<PyObjectRef> = Vec::new();
         let mut ptr = group;
 
-        while ![0 as i8, c_char::MAX].contains(&*ptr) {
+        while ![0_i8, c_char::MAX as i8].contains(&*ptr) {
             let val = vm.ctx.new_int(*ptr);
             group_vec.push(val.into());
             ptr = ptr.offset(1);
