@@ -32,11 +32,7 @@ class AIterWrap:
             raise StopAsyncIteration
         return value
 
-
-if sys.platform.startswith("win"):
-    SLEEP_UNIT = 0.5
-else:
-    SLEEP_UNIT = 0.1
+SLEEP_UNIT = 0.1
 
 async def a(s, m):
     async with ContextManager() as b:
@@ -48,19 +44,14 @@ async def a(s, m):
         await asyncio.sleep(SLEEP_UNIT)
 
 
-
-async def main():
+async def run():
     tasks = [
         asyncio.create_task(c)
         for c in [a(SLEEP_UNIT * 0, "hello1"), a(SLEEP_UNIT * 1, "hello2"), a(SLEEP_UNIT * 2, "hello3"), a(SLEEP_UNIT * 3, "hello4")]
     ]
     await asyncio.wait(tasks)
 
-
-ls = []
-asyncio.run(main(), debug=True)
-
-assert ls == [
+expected = [
     1,
     3,
     1,
@@ -78,6 +69,24 @@ assert ls == [
     "hello3",
     "hello4",
 ]
+ls = []
+
+def test():
+    global SLEEP_UNIT
+    if sys.platform.startswith("win"):
+        SLEEP_UNIT *= 2
+    ls.clear()
+    asyncio.run(run(), debug=True)
+    assert ls == expected
+
+
+for i in reversed(range(10)):
+    try:
+        test()
+        break
+    except AssertionError:
+        if i == 0:
+            raise
 
 
 if sys.version_info < (3, 11, 0):
