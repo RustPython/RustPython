@@ -24,7 +24,7 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
         let bootstrap = import_frozen(vm, "_frozen_importlib")?;
         let install = bootstrap.get_attr("_install", vm)?;
         let imp = import_builtin(vm, "_imp")?;
-        let exc = vm.invoke(&install, (vm.sys_module.clone(), imp))?;
+        vm.invoke(&install, (vm.sys_module.clone(), imp))?;
         Ok(bootstrap)
     })?;
     vm.import_func = importlib.get_attr(identifier!(vm, __import__).to_owned(), vm)?;
