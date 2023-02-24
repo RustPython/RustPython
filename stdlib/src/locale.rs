@@ -5,8 +5,8 @@ pub(crate) use _locale::make_module;
 #[pymodule]
 mod _locale {
     use rustpython_vm::{
-        builtins::{PyDictRef, PyIntRef, PyListRef},
-        PyObjectRef, PyResult, VirtualMachine,
+        builtins::{PyDictRef, PyIntRef, PyListRef, PyStrRef, PyTypeRef},
+        PyObjectRef, PyResult, VirtualMachine, function::OptionalArg,
     };
 
     #[pyattr]
@@ -20,7 +20,7 @@ mod _locale {
         T_FMT_AMPM, YESEXPR,
     };
 
-    use std::ffi::CStr;
+    use std::{ptr, ffi::CStr};
 
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
@@ -46,6 +46,15 @@ mod _locale {
             .expect("localeconv always return decodable string");
 
         Ok(vm.new_pyobj(cstr))
+    }
+    
+    #[pyattr(name="Error")]
+    fn error(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "locale",
+            "locale.Error",
+            Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
+        )
     }
 
     #[pyfunction]
@@ -97,5 +106,44 @@ mod _locale {
             set_string_field!(negative_sign);
         }
         Ok(result)
+    }
+
+    #[derive(FromArgs)]
+    struct LocaleArgs {
+        #[pyarg(any)]
+        category: i32,
+        #[pyarg(any, optional)]
+        locale: OptionalArg<Option<PyStrRef>>
+    }
+
+    #[pyfunction]
+    fn setlocale(args: LocaleArgs, vm: &VirtualMachine) -> PyResult {
+        unsafe {
+            let result = match args.locale {
+                OptionalArg::Missing => {
+                    let null_ptr: *const i8 = ptr::null();
+                        libc::setlocale(args.category, null_ptr)
+                },
+                OptionalArg::Present(locale) => match locale {
+                    None => {
+                        let null_ptr: *const i8 = ptr::null();
+                        libc::setlocale(args.category, null_ptr)
+                    },
+                    Some(l) => {
+                        let mut l_str = l.to_string();
+                        if l_str.is_empty() {
+                            l_str.push_str("\0");
+                        }
+                        let l_ptr = l_str.as_ptr() as *const i8;
+                        libc::setlocale(args.category, l_ptr)
+                    },
+                }
+            };
+            if result.is_null() {
+                let error = error(vm);
+                return Err(vm.new_exception_msg(error, String::from("unsupported locale setting")))
+            }
+            _parse_ptr_to_str(vm, result)
+        }
     }
 }
