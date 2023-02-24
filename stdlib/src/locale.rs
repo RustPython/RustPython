@@ -4,8 +4,7 @@ pub(crate) use _locale::make_module;
 mod _locale {
     extern crate libc;
     use rustpython_vm::{
-        builtins::{PyDictRef, PyIntRef, PyListRef, PyStrRef},
-        function::OptionalArg,
+        builtins::{PyDictRef, PyIntRef, PyListRef},
         PyObjectRef, PyResult, VirtualMachine,
     };
 
@@ -20,9 +19,8 @@ mod _locale {
         T_FMT_AMPM, YESEXPR,
     };
 
-    use libc::{c_char, c_int};
+    use libc::c_char;
     use std::ffi::CStr;
-    use std::ptr;
 
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
@@ -31,11 +29,12 @@ mod _locale {
 
     unsafe fn _get_grouping(group: *mut c_char, vm: &VirtualMachine) -> PyListRef {
         let mut group_vec: Vec<PyObjectRef> = Vec::new();
-        let ptr = group;
+        let mut ptr = group;
 
         while *ptr != (u8::MIN as i8) && *ptr != i8::MAX {
             let val = vm.ctx.new_int(*ptr);
             group_vec.push(val.into());
+            ptr = ptr.offset(1);
         }
         vm.ctx.new_list(group_vec)
     }
