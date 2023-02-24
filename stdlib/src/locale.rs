@@ -8,7 +8,6 @@ mod _locale {
         PyObjectRef, PyResult, VirtualMachine,
     };
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[pyattr]
     use libc::{
         ABDAY_1, ABDAY_2, ABDAY_3, ABDAY_4, ABDAY_5, ABDAY_6, ABDAY_7, ABMON_1, ABMON_10, ABMON_11,
@@ -20,8 +19,7 @@ mod _locale {
         T_FMT_AMPM, YESEXPR,
     };
 
-    use libc::c_char;
-    use std::ffi::CStr;
+    use std::ffi::{c_char, CStr};
 
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
@@ -50,7 +48,6 @@ mod _locale {
         Ok(vm.new_pyobj(cstr))
     }
 
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[pyfunction]
     fn localeconv(vm: &VirtualMachine) -> PyResult<PyDictRef> {
         let result = vm.ctx.new_dict();

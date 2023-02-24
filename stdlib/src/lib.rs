@@ -103,7 +103,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "math" => math::make_module,
             "pyexpat" => pyexpat::make_module,
             "_random" => random::make_module,
-            "_locale" => locale::make_module,
             "_statistics" => statistics::make_module,
             "_struct" => pystruct::make_module,
             "unicodedata" => unicodedata::make_module,
@@ -160,6 +159,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32")))]
         {
             "_uuid" => uuid::make_module,
+        }
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            "_locale" => locale::make_module,
         }
     }
 }
