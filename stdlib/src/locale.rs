@@ -7,7 +7,7 @@ mod _locale {
         builtins::{PyDictRef, PyIntRef, PyListRef},
         PyObjectRef, PyResult, VirtualMachine,
     };
-    
+
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[pyattr]
     use libc::{
