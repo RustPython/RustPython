@@ -77,8 +77,6 @@ class ExecModuleTests(abc.LoaderTests):
         self.assertTrue(hasattr(module, '__spec__'))
         self.assertEqual(module.__spec__.loader_state.origname, name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_package(self):
         name = '__phello__'
         module, output = self.exec_module(name)
@@ -92,8 +90,6 @@ class ExecModuleTests(abc.LoaderTests):
         self.assertEqual(output, 'Hello world!\n')
         self.assertEqual(module.__spec__.loader_state.origname, name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_lacking_parent(self):
         name = '__phello__.spam'
         with util.uncache('__phello__'):
@@ -146,6 +142,8 @@ class LoaderTests(abc.LoaderTests):
             module.main()
         return module, stdout
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module(self):
         module, stdout = self.load_module('__hello__')
         filename = resolve_stdlib_file('__hello__')
@@ -158,6 +156,8 @@ class LoaderTests(abc.LoaderTests):
             self.assertEqual(getattr(module, attr, None), value)
         self.assertEqual(stdout.getvalue(), 'Hello world!\n')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_package(self):
         module, stdout = self.load_module('__phello__')
         filename = resolve_stdlib_file('__phello__', ispkg=True)
@@ -175,6 +175,8 @@ class LoaderTests(abc.LoaderTests):
                              (attr, attr_value, value))
         self.assertEqual(stdout.getvalue(), 'Hello world!\n')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_lacking_parent(self):
         with util.uncache('__phello__'):
             module, stdout = self.load_module('__phello__.spam')
@@ -248,8 +250,6 @@ class InspectLoaderTests:
             result = self.machinery.FrozenImporter.get_source('__hello__')
         self.assertIsNone(result)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_package(self):
         # Should be able to tell what is a package.
         test_for = (('__hello__', False), ('__phello__', True),

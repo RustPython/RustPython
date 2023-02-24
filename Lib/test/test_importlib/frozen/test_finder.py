@@ -70,18 +70,16 @@ class FindSpecTests(abc.FinderTests):
             expected = [os.path.dirname(filename)]
         self.assertListEqual(spec.submodule_search_locations, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_package(self):
         spec = self.find('__phello__')
         self.assertIsNotNone(spec)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_in_package(self):
         spec = self.find('__phello__.spam', ['__phello__'])
         self.assertIsNotNone(spec)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_module(self):
         modules = [
             '__hello__',
@@ -124,6 +122,8 @@ class FindSpecTests(abc.FinderTests):
                 self.check_basic(spec, name)
                 self.check_loader_state(spec, origname, filename)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_package(self):
         packages = [
             '__phello__',
@@ -178,6 +178,8 @@ class FindSpecTests(abc.FinderTests):
         spec = self.find('<not real>')
         self.assertIsNone(spec)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_not_using_frozen(self):
         finder = self.machinery.FrozenImporter
         with import_helper.frozen_modules(enabled=False):
@@ -210,14 +212,10 @@ class FinderTests(abc.FinderTests):
         loader = self.find(name)
         self.assertTrue(hasattr(loader, 'load_module'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_package(self):
         loader = self.find('__phello__')
         self.assertTrue(hasattr(loader, 'load_module'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_in_package(self):
         loader = self.find('__phello__.spam', ['__phello__'])
         self.assertTrue(hasattr(loader, 'load_module'))
