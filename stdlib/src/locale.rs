@@ -49,53 +49,68 @@ mod _locale {
         Ok(vm.new_pyobj(cstr))
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[pyfunction]
     fn localeconv(vm: &VirtualMachine) -> PyResult<PyDictRef> {
         let result = vm.ctx.new_dict();
+        macro_rules! set_string_field {
+            ($field:expr) => {{
+                result.set_item(stringify!($field), _parse_ptr_to_str(vm, $field)?, vm)?
+            }};
+        }
+
+        macro_rules! set_int_field {
+            ($field:expr) => {{
+                result.set_item(stringify!($field), vm.new_pyobj($field), vm)?
+            }};
+        }
+
+        macro_rules! set_group_field {
+            ($field:expr) => {{
+                result.set_item(stringify!($field), _get_grouping($field, vm).into(), vm)?
+            }};
+        }
+
         unsafe {
             let lc = libc::localeconv();
 
             let mon_grouping = (*lc).mon_grouping;
-            let int_frac_digits = vm.ctx.new_int((*lc).int_frac_digits).into();
-            let frac_digits = vm.ctx.new_int((*lc).frac_digits).into();
-            let p_cs_precedes = vm.ctx.new_int((*lc).p_cs_precedes).into();
-            let p_sep_by_space = vm.ctx.new_int((*lc).p_sep_by_space).into();
-            let n_cs_precedes = vm.ctx.new_int((*lc).n_cs_precedes).into();
-            let p_sign_posn = vm.ctx.new_int((*lc).p_sign_posn).into();
-            let n_sign_posn = vm.ctx.new_int((*lc).n_sign_posn).into();
+            let int_frac_digits = (*lc).int_frac_digits;
+            let frac_digits = (*lc).frac_digits;
+            let p_cs_precedes = (*lc).p_cs_precedes;
+            let p_sep_by_space = (*lc).p_sep_by_space;
+            let n_cs_precedes = (*lc).n_cs_precedes;
+            let p_sign_posn = (*lc).p_sign_posn;
+            let n_sign_posn = (*lc).n_sign_posn;
             let grouping = (*lc).grouping;
-            let decimal_point = _parse_ptr_to_str(vm, (*lc).decimal_point)?;
-            let thousands_sep = _parse_ptr_to_str(vm, (*lc).thousands_sep)?;
-            let int_curr_symbol = _parse_ptr_to_str(vm, (*lc).int_curr_symbol)?;
-            let currency_symbol = _parse_ptr_to_str(vm, (*lc).currency_symbol)?;
-            let mon_decimal_point = _parse_ptr_to_str(vm, (*lc).mon_decimal_point)?;
-            let mon_thousands_sep = _parse_ptr_to_str(vm, (*lc).mon_thousands_sep)?;
-            let n_sep_by_space = vm.ctx.new_int((*lc).n_sep_by_space).into();
-            let positive_sign = _parse_ptr_to_str(vm, (*lc).positive_sign)?;
-            let negative_sign = _parse_ptr_to_str(vm, (*lc).negative_sign)?;
+            let decimal_point = (*lc).decimal_point;
+            let thousands_sep = (*lc).thousands_sep;
+            let int_curr_symbol = (*lc).int_curr_symbol;
+            let currency_symbol = (*lc).currency_symbol;
+            let mon_decimal_point = (*lc).mon_decimal_point;
+            let mon_thousands_sep = (*lc).mon_thousands_sep;
+            let n_sep_by_space = (*lc).n_sep_by_space;
+            let positive_sign = (*lc).positive_sign;
+            let negative_sign = (*lc).negative_sign;
 
-            result.set_item(
-                stringify!(mon_grouping),
-                _get_grouping(mon_grouping, vm).into(),
-                vm,
-            )?;
-            result.set_item(stringify!(int_frac_digits), int_frac_digits, vm)?;
-            result.set_item(stringify!(frac_digits), frac_digits, vm)?;
-            result.set_item(stringify!(p_cs_precedes), p_cs_precedes, vm)?;
-            result.set_item(stringify!(p_sep_by_space), p_sep_by_space, vm)?;
-            result.set_item(stringify!(n_cs_precedes), n_cs_precedes, vm)?;
-            result.set_item(stringify!(p_sign_posn), p_sign_posn, vm)?;
-            result.set_item(stringify!(n_sign_posn), n_sign_posn, vm)?;
-            result.set_item(stringify!(grouping), _get_grouping(grouping, vm).into(), vm)?;
-            result.set_item(stringify!(decimal_point), decimal_point, vm)?;
-            result.set_item(stringify!(thousands_sep), thousands_sep, vm)?;
-            result.set_item(stringify!(int_curr_symbol), int_curr_symbol, vm)?;
-            result.set_item(stringify!(currency_symbol), currency_symbol, vm)?;
-            result.set_item(stringify!(mon_decimal_point), mon_decimal_point, vm)?;
-            result.set_item(stringify!(mon_thousands_sep), mon_thousands_sep, vm)?;
-            result.set_item(stringify!(n_sep_by_space), n_sep_by_space, vm)?;
-            result.set_item(stringify!(positive_sign), positive_sign, vm)?;
-            result.set_item(stringify!(negative_sign), negative_sign, vm)?;
+            set_group_field!(mon_grouping);
+            set_group_field!(grouping);
+            set_int_field!(int_frac_digits);
+            set_int_field!(frac_digits);
+            set_int_field!(p_cs_precedes);
+            set_int_field!(p_sep_by_space);
+            set_int_field!(n_cs_precedes);
+            set_int_field!(p_sign_posn);
+            set_int_field!(n_sign_posn);
+            set_string_field!(decimal_point);
+            set_string_field!(thousands_sep);
+            set_string_field!(int_curr_symbol);
+            set_string_field!(currency_symbol);
+            set_string_field!(mon_decimal_point);
+            set_string_field!(mon_thousands_sep);
+            set_int_field!(n_sep_by_space);
+            set_string_field!(positive_sign);
+            set_string_field!(negative_sign);
         }
         Ok(result)
     }
