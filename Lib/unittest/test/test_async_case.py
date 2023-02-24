@@ -37,7 +37,8 @@ class LacksExit:
         pass
 
 
-VAR = contextvars.ContextVar('VAR', default=())
+# TODO: RUSTPYTHON; used by following test suite
+# VAR = contextvars.ContextVar('VAR', default=())
 
 
 @unittest.skip("TODO: RUSTPYTHON; requires sys.get_coroutine_origin_tracking_depth()")

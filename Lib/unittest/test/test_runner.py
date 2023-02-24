@@ -1293,8 +1293,6 @@ class Test_TextTestRunner(unittest.TestCase):
         expectedresult = (runner.stream, DESCRIPTIONS, VERBOSITY)
         self.assertEqual(runner._makeResult(), expectedresult)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_warnings(self):
         """
