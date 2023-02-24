@@ -15,6 +15,7 @@ mod dis;
 mod gc;
 mod hashlib;
 mod json;
+mod locale;
 mod math;
 #[cfg(unix)]
 mod mmap;
@@ -102,6 +103,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "math" => math::make_module,
             "pyexpat" => pyexpat::make_module,
             "_random" => random::make_module,
+            "_locale" => locale::make_module,
             "_statistics" => statistics::make_module,
             "_struct" => pystruct::make_module,
             "unicodedata" => unicodedata::make_module,
