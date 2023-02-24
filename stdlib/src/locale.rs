@@ -7,7 +7,8 @@ mod _locale {
         builtins::{PyDictRef, PyIntRef, PyListRef},
         PyObjectRef, PyResult, VirtualMachine,
     };
-
+    
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[pyattr]
     use libc::{
         ABDAY_1, ABDAY_2, ABDAY_3, ABDAY_4, ABDAY_5, ABDAY_6, ABDAY_7, ABMON_1, ABMON_10, ABMON_11,
