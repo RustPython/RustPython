@@ -11,11 +11,12 @@ pub fn core_frozen_inits() -> impl Iterator<Item = (String, FrozenModule)> {
         };
     }
 
-    ext_modules!(
-        iter,
-        source = "initialized = True; print(\"Hello world!\")\n",
-        module_name = "__hello__",
-    );
+    // keep as example but use file one now
+    // ext_modules!(
+    //     iter,
+    //     source = "initialized = True; print(\"Hello world!\")\n",
+    //     module_name = "__hello__",
+    // );
 
     // Python modules that the vm calls into, but are not actually part of the stdlib. They could
     // in theory be implemented in Rust, but are easiest to do in Python for one reason or another.

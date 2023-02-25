@@ -21,7 +21,7 @@ from importlib.metadata import (
 @contextlib.contextmanager
 def suppress_known_deprecation():
     with warnings.catch_warnings(record=True) as ctx:
-        warnings.simplefilter('default')
+        warnings.simplefilter('default', category=DeprecationWarning)
         yield ctx
 
 
@@ -45,7 +45,6 @@ class APITests(
         assert isinstance(pkg_version, str)
         assert re.match(self.version_pattern, pkg_version)
 
-    # TODO: RUSTPYTHON
     def test_for_name_does_not_exist(self):
         with self.assertRaises(PackageNotFoundError):
             distribution('does-not-exist')
@@ -90,13 +89,15 @@ class APITests(
             self.assertIn(ep.dist.name, ('distinfo-pkg', 'egginfo-pkg'))
             self.assertEqual(ep.dist.version, "1.0.0")
 
-    def test_entry_points_unique_packages(self):
-        # Entry points should only be exposed for the first package
-        # on sys.path with a given name.
+    def test_entry_points_unique_packages_normalized(self):
+        """
+        Entry points should only be exposed for the first package
+        on sys.path with a given name (even when normalized).
+        """
         alt_site_dir = self.fixtures.enter_context(fixtures.tempdir())
         self.fixtures.enter_context(self.add_sys_path(alt_site_dir))
         alt_pkg = {
-            "distinfo_pkg-1.1.0.dist-info": {
+            "DistInfo_pkg-1.1.0.dist-info": {
                 "METADATA": """
                 Name: distinfo-pkg
                 Version: 1.1.0
@@ -114,7 +115,7 @@ class APITests(
             for ep in entries
         )
         # ns:sub doesn't exist in alt_pkg
-        assert 'ns:sub' not in entries
+        assert 'ns:sub' not in entries.names
 
     def test_entry_points_missing_name(self):
         with self.assertRaises(KeyError):
@@ -124,9 +125,11 @@ class APITests(
         assert entry_points(group='missing') == ()
 
     def test_entry_points_dict_construction(self):
-        # Prior versions of entry_points() returned simple lists and
-        # allowed casting those lists into maps by name using ``dict()``.
-        # Capture this now deprecated use-case.
+        """
+        Prior versions of entry_points() returned simple lists and
+        allowed casting those lists into maps by name using ``dict()``.
+        Capture this now deprecated use-case.
+        """
         with suppress_known_deprecation() as caught:
             eps = dict(entry_points(group='entries'))
 
@@ -155,9 +158,11 @@ class APITests(
         assert "Accessing entry points by index is deprecated" in str(expected)
 
     def test_entry_points_groups_getitem(self):
-        # Prior versions of entry_points() returned a dict. Ensure
-        # that callers using '.__getitem__()' are supported but warned to
-        # migrate.
+        """
+        Prior versions of entry_points() returned a dict. Ensure
+        that callers using '.__getitem__()' are supported but warned to
+        migrate.
+        """
         with suppress_known_deprecation():
             entry_points()['entries'] == entry_points(group='entries')
 
@@ -165,9 +170,11 @@ class APITests(
                 entry_points()['missing']
 
     def test_entry_points_groups_get(self):
-        # Prior versions of entry_points() returned a dict. Ensure
-        # that callers using '.get()' are supported but warned to
-        # migrate.
+        """
+        Prior versions of entry_points() returned a dict. Ensure
+        that callers using '.get()' are supported but warned to
+        migrate.
+        """
         with suppress_known_deprecation():
             entry_points().get('missing', 'default') == 'default'
             entry_points().get('entries', 'default') == entry_points()['entries']
@@ -202,10 +209,8 @@ class APITests(
                 file.read_text()
 
     def test_file_hash_repr(self):
-        assertRegex = self.assertRegex
-
         util = [p for p in files('distinfo-pkg') if p.name == 'mod.py'][0]
-        assertRegex(repr(util.hash), '<FileHash mode: sha256 value: .*>')
+        self.assertRegex(repr(util.hash), '<FileHash mode: sha256 value: .*>')
 
     def test_files_dist_info(self):
         self._test_files(files('distinfo-pkg'))
@@ -318,7 +323,7 @@ class OffSysPathTests(fixtures.DistInfoPkgOffPath, unittest.TestCase):
         assert any(dist.metadata['Name'] == 'distinfo-pkg' for dist in dists)
 
     def test_distribution_at_pathlib(self):
-        # Demonstrate how to load metadata direct from a directory.
+        """Demonstrate how to load metadata direct from a directory."""
         dist_info_path = self.site_dir / 'distinfo_pkg-1.0.0.dist-info'
         dist = Distribution.at(dist_info_path)
         assert dist.version == '1.0.0'
