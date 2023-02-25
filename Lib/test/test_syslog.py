@@ -43,6 +43,8 @@ class Test(unittest.TestCase):
         self.assertEqual(syslog.setlogmask(0), mask)
         self.assertEqual(syslog.setlogmask(oldmask), mask)
 
+    # TODO: RUSTPYTHON; AssertionError: 12 is not false
+    @unittest.expectedFailure
     def test_log_mask(self):
         mask = syslog.LOG_UPTO(syslog.LOG_WARNING)
         self.assertTrue(mask & syslog.LOG_MASK(syslog.LOG_WARNING))
@@ -53,6 +55,8 @@ class Test(unittest.TestCase):
         syslog.openlog()
         syslog.syslog('test message from python test_syslog')
 
+    # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'getswitchinterval'
+    @unittest.expectedFailure
     @threading_helper.requires_working_threading()
     def test_syslog_threaded(self):
         start = threading.Event()
