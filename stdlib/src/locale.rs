@@ -21,7 +21,10 @@ mod _locale {
         T_FMT_AMPM, YESEXPR,
     };
 
-    use std::{ffi::CStr, ptr};
+    use std::{
+        ffi::{CStr, CString},
+        ptr,
+    };
 
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
@@ -44,7 +47,7 @@ mod _locale {
         vm.ctx.new_list(group_vec)
     }
 
-    unsafe fn _parse_ptr_to_str(vm: &VirtualMachine, raw_ptr: *mut libc::c_char) -> PyResult {
+    unsafe fn _parse_ptr_to_str(vm: &VirtualMachine, raw_ptr: *const libc::c_char) -> PyResult {
         let slice = unsafe { CStr::from_ptr(raw_ptr) };
         let cstr = slice
             .to_str()
@@ -124,25 +127,13 @@ mod _locale {
     #[pyfunction]
     fn setlocale(args: LocaleArgs, vm: &VirtualMachine) -> PyResult {
         unsafe {
-            let result = match args.locale {
-                OptionalArg::Missing => {
-                    let null_ptr: *const i8 = ptr::null();
-                    libc::setlocale(args.category, null_ptr)
+            let result = match args.locale.flatten() {
+                None => libc::setlocale(args.category, ptr::null()),
+                Some(l) => {
+                    let l_str = CString::new(l.to_string()).expect("expect to be always converted");
+                    let l_ptr = CStr::as_ptr(&l_str);
+                    libc::setlocale(args.category, l_ptr)
                 }
-                OptionalArg::Present(locale) => match locale {
-                    None => {
-                        let null_ptr: *const i8 = ptr::null();
-                        libc::setlocale(args.category, null_ptr)
-                    }
-                    Some(l) => {
-                        let mut l_str = l.to_string();
-                        if l_str.is_empty() {
-                            l_str.push('\0');
-                        }
-                        let l_ptr = l_str.as_ptr() as *const i8;
-                        libc::setlocale(args.category, l_ptr)
-                    }
-                },
             };
             if result.is_null() {
                 let error = error(vm);
