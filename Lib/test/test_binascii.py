@@ -75,8 +75,6 @@ class BinASCIITest(unittest.TestCase):
             res += b
         self.assertEqual(res, self.rawdata)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_base64invalid(self):
         # Test base64 with random invalid characters sprinkled throughout
         # (This requires a new version of binascii.)
