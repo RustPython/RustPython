@@ -62,6 +62,7 @@ mod unicodedata {
         VirtualMachine,
     };
     use itertools::Itertools;
+    use rustpython_common::unicode_aliases;
     use ucd::{Codepoint, EastAsianWidth};
     use unic_char_property::EnumeratedCharProperty;
     use unic_normal::StrNormalForm;
@@ -107,12 +108,12 @@ mod unicodedata {
 
         #[pymethod]
         fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-            if let Some(character) = unicode_names2::character(name.as_str()) {
-                if self.check_age(character) {
-                    return Ok(character.to_string());
-                }
-            }
-            Err(vm.new_lookup_error(format!("undefined character name '{name}'")))
+            let name = name.as_str();
+            unicode_names2::character(name)
+                .or_else(|| unicode_aliases::unicode_alias(name))
+                .filter(|c| self.check_age(*c))
+                .map(|c| c.to_string())
+                .ok_or_else(|| vm.new_lookup_error(format!("undefined character name '{name}'")))
         }
 
         #[pymethod]

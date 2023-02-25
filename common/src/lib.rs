@@ -24,6 +24,7 @@ pub mod rc;
 pub mod refcount;
 pub mod static_cell;
 pub mod str;
+pub mod unicode_aliases;
 #[cfg(windows)]
 pub mod windows;
 

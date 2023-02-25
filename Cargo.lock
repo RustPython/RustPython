@@ -1994,6 +1994,7 @@ dependencies = [
 name = "rustpython-common"
 version = "0.2.0"
 dependencies = [
+ "anyhow",
  "ascii",
  "bitflags",
  "cfg-if",
@@ -2007,6 +2008,8 @@ dependencies = [
  "num-traits",
  "once_cell",
  "parking_lot",
+ "phf",
+ "phf_codegen",
  "radium",
  "rand",
  "siphasher",
@@ -2107,6 +2110,7 @@ dependencies = [
  "phf_codegen",
  "rustc-hash",
  "rustpython-ast",
+ "rustpython-common",
  "rustpython-compiler-core",
  "thiserror",
  "tiny-keccak",

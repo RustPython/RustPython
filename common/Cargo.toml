@@ -4,11 +4,16 @@ version = "0.2.0"
 description = "General python functions and algorithms for use in RustPython"
 authors = ["RustPython Team"]
 edition = "2021"
+build = "build.rs"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [features]
 threading = ["parking_lot"]
+
+[build-dependencies]
+anyhow = { workspace = true }
+phf_codegen = "0.11.1"
 
 [dependencies]
 ascii = { workspace = true }
@@ -27,6 +32,7 @@ hexf-parse = "0.2.1"
 lexical-parse-float = { version = "0.8.0", features = ["format"] }
 lock_api = "0.4"
 radium = "0.7"
+phf = "0.11.1"
 siphasher = "0.3"
 unic-ucd-category = "0.9"
 volatile = "0.3"

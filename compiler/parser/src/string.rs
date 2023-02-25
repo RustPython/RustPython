@@ -10,13 +10,10 @@ use crate::{
     token::{StringKind, Tok},
 };
 use itertools::Itertools;
+use rustpython_common::unicode_aliases;
 
 // unicode_name2 does not expose `MAX_NAME_LENGTH`, so we replicate that constant here, fix #3798
 const MAX_UNICODE_NAME: usize = 88;
-// generated in build.rs, in gen_unicode_aliases()
-/// A map of unicode aliases to their corresponding values.
-pub static ALIASES: phf::Map<&'static str, char> =
-    include!(concat!(env!("OUT_DIR"), "/aliases.rs"));
 
 struct StringParser<'a> {
     chars: std::iter::Peekable<std::str::Chars<'a>>,
@@ -133,7 +130,7 @@ impl<'a> StringParser<'a> {
         }
 
         unicode_names2::character(&name)
-            .or_else(|| ALIASES.get(&name).copied())
+            .or_else(|| unicode_aliases::unicode_alias(&name))
             .ok_or_else(|| LexicalError::new(LexicalErrorType::UnicodeError, start_pos))
     }
 
