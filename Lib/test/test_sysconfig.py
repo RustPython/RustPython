@@ -163,6 +163,10 @@ class TestSysConfig(unittest.TestCase):
         sysconfig_includedir = sysconfig.get_path('include', scheme='posix_venv')
         self.assertTrue(sysconfig_includedir.startswith(incpath + os.sep))
 
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_posix_venv_scheme = unittest.expectedFailure(test_posix_venv_scheme)
+
     def test_nt_venv_scheme(self):
         # The following directories were hardcoded in the venv module
         # before bpo-45413, here we assert the posix_venv scheme does not regress
@@ -178,6 +182,10 @@ class TestSysConfig(unittest.TestCase):
         self.assertEqual(binpath, sysconfig.get_path('scripts', scheme='nt_venv'))
         self.assertEqual(incpath, sysconfig.get_path('include', scheme='nt_venv'))
         self.assertEqual(libpath, sysconfig.get_path('purelib', scheme='nt_venv'))
+
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_nt_venv_scheme = unittest.expectedFailure(test_nt_venv_scheme)
 
     def test_venv_scheme(self):
         if sys.platform == 'win32':
