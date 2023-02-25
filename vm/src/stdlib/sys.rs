@@ -60,6 +60,8 @@ mod sys {
                 "darwin"
             } else if #[cfg(windows)] {
                 "win32"
+            } else if #[cfg(target_os = "wasi")] {
+                "wasi"
             } else {
                 "unknown"
             }
