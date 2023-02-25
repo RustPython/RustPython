@@ -132,7 +132,7 @@ mod _locale {
                     Some(l) => {
                         let mut l_str = l.to_string();
                         if l_str.is_empty() {
-                            l_str.push_str("\0");
+                            l_str.push('\0');
                         }
                         let l_ptr = l_str.as_ptr() as *const i8;
                         libc::setlocale(args.category, l_ptr)
