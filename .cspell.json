@@ -65,6 +65,7 @@
     "PYTHONWARNINGS",
     "basicsize",
     "itemsize",
+    "origname",
     "getattro",
     "setattro",
     "iternext",

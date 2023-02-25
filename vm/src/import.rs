@@ -21,11 +21,11 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
     import_builtin(vm, "_weakref")?;
 
     let importlib = thread::enter_vm(vm, || {
-        let importlib = import_frozen(vm, "_frozen_importlib")?;
-        let impmod = import_builtin(vm, "_imp")?;
-        let install = importlib.get_attr("_install", vm)?;
-        vm.invoke(&install, (vm.sys_module.clone(), impmod))?;
-        Ok(importlib)
+        let bootstrap = import_frozen(vm, "_frozen_importlib")?;
+        let install = bootstrap.get_attr("_install", vm)?;
+        let imp = import_builtin(vm, "_imp")?;
+        vm.invoke(&install, (vm.sys_module.clone(), imp))?;
+        Ok(bootstrap)
     })?;
     vm.import_func = importlib.get_attr(identifier!(vm, __import__).to_owned(), vm)?;
     Ok(importlib)
@@ -81,7 +81,12 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    make_frozen(vm, module_name).and_then(|frozen| import_codeobj(vm, module_name, frozen, false))
+    make_frozen(vm, module_name).and_then(|frozen| {
+        let module = import_codeobj(vm, module_name, frozen, false)?;
+        // TODO: give a correct origname here
+        module.set_attr("__origname__", vm.ctx.new_str(module_name.to_owned()), vm)?;
+        Ok(module)
+    })
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
