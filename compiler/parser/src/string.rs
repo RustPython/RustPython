@@ -1060,7 +1060,8 @@ mod tests {
             #[test]
             fn $name() {
                 let source = format!(r#""\N{{{0}}}""#, $alias);
-                let _ = parse_program(&source, "<test>").unwrap();
+                let parse_ast = parse_program(&source, "<test>").unwrap();
+                insta::assert_debug_snapshot!(parse_ast);
             }
         )*
         }
@@ -1068,7 +1069,7 @@ mod tests {
 
     test_aliases_parse! {
         test_backspace_alias: "BACKSPACE",
-        test_bell_alias: "BELL",
+    test_bell_alias: "BEL",
         test_carriage_return_alias: "CARRIAGE RETURN",
         test_delete_alias: "DELETE",
         test_escape_alias: "ESCAPE",
