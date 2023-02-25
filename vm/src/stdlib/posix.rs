@@ -1881,8 +1881,6 @@ pub mod module {
         pathconf(PathOrFd::Fd(fd), name, vm)
     }
 
-    // TODO: this is expected to be run on macOS as a unix, but somehow not.
-    #[cfg(target_os = "linux")]
     #[pyattr]
     fn pathconf_names(vm: &VirtualMachine) -> PyDictRef {
         use strum::IntoEnumIterator;
