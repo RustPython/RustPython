@@ -814,6 +814,8 @@ mod sys {
     pub(super) struct PyIntInfo {
         bits_per_digit: usize,
         sizeof_digit: usize,
+        default_max_str_digits: usize,
+        str_digits_check_threshold: usize,
     }
 
     #[pyclass(with(PyStructSequence))]
@@ -821,6 +823,8 @@ mod sys {
         const INFO: Self = PyIntInfo {
             bits_per_digit: 30, //?
             sizeof_digit: std::mem::size_of::<u32>(),
+            default_max_str_digits: 4300,
+            str_digits_check_threshold: 640,
         };
     }
 
