@@ -69,6 +69,9 @@ mod sys {
     const PS1: &str = ">>>>> ";
     #[pyattr(name = "ps2")]
     const PS2: &str = "..... ";
+    #[cfg(windows)]
+    #[pyattr(name = "_vpath")]
+    const VPATH: Option<&'static str> = None; // TODO: actual VPATH value
 
     #[pyattr]
     fn default_prefix(_vm: &VirtualMachine) -> &'static str {
@@ -684,6 +687,10 @@ mod sys {
         dev_mode: bool,
         /// -X utf8
         utf8_mode: u8,
+        /// -X int_max_str_digits=number
+        int_max_str_digits: i8,
+        /// -P, `PYTHONSAFEPATH`
+        safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
         warn_default_encoding: u8,
     }
@@ -707,6 +714,8 @@ mod sys {
                 isolated: settings.isolated as u8,
                 dev_mode: settings.dev_mode,
                 utf8_mode: 1,
+                int_max_str_digits: -1,
+                safe_path: false,
                 warn_default_encoding: settings.warn_default_encoding as u8,
             }
         }
@@ -808,6 +817,8 @@ mod sys {
     pub(super) struct PyIntInfo {
         bits_per_digit: usize,
         sizeof_digit: usize,
+        default_max_str_digits: usize,
+        str_digits_check_threshold: usize,
     }
 
     #[pyclass(with(PyStructSequence))]
@@ -815,6 +826,8 @@ mod sys {
         const INFO: Self = PyIntInfo {
             bits_per_digit: 30, //?
             sizeof_digit: std::mem::size_of::<u32>(),
+            default_max_str_digits: 4300,
+            str_digits_check_threshold: 640,
         };
     }
 
