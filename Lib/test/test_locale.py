@@ -506,8 +506,6 @@ class NormalizeTest(unittest.TestCase):
 
 
 class TestMiscellaneous(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_defaults_UTF8(self):
         # Issue #18378: on (at least) macOS setting LC_CTYPE to "UTF-8" is
         # valid. Furthermore LC_CTYPE=UTF is used by the UTF-8 locale coercing

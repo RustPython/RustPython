@@ -139,7 +139,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_posixsubprocess" => posixsubprocess::make_module,
             "syslog" => syslog::make_module,
             "mmap" => mmap::make_module,
-            "_locale" => locale::make_module,
         }
         #[cfg(all(unix, not(target_os = "redox")))]
         {
@@ -160,6 +159,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32")))]
         {
             "_uuid" => uuid::make_module,
+        }
+        #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+        {
+            "_locale" => locale::make_module,
         }
     }
 }

@@ -1,7 +1,7 @@
-#[cfg(unix)]
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 pub(crate) use _locale::make_module;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 #[pymodule]
 mod _locale {
     use rustpython_vm::{
@@ -37,6 +37,10 @@ mod _locale {
             group_vec.push(val.into());
             ptr = ptr.offset(1);
         }
+        // https://github.com/python/cpython/blob/677320348728ce058fa3579017e985af74a236d4/Modules/_localemodule.c#L80
+        if group_vec.len() > 0 {
+            group_vec.push(vm.ctx.new_int(0i32).into());
+        }
         vm.ctx.new_list(group_vec)
     }
 
@@ -49,11 +53,11 @@ mod _locale {
         Ok(vm.new_pyobj(cstr))
     }
 
-    #[pyattr(name = "Error")]
+    #[pyattr(name = "Error", once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
             "locale",
-            "locale.Error",
+            "Error",
             Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
         )
     }
