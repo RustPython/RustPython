@@ -38,7 +38,7 @@ mod _locale {
             ptr = ptr.offset(1);
         }
         // https://github.com/python/cpython/blob/677320348728ce058fa3579017e985af74a236d4/Modules/_localemodule.c#L80
-        if group_vec.len() > 0 {
+        if !group_vec.is_empty() {
             group_vec.push(vm.ctx.new_int(0i32).into());
         }
         vm.ctx.new_list(group_vec)
