@@ -13,6 +13,10 @@ use itertools::Itertools;
 
 // unicode_name2 does not expose `MAX_NAME_LENGTH`, so we replicate that constant here, fix #3798
 const MAX_UNICODE_NAME: usize = 88;
+// generated in build.rs, in gen_unicode_aliases()
+/// A map of unicode aliases to their corresponding values.
+pub static ALIASES: phf::Map<&'static str, char> =
+    include!(concat!(env!("OUT_DIR"), "/aliases.rs"));
 
 struct StringParser<'a> {
     chars: std::iter::Peekable<std::str::Chars<'a>>,
@@ -129,6 +133,7 @@ impl<'a> StringParser<'a> {
         }
 
         unicode_names2::character(&name)
+            .or_else(|| ALIASES.get(&name).copied())
             .ok_or_else(|| LexicalError::new(LexicalErrorType::UnicodeError, start_pos))
     }
 
@@ -1047,5 +1052,28 @@ mod tests {
 {x}""#;
         let parse_ast = parse_program(source, "<test>").unwrap();
         insta::assert_debug_snapshot!(parse_ast);
+    }
+
+    macro_rules! test_aliases_parse {
+        ($($name:ident: $alias:expr,)*) => {
+        $(
+            #[test]
+            fn $name() {
+                let source = format!(r#""\N{{{0}}}""#, $alias);
+                let _ = parse_program(&source, "<test>").unwrap();
+            }
+        )*
+        }
+    }
+
+    test_aliases_parse! {
+        test_backspace_alias: "BACKSPACE",
+        test_bell_alias: "BELL",
+        test_carriage_return_alias: "CARRIAGE RETURN",
+        test_delete_alias: "DELETE",
+        test_escape_alias: "ESCAPE",
+        test_form_feed_alias: "FORM FEED",
+        test_hts_alias: "HTS",
+        test_character_tabulation_with_justification_alias: "CHARACTER TABULATION WITH JUSTIFICATION",
     }
 }
