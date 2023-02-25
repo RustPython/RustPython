@@ -51,7 +51,7 @@ pub mod module {
         fs, io,
         os::unix::{ffi as ffi_ext, io::RawFd},
     };
-    use strum_macros::{EnumString, EnumVariantNames};
+    use strum_macros::{EnumIter, EnumString};
 
     #[pyattr]
     use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
@@ -1681,7 +1681,7 @@ pub mod module {
 
     // Copy from [nix::unistd::PathconfVar](https://docs.rs/nix/0.21.0/nix/unistd/enum.PathconfVar.html)
     // Change enum name to fit python doc
-    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, EnumString, EnumVariantNames)]
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, EnumIter, EnumString)]
     #[repr(i32)]
     #[allow(non_camel_case_types)]
     pub enum PathconfVar {
@@ -1885,18 +1885,16 @@ pub mod module {
     #[cfg(target_os = "linux")]
     #[pyattr]
     fn pathconf_names(vm: &VirtualMachine) -> PyDictRef {
-        use std::str::FromStr;
-        use strum::VariantNames;
+        use strum::IntoEnumIterator;
         let pathname = vm.ctx.new_dict();
-        for variant in PathconfVar::VARIANTS {
+        for variant in PathconfVar::iter() {
             // get the name of variant as a string to use as the dictionary key
-            let key = vm.ctx.new_str(variant.to_string());
+            let key = vm.ctx.new_str(format!("{:?}", variant));
             // get the enum from the string and convert it to an integer for the dictionary value
-            let value: PyObjectRef = vm
-                .ctx
-                .new_int(PathconfVar::from_str(variant).unwrap() as u8)
-                .into();
-            pathname.set_item(&*key, value, vm).unwrap();
+            let value = vm.ctx.new_int(variant as u8);
+            pathname
+                .set_item(&*key, value.into(), vm)
+                .expect("dict set_item unexpectedly failed");
         }
         pathname
     }
