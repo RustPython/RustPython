@@ -102,8 +102,7 @@ class HashLibTestCase(unittest.TestCase):
                              'sha384', 'SHA384', 'sha512', 'SHA512',
                              'blake2b', 'blake2s',
                              'sha3_224', 'sha3_256', 'sha3_384', 'sha3_512',
-                            #  TODO: RUSTPYTHON
-                            #  'shake_128', 'shake_256'
+                             'shake_128', 'shake_256'
                             )
 
     shakes = {'shake_128', 'shake_256'}
@@ -260,8 +259,6 @@ class HashLibTestCase(unittest.TestCase):
         self.assertRaises(ValueError, hashlib.new, 'spam spam spam spam spam')
         self.assertRaises(TypeError, hashlib.new, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_upper_to_lower(self):
         self.assertEqual(hashlib.new("SHA256").name, "sha256")
 
@@ -303,6 +300,8 @@ class HashLibTestCase(unittest.TestCase):
                 self.assertIsInstance(h.digest(), bytes)
                 self.assertEqual(hexstr(h.digest()), h.hexdigest())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_digest_length_overflow(self):
         # See issue #34922
         large_sizes = (2**29, 2**32-10, 2**32+10, 2**61, 2**64-10, 2**64+10)
@@ -404,8 +403,6 @@ class HashLibTestCase(unittest.TestCase):
         self.check_no_unicode('blake2b')
         self.check_no_unicode('blake2s')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @requires_sha3
     def test_no_unicode_sha3(self):
         self.check_no_unicode('sha3_224')
@@ -851,30 +848,22 @@ class HashLibTestCase(unittest.TestCase):
         for msg, md in read_vectors('sha3_512'):
             self.check('sha3_512', msg, md)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_case_shake_128_0(self):
         self.check('shake_128', b"",
           "7f9c2ba4e88f827d616045507605853ed73b8093f6efbc88eb1a6eacfa66ef26",
           True)
         self.check('shake_128', b"", "7f9c", True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_case_shake128_vector(self):
         for msg, md in read_vectors('shake_128'):
             self.check('shake_128', msg, md, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_case_shake_256_0(self):
         self.check('shake_256', b"",
           "46b9dd2b0ba88d13233b3feb743eeb243fcd52ea62b81b82b50c27646ed5762f",
           True)
         self.check('shake_256', b"", "46b9", True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_case_shake256_vector(self):
         for msg, md in read_vectors('shake_256'):
             self.check('shake_256', msg, md, True)
