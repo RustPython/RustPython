@@ -155,8 +155,6 @@ class BinASCIITest(unittest.TestCase):
         assertDiscontinuousPadding(b'ab=c=', b'i\xb7')
         assertDiscontinuousPadding(b'ab=ab==', b'i\xb6\x9b')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_base64errors(self):
         # Test base64 with invalid padding
         def assertIncorrectPadding(data):

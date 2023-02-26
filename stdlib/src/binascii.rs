@@ -203,7 +203,7 @@ mod decl {
                     if quad_pos >= 2 && quad_pos + pads >= 4 {
                         if strict_mode && i + 1 < b.len() {
                             // Represents excess data after padding error
-                            return Err(base64::DecodeError::InvalidLastSymbol(i, el));
+                            return Err(base64::DecodeError::InvalidLastSymbol(i, PAD));
                         }
 
                         return Ok(decoded);
@@ -246,18 +246,11 @@ mod decl {
                 }
             }
 
-            if quad_pos == 1 {
-                // Ensure that a PAD never gets passed, since that'd mistakenly cause an excess
-                // data after padding error
-                return Err(base64::DecodeError::InvalidLastSymbol(
-                    decoded.len() / 3 * 4 + 1,
-                    0,
-                ));
-            } else if quad_pos > 1 {
-                return Err(base64::DecodeError::InvalidLength);
-            }
-
-            Ok(decoded)
+            return match quad_pos {
+                0 => Ok(decoded),
+                1 => Err(base64::DecodeError::InvalidLastSymbol(decoded.len() / 3 * 4 + 1, 0)),
+                _ => Err(base64::DecodeError::InvalidLength)
+            };
         })
         .map_err(|err| {
             let python_error = match err {
@@ -270,10 +263,13 @@ mod decl {
                 base64::DecodeError::InvalidByte(_, _) => {
                     String::from("Only base64 data is allowed")
                 }
-                base64::DecodeError::InvalidLastSymbol(_, _) => {
+                base64::DecodeError::InvalidLastSymbol(_, PAD) => {
                     String::from("Excess data after padding")
                 }
-                base64::DecodeError::InvalidLength => String::from("Not implemented (yet)"),
+                base64::DecodeError::InvalidLastSymbol(length, _) => {
+                    format!("Invalid base64-encoded string: number of data characters {} cannot be 1 more than a multiple of 4", length)
+                }
+                base64::DecodeError::InvalidLength => String::from("Incorrect padding"),
             };
 
             new_binascii_error(format!("error decoding base64: {python_error}"), vm)
