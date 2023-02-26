@@ -213,9 +213,9 @@ mod array {
                         $(ArrayContentType::$n(v) => {
                             // safe because every configuration of bytes for the types we
                             // support are valid
-                            let ptr = b.as_ptr() as *const $t;
-                            let ptr_len = b.len() / std::mem::size_of::<$t>();
-                            if ptr_len > 0 {
+                            if b.len() > 0 {
+                                let ptr = b.as_ptr() as *const $t;
+                                let ptr_len = b.len() / std::mem::size_of::<$t>();
                                 let slice = unsafe { std::slice::from_raw_parts(ptr, ptr_len) };
                                 v.extend_from_slice(slice);
                             }
