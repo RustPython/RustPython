@@ -31,8 +31,6 @@ class TestSpecifics(unittest.TestCase):
         compile("hi\r\nstuff\r\ndef f():\n    pass\r", "<test>", "exec")
         compile("this_is\rreally_old_mac\rdef f():\n    pass", "<test>", "exec")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_debug_assignment(self):
         # catch assignments to __debug__
         self.assertRaises(SyntaxError, compile, '__debug__ = 1', '?', 'single')
