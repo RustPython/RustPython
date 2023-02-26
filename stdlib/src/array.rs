@@ -215,8 +215,10 @@ mod array {
                             // support are valid
                             let ptr = b.as_ptr() as *const $t;
                             let ptr_len = b.len() / std::mem::size_of::<$t>();
-                            let slice = unsafe { std::slice::from_raw_parts(ptr, ptr_len) };
-                            v.extend_from_slice(slice);
+                            if ptr_len > 0 {
+                                let slice = unsafe { std::slice::from_raw_parts(ptr, ptr_len) };
+                                v.extend_from_slice(slice);
+                            }
                         })*
                     }
                 }
