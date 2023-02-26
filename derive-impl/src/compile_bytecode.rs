@@ -167,6 +167,7 @@ impl CompilationSource {
             } else if file_name.ends_with(".py") {
                 let stem = path.file_stem().unwrap().to_str().unwrap();
                 let is_init = stem == "__init__";
+                let is_main = stem == "__main__";
                 let module_name = if is_init {
                     parent.clone()
                 } else if parent.is_empty() {
@@ -215,6 +216,16 @@ impl CompilationSource {
                     Err(e) => return Err(e),
                 };
 
+                if is_main && !code_map.contains_key(&parent) {
+                    // FIXME: the parent module doesn't need to be a full module copy.
+                    code_map.insert(
+                        parent.clone(),
+                        FrozenModule {
+                            code: code.clone(),
+                            package: true,
+                        },
+                    );
+                }
                 code_map.insert(
                     module_name,
                     FrozenModule {
