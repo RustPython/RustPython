@@ -9,7 +9,7 @@ A Python-3 (CPython >= 3.11.0) Interpreter written in Rust :snake: :scream:
 [![codecov](https://codecov.io/gh/RustPython/RustPython/branch/main/graph/badge.svg)](https://codecov.io/gh/RustPython/RustPython)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Contributors](https://img.shields.io/github/contributors/RustPython/RustPython.svg)](https://github.com/RustPython/RustPython/graphs/contributors)
-![Discord Shield](https://discordapp.com/api/guilds/1043121930691149845/widget.png?style=shield)
+[![Discord Shield](https://discordapp.com/api/guilds/1043121930691149845/widget.png?style=shield)][discord]
 [![docs.rs](https://docs.rs/rustpython/badge.svg)](https://docs.rs/rustpython/)
 [![Crates.io](https://img.shields.io/crates/v/rustpython)](https://crates.io/crates/rustpython)
 [![dependency status](https://deps.rs/crate/rustpython/0.1.1/status.svg)](https://deps.rs/crate/rustpython/0.1.1)
@@ -231,7 +231,7 @@ method.
 
 ## Community
 
-![Discord Banner](https://discordapp.com/api/guilds/1043121930691149845/widget.png?style=banner2)
+[![Discord Banner](https://discordapp.com/api/guilds/1043121930691149845/widget.png?style=banner2)][discord]
 
 Chat with us on [Discord][discord].
 

@@ -19,6 +19,8 @@ from test.support.import_helper import forget
 from test.support.os_helper import (TESTFN, unlink, rmtree)
 from test.support import script_helper, threading_helper
 
+threading_helper.requires_working_threading(module=True)
+
 def task(N, done, done_tasks, errors):
     try:
         # We don't use modulefinder but still import it in order to stress
@@ -156,7 +158,7 @@ class ThreadedImportTests(unittest.TestCase):
         finally:
             sys.meta_path.remove(finder)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON; maybe hang?
     @unittest.expectedFailure
     def test_parallel_path_hooks(self):
         # Here the Finder instance is only used to check concurrent calls

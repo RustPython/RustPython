@@ -500,6 +500,14 @@ impl Compiler {
             // // TODO: is this right?
             // SymbolScope::Unknown => NameOpType::Global,
         };
+
+        if NameUsage::Load == usage && name == "__debug__" {
+            self.emit_constant(ConstantData::Boolean {
+                value: self.opts.optimize == 0,
+            });
+            return Ok(());
+        }
+
         let mut idx = cache
             .get_index_of(name.as_ref())
             .unwrap_or_else(|| cache.insert_full(name.into_owned()).0);
