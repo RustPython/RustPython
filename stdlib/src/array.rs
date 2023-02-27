@@ -1320,9 +1320,10 @@ mod array {
             static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
                 length: atomic_func!(|seq, _vm| Ok(PyArray::sequence_downcast(seq).len())),
                 concat: atomic_func!(|seq, other, vm| {
-                    PyArray::sequence_downcast(seq)
-                        .concat(other, vm)
-                        .map(|x| x.into())
+                    let zelf = PyArray::sequence_downcast(seq);
+                    let mut objects = zelf.read().get_objects(vm).to_owned();
+                    objects.push(other.to_owned().into());
+                    Ok(vm.new_pyobj(objects))
                 }),
                 repeat: atomic_func!(|seq, n, vm| {
                     PyArray::sequence_downcast(seq).mul(n, vm).map(|x| x.into())
@@ -1333,23 +1334,22 @@ mod array {
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
                     if let Some(value) = value {
-                        zelf.read().setitem_by_index(vm, i, value)
+                        zelf.write().setitem_by_index(i, value, vm)
                     } else {
-                        zelf.read().delitem_by_index(vm, i)
+                        zelf.write().delitem_by_index(i, vm)
                     }
                 }),
                 contains: atomic_func!(|seq, target, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
-                    zelf.contains(vm, target)
+                    Ok(zelf.contains(target.to_owned().into(), vm))
                 }),
                 inplace_concat: atomic_func!(|seq, other, vm| {
-                    let zelf = PyArray::sequence_downcast(seq);
-                    PyArray::inplace_concat(zelf, other, vm)
+                    let zelf = PyArray::sequence_downcast(seq).to_owned();
+                    PyArray::iadd(zelf, other.to_owned().into(), vm).map(|x| x.into())
                 }),
                 inplace_repeat: atomic_func!(|seq, n, vm| {
-                    let zelf = PyArray::sequence_downcast(seq);
-                    zelf.read().imul(n, vm)?;
-                    Ok(zelf.to_owned().into())
+                    let zelf = PyArray::sequence_downcast(seq).to_owned();
+                    PyArray::imul(zelf, n, vm).map(|x| x.into())
                 }),
             };
             &AS_SEQUENCE
