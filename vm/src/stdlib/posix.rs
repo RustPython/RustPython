@@ -1856,6 +1856,7 @@ pub mod module {
         use nix::errno::{self, Errno};
 
         Errno::clear();
+        debug_assert_eq!(errno::errno(), 0);
         let raw = match path {
             PathOrFd::Path(path) => {
                 let path = CString::new(path.into_bytes())
