@@ -16,8 +16,8 @@ use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
 use rustpython_compiler_core::{
-    self as bytecode, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, Location, NameIdx,
-    OpArg, OpArgType,
+    self as bytecode, Arg as OpArgMarker, CodeObject, CodeObjectInner, ConstantData, Instruction,
+    Location, NameIdx, OpArg, OpArgType,
 };
 use std::borrow::Cow;
 
@@ -1243,7 +1243,7 @@ impl Compiler {
         self.store_name(name)
     }
 
-    fn build_closure(&mut self, code: &CodeObject) -> bool {
+    fn build_closure(&mut self, code: &CodeObjectInner) -> bool {
         if code.freevars.is_empty() {
             return false;
         }

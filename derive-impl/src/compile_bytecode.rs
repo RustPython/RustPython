@@ -8,7 +8,7 @@
 //!
 //!     // the mode to compile the code in
 //!     mode = "exec", // or "eval" or "single"
-//!     // the path put into the CodeObject, defaults to "frozen"
+//!     // the path put into the CodeObjectInner, defaults to "frozen"
 //!     module_name = "frozen",
 //! )
 //! ```
@@ -373,8 +373,13 @@ pub fn impl_py_compile(
     let bytes = LitByteStr::new(&bytes, Span::call_site());
 
     let output = quote! {
-        #crate_name::CodeObject::from_bytes(#bytes)
-            .expect("Deserializing CodeObject failed")
+        unsafe {
+            // SAFETY: we just deserialized from a serialized CodeObject
+            #crate_name::CodeObject::new(
+                #crate_name::CodeObjectInner::from_bytes(#bytes)
+                    .expect("Deserializing CodeObjectInner failed")
+            )
+        }
     };
 
     Ok(output)
@@ -395,7 +400,8 @@ pub fn impl_py_freeze(
     let bytes = LitByteStr::new(&data, Span::call_site());
 
     let output = quote! {
-        #crate_name::frozen_lib::decode_lib(#bytes)
+        // SAFETY: we just deserialized from a serialized CodeObject
+        unsafe { #crate_name::frozen_lib::decode_lib(#bytes) }
     };
 
     Ok(output)

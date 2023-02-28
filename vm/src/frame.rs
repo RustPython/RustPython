@@ -739,7 +739,7 @@ impl ExecutingFrame<'_> {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
                 let list: &Py<PyList> = unsafe {
-                    // SAFETY: trust compiler
+                    // SAFETY: invariants of CodeObject
                     obj.downcast_unchecked_ref()
                 };
                 list.append(item);
@@ -749,7 +749,7 @@ impl ExecutingFrame<'_> {
                 let item = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
                 let set: &Py<PySet> = unsafe {
-                    // SAFETY: trust compiler
+                    // SAFETY: invariants of CodeObject
                     obj.downcast_unchecked_ref()
                 };
                 set.add(item, vm)?;
@@ -760,7 +760,7 @@ impl ExecutingFrame<'_> {
                 let key = self.pop_value();
                 let obj = self.nth_value(i.get(arg));
                 let dict: &Py<PyDict> = unsafe {
-                    // SAFETY: trust compiler
+                    // SAFETY: invariants of CodeObject
                     obj.downcast_unchecked_ref()
                 };
                 dict.set_item(&*key, value, vm)?;
