@@ -565,7 +565,6 @@ class TestMiscellaneous(unittest.TestCase):
             # If encoding non-empty, make sure it is valid
             codecs.lookup(enc)
 
-    @unittest.skip("TODO: RustPython strcoll has not been implemented")
     def test_strcoll_3303(self):
         # test crasher from bug #3303
         self.assertRaises(TypeError, locale.strcoll, "a", None)
