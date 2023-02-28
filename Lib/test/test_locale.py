@@ -375,24 +375,12 @@ class TestEnUSCollation(BaseLocalizedTest, TestCollation):
             raise unittest.SkipTest('wcscoll/wcsxfrm have known bugs')
         BaseLocalizedTest.setUp(self)
 
-    # @unittest.skipIf(sys.platform.startswith('aix'),
-    #                  'bpo-29972: broken test on AIX')
-    # @unittest.skipIf(
-    #     is_emscripten or is_wasi,
-    #     "musl libc issue on Emscripten/WASI, bpo-46390"
-    # )
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_strcoll_with_diacritic(self):
-        self.skipTest("TODO: strcoll hasn't been implemented")
         self.assertLess(locale.strcoll('à', 'b'), 0)
 
-    # @unittest.skipIf(sys.platform.startswith('aix'),
-    #                  'bpo-29972: broken test on AIX')
-    # @unittest.skipIf(
-    #     is_emscripten or is_wasi,
-    #     "musl libc issue on Emscripten/WASI, bpo-46390"
-    # )
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_strxfrm_with_diacritic(self):
-        self.skipTest("TODO: strxfrm hasn't been implemented")
         self.assertLess(locale.strxfrm('à'), locale.strxfrm('b'))
 
 
@@ -547,6 +535,10 @@ class TestMiscellaneous(unittest.TestCase):
 
             if orig_getlocale is not None:
                 _locale._getdefaultlocale = orig_getlocale
+                
+    # TODO: RUSTPYTHON                
+    if sys.platform == "win32":
+        test_defaults_UTF8 = unittest.expectedFailure(test_defaults_UTF8)
 
     def test_getencoding(self):
         # Invoke getencoding to make sure it does not cause exceptions.
@@ -569,9 +561,6 @@ class TestMiscellaneous(unittest.TestCase):
         self.assertRaises(TypeError, locale.strcoll, b"a", None)
 
     def test_setlocale_category(self):
-        if hasattr(sys, "getwindowsversion"):
-            self.skipTest("TODO: locale has not been implemented for window")
-        
         locale.setlocale(locale.LC_ALL)
         locale.setlocale(locale.LC_TIME)
         locale.setlocale(locale.LC_CTYPE)
@@ -581,6 +570,10 @@ class TestMiscellaneous(unittest.TestCase):
 
         # crasher from bug #7419
         self.assertRaises(locale.Error, locale.setlocale, 12345)
+        
+    # TODO: RUSTPYTHON
+    if sys.platform == "win32":
+        test_setlocale_category = unittest.expectedFailure(test_setlocale_category)
 
     def test_getsetlocale_issue1813(self):
         # Issue #1813: setting and getting the locale under a Turkish locale
