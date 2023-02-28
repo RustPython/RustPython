@@ -517,7 +517,7 @@ impl FormatSpec {
         } else {
             ""
         };
-        let raw_magnitude_str: Result<String, FormatSpecError> = match self.format_type {
+        let raw_magnitude_str = match self.format_type {
             Some(FormatType::Binary) => self.format_int_radix(magnitude, 2),
             Some(FormatType::Decimal) => self.format_int_radix(magnitude, 10),
             Some(FormatType::Octal) => self.format_int_radix(magnitude, 8),
@@ -548,7 +548,7 @@ impl FormatSpec {
                 _ => Err(FormatSpecError::UnableToConvert),
             },
             None => self.format_int_radix(magnitude, 10),
-        };
+        }?;
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
         let sign_str = match num.sign() {
             Sign::Minus => "-",
@@ -559,7 +559,7 @@ impl FormatSpec {
             },
         };
         let sign_prefix = format!("{sign_str}{prefix}");
-        let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, &sign_prefix);
+        let magnitude_str = self.add_magnitude_separators(raw_magnitude_str, &sign_prefix);
         self.format_sign_and_align(
             &BorrowedStr::from_bytes(magnitude_str.as_bytes()),
             &sign_prefix,
