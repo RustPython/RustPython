@@ -375,10 +375,22 @@ class TestEnUSCollation(BaseLocalizedTest, TestCollation):
             raise unittest.SkipTest('wcscoll/wcsxfrm have known bugs')
         BaseLocalizedTest.setUp(self)
 
+    @unittest.skipIf(sys.platform.startswith('aix'),
+                     'bpo-29972: broken test on AIX')
+    @unittest.skipIf(
+        is_emscripten or is_wasi,
+        "musl libc issue on Emscripten/WASI, bpo-46390"
+    )
     @unittest.skip("TODO: RUSTPYTHON")
     def test_strcoll_with_diacritic(self):
         self.assertLess(locale.strcoll('à', 'b'), 0)
 
+    @unittest.skipIf(sys.platform.startswith('aix'),
+                     'bpo-29972: broken test on AIX')
+    @unittest.skipIf(
+        is_emscripten or is_wasi,
+        "musl libc issue on Emscripten/WASI, bpo-46390"
+    )
     @unittest.skip("TODO: RUSTPYTHON")
     def test_strxfrm_with_diacritic(self):
         self.assertLess(locale.strxfrm('à'), locale.strxfrm('b'))
@@ -500,8 +512,6 @@ class TestMiscellaneous(unittest.TestCase):
         # Issue #18378: on (at least) macOS setting LC_CTYPE to "UTF-8" is
         # valid. Furthermore LC_CTYPE=UTF is used by the UTF-8 locale coercing
         # during interpreter startup (on macOS).
-        if hasattr(sys, 'getwindowsversion'):
-            self.skipTest("TODO: _locale has not been implemented for window")
             
         import _locale
         import os
@@ -555,6 +565,7 @@ class TestMiscellaneous(unittest.TestCase):
             # If encoding non-empty, make sure it is valid
             codecs.lookup(enc)
 
+    @unittest.skip("TODO: RustPython strcoll has not been implemented")
     def test_strcoll_3303(self):
         # test crasher from bug #3303
         self.assertRaises(TypeError, locale.strcoll, "a", None)
