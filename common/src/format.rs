@@ -12,43 +12,43 @@ trait FormatParse {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum FormatPreconversor {
+pub enum FormatConversion {
     Str,
     Repr,
     Ascii,
     Bytes,
 }
 
-impl FormatParse for FormatPreconversor {
+impl FormatParse for FormatConversion {
     fn parse(text: &str) -> (Option<Self>, &str) {
-        let Some(preconversor) = Self::from_string(text) else {
+        let Some(conversion) = Self::from_string(text) else {
             return (None, text);
         };
         let mut chars = text.chars();
         chars.next(); // Consume the bang
         chars.next(); // Consume one r,s,a char
-        (Some(preconversor), chars.as_str())
+        (Some(conversion), chars.as_str())
     }
 }
 
-impl FormatPreconversor {
-    pub fn from_char(c: char) -> Option<FormatPreconversor> {
+impl FormatConversion {
+    pub fn from_char(c: char) -> Option<FormatConversion> {
         match c {
-            's' => Some(FormatPreconversor::Str),
-            'r' => Some(FormatPreconversor::Repr),
-            'a' => Some(FormatPreconversor::Ascii),
-            'b' => Some(FormatPreconversor::Bytes),
+            's' => Some(FormatConversion::Str),
+            'r' => Some(FormatConversion::Repr),
+            'a' => Some(FormatConversion::Ascii),
+            'b' => Some(FormatConversion::Bytes),
             _ => None,
         }
     }
 
-    fn from_string(text: &str) -> Option<FormatPreconversor> {
+    fn from_string(text: &str) -> Option<FormatConversion> {
         let mut chars = text.chars();
         if chars.next() != Some('!') {
             return None;
         }
 
-        FormatPreconversor::from_char(chars.next()?)
+        FormatConversion::from_char(chars.next()?)
     }
 }
 
@@ -182,7 +182,7 @@ impl FormatParse for FormatType {
 
 #[derive(Debug, PartialEq)]
 pub struct FormatSpec {
-    preconversor: Option<FormatPreconversor>,
+    conversion: Option<FormatConversion>,
     fill: Option<char>,
     align: Option<FormatAlign>,
     sign: Option<FormatSign>,
@@ -270,7 +270,7 @@ fn parse_precision(text: &str) -> Result<(Option<usize>, &str), FormatSpecError>
 impl FormatSpec {
     pub fn parse(text: &str) -> Result<Self, FormatSpecError> {
         // get_integer in CPython
-        let (preconversor, text) = FormatPreconversor::parse(text);
+        let (conversion, text) = FormatConversion::parse(text);
         let (mut fill, mut align, text) = parse_fill_and_align(text);
         let (sign, text) = FormatSign::parse(text);
         let (alternate_form, text) = parse_alternate_form(text);
@@ -289,7 +289,7 @@ impl FormatSpec {
         }
 
         Ok(FormatSpec {
-            preconversor,
+            conversion,
             fill,
             align,
             sign,
@@ -752,7 +752,7 @@ impl FieldName {
 pub enum FormatPart {
     Field {
         field_name: String,
-        preconversion_spec: Option<char>,
+        conversion_spec: Option<char>,
         format_spec: String,
     },
     Literal(String),
@@ -813,12 +813,12 @@ impl FormatString {
             String::new()
         };
 
-        // On parts[0] can still be the preconversor (!r, !s, !a)
+        // On parts[0] can still be the conversion (!r, !s, !a)
         let parts: Vec<&str> = arg_part.splitn(2, '!').collect();
-        // before the bang is a keyword or arg index, after the comma is maybe a conversor spec.
+        // before the bang is a keyword or arg index, after the comma is maybe a conversion spec.
         let arg_part = parts[0];
 
-        let preconversion_spec = parts
+        let conversion_spec = parts
             .get(1)
             .map(|conversion| {
                 // conversions are only every one character
@@ -831,7 +831,7 @@ impl FormatString {
 
         Ok(FormatPart::Field {
             field_name: arg_part.to_owned(),
-            preconversion_spec,
+            conversion_spec,
             format_spec,
         })
     }
@@ -936,7 +936,7 @@ mod tests {
     #[test]
     fn test_width_only() {
         let expected = Ok(FormatSpec {
-            preconversor: None,
+            conversion: None,
             fill: None,
             align: None,
             sign: None,
@@ -952,7 +952,7 @@ mod tests {
     #[test]
     fn test_fill_and_width() {
         let expected = Ok(FormatSpec {
-            preconversor: None,
+            conversion: None,
             fill: Some('<'),
             align: Some(FormatAlign::Right),
             sign: None,
@@ -968,7 +968,7 @@ mod tests {
     #[test]
     fn test_all() {
         let expected = Ok(FormatSpec {
-            preconversor: None,
+            conversion: None,
             fill: Some('<'),
             align: Some(FormatAlign::Right),
             sign: Some(FormatSign::Minus),
@@ -1034,13 +1034,13 @@ mod tests {
                 FormatPart::Literal("abcd".to_owned()),
                 FormatPart::Field {
                     field_name: "1".to_owned(),
-                    preconversion_spec: None,
+                    conversion_spec: None,
                     format_spec: String::new(),
                 },
                 FormatPart::Literal(":".to_owned()),
                 FormatPart::Field {
                     field_name: "key".to_owned(),
-                    preconversion_spec: None,
+                    conversion_spec: None,
                     format_spec: String::new(),
                 },
             ],
@@ -1069,7 +1069,7 @@ mod tests {
                 FormatPart::Literal("{".to_owned()),
                 FormatPart::Field {
                     field_name: "key".to_owned(),
-                    preconversion_spec: None,
+                    conversion_spec: None,
                     format_spec: String::new(),
                 },
                 FormatPart::Literal("}ddfe".to_owned()),

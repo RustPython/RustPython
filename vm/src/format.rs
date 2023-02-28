@@ -68,7 +68,7 @@ fn format_internal(
         let result_string: &str = match part {
             FormatPart::Field {
                 field_name,
-                preconversion_spec,
+                conversion_spec,
                 format_spec,
             } => {
                 let FieldName { field_type, parts } =
@@ -94,7 +94,7 @@ fn format_internal(
                     FormatString::from_str(format_spec).map_err(|e| e.to_pyexception(vm))?;
                 let format_spec = format_internal(vm, &nested_format, field_func)?;
 
-                pystr = call_object_format(vm, argument, *preconversion_spec, &format_spec)?;
+                pystr = call_object_format(vm, argument, *conversion_spec, &format_spec)?;
                 pystr.as_ref()
             }
             FormatPart::Literal(literal) => literal,
@@ -162,14 +162,14 @@ pub(crate) fn format_map(
 pub fn call_object_format(
     vm: &VirtualMachine,
     argument: PyObjectRef,
-    preconversion_spec: Option<char>,
+    conversion_spec: Option<char>,
     format_spec: &str,
 ) -> PyResult<PyStrRef> {
-    let argument = match preconversion_spec.and_then(FormatPreconversor::from_char) {
-        Some(FormatPreconversor::Str) => argument.str(vm)?.into(),
-        Some(FormatPreconversor::Repr) => argument.repr(vm)?.into(),
-        Some(FormatPreconversor::Ascii) => vm.ctx.new_str(builtins::ascii(argument, vm)?).into(),
-        Some(FormatPreconversor::Bytes) => {
+    let argument = match conversion_spec.and_then(FormatConversion::from_char) {
+        Some(FormatConversion::Str) => argument.str(vm)?.into(),
+        Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
+        Some(FormatConversion::Ascii) => vm.ctx.new_str(builtins::ascii(argument, vm)?).into(),
+        Some(FormatConversion::Bytes) => {
             vm.call_method(&argument, identifier!(vm, decode).as_str(), ())?
         }
         None => argument,
