@@ -378,13 +378,16 @@ mod decl {
                     return Err(too_short_error(vm));
                 }
                 let (bytes, buf) = buf.split_at(len);
-                let code = bytecode::CodeObject::from_bytes(bytes).map_err(|e| match e {
+                let code = bytecode::UnsafeCodeObject::from_bytes(bytes).map_err(|e| match e {
                     bytecode::CodeDeserializeError::Eof => vm.new_exception_msg(
                         vm.ctx.exceptions.eof_error.to_owned(),
                         "End of file while deserializing bytecode".to_owned(),
                     ),
                     _ => vm.new_value_error("Couldn't deserialize python bytecode".to_owned()),
                 })?;
+                // SAFETY: none, really 😬 but CPython trusts Python to give it invalid bytecode and do all
+                // kinds of other unsafe actions, so we'll just sorta follow suit
+                let code = unsafe { bytecode::CodeObject::new(code) };
                 (vm.ctx.new_code(code).into(), buf)
             }
         };

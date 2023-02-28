@@ -349,33 +349,33 @@ impl PyRef<PyCode> {
             OptionalArg::Missing => self.code.varnames.iter().map(|s| s.to_object()).collect(),
         };
 
-        Ok(PyCode {
-            code: CodeObject {
-                flags: CodeFlags::from_bits_truncate(flags),
-                posonlyarg_count,
-                arg_count,
-                kwonlyarg_count,
-                source_path: source_path.as_object().as_interned_str(vm).unwrap(),
-                first_line_number,
-                obj_name: obj_name.as_object().as_interned_str(vm).unwrap(),
+        // SAFETY: none, really, but this is something cpython lets people do, so ¯\_(ツ)_/¯
+        let code = CodeObject {
+            flags: CodeFlags::from_bits_truncate(flags),
+            posonlyarg_count,
+            arg_count,
+            kwonlyarg_count,
+            source_path: source_path.as_object().as_interned_str(vm).unwrap(),
+            first_line_number,
+            obj_name: obj_name.as_object().as_interned_str(vm).unwrap(),
 
-                max_stackdepth: self.code.max_stackdepth,
-                instructions: self.code.instructions.clone(),
-                locations: self.code.locations.clone(),
-                constants: constants.into_iter().map(Literal).collect(),
-                names: names
-                    .into_iter()
-                    .map(|o| o.as_interned_str(vm).unwrap())
-                    .collect(),
-                varnames: varnames
-                    .into_iter()
-                    .map(|o| o.as_interned_str(vm).unwrap())
-                    .collect(),
-                cellvars: self.code.cellvars.clone(),
-                freevars: self.code.freevars.clone(),
-                cell2arg: self.code.cell2arg.clone(),
-            },
-        })
+            max_stackdepth: self.code.max_stackdepth,
+            instructions: self.code.instructions.clone(),
+            locations: self.code.locations.clone(),
+            constants: constants.into_iter().map(Literal).collect(),
+            names: names
+                .into_iter()
+                .map(|o| o.as_interned_str(vm).unwrap())
+                .collect(),
+            varnames: varnames
+                .into_iter()
+                .map(|o| o.as_interned_str(vm).unwrap())
+                .collect(),
+            cellvars: self.code.cellvars.clone(),
+            freevars: self.code.freevars.clone(),
+            cell2arg: self.code.cell2arg.clone(),
+        };
+        Ok(PyCode { code })
     }
 }
 

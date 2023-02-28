@@ -373,8 +373,13 @@ pub fn impl_py_compile(
     let bytes = LitByteStr::new(&bytes, Span::call_site());
 
     let output = quote! {
-        #crate_name::CodeObject::from_bytes(#bytes)
-            .expect("Deserializing CodeObject failed")
+        unsafe {
+            // SAFETY: we just deserialized from a serialized CodeObject
+            #crate_name::CodeObject::new(
+                #crate_name::UnsafeCodeObject::from_bytes(#bytes)
+                    .expect("Deserializing UnsafeCodeObject failed")
+            )
+        }
     };
 
     Ok(output)
@@ -395,7 +400,8 @@ pub fn impl_py_freeze(
     let bytes = LitByteStr::new(&data, Span::call_site());
 
     let output = quote! {
-        #crate_name::frozen_lib::decode_lib(#bytes)
+        // SAFETY: we just deserialized from a serialized CodeObject
+        unsafe { #crate_name::frozen_lib::decode_lib(#bytes) }
     };
 
     Ok(output)

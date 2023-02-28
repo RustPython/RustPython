@@ -151,6 +151,7 @@ impl CodeInfo {
             locations.clear()
         }
 
+        // SAFETY: we assume that the compiler produces correct output
         CodeObject {
             flags,
             posonlyarg_count,

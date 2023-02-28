@@ -62,7 +62,11 @@ impl ConstantBag for BasicBag {
 
 /// Primary container of a single code object. Each python function has
 /// a codeobject. Also a module has a codeobject.
-#[derive(Clone, Serialize, Deserialize)]
+/// Once UnsafeCodeObject is turned into CodeObject, it guarantees correctness of all
+/// aspects of the contained bytecode, in order for the VM to make optimizations
+/// that skip safety checks.
+#[non_exhaustive] // to prevent manual construction by-passing UnsafeCodeObject
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct CodeObject<C: Constant = ConstantData> {
     pub instructions: Box<[CodeUnit]>,
     pub locations: Box<[Location]>,
@@ -864,6 +868,17 @@ impl<N: AsRef<str>> fmt::Debug for Arguments<'_, N> {
 }
 
 impl<C: Constant> CodeObject<C> {
+    /// Create a new CodeObject
+    ///
+    /// # Safety
+    ///
+    /// Caller is responsible for ensuring that `code` is correct python bytecode.
+    /// The easiest way to do so is get a CodeObject from the
+    /// `rustpython-compiler` crate.
+    pub unsafe fn new(code: UnsafeCodeObject<C>) -> Self {
+        code.0
+    }
+
     /// Get all arguments of the code object
     /// like inspect.getargs
     pub fn arg_names(&self) -> Arguments<C::Name> {
@@ -1031,6 +1046,16 @@ impl<C: Constant> CodeObject<C> {
             cell2arg: self.cell2arg.clone(),
         }
     }
+
+    /// Serialize this bytecode to bytes.
+    pub fn to_bytes(&self) -> Vec<u8>
+    where
+        C: serde::Serialize,
+        C::Name: serde::Serialize,
+    {
+        let data = bincode::serialize(&self).expect("CodeObject is not serializable");
+        lz4_flex::compress_prepend_size(&data)
+    }
 }
 
 /// Error that occurs during code deserialization
@@ -1054,7 +1079,7 @@ impl fmt::Display for CodeDeserializeError {
 
 impl std::error::Error for CodeDeserializeError {}
 
-impl CodeObject<ConstantData> {
+impl UnsafeCodeObject<ConstantData> {
     /// Load a code object from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, CodeDeserializeError> {
         use lz4_flex::block::DecompressError;
@@ -1071,12 +1096,6 @@ impl CodeObject<ConstantData> {
             _ => CodeDeserializeError::Other,
         })?;
         Ok(data)
-    }
-
-    /// Serialize this bytecode to bytes.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let data = bincode::serialize(&self).expect("CodeObject is not serializable");
-        lz4_flex::compress_prepend_size(&data)
     }
 }
 
@@ -1446,6 +1465,21 @@ impl<C: Constant> InstrDisplayContext for CodeObject<C> {
             .as_ref()
     }
 }
+impl<C: Constant> InstrDisplayContext for UnsafeCodeObject<C> {
+    type Constant = C;
+    fn get_constant(&self, i: usize) -> &C {
+        (**self).get_constant(i)
+    }
+    fn get_name(&self, i: usize) -> &str {
+        (**self).get_name(i)
+    }
+    fn get_varname(&self, i: usize) -> &str {
+        (**self).get_varname(i)
+    }
+    fn get_cellname(&self, i: usize) -> &str {
+        (**self).get_cellname(i)
+    }
+}
 
 impl fmt::Display for ConstantData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -1478,7 +1512,10 @@ pub mod frozen_lib {
     use std::io;
 
     /// Decode a library to a iterable of frozen modules
-    pub fn decode_lib(bytes: &[u8]) -> FrozenModulesIter {
+    ///
+    /// # Safety
+    /// `bytes` must be the output from [`encode_lib`].
+    pub unsafe fn decode_lib(bytes: &[u8]) -> FrozenModulesIter {
         let data = lz4_flex::decompress_size_prepended(bytes).unwrap();
         let r = VecReader { data, pos: 0 };
         let mut de = bincode::Deserializer::with_bincode_read(r, options());
@@ -1601,3 +1638,45 @@ pub mod frozen_lib {
         }
     }
 }
+
+/// A wrapper around [`CodeObject`] that doesn't guarantee correctness of all
+/// aspects of the contained bytecode.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[repr(transparent)]
+pub struct UnsafeCodeObject<C: Constant = ConstantData>(
+    #[serde(bound(
+        deserialize = "CodeObject<C>: serde::Deserialize<'de>",
+        serialize = "CodeObject<C>: serde::Serialize"
+    ))]
+    CodeObject<C>,
+);
+
+impl<C: Constant> Clone for UnsafeCodeObject<C>
+where
+    CodeObject<C>: Clone,
+{
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<C: Constant> fmt::Display for UnsafeCodeObject<C> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&**self, f)
+    }
+}
+
+impl<C: Constant> fmt::Debug for UnsafeCodeObject<C> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<C: Constant> std::ops::Deref for UnsafeCodeObject<C> {
+    type Target = CodeObject<C>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<C: Constant> UnsafeCodeObject<C> {}

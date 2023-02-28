@@ -17,7 +17,7 @@ use num_traits::ToPrimitive;
 use rustpython_ast as ast;
 use rustpython_compiler_core::{
     self as bytecode, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, Location, NameIdx,
-    OpArg, OpArgType,
+    OpArg, OpArgType, UnsafeCodeObject,
 };
 use std::borrow::Cow;
 
