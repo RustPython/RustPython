@@ -1028,6 +1028,16 @@ mod tests {
     }
 
     #[test]
+    fn test_format_int_sep() {
+        let spec = FormatSpec::parse(",").expect("");
+        assert_eq!(spec.grouping_option, Some(FormatGrouping::Comma));
+        assert_eq!(
+            spec.format_int(&BigInt::from_str("1234567890123456789012345678").unwrap()),
+            Ok("1,234,567,890,123,456,789,012,345,678".to_owned())
+        );
+    }
+
+    #[test]
     fn test_format_parse() {
         let expected = Ok(FormatString {
             format_parts: vec![
