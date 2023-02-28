@@ -381,8 +381,8 @@ class TestEnUSCollation(BaseLocalizedTest, TestCollation):
     #     is_emscripten or is_wasi,
     #     "musl libc issue on Emscripten/WASI, bpo-46390"
     # )
-    @unittest.SkipTest("TODO: strcoll hasn't been implemented") 
     def test_strcoll_with_diacritic(self):
+        self.skipTest("TODO: strcoll hasn't been implemented")
         self.assertLess(locale.strcoll('à', 'b'), 0)
 
     # @unittest.skipIf(sys.platform.startswith('aix'),
@@ -391,8 +391,8 @@ class TestEnUSCollation(BaseLocalizedTest, TestCollation):
     #     is_emscripten or is_wasi,
     #     "musl libc issue on Emscripten/WASI, bpo-46390"
     # )
-    @unittest.SkipTest("TODO: strcoll hasn't been implemented")
     def test_strxfrm_with_diacritic(self):
+        self.skipTest("TODO: strxfrm hasn't been implemented")
         self.assertLess(locale.strxfrm('à'), locale.strxfrm('b'))
 
 
