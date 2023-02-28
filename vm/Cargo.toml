@@ -81,7 +81,7 @@ sre-engine = "0.4.1"
 # sre-engine = { path = "../../sre-engine" }
 
 ## unicode stuff
-unicode_names2 = "0.5.1"
+unicode_names2 = { workspace = true }
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = "0.1.0"
