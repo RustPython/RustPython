@@ -165,10 +165,7 @@ class TestSysConfig(unittest.TestCase):
         sysconfig_includedir = sysconfig.get_path('include', scheme='posix_venv')
         self.assertTrue(sysconfig_includedir.startswith(incpath + os.sep))
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_posix_venv_scheme = unittest.expectedFailure(test_posix_venv_scheme)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_nt_venv_scheme(self):
         # The following directories were hardcoded in the venv module
         # before bpo-45413, here we assert the posix_venv scheme does not regress
@@ -184,10 +181,6 @@ class TestSysConfig(unittest.TestCase):
         self.assertEqual(binpath, sysconfig.get_path('scripts', scheme='nt_venv'))
         self.assertEqual(incpath, sysconfig.get_path('include', scheme='nt_venv'))
         self.assertEqual(libpath, sysconfig.get_path('purelib', scheme='nt_venv'))
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_nt_venv_scheme = unittest.expectedFailure(test_nt_venv_scheme)
 
     def test_venv_scheme(self):
         if sys.platform == 'win32':
@@ -353,16 +346,13 @@ class TestSysConfig(unittest.TestCase):
             wanted.extend(['nt_user', 'osx_framework_user', 'posix_user'])
         self.assertEqual(get_scheme_names(), tuple(sorted(wanted)))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @skip_unless_symlink
     @requires_subprocess()
     def test_symlink(self): # Issue 7880
         with PythonSymlink() as py:
             cmd = "-c", "import sysconfig; print(sysconfig.get_platform())"
             self.assertEqual(py.call_real(*cmd), py.call_link(*cmd))
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_symlink = unittest.expectedFailure(test_symlink)
 
     def test_user_similar(self):
         # Issue #8759: make sure the posix scheme for the users
@@ -457,6 +447,7 @@ class TestSysConfig(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(my_platform, test_platform)
 
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
     @unittest.skipIf(is_wasi, "Incompatible with WASI mapdir and OOT builds")
     def test_srcdir(self):
         # See Issues #15322, #15364.
@@ -480,10 +471,6 @@ class TestSysConfig(unittest.TestCase):
             # Issue #19340: srcdir has been realpath'ed already
             makefile_dir = os.path.realpath(makefile_dir)
             self.assertEqual(makefile_dir, srcdir)
-
-    # TODO: RUSTPYTHON
-    if sys.platform != "win32":
-        test_srcdir = unittest.expectedFailure(test_srcdir)
 
     def test_srcdir_independent_of_cwd(self):
         # srcdir should be independent of the current working directory

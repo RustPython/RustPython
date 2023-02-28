@@ -81,6 +81,7 @@ class ImportTests(unittest.TestCase):
         with self.assertRaises(SyntaxError):
             imp.find_module('badsyntax_pep3120', path)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_issue1267(self):
         for mod, encoding, _ in self.test_strings:
             fp, filename, info  = imp.find_module('module_' + mod,
@@ -99,10 +100,6 @@ class ImportTests(unittest.TestCase):
             self.assertEqual(fp.tell(), 0)
             self.assertEqual(fp.readline(),
                              '"""Tokenization help for Python programs.\n')
-
-    # TODO: RUSTPYTHON
-    if sys.platform == 'win32':
-        test_issue1267 = unittest.expectedFailure(test_issue1267)
 
     def test_issue3594(self):
         temp_mod_name = 'test_imp_helper'

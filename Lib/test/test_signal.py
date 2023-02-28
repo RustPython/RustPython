@@ -178,15 +178,13 @@ class WakeupFDTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             signal.set_wakeup_fd(signal.SIGINT, False)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_invalid_fd(self):
         fd = os_helper.make_bad_fd()
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_invalid_fd = unittest.expectedFailure(test_invalid_fd)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_invalid_socket(self):
         sock = socket.socket()
         fd = sock.fileno()
@@ -194,10 +192,7 @@ class WakeupFDTests(unittest.TestCase):
         self.assertRaises((ValueError, OSError),
                           signal.set_wakeup_fd, fd)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_invalid_socket = unittest.expectedFailure(test_invalid_socket)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_set_wakeup_fd_result(self):
         r1, w1 = os.pipe()
         self.addCleanup(os.close, r1)
@@ -215,10 +210,7 @@ class WakeupFDTests(unittest.TestCase):
         self.assertEqual(signal.set_wakeup_fd(-1), w2)
         self.assertEqual(signal.set_wakeup_fd(-1), -1)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_set_wakeup_fd_result = unittest.expectedFailure(test_set_wakeup_fd_result)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_set_wakeup_fd_socket_result(self):
         sock1 = socket.socket()
         self.addCleanup(sock1.close)
@@ -234,10 +226,6 @@ class WakeupFDTests(unittest.TestCase):
         self.assertEqual(signal.set_wakeup_fd(fd2), fd1)
         self.assertEqual(signal.set_wakeup_fd(-1), fd2)
         self.assertEqual(signal.set_wakeup_fd(-1), -1)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_set_wakeup_fd_socket_result = unittest.expectedFailure(test_set_wakeup_fd_socket_result)
 
     # On Windows, files are always blocking and Windows does not provide a
     # function to test if a socket is in non-blocking mode.

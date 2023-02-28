@@ -936,6 +936,7 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, None)
         self.assertEqual(stderr, None)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_communicate_pipe_buf(self):
         # communicate() with writes larger than pipe_buf
         # This test will probably deadlock rather than fail, if
@@ -958,10 +959,6 @@ class ProcessTestCase(BaseTestCase):
         string_to_write = b"a" * support.PIPE_MAX_SIZE
         (stdout, stderr) = p.communicate(string_to_write)
         self.assertEqual(stdout, string_to_write)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_communicate_pipe_buf = unittest.expectedFailure(test_communicate_pipe_buf)
 
     def test_writes_before_communicate(self):
         # stdin.write before communicate()
@@ -1020,6 +1017,7 @@ class ProcessTestCase(BaseTestCase):
                 self.assertEqual(p.stdout.read(),
                                  "line4\nline5\nline6\nline7\nline8")
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_universal_newlines_communicate(self):
         # universal newlines through communicate()
         p = subprocess.Popen([sys.executable, "-c",
@@ -1044,10 +1042,6 @@ class ProcessTestCase(BaseTestCase):
         (stdout, stderr) = p.communicate()
         self.assertEqual(stdout,
                          "line2\nline4\nline5\nline6\nline7\nline8")
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_universal_newlines_communicate = unittest.expectedFailure(test_universal_newlines_communicate)
 
     def test_universal_newlines_communicate_stdin(self):
         # universal newlines through communicate(), with only stdin
@@ -1075,6 +1069,7 @@ class ProcessTestCase(BaseTestCase):
         p.communicate()
         self.assertEqual(p.returncode, 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_universal_newlines_communicate_stdin_stdout_stderr(self):
         # universal newlines through communicate(), with stdin, stdout, stderr
         p = subprocess.Popen([sys.executable, "-c",
@@ -1102,10 +1097,6 @@ class ProcessTestCase(BaseTestCase):
         # Python debug build push something like "[42442 refs]\n"
         # to stderr at exit of subprocess.
         self.assertTrue(stderr.startswith("eline2\neline6\neline7\n"))
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_universal_newlines_communicate_stdin_stdout_stderr = unittest.expectedFailure(test_universal_newlines_communicate_stdin_stdout_stderr)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -1272,15 +1263,12 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(p.returncode, 0)
         self.assertEqual(read_line, expected)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_bufsize_equal_one_text_mode(self):
         # line is flushed in text mode with bufsize=1.
         # we should get the full line in return
         line = "line\n"
         self._test_bufsize_equal_one(line, line, universal_newlines=True)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_bufsize_equal_one_text_mode = unittest.expectedFailure(test_bufsize_equal_one_text_mode)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -1456,6 +1444,7 @@ class ProcessTestCase(BaseTestCase):
         self.assertFalse(os.path.exists(ofname))
         self.assertFalse(os.path.exists(efname))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_communicate_epipe(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
@@ -1466,10 +1455,6 @@ class ProcessTestCase(BaseTestCase):
         self.addCleanup(p.stderr.close)
         self.addCleanup(p.stdin.close)
         p.communicate(b"x" * 2**20)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_communicate_epipe = unittest.expectedFailure(test_communicate_epipe)
 
     def test_repr(self):
         path_cmd = pathlib.Path("my-tool.py")
@@ -1490,6 +1475,7 @@ class ProcessTestCase(BaseTestCase):
                 p.returncode = code
                 self.assertEqual(repr(p), sx)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_communicate_epipe_only_stdin(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
@@ -1497,10 +1483,6 @@ class ProcessTestCase(BaseTestCase):
         self.addCleanup(p.stdin.close)
         p.wait()
         p.communicate(b"x" * 2**20)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_communicate_epipe_only_stdin = unittest.expectedFailure(test_communicate_epipe_only_stdin)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -3674,6 +3656,7 @@ class MiscTests(unittest.TestCase):
                 raise KeyboardInterrupt  # Test how __exit__ handles ^C.
         self._test_keyboardinterrupt_no_kill(popen_via_context_manager)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getoutput(self):
         self.assertEqual(subprocess.getoutput('echo xyzzy'), 'xyzzy')
         self.assertEqual(subprocess.getstatusoutput('echo xyzzy'),
@@ -3706,10 +3689,6 @@ class MiscTests(unittest.TestCase):
                 continue
             possible_exports.add(name)
         self.assertEqual(exported, possible_exports - intentionally_excluded)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_getoutput = unittest.expectedFailure(test_getoutput)
 
 
 @unittest.skipUnless(hasattr(selectors, 'PollSelector'),

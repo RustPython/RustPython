@@ -154,6 +154,7 @@ class PosixPathTest(unittest.TestCase):
         self.assertEqual(posixpath.dirname(b"////foo"), b"////")
         self.assertEqual(posixpath.dirname(b"//foo//bar"), b"//foo")
 
+    @unittest.expectedFailureIf(os.name == "nt", "TODO: RUSTPYTHON")
     def test_islink(self):
         self.assertIs(posixpath.islink(os_helper.TESTFN + "1"), False)
         self.assertIs(posixpath.lexists(os_helper.TESTFN + "2"), False)
@@ -175,10 +176,6 @@ class PosixPathTest(unittest.TestCase):
         self.assertIs(posixpath.islink(os_helper.TESTFN + "\x00"), False)
         self.assertIs(posixpath.islink(os.fsencode(os_helper.TESTFN) + b"\x00"), False)
 
-    # TODO: RUSTPYTHON
-    if os.name == "nt":
-        test_islink = unittest.expectedFailure(test_islink)
-
     def test_ismount(self):
         self.assertIs(posixpath.ismount("/"), True)
         self.assertIs(posixpath.ismount(b"/"), True)
@@ -197,6 +194,7 @@ class PosixPathTest(unittest.TestCase):
         self.assertIs(posixpath.ismount('/\x00'), False)
         self.assertIs(posixpath.ismount(b'/\x00'), False)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(os_helper.can_symlink(),
                          "Test requires symlink support")
     def test_ismount_symlinks(self):
@@ -206,10 +204,6 @@ class PosixPathTest(unittest.TestCase):
             self.assertIs(posixpath.ismount(ABSTFN), False)
         finally:
             os.unlink(ABSTFN)
-
-    # TODO: RUSTPYTHON
-    if os.name == "nt":
-        test_ismount_symlinks = unittest.expectedFailure(test_ismount_symlinks)
 
     @unittest.skipIf(posix is None, "Test requires posix module")
     def test_ismount_different_device(self):

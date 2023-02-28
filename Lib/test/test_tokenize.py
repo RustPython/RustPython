@@ -1237,6 +1237,7 @@ class TestDetectEncoding(TestCase):
                 found, consumed_lines = detect_encoding(rl)
                 self.assertEqual(found, "utf-8")
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_short_files(self):
         readline = self.get_readline((b'print(something)\n',))
         encoding, consumed_lines = detect_encoding(readline)
@@ -1259,11 +1260,6 @@ class TestDetectEncoding(TestCase):
 
         readline = self.get_readline((b'# coding: bad\n',))
         self.assertRaises(SyntaxError, detect_encoding, readline)
-
-    # TODO: RUSTPYTHON
-    import sys
-    if sys.platform == "win32":
-        test_short_files = unittest.expectedFailure(test_short_files)
 
     def test_false_encoding(self):
         # Issue 18873: "Encoding" detected in non-comment lines
@@ -1320,17 +1316,13 @@ class TestDetectEncoding(TestCase):
             ins = Bunk(lines, path)
             detect_encoding(ins.readline)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_open_error(self):
         # Issue #23840: open() must close the binary file on error
         m = BytesIO(b'#coding:xxx')
         with mock.patch('tokenize._builtin_open', return_value=m):
             self.assertRaises(SyntaxError, tokenize_open, 'foobar')
         self.assertTrue(m.closed)
-
-    # TODO: RUSTPYTHON
-    import sys
-    if sys.platform == "win32":
-        test_open_error = unittest.expectedFailure(test_open_error)
 
 
 class TestTokenize(TestCase):

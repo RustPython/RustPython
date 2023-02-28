@@ -699,16 +699,12 @@ class TestSupport(unittest.TestCase):
         self.check_print_warning("a\nb",
                                  'Warning -- a\nWarning -- b\n')
 
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
     def test_has_strftime_extensions(self):
         if support.is_emscripten or sys.platform == "win32":
             self.assertFalse(support.has_strftime_extensions)
         else:
             self.assertTrue(support.has_strftime_extensions)
-
-    # TODO: RUSTPYTHON
-    if not sys.platform.startswith("win"):
-        # TODO: RUSTPYTHON
-        test_has_strftime_extensions = unittest.expectedFailure(test_has_strftime_extensions)
 
     # XXX -follows a list of untested API
     # make_legacy_pyc

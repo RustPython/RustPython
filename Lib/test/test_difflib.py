@@ -186,7 +186,7 @@ just fits in two lineS yup!!
 the end"""
 
 class TestSFpatches(unittest.TestCase):
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_html_diff(self):
         # Check SF patch 914575 for generating HTML differences
         f1a = ((patch914575_from1 + '123\n'*10)*3)
@@ -243,10 +243,6 @@ class TestSFpatches(unittest.TestCase):
 
         with open(findfile('test_difflib_expect.html')) as fp:
             self.assertEqual(actual, fp.read())
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_html_diff = unittest.expectedFailure(test_html_diff)
 
     def test_recursion_limit(self):
         # Check if the problem described in patch #1413711 exists.
