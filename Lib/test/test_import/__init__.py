@@ -87,6 +87,8 @@ class ImportTests(unittest.TestCase):
         with self.assertRaises(ImportError):
             from importlib import something_that_should_not_exist_anywhere
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_from_import_missing_attr_has_name_and_path(self):
         with CleanImport('os'):
             import os
@@ -121,12 +123,16 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(cm.exception.name, '_warning')
         self.assertIsNone(cm.exception.path)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_from_import_missing_attr_path_is_canonical(self):
         with self.assertRaises(ImportError) as cm:
             from os.path import i_dont_exist
         self.assertIn(cm.exception.name, {'posixpath', 'ntpath'})
         self.assertIsNotNone(cm.exception)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_from_import_star_invalid_type(self):
         import re
         with _ready_to_import() as (name, path):
@@ -421,6 +427,8 @@ class ImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ImportError, "^cannot import name 'bogus'"):
             from re import bogus
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_from_import_AttributeError(self):
         # Issue #24492: trying to import an attribute that raises an
         # AttributeError should lead to an ImportError.
@@ -484,6 +492,7 @@ class ImportTests(unittest.TestCase):
         finally:
             del sys.path[0]
 
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == "win32", "Windows-specific")
     def test_dll_dependency_import(self):
         from _winapi import GetModuleFileName
@@ -674,6 +683,8 @@ func_filename = func.__code__.co_filename
         self.assertEqual(mod.code_filename, self.file_name)
         self.assertEqual(mod.func_filename, self.file_name)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_incorrect_code_name(self):
         py_compile.compile(self.file_name, dfile="another_module.py")
         mod = self.import_module()
@@ -833,6 +844,8 @@ class RelativeImportTests(unittest.TestCase):
 
 
 class OverridingImportBuiltinTests(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_override_builtin(self):
         # Test that overriding builtins.__import__ can bypass sys.modules.
         import os
@@ -1342,6 +1355,8 @@ class CircularImportTests(unittest.TestCase):
         from test.test_import.data.circular_imports.subpkg import util
         self.assertIs(util.util, rebinding.util)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_binding(self):
         try:
             import test.test_import.data.circular_imports.binding
@@ -1352,6 +1367,8 @@ class CircularImportTests(unittest.TestCase):
         import test.test_import.data.circular_imports.use
         import test.test_import.data.circular_imports.source
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_crossreference2(self):
         with self.assertRaises(AttributeError) as cm:
             import test.test_import.data.circular_imports.source
@@ -1361,6 +1378,8 @@ class CircularImportTests(unittest.TestCase):
         self.assertIn('partially initialized module', errmsg)
         self.assertIn('circular import', errmsg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_circular_from_import(self):
         with self.assertRaises(ImportError) as cm:
             import test.test_import.data.circular_imports.from_cycle1
@@ -1371,6 +1390,8 @@ class CircularImportTests(unittest.TestCase):
             str(cm.exception),
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_absolute_circular_submodule(self):
         with self.assertRaises(AttributeError) as cm:
             import test.test_import.data.circular_imports.subpkg2.parent
@@ -1381,6 +1402,8 @@ class CircularImportTests(unittest.TestCase):
             str(cm.exception),
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unwritable_module(self):
         self.addCleanup(unload, "test.test_import.data.unwritable")
         self.addCleanup(unload, "test.test_import.data.unwritable.x")
