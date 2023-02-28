@@ -381,7 +381,8 @@ class TestEnUSCollation(BaseLocalizedTest, TestCollation):
         is_emscripten or is_wasi,
         "musl libc issue on Emscripten/WASI, bpo-46390"
     )
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON", strcoll has not been implemented
+    @unittest.expectedFailure
     def test_strcoll_with_diacritic(self):
         self.assertLess(locale.strcoll('à', 'b'), 0)
 
@@ -391,7 +392,8 @@ class TestEnUSCollation(BaseLocalizedTest, TestCollation):
         is_emscripten or is_wasi,
         "musl libc issue on Emscripten/WASI, bpo-46390"
     )
-    @unittest.skip("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON", strxfrm has not been implemented
+    @unittest.expectedFailure
     def test_strxfrm_with_diacritic(self):
         self.assertLess(locale.strxfrm('à'), locale.strxfrm('b'))
 
