@@ -6,8 +6,13 @@ pub(crate) use _locale::make_module;
 mod _locale {
     use rustpython_vm::{
         builtins::{PyDictRef, PyIntRef, PyListRef, PyStrRef, PyTypeRef},
+        convert::ToPyException,
         function::OptionalArg,
         PyObjectRef, PyResult, VirtualMachine,
+    };
+    use std::{
+        ffi::{CStr, CString},
+        ptr,
     };
 
     #[pyattr]
@@ -21,39 +26,36 @@ mod _locale {
         T_FMT_AMPM, YESEXPR,
     };
 
-    use std::{
-        ffi::{CStr, CString},
-        ptr,
-    };
-
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
         vm.ctx.new_int(libc::c_char::MAX)
     }
 
-    unsafe fn copy_grouping(group: *mut libc::c_char, vm: &VirtualMachine) -> PyListRef {
+    unsafe fn copy_grouping(group: *const libc::c_char, vm: &VirtualMachine) -> PyListRef {
         let mut group_vec: Vec<PyObjectRef> = Vec::new();
-        let mut ptr = group;
+        if group.is_null() {
+            return vm.ctx.new_list(group_vec);
+        }
 
+        let mut ptr = group;
         while ![0_i8, libc::c_char::MAX].contains(&*ptr) {
             let val = vm.ctx.new_int(*ptr);
             group_vec.push(val.into());
-            ptr = ptr.offset(1);
+            ptr = ptr.add(1);
         }
         // https://github.com/python/cpython/blob/677320348728ce058fa3579017e985af74a236d4/Modules/_localemodule.c#L80
         if !group_vec.is_empty() {
-            group_vec.push(vm.ctx.new_int(0i32).into());
+            group_vec.push(vm.ctx.new_int(0).into());
         }
         vm.ctx.new_list(group_vec)
     }
 
-    unsafe fn _parse_ptr_to_str(vm: &VirtualMachine, raw_ptr: *const libc::c_char) -> PyResult {
+    unsafe fn pystr_from_raw_cstr(vm: &VirtualMachine, raw_ptr: *const libc::c_char) -> PyResult {
         let slice = unsafe { CStr::from_ptr(raw_ptr) };
-        let cstr = slice
+        let string = slice
             .to_str()
             .expect("localeconv always return decodable string");
-
-        Ok(vm.new_pyobj(cstr))
+        Ok(vm.new_pyobj(string))
     }
 
     #[pyattr(name = "Error", once)]
@@ -74,7 +76,11 @@ mod _locale {
 
             macro_rules! set_string_field {
                 ($field:ident) => {{
-                    result.set_item(stringify!($field), _parse_ptr_to_str(vm, (*lc).$field)?, vm)?
+                    result.set_item(
+                        stringify!($field),
+                        pystr_from_raw_cstr(vm, (*lc).$field)?,
+                        vm,
+                    )?
                 }};
             }
 
@@ -129,17 +135,17 @@ mod _locale {
         unsafe {
             let result = match args.locale.flatten() {
                 None => libc::setlocale(args.category, ptr::null()),
-                Some(l) => {
-                    let l_str = CString::new(l.to_string()).expect("expect to be always converted");
-                    let l_ptr = CStr::as_ptr(&l_str);
-                    libc::setlocale(args.category, l_ptr)
+                Some(locale) => {
+                    let c_locale: CString =
+                        CString::new(locale.as_str()).map_err(|e| e.to_pyexception(vm))?;
+                    libc::setlocale(args.category, c_locale.as_ptr())
                 }
             };
             if result.is_null() {
                 let error = error(vm);
                 return Err(vm.new_exception_msg(error, String::from("unsupported locale setting")));
             }
-            _parse_ptr_to_str(vm, result)
+            pystr_from_raw_cstr(vm, result)
         }
     }
 }
