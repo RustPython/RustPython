@@ -36,6 +36,7 @@
     "memmap",
     "Manually",
     "rustc",
+    "splitn",
     "unistd",
     "unic",
     // Python

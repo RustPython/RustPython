@@ -21,14 +21,14 @@ fn spec_format_bytes(
     obj: PyObjectRef,
 ) -> PyResult<Vec<u8>> {
     match &spec.format_type {
-        CFormatType::String(preconversor) => match preconversor {
+        CFormatType::String(conversion) => match conversion {
             // Unlike strings, %r and %a are identical for bytes: the behaviour corresponds to
             // %a for strings (not %r)
-            CFormatPreconversor::Repr | CFormatPreconversor::Ascii => {
+            CFormatConversion::Repr | CFormatConversion::Ascii => {
                 let b = builtins::ascii(obj, vm)?.into();
                 Ok(b)
             }
-            CFormatPreconversor::Str | CFormatPreconversor::Bytes => {
+            CFormatConversion::Str | CFormatConversion::Bytes => {
                 if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &obj) {
                     Ok(buffer.contiguous_or_collect(|bytes| spec.format_bytes(bytes)))
                 } else {
@@ -127,12 +127,12 @@ fn spec_format_string(
     idx: &usize,
 ) -> PyResult<String> {
     match &spec.format_type {
-        CFormatType::String(preconversor) => {
-            let result = match preconversor {
-                CFormatPreconversor::Ascii => builtins::ascii(obj, vm)?.into(),
-                CFormatPreconversor::Str => obj.str(vm)?.as_str().to_owned(),
-                CFormatPreconversor::Repr => obj.repr(vm)?.as_str().to_owned(),
-                CFormatPreconversor::Bytes => {
+        CFormatType::String(conversion) => {
+            let result = match conversion {
+                CFormatConversion::Ascii => builtins::ascii(obj, vm)?.into(),
+                CFormatConversion::Str => obj.str(vm)?.as_str().to_owned(),
+                CFormatConversion::Repr => obj.repr(vm)?.as_str().to_owned(),
+                CFormatConversion::Bytes => {
                     // idx is the position of the %, we want the position of the b
                     return Err(vm.new_value_error(format!(
                         "unsupported format character 'b' (0x62) at index {}",
