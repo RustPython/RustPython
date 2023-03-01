@@ -202,6 +202,7 @@ declare_const_name! {
     __str__,
     __sub__,
     __subclasscheck__,
+    __sizeof__,
     __truediv__,
     __trunc__,
     __xor__,

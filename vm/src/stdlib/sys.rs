@@ -22,7 +22,7 @@ mod sys {
     use num_traits::ToPrimitive;
     use std::{
         env::{self, VarError},
-        mem, path,
+        path,
         sync::atomic::Ordering,
     };
 
@@ -419,10 +419,29 @@ mod sys {
         vm.recursion_limit.get()
     }
 
+    #[derive(FromArgs)]
+    struct GetsizeofArgs {
+        obj: PyObjectRef,
+        #[pyarg(any, optional)]
+        default: Option<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn getsizeof(obj: PyObjectRef) -> usize {
-        // TODO: implement default optional argument.
-        mem::size_of_val(&obj)
+    fn getsizeof(args: GetsizeofArgs, vm: &VirtualMachine) -> PyResult {
+        let sizeof = || -> PyResult {
+            let res = vm.call_special_method(args.obj, identifier!(vm, __sizeof__), ())?;
+            res.try_index(vm).map(Into::into)
+        };
+        match sizeof() {
+            Ok(res) => Ok(res),
+            Err(err) => {
+                if let Some(default) = args.default {
+                    Ok(default)
+                } else {
+                    Err(err)
+                }
+            }
+        }
     }
 
     #[pyfunction]
