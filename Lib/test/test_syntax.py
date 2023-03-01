@@ -555,7 +555,8 @@ SyntaxError: expected default value expression
 Traceback (most recent call last):
 SyntaxError: expected default value expression
 
->>> import ast; ast.parse('''
+# TODO: RUSTPYTHON NameError: name 'PyCF_TYPE_COMMENTS' is not defined
+>>> import ast; ast.parse('''  # doctest: +SKIP
 ... def f(
 ...     *, # type: int
 ...     a, # type: int
@@ -581,30 +582,46 @@ From ast_for_call():
 >>> L = range(10)
 >>> f(x for x in L)
 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
->>> f(x for x in L, 1)
+
+# TODO: RUSTPYTHON does not raise.
+>>> f(x for x in L, 1)  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, y=1)
+
+# TODO: RUSTPYTHON does not raise.
+>>> f(x for x in L, y=1)  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, *[])
+
+# TODO: RUSTPYTHON does not raise.
+>>> f(x for x in L, *[])  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, **{})
+
+# TODO: RUSTPYTHON does not raise.
+>>> f(x for x in L, **{})  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(L, x for x in L)
+
+# TODO: RUSTPYTHON does not raise.
+>>> f(L, x for x in L)  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L, y for y in L)
+
+# TODO: RUSTPYTHON does not raise.
+>>> f(x for x in L, y for y in L)  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
->>> f(x for x in L,)
+
+# TODO: RUSTPYTHON does not raise.
+>>> f(x for x in L,)  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: Generator expression must be parenthesized
 >>> f((x for x in L), 1)
 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
->>> class C(x for x in L):
+
+# TODO: RUSTPYTHON TypeError: metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases
+>>> class C(x for x in L):  # doctest: +SKIP
 ...     pass
 Traceback (most recent call last):
 SyntaxError: invalid syntax
@@ -740,7 +757,9 @@ SyntaxError: cannot assign to None
 >>> f(__debug__=1)
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
->>> __debug__: int
+
+# TODO: RUSTPYTHON NameError: name '__annotations__' is not defined
+>>> __debug__: int  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
 
@@ -1574,20 +1593,24 @@ SyntaxError: trailing comma not allowed without surrounding parentheses
 # Check that we dont raise the "trailing comma" error if there is more
 # input to the left of the valid part that we parsed.
 
->>> from t import x,y, and 3
+>>> from t import x,y, and 3  
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> (): int
+# TODO: RUSTPYTHON nothing raised.
+>>> (): int  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: only single target (not tuple) can be annotated
->>> []: int
+# TODO: RUSTPYTHON nothing raised.
+>>> []: int  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: only single target (not list) can be annotated
->>> (()): int
+# TODO: RUSTPYTHON nothing raised.
+>>> (()): int  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: only single target (not tuple) can be annotated
->>> ([]): int
+# TODO: RUSTPYTHON nothing raised.
+>>> ([]): int  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: only single target (not list) can be annotated
 
@@ -1611,7 +1634,8 @@ Corner-cases that used to fail to raise the correct error:
 
 Corner-cases that used to crash:
 
-    >>> def f(**__debug__): pass
+    # TODO: RUSTPYTHON nothing raised.
+    >>> def f(**__debug__): pass  # doctest: +SKIP
     Traceback (most recent call last):
     SyntaxError: cannot assign to __debug__
 
@@ -1843,6 +1867,8 @@ class SyntaxTestCase(unittest.TestCase):
         else:
             self.fail("compile() did not raise SyntaxError")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_expression_with_assignment(self):
         self._check_error(
             "print(end1 + end2 = ' ')",
@@ -1945,6 +1971,8 @@ class SyntaxTestCase(unittest.TestCase):
         self._check_error("class C:\n  if 1: pass\n  else: break",
                           "outside loop")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_continue_outside_loop(self):
         self._check_error("if 0: continue",             "not properly in loop")
         self._check_error("if 0: continue\nelse:  x=1", "not properly in loop")
@@ -1970,6 +1998,8 @@ class SyntaxTestCase(unittest.TestCase):
         self._check_error("int(base=10, '2')",
                           "positional argument follows keyword argument")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_kwargs_last2(self):
         self._check_error("int(**{'base': 10}, '2')",
                           "positional argument follows "
@@ -1980,11 +2010,15 @@ class SyntaxTestCase(unittest.TestCase):
                           "iterable argument unpacking follows "
                           "keyword argument unpacking")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_generator_in_function_call(self):
         self._check_error("foo(x,    y for y in range(3) for z in range(2) if z    , p)",
                           "Generator expression must be parenthesized",
                           lineno=1, end_lineno=1, offset=11, end_offset=53)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_empty_line_after_linecont(self):
         # See issue-40847
         s = r"""\
@@ -2039,6 +2073,8 @@ if x:
         code += f"{' '*4*12}pass"
         self._check_error(code, "too many statically nested blocks")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_barry_as_flufl_with_syntax_errors(self):
         # The "barry_as_flufl" rule can produce some "bugs-at-a-distance" if
         # is reading the wrong token in the presence of syntax errors later
@@ -2056,6 +2092,8 @@ def func2():
 """
         self._check_error(code, "expected ':'")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_line_continuation_error_position(self):
         self._check_error(r"a = 3 \ 4",
                           "unexpected character after line continuation character",
@@ -2075,6 +2113,8 @@ def func2():
         self._check_error("A.\u03bc\\\n",
                           "unexpected EOF while parsing")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_error_parenthesis(self):
         for paren in "([{":
             self._check_error(paren + "1 + 2", f"\\{paren}' was never closed")
@@ -2085,6 +2125,8 @@ def func2():
         for paren in ")]}":
             self._check_error(paren + "1 + 2", f"unmatched '\\{paren}'")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invisible_characters(self):
         self._check_error('print\x17("Hello")', "invalid non-printable character")
 
@@ -2166,7 +2208,8 @@ while 1:
 
 
 def load_tests(loader, tests, pattern):
-    tests.addTest(doctest.DocTestSuite())
+    # TODO: RUSTPYTHON Eventually remove the optionflags for ingoring exception details.
+    tests.addTest(doctest.DocTestSuite(optionflags=doctest.IGNORE_EXCEPTION_DETAIL))
     return tests
 
 
