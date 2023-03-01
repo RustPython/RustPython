@@ -11,7 +11,7 @@ mod _locale {
         PyObjectRef, PyResult, VirtualMachine,
     };
     use std::{
-        ffi::{CStr, CString, c_char},
+        ffi::{c_char, CStr, CString},
         ptr,
     };
 
@@ -70,21 +70,18 @@ mod _locale {
     #[pyfunction]
     fn strcoll(string1: PyStrRef, string2: PyStrRef, vm: &VirtualMachine) -> PyResult {
         unsafe {
-            let string1_cstr = CString::new(string1.as_str())
-                .map_err(|e| e.to_pyexception(vm))?;
-            let string2_cstr = CString::new(string2.as_str())
-                .map_err(|e| e.to_pyexception(vm))?;
+            let string1_cstr = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
+            let string2_cstr = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
             let string1_ptr = CStr::as_ptr(&string1_cstr);
             let string2_ptr = CStr::as_ptr(&string2_cstr);
             Ok(vm.new_pyobj(libc::strcoll(string1_ptr, string2_ptr)))
         }
     }
-    
+
     #[pyfunction]
     fn strxfrm(string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         unsafe {
-            let string_cstr = CString::new(string.as_str())
-                .map_err(|e| e.to_pyexception(vm))?;
+            let string_cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
             let string_ptr = CStr::as_ptr(&string_cstr);
             let empty_str = CString::new("").unwrap();
             let result_ptr = CStr::as_ptr(&empty_str) as *mut c_char;
