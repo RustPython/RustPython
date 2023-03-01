@@ -10,6 +10,7 @@ mod sys {
             ascii,
             hash::{PyHash, PyUHash},
         },
+        convert::ToPyResult,
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
         stdlib::builtins,
@@ -17,7 +18,7 @@ mod sys {
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
-        AsObject, PyObjectRef, PyRef, PyRefExact, PyResult,
+        AsObject, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
     use std::{
@@ -428,12 +429,13 @@ mod sys {
 
     #[pyfunction]
     fn getsizeof(args: GetsizeofArgs, vm: &VirtualMachine) -> PyResult {
-        let sizeof = || -> PyResult {
+        let sizeof = || -> PyResult<usize> {
             let res = vm.call_special_method(args.obj, identifier!(vm, __sizeof__), ())?;
-            res.try_index(vm).map(Into::into)
+            let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
+            Ok(res + std::mem::size_of::<PyObject>())
         };
         match sizeof() {
-            Ok(res) => Ok(res),
+            Ok(res) => res.to_pyresult(vm),
             Err(err) => {
                 if let Some(default) = args.default {
                     Ok(default)
@@ -442,7 +444,6 @@ mod sys {
                 }
             }
         }
-        // TODO: add object head size
     }
 
     #[pyfunction]
