@@ -10,7 +10,6 @@ mod sys {
             ascii,
             hash::{PyHash, PyUHash},
         },
-        convert::ToPyResult,
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
         stdlib::builtins,
@@ -434,16 +433,9 @@ mod sys {
             let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
             Ok(res + std::mem::size_of::<PyObject>())
         };
-        match sizeof() {
-            Ok(res) => res.to_pyresult(vm),
-            Err(err) => {
-                if let Some(default) = args.default {
-                    Ok(default)
-                } else {
-                    Err(err)
-                }
-            }
-        }
+        sizeof()
+            .map(|x| vm.ctx.new_int(x).into())
+            .or_else(|err| args.default.ok_or(err))
     }
 
     #[pyfunction]
