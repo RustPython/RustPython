@@ -1,3 +1,7 @@
+extern crate cmake;
+
+use cmake::Config;
+
 fn main() {
     #[allow(clippy::unusual_byte_groupings)]
     if let Ok(v) = std::env::var("DEP_OPENSSL_VERSION_NUMBER") {
@@ -25,4 +29,7 @@ fn main() {
             println!("cargo:rustc-cfg=osslconf=\"{conf}\"");
         }
     }
+    let dst = Config::new("Include").build();
+    println!("cargo:rustc-link-search=native={}", dst.display());
+    println!("cargo:rustc-link-lib=static=liblocale");
 }

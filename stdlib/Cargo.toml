@@ -116,3 +116,6 @@ features = [
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.5.0"
+
+[build-dependencies]
+cmake = "0.1.31"

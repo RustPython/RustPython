@@ -288,6 +288,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmake"
+version = "0.1.49"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db34956e100b30725f2eb215f90d4871051239535632f84fea3bc92722c66b7c"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "codespan-reporting"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2135,6 +2144,7 @@ dependencies = [
  "blake2",
  "bzip2",
  "cfg-if",
+ "cmake",
  "crc32fast",
  "crossbeam-utils",
  "csv-core",

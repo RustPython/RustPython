@@ -108,6 +108,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
             "_statistics" => statistics::make_module,
+            "_locale" => locale::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
         #[cfg(any(unix, target_os = "wasi"))]
@@ -159,10 +160,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32")))]
         {
             "_uuid" => uuid::make_module,
-        }
-        #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
-        {
-            "_locale" => locale::make_module,
         }
     }
 }
