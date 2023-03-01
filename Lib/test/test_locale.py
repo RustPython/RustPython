@@ -546,10 +546,6 @@ class TestMiscellaneous(unittest.TestCase):
 
             if orig_getlocale is not None:
                 _locale._getdefaultlocale = orig_getlocale
-                
-    # TODO: RUSTPYTHON                
-    if sys.platform == "win32":
-        test_defaults_UTF8 = unittest.expectedFailure(test_defaults_UTF8)
 
     def test_getencoding(self):
         # Invoke getencoding to make sure it does not cause exceptions.
@@ -581,10 +577,6 @@ class TestMiscellaneous(unittest.TestCase):
 
         # crasher from bug #7419
         self.assertRaises(locale.Error, locale.setlocale, 12345)
-        
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_setlocale_category = unittest.expectedFailure(test_setlocale_category)
 
     def test_getsetlocale_issue1813(self):
         # Issue #1813: setting and getting the locale under a Turkish locale
