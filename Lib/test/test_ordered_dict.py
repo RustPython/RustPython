@@ -437,8 +437,6 @@ class OrderedDictTests:
         od.move_to_end('c')
         self.assertEqual(list(od), list('bac'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sizeof(self):
         OrderedDict = self.OrderedDict
         # Wimpy test: Just verify the reported size is larger than a regular dict

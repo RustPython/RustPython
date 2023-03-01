@@ -17,12 +17,12 @@ mod sys {
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
-        AsObject, PyObjectRef, PyRef, PyRefExact, PyResult,
+        AsObject, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
     use std::{
         env::{self, VarError},
-        mem, path,
+        path,
         sync::atomic::Ordering,
     };
 
@@ -419,10 +419,23 @@ mod sys {
         vm.recursion_limit.get()
     }
 
+    #[derive(FromArgs)]
+    struct GetsizeofArgs {
+        obj: PyObjectRef,
+        #[pyarg(any, optional)]
+        default: Option<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn getsizeof(obj: PyObjectRef) -> usize {
-        // TODO: implement default optional argument.
-        mem::size_of_val(&obj)
+    fn getsizeof(args: GetsizeofArgs, vm: &VirtualMachine) -> PyResult {
+        let sizeof = || -> PyResult<usize> {
+            let res = vm.call_special_method(args.obj, identifier!(vm, __sizeof__), ())?;
+            let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
+            Ok(res + std::mem::size_of::<PyObject>())
+        };
+        sizeof()
+            .map(|x| vm.ctx.new_int(x).into())
+            .or_else(|err| args.default.ok_or(err))
     }
 
     #[pyfunction]
