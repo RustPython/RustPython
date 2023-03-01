@@ -442,6 +442,7 @@ mod sys {
                 }
             }
         }
+        // TODO: add object head size
     }
 
     #[pyfunction]
