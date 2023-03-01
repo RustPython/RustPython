@@ -8,9 +8,9 @@ mod _locale {
         function::OptionalArg,
         PyObjectRef, PyResult, VirtualMachine,
     };
-    
+
     use std::{
-        ffi::{CStr, CString, c_char},
+        ffi::{c_char, CStr, CString},
         ptr,
     };
 
@@ -42,7 +42,7 @@ mod _locale {
         int_n_sign_posn: c_char,
     }
 
-    #[link(name = "liblocale", kind="static")]
+    #[link(name = "liblocale", kind = "static")]
     extern "C" {
         fn abday_1() -> i32;
         fn abday_2() -> i32;
@@ -110,508 +110,319 @@ mod _locale {
         fn _localeconv() -> *mut lconv;
     }
 
-    
     #[pyattr(name = "ABDAY_1")]
     fn get_abday_1(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abday_1()
-        }
+        unsafe { abday_1() }
     }
-
 
     #[pyattr(name = "ABDAY_2")]
     fn get_abday_2(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abday_2()
-        }
+        unsafe { abday_2() }
     }
-
 
     #[pyattr(name = "ABDAY_3")]
     fn get_abday_3(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abday_3()
-        }
+        unsafe { abday_3() }
     }
-
 
     #[pyattr(name = "ABDAY_4")]
     fn get_abday_4(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abday_4()
-        }
+        unsafe { abday_4() }
     }
-
 
     #[pyattr(name = "ABDAY_5")]
     fn get_abday_5(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abday_5()
-        }
+        unsafe { abday_5() }
     }
-
 
     #[pyattr(name = "ABDAY_6")]
     fn get_abday_6(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abday_6()
-        }
+        unsafe { abday_6() }
     }
-
 
     #[pyattr(name = "ABDAY_7")]
     fn get_abday_7(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abday_7()
-        }
+        unsafe { abday_7() }
     }
-
 
     #[pyattr(name = "ABMON_1")]
     fn get_abmon_1(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_1()
-        }
+        unsafe { abmon_1() }
     }
-
 
     #[pyattr(name = "ABMON_10")]
     fn get_abmon_10(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_10()
-        }
+        unsafe { abmon_10() }
     }
-
 
     #[pyattr(name = "ABMON_11")]
     fn get_abmon_11(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_11()
-        }
+        unsafe { abmon_11() }
     }
-
 
     #[pyattr(name = "ABMON_12")]
     fn get_abmon_12(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_12()
-        }
+        unsafe { abmon_12() }
     }
-
 
     #[pyattr(name = "ABMON_2")]
     fn get_abmon_2(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_2()
-        }
+        unsafe { abmon_2() }
     }
-
 
     #[pyattr(name = "ABMON_3")]
     fn get_abmon_3(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_3()
-        }
+        unsafe { abmon_3() }
     }
-
 
     #[pyattr(name = "ABMON_4")]
     fn get_abmon_4(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_4()
-        }
+        unsafe { abmon_4() }
     }
-
 
     #[pyattr(name = "ABMON_5")]
     fn get_abmon_5(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_5()
-        }
+        unsafe { abmon_5() }
     }
-
 
     #[pyattr(name = "ABMON_6")]
     fn get_abmon_6(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_6()
-        }
+        unsafe { abmon_6() }
     }
-
 
     #[pyattr(name = "ABMON_7")]
     fn get_abmon_7(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_7()
-        }
+        unsafe { abmon_7() }
     }
-
 
     #[pyattr(name = "ABMON_8")]
     fn get_abmon_8(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_8()
-        }
+        unsafe { abmon_8() }
     }
-
 
     #[pyattr(name = "ABMON_9")]
     fn get_abmon_9(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            abmon_9()
-        }
+        unsafe { abmon_9() }
     }
-
 
     #[pyattr(name = "ALT_DIGITS")]
     fn get_alt_digits(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            alt_digits()
-        }
+        unsafe { alt_digits() }
     }
-
 
     #[pyattr(name = "AM_STR")]
     fn get_am_str(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            am_str()
-        }
+        unsafe { am_str() }
     }
-
 
     #[pyattr(name = "CHAR_MAX")]
     fn get_char_max(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            char_max()
-        }
+        unsafe { char_max() }
     }
-
 
     #[pyattr(name = "CODESET")]
     fn get_codeset(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            codeset()
-        }
+        unsafe { codeset() }
     }
-
 
     #[pyattr(name = "CRNCYSTR")]
     fn get_crncystr(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            crncystr()
-        }
+        unsafe { crncystr() }
     }
-
 
     #[pyattr(name = "DAY_1")]
     fn get_day_1(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            day_1()
-        }
+        unsafe { day_1() }
     }
-
 
     #[pyattr(name = "DAY_2")]
     fn get_day_2(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            day_2()
-        }
+        unsafe { day_2() }
     }
-
 
     #[pyattr(name = "DAY_3")]
     fn get_day_3(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            day_3()
-        }
+        unsafe { day_3() }
     }
-
 
     #[pyattr(name = "DAY_4")]
     fn get_day_4(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            day_4()
-        }
+        unsafe { day_4() }
     }
-
 
     #[pyattr(name = "DAY_5")]
     fn get_day_5(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            day_5()
-        }
+        unsafe { day_5() }
     }
-
 
     #[pyattr(name = "DAY_6")]
     fn get_day_6(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            day_6()
-        }
+        unsafe { day_6() }
     }
-
 
     #[pyattr(name = "DAY_7")]
     fn get_day_7(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            day_7()
-        }
+        unsafe { day_7() }
     }
-
 
     #[pyattr(name = "D_FMT")]
     fn get_d_fmt(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            d_fmt()
-        }
+        unsafe { d_fmt() }
     }
-
 
     #[pyattr(name = "D_T_FMT")]
     fn get_d_t_fmt(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            d_t_fmt()
-        }
+        unsafe { d_t_fmt() }
     }
-
 
     #[pyattr(name = "ERA")]
     fn get_era(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            era()
-        }
+        unsafe { era() }
     }
-
 
     #[pyattr(name = "ERA_D_FMT")]
     fn get_era_d_fmt(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            era_d_fmt()
-        }
+        unsafe { era_d_fmt() }
     }
-
 
     #[pyattr(name = "ERA_D_T_FMT")]
     fn get_era_d_t_fmt(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            era_d_t_fmt()
-        }
+        unsafe { era_d_t_fmt() }
     }
-
 
     #[pyattr(name = "ERA_T_FMT")]
     fn get_era_t_fmt(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            era_t_fmt()
-        }
+        unsafe { era_t_fmt() }
     }
-
 
     #[pyattr(name = "LC_ALL")]
     fn get_lc_all(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            lc_all()
-        }
+        unsafe { lc_all() }
     }
-
 
     #[pyattr(name = "LC_COLLATE")]
     fn get_lc_collate(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            lc_collate()
-        }
+        unsafe { lc_collate() }
     }
-
 
     #[pyattr(name = "LC_CTYPE")]
     fn get_lc_ctype(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            lc_ctype()
-        }
+        unsafe { lc_ctype() }
     }
-
 
     #[pyattr(name = "LC_MESSAGES")]
     fn get_lc_messages(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            lc_messages()
-        }
+        unsafe { lc_messages() }
     }
-
 
     #[pyattr(name = "LC_MONETARY")]
     fn get_lc_monetary(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            lc_monetary()
-        }
+        unsafe { lc_monetary() }
     }
-
 
     #[pyattr(name = "LC_NUMERIC")]
     fn get_lc_numeric(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            lc_numeric()
-        }
+        unsafe { lc_numeric() }
     }
-
 
     #[pyattr(name = "LC_TIME")]
     fn get_lc_time(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            lc_time()
-        }
+        unsafe { lc_time() }
     }
-
 
     #[pyattr(name = "MON_1")]
     fn get_mon_1(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_1()
-        }
+        unsafe { mon_1() }
     }
-
 
     #[pyattr(name = "MON_10")]
     fn get_mon_10(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_10()
-        }
+        unsafe { mon_10() }
     }
-
 
     #[pyattr(name = "MON_11")]
     fn get_mon_11(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_11()
-        }
+        unsafe { mon_11() }
     }
-
 
     #[pyattr(name = "MON_12")]
     fn get_mon_12(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_12()
-        }
+        unsafe { mon_12() }
     }
-
 
     #[pyattr(name = "MON_2")]
     fn get_mon_2(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_2()
-        }
+        unsafe { mon_2() }
     }
-
 
     #[pyattr(name = "MON_3")]
     fn get_mon_3(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_3()
-        }
+        unsafe { mon_3() }
     }
-
 
     #[pyattr(name = "MON_4")]
     fn get_mon_4(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_4()
-        }
+        unsafe { mon_4() }
     }
-
 
     #[pyattr(name = "MON_5")]
     fn get_mon_5(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_5()
-        }
+        unsafe { mon_5() }
     }
-
 
     #[pyattr(name = "MON_6")]
     fn get_mon_6(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_6()
-        }
+        unsafe { mon_6() }
     }
-
 
     #[pyattr(name = "MON_7")]
     fn get_mon_7(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_7()
-        }
+        unsafe { mon_7() }
     }
-
 
     #[pyattr(name = "MON_8")]
     fn get_mon_8(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_8()
-        }
+        unsafe { mon_8() }
     }
-
 
     #[pyattr(name = "MON_9")]
     fn get_mon_9(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            mon_9()
-        }
+        unsafe { mon_9() }
     }
-
 
     #[pyattr(name = "NOEXPR")]
     fn get_noexpr(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            noexpr()
-        }
+        unsafe { noexpr() }
     }
-
 
     #[pyattr(name = "PM_STR")]
     fn get_pm_str(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            pm_str()
-        }
+        unsafe { pm_str() }
     }
-
 
     #[pyattr(name = "RADIXCHAR")]
     fn get_radixchar(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            radixchar()
-        }
+        unsafe { radixchar() }
     }
-
 
     #[pyattr(name = "THOUSEP")]
     fn get_thousep(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            thousep()
-        }
+        unsafe { thousep() }
     }
-
 
     #[pyattr(name = "T_FMT")]
     fn get_t_fmt(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            t_fmt()
-        }
+        unsafe { t_fmt() }
     }
-
 
     #[pyattr(name = "T_FMT_AMPM")]
     fn get_t_fmt_ampm(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            t_fmt_ampm()
-        }
+        unsafe { t_fmt_ampm() }
     }
-
 
     #[pyattr(name = "YESEXPR")]
     fn get_yesexpr(_vm: &VirtualMachine) -> i32 {
-        unsafe {
-            yesexpr()
-        }
+        unsafe { yesexpr() }
     }
 
     unsafe fn copy_grouping(group: *const libc::c_char, vm: &VirtualMachine) -> PyListRef {
