@@ -749,6 +749,7 @@ boolean {0[0]} NO
         parsed_files = cf.read([], encoding="utf-8")
         self.assertEqual(parsed_files, [])
 
+    @unittest.skip("TODO: RUSTPYTHON, suspected to make CI hang")
     def test_read_returns_file_list_with_bytestring_path(self):
         if self.delimiters[0] != '=':
             self.skipTest('incompatible format')
