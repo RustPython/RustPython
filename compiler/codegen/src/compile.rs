@@ -315,8 +315,13 @@ impl Compiler {
     fn name(&mut self, name: &str) -> bytecode::NameIdx {
         self._name_inner(name, |i| &mut i.name_cache)
     }
-    fn varname(&mut self, name: &str) -> bytecode::NameIdx {
-        self._name_inner(name, |i| &mut i.varname_cache)
+    fn varname(&mut self, name: &str) -> CompileResult<bytecode::NameIdx> {
+        if Compiler::is_forbidden_arg_name(name) {
+            return Err(self.error(CodegenErrorType::SyntaxError(format!(
+                "cannot assign to {name}",
+            ))));
+        }
+        Ok(self._name_inner(name, |i| &mut i.varname_cache))
     }
     fn _name_inner(
         &mut self,
@@ -942,24 +947,17 @@ impl Compiler {
             .chain(&args.args)
             .chain(&args.kwonlyargs);
         for name in args_iter {
-            if Compiler::is_forbidden_arg_name(&name.node.arg) {
-                return Err(self.error(CodegenErrorType::SyntaxError(format!(
-                    "cannot assign to {}",
-                    &name.node.arg
-                ))));
-            }
-            self.varname(&name.node.arg);
+            self.varname(&name.node.arg)?;
         }
 
-        let mut compile_varargs = |va: Option<&ast::Arg>, flag| {
-            if let Some(name) = va {
-                self.current_codeinfo().flags |= flag;
-                self.varname(&name.node.arg);
-            }
-        };
-
-        compile_varargs(args.vararg.as_deref(), bytecode::CodeFlags::HAS_VARARGS);
-        compile_varargs(args.kwarg.as_deref(), bytecode::CodeFlags::HAS_VARKEYWORDS);
+        if let Some(name) = args.vararg.as_deref() {
+            self.current_codeinfo().flags |= bytecode::CodeFlags::HAS_VARARGS;
+            self.varname(&name.node.arg)?;
+        }
+        if let Some(name) = args.kwarg.as_deref() {
+            self.current_codeinfo().flags |= bytecode::CodeFlags::HAS_VARKEYWORDS;
+            self.varname(&name.node.arg)?;
+        }
 
         Ok(funcflags)
     }
@@ -2565,7 +2563,7 @@ impl Compiler {
             0,
             name.to_owned(),
         );
-        let arg0 = self.varname(".0");
+        let arg0 = self.varname(".0")?;
 
         let return_none = init_collection.is_none();
         // Create empty object of proper type:
