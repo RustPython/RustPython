@@ -72,9 +72,7 @@ mod _locale {
         unsafe {
             let string1_cstr = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
             let string2_cstr = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
-            let string1_ptr = CStr::as_ptr(&string1_cstr);
-            let string2_ptr = CStr::as_ptr(&string2_cstr);
-            Ok(vm.new_pyobj(libc::strcoll(string1_ptr, string2_ptr)))
+            Ok(vm.new_pyobj(libc::strcoll(string1_cstr.as_ptr(), string2_cstr.as_ptr())))
         }
     }
 
@@ -83,9 +81,8 @@ mod _locale {
         unsafe {
             let string_cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
             let string_ptr = CStr::as_ptr(&string_cstr);
-            let empty_str = CString::new("").unwrap();
-            let result_ptr = CStr::as_ptr(&empty_str) as *mut c_char;
-            libc::strxfrm(result_ptr, string_ptr, libc::strlen(string_ptr) + 1);
+            let result_ptr = ptr::null_mut();
+            libc::strxfrm(result_ptr, string_ptr, string.char_len() + 1);
             pystr_from_raw_cstr(vm, result_ptr)
         }
     }
