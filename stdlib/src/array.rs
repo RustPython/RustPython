@@ -1321,9 +1321,7 @@ mod array {
                 length: atomic_func!(|seq, _vm| Ok(PyArray::sequence_downcast(seq).len())),
                 concat: atomic_func!(|seq, other, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
-                    let mut objects = zelf.read().get_objects(vm);
-                    objects.push(other.to_owned());
-                    Ok(vm.new_pyobj(objects))
+                    PyArray::add(zelf, other.to_owned(), vm).map(|x| x.into())
                 }),
                 repeat: atomic_func!(|seq, n, vm| {
                     PyArray::sequence_downcast(seq).mul(n, vm).map(|x| x.into())
