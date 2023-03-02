@@ -183,6 +183,7 @@ impl PyBaseObject {
     /// Return str(self).
     #[pymethod(magic)]
     fn str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // FIXME: try tp_repr first and fallback to object.__repr__
         zelf.repr(vm)
     }
 
