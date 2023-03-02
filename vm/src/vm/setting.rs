@@ -37,6 +37,9 @@ pub struct Settings {
     /// -B
     pub dont_write_bytecode: bool,
 
+    /// -P
+    pub safe_path: bool,
+
     /// -b
     pub bytes_warning: u64,
 
@@ -108,6 +111,7 @@ impl Default for Settings {
             verbose: 0,
             quiet: false,
             dont_write_bytecode: false,
+            safe_path: false,
             bytes_warning: 0,
             xopts: vec![],
             isolated: false,
