@@ -63,11 +63,11 @@ impl Default for Block {
 
 pub struct CodeInfo {
     pub flags: CodeFlags,
-    pub posonlyarg_count: usize, // Number of positional-only arguments
-    pub arg_count: usize,
-    pub kwonlyarg_count: usize,
+    pub posonlyarg_count: u32, // Number of positional-only arguments
+    pub arg_count: u32,
+    pub kwonlyarg_count: u32,
     pub source_path: String,
-    pub first_line_number: usize,
+    pub first_line_number: u32,
     pub obj_name: String, // Name of the object that created this code object
 
     pub blocks: Vec<Block>,
@@ -172,15 +172,15 @@ impl CodeInfo {
         }
     }
 
-    fn cell2arg(&self) -> Option<Box<[isize]>> {
+    fn cell2arg(&self) -> Option<Box<[i32]>> {
         if self.cellvar_cache.is_empty() {
             return None;
         }
 
         let total_args = self.arg_count
             + self.kwonlyarg_count
-            + self.flags.contains(CodeFlags::HAS_VARARGS) as usize
-            + self.flags.contains(CodeFlags::HAS_VARKEYWORDS) as usize;
+            + self.flags.contains(CodeFlags::HAS_VARARGS) as u32
+            + self.flags.contains(CodeFlags::HAS_VARKEYWORDS) as u32;
 
         let mut found_cellarg = false;
         let cell2arg = self
@@ -190,10 +190,10 @@ impl CodeInfo {
                 self.varname_cache
                     .get_index_of(var)
                     // check that it's actually an arg
-                    .filter(|i| *i < total_args)
+                    .filter(|i| *i < total_args as usize)
                     .map_or(-1, |i| {
                         found_cellarg = true;
-                        i as isize
+                        i as i32
                     })
             })
             .collect::<Box<[_]>>();

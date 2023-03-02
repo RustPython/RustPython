@@ -21,6 +21,7 @@ compiler = ["parser", "codegen", "rustpython-compiler"]
 ast = ["rustpython-ast"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
+serde = ["dep:serde"]
 
 [dependencies]
 rustpython-compiler = { path = "../compiler", optional = true, version = "0.2.0" }
@@ -47,8 +48,8 @@ itertools = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 nix = { workspace = true }
-num-bigint = { workspace = true, features = ["serde"] }
-num-complex = { workspace = true, features = ["serde"] }
+num-bigint = { workspace = true }
+num-complex = { workspace = true }
 num-integer = { workspace = true }
 num-rational = { workspace = true }
 num-traits = { workspace = true }
@@ -57,7 +58,7 @@ once_cell = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
 rand = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, optional = true }
 static_assertions = { workspace = true }
 thiserror = { workspace = true }
 thread_local = { workspace = true }
@@ -81,7 +82,7 @@ sre-engine = "0.4.1"
 # sre-engine = { path = "../../sre-engine" }
 
 ## unicode stuff
-unicode_names2 = "0.5.1"
+unicode_names2 = { workspace = true }
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = "0.1.0"

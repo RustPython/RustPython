@@ -66,8 +66,8 @@ impl PyFunction {
     ) -> PyResult<()> {
         let code = &*self.code;
         let nargs = func_args.args.len();
-        let nexpected_args = code.arg_count;
-        let total_args = code.arg_count + code.kwonlyarg_count;
+        let nexpected_args = code.arg_count as usize;
+        let total_args = code.arg_count as usize + code.kwonlyarg_count as usize;
         // let arg_names = self.code.arg_names();
 
         // This parses the arguments from args and kwargs into
@@ -131,7 +131,7 @@ impl PyFunction {
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
-            if let Some(pos) = argpos(code.posonlyarg_count..total_args, &name) {
+            if let Some(pos) = argpos(code.posonlyarg_count as usize..total_args, &name) {
                 let slot = &mut fastlocals[pos];
                 if slot.is_some() {
                     return Err(vm.new_type_error(format!(
@@ -143,7 +143,7 @@ impl PyFunction {
                 *slot = Some(value);
             } else if let Some(kwargs) = kwargs.as_ref() {
                 kwargs.set_item(&name, value, vm)?;
-            } else if argpos(0..code.posonlyarg_count, &name).is_some() {
+            } else if argpos(0..code.posonlyarg_count as usize, &name).is_some() {
                 posonly_passed_as_kwarg.push(name);
             } else {
                 return Err(vm.new_type_error(format!(
@@ -176,7 +176,7 @@ impl PyFunction {
             let defaults = get_defaults!().0.as_ref().map(|tup| tup.as_slice());
             let ndefs = defaults.map_or(0, |d| d.len());
 
-            let nrequired = code.arg_count - ndefs;
+            let nrequired = code.arg_count as usize - ndefs;
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
@@ -244,8 +244,8 @@ impl PyFunction {
             for (slot, kwarg) in fastlocals
                 .iter_mut()
                 .zip(&*code.varnames)
-                .skip(code.arg_count)
-                .take(code.kwonlyarg_count)
+                .skip(code.arg_count as usize)
+                .take(code.kwonlyarg_count as usize)
                 .filter(|(slot, _)| slot.is_none())
             {
                 if let Some(defaults) = &get_defaults!().1 {

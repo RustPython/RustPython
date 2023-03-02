@@ -46,7 +46,7 @@ impl fmt::Display for CFormatError {
     }
 }
 
-pub type CFormatPreconversor = super::format::FormatPreconversor;
+pub type CFormatConversion = super::format::FormatConversion;
 
 #[derive(Debug, PartialEq)]
 pub enum CFormatCase {
@@ -73,7 +73,7 @@ pub enum CFormatType {
     Number(CNumberType),
     Float(CFloatType),
     Character,
-    String(CFormatPreconversor),
+    String(CFormatConversion),
 }
 
 #[derive(Debug, PartialEq)]
@@ -503,10 +503,10 @@ where
         'g' => CFormatType::Float(General(Lowercase)),
         'G' => CFormatType::Float(General(Uppercase)),
         'c' => CFormatType::Character,
-        'r' => CFormatType::String(CFormatPreconversor::Repr),
-        's' => CFormatType::String(CFormatPreconversor::Str),
-        'b' => CFormatType::String(CFormatPreconversor::Bytes),
-        'a' => CFormatType::String(CFormatPreconversor::Ascii),
+        'r' => CFormatType::String(CFormatConversion::Repr),
+        's' => CFormatType::String(CFormatConversion::Str),
+        'b' => CFormatType::String(CFormatConversion::Bytes),
+        'a' => CFormatType::String(CFormatConversion::Ascii),
         _ => return Err((CFormatErrorType::UnsupportedFormatChar(c), index)),
     };
     Ok((format_type, c))
@@ -1031,7 +1031,7 @@ mod tests {
                 (
                     18,
                     CFormatPart::Spec(CFormatSpec {
-                        format_type: CFormatType::String(CFormatPreconversor::Str),
+                        format_type: CFormatType::String(CFormatConversion::Str),
                         format_char: 's',
                         mapping_key: None,
                         min_field_width: None,

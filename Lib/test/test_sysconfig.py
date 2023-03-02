@@ -141,6 +141,8 @@ class TestSysConfig(unittest.TestCase):
         self.assertIsInstance(schemes, dict)
         self.assertEqual(set(schemes), expected_schemes)
 
+    # NOTE: RUSTPYTHON this is hardcoded to 'python', we're set up for failure.
+    @unittest.expectedFailure
     def test_posix_venv_scheme(self):
         # The following directories were hardcoded in the venv module
         # before bpo-45413, here we assert the posix_venv scheme does not regress

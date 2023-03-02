@@ -643,6 +643,7 @@ impl PyFloat {
 }
 
 // Retrieve inner float value:
+#[cfg(feature = "serde")]
 pub(crate) fn get_value(obj: &PyObject) -> f64 {
     obj.payload::<PyFloat>().unwrap().value
 }

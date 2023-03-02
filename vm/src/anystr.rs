@@ -7,15 +7,14 @@ use crate::{
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
 #[derive(FromArgs)]
-pub struct SplitArgs<'s, T: TryFromObject + AnyStrWrapper<'s>> {
+pub struct SplitArgs<T: TryFromObject + AnyStrWrapper> {
     #[pyarg(any, default)]
     sep: Option<T>,
     #[pyarg(any, default = "-1")]
     maxsplit: isize,
-    _phantom: std::marker::PhantomData<&'s ()>,
 }
 
-impl<'s, T: TryFromObject + AnyStrWrapper<'s>> SplitArgs<'s, T> {
+impl<T: TryFromObject + AnyStrWrapper> SplitArgs<T> {
     pub fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<T>, isize)> {
         let sep = if let Some(s) = self.sep {
             let sep = s.as_ref();
@@ -69,10 +68,10 @@ impl StartsEndsWithArgs {
     }
 
     #[inline]
-    pub fn prepare<'s, S, F>(self, s: &'s S, len: usize, substr: F) -> Option<(PyObjectRef, &'s S)>
+    pub fn prepare<S, F>(self, s: &S, len: usize, substr: F) -> Option<(PyObjectRef, &S)>
     where
-        S: ?Sized + AnyStr<'s>,
-        F: Fn(&'s S, std::ops::Range<usize>) -> &'s S,
+        S: ?Sized + AnyStr,
+        F: Fn(&S, std::ops::Range<usize>) -> &S,
     {
         let (affix, range) = self.get_value(len);
         let substr = if let Some(range) = range {
@@ -133,8 +132,8 @@ impl StringRange for std::ops::Range<usize> {
     }
 }
 
-pub trait AnyStrWrapper<'s> {
-    type Str: ?Sized + AnyStr<'s>;
+pub trait AnyStrWrapper {
+    type Str: ?Sized + AnyStr;
     fn as_ref(&self) -> &Self::Str;
 }
 
@@ -147,20 +146,23 @@ where
     fn push_str(&mut self, s: &S);
 }
 
-// TODO: GATs for `'s` once stabilized
-pub trait AnyStr<'s>: 's {
+pub trait AnyStr {
     type Char: Copy;
     type Container: AnyStrContainer<Self> + Extend<Self::Char>;
-    type CharIter: Iterator<Item = char> + 's;
-    type ElementIter: Iterator<Item = Self::Char> + 's;
+    type CharIter<'a>: Iterator<Item = char> + 'a
+    where
+        Self: 'a;
+    type ElementIter<'a>: Iterator<Item = Self::Char> + 'a
+    where
+        Self: 'a;
 
     fn element_bytes_len(c: Self::Char) -> usize;
 
     fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
     fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error>;
-    fn chars(&'s self) -> Self::CharIter;
-    fn elements(&'s self) -> Self::ElementIter;
+    fn chars(&self) -> Self::CharIter<'_>;
+    fn elements(&self) -> Self::ElementIter<'_>;
     fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self;
     // FIXME: get_chars is expensive for str
     fn get_chars(&self, range: std::ops::Range<usize>) -> &Self;
@@ -179,14 +181,14 @@ pub trait AnyStr<'s>: 's {
 
     fn py_split<T, SP, SN, SW, R>(
         &self,
-        args: SplitArgs<'s, T>,
+        args: SplitArgs<T>,
         vm: &VirtualMachine,
         split: SP,
         splitn: SN,
         splitw: SW,
     ) -> PyResult<Vec<R>>
     where
-        T: TryFromObject + AnyStrWrapper<'s, Str = Self>,
+        T: TryFromObject + AnyStrWrapper<Str = Self>,
         SP: Fn(&Self, &Self, &VirtualMachine) -> Vec<R>,
         SN: Fn(&Self, &Self, usize, &VirtualMachine) -> Vec<R>,
         SW: Fn(&Self, isize, &VirtualMachine) -> Vec<R>,
@@ -247,7 +249,7 @@ pub trait AnyStr<'s>: 's {
         func_default: FD,
     ) -> &'a Self
     where
-        S: AnyStrWrapper<'s, Str = Self>,
+        S: AnyStrWrapper<Str = Self>,
         FC: Fn(&'a Self, &Self) -> &'a Self,
         FD: Fn(&'a Self) -> &'a Self,
     {
@@ -308,10 +310,10 @@ pub trait AnyStr<'s>: 's {
         self.py_pad(width - len, 0, fillchar)
     }
 
-    fn py_join<'a>(
+    fn py_join(
         &self,
         mut iter: impl std::iter::Iterator<
-            Item = PyResult<impl AnyStrWrapper<'s, Str = Self> + TryFromObject>,
+            Item = PyResult<impl AnyStrWrapper<Str = Self> + TryFromObject>,
         >,
     ) -> PyResult<Self::Container> {
         let mut joined = if let Some(elem) = iter.next() {
@@ -413,7 +415,7 @@ pub trait AnyStr<'s>: 's {
         rustpython_common::str::zfill(self.as_bytes(), width)
     }
 
-    fn py_iscase<F, G>(&'s self, is_case: F, is_opposite: G) -> bool
+    fn py_iscase<F, G>(&self, is_case: F, is_opposite: G) -> bool
     where
         F: Fn(char) -> bool,
         G: Fn(char) -> bool,

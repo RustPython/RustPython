@@ -609,43 +609,52 @@ impl Py<PyDict> {
 // Implement IntoIterator so that we can easily iterate dictionaries from rust code.
 impl IntoIterator for PyDictRef {
     type Item = (PyObjectRef, PyObjectRef);
-    type IntoIter = DictIter;
+    type IntoIter = DictIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        DictIntoIter::new(self)
+    }
+}
+
+impl<'a> IntoIterator for &'a PyDictRef {
+    type Item = (PyObjectRef, PyObjectRef);
+    type IntoIter = DictIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
         DictIter::new(self)
     }
 }
 
-impl IntoIterator for &PyDictRef {
+impl<'a> IntoIterator for &'a Py<PyDict> {
     type Item = (PyObjectRef, PyObjectRef);
-    type IntoIter = DictIter;
+    type IntoIter = DictIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictIter::new(self.clone())
+        DictIter::new(self)
     }
 }
 
-impl IntoIterator for &Py<PyDict> {
+impl<'a> IntoIterator for &'a PyDict {
     type Item = (PyObjectRef, PyObjectRef);
-    type IntoIter = DictIter;
+    type IntoIter = DictIter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        DictIter::new(self.to_owned())
+        DictIter::new(self)
     }
 }
 
-pub struct DictIter {
+pub struct DictIntoIter {
     dict: PyDictRef,
     position: usize,
 }
 
-impl DictIter {
-    pub fn new(dict: PyDictRef) -> DictIter {
-        DictIter { dict, position: 0 }
+impl DictIntoIter {
+    pub fn new(dict: PyDictRef) -> DictIntoIter {
+        DictIntoIter { dict, position: 0 }
     }
 }
 
-impl Iterator for DictIter {
+impl Iterator for DictIntoIter {
     type Item = (PyObjectRef, PyObjectRef);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -655,8 +664,44 @@ impl Iterator for DictIter {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let l = self.dict.entries.len_from_entry_index(self.position);
+        let l = self.len();
         (l, Some(l))
+    }
+}
+impl ExactSizeIterator for DictIntoIter {
+    fn len(&self) -> usize {
+        self.dict.entries.len_from_entry_index(self.position)
+    }
+}
+
+pub struct DictIter<'a> {
+    dict: &'a PyDict,
+    position: usize,
+}
+
+impl<'a> DictIter<'a> {
+    pub fn new(dict: &'a PyDict) -> Self {
+        DictIter { dict, position: 0 }
+    }
+}
+
+impl Iterator for DictIter<'_> {
+    type Item = (PyObjectRef, PyObjectRef);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (position, key, value) = self.dict.entries.next_entry(self.position)?;
+        self.position = position;
+        Some((key, value))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let l = self.len();
+        (l, Some(l))
+    }
+}
+impl ExactSizeIterator for DictIter<'_> {
+    fn len(&self) -> usize {
+        self.dict.entries.len_from_entry_index(self.position)
     }
 }
 

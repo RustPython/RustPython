@@ -57,7 +57,7 @@ sha3 = "0.10.1"
 blake2 = "0.10.4"
 
 ## unicode stuff
-unicode_names2 = "0.5.0"
+unicode_names2 = { workspace = true }
 # TODO: use unic for this; needed for title case:
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = "0.1.0"

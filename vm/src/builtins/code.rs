@@ -17,15 +17,15 @@ use std::{borrow::Borrow, fmt, ops::Deref};
 #[derive(FromArgs)]
 pub struct ReplaceArgs {
     #[pyarg(named, optional)]
-    co_posonlyargcount: OptionalArg<usize>,
+    co_posonlyargcount: OptionalArg<u32>,
     #[pyarg(named, optional)]
-    co_argcount: OptionalArg<usize>,
+    co_argcount: OptionalArg<u32>,
     #[pyarg(named, optional)]
-    co_kwonlyargcount: OptionalArg<usize>,
+    co_kwonlyargcount: OptionalArg<u32>,
     #[pyarg(named, optional)]
     co_filename: OptionalArg<PyStrRef>,
     #[pyarg(named, optional)]
-    co_firstlineno: OptionalArg<usize>,
+    co_firstlineno: OptionalArg<u32>,
     #[pyarg(named, optional)]
     co_consts: OptionalArg<Vec<PyObjectRef>>,
     #[pyarg(named, optional)]
@@ -39,6 +39,7 @@ pub struct ReplaceArgs {
 }
 
 #[derive(Clone)]
+#[repr(transparent)]
 pub struct Literal(PyObjectRef);
 
 impl Borrow<PyObject> for Literal {
@@ -77,9 +78,11 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<Literal> {
             BorrowedConstant::Code { code: &c.code }
         }
         ref t @ super::tuple::PyTuple => {
-            BorrowedConstant::Tuple {
-                elements: Box::new(t.iter().map(|o| borrow_obj_constant(o))),
-            }
+            let elements = t.as_slice();
+            // SAFETY: Literal is repr(transparent) over PyObjectRef, and a Literal tuple only ever
+            //         has other literals as elements
+            let elements = unsafe { &*(elements as *const [PyObjectRef] as *const [Literal]) };
+            BorrowedConstant::Tuple { elements }
         }
         super::singletons::PyNone => BorrowedConstant::None,
         super::slice::PyEllipsis => BorrowedConstant::Ellipsis,
@@ -117,8 +120,8 @@ impl ConstantBag for PyObjBag<'_> {
             }
             bytecode::BorrowedConstant::Tuple { elements } => {
                 let elements = elements
-                    .into_iter()
-                    .map(|constant| self.make_constant(constant).0)
+                    .iter()
+                    .map(|constant| self.make_constant(constant.borrow_constant()).0)
                     .collect();
                 ctx.new_tuple(elements).into()
             }
@@ -130,6 +133,18 @@ impl ConstantBag for PyObjBag<'_> {
 
     fn make_name(&self, name: &str) -> &'static PyStrInterned {
         self.0.intern_str(name)
+    }
+
+    fn make_int(&self, value: num_bigint::BigInt) -> Self::Constant {
+        Literal(self.0.new_int(value).into())
+    }
+
+    fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant {
+        Literal(self.0.new_tuple(elements.map(|lit| lit.0).collect()).into())
+    }
+
+    fn make_code(&self, code: CodeObject) -> Self::Constant {
+        Literal(self.0.new_code(code).into())
     }
 }
 
@@ -205,12 +220,12 @@ impl PyRef<PyCode> {
 
     #[pygetset]
     fn co_posonlyargcount(self) -> usize {
-        self.code.posonlyarg_count
+        self.code.posonlyarg_count as usize
     }
 
     #[pygetset]
     fn co_argcount(self) -> usize {
-        self.code.arg_count
+        self.code.arg_count as usize
     }
 
     #[pygetset]
@@ -237,12 +252,12 @@ impl PyRef<PyCode> {
 
     #[pygetset]
     fn co_firstlineno(self) -> usize {
-        self.code.first_line_number
+        self.code.first_line_number as usize
     }
 
     #[pygetset]
     fn co_kwonlyargcount(self) -> usize {
-        self.code.kwonlyarg_count
+        self.code.kwonlyarg_count as usize
     }
 
     #[pygetset]

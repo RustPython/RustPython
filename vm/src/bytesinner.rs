@@ -239,7 +239,7 @@ impl ByteInnerTranslateOptions {
     }
 }
 
-pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
+pub type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
 impl PyBytesInner {
     #[inline]
@@ -971,7 +971,7 @@ pub trait ByteOr: ToPrimitive {
 
 impl ByteOr for BigInt {}
 
-impl<'s> AnyStrWrapper<'s> for PyBytesInner {
+impl AnyStrWrapper for PyBytesInner {
     type Str = [u8];
     fn as_ref(&self) -> &[u8] {
         &self.elements
@@ -994,11 +994,11 @@ impl AnyStrContainer<[u8]> for Vec<u8> {
 
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
-impl<'s> AnyStr<'s> for [u8] {
+impl AnyStr for [u8] {
     type Char = u8;
     type Container = Vec<u8>;
-    type CharIter = bstr::Chars<'s>;
-    type ElementIter = std::iter::Copied<std::slice::Iter<'s, u8>>;
+    type CharIter<'a> = bstr::Chars<'a>;
+    type ElementIter<'a> = std::iter::Copied<std::slice::Iter<'a, u8>>;
 
     fn element_bytes_len(_: u8) -> usize {
         1
@@ -1016,11 +1016,11 @@ impl<'s> AnyStr<'s> for [u8] {
         std::str::from_utf8(self)
     }
 
-    fn chars(&'s self) -> Self::CharIter {
+    fn chars(&self) -> Self::CharIter<'_> {
         bstr::ByteSlice::chars(self)
     }
 
-    fn elements(&'s self) -> Self::ElementIter {
+    fn elements(&self) -> Self::ElementIter<'_> {
         self.iter().copied()
     }
 

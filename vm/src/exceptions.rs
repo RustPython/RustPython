@@ -19,7 +19,6 @@ use itertools::Itertools;
 use std::{
     collections::HashSet,
     io::{self, BufRead, BufReader},
-    ops::Deref,
 };
 
 impl std::fmt::Debug for PyBaseException {
@@ -958,22 +957,26 @@ fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
     })
 }
 
+#[cfg(feature = "serde")]
 pub struct SerializeException<'vm, 's> {
     vm: &'vm VirtualMachine,
     exc: &'s PyBaseExceptionRef,
 }
 
+#[cfg(feature = "serde")]
 impl<'vm, 's> SerializeException<'vm, 's> {
     pub fn new(vm: &'vm VirtualMachine, exc: &'s PyBaseExceptionRef) -> Self {
         SerializeException { vm, exc }
     }
 }
 
+#[cfg(feature = "serde")]
 pub struct SerializeExceptionOwned<'vm> {
     vm: &'vm VirtualMachine,
     exc: PyBaseExceptionRef,
 }
 
+#[cfg(feature = "serde")]
 impl serde::Serialize for SerializeExceptionOwned<'_> {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let Self { vm, exc } = self;
@@ -981,12 +984,13 @@ impl serde::Serialize for SerializeExceptionOwned<'_> {
     }
 }
 
+#[cfg(feature = "serde")]
 impl serde::Serialize for SerializeException<'_, '_> {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         use serde::ser::*;
 
         let mut struc = s.serialize_struct("PyBaseException", 7)?;
-        struc.serialize_field("exc_type", self.exc.class().name().deref())?;
+        struc.serialize_field("exc_type", &*self.exc.class().name())?;
         let tbs = {
             struct Tracebacks(PyTracebackRef);
             impl serde::Serialize for Tracebacks {
@@ -1111,8 +1115,6 @@ pub(super) mod types {
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
-    #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
-    use std::ops::Deref;
 
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
@@ -1332,7 +1334,7 @@ pub(super) mod types {
         // We need this method, because of how `CPython` copies `init`
         // from `BaseException` in `SimpleExtendsException` macro.
         // See: `BaseException_new`
-        if cls.name().deref() == vm.ctx.exceptions.os_error.name().deref() {
+        if *cls.name() == *vm.ctx.exceptions.os_error.name() {
             match os_error_optional_new(args.args.to_vec(), vm) {
                 Some(error) => error.to_pyresult(vm),
                 None => PyBaseException::slot_new(cls, args, vm),
