@@ -568,8 +568,9 @@ impl PyInt {
 
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+        let locale_func = None; // TODO: place proper get_locale_info wrapper
         FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_int(&self.value))
+            .and_then(|format_spec| format_spec.format_int(&self.value, locale_func))
             .map_err(|err| err.into_pyexception(vm))
     }
 
