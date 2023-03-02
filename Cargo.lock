@@ -2022,6 +2022,7 @@ dependencies = [
  "lz4_flex",
  "num-bigint",
  "num-complex",
+ "serde",
 ]
 
 [[package]]
@@ -2091,6 +2092,7 @@ dependencies = [
  "rustc-hash",
  "rustpython-ast",
  "rustpython-compiler-core",
+ "serde",
  "tiny-keccak",
  "unic-emoji-char",
  "unic-ucd-ident",
