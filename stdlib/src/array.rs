@@ -50,7 +50,7 @@ mod array {
             function::{ArgBytesLike, ArgIntoFloat, ArgIterable, OptionalArg, PyComparisonValue},
             protocol::{
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
-                PyMappingMethods,
+                PyMappingMethods, PySequenceMethods,
             },
             sequence::{OptionalRangeArgs, SequenceExt, SequenceMutExt},
             sliceable::{
@@ -58,8 +58,8 @@ mod array {
                 SliceableSequenceOp,
             },
             types::{
-                AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
-                PyComparisonOp,
+                AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext,
+                IterNextIterable, Iterable, PyComparisonOp,
             },
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         },
@@ -1312,6 +1312,47 @@ mod array {
                 }),
             };
             &AS_MAPPING
+        }
+    }
+
+    impl AsSequence for PyArray {
+        fn as_sequence() -> &'static PySequenceMethods {
+            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+                length: atomic_func!(|seq, _vm| Ok(PyArray::sequence_downcast(seq).len())),
+                concat: atomic_func!(|seq, other, vm| {
+                    let zelf = PyArray::sequence_downcast(seq);
+                    PyArray::add(zelf, other.to_owned(), vm).map(|x| x.into())
+                }),
+                repeat: atomic_func!(|seq, n, vm| {
+                    PyArray::sequence_downcast(seq).mul(n, vm).map(|x| x.into())
+                }),
+                item: atomic_func!(|seq, i, vm| {
+                    PyArray::sequence_downcast(seq)
+                        .read()
+                        .getitem_by_index(i, vm)
+                }),
+                ass_item: atomic_func!(|seq, i, value, vm| {
+                    let zelf = PyArray::sequence_downcast(seq);
+                    if let Some(value) = value {
+                        zelf.write().setitem_by_index(i, value, vm)
+                    } else {
+                        zelf.write().delitem_by_index(i, vm)
+                    }
+                }),
+                contains: atomic_func!(|seq, target, vm| {
+                    let zelf = PyArray::sequence_downcast(seq);
+                    Ok(zelf.contains(target.to_owned(), vm))
+                }),
+                inplace_concat: atomic_func!(|seq, other, vm| {
+                    let zelf = PyArray::sequence_downcast(seq).to_owned();
+                    PyArray::iadd(zelf, other.to_owned(), vm).map(|x| x.into())
+                }),
+                inplace_repeat: atomic_func!(|seq, n, vm| {
+                    let zelf = PyArray::sequence_downcast(seq).to_owned();
+                    PyArray::imul(zelf, n, vm).map(|x| x.into())
+                }),
+            };
+            &AS_SEQUENCE
         }
     }
 
