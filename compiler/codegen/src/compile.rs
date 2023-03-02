@@ -5,6 +5,8 @@
 //!   <https://github.com/python/cpython/blob/main/Python/compile.c>
 //!   <https://github.com/micropython/micropython/blob/master/py/compile.c>
 
+#![deny(clippy::cast_possible_truncation)]
+
 use crate::{
     error::{CodegenError, CodegenErrorType},
     ir,
@@ -332,7 +334,8 @@ impl Compiler {
         let cache = cache(self.current_codeinfo());
         cache
             .get_index_of(name.as_ref())
-            .unwrap_or_else(|| cache.insert_full(name.into_owned()).0) as u32
+            .unwrap_or_else(|| cache.insert_full(name.into_owned()).0)
+            .to_u32()
     }
 
     fn compile_program(
@@ -900,7 +903,7 @@ impl Compiler {
         let have_defaults = !args.defaults.is_empty();
         if have_defaults {
             // Construct a tuple:
-            let size = args.defaults.len() as u32;
+            let size = args.defaults.len().to_u32();
             for element in &args.defaults {
                 self.compile_expression(element)?;
             }
@@ -921,7 +924,7 @@ impl Compiler {
             emit!(
                 self,
                 Instruction::BuildMap {
-                    size: args.kw_defaults.len() as u32,
+                    size: args.kw_defaults.len().to_u32(),
                 }
             );
         }
@@ -936,11 +939,9 @@ impl Compiler {
 
         self.push_output(
             bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
-            args.posonlyargs.len().try_into().unwrap(),
-            (args.posonlyargs.len() + args.args.len())
-                .try_into()
-                .unwrap(),
-            args.kwonlyargs.len().try_into().unwrap(),
+            args.posonlyargs.len().to_u32(),
+            (args.posonlyargs.len() + args.args.len()).to_u32(),
+            args.kwonlyargs.len().to_u32(),
             name.to_owned(),
         );
 
@@ -1269,12 +1270,12 @@ impl Compiler {
             if let SymbolScope::Free = symbol.scope {
                 idx += parent_code.cellvar_cache.len();
             }
-            emit!(self, Instruction::LoadClosure(idx as u32))
+            emit!(self, Instruction::LoadClosure(idx.to_u32()))
         }
         emit!(
             self,
             Instruction::BuildTuple {
-                size: code.freevars.len() as u32,
+                size: code.freevars.len().to_u32(),
             }
         );
         true
@@ -1370,7 +1371,7 @@ impl Compiler {
             .position(|var| *var == "__class__");
 
         if let Some(classcell_idx) = classcell_idx {
-            emit!(self, Instruction::LoadClosure(classcell_idx as u32));
+            emit!(self, Instruction::LoadClosure(classcell_idx.to_u32()));
             emit!(self, Instruction::Duplicate);
             let classcell = self.name("__classcell__");
             emit!(self, Instruction::StoreLocal(classcell));
@@ -1775,7 +1776,7 @@ impl Compiler {
                     emit!(
                         self,
                         Instruction::UnpackSequence {
-                            size: elts.len() as u32,
+                            size: elts.len().to_u32(),
                         }
                     );
                 }
@@ -2175,7 +2176,7 @@ impl Compiler {
                     emit!(
                         self,
                         Instruction::BuildString {
-                            size: values.len() as u32,
+                            size: values.len().to_u32(),
                         }
                     )
                 }
@@ -2244,7 +2245,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::ListAppend {
-                                i: generators.len() as u32,
+                                i: generators.len().to_u32(),
                             }
                         );
                         Ok(())
@@ -2263,7 +2264,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::SetAdd {
-                                i: generators.len() as u32,
+                                i: generators.len().to_u32(),
                             }
                         );
                         Ok(())
@@ -2289,7 +2290,7 @@ impl Compiler {
                         emit!(
                             compiler,
                             Instruction::MapAdd {
-                                i: generators.len() as u32,
+                                i: generators.len().to_u32(),
                             }
                         );
 
@@ -2420,7 +2421,7 @@ impl Compiler {
         args: &[ast::Expr],
         keywords: &[ast::Keyword],
     ) -> CompileResult<CallType> {
-        let count = (args.len() + keywords.len()) as u32 + additional_positional;
+        let count = (args.len() + keywords.len()).to_u32() + additional_positional;
 
         // Normal arguments:
         let (size, unpack) = self.gather_elements(additional_positional, args)?;
@@ -2521,7 +2522,7 @@ impl Compiler {
             for element in elements {
                 self.compile_expression(element)?;
             }
-            before + elements.len() as u32
+            before + elements.len().to_u32()
         };
 
         Ok((size, has_stars))
@@ -2710,7 +2711,7 @@ impl Compiler {
 
     fn emit_constant(&mut self, constant: ConstantData) {
         let info = self.current_codeinfo();
-        let idx = info.constants.insert_full(constant).0 as u32;
+        let idx = info.constants.insert_full(constant).0.to_u32();
         self.emit_arg(idx, |idx| Instruction::LoadConst { idx })
     }
 
@@ -2725,7 +2726,7 @@ impl Compiler {
 
     fn new_block(&mut self) -> ir::BlockIdx {
         let code = self.current_codeinfo();
-        let idx = ir::BlockIdx(code.blocks.len() as u32);
+        let idx = ir::BlockIdx(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
         idx
     }
@@ -2753,7 +2754,7 @@ impl Compiler {
     }
 
     fn get_source_line_number(&self) -> u32 {
-        self.current_source_location.row() as u32
+        self.current_source_location.row().to_u32()
     }
 
     fn push_qualified_path(&mut self, name: &str) {
@@ -2846,6 +2847,17 @@ fn compile_constant(value: &ast::Constant) -> ConstantData {
             value: Complex64::new(*real, *imag),
         },
         ast::Constant::Ellipsis => ConstantData::Ellipsis,
+    }
+}
+
+// Note: Not a good practice in general. Keep this trait private only for compiler
+trait ToU32 {
+    fn to_u32(self) -> u32;
+}
+
+impl ToU32 for usize {
+    fn to_u32(self) -> u32 {
+        self.try_into().unwrap()
     }
 }
 
