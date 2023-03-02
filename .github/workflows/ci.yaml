@@ -295,6 +295,11 @@ jobs:
         run: |
           mkdir site-packages
           target/release/rustpython --install-pip ensurepip --user
+      - if: runner.os != 'Windows'
+        name: Check that ensurepip succeeds.
+        run: |
+          target/release/rustpython -m ensurepip
+          target/release/rustpython -c "import pip"
       - name: Check whats_left is not broken
         run: python -I whats_left.py
 

@@ -7,12 +7,40 @@ use rustpython_parser::{
 pub use rustpython_codegen::compile::CompileOpts;
 pub use rustpython_compiler_core::{BaseError as CompileErrorBody, CodeObject, Mode};
 
-#[derive(Debug, thiserror::Error)]
+use std::error::Error as StdError;
+use std::fmt;
+
+#[derive(Debug)]
 pub enum CompileErrorType {
-    #[error(transparent)]
-    Codegen(#[from] rustpython_codegen::error::CodegenErrorType),
-    #[error(transparent)]
-    Parse(#[from] parser::ParseErrorType),
+    Codegen(rustpython_codegen::error::CodegenErrorType),
+    Parse(parser::ParseErrorType),
+}
+
+impl StdError for CompileErrorType {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        match self {
+            CompileErrorType::Codegen(e) => e.source(),
+            CompileErrorType::Parse(e) => e.source(),
+        }
+    }
+}
+impl fmt::Display for CompileErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CompileErrorType::Codegen(e) => e.fmt(f),
+            CompileErrorType::Parse(e) => e.fmt(f),
+        }
+    }
+}
+impl From<rustpython_codegen::error::CodegenErrorType> for CompileErrorType {
+    fn from(source: rustpython_codegen::error::CodegenErrorType) -> Self {
+        CompileErrorType::Codegen(source)
+    }
+}
+impl From<parser::ParseErrorType> for CompileErrorType {
+    fn from(source: parser::ParseErrorType) -> Self {
+        CompileErrorType::Parse(source)
+    }
 }
 
 pub type CompileError = rustpython_compiler_core::CompileError<CompileErrorType>;

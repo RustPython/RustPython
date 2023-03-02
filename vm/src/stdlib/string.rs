@@ -21,14 +21,14 @@ mod _string {
         literal: String,
         field_name: Option<String>,
         format_spec: Option<String>,
-        preconversion_spec: Option<char>,
+        conversion_spec: Option<char>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         let tuple = (
             literal,
             field_name,
             format_spec,
-            preconversion_spec.map(|c| c.to_string()),
+            conversion_spec.map(|c| c.to_string()),
         );
         tuple.to_pyobject(vm)
     }
@@ -44,14 +44,14 @@ mod _string {
             match part {
                 FormatPart::Field {
                     field_name,
-                    preconversion_spec,
+                    conversion_spec,
                     format_spec,
                 } => {
                     result.push(create_format_part(
                         mem::take(&mut literal),
                         Some(field_name),
                         Some(format_spec),
-                        preconversion_spec,
+                        conversion_spec,
                         vm,
                     ));
                 }

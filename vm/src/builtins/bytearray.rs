@@ -782,10 +782,10 @@ impl AsBuffer for PyByteArray {
     }
 }
 
-impl<'a> BufferResizeGuard<'a> for PyByteArray {
-    type Resizable = PyRwLockWriteGuard<'a, PyBytesInner>;
+impl BufferResizeGuard for PyByteArray {
+    type Resizable<'a> = PyRwLockWriteGuard<'a, PyBytesInner>;
 
-    fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
+    fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
         let w = self.inner.write();
         (self.exports.load(Ordering::SeqCst) == 0).then_some(w)
     }

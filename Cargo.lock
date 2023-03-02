@@ -127,15 +127,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
-name = "bincode"
-version = "1.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "bit-set"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1390,7 +1381,6 @@ dependencies = [
  "autocfg",
  "num-integer",
  "num-traits",
- "serde",
 ]
 
 [[package]]
@@ -1400,7 +1390,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02e0d21255c828d6f128a1e41534206671e8c3ea0c62f32291e808dc82cff17d"
 dependencies = [
  "num-traits",
- "serde",
 ]
 
 [[package]]
@@ -1987,7 +1976,6 @@ dependencies = [
  "rustpython-ast",
  "rustpython-compiler-core",
  "rustpython-parser",
- "thiserror",
 ]
 
 [[package]]
@@ -2022,23 +2010,18 @@ dependencies = [
  "rustpython-codegen",
  "rustpython-compiler-core",
  "rustpython-parser",
- "thiserror",
 ]
 
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
 dependencies = [
- "bincode",
  "bitflags",
  "bstr",
  "itertools",
  "lz4_flex",
  "num-bigint",
  "num-complex",
- "num_enum",
- "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -2108,7 +2091,6 @@ dependencies = [
  "rustc-hash",
  "rustpython-ast",
  "rustpython-compiler-core",
- "thiserror",
  "tiny-keccak",
  "unic-emoji-char",
  "unic-ucd-ident",
@@ -2933,9 +2915,11 @@ checksum = "f962df74c8c05a667b5ee8bcf162993134c104e96440b663c8daa176dc772d8c"
 
 [[package]]
 name = "unicode_names2"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "029df4cc8238cefc911704ff8fa210853a0f3bce2694d8f51181dd41ee0f3301"
+version = "0.6.0"
+source = "git+https://github.com/youknowone/unicode_names2.git?tag=v0.6.0+character-alias#4ce16aa85cbcdd9cc830410f1a72ef9a235f2fde"
+dependencies = [
+ "phf",
+]
 
 [[package]]
 name = "utf8parse"

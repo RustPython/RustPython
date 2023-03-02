@@ -144,8 +144,8 @@ macro_rules! match_class {
     };
     (match ($obj:expr) { ref $binding:ident @ $class:ty => $expr:expr, $($rest:tt)* }) => {
         match $obj.payload::<$class>() {
-            Some($binding) => $expr,
-            None => $crate::match_class!(match ($obj) { $($rest)* }),
+            ::std::option::Option::Some($binding) => $expr,
+            ::std::option::Option::None => $crate::match_class!(match ($obj) { $($rest)* }),
         }
     };
 

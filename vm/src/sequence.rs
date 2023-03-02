@@ -5,13 +5,13 @@ use crate::{
 use optional::Optioned;
 use std::ops::Range;
 
-pub trait MutObjectSequenceOp<'a> {
-    type Guard;
+pub trait MutObjectSequenceOp {
+    type Guard<'a>: 'a;
 
-    fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef>;
-    fn do_lock(&'a self) -> Self::Guard;
+    fn do_get<'a>(index: usize, guard: &'a Self::Guard<'_>) -> Option<&'a PyObjectRef>;
+    fn do_lock(&self) -> Self::Guard<'_>;
 
-    fn mut_count(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<usize> {
+    fn mut_count(&self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<usize> {
         let mut count = 0;
         self._mut_iter_equal_skeleton::<_, false>(vm, needle, 0..isize::MAX as usize, || {
             count += 1
@@ -20,7 +20,7 @@ pub trait MutObjectSequenceOp<'a> {
     }
 
     fn mut_index_range(
-        &'a self,
+        &self,
         vm: &VirtualMachine,
         needle: &PyObject,
         range: Range<usize>,
@@ -28,16 +28,16 @@ pub trait MutObjectSequenceOp<'a> {
         self._mut_iter_equal_skeleton::<_, true>(vm, needle, range, || {})
     }
 
-    fn mut_index(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<Optioned<usize>> {
+    fn mut_index(&self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<Optioned<usize>> {
         self.mut_index_range(vm, needle, 0..isize::MAX as usize)
     }
 
-    fn mut_contains(&'a self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<bool> {
+    fn mut_contains(&self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<bool> {
         self.mut_index(vm, needle).map(|x| x.is_some())
     }
 
     fn _mut_iter_equal_skeleton<F, const SHORT: bool>(
-        &'a self,
+        &self,
         vm: &VirtualMachine,
         needle: &PyObject,
         range: Range<usize>,

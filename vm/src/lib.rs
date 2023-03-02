@@ -64,6 +64,7 @@ pub mod object;
 pub mod prelude;
 pub mod protocol;
 pub mod py_io;
+#[cfg(feature = "serde")]
 pub mod py_serde;
 pub mod readline;
 pub mod recursion;

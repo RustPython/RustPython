@@ -429,14 +429,14 @@ mod _collections {
         }
     }
 
-    impl<'a> MutObjectSequenceOp<'a> for PyDeque {
-        type Guard = PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>;
+    impl MutObjectSequenceOp for PyDeque {
+        type Guard<'a> = PyRwLockReadGuard<'a, VecDeque<PyObjectRef>>;
 
-        fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef> {
+        fn do_get<'a>(index: usize, guard: &'a Self::Guard<'_>) -> Option<&'a PyObjectRef> {
             guard.get(index)
         }
 
-        fn do_lock(&'a self) -> Self::Guard {
+        fn do_lock(&self) -> Self::Guard<'_> {
             self.borrow_deque()
         }
     }

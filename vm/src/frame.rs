@@ -513,10 +513,17 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::ImportName { idx } => {
-                self.import(vm, Some(self.code.names[idx.get(arg) as usize].to_owned()))
+                self.import(vm, Some(self.code.names[idx.get(arg) as usize].to_owned()))?;
+                Ok(None)
             }
-            bytecode::Instruction::ImportNameless => self.import(vm, None),
-            bytecode::Instruction::ImportStar => self.import_star(vm),
+            bytecode::Instruction::ImportNameless => {
+                self.import(vm, None)?;
+                Ok(None)
+            }
+            bytecode::Instruction::ImportStar => {
+                self.import_star(vm)?;
+                Ok(None)
+            }
             bytecode::Instruction::ImportFrom { idx } => {
                 let obj = self.import_from(vm, idx.get(arg))?;
                 self.push_value(obj);
@@ -1092,7 +1099,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import(&mut self, vm: &VirtualMachine, module: Option<PyStrRef>) -> FrameResult {
+    fn import(&mut self, vm: &VirtualMachine, module: Option<PyStrRef>) -> PyResult<()> {
         let module = module.unwrap_or_else(|| vm.ctx.empty_str.clone());
         let from_list = <Option<PyTupleTyped<PyStrRef>>>::try_from_object(vm, self.pop_value())?;
         let level = usize::try_from_object(vm, self.pop_value())?;
@@ -1100,7 +1107,7 @@ impl ExecutingFrame<'_> {
         let module = vm.import(module, from_list, level)?;
 
         self.push_value(module);
-        Ok(None)
+        Ok(())
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -1127,7 +1134,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import_star(&mut self, vm: &VirtualMachine) -> FrameResult {
+    fn import_star(&mut self, vm: &VirtualMachine) -> PyResult<()> {
         let module = self.pop_value();
 
         // Grab all the names from the module and put them in the context
@@ -1150,7 +1157,7 @@ impl ExecutingFrame<'_> {
                 }
             }
         }
-        Ok(None)
+        Ok(())
     }
 
     /// Unwind blocks.

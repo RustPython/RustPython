@@ -1,7 +1,8 @@
 import os
+from pickle import dump
 import sys
 from test.support import captured_stdout
-from test.support.os_helper import TESTFN, TESTFN_UNICODE, FS_NONASCII, rmtree, unlink
+from test.support.os_helper import (TESTFN, rmtree, unlink)
 from test.support.script_helper import assert_python_ok, assert_python_failure
 import textwrap
 import unittest
@@ -10,6 +11,11 @@ import trace
 from trace import Trace
 
 from test.tracedmodules import testmod
+
+##
+## See also test_sys_settrace.py, which contains tests that cover
+## tracing of many more code blocks.
+##
 
 #------------------------------- Utilities -----------------------------------#
 
@@ -191,7 +197,7 @@ class TestLineCounts(unittest.TestCase):
         firstlineno_called = get_firstlineno(traced_doubler)
         expected = {
             (self.my_py_filename, firstlineno_calling + 1): 1,
-            # List compehentions work differently in 3.x, so the count
+            # List comprehensions work differently in 3.x, so the count
             # below changed compared to 2.x.
             (self.my_py_filename, firstlineno_calling + 2): 12,
             (self.my_py_filename, firstlineno_calling + 3): 1,
@@ -212,9 +218,9 @@ class TestLineCounts(unittest.TestCase):
             (self.my_py_filename, firstlineno + 4): 1,
             (self.my_py_filename, firstlineno + 5): 1,
             (self.my_py_filename, firstlineno + 6): 1,
-            (self.my_py_filename, firstlineno + 7): 1,
-            (self.my_py_filename, firstlineno + 8): 1,
-            (self.my_py_filename, firstlineno + 9): 1,
+            (self.my_py_filename, firstlineno + 7): 2,
+            (self.my_py_filename, firstlineno + 8): 2,
+            (self.my_py_filename, firstlineno + 9): 2,
             (self.my_py_filename, firstlineno + 10): 1,
             (self.my_py_filename, firstlineno + 11): 1,
         }
@@ -297,9 +303,8 @@ class TestFuncs(unittest.TestCase):
     def test_arg_errors(self):
         res = self.tracer.runfunc(traced_capturer, 1, 2, self=3, func=4)
         self.assertEqual(res, ((1, 2), {'self': 3, 'func': 4}))
-        with self.assertWarns(DeprecationWarning):
-            res = self.tracer.runfunc(func=traced_capturer, arg=1)
-        self.assertEqual(res, ((), {'arg': 1}))
+        with self.assertRaises(TypeError):
+            self.tracer.runfunc(func=traced_capturer, arg=1)
         with self.assertRaises(TypeError):
             self.tracer.runfunc()
 
@@ -406,7 +411,7 @@ class TestCoverage(unittest.TestCase):
 
     def test_coverage_ignore(self):
         # Ignore all files, nothing should be traced nor printed
-        libpath = os.path.normpath(os.path.dirname(os.__file__))
+        libpath = os.path.normpath(os.path.dirname(os.path.dirname(__file__)))
         # sys.prefix does not work when running from a checkout
         tracer = trace.Trace(ignoredirs=[sys.base_prefix, sys.base_exec_prefix,
                              libpath], trace=0, count=1)
@@ -438,6 +443,15 @@ class TestCoverage(unittest.TestCase):
         modname = trace._fullmodname(sys.modules[modname].__file__)
         self.assertIn(modname, coverage)
         self.assertEqual(coverage[modname], (5, 100))
+
+    def test_coverageresults_update(self):
+        # Update empty CoverageResults with a non-empty infile.
+        infile = TESTFN + '-infile'
+        with open(infile, 'wb') as f:
+            dump(({}, {}, {'caller': 1}), f, protocol=1)
+        self.addCleanup(unlink, infile)
+        results = trace.CoverageResults({}, {}, infile, {})
+        self.assertEqual(results.callers, {'caller': 1})
 
 ### Tests that don't mess with sys.settrace and can be traced
 ### themselves TODO: Skip tests that do mess with sys.settrace when
@@ -547,7 +561,8 @@ class TestCommandLine(unittest.TestCase):
             fd.write("print(type(sys.argv))\n")
 
         status, direct_stdout, stderr = assert_python_ok(TESTFN)
-        status, trace_stdout, stderr = assert_python_ok('-m', 'trace', '-l', TESTFN)
+        status, trace_stdout, stderr = assert_python_ok('-m', 'trace', '-l', TESTFN,
+                                                        PYTHONIOENCODING='utf-8')
         self.assertIn(direct_stdout.strip(), trace_stdout)
 
     # TODO: RUSTPYTHON
@@ -569,7 +584,8 @@ class TestCommandLine(unittest.TestCase):
                 for i in range(10):
                     f()
             """))
-        status, stdout, _ = assert_python_ok('-m', 'trace', '-cs', filename)
+        status, stdout, _ = assert_python_ok('-m', 'trace', '-cs', filename,
+                                             PYTHONIOENCODING='utf-8')
         stdout = stdout.decode()
         self.assertEqual(status, 0)
         self.assertIn('lines   cov%   module   (path)', stdout)
