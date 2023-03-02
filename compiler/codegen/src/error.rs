@@ -2,7 +2,7 @@ use std::fmt;
 
 pub type CodegenError = rustpython_compiler_core::BaseError<CodegenErrorType>;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum CodegenErrorType {
     /// Invalid assignment, cannot store value in target.
@@ -32,6 +32,8 @@ pub enum CodegenErrorType {
     EmptyWithBody,
     NotImplementedYet, // RustPython marker for unimplemented features
 }
+
+impl std::error::Error for CodegenErrorType {}
 
 impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

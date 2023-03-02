@@ -249,9 +249,9 @@ impl Compiler {
     fn push_output(
         &mut self,
         flags: bytecode::CodeFlags,
-        posonlyarg_count: usize,
-        arg_count: usize,
-        kwonlyarg_count: usize,
+        posonlyarg_count: u32,
+        arg_count: u32,
+        kwonlyarg_count: u32,
         obj_name: String,
     ) {
         let source_path = self.source_path.clone();
@@ -936,9 +936,11 @@ impl Compiler {
 
         self.push_output(
             bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
-            args.posonlyargs.len(),
-            args.posonlyargs.len() + args.args.len(),
-            args.kwonlyargs.len(),
+            args.posonlyargs.len().try_into().unwrap(),
+            (args.posonlyargs.len() + args.args.len())
+                .try_into()
+                .unwrap(),
+            args.kwonlyargs.len().try_into().unwrap(),
             name.to_owned(),
         );
 
@@ -2750,8 +2752,8 @@ impl Compiler {
         self.current_source_location = location;
     }
 
-    fn get_source_line_number(&self) -> usize {
-        self.current_source_location.row()
+    fn get_source_line_number(&self) -> u32 {
+        self.current_source_location.row() as u32
     }
 
     fn push_qualified_path(&mut self, name: &str) {
