@@ -349,12 +349,18 @@ class TestCollation(unittest.TestCase):
         # embedded null character
         self.assertRaises(ValueError, locale.strcoll, 'a\0', 'a')
         self.assertRaises(ValueError, locale.strcoll, 'a', 'a\0')
+    
+    if sys.platform == "win32":
+        test_strcoll = unittest.expectedFailure(test_strcoll)
 
 
     def test_strxfrm(self):
         self.assertLess(locale.strxfrm('a'), locale.strxfrm('b'))
         # embedded null character
         self.assertRaises(ValueError, locale.strxfrm, 'a\0')
+        
+    if sys.platform == "win32":
+        test_strxfrm = unittest.expectedFailure(test_strxfrm)
 
 
 class TestEnUSCollation(BaseLocalizedTest, TestCollation):

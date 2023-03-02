@@ -90,13 +90,6 @@ mod _locale {
 
             if n2 >= n1 {
                 let mut new_buff = vec![0; n2];
-                // this part corresponds to re-allocate in CPython
-                for (i, item) in buff.iter().enumerate() {
-                    if *item != 0 {
-                        new_buff[i] = *item;
-                    }
-                }
-
                 let new_buff_ptr = new_buff.as_mut_ptr();
                 libc::strxfrm(new_buff_ptr, string_ptr, n2);
                 buff = new_buff;
