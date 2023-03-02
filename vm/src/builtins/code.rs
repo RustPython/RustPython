@@ -79,6 +79,8 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<Literal> {
         }
         ref t @ super::tuple::PyTuple => {
             let elements = t.as_slice();
+            // SAFETY: Literal is repr(transparent) over PyObjectRef, and a Literal tuple only ever
+            //         has other literals as elements
             let elements = unsafe { &*(elements as *const [PyObjectRef] as *const [Literal]) };
             BorrowedConstant::Tuple { elements }
         }
