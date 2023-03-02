@@ -353,7 +353,6 @@ class TestCollation(unittest.TestCase):
     if sys.platform == "win32":
         test_strcoll = unittest.expectedFailure(test_strcoll)
 
-
     def test_strxfrm(self):
         self.assertLess(locale.strxfrm('a'), locale.strxfrm('b'))
         # embedded null character
