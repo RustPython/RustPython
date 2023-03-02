@@ -1765,7 +1765,7 @@ impl ExecutingFrame<'_> {
         };
 
         let spec = self.pop_value();
-        let formatted = vm.format(&value, Some(spec.downcast::<PyStr>().unwrap()))?;
+        let formatted = vm.format(&value, spec.downcast::<PyStr>().unwrap())?;
         self.push_value(formatted.into());
         Ok(None)
     }

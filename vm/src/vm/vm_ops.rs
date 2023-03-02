@@ -495,11 +495,8 @@ impl VirtualMachine {
     }
 
     // PyObject_Format
-    pub fn format(&self, obj: &PyObject, format_spec: Option<PyStrRef>) -> PyResult<PyStrRef> {
-        let format_spec_is_empty = format_spec
-            .as_ref()
-            .map_or(true, |spec| spec.as_str().is_empty());
-        if format_spec_is_empty {
+    pub fn format(&self, obj: &PyObject, format_spec: PyStrRef) -> PyResult<PyStrRef> {
+        if format_spec.is_empty() {
             let obj = match obj.to_owned().downcast_exact::<PyStr>(self) {
                 Ok(s) => return Ok(s.into_pyref()),
                 Err(obj) => obj,

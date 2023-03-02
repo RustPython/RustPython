@@ -316,7 +316,7 @@ mod builtins {
         format_spec: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
-        vm.format(&value, format_spec.into())
+        vm.format(&value, format_spec.unwrap_or(vm.ctx.new_str("")))
     }
 
     #[pyfunction]

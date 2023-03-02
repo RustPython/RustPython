@@ -243,14 +243,13 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if format_spec.as_str().is_empty() {
-            obj.str(vm)
-        } else {
-            Err(vm.new_type_error(format!(
+        if !format_spec.is_empty() {
+            return Err(vm.new_type_error(format!(
                 "unsupported format string passed to {}.__format__",
                 obj.class().name()
-            )))
+            )));
         }
+        obj.str(vm)
     }
 
     #[pyslot]

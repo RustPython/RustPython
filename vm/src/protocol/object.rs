@@ -3,7 +3,7 @@
 
 use crate::{
     builtins::{
-        pystr::IntoPyStrRef, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStrRef,
+        pystr::IntoPyStrRef, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStr, PyStrRef,
         PyTupleRef, PyTypeRef,
     },
     bytesinner::ByteInnerNewOptions,
@@ -330,12 +330,22 @@ impl PyObject {
 
     // Container of the virtual machine state:
     pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if self.class().is(vm.ctx.types.str_type) {
-            Ok(self.to_owned().downcast().unwrap())
-        } else {
-            let s = vm.call_special_method(self.to_owned(), identifier!(vm, __str__), ())?;
-            s.try_into_value(vm)
-        }
+        let obj = match self.to_owned().downcast_exact::<PyStr>(vm) {
+            Ok(s) => return Ok(s.into_pyref()),
+            Err(obj) => obj,
+        };
+        // TODO: replace to obj.class().slots.str
+        let str_method = match vm.get_special_method(obj, identifier!(vm, __str__))? {
+            Ok(str_method) => str_method,
+            Err(obj) => return obj.repr(vm),
+        };
+        let s = str_method.invoke((), vm)?;
+        s.downcast::<PyStr>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "__str__ returned non-string (type {})",
+                obj.class().name()
+            ))
+        })
     }
 
     // Equivalent to check_class. Masks Attribute errors (into TypeErrors) and lets everything

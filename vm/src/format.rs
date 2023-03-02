@@ -107,7 +107,7 @@ fn format_internal(
                 };
 
                 // FIXME: compiler can intern specs using parser tree. Then this call can be interned_str
-                pystr = vm.format(&argument, Some(vm.ctx.intern_str(format_spec).to_owned()))?;
+                pystr = vm.format(&argument, vm.ctx.new_str(format_spec))?;
                 pystr.as_ref()
             }
             FormatPart::Literal(literal) => literal,
