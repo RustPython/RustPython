@@ -11,7 +11,7 @@ mod _locale {
         PyObjectRef, PyResult, VirtualMachine,
     };
     use std::{
-        ffi::{c_char, CStr, CString},
+        ffi::{CStr, CString},
         ptr,
     };
 
@@ -78,12 +78,30 @@ mod _locale {
 
     #[pyfunction]
     fn strxfrm(string: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
         unsafe {
+            let n1 = string.char_len() + 1;
+            let mut buff = vec![0; n1];
+            let buff_ptr = buff.as_mut_ptr();
+
             let string_cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
             let string_ptr = CStr::as_ptr(&string_cstr);
-            let result_ptr = ptr::null_mut();
-            libc::strxfrm(result_ptr, string_ptr, string.char_len() + 1);
-            pystr_from_raw_cstr(vm, result_ptr)
+            let n2 = libc::strxfrm(buff_ptr, string_ptr, n1) + 1;
+
+            if n2 >= n1 {
+                let mut new_buff = vec![0; n2];
+                // this part corresponds to re-allocate in CPython
+                for (i, item) in buff.iter().enumerate() {
+                    if *item != 0 {
+                        new_buff[i] = *item;
+                    }
+                }
+
+                let new_buff_ptr = new_buff.as_mut_ptr();
+                libc::strxfrm(new_buff_ptr, string_ptr, n2);
+                buff = new_buff;
+            }
+            pystr_from_raw_cstr(vm, buff.as_ptr())
         }
     }
 
