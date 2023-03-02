@@ -11,7 +11,6 @@ use crate::{
     convert::{IntoObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    format::call_object_format,
     function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
@@ -1766,12 +1765,7 @@ impl ExecutingFrame<'_> {
         };
 
         let spec = self.pop_value();
-        let formatted = call_object_format(
-            vm,
-            value,
-            None,
-            spec.downcast_ref::<PyStr>().unwrap().as_str(),
-        )?;
+        let formatted = vm.format(&value, Some(spec.downcast::<PyStr>().unwrap()))?;
         self.push_value(formatted.into());
         Ok(None)
     }

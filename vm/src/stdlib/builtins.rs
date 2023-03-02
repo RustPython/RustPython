@@ -17,7 +17,6 @@ mod builtins {
         },
         common::{hash::PyHash, str::to_ascii},
         convert::ToPyException,
-        format::call_object_format,
         function::{
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike,
             Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
@@ -317,11 +316,7 @@ mod builtins {
         format_spec: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
-        let format_spec = format_spec
-            .into_option()
-            .unwrap_or_else(|| vm.ctx.empty_str.clone());
-
-        call_object_format(vm, value, None, format_spec.as_str())
+        vm.format(&value, format_spec.into())
     }
 
     #[pyfunction]

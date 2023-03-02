@@ -2399,8 +2399,6 @@ class UnicodeTest(string_tests.CommonTest,
             self.assertRaises(MemoryError, alloc)
             self.assertRaises(MemoryError, alloc)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_subclass(self):
         class S(str):
             def __str__(self):
