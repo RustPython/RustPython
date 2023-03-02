@@ -365,14 +365,14 @@ where
     }
 }
 
-impl<'a> MutObjectSequenceOp<'a> for PyList {
-    type Guard = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
+impl MutObjectSequenceOp for PyList {
+    type Guard<'a> = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
 
-    fn do_get(index: usize, guard: &Self::Guard) -> Option<&PyObjectRef> {
+    fn do_get<'a>(index: usize, guard: &'a Self::Guard<'_>) -> Option<&'a PyObjectRef> {
         guard.get(index)
     }
 
-    fn do_lock(&'a self) -> Self::Guard {
+    fn do_lock(&self) -> Self::Guard<'_> {
         self.borrow_vec()
     }
 }

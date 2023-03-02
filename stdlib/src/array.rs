@@ -1324,10 +1324,10 @@ mod array {
         }
     }
 
-    impl<'a> BufferResizeGuard<'a> for PyArray {
-        type Resizable = PyRwLockWriteGuard<'a, ArrayContentType>;
+    impl BufferResizeGuard for PyArray {
+        type Resizable<'a> = PyRwLockWriteGuard<'a, ArrayContentType>;
 
-        fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
+        fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
             let w = self.write();
             (self.exports.load(atomic::Ordering::SeqCst) == 0).then_some(w)
         }
