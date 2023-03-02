@@ -1369,7 +1369,7 @@ impl ToPyObject for AsciiString {
     }
 }
 
-type SplitArgs<'a> = anystr::SplitArgs<'a, PyStrRef>;
+type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
 #[derive(FromArgs)]
 pub struct FindArgs {
@@ -1582,7 +1582,7 @@ mod tests {
     }
 }
 
-impl<'s> AnyStrWrapper<'s> for PyStrRef {
+impl AnyStrWrapper for PyStrRef {
     type Str = str;
     fn as_ref(&self) -> &str {
         self.as_str()
@@ -1603,11 +1603,11 @@ impl AnyStrContainer<str> for String {
     }
 }
 
-impl<'s> AnyStr<'s> for str {
+impl AnyStr for str {
     type Char = char;
     type Container = String;
-    type CharIter = std::str::Chars<'s>;
-    type ElementIter = std::str::Chars<'s>;
+    type CharIter<'a> = std::str::Chars<'a>;
+    type ElementIter<'a> = std::str::Chars<'a>;
 
     fn element_bytes_len(c: char) -> usize {
         c.len_utf8()
@@ -1625,11 +1625,11 @@ impl<'s> AnyStr<'s> for str {
         Ok(self)
     }
 
-    fn chars(&'s self) -> Self::CharIter {
+    fn chars(&self) -> Self::CharIter<'_> {
         str::chars(self)
     }
 
-    fn elements(&'s self) -> Self::ElementIter {
+    fn elements(&self) -> Self::ElementIter<'_> {
         str::chars(self)
     }
 

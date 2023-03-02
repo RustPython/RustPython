@@ -3389,10 +3389,10 @@ mod _io {
         },
     };
 
-    impl<'a> BufferResizeGuard<'a> for BytesIO {
-        type Resizable = PyRwLockWriteGuard<'a, BufferedIO>;
+    impl BufferResizeGuard for BytesIO {
+        type Resizable<'a> = PyRwLockWriteGuard<'a, BufferedIO>;
 
-        fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
+        fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
             let w = self.buffer.write();
             (self.exports.load() == 0).then_some(w)
         }
