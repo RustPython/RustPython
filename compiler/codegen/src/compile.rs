@@ -18,8 +18,8 @@ use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
 use rustpython_compiler_core::{
-    self as bytecode, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, Location, NameIdx,
-    OpArg, OpArgType,
+    self as bytecode, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, Location, OpArg,
+    OpArgType,
 };
 use std::borrow::Cow;
 
@@ -547,7 +547,7 @@ impl Compiler {
                 NameUsage::Delete => Instruction::DeleteLocal,
             },
         };
-        self.emit_arg(idx as NameIdx, op);
+        self.emit_arg(idx.to_u32(), op);
 
         Ok(())
     }
