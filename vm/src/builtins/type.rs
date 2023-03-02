@@ -2,12 +2,8 @@ use super::{
     mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
     PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
-use crate::common::{
-    ascii,
-    borrow::BorrowedValue,
-    lock::{PyRwLock, PyRwLockReadGuard},
-};
 use crate::{
+    atomic_func,
     builtins::{
         descriptor::{
             DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
@@ -17,15 +13,22 @@ use crate::{
         PyBaseExceptionRef,
     },
     class::{PyClassImpl, StaticType},
-    convert::ToPyObject,
+    common::{
+        ascii,
+        borrow::BorrowedValue,
+        lock::{PyRwLock, PyRwLockReadGuard},
+    },
+    convert::{ToPyObject, ToPyResult},
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    types::AsNumber,
     types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
+use once_cell::sync::Lazy;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
 #[pyclass(module = false, name = "type")]
@@ -371,7 +374,7 @@ impl Py<PyType> {
     }
 }
 
-#[pyclass(with(GetAttr, SetAttr, Callable), flags(BASETYPE))]
+#[pyclass(with(GetAttr, SetAttr, Callable, AsNumber), flags(BASETYPE))]
 impl PyType {
     // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -1055,6 +1058,18 @@ impl Callable for PyType {
             init_method(obj.clone(), args, vm)?;
         }
         Ok(obj)
+    }
+}
+
+impl AsNumber for PyType {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+            or: atomic_func!(|num, other, vm| {
+                or_(num.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        });
+        &AS_NUMBER
     }
 }
 

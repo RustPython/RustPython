@@ -1,5 +1,3 @@
-use once_cell::sync::Lazy;
-
 /*
  * Builtin set type with a sequence of unique items.
  */
@@ -7,14 +5,16 @@ use super::{
     builtins_iter, IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef,
     PyType, PyTypeRef,
 };
-use crate::atomic_func;
-use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
+    atomic_func,
     class::PyClassImpl,
+    common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
+    convert::ToPyResult,
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
-    protocol::{PyIterReturn, PySequenceMethods},
+    protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
+    types::AsNumber,
     types::{
         AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
         Iterable, PyComparisonOp, Unconstructible, Unhashable,
@@ -23,6 +23,7 @@ use crate::{
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
+use once_cell::sync::Lazy;
 use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -488,7 +489,15 @@ fn reduce_set(
 }
 
 #[pyclass(
-    with(Constructor, Initializer, AsSequence, Hashable, Comparable, Iterable),
+    with(
+        Constructor,
+        Initializer,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        AsNumber
+    ),
     flags(BASETYPE)
 )]
 impl PySet {
@@ -792,6 +801,67 @@ impl Iterable for PySet {
     }
 }
 
+impl AsNumber for PySet {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+            subtract: atomic_func!(|number, other, vm| {
+                PySet::number_downcast(number)
+                    .sub(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            and: atomic_func!(|number, other, vm| {
+                PySet::number_downcast(number)
+                    .and(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            xor: atomic_func!(|number, other, vm| {
+                PySet::number_downcast(number)
+                    .xor(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            or: atomic_func!(|number, other, vm| {
+                PySet::number_downcast(number)
+                    .or(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            inplace_subtract: atomic_func!(|number, other, vm| {
+                PySet::isub(
+                    PySet::number_downcast(number).to_owned(),
+                    AnySet::try_from_object(vm, other.to_owned())?,
+                    vm,
+                )
+                .to_pyresult(vm)
+            }),
+            inplace_and: atomic_func!(|number, other, vm| {
+                PySet::iand(
+                    PySet::number_downcast(number).to_owned(),
+                    AnySet::try_from_object(vm, other.to_owned())?,
+                    vm,
+                )
+                .to_pyresult(vm)
+            }),
+            inplace_xor: atomic_func!(|number, other, vm| {
+                PySet::ixor(
+                    PySet::number_downcast(number).to_owned(),
+                    AnySet::try_from_object(vm, other.to_owned())?,
+                    vm,
+                )
+                .to_pyresult(vm)
+            }),
+            inplace_or: atomic_func!(|number, other, vm| {
+                PySet::ior(
+                    PySet::number_downcast(number).to_owned(),
+                    AnySet::try_from_object(vm, other.to_owned())?,
+                    vm,
+                )
+                .to_pyresult(vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        });
+        &AS_NUMBER
+    }
+}
+
 impl Constructor for PyFrozenSet {
     type Args = OptionalArg<PyObjectRef>;
 
@@ -822,7 +892,7 @@ impl Constructor for PyFrozenSet {
 
 #[pyclass(
     flags(BASETYPE),
-    with(Constructor, AsSequence, Hashable, Comparable, Iterable)
+    with(Constructor, AsSequence, Hashable, Comparable, Iterable, AsNumber)
 )]
 impl PyFrozenSet {
     #[pymethod(magic)]
@@ -1016,6 +1086,35 @@ impl Comparable for PyFrozenSet {
 impl Iterable for PyFrozenSet {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(zelf.inner.iter().into_pyobject(vm))
+    }
+}
+
+impl AsNumber for PyFrozenSet {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+            subtract: atomic_func!(|number, other, vm| {
+                PyFrozenSet::number_downcast(number)
+                    .sub(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            and: atomic_func!(|number, other, vm| {
+                PyFrozenSet::number_downcast(number)
+                    .and(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            xor: atomic_func!(|number, other, vm| {
+                PyFrozenSet::number_downcast(number)
+                    .xor(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            or: atomic_func!(|number, other, vm| {
+                PyFrozenSet::number_downcast(number)
+                    .or(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        });
+        &AS_NUMBER
     }
 }
 
