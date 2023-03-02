@@ -102,6 +102,7 @@ class UTF8ModeTests(unittest.TestCase):
         self.assertIn('invalid PYTHONUTF8 environment variable value',
                       out.rstrip())
 
+    @unittest.expectedFailureIf(MS_WINDOWS, "TODO: RUSTPYTHON")
     def test_filesystemencoding(self):
         code = textwrap.dedent('''
             import sys
@@ -124,10 +125,6 @@ class UTF8ModeTests(unittest.TestCase):
                                   PYTHONUTF8='strict',
                                   PYTHONLEGACYWINDOWSFSENCODING='1')
             self.assertEqual(out, 'mbcs/replace')
-
-    # TODO: RUSTPYTHON
-    if MS_WINDOWS:
-        test_filesystemencoding = unittest.expectedFailure(test_filesystemencoding)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -220,6 +217,7 @@ class UTF8ModeTests(unittest.TestCase):
                 out = self.get_output('-X', 'utf8', '-c', code, LC_ALL=loc)
                 self.assertEqual(out, 'utf-8 utf-8')
 
+    @unittest.expectedFailureIf(sys.platform.startswith("linux"), "TODO: RUSTPYTHON")
     @unittest.skipIf(MS_WINDOWS, 'test specific to Unix')
     def test_cmd_line(self):
         arg = 'h\xe9\u20ac'.encode('utf-8')
@@ -246,10 +244,6 @@ class UTF8ModeTests(unittest.TestCase):
         for loc in POSIX_LOCALES:
             with self.subTest(LC_ALL=loc):
                 check('utf8=0', [c_arg], LC_ALL=loc)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "linux":
-        test_cmd_line = unittest.expectedFailure(test_cmd_line)
 
     def test_optim_level(self):
         # CPython: check that Py_Main() doesn't increment Py_OptimizeFlag

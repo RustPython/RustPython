@@ -78,6 +78,7 @@ class PyCompileTestsBase:
         self.assertTrue(os.path.exists(self.pyc_path))
         self.assertFalse(os.path.exists(self.cache_path))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_do_not_overwrite_symlinks(self):
         # In the face of a cfile argument being a symlink, bail out.
         # Issue #17222
@@ -89,10 +90,6 @@ class PyCompileTestsBase:
             assert os.path.islink(self.pyc_path)
             with self.assertRaises(FileExistsError):
                 py_compile.compile(self.source_path, self.pyc_path)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == 'win32':
-        test_do_not_overwrite_symlinks = unittest.expectedFailure(test_do_not_overwrite_symlinks)
 
     @unittest.skipIf(not os.path.exists(os.devnull) or os.path.isfile(os.devnull),
                      'requires os.devnull and for it to be a non-regular file')
@@ -113,16 +110,13 @@ class PyCompileTestsBase:
         self.assertTrue(os.path.exists(self.pyc_path))
         self.assertFalse(os.path.exists(self.cache_path))
 
+    import platform
+    @unittest.expectedFailureIf(sys.platform == "darwin" and int(platform.release().split(".")[0]) < 20, "TODO: RUSTPYTHON")
     def test_relative_path(self):
         py_compile.compile(os.path.relpath(self.source_path),
                            os.path.relpath(self.pyc_path))
         self.assertTrue(os.path.exists(self.pyc_path))
         self.assertFalse(os.path.exists(self.cache_path))
-
-    # TODO: RUSTPYTHON
-    import platform
-    if sys.platform == "darwin" and int(platform.release().split(".")[0]) < 20:
-        test_relative_path = unittest.expectedFailure(test_relative_path)
 
     @unittest.skipIf(hasattr(os, 'geteuid') and os.geteuid() == 0,
                      'non-root user required')
@@ -273,16 +267,13 @@ class PyCompileCLITestCase(unittest.TestCase):
         self.assertEqual(stdout, b'')
         self.assertEqual(stderr, b'')
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_file_not_exists(self):
         should_not_exists = os.path.join(os.path.dirname(__file__), 'should_not_exists.py')
         rc, stdout, stderr = self.pycompilecmd_failure(self.source_path, should_not_exists)
         self.assertEqual(rc, 1)
         self.assertEqual(stdout, b'')
         self.assertIn(b'no such file or directory', stderr.lower())
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_file_not_exists = unittest.expectedFailure(test_file_not_exists)
 
     def test_file_not_exists_with_quiet(self):
         should_not_exists = os.path.join(os.path.dirname(__file__), 'should_not_exists.py')

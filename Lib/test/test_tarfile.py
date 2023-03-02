@@ -626,6 +626,7 @@ class MiscReadTestBase(CommonReadTest):
                 data = f.read()
             self.assertEqual(sha256sum(data), sha256_regtype)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extractall(self):
         # Test if extractall() correctly restores directory permissions
         # and times (see issue1735).
@@ -656,10 +657,7 @@ class MiscReadTestBase(CommonReadTest):
             tar.close()
             os_helper.rmtree(DIR)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_extractall = unittest.expectedFailure(test_extractall)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extract_directory(self):
         dirtype = "ustar/dirtype"
         DIR = os.path.join(TEMPDIR, "extractdir")
@@ -675,10 +673,7 @@ class MiscReadTestBase(CommonReadTest):
         finally:
             os_helper.rmtree(DIR)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_extract_directory = unittest.expectedFailure(test_extract_directory)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extractall_pathlike_name(self):
         DIR = pathlib.Path(TEMPDIR) / "extractall"
         with os_helper.temp_dir(DIR), \
@@ -689,10 +684,7 @@ class MiscReadTestBase(CommonReadTest):
                 path = DIR / tarinfo.name
                 self.assertEqual(os.path.getmtime(path), tarinfo.mtime)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_extractall_pathlike_name = unittest.expectedFailure(test_extractall_pathlike_name)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_extract_pathlike_name(self):
         dirtype = "ustar/dirtype"
         DIR = pathlib.Path(TEMPDIR) / "extractall"
@@ -702,10 +694,6 @@ class MiscReadTestBase(CommonReadTest):
             tar.extract(tarinfo, path=DIR)
             extracted = DIR / dirtype
             self.assertEqual(os.path.getmtime(extracted), tarinfo.mtime)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_extract_pathlike_name = unittest.expectedFailure(test_extract_pathlike_name)
 
     def test_init_close_fobj(self):
         # Issue #7341: Close the internal file object in the TarFile
@@ -1070,33 +1058,21 @@ class GNUReadTest(LongnameTest, ReadTest, unittest.TestCase):
             s = os.stat(filename)
             self.assertLess(s.st_blocks * 512, s.st_size)
 
+    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_old(self):
         self._test_sparse_file("gnu/sparse")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "linux":
-        test_sparse_file_old = unittest.expectedFailure(test_sparse_file_old)
-
+    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_00(self):
         self._test_sparse_file("gnu/sparse-0.0")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "linux":
-        test_sparse_file_00 = unittest.expectedFailure(test_sparse_file_00)
-
+    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_01(self):
         self._test_sparse_file("gnu/sparse-0.1")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "linux":
-        test_sparse_file_01 = unittest.expectedFailure(test_sparse_file_01)
-
+    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
     def test_sparse_file_10(self):
         self._test_sparse_file("gnu/sparse-1.0")
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "linux":
-        test_sparse_file_10 = unittest.expectedFailure(test_sparse_file_10)
 
     @staticmethod
     def _fs_supports_holes():
@@ -1298,6 +1274,7 @@ class WriteTest(WriteTestBase, unittest.TestCase):
             self.assertEqual(tarinfo.name, tarinfo2.name)
             self.assertEqual(tarinfo.size, 3)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(hasattr(os, "link"),
                          "Missing hardlink implementation")
     def test_link_size(self):
@@ -1321,10 +1298,6 @@ class WriteTest(WriteTestBase, unittest.TestCase):
         finally:
             os_helper.unlink(target)
             os_helper.unlink(link)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_link_size = unittest.expectedFailure(test_link_size)
 
     @os_helper.skip_unless_symlink
     def test_symlink_size(self):
@@ -1880,14 +1853,11 @@ class HardlinkTest(unittest.TestCase):
         self.assertEqual(tarinfo.type, tarfile.REGTYPE,
                 "add file as regular failed")
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_add_hardlink(self):
         tarinfo = self.tar.gettarinfo(self.bar)
         self.assertEqual(tarinfo.type, tarfile.LNKTYPE,
                 "add file as hardlink failed")
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_add_hardlink = unittest.expectedFailure(test_add_hardlink)
 
     def test_dereference_hardlink(self):
         self.tar.dereference = True

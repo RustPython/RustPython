@@ -790,9 +790,11 @@ class TestExit(unittest.TestCase):
         self.assertTrue(proc.stderr.endswith("\nKeyboardInterrupt\n"))
         self.assertEqual(proc.returncode, self.EXPECTED_CODE)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_pymain_run_file(self):
         self.assertSigInt([sys.executable, self.ham])
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_pymain_run_file_runpy_run_module(self):
         tmp = self.ham.parent
         run_module = tmp / "run_module.py"
@@ -806,6 +808,7 @@ class TestExit(unittest.TestCase):
         )
         self.assertSigInt([sys.executable, run_module], cwd=tmp)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_pymain_run_file_runpy_run_module_as_main(self):
         tmp = self.ham.parent
         run_module_as_main = tmp / "run_module_as_main.py"
@@ -819,12 +822,14 @@ class TestExit(unittest.TestCase):
         )
         self.assertSigInt([sys.executable, run_module_as_main], cwd=tmp)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_pymain_run_command_run_module(self):
         self.assertSigInt(
             [sys.executable, "-c", "import runpy; runpy.run_module('ham')"],
             cwd=self.ham.parent,
         )
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_pymain_run_command(self):
         self.assertSigInt([sys.executable, "-c", "import ham"], cwd=self.ham.parent)
 
@@ -833,22 +838,10 @@ class TestExit(unittest.TestCase):
     def test_pymain_run_stdin(self):
         self.assertSigInt([sys.executable], input="import ham", cwd=self.ham.parent)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_pymain_run_module(self):
         ham = self.ham
         self.assertSigInt([sys.executable, "-m", ham.stem], cwd=ham.parent)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        windows_only_failed_tests = [
-            test_pymain_run_file,
-            test_pymain_run_file_runpy_run_module,
-            test_pymain_run_file_runpy_run_module_as_main,
-            test_pymain_run_command_run_module,
-            test_pymain_run_command,
-            test_pymain_run_module
-        ]
-        for t in windows_only_failed_tests:
-            unittest.expectedFailure(t)
 
 
 if __name__ == "__main__":

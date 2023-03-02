@@ -185,6 +185,7 @@ class Y1900Tests(unittest.TestCase):
     a date before 1900 is passed with a format string containing "%y"
     """
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_y_before_1900(self):
         # Issue #13674, #19634
         t = (1899, 1, 1, 0, 0, 0, 0, 0, 0)
@@ -194,10 +195,6 @@ class Y1900Tests(unittest.TestCase):
                 time.strftime("%y", t)
         else:
             self.assertEqual(time.strftime("%y", t), "99")
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_y_before_1900 = unittest.expectedFailure(test_y_before_1900)
 
     def test_y_1900(self):
         self.assertEqual(

@@ -78,15 +78,12 @@ class PlatformTest(unittest.TestCase):
     def test_architecture(self):
         res = platform.architecture()
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_architecture_via_symlink(self): # issue3762
         with support.PythonSymlink() as py:
             cmd = "-c", "import platform; print(platform.architecture())"
             self.assertEqual(py.call_real(*cmd), py.call_link(*cmd))
-
-    # TODO: RUSTPYTHON; _winapi.GetModuleFileName
-    if sys.platform == 'win32':
-        test_architecture_via_symlink = unittest.expectedFailure(test_architecture_via_symlink)
 
     def test_platform(self):
         for aliased in (False, True):

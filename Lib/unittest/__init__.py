@@ -96,3 +96,19 @@ def __getattr__(name):
         from .async_case import IsolatedAsyncioTestCase
         return IsolatedAsyncioTestCase
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+# XXX: RUSTPYTHON
+# This is very useful to reduce platform difference boilerplates in tests.
+def expectedFailureIf(condition, reason):
+    assert reason.startswith("TODO: RUSTPYTHON")
+    if condition:
+        return expectedFailure
+    else:
+        return lambda x: x
+
+# XXX: RUSTPYTHON
+# Even more useful because most of them are windows only.
+def expectedFailureIfWindows(reason):
+    import sys
+    return expectedFailureIf(sys.platform == 'win32', reason)

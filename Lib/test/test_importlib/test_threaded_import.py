@@ -260,15 +260,12 @@ class ThreadedImportTests(unittest.TestCase):
                           'partial', 'cfimport.py')
         script_helper.assert_python_ok(fn)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_multiprocessing_pool_circular_import(self):
         # Regression test for bpo-41567
         fn = os.path.join(os.path.dirname(__file__),
                           'partial', 'pool_in_threads.py')
         script_helper.assert_python_ok(fn)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == 'win32':
-        test_multiprocessing_pool_circular_import = unittest.expectedFailure(test_multiprocessing_pool_circular_import)
 
 
 def setUpModule():

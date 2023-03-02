@@ -1576,6 +1576,7 @@ class GeneralModuleTests(unittest.TestCase):
         # only IP addresses are allowed
         self.assertRaises(OSError, socket.getnameinfo, ('mail.python.org',0), 0)
 
+    @unittest.expectedFailureIf(sys.platform != "darwin", "TODO: RUSTPYTHON; socket.gethostbyname_ex")
     @unittest.skipUnless(support.is_resource_enabled('network'),
                          'network is not enabled')
     def test_idna(self):
@@ -1592,10 +1593,6 @@ class GeneralModuleTests(unittest.TestCase):
         # this may not work if the forward lookup chooses the IPv6 address, as that doesn't
         # have a reverse entry yet
         # socket.gethostbyaddr('испытание.python.org')
-
-    # TODO: RUSTPYTHON, socket.gethostbyname_ex
-    if sys.platform != "darwin":
-        test_idna = unittest.expectedFailure(test_idna)
 
     def check_sendall_interrupted(self, with_timeout):
         # socketpair() is not strictly required, but it makes things easier.
@@ -1811,6 +1808,7 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertEqual(str(s.family), 'AddressFamily.AF_INET')
             self.assertEqual(str(s.type), 'SocketKind.SOCK_STREAM')
 
+    @unittest.expectedFailureIf(sys.platform.startswith("linux"), "TODO: RUSTPYTHON, AssertionError: 526337 != <SocketKind.SOCK_STREAM: 1>")
     def test_socket_consistent_sock_type(self):
         SOCK_NONBLOCK = getattr(socket, 'SOCK_NONBLOCK', 0)
         SOCK_CLOEXEC = getattr(socket, 'SOCK_CLOEXEC', 0)
@@ -1826,10 +1824,6 @@ class GeneralModuleTests(unittest.TestCase):
             self.assertEqual(s.type, socket.SOCK_STREAM)
             s.setblocking(False)
             self.assertEqual(s.type, socket.SOCK_STREAM)
-
-    # TODO: RUSTPYTHON, AssertionError: 526337 != <SocketKind.SOCK_STREAM: 1>
-    if sys.platform == "linux":
-        test_socket_consistent_sock_type = unittest.expectedFailure(test_socket_consistent_sock_type)
 
     def test_unknown_socket_family_repr(self):
         # Test that when created with a family that's not one of the known

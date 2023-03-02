@@ -1793,6 +1793,7 @@ class CodecsModuleTest(unittest.TestCase):
         self.assertEqual(codecs.decode(b'[\xff]', 'ascii', errors='ignore'),
                          '[]')
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_encode(self):
         self.assertEqual(codecs.encode('\xe4\xf6\xfc', 'latin-1'),
                          b'\xe4\xf6\xfc')
@@ -1807,14 +1808,11 @@ class CodecsModuleTest(unittest.TestCase):
         self.assertEqual(codecs.encode('[\xff]', 'ascii', errors='ignore'),
                          b'[]')
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_encode = unittest.expectedFailure(test_encode)
-
     def test_register(self):
         self.assertRaises(TypeError, codecs.register)
         self.assertRaises(TypeError, codecs.register, 42)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AttributeError: module '_winapi' has no attribute 'GetACP'")
     def test_unregister(self):
         name = "nonexistent_codec_name"
         search_function = mock.Mock()
@@ -1827,50 +1825,31 @@ class CodecsModuleTest(unittest.TestCase):
         self.assertRaises(LookupError, codecs.lookup, name)
         search_function.assert_not_called()
 
-    # TODO: RUSTPYTHON, AttributeError: module '_winapi' has no attribute 'GetACP'
-    if sys.platform == "win32":
-        test_unregister = unittest.expectedFailure(test_unregister)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_lookup(self):
         self.assertRaises(TypeError, codecs.lookup)
         self.assertRaises(LookupError, codecs.lookup, "__spam__")
         self.assertRaises(LookupError, codecs.lookup, " ")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_lookup = unittest.expectedFailure(test_lookup)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getencoder(self):
         self.assertRaises(TypeError, codecs.getencoder)
         self.assertRaises(LookupError, codecs.getencoder, "__spam__")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_getencoder = unittest.expectedFailure(test_getencoder)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getdecoder(self):
         self.assertRaises(TypeError, codecs.getdecoder)
         self.assertRaises(LookupError, codecs.getdecoder, "__spam__")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_getdecoder = unittest.expectedFailure(test_getdecoder)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getreader(self):
         self.assertRaises(TypeError, codecs.getreader)
         self.assertRaises(LookupError, codecs.getreader, "__spam__")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_getreader = unittest.expectedFailure(test_getreader)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getwriter(self):
         self.assertRaises(TypeError, codecs.getwriter)
         self.assertRaises(LookupError, codecs.getwriter, "__spam__")
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_getwriter = unittest.expectedFailure(test_getwriter)
 
     def test_lookup_issue1813(self):
         # Issue #1813: under Turkish locales, lookup of some codecs failed
@@ -1926,6 +1905,7 @@ class CodecsModuleTest(unittest.TestCase):
             self.assertRaises(UnicodeError,
                 codecs.decode, b'abc', 'undefined', errors)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_file_closes_if_lookup_error_raised(self):
         mock_open = mock.mock_open()
         with mock.patch('builtins.open', mock_open) as file:
@@ -1933,11 +1913,6 @@ class CodecsModuleTest(unittest.TestCase):
                 codecs.open(os_helper.TESTFN, 'wt', 'invalid-encoding')
 
             file().close.assert_called()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_file_closes_if_lookup_error_raised = unittest.expectedFailure(test_file_closes_if_lookup_error_raised)
-
 
 class StreamReaderTest(unittest.TestCase):
 
@@ -3190,51 +3165,37 @@ class ExceptionChainingTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, msg):
             codecs.decode(b"bytes input", self.codec_name)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_init_override_is_not_wrapped(self):
         class CustomInit(RuntimeError):
             def __init__(self):
                 pass
         self.check_not_wrapped(CustomInit, "")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_init_override_is_not_wrapped = unittest.expectedFailure(test_init_override_is_not_wrapped)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_new_override_is_not_wrapped(self):
         class CustomNew(RuntimeError):
             def __new__(cls):
                 return super().__new__(cls)
         self.check_not_wrapped(CustomNew, "")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_new_override_is_not_wrapped = unittest.expectedFailure(test_new_override_is_not_wrapped)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_instance_attribute_is_not_wrapped(self):
         msg = "This should NOT be wrapped"
         exc = RuntimeError(msg)
         exc.attr = 1
         self.check_not_wrapped(exc, "^{}$".format(msg))
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_instance_attribute_is_not_wrapped = unittest.expectedFailure(test_instance_attribute_is_not_wrapped)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_non_str_arg_is_not_wrapped(self):
         self.check_not_wrapped(RuntimeError(1), "1")
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_non_str_arg_is_not_wrapped = unittest.expectedFailure(test_non_str_arg_is_not_wrapped)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_multiple_args_is_not_wrapped(self):
         msg_re = r"^\('a', 'b', 'c'\)$"
         self.check_not_wrapped(RuntimeError('a', 'b', 'c'), msg_re)
 
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_multiple_args_is_not_wrapped = unittest.expectedFailure(test_multiple_args_is_not_wrapped)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     # http://bugs.python.org/issue19609
     def test_codec_lookup_failure_not_wrapped(self):
         msg = "^unknown encoding: {}$".format(self.codec_name)
@@ -3247,10 +3208,6 @@ class ExceptionChainingTest(unittest.TestCase):
             b"bytes input".decode(self.codec_name)
         with self.assertRaisesRegex(LookupError, msg):
             codecs.decode(b"bytes input", self.codec_name)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_codec_lookup_failure_not_wrapped = unittest.expectedFailure(test_codec_lookup_failure_not_wrapped)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure

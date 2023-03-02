@@ -508,6 +508,7 @@ class TestNtpath(NtpathTestCase):
         with os_helper.change_cwd(test_dir_short):
             self.assertPathEqual(test_file_long, ntpath.realpath("file.txt"))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
     def test_expandvars(self):
         with os_helper.EnvironmentVarGuard() as env:
             env.clear()
@@ -534,10 +535,7 @@ class TestNtpath(NtpathTestCase):
             tester('ntpath.expandvars("\'%foo%\'%bar")', "\'%foo%\'%bar")
             tester('ntpath.expandvars("bar\'%foo%")', "bar\'%foo%")
 
-    # TODO: RUSTPYTHON, ValueError: illegal environment variable name
-    if sys.platform == 'win32':
-        test_expandvars = unittest.expectedFailure(test_expandvars)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; ValueError: illegal environment variable name")
     @unittest.skipUnless(os_helper.FS_NONASCII, 'need os_helper.FS_NONASCII')
     def test_expandvars_nonascii(self):
         def check(value, expected):
@@ -558,10 +556,7 @@ class TestNtpath(NtpathTestCase):
             check('%spam%bar', '%sbar' % nonascii)
             check('%{}%bar'.format(nonascii), 'ham%sbar' % nonascii)
 
-    # TODO: RUSTPYTHON, ValueError: illegal environment variable name
-    if sys.platform == 'win32':
-        test_expandvars_nonascii = unittest.expectedFailure(test_expandvars_nonascii)
-
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_expanduser(self):
         tester('ntpath.expanduser("test")', 'test')
 
@@ -608,10 +603,6 @@ class TestNtpath(NtpathTestCase):
             env['USERNAME'] = 'idle'
             tester('ntpath.expanduser("~test")', '~test')
             tester('ntpath.expanduser("~")', 'C:\\Users\\eric')
-
-    # TODO: RUSTPYTHON
-    if sys.platform == 'win32':
-        test_expanduser = unittest.expectedFailure(test_expanduser)
 
     @unittest.skipUnless(nt, "abspath requires 'nt' module")
     def test_abspath(self):
@@ -716,6 +707,7 @@ class TestNtpath(NtpathTestCase):
         self.assertRaises(TypeError, ntpath.commonpath,
                           ['Program Files', b'C:\\Program Files\\Foo'])
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_sameopenfile(self):
         with TemporaryFile() as tf1, TemporaryFile() as tf2:
             # Make sure the same file is really the same
@@ -728,10 +720,6 @@ class TestNtpath(NtpathTestCase):
                     # Invalid file descriptors shouldn't display assert
                     # dialogs (#4804)
                     ntpath.sameopenfile(-1, -1)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_sameopenfile = unittest.expectedFailure(test_sameopenfile)
 
     def test_ismount(self):
         self.assertTrue(ntpath.ismount("c:\\"))
@@ -859,14 +847,11 @@ class PathLikeTests(NtpathTestCase):
     def _check_function(self, func):
         self.assertPathEqual(func(self.file_path), func(self.file_name))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: 'ωω' != 'ωΩ'")
     def test_path_normcase(self):
         self._check_function(self.path.normcase)
         if sys.platform == 'win32':
             self.assertEqual(ntpath.normcase('\u03a9\u2126'), 'ωΩ')
-
-    # TODO: RUSTPYTHON, AssertionError: 'ωω' != 'ωΩ'
-    if sys.platform == "win32":
-        test_path_normcase = unittest.expectedFailure(test_path_normcase)
 
     def test_path_isabs(self):
         self._check_function(self.path.isabs)
