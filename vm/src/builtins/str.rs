@@ -11,16 +11,16 @@ use crate::{
         format::{FormatSpec, FormatString, FromTemplate},
         str::{BorrowedStr, PyStrKind, PyStrKindData},
     },
-    convert::{IntoPyException, ToPyException, ToPyObject},
+    convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
     function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
-    protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
+    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible,
+        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
@@ -354,7 +354,15 @@ impl PyStr {
 
 #[pyclass(
     flags(BASETYPE),
-    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor)
+    with(
+        AsMapping,
+        AsNumber,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        Constructor
+    )
 )]
 impl PyStr {
     #[pymethod(magic)]
@@ -1278,6 +1286,20 @@ impl AsMapping for PyStr {
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
         &AS_MAPPING
+    }
+}
+
+impl AsNumber for PyStr {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+            remainder: atomic_func!(|number, other, vm| {
+                PyStr::number_downcast(number)
+                    .modulo(other.to_owned(), vm)
+                    .to_pyresult(vm)
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        });
+        &AS_NUMBER
     }
 }
 
