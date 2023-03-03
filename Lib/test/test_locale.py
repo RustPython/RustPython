@@ -343,8 +343,7 @@ class TestFrFRNumberFormatting(FrFRCookedTest, BaseFormattingTest):
 class TestCollation(unittest.TestCase):
     # Test string collation functions
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_strcoll(self):
         self.assertLess(locale.strcoll('a', 'b'), 0)
         self.assertEqual(locale.strcoll('a', 'a'), 0)
@@ -353,8 +352,7 @@ class TestCollation(unittest.TestCase):
         self.assertRaises(ValueError, locale.strcoll, 'a\0', 'a')
         self.assertRaises(ValueError, locale.strcoll, 'a', 'a\0')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_strxfrm(self):
         self.assertLess(locale.strxfrm('a'), locale.strxfrm('b'))
         # embedded null character
@@ -381,8 +379,6 @@ class TestEnUSCollation(BaseLocalizedTest, TestCollation):
         is_emscripten or is_wasi,
         "musl libc issue on Emscripten/WASI, bpo-46390"
     )
-    # TODO: RUSTPYTHON", strcoll has not been implemented
-    @unittest.expectedFailure
     def test_strcoll_with_diacritic(self):
         self.assertLess(locale.strcoll('à', 'b'), 0)
 
@@ -392,8 +388,6 @@ class TestEnUSCollation(BaseLocalizedTest, TestCollation):
         is_emscripten or is_wasi,
         "musl libc issue on Emscripten/WASI, bpo-46390"
     )
-    # TODO: RUSTPYTHON", strxfrm has not been implemented
-    @unittest.expectedFailure
     def test_strxfrm_with_diacritic(self):
         self.assertLess(locale.strxfrm('à'), locale.strxfrm('b'))
 
