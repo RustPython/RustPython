@@ -5,9 +5,6 @@
 extern crate proc_macro;
 
 #[macro_use]
-extern crate maplit;
-
-#[macro_use]
 mod error;
 #[macro_use]
 mod util;

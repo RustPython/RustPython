@@ -19,7 +19,7 @@ use quote::quote;
 use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
 use std::sync::LazyLock;
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     env, fs,
     path::{Path, PathBuf},
 };
@@ -83,7 +83,7 @@ impl CompilationSource {
         mode: Mode,
         module_name: String,
         compiler: &dyn Compiler,
-    ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
+    ) -> Result<BTreeMap<String, CompiledModule>, Diagnostic> {
         match &self.kind {
             CompilationSourceKind::Dir(rel_path) => self.compile_dir(
                 &CARGO_MANIFEST_DIR.join(rel_path),
@@ -91,12 +91,13 @@ impl CompilationSource {
                 mode,
                 compiler,
             ),
-            _ => Ok(hashmap! {
-                module_name.clone() => CompiledModule {
+            _ => Ok(BTreeMap::from([(
+                module_name.clone(),
+                CompiledModule {
                     code: self.compile_single(mode, module_name, compiler)?,
                     package: false,
                 },
-            }),
+            )])),
         }
     }
 
@@ -136,8 +137,8 @@ impl CompilationSource {
         parent: String,
         mode: Mode,
         compiler: &dyn Compiler,
-    ) -> Result<HashMap<String, CompiledModule>, Diagnostic> {
-        let mut code_map = HashMap::new();
+    ) -> Result<BTreeMap<String, CompiledModule>, Diagnostic> {
+        let mut code_map = BTreeMap::new();
         let paths = fs::read_dir(path)
             .or_else(|e| {
                 if cfg!(windows) {

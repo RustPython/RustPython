@@ -6,7 +6,8 @@ use crate::util::{
 };
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{ToTokens, quote, quote_spanned};
-use std::{collections::HashSet, str::FromStr};
+use std::collections::{BTreeSet, HashSet};
+use std::str::FromStr;
 use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::PunctuatedNestedMeta;
@@ -472,7 +473,7 @@ impl ModuleItem for FunctionItem {
             if self.py_attrs.is_empty() {
                 vec![py_name]
             } else {
-                let mut py_names = HashSet::new();
+                let mut py_names = BTreeSet::new();
                 py_names.insert(py_name);
                 for attr_index in self.py_attrs.iter().rev() {
                     let mut loop_unit = || {
