@@ -177,7 +177,9 @@ fn remove_importlib_frames_inner(
 
     let (inner_tb, mut now_in_importlib) =
         remove_importlib_frames_inner(vm, traceback.next.lock().clone(), always_trim);
-    if file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external" {
+    if file_name == "<frozen _frozen_importlib>"
+        || file_name == "<frozen _frozen_importlib_external>"
+    {
         if traceback.frame.code.obj_name.as_str() == "_call_with_frames_removed" {
             now_in_importlib = true;
         }
