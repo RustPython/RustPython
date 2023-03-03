@@ -342,6 +342,7 @@ class TestFrFRNumberFormatting(FrFRCookedTest, BaseFormattingTest):
 
 class TestCollation(unittest.TestCase):
     # Test string collation functions
+
     @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_strcoll(self):
         self.assertLess(locale.strcoll('a', 'b'), 0)

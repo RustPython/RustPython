@@ -69,25 +69,21 @@ mod _locale {
 
     #[pyfunction]
     fn strcoll(string1: PyStrRef, string2: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let string1_cstr = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        let string2_cstr = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
-        Ok(vm.new_pyobj(unsafe { libc::strcoll(string1_cstr.as_ptr(), string2_cstr.as_ptr()) }))
+        let cstr1 = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
+        let cstr2 = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
+        Ok(vm.new_pyobj(unsafe { libc::strcoll(cstr1.as_ptr(), cstr2.as_ptr()) }))
     }
 
     #[pyfunction]
     fn strxfrm(string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
-        unsafe {
-            let n1 = string.byte_len() + 1;
-            let mut buff: Vec<u8> = vec![0; n1];
+        let n1 = string.byte_len() + 1;
+        let mut buff: Vec<u8> = vec![0; n1];
 
-            let string_cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
-            let string_ptr = string_cstr.as_ptr();
-            let n2 = libc::strxfrm(buff.as_mut_ptr() as _, string_ptr, n1);
-            buff.truncate(n2);
-            Ok(vm
-                .new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
-        }
+        let cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
+        let n2 = unsafe { libc::strxfrm(buff.as_mut_ptr() as _, cstr.as_ptr(), n1) };
+        buff.truncate(n2);
+        Ok(vm.new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
     }
 
     #[pyfunction]
