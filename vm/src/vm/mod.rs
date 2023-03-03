@@ -1006,7 +1006,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     // Includes _importlib_bootstrap and _importlib_bootstrap_external
     ext_modules!(
         iter,
-        dir = "./Lib/python_builtins",
+        lib_path = "./Lib/python_builtins",
         crate_name = "rustpython_compiler_core"
     );
 
@@ -1017,7 +1017,7 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     // #[cfg(not(feature = "freeze-stdlib"))]
     ext_modules!(
         iter,
-        dir = "./Lib/core_modules",
+        lib_path = "./Lib/core_modules",
         crate_name = "rustpython_compiler_core"
     );
 
@@ -1030,7 +1030,9 @@ fn test_nested_frozen() {
 
     vm::Interpreter::with_init(Default::default(), |vm| {
         // vm.add_native_modules(rustpython_stdlib::get_module_inits());
-        vm.add_frozen(rustpython_vm::py_freeze!(dir = "../extra_tests/snippets"));
+        vm.add_frozen(rustpython_vm::py_freeze!(
+            lib_path = "../extra_tests/snippets"
+        ));
     })
     .enter(|vm| {
         let scope = vm.new_scope_with_builtins();

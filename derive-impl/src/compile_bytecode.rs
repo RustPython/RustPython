@@ -14,6 +14,7 @@
 //! ```
 
 use crate::Diagnostic;
+use crate::util::{check_duplicate, check_duplicate_msg};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
@@ -21,12 +22,13 @@ use std::sync::LazyLock;
 use std::{
     collections::BTreeMap,
     env, fs,
-    ops::Not,
     path::{Path, PathBuf},
 };
+use syn::Token;
 use syn::{
     self, LitByteStr, LitStr, Macro,
     parse::{ParseStream, Parser, Result as ParseResult},
+    punctuated::Punctuated,
     spanned::Spanned,
 };
 
@@ -42,12 +44,12 @@ fn resolve_path(path: &Path) -> std::borrow::Cow<'_, Path> {
 }
 
 enum CompilationSource {
-    /// Source is a File (Path)
-    File(PathBuf),
+    /// Source is a single module
+    Path(PathBuf),
     /// Direct Raw source code
     SourceCode(String),
-    /// Source is a directory
-    Dir(PathBuf),
+    /// Source is a directory of modules
+    LibPath(PathBuf),
 }
 
 struct CompiledModule {
@@ -78,35 +80,28 @@ impl CompilationSource {
         &self,
         mode: Mode,
         module_name: String,
+        excludes: &[pattern::ModulePattern],
         compiler: &dyn Compiler,
     ) -> Result<Vec<(String, CompiledModule)>, String> {
+        let mut dir = DirWalker::new(excludes);
         match self {
-            CompilationSource::Dir(path) => DirWalker::from_dir(&resolve_path(path))?
-                .modules
-                .into_iter()
-                .map(|(module_name, (path, package))| {
-                    let module = Self::compile_file(&path, mode, &module_name, compiler)
-                        .map(|code| CompiledModule { code, package });
-                    (module_name, module)
-                })
-                .filter_map(|(module_name, res)| {
-                    let is_bad_syntax = res.is_err() && {
-                        let (parent, stem) =
-                            module_name.rsplit_once('.').unwrap_or(("", &module_name));
-                        // TODO: handle with macro arg rather than hard-coded path
-                        stem.starts_with("badsyntax_") || parent.ends_with(".encoded_modules")
-                    };
-                    is_bad_syntax.not().then(|| Ok((module_name, res?)))
-                })
-                .collect(),
-            _ => {
+            CompilationSource::LibPath(path) => dir.walk(&resolve_path(path), "")?,
+            CompilationSource::Path(path) => dir.add_entry(resolve_path(path).into(), "")?,
+            CompilationSource::SourceCode(_) => {
                 let module = CompiledModule {
                     code: self.compile_single(mode, &module_name, compiler)?,
                     package: false,
                 };
-                Ok(vec![(module_name, module)])
+                return Ok(vec![(module_name, module)]);
             }
         }
+        dir.modules
+            .into_iter()
+            .map(|(module_name, (path, package))| {
+                let code = Self::compile_file(&path, mode, &module_name, compiler)?;
+                Ok((module_name, CompiledModule { code, package }))
+            })
+            .collect()
     }
 
     fn compile_file(
@@ -145,28 +140,30 @@ impl CompilationSource {
         compiler: &dyn Compiler,
     ) -> Result<CodeObject, String> {
         match self {
-            CompilationSource::File(path) => Self::compile_file(path, mode, module_name, compiler),
+            CompilationSource::Path(path) => Self::compile_file(path, mode, module_name, compiler),
             CompilationSource::SourceCode(code) => {
                 Self::compile_string(&textwrap::dedent(code), mode, module_name, compiler)
                     .map_err(|err| format!("Python compile error in string literal: {err}"))
             }
-            CompilationSource::Dir(_) => {
-                unreachable!("Can't use compile_single with directory source")
+            CompilationSource::LibPath(_) => {
+                unreachable!("Can't use compile_single with lib source")
             }
         }
     }
 }
 
 #[derive(Default)]
-struct DirWalker {
+struct DirWalker<'a> {
+    excludes: &'a [pattern::ModulePattern],
     modules: BTreeMap<String, (PathBuf, bool)>,
 }
 
-impl DirWalker {
-    fn from_dir(path: &Path) -> Result<Self, String> {
-        let mut dir = Self::default();
-        dir.walk(path, "")?;
-        Ok(dir)
+impl<'a> DirWalker<'a> {
+    fn new(excludes: &'a [pattern::ModulePattern]) -> Self {
+        Self {
+            excludes,
+            modules: BTreeMap::new(),
+        }
     }
     fn walk(&mut self, path: &Path, parent: &str) -> Result<(), String> {
         let paths = fs::read_dir(path)
@@ -208,63 +205,71 @@ impl DirWalker {
                 [parent, ".", stem].concat()
             };
 
-            self.modules.insert(module_name, (path, is_init));
+            if !self.excludes.iter().any(|pat| pat.matches(&module_name)) {
+                self.modules.insert(module_name, (path, is_init));
+            }
         }
         Ok(())
     }
 }
 
 impl PyCompileArgs {
-    fn parse(input: TokenStream, allow_dir: bool) -> Result<PyCompileArgs, Diagnostic> {
+    fn parse(input: TokenStream, allow_lib: bool) -> Result<PyCompileArgs, Diagnostic> {
         let mut module_name = None;
         let mut mode = None;
         let mut source: Option<CompilationSource> = None;
         let mut source_span = (Span::call_site(), Span::call_site());
         let mut crate_name = None;
+        let mut exclude = None;
 
         syn::meta::parser(|meta| {
-            let assert_source_empty = || {
-                if source.is_some() {
-                    Err(meta.error("Cannot have more than one source"))
-                } else {
-                    Ok(())
-                }
-            };
+            let assert_source_empty =
+                || check_duplicate_msg(&meta, &source, "Cannot have more than one source");
+
             let ident = meta
                 .path
                 .get_ident()
                 .ok_or_else(|| meta.error("unknown arg"))?;
             let check_str = || meta.value()?.call(parse_str);
             if ident == "mode" {
+                check_duplicate(&meta, &mode)?;
                 let s = check_str()?;
                 match s.value().parse() {
                     Ok(mode_val) => mode = Some(mode_val),
                     Err(e) => bail_span!(s, "{}", e),
                 }
             } else if ident == "module_name" {
+                check_duplicate(&meta, &module_name)?;
                 module_name = Some(check_str()?.value())
             } else if ident == "source" {
                 assert_source_empty()?;
                 let code = check_str()?.value();
                 source_span = (ident.span(), code.span());
                 source = Some(CompilationSource::SourceCode(code));
-            } else if ident == "file" {
+            } else if ident == "path" {
                 assert_source_empty()?;
                 let path = check_str()?;
                 source_span = (ident.span(), path.span());
-                source = Some(CompilationSource::File(path.value().into()));
-            } else if ident == "dir" {
-                if !allow_dir {
-                    bail_span!(ident, "py_compile doesn't accept dir")
+                source = Some(CompilationSource::Path(path.value().into()));
+            } else if ident == "lib_path" {
+                if !allow_lib {
+                    bail_span!(ident, "py_compile doesn't accept lib_path")
                 }
 
                 assert_source_empty()?;
                 let path = check_str()?;
                 source_span = (ident.span(), path.span());
-                source = Some(CompilationSource::Dir(path.value().into()));
+                source = Some(CompilationSource::LibPath(path.value().into()));
             } else if ident == "crate_name" {
+                check_duplicate(&meta, &crate_name)?;
                 let name = check_str()?.parse()?;
                 crate_name = Some(name);
+            } else if ident == "exclude" {
+                check_duplicate(&meta, &exclude)?;
+                let input = meta.value()?;
+                let content;
+                syn::bracketed!(content in input);
+                exclude = Some(Punctuated::parse_terminated(&content)?);
             } else {
                 return Err(meta.error("unknown attr"));
             }
@@ -285,6 +290,7 @@ impl PyCompileArgs {
             mode: mode.unwrap_or(Mode::Exec),
             module_name: module_name.unwrap_or_else(|| "frozen".to_owned()),
             crate_name: crate_name.unwrap_or_else(|| syn::parse_quote!(::rustpython_vm)),
+            exclude: exclude.unwrap_or_default(),
         })
     }
 }
@@ -306,6 +312,7 @@ struct PyCompileArgs {
     mode: Mode,
     module_name: String,
     crate_name: syn::Path,
+    exclude: Punctuated<LitStr, Token![,]>,
 }
 
 pub fn impl_py_compile(
@@ -336,10 +343,16 @@ pub fn impl_py_freeze(
 ) -> Result<TokenStream, Diagnostic> {
     let args = PyCompileArgs::parse(input, true)?;
 
+    let excludes = args
+        .exclude
+        .into_iter()
+        .map(|s| s.value().parse().map_err(|e| syn::Error::new(s.span(), e)))
+        .collect::<Result<Vec<_>, _>>()?;
+
     let crate_name = args.crate_name;
     let code_map = args
         .source
-        .compile(args.mode, args.module_name, compiler)
+        .compile(args.mode, args.module_name, &excludes, compiler)
         .map_err(|msg| Diagnostic::spans_error(args.source_span, msg))?;
 
     let data = frozen::FrozenLib::encode(code_map.iter().map(|(k, v)| {
@@ -356,4 +369,149 @@ pub fn impl_py_freeze(
     };
 
     Ok(output)
+}
+
+mod pattern {
+    pub struct ModulePattern {
+        tokens: Vec<Token>,
+    }
+
+    #[derive(Copy, Clone, Debug)]
+    enum Token {
+        DoubleStar,
+        Star,
+        Char(char),
+    }
+
+    #[derive(Debug)]
+    pub enum PatternError {
+        BadDoubleStar,
+    }
+    impl std::fmt::Display for PatternError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                PatternError::BadDoubleStar => {
+                    f.write_str("`**` must be alone in a path component")
+                }
+            }
+        }
+    }
+
+    impl std::str::FromStr for ModulePattern {
+        type Err = PatternError;
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let mut chars = s.chars().peekable();
+            let mut was_dot = true;
+            let tokens = std::iter::from_fn(|| {
+                chars.next().map(|c| match c {
+                    '*' if chars.peek() == Some(&'*') => {
+                        chars.next();
+                        if was_dot && matches!(chars.next(), None | Some('.')) {
+                            Ok(Token::DoubleStar)
+                        } else {
+                            Err(PatternError::BadDoubleStar)
+                        }
+                    }
+                    '*' => Ok(Token::Star),
+                    c => {
+                        was_dot = c == '.';
+                        Ok(Token::Char(c))
+                    }
+                })
+            });
+            let tokens = tokens.collect::<Result<_, _>>()?;
+            Ok(Self { tokens })
+        }
+    }
+
+    impl ModulePattern {
+        pub fn matches(&self, s: &str) -> bool {
+            self.matches_from(true, s.chars(), 0) == MatchResult::Match
+        }
+        // vaguely based off glob's matches_from
+        fn matches_from(
+            &self,
+            mut follows_separator: bool,
+            mut path: std::str::Chars<'_>,
+            i: usize,
+        ) -> MatchResult {
+            for (ti, &token) in self.tokens[i..].iter().enumerate() {
+                match token {
+                    Token::Star | Token::DoubleStar => {
+                        // Empty match
+                        match self.matches_from(follows_separator, path.clone(), i + ti + 1) {
+                            MatchResult::SubPatternDoesntMatch => {} // keep trying
+                            m => return m,
+                        }
+
+                        while let Some(c) = path.next() {
+                            follows_separator = c == '.';
+                            match token {
+                                Token::DoubleStar if !follows_separator => continue,
+                                Token::Star if follows_separator => {
+                                    return MatchResult::SubPatternDoesntMatch;
+                                }
+                                _ => {}
+                            }
+                            match self.matches_from(follows_separator, path.clone(), i + ti + 1) {
+                                MatchResult::SubPatternDoesntMatch => {} // keep trying
+                                m => return m,
+                            }
+                        }
+                    }
+                    Token::Char(exp) => {
+                        let Some(c) = path.next() else {
+                            return MatchResult::EntirePatternDoesntMatch;
+                        };
+                        if c != exp {
+                            return MatchResult::SubPatternDoesntMatch;
+                        }
+                        follows_separator = c == '.';
+                    }
+                }
+            }
+
+            // Iter is fused.
+            if path.next().is_none() {
+                MatchResult::Match
+            } else {
+                MatchResult::SubPatternDoesntMatch
+            }
+        }
+    }
+
+    #[derive(PartialEq, Eq, Debug)]
+    enum MatchResult {
+        Match,
+        SubPatternDoesntMatch,
+        EntirePatternDoesntMatch,
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn test_pattern() {
+        let pattern: ModulePattern = "x.bar.foo_*.a".parse().unwrap();
+        assert!(pattern.matches("x.bar.foo_asdf.a"));
+        assert!(pattern.matches("x.bar.foo_bazzzz.a"));
+        assert!(pattern.matches("x.bar.foo_.a"));
+        assert!(!pattern.matches("x.bar.foo_"));
+        assert!(!pattern.matches("x.bar.foo_quxxx"));
+        assert!(!pattern.matches("foo_b.a"));
+
+        let pattern: ModulePattern = "**.foo.**".parse().unwrap();
+        assert!(pattern.matches("ba.bazzz.foo.quux"));
+
+        let pattern: ModulePattern = "*.foo.**".parse().unwrap();
+        assert!(pattern.matches("ba.foo.baz.quux"));
+        assert!(pattern.matches("asdf.foo.barrr"));
+
+        let pattern: ModulePattern = "foo.**".parse().unwrap();
+        assert!(pattern.matches("foo.baaar.qx"));
+        assert!(!pattern.matches("asdf.foo.brrrr"));
+
+        let pattern: ModulePattern = "foo.**.bar*".parse().unwrap();
+        assert!(pattern.matches("foo.quuxxx.barbaz"));
+        assert!(pattern.matches("foo.quux.asdf.barp"));
+        assert!(!pattern.matches("asdf.foo.barbaz"));
+    }
 }

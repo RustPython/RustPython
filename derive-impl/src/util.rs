@@ -743,3 +743,21 @@ fn func_sig(sig: &Signature) -> String {
 pub(crate) fn format_doc(sig: &str, doc: &str) -> String {
     format!("{sig}\n--\n\n{doc}")
 }
+
+pub(crate) fn check_duplicate_msg<T>(
+    meta: &syn::meta::ParseNestedMeta<'_>,
+    x: &Option<T>,
+    msg: &str,
+) -> syn::Result<()> {
+    if x.is_some() {
+        Err(meta.error(msg))
+    } else {
+        Ok(())
+    }
+}
+pub(crate) fn check_duplicate<T>(
+    meta: &syn::meta::ParseNestedMeta<'_>,
+    x: &Option<T>,
+) -> syn::Result<()> {
+    check_duplicate_msg(meta, x, "duplicate attribute")
+}
