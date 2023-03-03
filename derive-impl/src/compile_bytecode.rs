@@ -52,12 +52,13 @@ enum CompilationSource {
     LibPath(PathBuf),
 }
 
+#[derive(Clone)]
 struct CompiledModule {
     code: CodeObject,
     package: bool,
 }
 
-pub trait Compiler {
+pub trait Compiler: Sync {
     fn compile(
         &self,
         source: &str,
@@ -95,13 +96,15 @@ impl CompilationSource {
                 return Ok(vec![(module_name, module)]);
             }
         }
-        dir.modules
-            .into_iter()
-            .map(|(module_name, (path, package))| {
-                let code = Self::compile_file(&path, mode, &module_name, compiler)?;
-                Ok((module_name, CompiledModule { code, package }))
-            })
-            .collect()
+        let do_compile = |(module_name, (path, package)): (String, (PathBuf, _))| {
+            let code = Self::compile_file(&path, mode, &module_name, compiler)?;
+            Ok((module_name, CompiledModule { code, package }))
+        };
+        if dir.modules.len() > 32 {
+            par_map(dir.modules, do_compile).collect()
+        } else {
+            dir.modules.into_iter().map(do_compile).collect()
+        }
     }
 
     fn compile_file(
@@ -150,6 +153,32 @@ impl CompilationSource {
             }
         }
     }
+}
+
+fn par_map<T, U, I, F>(it: I, f: F) -> impl Iterator<Item = U>
+where
+    I: IntoIterator<Item = T, IntoIter: ExactSizeIterator + Send>,
+    F: Fn(T) -> U + Sync,
+    U: Send,
+{
+    let it = it.into_iter();
+    let mut out = Vec::from_iter(std::iter::repeat_with(|| None).take(it.len()));
+    let it = std::sync::Mutex::new(std::iter::zip(&mut out, it));
+    let task = || {
+        while let Some((out, x)) = { it.lock().unwrap().next() } {
+            *out = Some(f(x));
+        }
+    };
+    std::thread::scope(|s| {
+        let nproc = std::thread::available_parallelism().unwrap().get();
+        for _ in 0..nproc {
+            std::thread::Builder::new()
+                .stack_size(4 * 1024 * 1024)
+                .spawn_scoped(s, task)
+                .unwrap();
+        }
+    });
+    out.into_iter().map(Option::unwrap)
 }
 
 #[derive(Default)]
