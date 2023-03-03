@@ -12,7 +12,6 @@ mod _locale {
     };
     use std::{
         ffi::{CStr, CString},
-        mem::transmute,
         ptr,
     };
 
@@ -82,15 +81,14 @@ mod _locale {
         // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
         unsafe {
             let n1 = string.byte_len() + 1;
-            let mut buff = vec![0; n1];
-            let buff_ptr = buff.as_mut_ptr();
+            let mut buff: Vec<u8> = vec![0; n1];
 
             let string_cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
             let string_ptr = string_cstr.as_ptr();
-            let n2 = libc::strxfrm(buff_ptr, string_ptr, n1) + 1;
+            let n2 = libc::strxfrm(buff.as_mut_ptr() as _, string_ptr, n1);
             buff.truncate(n2);
             Ok(vm.new_pyobj(
-                String::from_utf8(transmute(buff)).expect("strxfrm returned invalid utf-8 string"),
+                String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string"),
             ))
         }
     }
