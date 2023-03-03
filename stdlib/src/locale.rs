@@ -69,11 +69,9 @@ mod _locale {
 
     #[pyfunction]
     fn strcoll(string1: PyStrRef, string2: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        unsafe {
-            let string1_cstr = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
-            let string2_cstr = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
-            Ok(vm.new_pyobj(libc::strcoll(string1_cstr.as_ptr(), string2_cstr.as_ptr())))
-        }
+        let string1_cstr = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
+        let string2_cstr = CString::new(string2.as_str()).map_err(|e| e.to_pyexception(vm))?;
+        Ok(vm.new_pyobj(unsafe { libc::strcoll(string1_cstr.as_ptr(), string2_cstr.as_ptr()) }))
     }
 
     #[pyfunction]

@@ -342,6 +342,7 @@ class TestFrFRNumberFormatting(FrFRCookedTest, BaseFormattingTest):
 
 class TestCollation(unittest.TestCase):
     # Test string collation functions
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_strcoll(self):
         self.assertLess(locale.strcoll('a', 'b'), 0)
         self.assertEqual(locale.strcoll('a', 'a'), 0)
@@ -349,17 +350,12 @@ class TestCollation(unittest.TestCase):
         # embedded null character
         self.assertRaises(ValueError, locale.strcoll, 'a\0', 'a')
         self.assertRaises(ValueError, locale.strcoll, 'a', 'a\0')
-    
-    if sys.platform == "win32":
-        test_strcoll = unittest.expectedFailure(test_strcoll)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_strxfrm(self):
         self.assertLess(locale.strxfrm('a'), locale.strxfrm('b'))
         # embedded null character
         self.assertRaises(ValueError, locale.strxfrm, 'a\0')
-        
-    if sys.platform == "win32":
-        test_strxfrm = unittest.expectedFailure(test_strxfrm)
 
 
 class TestEnUSCollation(BaseLocalizedTest, TestCollation):
