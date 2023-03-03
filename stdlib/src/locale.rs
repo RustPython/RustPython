@@ -87,9 +87,8 @@ mod _locale {
             let string_ptr = string_cstr.as_ptr();
             let n2 = libc::strxfrm(buff.as_mut_ptr() as _, string_ptr, n1);
             buff.truncate(n2);
-            Ok(vm.new_pyobj(
-                String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string"),
-            ))
+            Ok(vm
+                .new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
         }
     }
 
