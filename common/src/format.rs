@@ -3,10 +3,7 @@ use float_ops::Case;
 use itertools::{Itertools, PeekingNext};
 use num_bigint::{BigInt, Sign};
 use num_traits::{cast::ToPrimitive, Signed};
-use std::{
-    cmp::{self, Ordering},
-    str::FromStr,
-};
+use std::{cmp::Ordering, str::FromStr};
 
 trait FormatParse {
     fn parse(text: &str) -> (Option<Self>, &str)
@@ -109,6 +106,15 @@ impl FormatParse for FormatSign {
 pub enum FormatGrouping {
     Comma,
     Underscore,
+}
+
+impl FormatGrouping {
+    fn to_char(&self) -> char {
+        match self {
+            Self::Comma => ',',
+            Self::Underscore => '_',
+        }
+    }
 }
 
 impl FormatParse for FormatGrouping {
@@ -419,15 +425,12 @@ impl FormatSpec {
         padding: PaddingStyle,
     ) -> String {
         match &self.grouping_option {
-            Some(fg) => {
-                let sep = match fg {
-                    FormatGrouping::Comma => ',',
-                    FormatGrouping::Underscore => '_',
-                };
+            Some(grouping) => {
+                let sep = grouping.to_char();
                 let inter = self.get_separator_interval().try_into().unwrap();
                 let magnitude_len = magnitude_str.len();
                 let width = self.width.unwrap_or(magnitude_len) as i32 - prefix.len() as i32;
-                let disp_digit_cnt = cmp::max(width, magnitude_len as i32);
+                let disp_digit_cnt = std::cmp::max(width, magnitude_len as i32);
                 FormatSpec::add_magnitude_separators_for_char(
                     magnitude_str,
                     inter,
@@ -694,7 +697,7 @@ impl FormatSpec {
         let num_chars = magnitude_str.char_len();
         let fill_char = self.fill.unwrap_or(' ');
         let fill_chars_needed: i32 = self.width.map_or(0, |w| {
-            cmp::max(0, (w as i32) - (num_chars as i32) - (sign_str.len() as i32))
+            std::cmp::max(0, (w as i32) - (num_chars as i32) - (sign_str.len() as i32))
         });
         Ok(match align {
             FormatAlign::Left => format!(
