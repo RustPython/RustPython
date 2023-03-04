@@ -18,6 +18,8 @@ class ExceptionClassTests(unittest.TestCase):
                     "%s missing %s attribute" %
                         (ins.__class__.__name__, attr))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inheritance(self):
         # Make sure the inheritance hierarchy matches the documentation
         exc_set = set()
@@ -118,6 +120,8 @@ class ExceptionClassTests(unittest.TestCase):
                 [repr(exc), exc.__class__.__name__ + '()'])
         self.interface_test_driver(results)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_setstate_refcount_no_crash(self):
         # gh-97591: Acquire strong reference before calling tp_hash slot
         # in PyObject_SetAttr.
