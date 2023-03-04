@@ -396,8 +396,6 @@ class FormatTest(unittest.TestCase):
         testformat("a%sb", ('c\0d',), 'ac\0db')
         testcommon(b"a%sb", (b'c\0d',), b'ac\0db')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_ascii(self):
         testformat("\u20ac=%f", (1.0,), "\u20ac=1.000000")
 
@@ -419,8 +417,6 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(format(1+2j, "\u2007^8"), "\u2007(1+2j)\u2007")
         self.assertEqual(format(0j, "\u2007^4"), "\u20070j\u2007")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_locale(self):
         try:
             oldloc = locale.setlocale(locale.LC_ALL)
@@ -466,8 +462,6 @@ class FormatTest(unittest.TestCase):
         self.assertIs(text % (), text)
         self.assertIs(text.format(), text)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_precision(self):
         f = 1.2
         self.assertEqual(format(f, ".0f"), "1")
