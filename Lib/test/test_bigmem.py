@@ -790,24 +790,15 @@ class BytesTest(unittest.TestCase, BaseStrTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @bigmemtest(size=_2G, memuse=2)
     def test_isspace(self, size):
         super().test_isspace(size)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @bigmemtest(size=_2G, memuse=2)
     def test_istitle(self, size):
         super().test_istitle(size)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_lstrip(self, size):
-        super().test_lstrip(size)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_rstrip(self, size):
-        super().test_rstrip(size)
-
 
 class BytearrayTest(unittest.TestCase, BaseStrTest):
 
@@ -836,11 +827,13 @@ class BytearrayTest(unittest.TestCase, BaseStrTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @bigmemtest(size=_2G, memuse=2)
     def test_isspace(self, size):
         super().test_isspace(size)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @bigmemtest(size=_2G, memuse=2)
     def test_istitle(self, size):
         super().test_istitle(size)
 
