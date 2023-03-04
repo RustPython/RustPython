@@ -75,8 +75,6 @@ class BinASCIITest(unittest.TestCase):
             res += b
         self.assertEqual(res, self.rawdata)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_base64invalid(self):
         # Test base64 with random invalid characters sprinkled throughout
         # (This requires a new version of binascii.)
@@ -114,8 +112,6 @@ class BinASCIITest(unittest.TestCase):
         # empty strings. TBD: shouldn't it raise an exception instead ?
         self.assertEqual(binascii.a2b_base64(self.type2test(fillers)), b'')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_base64_strict_mode(self):
         # Test base64 with strict mode on
         def _assertRegexTemplate(assert_regex: str, data: bytes, non_strict_mode_expected_result: bytes):
@@ -159,8 +155,6 @@ class BinASCIITest(unittest.TestCase):
         assertDiscontinuousPadding(b'ab=c=', b'i\xb7')
         assertDiscontinuousPadding(b'ab=ab==', b'i\xb6\x9b')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_base64errors(self):
         # Test base64 with invalid padding
         def assertIncorrectPadding(data):
