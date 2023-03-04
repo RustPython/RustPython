@@ -183,6 +183,7 @@ impl PyBaseObject {
     /// Return str(self).
     #[pymethod(magic)]
     fn str(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // FIXME: try tp_repr first and fallback to object.__repr__
         zelf.repr(vm)
     }
 
@@ -243,14 +244,13 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if format_spec.as_str().is_empty() {
-            obj.str(vm)
-        } else {
-            Err(vm.new_type_error(format!(
+        if !format_spec.is_empty() {
+            return Err(vm.new_type_error(format!(
                 "unsupported format string passed to {}.__format__",
                 obj.class().name()
-            )))
+            )));
         }
+        obj.str(vm)
     }
 
     #[pyslot]

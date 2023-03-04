@@ -1,6 +1,6 @@
 use super::{PyMethod, VirtualMachine};
 use crate::{
-    builtins::{PyInt, PyIntRef, PyStrInterned},
+    builtins::{PyInt, PyIntRef, PyStr, PyStrInterned, PyStrRef},
     function::PyArithmeticValue,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
     protocol::PyIterReturn,
@@ -492,6 +492,34 @@ impl VirtualMachine {
         self.get_special_method(a.to_owned(), identifier!(self, __invert__))?
             .map_err(|_| self.new_unsupported_unary_error(a, "unary ~"))?
             .invoke((), self)
+    }
+
+    // PyObject_Format
+    pub fn format(&self, obj: &PyObject, format_spec: PyStrRef) -> PyResult<PyStrRef> {
+        if format_spec.is_empty() {
+            let obj = match obj.to_owned().downcast_exact::<PyStr>(self) {
+                Ok(s) => return Ok(s.into_pyref()),
+                Err(obj) => obj,
+            };
+            if obj.class().is(self.ctx.types.int_type) {
+                return obj.str(self);
+            }
+        }
+        let bound_format = self
+            .get_special_method(obj.to_owned(), identifier!(self, __format__))?
+            .map_err(|_| {
+                self.new_type_error(format!(
+                    "Type {} doesn't define __format__",
+                    obj.class().name()
+                ))
+            })?;
+        let formatted = bound_format.invoke((format_spec,), self)?;
+        formatted.downcast().map_err(|result| {
+            self.new_type_error(format!(
+                "__format__ must return a str, not {}",
+                &result.class().name()
+            ))
+        })
     }
 
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations

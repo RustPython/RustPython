@@ -1,10 +1,10 @@
-use super::{float, PyByteArray, PyBytes, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{float, PyByteArray, PyBytes, PyStr, PyType, PyTypeRef};
 use crate::{
     atomic_func,
+    builtins::PyStrRef,
     bytesinner::PyBytesInner,
     class::PyClassImpl,
-    common::format::FormatSpec,
-    common::hash,
+    common::{format::FormatSpec, hash},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,

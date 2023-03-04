@@ -1,10 +1,10 @@
 use crate::{
-    builtins::{PyBaseExceptionRef, PyStrRef},
+    builtins::PyBaseExceptionRef,
     common::format::*,
     convert::{IntoPyException, ToPyException},
     function::FuncArgs,
     stdlib::builtins,
-    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
+    PyObject, PyResult, VirtualMachine,
 };
 
 impl IntoPyException for FormatSpecError {
@@ -94,7 +94,20 @@ fn format_internal(
                     FormatString::from_str(format_spec).map_err(|e| e.to_pyexception(vm))?;
                 let format_spec = format_internal(vm, &nested_format, field_func)?;
 
-                pystr = call_object_format(vm, argument, *conversion_spec, &format_spec)?;
+                let argument = match conversion_spec.and_then(FormatConversion::from_char) {
+                    Some(FormatConversion::Str) => argument.str(vm)?.into(),
+                    Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
+                    Some(FormatConversion::Ascii) => {
+                        vm.ctx.new_str(builtins::ascii(argument, vm)?).into()
+                    }
+                    Some(FormatConversion::Bytes) => {
+                        vm.call_method(&argument, identifier!(vm, decode).as_str(), ())?
+                    }
+                    None => argument,
+                };
+
+                // FIXME: compiler can intern specs using parser tree. Then this call can be interned_str
+                pystr = vm.format(&argument, vm.ctx.new_str(format_spec))?;
                 pystr.as_ref()
             }
             FormatPart::Literal(literal) => literal,
@@ -156,29 +169,5 @@ pub(crate) fn format_map(
             Err(vm.new_value_error("Format string contains positional fields".to_owned()))
         }
         FieldType::Keyword(keyword) => dict.get_item(&keyword, vm),
-    })
-}
-
-pub fn call_object_format(
-    vm: &VirtualMachine,
-    argument: PyObjectRef,
-    conversion_spec: Option<char>,
-    format_spec: &str,
-) -> PyResult<PyStrRef> {
-    let argument = match conversion_spec.and_then(FormatConversion::from_char) {
-        Some(FormatConversion::Str) => argument.str(vm)?.into(),
-        Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
-        Some(FormatConversion::Ascii) => vm.ctx.new_str(builtins::ascii(argument, vm)?).into(),
-        Some(FormatConversion::Bytes) => {
-            vm.call_method(&argument, identifier!(vm, decode).as_str(), ())?
-        }
-        None => argument,
-    };
-    let result = vm.call_special_method(argument, identifier!(vm, __format__), (format_spec,))?;
-    result.downcast().map_err(|result| {
-        vm.new_type_error(format!(
-            "__format__ must return a str, not {}",
-            &result.class().name()
-        ))
     })
 }

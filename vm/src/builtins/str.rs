@@ -753,10 +753,20 @@ impl PyStr {
     }
 
     #[pymethod(name = "__format__")]
-    fn format_str(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-        FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_string(self.borrow()))
-            .map_err(|err| err.into_pyexception(vm))
+    fn __format__(zelf: PyRef<Self>, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let spec = spec.as_str();
+        if spec.is_empty() {
+            return if zelf.class().is(vm.ctx.types.str_type) {
+                Ok(zelf)
+            } else {
+                zelf.as_object().str(vm)
+            };
+        }
+
+        let s = FormatSpec::parse(spec)
+            .and_then(|format_spec| format_spec.format_string(zelf.borrow()))
+            .map_err(|err| err.into_pyexception(vm))?;
+        Ok(vm.ctx.new_str(s))
     }
 
     /// Return a titlecased version of the string where words start with an
