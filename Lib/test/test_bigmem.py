@@ -798,17 +798,6 @@ class BytesTest(unittest.TestCase, BaseStrTest):
     def test_istitle(self, size):
         super().test_istitle(size)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_lstrip(self, size):
-        super().test_lstrip(size)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_rstrip(self, size):
-        super().test_rstrip(size)
-
-
 class BytearrayTest(unittest.TestCase, BaseStrTest):
 
     def from_latin1(self, s):
