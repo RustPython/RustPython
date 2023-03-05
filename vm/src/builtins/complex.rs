@@ -455,19 +455,16 @@ impl Hashable for PyComplex {
 impl AsNumber for PyComplex {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            add: atomic_func!(|number, other, vm| PyComplex::number_complex_op(
-                number,
-                other,
-                |a, b| a + b,
-                vm
-            )),
+            add: atomic_func!(|number, other, vm| {
+                PyComplex::number_op(number, other, |a, b, _vm| a + b, vm)
+            }),
             subtract: atomic_func!(|number, other, vm| {
-                PyComplex::number_complex_op(number, other, |a, b| a - b, vm)
+                PyComplex::number_op(number, other, |a, b, _vm| a - b, vm)
             }),
             multiply: atomic_func!(|number, other, vm| {
-                PyComplex::number_complex_op(number, other, |a, b| a * b, vm)
+                PyComplex::number_op(number, other, |a, b, _vm| a * b, vm)
             }),
-            power: atomic_func!(|number, other, vm| PyComplex::number_general_op(
+            power: atomic_func!(|number, other, vm| PyComplex::number_op(
                 number, other, inner_pow, vm
             )),
             negative: atomic_func!(|number, vm| {
@@ -475,7 +472,7 @@ impl AsNumber for PyComplex {
                 (-value).to_pyresult(vm)
             }),
             positive: atomic_func!(
-                |number, vm| PyComplex::number_complex(number, vm).to_pyresult(vm)
+                |number, vm| PyComplex::number_downcast_exact(number, vm).to_pyresult(vm)
             ),
             absolute: atomic_func!(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
@@ -485,7 +482,7 @@ impl AsNumber for PyComplex {
                 .value
                 .is_zero())),
             true_divide: atomic_func!(|number, other, vm| {
-                PyComplex::number_general_op(number, other, inner_div, vm)
+                PyComplex::number_op(number, other, inner_div, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         });
@@ -494,36 +491,19 @@ impl AsNumber for PyComplex {
 }
 
 impl PyComplex {
-    fn number_general_op<F, R>(
-        number: PyNumber,
-        other: &PyObject,
-        op: F,
-        vm: &VirtualMachine,
-    ) -> PyResult
+    fn number_op<F, R>(number: PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(Complex64, Complex64, &VirtualMachine) -> R,
         R: ToPyResult,
     {
-        if let (Some(a), Some(b)) = (number.obj.payload::<Self>(), other.payload::<Self>()) {
-            op(a.value, b.value, vm).to_pyresult(vm)
+        if let (Some(a), Some(b)) = (to_op_complex(number.obj, vm)?, to_op_complex(other, vm)?) {
+            op(a, b, vm).to_pyresult(vm)
         } else {
             Ok(vm.ctx.not_implemented())
         }
     }
 
-    fn number_complex_op<F>(
-        number: PyNumber,
-        other: &PyObject,
-        op: F,
-        vm: &VirtualMachine,
-    ) -> PyResult
-    where
-        F: FnOnce(Complex64, Complex64) -> Complex64,
-    {
-        Self::number_general_op(number, other, |a, b, _vm| op(a, b), vm)
-    }
-
-    fn number_complex(number: PyNumber, vm: &VirtualMachine) -> PyRef<PyComplex> {
+    fn number_downcast_exact(number: PyNumber, vm: &VirtualMachine) -> PyRef<PyComplex> {
         if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
             zelf.to_owned()
         } else {
