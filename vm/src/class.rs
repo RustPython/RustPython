@@ -117,7 +117,7 @@ pub trait PyClassImpl: PyClassDef {
             .slots
             .hash
             .load()
-            .map(|h| h as u64 == unhashable_wrapper as u64)
+            .map(|h| h as usize == unhashable_wrapper as usize)
             .unwrap_or(false)
         {
             class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
