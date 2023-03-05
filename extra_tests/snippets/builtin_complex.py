@@ -9,6 +9,7 @@ assert abs(complex(1.5, 2.5)) == 2.9154759474226504
 
 # __eq__
 
+assert 3+02j == 3+2j
 assert complex(1, -1) == complex(1, -1)
 assert complex(1, 0) == 1
 assert 1 == complex(1, 0)
@@ -212,16 +213,22 @@ assert complex('-1e-500j') == 0.0 - 0.0j
 assert complex('-1e-500+1e-500j') == -0.0 + 0.0j
 
 
-# __complex__
-def test__complex__():
-    z = 3 + 4j
-    assert z.__complex__() == z
-    assert type(z.__complex__()) == complex
-    
-    class complex_subclass(complex):
-        pass
-    z = complex_subclass(3 + 4j)
-    assert z.__complex__() == 3 + 4j
-    assert type(z.__complex__()) == complex
+# Invalid syntax:
+src = """
+b = 03 + 2j
+"""
 
-testutils.skip_if_unsupported(3, 11, test__complex__)
+with assert_raises(SyntaxError):
+    exec(src)
+
+
+# __complex__
+z = 3 + 4j
+assert z.__complex__() == z
+assert type(z.__complex__()) == complex
+
+class complex_subclass(complex):
+    pass
+z = complex_subclass(3 + 4j)
+assert z.__complex__() == 3 + 4j
+assert type(z.__complex__()) == complex

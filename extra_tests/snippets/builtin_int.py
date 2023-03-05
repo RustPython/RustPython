@@ -301,20 +301,10 @@ assert_raises(TypeError, lambda: (1).__round__(0.0))
 
 assert 00 == 0
 assert 0_0 == 0
-assert 03.2 == 3.2
-assert 3+02j == 3+2j
 
 # Invalid syntax:
 src = """
 b = 02
-"""
-
-with assert_raises(SyntaxError):
-    exec(src)
-
-# Invalid syntax:
-src = """
-b = 03 + 2j
 """
 
 with assert_raises(SyntaxError):

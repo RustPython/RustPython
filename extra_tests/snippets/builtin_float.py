@@ -116,6 +116,7 @@ assert hash(0.0) == hash(0)
 assert hash(0.0) == hash(False)
 assert hash(1.0) != hash(1.0000000001)
 
+assert 03.2 == 3.2
 assert 5.0 in {3, 4, 5}
 assert {-1: 2}[-1.0] == 2
 
