@@ -16,11 +16,11 @@ use crate::{
         ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
     },
     iter::PyExactSizeIterator,
-    protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
+    protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
-        AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
     },
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -209,7 +209,8 @@ impl PyDict {
         Hashable,
         Comparable,
         Iterable,
-        AsSequence
+        AsSequence,
+        AsNumber
     ),
     flags(BASETYPE)
 )]
@@ -474,6 +475,26 @@ impl AsSequence for PyDict {
             ..PySequenceMethods::NOT_IMPLEMENTED
         });
         &AS_SEQUENCE
+    }
+}
+
+impl AsNumber for PyDict {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
+            or: atomic_func!(|num, args, vm| {
+                PyDict::number_downcast(num).or(args.to_pyobject(vm), vm)
+            }),
+            inplace_or: atomic_func!(|num, args, vm| {
+                PyDict::ior(
+                    PyDict::number_downcast(num).to_owned(),
+                    args.to_pyobject(vm),
+                    vm,
+                )
+                .map(|d| d.into())
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        });
+        &AS_NUMBER
     }
 }
 
