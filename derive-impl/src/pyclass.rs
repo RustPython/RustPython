@@ -142,6 +142,19 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
         }
         Item::Trait(mut trai) => {
             let mut context = ImplContext::default();
+            let mut has_extend_slots = false;
+            for item in &trai.items {
+                let has = match item {
+                    syn::TraitItem::Method(method) => {
+                        &method.sig.ident.to_string() == "extend_slots"
+                    }
+                    _ => false,
+                };
+                if has {
+                    has_extend_slots = has;
+                    break;
+                }
+            }
             extract_items_into_context(&mut context, trai.items.iter_mut());
 
             let ExtractedImplAttrs {
@@ -155,6 +168,13 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             let extend_impl = &context.impl_extend_items.validate()?;
             let slots_impl = &context.extend_slots_items.validate()?;
             let class_extensions = &context.class_extensions;
+            let call_extend_slots = if has_extend_slots {
+                quote! {
+                    Self::extend_slots(slots);
+                }
+            } else {
+                quote! {}
+            };
             let extra_methods = iter_chain![
                 parse_quote! {
                     fn __extend_py_class(
@@ -172,6 +192,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
                     fn __extend_slots(slots: &mut ::rustpython_vm::types::PyTypeSlots) {
                         #with_slots
                         #slots_impl
+                        #call_extend_slots
                     }
                 },
             ];
