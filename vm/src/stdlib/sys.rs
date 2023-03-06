@@ -262,6 +262,13 @@ mod sys {
         version::get_version()
     }
 
+    #[cfg(windows)]
+    #[pyattr]
+    fn winver(_vm: &VirtualMachine) -> String {
+        // Note: This is Python DLL version in CPython, but we arbitrary fill it for compatibility
+        version::get_winver_number()
+    }
+
     #[pyattr]
     fn _xoptions(vm: &VirtualMachine) -> PyDictRef {
         let ctx = &vm.ctx;

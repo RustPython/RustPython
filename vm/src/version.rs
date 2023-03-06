@@ -28,6 +28,10 @@ pub fn get_version_number() -> String {
     format!("{MAJOR}.{MINOR}.{MICRO}{RELEASELEVEL}")
 }
 
+pub fn get_winver_number() -> String {
+    format!("{MAJOR}.{MINOR}")
+}
+
 pub fn get_compiler() -> String {
     format!("rustc {}", env!("RUSTC_VERSION"))
 }
