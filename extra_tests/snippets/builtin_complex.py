@@ -9,6 +9,7 @@ assert abs(complex(1.5, 2.5)) == 2.9154759474226504
 
 # __eq__
 
+assert 3 + 02j == 3 + 2j
 assert complex(1, -1) == complex(1, -1)
 assert complex(1, 0) == 1
 assert 1 == complex(1, 0)
@@ -22,9 +23,9 @@ assert complex(1, 0) != 1.5
 assert not 1.0 != complex(1, 0)
 assert bool(complex(1, 0))
 assert complex(1, 2) != complex(1, 1)
-assert complex(1, 2) != 'foo'
-assert complex(1, 2).__eq__('foo') == NotImplemented
-assert 1j != 10 ** 1000
+assert complex(1, 2) != "foo"
+assert complex(1, 2).__eq__("foo") == NotImplemented
+assert 1j != 10**1000
 
 # __mul__, __rmul__
 
@@ -81,7 +82,7 @@ assert bool(complex(1, 0)) is True
 assert hash(complex(1)) == hash(float(1)) == hash(int(1))
 assert hash(complex(-1)) == hash(float(-1)) == hash(int(-1))
 assert hash(complex(3.14)) == hash(float(3.14))
-assert hash(complex(-float('inf'))) == hash(-float('inf'))
+assert hash(complex(-float("inf"))) == hash(-float("inf"))
 assert hash(1j) != hash(1)
 
 # TODO: Find a way to test platform dependent values
@@ -119,28 +120,28 @@ assert 1j - 1 == complex(-1, 1)
 assert 2j - 1j == complex(0, 1)
 
 # type error addition
-assert_raises(TypeError, lambda: 1j + 'str')
-assert_raises(TypeError, lambda: 1j - 'str')
-assert_raises(TypeError, lambda: 'str' + 1j)
-assert_raises(TypeError, lambda: 'str' - 1j)
+assert_raises(TypeError, lambda: 1j + "str")
+assert_raises(TypeError, lambda: 1j - "str")
+assert_raises(TypeError, lambda: "str" + 1j)
+assert_raises(TypeError, lambda: "str" - 1j)
 
 # overflow
-assert_raises(OverflowError, lambda: complex(10 ** 1000, 0))
-assert_raises(OverflowError, lambda: complex(0, 10 ** 1000))
-assert_raises(OverflowError, lambda: 0j + 10 ** 1000)
+assert_raises(OverflowError, lambda: complex(10**1000, 0))
+assert_raises(OverflowError, lambda: complex(0, 10**1000))
+assert_raises(OverflowError, lambda: 0j + 10**1000)
 
 # str/repr
-assert '(1+1j)' == str(1+1j)
-assert '(1-1j)' == str(1-1j)
-assert '(1+1j)' == repr(1+1j)
-assert '(1-1j)' == repr(1-1j)
+assert "(1+1j)" == str(1 + 1j)
+assert "(1-1j)" == str(1 - 1j)
+assert "(1+1j)" == repr(1 + 1j)
+assert "(1-1j)" == repr(1 - 1j)
 
 # __getnewargs__
 assert (3 + 5j).__getnewargs__() == (3.0, 5.0)
 assert (5j).__getnewargs__() == (0.0, 5.0)
 
 
-class Complex():
+class Complex:
     def __init__(self, real, imag):
         self.real = real
         self.imag = imag
@@ -157,6 +158,7 @@ class Complex():
     def __eq__(self, other):
         return self.real == other.real and self.imag == other.imag
 
+
 assert Complex(4, 5) - 3 == Complex(1, 5)
 assert 7 - Complex(4, 5) == Complex(3, -5)
 
@@ -166,62 +168,71 @@ assert complex("-2j") == -2j
 assert_raises(TypeError, lambda: complex("5+2j", 1))
 assert_raises(ValueError, lambda: complex("abc"))
 
-assert complex("1+10j") == 1+10j
-assert complex(10) == 10+0j
-assert complex(10.0) == 10+0j
-assert complex(10) == 10+0j
-assert complex(10+0j) == 10+0j
-assert complex(1, 10) == 1+10j
-assert complex(1, 10) == 1+10j
-assert complex(1, 10.0) == 1+10j
-assert complex(1, 10) == 1+10j
-assert complex(1, 10) == 1+10j
-assert complex(1, 10.0) == 1+10j
-assert complex(1.0, 10) == 1+10j
-assert complex(1.0, 10) == 1+10j
-assert complex(1.0, 10.0) == 1+10j
-assert complex(3.14+0j) == 3.14+0j
-assert complex(3.14) == 3.14+0j
-assert complex(314) == 314.0+0j
-assert complex(314) == 314.0+0j
-assert complex(3.14+0j, 0j) == 3.14+0j
-assert complex(3.14, 0.0) == 3.14+0j
-assert complex(314, 0) == 314.0+0j
-assert complex(314, 0) == 314.0+0j
-assert complex(0j, 3.14j) == -3.14+0j
-assert complex(0.0, 3.14j) == -3.14+0j
+assert complex("1+10j") == 1 + 10j
+assert complex(10) == 10 + 0j
+assert complex(10.0) == 10 + 0j
+assert complex(10) == 10 + 0j
+assert complex(10 + 0j) == 10 + 0j
+assert complex(1, 10) == 1 + 10j
+assert complex(1, 10) == 1 + 10j
+assert complex(1, 10.0) == 1 + 10j
+assert complex(1, 10) == 1 + 10j
+assert complex(1, 10) == 1 + 10j
+assert complex(1, 10.0) == 1 + 10j
+assert complex(1.0, 10) == 1 + 10j
+assert complex(1.0, 10) == 1 + 10j
+assert complex(1.0, 10.0) == 1 + 10j
+assert complex(3.14 + 0j) == 3.14 + 0j
+assert complex(3.14) == 3.14 + 0j
+assert complex(314) == 314.0 + 0j
+assert complex(314) == 314.0 + 0j
+assert complex(3.14 + 0j, 0j) == 3.14 + 0j
+assert complex(3.14, 0.0) == 3.14 + 0j
+assert complex(314, 0) == 314.0 + 0j
+assert complex(314, 0) == 314.0 + 0j
+assert complex(0j, 3.14j) == -3.14 + 0j
+assert complex(0.0, 3.14j) == -3.14 + 0j
 assert complex(0j, 3.14) == 3.14j
 assert complex(0.0, 3.14) == 3.14j
-assert complex("1") == 1+0j
+assert complex("1") == 1 + 0j
 assert complex("1j") == 1j
 assert complex() == 0
 assert complex("-1") == -1
 assert complex("+1") == +1
-assert complex("(1+2j)") == 1+2j
-assert complex("(1.3+2.2j)") == 1.3+2.2j
-assert complex("3.14+1J") == 3.14+1j
-assert complex(" ( +3.14-6J )") == 3.14-6j
-assert complex(" ( +3.14-J )") == 3.14-1j
-assert complex(" ( +3.14+j )") == 3.14+1j
+assert complex("(1+2j)") == 1 + 2j
+assert complex("(1.3+2.2j)") == 1.3 + 2.2j
+assert complex("3.14+1J") == 3.14 + 1j
+assert complex(" ( +3.14-6J )") == 3.14 - 6j
+assert complex(" ( +3.14-J )") == 3.14 - 1j
+assert complex(" ( +3.14+j )") == 3.14 + 1j
 assert complex("J") == 1j
 assert complex("( j )") == 1j
 assert complex("+J") == 1j
 assert complex("( -j)") == -1j
-assert complex('1e-500') == 0.0 + 0.0j
-assert complex('-1e-500j') == 0.0 - 0.0j
-assert complex('-1e-500+1e-500j') == -0.0 + 0.0j
+assert complex("1e-500") == 0.0 + 0.0j
+assert complex("-1e-500j") == 0.0 - 0.0j
+assert complex("-1e-500+1e-500j") == -0.0 + 0.0j
+
+
+# Invalid syntax:
+src = """
+b = 03 + 2j
+"""
+
+with assert_raises(SyntaxError):
+    exec(src)
 
 
 # __complex__
-def test__complex__():
-    z = 3 + 4j
-    assert z.__complex__() == z
-    assert type(z.__complex__()) == complex
-    
-    class complex_subclass(complex):
-        pass
-    z = complex_subclass(3 + 4j)
-    assert z.__complex__() == 3 + 4j
-    assert type(z.__complex__()) == complex
+z = 3 + 4j
+assert z.__complex__() == z
+assert type(z.__complex__()) == complex
 
-testutils.skip_if_unsupported(3, 11, test__complex__)
+
+class complex_subclass(complex):
+    pass
+
+
+z = complex_subclass(3 + 4j)
+assert z.__complex__() == 3 + 4j
+assert type(z.__complex__()) == complex
