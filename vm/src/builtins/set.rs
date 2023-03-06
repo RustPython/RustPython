@@ -604,8 +604,20 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
-        self.sub(other, vm)
+    fn rsub(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
+        if let Ok(other) = AnySet::try_from_object(vm, other) {
+            Ok(PyArithmeticValue::Implemented(Self {
+                inner: other
+                    .as_inner()
+                    .difference(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
+            }))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(name = "__rxor__")]
@@ -1003,8 +1015,20 @@ impl PyFrozenSet {
     }
 
     #[pymethod(magic)]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
-        self.sub(other, vm)
+    fn rsub(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
+        if let Ok(other) = AnySet::try_from_object(vm, other) {
+            Ok(PyArithmeticValue::Implemented(Self {
+                inner: other
+                    .as_inner()
+                    .difference(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
+            }))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(name = "__rxor__")]
