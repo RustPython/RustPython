@@ -214,6 +214,18 @@ fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>>
     })
 }
 
+macro_rules! number_binary_op_wrapper {
+    ($name:ident) => {
+        |num, other, vm| {
+            vm.call_special_method(
+                num.obj.to_owned(),
+                identifier!(vm, $name),
+                (other.to_owned(),),
+            )
+        }
+    };
+}
+
 fn getitem_wrapper<K: ToPyObject>(obj: &PyObject, needle: K, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(obj.to_owned(), identifier!(vm, __getitem__), (needle,))
 }
@@ -482,6 +494,194 @@ impl PyType {
             }
             _ if name == identifier!(ctx, __float__) => {
                 toggle_ext_func!(number_methods, float, float_wrapper);
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __add__) => {
+                toggle_ext_func!(number_methods, add, number_binary_op_wrapper!(__add__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __iadd__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_add,
+                    number_binary_op_wrapper!(__iadd__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __sub__) => {
+                toggle_ext_func!(number_methods, subtract, number_binary_op_wrapper!(__sub__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __isub__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_subtract,
+                    number_binary_op_wrapper!(__isub__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __mul__) => {
+                toggle_ext_func!(number_methods, multiply, number_binary_op_wrapper!(__mul__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __imul__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_multiply,
+                    number_binary_op_wrapper!(__imul__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __mod__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    remainder,
+                    number_binary_op_wrapper!(__mod__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __imod__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_remainder,
+                    number_binary_op_wrapper!(__imod__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __divmod__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    divmod,
+                    number_binary_op_wrapper!(__divmod__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __pow__) => {
+                toggle_ext_func!(number_methods, power, number_binary_op_wrapper!(__pow__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __ipow__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_power,
+                    number_binary_op_wrapper!(__ipow__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __lshift__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    lshift,
+                    number_binary_op_wrapper!(__lshift__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __ilshift__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_lshift,
+                    number_binary_op_wrapper!(__ilshift__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __rshift__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    rshift,
+                    number_binary_op_wrapper!(__rshift__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __irshift__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_rshift,
+                    number_binary_op_wrapper!(__irshift__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __and__) => {
+                toggle_ext_func!(number_methods, and, number_binary_op_wrapper!(__and__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __iand__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_and,
+                    number_binary_op_wrapper!(__iand__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __xor__) => {
+                toggle_ext_func!(number_methods, xor, number_binary_op_wrapper!(__xor__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __ixor__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_xor,
+                    number_binary_op_wrapper!(__ixor__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __or__) => {
+                toggle_ext_func!(number_methods, or, number_binary_op_wrapper!(__or__));
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __ior__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_or,
+                    number_binary_op_wrapper!(__ior__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __floordiv__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    floor_divide,
+                    number_binary_op_wrapper!(__floordiv__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __ifloordiv__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_floor_divide,
+                    number_binary_op_wrapper!(__ifloordiv__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __truediv__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    true_divide,
+                    number_binary_op_wrapper!(__truediv__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __itruediv__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_true_divide,
+                    number_binary_op_wrapper!(__itruediv__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __matmul__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    matrix_multiply,
+                    number_binary_op_wrapper!(__matmul__)
+                );
+                update_pointer_slot!(as_number, number_methods);
+            }
+            _ if name == identifier!(ctx, __imatmul__) => {
+                toggle_ext_func!(
+                    number_methods,
+                    inplace_matrix_multiply,
+                    number_binary_op_wrapper!(__imatmul__)
+                );
                 update_pointer_slot!(as_number, number_methods);
             }
             _ => {}
