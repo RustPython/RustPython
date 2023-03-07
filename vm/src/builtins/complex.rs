@@ -488,6 +488,10 @@ impl AsNumber for PyComplex {
         });
         &AS_NUMBER
     }
+
+    fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
+        vm.ctx.new_complex(zelf.value)
+    }
 }
 
 impl PyComplex {
@@ -500,14 +504,6 @@ impl PyComplex {
             op(a, b, vm).to_pyresult(vm)
         } else {
             Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn number_downcast_exact(number: PyNumber, vm: &VirtualMachine) -> PyRef<PyComplex> {
-        if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
-            zelf.to_owned()
-        } else {
-            vm.ctx.new_complex(Self::number_downcast(number).value)
         }
     }
 }

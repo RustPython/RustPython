@@ -966,9 +966,23 @@ pub trait AsNumber: PyPayload {
     #[pyslot]
     fn as_number() -> &'static PyNumberMethods;
 
+    fn clone_exact(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
+        // not all AsNumber requires this implementation.
+        unimplemented!()
+    }
+
     #[inline]
     fn number_downcast(num: PyNumber) -> &Py<Self> {
         unsafe { num.obj.downcast_unchecked_ref() }
+    }
+
+    #[inline]
+    fn number_downcast_exact(number: PyNumber, vm: &VirtualMachine) -> PyRef<Self> {
+        if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
+            zelf.to_owned()
+        } else {
+            Self::clone_exact(Self::number_downcast(number), vm)
+        }
     }
 }
 
