@@ -19,9 +19,8 @@ use crate::{
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
-        hash_not_implemented, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
-        Hashable, Initializer, IterNext, IterNextIterable, Iterable, PyComparisonOp,
-        Unconstructible,
+        AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,

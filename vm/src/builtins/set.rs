@@ -16,8 +16,8 @@ use crate::{
     recursion::ReprGuard,
     types::AsNumber,
     types::{
-        hash_not_implemented, AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
+        Iterable, PyComparisonOp, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,

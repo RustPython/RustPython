@@ -30,9 +30,8 @@ use crate::{
     },
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        hash_not_implemented, AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable,
-        Constructor, Initializer, IterNext, IterNextIterable, Iterable, PyComparisonOp,
-        Unconstructible,
+        AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,

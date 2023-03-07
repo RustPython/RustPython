@@ -1,6 +1,5 @@
 // sliceobject.{h,c} in CPython
 use super::{PyInt, PyIntRef, PyTupleRef, PyType, PyTypeRef};
-use crate::types::hash_not_implemented;
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
