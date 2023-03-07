@@ -19,8 +19,9 @@ use crate::{
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
-        AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer,
-        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        unhashable_wrapper, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
+        Hashable, Initializer, IterNext, IterNextIterable, Iterable, PyComparisonOp,
+        Unconstructible,
     },
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -206,7 +207,6 @@ impl PyDict {
         Constructor,
         Initializer,
         AsMapping,
-        Hashable,
         Comparable,
         Iterable,
         AsSequence,
@@ -511,8 +511,6 @@ impl Comparable for PyDict {
         })
     }
 }
-
-impl Unhashable for PyDict {}
 
 impl Iterable for PyDict {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
@@ -1209,6 +1207,13 @@ impl AsSequence for PyDictValues {
 }
 
 pub(crate) fn init(context: &Context) {
+    context
+        .types
+        .dict_type
+        .slots
+        .hash
+        .store(Some(unhashable_wrapper));
+
     PyDict::extend_class(context, context.types.dict_type);
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);

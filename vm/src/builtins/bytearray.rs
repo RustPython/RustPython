@@ -30,9 +30,9 @@ use crate::{
     },
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
-        Initializer, IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
-        Unhashable,
+        unhashable_wrapper, AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable,
+        Constructor, Initializer, IterNext, IterNextIterable, Iterable, PyComparisonOp,
+        Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -91,6 +91,13 @@ impl PyPayload for PyByteArray {
 
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &Context) {
+    context
+        .types
+        .bytearray_type
+        .slots
+        .hash
+        .store(Some(unhashable_wrapper));
+
     PyByteArray::extend_class(context, context.types.bytearray_type);
     PyByteArrayIterator::extend_class(context, context.types.bytearray_iterator_type);
 }
@@ -100,7 +107,6 @@ pub(crate) fn init(context: &Context) {
     with(
         Constructor,
         Initializer,
-        Hashable,
         Comparable,
         AsBuffer,
         AsMapping,
@@ -872,8 +878,6 @@ impl AsNumber for PyByteArray {
         &AS_NUMBER
     }
 }
-
-impl Unhashable for PyByteArray {}
 
 impl Iterable for PyByteArray {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {

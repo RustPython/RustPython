@@ -13,8 +13,8 @@ use crate::{
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        unhashable_wrapper, AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -86,15 +86,7 @@ pub(crate) struct SortOptions {
 pub type PyListRef = PyRef<PyList>;
 
 #[pyclass(
-    with(
-        Constructor,
-        Initializer,
-        AsMapping,
-        Iterable,
-        Hashable,
-        Comparable,
-        AsSequence
-    ),
+    with(Constructor, Initializer, AsMapping, Iterable, Comparable, AsSequence),
     flags(BASETYPE)
 )]
 impl PyList {
@@ -492,8 +484,6 @@ impl Comparable for PyList {
     }
 }
 
-impl Unhashable for PyList {}
-
 fn do_sort(
     vm: &VirtualMachine,
     values: &mut Vec<PyObjectRef>,
@@ -612,6 +602,13 @@ impl IterNext for PyListReverseIterator {
 }
 
 pub fn init(context: &Context) {
+    context
+        .types
+        .list_type
+        .slots
+        .hash
+        .store(Some(unhashable_wrapper));
+
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 

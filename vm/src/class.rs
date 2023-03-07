@@ -4,7 +4,7 @@ use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
     identifier,
     object::{Py, PyObjectPayload, PyObjectRef, PyRef},
-    types::{PyTypeFlags, PyTypeSlots},
+    types::{unhashable_wrapper, PyTypeFlags, PyTypeSlots},
     vm::Context,
 };
 use rustpython_common::{lock::PyRwLock, static_cell};
@@ -111,6 +111,16 @@ pub trait PyClassImpl: PyClassDef {
                 PyBoundMethod::new_ref(class.to_owned().into(), ctx.slot_new_wrapper.clone(), ctx)
                     .into();
             class.set_attr(identifier!(ctx, __new__), bound);
+        }
+
+        if class
+            .slots
+            .hash
+            .load()
+            .map(|h| h as u64 == unhashable_wrapper as u64)
+            .unwrap_or(false)
+        {
+            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
         }
     }
 

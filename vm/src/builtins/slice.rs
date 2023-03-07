@@ -1,11 +1,12 @@
 // sliceobject.{h,c} in CPython
 use super::{PyInt, PyIntRef, PyTupleRef, PyType, PyTypeRef};
+use crate::types::unhashable_wrapper;
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
-    types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
+    types::{Comparable, Constructor, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
@@ -25,7 +26,8 @@ impl PyPayload for PySlice {
     }
 }
 
-#[pyclass(with(Hashable, Comparable))]
+// #[pyclass(with(Hashable, Comparable))]
+#[pyclass(with(Comparable))]
 impl PySlice {
     #[pygetset]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -258,8 +260,6 @@ impl Comparable for PySlice {
     }
 }
 
-impl Unhashable for PySlice {}
-
 #[pyclass(module = false, name = "EllipsisType")]
 #[derive(Debug)]
 pub struct PyEllipsis;
@@ -292,6 +292,12 @@ impl PyEllipsis {
 }
 
 pub fn init(ctx: &Context) {
+    ctx.types
+        .slice_type
+        .slots
+        .hash
+        .store(Some(unhashable_wrapper));
+
     PySlice::extend_class(ctx, ctx.types.slice_type);
     PyEllipsis::extend_class(ctx, ctx.types.ellipsis_type);
 }

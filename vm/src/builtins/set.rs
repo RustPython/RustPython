@@ -16,8 +16,8 @@ use crate::{
     recursion::ReprGuard,
     types::AsNumber,
     types::{
-        AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        unhashable_wrapper, AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -489,15 +489,7 @@ fn reduce_set(
 }
 
 #[pyclass(
-    with(
-        Constructor,
-        Initializer,
-        AsSequence,
-        Hashable,
-        Comparable,
-        Iterable,
-        AsNumber
-    ),
+    with(Constructor, Initializer, AsSequence, Comparable, Iterable, AsNumber),
     flags(BASETYPE)
 )]
 impl PySet {
@@ -804,8 +796,6 @@ impl Comparable for PySet {
         })
     }
 }
-
-impl Unhashable for PySet {}
 
 impl Iterable for PySet {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
@@ -1251,6 +1241,13 @@ impl IterNext for PySetIterator {
 }
 
 pub fn init(context: &Context) {
+    context
+        .types
+        .set_type
+        .slots
+        .hash
+        .store(Some(unhashable_wrapper));
+
     PySet::extend_class(context, context.types.set_type);
     PyFrozenSet::extend_class(context, context.types.frozenset_type);
     PySetIterator::extend_class(context, context.types.set_iterator_type);
