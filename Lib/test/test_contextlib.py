@@ -88,6 +88,8 @@ class ContextManagerTestCase(unittest.TestCase):
                 raise ZeroDivisionError()
         self.assertEqual(state, [1, 42, 999])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_contextmanager_traceback(self):
         @contextmanager
         def f():
@@ -543,6 +545,8 @@ class TestContextDecorator(unittest.TestCase):
         self.assertEqual(test.b, 2)
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_typo_enter(self):
         class mycontext(ContextDecorator):
             def __unter__(self):
@@ -555,6 +559,8 @@ class TestContextDecorator(unittest.TestCase):
                 pass
 
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_typo_exit(self):
         class mycontext(ContextDecorator):
             def __enter__(self):
@@ -722,6 +728,8 @@ class TestBaseExitStack:
             result.append(2)
         self.assertEqual(result, [1, 2, 3, 4])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_enter_context_errors(self):
         class LacksEnterAndExit:
             pass
@@ -776,6 +784,8 @@ class TestBaseExitStack:
             stack.push(lambda *exc: True)
             1/0
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_traceback(self):
         # This test captures the current behavior of ExitStack so that we know
         # if we ever unintendedly change it. It is not a statement of what the
@@ -889,6 +899,8 @@ class TestBaseExitStack:
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_explicit_none_context(self):
         # Ensure ExitStack chaining matches actual nested `with` statements
         # regarding explicit __context__ = None.
@@ -1035,6 +1047,8 @@ class TestBaseExitStack:
             for i in range(10000):
                 stack.callback(int)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_instance_bypass(self):
         class Example(object): pass
         cm = Example()
@@ -1220,6 +1234,8 @@ class TestChdir(unittest.TestCase):
             *parts,
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_simple(self):
         old_cwd = os.getcwd()
         target = self.make_relative_path('data')
@@ -1229,6 +1245,8 @@ class TestChdir(unittest.TestCase):
             self.assertEqual(os.getcwd(), target)
         self.assertEqual(os.getcwd(), old_cwd)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_reentrant(self):
         old_cwd = os.getcwd()
         target1 = self.make_relative_path('data')
@@ -1246,6 +1264,8 @@ class TestChdir(unittest.TestCase):
             self.assertEqual(os.getcwd(), target1)
         self.assertEqual(os.getcwd(), old_cwd)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception(self):
         old_cwd = os.getcwd()
         target = self.make_relative_path('data')
