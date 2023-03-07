@@ -7,22 +7,6 @@ use crate::{
     vm::VirtualMachine,
 };
 
-/// Trace events for sys.settrace and sys.setprofile.
-enum TraceEvent {
-    Call,
-    Return,
-}
-
-impl std::fmt::Display for TraceEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use TraceEvent::*;
-        match self {
-            Call => write!(f, "call"),
-            Return => write!(f, "return"),
-        }
-    }
-}
-
 /// PyObject support
 impl VirtualMachine {
     #[track_caller]
@@ -167,68 +151,19 @@ impl VirtualMachine {
             .invoke(args, self)
     }
 
-    fn _invoke(&self, callable: &PyObject, args: FuncArgs) -> PyResult {
+    fn _invoke(&self, obj: &PyObject, args: FuncArgs) -> PyResult {
         vm_trace!("Invoke: {:?} {:?}", callable, args);
-        let slot_call = callable.class().mro_find_map(|cls| cls.slots.call.load());
-        match slot_call {
-            Some(slot_call) => {
-                self.trace_event(TraceEvent::Call)?;
-                let result = slot_call(callable, args, self);
-                self.trace_event(TraceEvent::Return)?;
-                result
-            }
-            None => Err(self.new_type_error(format!(
+        let Some(callable) = obj.to_callable() else {
+            return Err(self.new_type_error(format!(
                 "'{}' object is not callable",
-                callable.class().name()
-            ))),
-        }
+                obj.class().name()
+            )));
+        };
+        callable.invoke(args, self)
     }
 
     #[inline(always)]
     pub fn invoke(&self, func: &impl AsObject, args: impl IntoFuncArgs) -> PyResult {
         self._invoke(func.as_object(), args.into_args(self))
-    }
-
-    /// Call registered trace function.
-    #[inline]
-    fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
-        if self.use_tracing.get() {
-            self._trace_event_inner(event)
-        } else {
-            Ok(())
-        }
-    }
-    fn _trace_event_inner(&self, event: TraceEvent) -> PyResult<()> {
-        let trace_func = self.trace_func.borrow().to_owned();
-        let profile_func = self.profile_func.borrow().to_owned();
-        if self.is_none(&trace_func) && self.is_none(&profile_func) {
-            return Ok(());
-        }
-
-        let frame_ref = self.current_frame();
-        if frame_ref.is_none() {
-            return Ok(());
-        }
-
-        let frame = frame_ref.unwrap().as_object().to_owned();
-        let event = self.ctx.new_str(event.to_string()).into();
-        let args = vec![frame, event, self.ctx.none()];
-
-        // temporarily disable tracing, during the call to the
-        // tracing function itself.
-        if !self.is_none(&trace_func) {
-            self.use_tracing.set(false);
-            let res = self.invoke(&trace_func, args.clone());
-            self.use_tracing.set(true);
-            res?;
-        }
-
-        if !self.is_none(&profile_func) {
-            self.use_tracing.set(false);
-            let res = self.invoke(&profile_func, args);
-            self.use_tracing.set(true);
-            res?;
-        }
-        Ok(())
     }
 }
