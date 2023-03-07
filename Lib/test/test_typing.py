@@ -3516,8 +3516,6 @@ class GetUtilitiesTestCase(TestCase):
 
 class CollectionsAbcTests(BaseTestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hashable(self):
         self.assertIsInstance(42, typing.Hashable)
         self.assertNotIsInstance([], typing.Hashable)
