@@ -151,7 +151,7 @@ impl VirtualMachine {
             .invoke(args, self)
     }
 
-    // #[deprecated(note = "in favor of `obj.call(args, vm)`")]
+    #[deprecated(note = "in favor of `obj.call(args, vm)`")]
     pub fn invoke(&self, obj: &impl AsObject, args: impl IntoFuncArgs) -> PyResult {
         obj.as_object().call(args, self)
     }

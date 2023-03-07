@@ -337,7 +337,7 @@ fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResu
 fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     let new = cls.get_attr(identifier!(vm, __new__)).unwrap();
     args.prepend_arg(cls.into());
-    vm.invoke(&new, args)
+    new.call(args, vm)
 }
 
 fn del_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {

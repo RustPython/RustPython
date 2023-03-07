@@ -583,7 +583,7 @@ impl PyObject {
                 if let Some(class_getitem) =
                     vm.get_attribute_opt(self.to_owned(), identifier!(vm, __class_getitem__))?
                 {
-                    return vm.invoke(&class_getitem, (needle,));
+                    return class_getitem.call((needle,), vm);
                 }
             }
             Err(vm.new_type_error(format!("'{}' object is not subscriptable", self.class())))

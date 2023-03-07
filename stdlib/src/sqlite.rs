@@ -390,7 +390,7 @@ mod _sqlite {
                     .map(|val| value_to_object(val, db, vm))
                     .collect::<PyResult<Vec<PyObjectRef>>>()?;
 
-                let val = vm.invoke(func, args)?;
+                let val = func.call(args, vm)?;
 
                 context.result_from_object(&val, vm)
             };
@@ -410,7 +410,7 @@ mod _sqlite {
             let args = std::slice::from_raw_parts(argv, argc as usize);
             let instance = context.aggregate_context::<*const PyObject>();
             if (*instance).is_null() {
-                match vm.invoke(cls, ()) {
+                match cls.call((), vm) {
                     Ok(obj) => *instance = obj.into_raw(),
                     Err(exc) => {
                         return context.result_exception(
@@ -450,7 +450,7 @@ mod _sqlite {
                 let text2 = ptr_to_string(b_ptr.cast(), b_len, null_mut(), vm)?;
                 let text2 = vm.ctx.new_str(text2);
 
-                let val = vm.invoke(callable, (text1, text2))?;
+                let val = callable.call((text1, text2), vm)?;
                 let Some(val) = val.to_number().index(vm) else {
                     return Ok(0);
                 };
@@ -505,7 +505,7 @@ mod _sqlite {
                 let db_name = ptr_to_str(db_name, vm)?;
                 let access = ptr_to_str(access, vm)?;
 
-                let val = vm.invoke(callable, (action, arg1, arg2, db_name, access))?;
+                let val = callable.call((action, arg1, arg2, db_name, access), vm)?;
                 let Some(val) = val.payload::<PyInt>() else {
                     return Ok(SQLITE_DENY);
                 };
@@ -525,7 +525,8 @@ mod _sqlite {
             let expanded = sqlite3_expanded_sql(stmt.cast());
             let f = || -> PyResult<()> {
                 let stmt = ptr_to_str(expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
-                vm.invoke(callable, (stmt,)).map(drop)
+                callable.call((stmt,), vm)?;
+                Ok(())
             };
             let _ = f();
             0
@@ -533,7 +534,7 @@ mod _sqlite {
 
         unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
             let (callable, vm) = (*data.cast::<Self>()).retrive();
-            if let Ok(val) = vm.invoke(callable, ()) {
+            if let Ok(val) = callable.call((), vm) {
                 if let Ok(val) = val.is_true(vm) {
                     return val as c_int;
                 }
@@ -661,10 +662,10 @@ mod _sqlite {
             .new_tuple(vec![obj.class().to_owned().into(), proto.clone()]);
 
         if let Some(adapter) = adapters().get_item_opt(key.as_object(), vm)? {
-            return vm.invoke(&adapter, (obj,));
+            return adapter.call((obj,), vm);
         }
         if let Ok(adapter) = proto.get_attr("__adapt__", vm) {
-            match vm.invoke(&adapter, (obj,)) {
+            match adapter.call((obj,), vm) {
                 Ok(val) => return Ok(val),
                 Err(exc) => {
                     if !exc.fast_isinstance(vm.ctx.exceptions.type_error) {
@@ -674,7 +675,7 @@ mod _sqlite {
             }
         }
         if let Ok(adapter) = obj.get_attr("__conform__", vm) {
-            match vm.invoke(&adapter, (proto,)) {
+            match adapter.call((proto,), vm) {
                 Ok(val) => return Ok(val),
                 Err(exc) => {
                     if !exc.fast_isinstance(vm.ctx.exceptions.type_error) {
@@ -1228,7 +1229,7 @@ mod _sqlite {
         fn iterdump(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let module = vm.import("sqlite3.dump", None, 0)?;
             let func = module.get_attr("_iterdump", vm)?;
-            vm.invoke(&func, (zelf,))
+            func.call((zelf,), vm)
         }
 
         #[pymethod]
@@ -1699,7 +1700,7 @@ mod _sqlite {
                             std::slice::from_raw_parts(blob.cast::<u8>(), nbytes as usize)
                         };
                         let blob = vm.ctx.new_bytes(blob.to_vec());
-                        vm.invoke(&converter, (blob,))?
+                        converter.call((blob,), vm)?
                     }
                 } else {
                     let col_type = st.column_type(i);
@@ -1724,7 +1725,7 @@ mod _sqlite {
                                 PyByteArray::from(text).into_ref(vm).into()
                             } else {
                                 let bytes = vm.ctx.new_bytes(text);
-                                vm.invoke(&text_factory, (bytes,))?
+                                text_factory.call((bytes,), vm)?
                             }
                         }
                         SQLITE_BLOB => {
@@ -1765,7 +1766,8 @@ mod _sqlite {
             let row = vm.ctx.new_tuple(row);
 
             if let Some(row_factory) = zelf.row_factory.to_owned() {
-                vm.invoke(&row_factory, (zelf.to_owned(), row))
+                row_factory
+                    .call((zelf.to_owned(), row), vm)
                     .map(PyIterReturn::Return)
             } else {
                 Ok(PyIterReturn::Return(row.into()))

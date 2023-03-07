@@ -57,7 +57,7 @@ impl VirtualMachine {
             Some(hint) => hint?,
             None => return Ok(None),
         };
-        let result = match self.invoke(&hint, ()) {
+        let result = match hint.call((), self) {
             Ok(res) => {
                 if res.is(&self.ctx.not_implemented) {
                     return Ok(None);
@@ -119,7 +119,7 @@ impl VirtualMachine {
     {
         if let Some(method_or_err) = self.get_method(obj.to_owned(), method) {
             let method = method_or_err?;
-            let result = self.invoke(&method, (arg.to_owned(),))?;
+            let result = method.call((arg.to_owned(),), self)?;
             if let PyArithmeticValue::Implemented(x) = PyArithmeticValue::from_object(self, result)
             {
                 return Ok(x);

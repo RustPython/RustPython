@@ -59,7 +59,7 @@ fn spec_format_bytes(
                 }
                 obj => {
                     if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
-                        let result = vm.invoke(&method?, ())?;
+                        let result = method?.call((), vm)?;
                         if let Some(i) = result.payload::<PyInt>() {
                             return Ok(spec.format_number(i.as_bigint()).into_bytes());
                         }
@@ -152,7 +152,7 @@ fn spec_format_string(
                 }
                 obj => {
                     if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
-                        let result = vm.invoke(&method?, ())?;
+                        let result = method?.call((), vm)?;
                         if let Some(i) = result.payload::<PyInt>() {
                             return Ok(spec.format_number(i.as_bigint()));
                         }

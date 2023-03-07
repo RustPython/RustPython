@@ -60,7 +60,7 @@ impl PyObjectRef {
             return Ok(Some((complex.value, true)));
         }
         if let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) {
-            let result = vm.invoke(&method?, ())?;
+            let result = method?.call((), vm)?;
             // TODO: returning strict subclasses of complex in __complex__ is deprecated
             return match result.payload::<PyComplex>() {
                 Some(complex_obj) => Ok(Some((complex_obj.value, true))),

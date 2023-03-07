@@ -134,7 +134,7 @@ mod _browser {
             stored_vm.interp.enter(|vm| {
                 let func = func.clone();
                 let args = vec![vm.ctx.new_float(time).into()];
-                let _ = vm.invoke(&func, args);
+                let _ = func.invoke(args, vm);
 
                 let closure = f.borrow_mut().take();
                 drop(closure);

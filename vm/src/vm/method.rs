@@ -72,7 +72,7 @@ impl PyMethod {
                 None => Ok(Self::Attribute(attr)),
             }
         } else if let Some(getter) = cls.get_attr(identifier!(vm, __getattr__)) {
-            vm.invoke(&getter, (obj, name)).map(Self::Attribute)
+            getter.call((obj, name), vm).map(Self::Attribute)
         } else {
             let exc = vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
@@ -118,7 +118,7 @@ impl PyMethod {
             PyMethod::Function { target, func } => (func, args.into_method_args(target, vm)),
             PyMethod::Attribute(func) => (func, args.into_args(vm)),
         };
-        vm.invoke(&func, args)
+        func.call(args, vm)
     }
 
     #[allow(dead_code)]
@@ -129,6 +129,6 @@ impl PyMethod {
             }
             PyMethod::Attribute(func) => (func, args.into_args(vm)),
         };
-        vm.invoke(func, args)
+        func.call(args, vm)
     }
 }

@@ -248,7 +248,7 @@ impl WeakRefList {
                         if let Some(cb) = cb {
                             crate::vm::thread::with_vm(&cb, |vm| {
                                 // TODO: handle unraisable exception
-                                let _ = vm.invoke(&cb, (wr.clone(),));
+                                let _ = cb.call((wr.clone(),), vm);
                             });
                         }
                     }

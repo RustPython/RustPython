@@ -59,7 +59,7 @@ mod _pyexpat {
     where
         T: IntoFuncArgs,
     {
-        vm.invoke(&handler.read().clone(), args).ok();
+        handler.read().call(args, vm).ok();
     }
 
     #[pyclass]

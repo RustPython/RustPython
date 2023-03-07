@@ -130,7 +130,7 @@ mod _codecs {
                     vm.ctx.new_str(reason).into(),
                 ],
             );
-            let res = vm.invoke(self.handler_func()?, (encode_exc,))?;
+            let res = self.handler_func()?.call((encode_exc,), vm)?;
             let tuple_err = || {
                 vm.new_type_error(
                     "encoding error handler must return (str/bytes, int) tuple".to_owned(),
@@ -174,7 +174,7 @@ mod _codecs {
                 ],
             );
             let handler = self.handler_func()?;
-            let res = vm.invoke(handler, (decode_exc.clone(),))?;
+            let res = handler.call((decode_exc.clone(),), vm)?;
             let new_data = decode_exc
                 .get_arg(1)
                 .ok_or_else(|| vm.new_type_error("object attribute not set".to_owned()))?;
@@ -358,7 +358,7 @@ mod _codecs {
             let module = vm.import("_pycodecs", None, 0)?;
             module.get_attr(name, vm)
         })?;
-        vm.invoke(f, args)
+        f.call(args, vm)
     }
     macro_rules! delegate_pycodecs {
         ($name:ident, $args:ident, $vm:ident) => {{

@@ -90,7 +90,7 @@ impl ByteInnerNewOptions {
                 if let Some(bytes_method) = vm.get_method(obj, identifier!(vm, __bytes__)) {
                     // construct an exact bytes from __bytes__ slot.
                     // if __bytes__ return a bytes, use the bytes object except we are the subclass of the bytes
-                    let bytes = vm.invoke(&bytes_method?, ())?;
+                    let bytes = bytes_method?.call((), vm)?;
                     let bytes = if cls.is(PyBytes::class(vm)) {
                         match bytes.downcast::<PyBytes>() {
                             Ok(b) => return Ok(b),

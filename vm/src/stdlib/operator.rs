@@ -563,13 +563,11 @@ mod _operator {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.
                 let partial = vm.import("functools", None, 0)?.get_attr("partial", vm)?;
-                let callable = vm.invoke(
-                    &partial,
-                    FuncArgs::new(
-                        vec![zelf.class().to_owned().into(), zelf.name.clone().into()],
-                        KwArgs::new(zelf.args.kwargs.clone()),
-                    ),
-                )?;
+                let args = FuncArgs::new(
+                    vec![zelf.class().to_owned().into(), zelf.name.clone().into()],
+                    KwArgs::new(zelf.args.kwargs.clone()),
+                );
+                let callable = partial.call(args, vm)?;
                 Ok(vm.new_tuple((callable, vm.ctx.new_tuple(zelf.args.args.clone()))))
             }
         }

@@ -49,7 +49,7 @@ impl GetDescriptor for PyProperty {
         if vm.is_none(&obj) {
             Ok(zelf.into())
         } else if let Some(getter) = zelf.getter.read().as_ref() {
-            vm.invoke(getter, (obj,))
+            getter.call((obj,), vm)
         } else {
             Err(vm.new_attribute_error("unreadable attribute".to_string()))
         }
@@ -71,14 +71,14 @@ impl PyProperty {
         match value {
             PySetterValue::Assign(value) => {
                 if let Some(setter) = zelf.setter.read().as_ref() {
-                    vm.invoke(setter, (obj, value)).map(drop)
+                    setter.call((obj, value), vm).map(drop)
                 } else {
                     Err(vm.new_attribute_error("can't set attribute".to_owned()))
                 }
             }
             PySetterValue::Delete => {
                 if let Some(deleter) = zelf.deleter.read().as_ref() {
-                    vm.invoke(deleter, (obj,)).map(drop)
+                    deleter.call((obj,), vm).map(drop)
                 } else {
                     Err(vm.new_attribute_error("can't delete attribute".to_owned()))
                 }

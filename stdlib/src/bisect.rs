@@ -70,7 +70,7 @@ mod _bisect {
             let mid = (lo + hi) / 2;
             let a_mid = a.get_item(&mid, vm)?;
             let comp = if let Some(ref key) = key {
-                vm.invoke(key, (a_mid,))?
+                key.call((a_mid,), vm)?
             } else {
                 a_mid
             };
@@ -96,7 +96,7 @@ mod _bisect {
             let mid = (lo + hi) / 2;
             let a_mid = a.get_item(&mid, vm)?;
             let comp = if let Some(ref key) = key {
-                vm.invoke(key, (a_mid,))?
+                key.call((a_mid,), vm)?
             } else {
                 a_mid
             };
@@ -112,7 +112,7 @@ mod _bisect {
     #[pyfunction]
     fn insort_left(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
         let x = if let Some(ref key) = key {
-            vm.invoke(key, (x,))?
+            key.call((x,), vm)?
         } else {
             x
         };
@@ -132,7 +132,7 @@ mod _bisect {
     #[pyfunction]
     fn insort_right(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
         let x = if let Some(ref key) = key {
-            vm.invoke(key, (x,))?
+            key.call((x,), vm)?
         } else {
             x
         };

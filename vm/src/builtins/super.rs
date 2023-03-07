@@ -6,8 +6,8 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
-    function::OptionalArg,
-    types::{Constructor, GetAttr, GetDescriptor},
+    function::{IntoFuncArgs, OptionalArg},
+    types::{Callable, Constructor, GetAttr, GetDescriptor},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -188,7 +188,7 @@ impl GetDescriptor for PySuper {
             Ok(PySuper::new(zelf.typ.clone(), obj, vm)?.into_pyobject(vm))
         } else {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
-            vm.invoke(zelf.class(), (zelf.typ.clone(), obj))
+            PyType::call(zelf.class(), (zelf.typ.clone(), obj).into_args(vm), vm)
         }
     }
 }

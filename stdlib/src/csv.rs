@@ -309,7 +309,7 @@ mod _csv {
             let s = std::str::from_utf8(&buffer[..buffer_offset])
                 .map_err(|_| vm.new_unicode_decode_error("csv not utf8".to_owned()))?;
 
-            vm.invoke(&self.write, (s.to_owned(),))
+            self.write.call((s,), vm)
         }
 
         #[pymethod]

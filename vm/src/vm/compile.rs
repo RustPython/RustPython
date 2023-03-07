@@ -31,10 +31,7 @@ impl VirtualMachine {
             self.insert_sys_path(self.new_pyobj(path))?;
             let runpy = self.import("runpy", None, 0)?;
             let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
-            self.invoke(
-                &run_module_as_main,
-                (identifier!(self, __main__).to_owned(), false),
-            )?;
+            run_module_as_main.call((identifier!(self, __main__).to_owned(), false), self)?;
             return Ok(());
         }
 
@@ -91,7 +88,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
     let mut importer = None;
     let path_hooks: Vec<PyObjectRef> = path_hooks.try_into_value(vm)?;
     for path_hook in path_hooks {
-        match vm.invoke(&path_hook, (path.clone(),)) {
+        match path_hook.call((path.clone(),), vm) {
             Ok(imp) => {
                 importer = Some(imp);
                 break;

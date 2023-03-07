@@ -58,7 +58,7 @@ impl GetDescriptor for PyClassMethod {
         let call_descr_get: PyResult<PyObjectRef> = zelf.callable.lock().get_attr("__get__", vm);
         match call_descr_get {
             Err(_) => Ok(PyBoundMethod::new_ref(cls, zelf.callable.lock().clone(), &vm.ctx).into()),
-            Ok(call_descr_get) => vm.invoke(&call_descr_get, (cls.clone(), cls)),
+            Ok(call_descr_get) => call_descr_get.call((cls.clone(), cls), vm),
         }
     }
 }

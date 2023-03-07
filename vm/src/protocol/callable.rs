@@ -98,14 +98,14 @@ impl VirtualMachine {
         // tracing function itself.
         if !self.is_none(&trace_func) {
             self.use_tracing.set(false);
-            let res = self.invoke(&trace_func, args.clone());
+            let res = trace_func.call(args.clone(), self);
             self.use_tracing.set(true);
             res?;
         }
 
         if !self.is_none(&profile_func) {
             self.use_tracing.set(false);
-            let res = self.invoke(&profile_func, args);
+            let res = profile_func.call(args, self);
             self.use_tracing.set(true);
             res?;
         }

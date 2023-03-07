@@ -17,13 +17,12 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
         .get_attr("MutableSequence", vm)
         .expect("Expect collections.abc has MutableSequence type.");
 
-    vm.invoke(
-        &mutable_sequence
-            .get_attr("register", vm)
-            .expect("Expect collections.abc.MutableSequence has register method."),
-        (array,),
-    )
-    .expect("Expect collections.abc.MutableSequence.register(array.array) not fail.");
+    let register = &mutable_sequence
+        .get_attr("register", vm)
+        .expect("Expect collections.abc.MutableSequence has register method.");
+    register
+        .call((array,), vm)
+        .expect("Expect collections.abc.MutableSequence.register(array.array) not fail.");
 
     module
 }

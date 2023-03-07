@@ -8,7 +8,7 @@ fn py_main(interp: &Interpreter) -> vm::PyResult<PyStrRef> {
             .expect("add path");
         let module = vm.import("package_embed", None, 0)?;
         let name_func = module.get_attr("context", vm)?;
-        let result = vm.invoke(&name_func, ())?;
+        let result = name_func.call((), vm)?;
         let result: PyStrRef = result.get_attr("name", vm)?.try_into_value(vm)?;
         vm::PyResult::Ok(result)
     })

@@ -19,14 +19,12 @@ pub fn main() {
 
         let module = vm.import("call_between_rust_and_python", None, 0).unwrap();
         let init_fn = module.get_attr("python_callback", vm).unwrap();
-        vm.invoke(&init_fn, ()).unwrap();
+        init_fn.call((), vm).unwrap();
 
         let take_string_fn = module.get_attr("take_string", vm).unwrap();
-        vm.invoke(
-            &take_string_fn,
-            (String::from("Rust string sent to python"),),
-        )
-        .unwrap();
+        take_string_fn
+            .call((String::from("Rust string sent to python"),), vm)
+            .unwrap();
     })
 }
 

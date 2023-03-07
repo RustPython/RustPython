@@ -26,7 +26,7 @@ mod _functools {
 
         let mut accumulator = start_value;
         for next_obj in iter {
-            accumulator = vm.invoke(&function, (accumulator, next_obj?))?
+            accumulator = function.call((accumulator, next_obj?), vm)?
         }
         Ok(accumulator)
     }

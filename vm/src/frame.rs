@@ -436,7 +436,7 @@ impl ExecutingFrame<'_> {
                     Either::A(coro) => coro
                         .throw(gen, exc_type, exc_val, exc_tb, vm)
                         .to_pyresult(vm), // FIXME:
-                    Either::B(meth) => vm.invoke(&meth, (exc_type, exc_val, exc_tb)),
+                    Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
                 };
                 return ret.map(ExecutionResult::Yield).or_else(|err| {
                     self.pop_value();
@@ -889,7 +889,7 @@ impl ExecutingFrame<'_> {
                 } else {
                     (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
                 };
-                let exit_res = vm.invoke(&exit, args)?;
+                let exit_res = exit.call(args, vm)?;
                 self.push_value(exit_res);
 
                 Ok(None)
@@ -938,7 +938,7 @@ impl ExecutingFrame<'_> {
                             )
                         },
                     )?;
-                    vm.invoke(&await_method, ())?
+                    await_method.call((), vm)?
                 };
                 self.push_value(awaitable);
                 Ok(None)
@@ -1353,7 +1353,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn execute_call(&mut self, args: FuncArgs, vm: &VirtualMachine) -> FrameResult {
         let func_ref = self.pop_value();
-        let value = vm.invoke(&func_ref, args)?;
+        let value = func_ref.call(args, vm)?;
         self.push_value(value);
         Ok(None)
     }
@@ -1429,7 +1429,7 @@ impl ExecutingFrame<'_> {
             None if vm.is_none(&val) => PyIter::new(gen).next(vm),
             None => {
                 let meth = gen.to_owned().get_attr("send", vm)?;
-                PyIterReturn::from_pyresult(vm.invoke(&meth, (val,)), vm)
+                PyIterReturn::from_pyresult(meth.call((val,), vm), vm)
             }
         }
     }
@@ -1716,7 +1716,7 @@ impl ExecutingFrame<'_> {
             .clone()
             .get_attr("displayhook", vm)
             .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
-        vm.invoke(&displayhook, (expr,))?;
+        displayhook.call((expr,), vm)?;
 
         Ok(None)
     }

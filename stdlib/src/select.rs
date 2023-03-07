@@ -80,7 +80,7 @@ impl TryFromObject for Selectable {
                 vm.ctx.interned_str("fileno").unwrap(),
                 || "select arg must be an int or object with a fileno() method".to_owned(),
             )?;
-            vm.invoke(&meth, ())?.try_into_value(vm)
+            meth.call((), vm)?.try_into_value(vm)
         })?;
         Ok(Selectable { obj, fno })
     }
