@@ -109,8 +109,6 @@ class FailureTestCase(unittest.TestCase):
             with foo: pass
         self.assertRaises(NameError, fooNotDeclared)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testEnterAttributeError1(self):
         class LacksEnter(object):
             def __exit__(self, type, value, traceback):
@@ -121,8 +119,6 @@ class FailureTestCase(unittest.TestCase):
             with foo: pass
         self.assertRaisesRegex(TypeError, 'the context manager', fooLacksEnter)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testEnterAttributeError2(self):
         class LacksEnterAndExit(object):
             pass
@@ -132,8 +128,6 @@ class FailureTestCase(unittest.TestCase):
             with foo: pass
         self.assertRaisesRegex(TypeError, 'the context manager', fooLacksEnterAndExit)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testExitAttributeError(self):
         class LacksExit(object):
             def __enter__(self):

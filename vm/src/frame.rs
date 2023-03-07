@@ -840,12 +840,24 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::SetupWith { end } => {
                 let context_manager = self.pop_value();
-                let enter_res = vm.call_special_method(
-                    context_manager.clone(),
-                    identifier!(vm, __enter__),
-                    (),
-                )?;
-                let exit = context_manager.get_attr(identifier!(vm, __exit__), vm)?;
+                let error_string = || -> String {
+                    format!(
+                        "'{:.200}' object does not support the context manager protocol",
+                        context_manager.class().name(),
+                    )
+                };
+                let enter_res = vm
+                    .get_special_method(context_manager.clone(), identifier!(vm, __enter__))?
+                    .map_err(|_obj| vm.new_type_error(error_string()))?
+                    .invoke((), vm)?;
+
+                let exit = context_manager
+                    .get_attr(identifier!(vm, __exit__), vm)
+                    .map_err(|_exc| {
+                        vm.new_type_error({
+                            format!("'{} (missed __exit__ method)", error_string())
+                        })
+                    })?;
                 self.push_value(exit);
                 self.push_block(BlockType::Finally {
                     handler: end.get(arg),
@@ -855,9 +867,24 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::BeforeAsyncWith => {
                 let mgr = self.pop_value();
-                let aenter_res =
-                    vm.call_special_method(mgr.clone(), identifier!(vm, __aenter__), ())?;
-                let aexit = mgr.get_attr(identifier!(vm, __aexit__), vm)?;
+                let error_string = || -> String {
+                    format!(
+                        "'{:.200}' object does not support the asynchronous context manager protocol",
+                        mgr.class().name(),
+                    )
+                };
+
+                let aenter_res = vm
+                    .get_special_method(mgr.clone(), identifier!(vm, __aenter__))?
+                    .map_err(|_obj| vm.new_type_error(error_string()))?
+                    .invoke((), vm)?;
+                let aexit = mgr
+                    .get_attr(identifier!(vm, __aexit__), vm)
+                    .map_err(|_exc| {
+                        vm.new_type_error({
+                            format!("'{} (missed __aexit__ method)", error_string())
+                        })
+                    })?;
                 self.push_value(aexit);
                 self.push_value(aenter_res);
 
