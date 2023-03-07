@@ -632,8 +632,6 @@ class TestBaseExitStack:
         with self.exit_stack():
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_callback(self):
         expected = [
             ((), {}),
@@ -728,8 +726,6 @@ class TestBaseExitStack:
             result.append(2)
         self.assertEqual(result, [1, 2, 3, 4])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_enter_context_errors(self):
         class LacksEnterAndExit:
             pass
@@ -1047,8 +1043,6 @@ class TestBaseExitStack:
             for i in range(10000):
                 stack.callback(int)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_instance_bypass(self):
         class Example(object): pass
         cm = Example()
