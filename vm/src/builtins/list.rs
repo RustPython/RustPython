@@ -22,7 +22,7 @@ use crate::{
 };
 use std::{fmt, ops::DerefMut};
 
-#[pyclass(module = false, name = "list")]
+#[pyclass(module = false, name = "list", unhashable = true)]
 #[derive(Default)]
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
@@ -602,13 +602,6 @@ impl IterNext for PyListReverseIterator {
 }
 
 pub fn init(context: &Context) {
-    context
-        .types
-        .list_type
-        .slots
-        .hash
-        .store(Some(unhashable_wrapper));
-
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
 

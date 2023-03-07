@@ -28,7 +28,7 @@ use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
-#[pyclass(module = false, name = "set")]
+#[pyclass(module = false, name = "set", unhashable = true)]
 #[derive(Default)]
 pub struct PySet {
     pub(super) inner: PySetInner,
@@ -70,7 +70,7 @@ impl PySet {
     }
 }
 
-#[pyclass(module = false, name = "frozenset")]
+#[pyclass(module = false, name = "frozenset", unhashable = true)]
 #[derive(Default)]
 pub struct PyFrozenSet {
     inner: PySetInner,
@@ -1241,13 +1241,6 @@ impl IterNext for PySetIterator {
 }
 
 pub fn init(context: &Context) {
-    context
-        .types
-        .set_type
-        .slots
-        .hash
-        .store(Some(unhashable_wrapper));
-
     PySet::extend_class(context, context.types.set_type);
     PyFrozenSet::extend_class(context, context.types.frozenset_type);
     PySetIterator::extend_class(context, context.types.set_iterator_type);

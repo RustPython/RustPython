@@ -12,7 +12,7 @@ use crate::{
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass(module = false, name = "slice")]
+#[pyclass(module = false, name = "slice", unhashable = true)]
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
@@ -292,12 +292,6 @@ impl PyEllipsis {
 }
 
 pub fn init(ctx: &Context) {
-    ctx.types
-        .slice_type
-        .slots
-        .hash
-        .store(Some(unhashable_wrapper));
-
     PySlice::extend_class(ctx, ctx.types.slice_type);
     PyEllipsis::extend_class(ctx, ctx.types.ellipsis_type);
 }

@@ -33,7 +33,7 @@ use std::fmt;
 
 pub type DictContentType = dictdatatype::Dict;
 
-#[pyclass(module = false, name = "dict")]
+#[pyclass(module = false, name = "dict", unhashable = true)]
 #[derive(Default)]
 pub struct PyDict {
     entries: DictContentType,
@@ -1207,13 +1207,6 @@ impl AsSequence for PyDictValues {
 }
 
 pub(crate) fn init(context: &Context) {
-    context
-        .types
-        .dict_type
-        .slots
-        .hash
-        .store(Some(unhashable_wrapper));
-
     PyDict::extend_class(context, context.types.dict_type);
     PyDictKeys::extend_class(context, context.types.dict_keys_type);
     PyDictKeyIterator::extend_class(context, context.types.dict_keyiterator_type);

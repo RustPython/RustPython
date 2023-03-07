@@ -218,6 +218,7 @@ fn generate_class_def(
     module_name: Option<&str>,
     base: Option<String>,
     metaclass: Option<String>,
+    unhashable: bool,
     attrs: &[Attribute],
 ) -> Result<TokenStream> {
     let doc = attrs.doc().or_else(|| {
@@ -241,6 +242,11 @@ fn generate_class_def(
     let module_name = match module_name {
         Some(v) => quote!(Some(#v) ),
         None => quote!(None),
+    };
+    let unhashable = if unhashable {
+        quote!(true)
+    } else {
+        quote!(false)
     };
     let basicsize = quote!(std::mem::size_of::<#ident>());
     let is_pystruct = attrs.iter().any(|attr| {
@@ -290,6 +296,7 @@ fn generate_class_def(
             const TP_NAME: &'static str = #module_class_name;
             const DOC: Option<&'static str> = #doc;
             const BASICSIZE: usize = #basicsize;
+            const UNHASHABLE: bool = #unhashable;
         }
 
         impl ::rustpython_vm::class::StaticType for #ident {
@@ -319,12 +326,15 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
     let module_name = class_meta.module()?;
     let base = class_meta.base()?;
     let metaclass = class_meta.metaclass()?;
+    let unhashable = class_meta.unhashable()?;
+
     let class_def = generate_class_def(
         ident,
         &class_name,
         module_name.as_deref(),
         base,
         metaclass,
+        unhashable,
         attrs,
     )?;
 

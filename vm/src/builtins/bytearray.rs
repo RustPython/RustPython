@@ -41,7 +41,7 @@ use bstr::ByteSlice;
 use once_cell::sync::Lazy;
 use std::mem::size_of;
 
-#[pyclass(module = false, name = "bytearray")]
+#[pyclass(module = false, name = "bytearray", unhashable = true)]
 #[derive(Debug, Default)]
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
@@ -91,13 +91,6 @@ impl PyPayload for PyByteArray {
 
 /// Fill bytearray class methods dictionary.
 pub(crate) fn init(context: &Context) {
-    context
-        .types
-        .bytearray_type
-        .slots
-        .hash
-        .store(Some(unhashable_wrapper));
-
     PyByteArray::extend_class(context, context.types.bytearray_type);
     PyByteArrayIterator::extend_class(context, context.types.bytearray_iterator_type);
 }
