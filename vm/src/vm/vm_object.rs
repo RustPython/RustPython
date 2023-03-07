@@ -1,7 +1,7 @@
 use super::PyMethod;
 use crate::{
     builtins::{PyBaseExceptionRef, PyList, PyStr, PyStrInterned},
-    function::{FuncArgs, IntoFuncArgs},
+    function::IntoFuncArgs,
     identifier,
     object::{AsObject, PyObject, PyObjectRef, PyPayload, PyResult},
     vm::VirtualMachine,
@@ -151,19 +151,8 @@ impl VirtualMachine {
             .invoke(args, self)
     }
 
-    fn _invoke(&self, obj: &PyObject, args: FuncArgs) -> PyResult {
-        vm_trace!("Invoke: {:?} {:?}", callable, args);
-        let Some(callable) = obj.to_callable() else {
-            return Err(self.new_type_error(format!(
-                "'{}' object is not callable",
-                obj.class().name()
-            )));
-        };
-        callable.invoke(args, self)
-    }
-
-    #[inline(always)]
-    pub fn invoke(&self, func: &impl AsObject, args: impl IntoFuncArgs) -> PyResult {
-        self._invoke(func.as_object(), args.into_args(self))
+    // #[deprecated(note = "in favor of `obj.call(args, vm)`")]
+    pub fn invoke(&self, obj: &impl AsObject, args: impl IntoFuncArgs) -> PyResult {
+        obj.as_object().call(args, self)
     }
 }

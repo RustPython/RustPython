@@ -1,5 +1,5 @@
 use crate::{
-    function::IntoFuncArgs,
+    function::{FuncArgs, IntoFuncArgs},
     types::GenericMethod,
     {AsObject, PyObject, PyResult, VirtualMachine},
 };
@@ -13,6 +13,23 @@ impl PyObject {
     #[inline]
     pub fn is_callable(&self) -> bool {
         self.to_callable().is_some()
+    }
+
+    /// PyObject_Call*Arg* series
+    pub fn call(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
+        self.call_with_args(args.into_args(vm), vm)
+    }
+
+    /// PyObject_Call
+    pub fn call_with_args(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        vm_trace!("Invoke: {:?} {:?}", callable, args);
+        let Some(callable) = self.to_callable() else {
+            return Err(vm.new_type_error(format!(
+                "'{}' object is not callable",
+                self.class().name()
+            )));
+        };
+        callable.invoke(args, vm)
     }
 }
 
