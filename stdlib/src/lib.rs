@@ -160,7 +160,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_uuid" => uuid::make_module,
         }
-        #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+        #[cfg(any(unix, windows, not(any(target_os = "ios", target_os = "android", target_arch="wasm32"))))]
         {
             "_locale" => locale::make_module,
         }

@@ -343,7 +343,6 @@ class TestFrFRNumberFormatting(FrFRCookedTest, BaseFormattingTest):
 class TestCollation(unittest.TestCase):
     # Test string collation functions
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_strcoll(self):
         self.assertLess(locale.strcoll('a', 'b'), 0)
         self.assertEqual(locale.strcoll('a', 'a'), 0)
@@ -352,7 +351,6 @@ class TestCollation(unittest.TestCase):
         self.assertRaises(ValueError, locale.strcoll, 'a\0', 'a')
         self.assertRaises(ValueError, locale.strcoll, 'a', 'a\0')
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_strxfrm(self):
         self.assertLess(locale.strxfrm('a'), locale.strxfrm('b'))
         # embedded null character
@@ -504,7 +502,6 @@ class NormalizeTest(unittest.TestCase):
 
 
 class TestMiscellaneous(unittest.TestCase):
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_defaults_UTF8(self):
         # Issue #18378: on (at least) macOS setting LC_CTYPE to "UTF-8" is
         # valid. Furthermore LC_CTYPE=UTF is used by the UTF-8 locale coercing
@@ -562,7 +559,6 @@ class TestMiscellaneous(unittest.TestCase):
         self.assertRaises(TypeError, locale.strcoll, "a", None)
         self.assertRaises(TypeError, locale.strcoll, b"a", None)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_setlocale_category(self):
         locale.setlocale(locale.LC_ALL)
         locale.setlocale(locale.LC_TIME)
