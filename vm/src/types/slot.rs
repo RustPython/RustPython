@@ -424,11 +424,12 @@ impl PyType {
                     .read()
                     .get(identifier!(ctx, __hash__))
                     .map_or(false, |a| a.is(&ctx.none));
-                if is_unhashable {
-                    toggle_slot!(hash, unhashable_wrapper);
+                let wrapper = if is_unhashable {
+                    unhashable_wrapper
                 } else {
-                    toggle_slot!(hash, hash_wrapper);
-                }
+                    hash_wrapper
+                };
+                toggle_slot!(hash, wrapper);
             }
             _ if name == identifier!(ctx, __call__) => {
                 toggle_slot!(call, call_wrapper);
