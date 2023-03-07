@@ -25,7 +25,6 @@ impl PyPayload for PySlice {
     }
 }
 
-// #[pyclass(with(Hashable, Comparable))]
 #[pyclass(with(Comparable))]
 impl PySlice {
     #[pygetset]
