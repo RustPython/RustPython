@@ -185,7 +185,7 @@ impl CodecsRegistry {
     }
 
     pub fn register(&self, search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if !vm.is_callable(&search_function) {
+        if !search_function.is_callable() {
             return Err(vm.new_type_error("argument must be callable".to_owned()));
         }
         self.inner.write().search_path.push(search_function);

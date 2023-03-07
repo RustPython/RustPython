@@ -410,7 +410,7 @@ mod _sre {
                 count,
             } = sub_args;
 
-            let (is_callable, filter) = if vm.is_callable(&repl) {
+            let (is_callable, filter) = if repl.is_callable() {
                 (true, repl)
             } else {
                 let is_template = if zelf.isbytes {
@@ -422,7 +422,7 @@ mod _sre {
                     let re = vm.import("re", None, 0)?;
                     let func = re.get_attr("_subx", vm)?;
                     let filter = vm.invoke(&func, (zelf.clone(), repl))?;
-                    (vm.is_callable(&filter), filter)
+                    (filter.is_callable(), filter)
                 } else {
                     (false, repl)
                 }

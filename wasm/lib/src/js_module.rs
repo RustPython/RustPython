@@ -439,7 +439,7 @@ mod _js {
 
         fn cast(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
             let then = vm.get_attribute_opt(obj.clone(), "then")?;
-            let value = if let Some(then) = then.filter(|obj| vm.is_callable(obj)) {
+            let value = if let Some(then) = then.filter(|obj| obj.is_callable()) {
                 PromiseKind::PyProm { then }
             } else {
                 PromiseKind::PyResolved(obj)

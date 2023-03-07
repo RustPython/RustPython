@@ -666,12 +666,6 @@ impl VirtualMachine {
         self.get_method(obj, method_name)
     }
 
-    pub fn is_callable(&self, obj: &PyObject) -> bool {
-        obj.class()
-            .mro_find_map(|cls| cls.slots.call.load())
-            .is_some()
-    }
-
     #[inline]
     /// Checks for triggered signals and calls the appropriate handlers. A no-op on
     /// platforms where signals are not supported.

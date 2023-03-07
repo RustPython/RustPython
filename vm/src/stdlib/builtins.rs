@@ -77,8 +77,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn callable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
-        vm.is_callable(&obj)
+    fn callable(obj: PyObjectRef) -> bool {
+        obj.is_callable()
     }
 
     #[pyfunction]

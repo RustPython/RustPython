@@ -60,7 +60,7 @@ mod _csv {
     ) -> PyResult<Writer> {
         let write = match vm.get_attribute_opt(file.clone(), "write")? {
             Some(write_meth) => write_meth,
-            None if vm.is_callable(&file) => file,
+            None if file.is_callable() => file,
             None => {
                 return Err(vm.new_type_error("argument 1 must have a \"write\" method".to_owned()))
             }

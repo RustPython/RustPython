@@ -11,7 +11,7 @@ use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
 #[derive(Clone, Debug)]
 pub struct ArgCallable {
-    obj: PyObjectRef,
+    obj: PyObjectRef, // FIXME: PyCallable
 }
 
 impl ArgCallable {
@@ -44,7 +44,7 @@ impl From<ArgCallable> for PyObjectRef {
 
 impl TryFromObject for ArgCallable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if vm.is_callable(&obj) {
+        if obj.is_callable() {
             Ok(ArgCallable { obj })
         } else {
             Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name())))
