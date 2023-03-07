@@ -423,7 +423,7 @@ impl PyType {
                     .attributes
                     .read()
                     .get(identifier!(ctx, __hash__))
-                    .map_or(false, |a| a.is(&ctx.none()));
+                    .map_or(false, |a| a.is(&ctx.none));
                 if is_unhashable {
                     toggle_slot!(hash, unhashable_wrapper);
                 } else {
