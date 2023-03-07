@@ -77,8 +77,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn callable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
-        vm.is_callable(&obj)
+    fn callable(obj: PyObjectRef) -> bool {
+        obj.is_callable()
     }
 
     #[pyfunction]
@@ -354,7 +354,7 @@ mod builtins {
             .sys_module
             .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
         {
-            Ok(hook) => vm.invoke(hook.as_ref(), args),
+            Ok(hook) => hook.as_ref().call(args, vm),
             Err(_) => Err(vm.new_runtime_error("lost sys.breakpointhook".to_owned())),
         }
     }
@@ -498,9 +498,9 @@ mod builtins {
 
         let key_func = key_func.filter(|f| !vm.is_none(f));
         if let Some(ref key_func) = key_func {
-            let mut x_key = vm.invoke(key_func, (x.clone(),))?;
+            let mut x_key = key_func.call((x.clone(),), vm)?;
             for y in candidates_iter {
-                let y_key = vm.invoke(key_func, (y.clone(),))?;
+                let y_key = key_func.call((y.clone(),), vm)?;
                 if y_key.rich_compare_bool(&x_key, op, vm)? {
                     x = y;
                     x_key = y_key;
@@ -617,7 +617,7 @@ mod builtins {
                                      args: (PyObjectRef, PyObjectRef, PyObjectRef)|
                  -> Option<PyResult> {
                     let method = obj.get_class_attr(identifier!(vm, __pow__))?;
-                    let result = match vm.invoke(&method, args) {
+                    let result = match method.call(args, vm) {
                         Ok(x) => x,
                         Err(e) => return Some(Err(e)),
                     };
@@ -704,7 +704,7 @@ mod builtins {
     #[pyfunction]
     fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(reversed_method) = vm.get_method(obj.clone(), identifier!(vm, __reversed__)) {
-            vm.invoke(&reversed_method?, ())
+            reversed_method?.call((), vm)
         } else {
             vm.get_method_or_type_error(obj.clone(), identifier!(vm, __getitem__), || {
                 "argument to reversed() must be a sequence".to_owned()
@@ -804,7 +804,7 @@ mod builtins {
 
     #[pyfunction]
     fn __import__(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(&vm.import_func, args)
+        vm.import_func.call(args, vm)
     }
 
     #[pyfunction]
@@ -843,7 +843,7 @@ mod builtins {
             let mro_entries =
                 vm.get_attribute_opt(base.clone(), identifier!(vm, __mro_entries__))?;
             let entries = match mro_entries {
-                Some(meth) => vm.invoke(&meth, (bases.clone(),))?,
+                Some(meth) => meth.call((bases.clone(),), vm)?,
                 None => {
                     if let Some(bases) = &mut new_bases {
                         bases.push(base.clone());
@@ -900,10 +900,9 @@ mod builtins {
         let namespace = vm
             .get_attribute_opt(metaclass.clone(), identifier!(vm, __prepare__))?
             .map_or(Ok(vm.ctx.new_dict().into()), |prepare| {
-                vm.invoke(
-                    &prepare,
-                    FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone()),
-                )
+                let args =
+                    FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone());
+                prepare.call(args, vm)
             })?;
 
         // Accept any PyMapping as namespace.
@@ -926,10 +925,8 @@ mod builtins {
             )?;
         }
 
-        let class = vm.invoke(
-            &metaclass,
-            FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs),
-        )?;
+        let args = FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs);
+        let class = metaclass.call(args, vm)?;
 
         if let Some(ref classcell) = classcell {
             let classcell = classcell.get().ok_or_else(|| {

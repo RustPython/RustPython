@@ -60,7 +60,7 @@ mod _csv {
     ) -> PyResult<Writer> {
         let write = match vm.get_attribute_opt(file.clone(), "write")? {
             Some(write_meth) => write_meth,
-            None if vm.is_callable(&file) => file,
+            None if file.is_callable() => file,
             None => {
                 return Err(vm.new_type_error("argument 1 must have a \"write\" method".to_owned()))
             }
@@ -309,7 +309,7 @@ mod _csv {
             let s = std::str::from_utf8(&buffer[..buffer_offset])
                 .map_err(|_| vm.new_unicode_decode_error("csv not utf8".to_owned()))?;
 
-            vm.invoke(&self.write, (s.to_owned(),))
+            self.write.call((s,), vm)
         }
 
         #[pymethod]

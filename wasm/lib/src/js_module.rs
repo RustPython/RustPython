@@ -324,7 +324,7 @@ mod _js {
                             .into_iter()
                             .map(|arg| PyJsValue::new(arg).into_pyobject(vm)),
                     );
-                    let res = vm.invoke(&py_obj, pyargs);
+                    let res = py_obj.call(pyargs, vm);
                     convert::pyresult_to_jsresult(vm, res)
                 })
             };
@@ -420,12 +420,12 @@ mod _js {
                         let _ = js_reject
                             .call1(&JsValue::UNDEFINED, &convert::py_err_to_js_err(vm, &err));
                     };
-                    let _ = vm.invoke(
-                        then,
+                    let _ = then.call(
                         (
                             vm.ctx.new_function("resolve", resolve),
                             vm.ctx.new_function("reject", reject),
                         ),
+                        vm,
                     );
                 }),
                 PromiseKind::PyResolved(obj) => {
@@ -439,7 +439,7 @@ mod _js {
 
         fn cast(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
             let then = vm.get_attribute_opt(obj.clone(), "then")?;
-            let value = if let Some(then) = then.filter(|obj| vm.is_callable(obj)) {
+            let value = if let Some(then) = then.filter(|obj| obj.is_callable()) {
                 PromiseKind::PyProm { then }
             } else {
                 PromiseKind::PyResolved(obj)
@@ -517,12 +517,12 @@ mod _js {
                     Ok(PyPromise::from_future(ret_future))
                 }
                 PromiseKind::PyProm { then } => Self::cast_result(
-                    vm.invoke(
-                        then,
+                    then.call(
                         (
                             on_fulfill.map(IntoObject::into_object),
                             on_reject.map(IntoObject::into_object),
                         ),
+                        vm,
                     ),
                     vm,
                 ),

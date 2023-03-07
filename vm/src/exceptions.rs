@@ -1,17 +1,17 @@
 use self::types::{PyBaseException, PyBaseExceptionRef};
-use crate::builtins::tuple::IntoPyTuple;
-use crate::common::lock::PyRwLock;
-use crate::common::str::ReprOverflowError;
+use crate::common::{lock::PyRwLock, str::ReprOverflowError};
 use crate::{
     builtins::{
-        traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        traceback::PyTracebackRef, tuple::IntoPyTuple, PyNone, PyStr, PyStrRef, PyTuple,
+        PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
-    function::{ArgIterable, FuncArgs},
+    function::{ArgIterable, FuncArgs, IntoFuncArgs},
     py_io::{self, Write},
     stdlib::sys,
     suggestion::offer_suggestions,
+    types::Callable,
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -54,7 +54,7 @@ impl VirtualMachine {
         };
         if let Ok(excepthook) = vm.sys_module.get_attr("excepthook", vm) {
             let (exc_type, exc_val, exc_tb) = vm.split_exception(exc.clone());
-            if let Err(eh_exc) = vm.invoke(&excepthook, (exc_type, exc_val, exc_tb)) {
+            if let Err(eh_exc) = excepthook.call((exc_type, exc_val, exc_tb), vm) {
                 write_fallback(&eh_exc, "Error in sys.excepthook:");
                 write_fallback(&exc, "Original exception was:");
             }
@@ -208,7 +208,7 @@ impl VirtualMachine {
         args: Vec<PyObjectRef>,
     ) -> PyResult<PyBaseExceptionRef> {
         // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
-        let res = self.invoke(&cls, args)?;
+        let res = PyType::call(&cls, args.into_args(self), self)?;
         PyBaseExceptionRef::try_from_object(self, res)
     }
 }

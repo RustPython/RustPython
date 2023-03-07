@@ -377,7 +377,7 @@ impl PyStr {
             .to_pyobject(vm))
         } else if let Some(radd) = vm.get_method(other.clone(), identifier!(vm, __radd__)) {
             // hack to get around not distinguishing number add from seq concat
-            vm.invoke(&radd?, (zelf,))
+            radd?.call((zelf,), vm)
         } else {
             Err(vm.new_type_error(format!(
                 "can only concatenate str (not \"{}\") to str",

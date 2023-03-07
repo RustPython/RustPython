@@ -512,7 +512,7 @@ mod math {
                 func_name.as_str(),
             )
         })?;
-        vm.invoke(&method, ())
+        method.call((), vm)
     }
 
     #[pyfunction]

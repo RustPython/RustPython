@@ -37,7 +37,7 @@ impl PyObjectRef {
             Some(method_or_err) => {
                 // If descriptor returns Error, propagate it further
                 let method = method_or_err?;
-                let bool_obj = vm.invoke(&method, ())?;
+                let bool_obj = method.call((), vm)?;
                 if !bool_obj.fast_isinstance(vm.ctx.types.bool_type) {
                     return Err(vm.new_type_error(format!(
                         "__bool__ should return bool, returned type {}",
@@ -50,7 +50,7 @@ impl PyObjectRef {
             None => match vm.get_method(self, identifier!(vm, __len__)) {
                 Some(method_or_err) => {
                     let method = method_or_err?;
-                    let bool_obj = vm.invoke(&method, ())?;
+                    let bool_obj = method.call((), vm)?;
                     let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
                         vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",

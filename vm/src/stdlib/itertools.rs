@@ -470,7 +470,7 @@ mod decl {
             match obj {
                 PyIterReturn::Return(obj) => {
                     let args: Vec<_> = obj.try_to_value(vm)?;
-                    PyIterReturn::from_pyresult(vm.invoke(function, args), vm)
+                    PyIterReturn::from_pyresult(function.call(args, vm), vm)
                 }
                 PyIterReturn::StopIteration(v) => Ok(PyIterReturn::StopIteration(v)),
             }
@@ -547,7 +547,7 @@ mod decl {
             };
             let predicate = &zelf.predicate;
 
-            let verdict = vm.invoke(predicate, (obj.clone(),))?;
+            let verdict = predicate.call((obj.clone(),), vm)?;
             let verdict = verdict.try_to_bool(vm)?;
             if verdict {
                 Ok(PyIterReturn::Return(obj))
@@ -629,7 +629,7 @@ mod decl {
                         }
                     };
                     let pred = predicate.clone();
-                    let pred_value = vm.invoke(&pred, (obj.clone(),))?;
+                    let pred_value = pred.invoke((obj.clone(),), vm)?;
                     if !pred_value.try_to_bool(vm)? {
                         zelf.start_flag.store(true);
                         return Ok(PyIterReturn::Return(obj));
@@ -726,7 +726,7 @@ mod decl {
                 PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
             };
             let new_key = if let Some(ref kf) = self.key_func {
-                vm.invoke(kf, (new_value.clone(),))?
+                kf.call((new_value.clone(),), vm)?
             } else {
                 new_value.clone()
             };
@@ -1043,7 +1043,7 @@ mod decl {
                 let pred_value = if vm.is_none(predicate) {
                     obj.clone()
                 } else {
-                    vm.invoke(predicate, (obj.clone(),))?
+                    predicate.call((obj.clone(),), vm)?
                 };
 
                 if !pred_value.try_to_bool(vm)? {
@@ -1116,7 +1116,7 @@ mod decl {
                     };
                     match &zelf.binop {
                         None => vm._add(&value, &obj)?,
-                        Some(op) => vm.invoke(op, (value, obj))?,
+                        Some(op) => op.call((value, obj), vm)?,
                     }
                 }
             };

@@ -469,7 +469,7 @@ impl Callable for PyBoundMethod {
     #[inline]
     fn call(zelf: &crate::Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.prepend_arg(zelf.object.clone());
-        vm.invoke(&zelf.function, args)
+        zelf.function.call(args, vm)
     }
 }
 

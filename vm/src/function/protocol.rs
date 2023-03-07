@@ -4,20 +4,30 @@ use crate::{
     convert::ToPyObject,
     identifier,
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
-    types::AsMapping,
+    types::{AsMapping, GenericMethod},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ArgCallable {
     obj: PyObjectRef,
+    call: GenericMethod,
 }
 
 impl ArgCallable {
     #[inline(always)]
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(&self.obj, args)
+        (self.call)(&self.obj, args.into_args(vm), vm)
+    }
+}
+
+impl std::fmt::Debug for ArgCallable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArgCallable")
+            .field("obj", &self.obj)
+            .field("call", &format!("{:08x}", self.call as usize))
+            .finish()
     }
 }
 
@@ -44,11 +54,11 @@ impl From<ArgCallable> for PyObjectRef {
 
 impl TryFromObject for ArgCallable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if vm.is_callable(&obj) {
-            Ok(ArgCallable { obj })
-        } else {
-            Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name())))
-        }
+        let Some(callable) = obj.to_callable() else {
+            return Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name())));
+        };
+        let call = callable.call;
+        Ok(ArgCallable { obj, call })
     }
 }
 

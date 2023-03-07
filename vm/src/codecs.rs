@@ -63,7 +63,7 @@ impl PyCodec {
             Some(errors) => vec![obj, errors.into()],
             None => vec![obj],
         };
-        let res = vm.invoke(self.get_encode_func(), args)?;
+        let res = self.get_encode_func().call(args, vm)?;
         let res = res
             .downcast::<PyTuple>()
             .ok()
@@ -85,7 +85,7 @@ impl PyCodec {
             Some(errors) => vec![obj, errors.into()],
             None => vec![obj],
         };
-        let res = vm.invoke(self.get_decode_func(), args)?;
+        let res = self.get_decode_func().call(args, vm)?;
         let res = res
             .downcast::<PyTuple>()
             .ok()
@@ -185,7 +185,7 @@ impl CodecsRegistry {
     }
 
     pub fn register(&self, search_function: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if !vm.is_callable(&search_function) {
+        if !search_function.is_callable() {
             return Err(vm.new_type_error("argument must be callable".to_owned()));
         }
         self.inner.write().search_path.push(search_function);
@@ -230,7 +230,7 @@ impl CodecsRegistry {
         };
         let encoding = PyStr::from(encoding.into_owned()).into_ref(vm);
         for func in search_path {
-            let res = vm.invoke(&func, (encoding.clone(),))?;
+            let res = func.call((encoding.clone(),), vm)?;
             let res: Option<PyCodec> = res.try_into_value(vm)?;
             if let Some(codec) = res {
                 let mut inner = self.inner.write();

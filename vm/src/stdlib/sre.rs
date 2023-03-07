@@ -410,7 +410,7 @@ mod _sre {
                 count,
             } = sub_args;
 
-            let (is_callable, filter) = if vm.is_callable(&repl) {
+            let (is_callable, filter) = if repl.is_callable() {
                 (true, repl)
             } else {
                 let is_template = if zelf.isbytes {
@@ -421,8 +421,8 @@ mod _sre {
                 if is_template {
                     let re = vm.import("re", None, 0)?;
                     let func = re.get_attr("_subx", vm)?;
-                    let filter = vm.invoke(&func, (zelf.clone(), repl))?;
-                    (vm.is_callable(&filter), filter)
+                    let filter = func.call((zelf.clone(), repl), vm)?;
+                    (filter.is_callable(), filter)
                 } else {
                     (false, repl)
                 }
@@ -444,7 +444,7 @@ mod _sre {
 
                     if is_callable {
                         let m = Match::new(&iter.state, zelf.clone(), string.clone());
-                        let ret = vm.invoke(&filter, (m.into_ref(vm),))?;
+                        let ret = filter.call((m.into_ref(vm),), vm)?;
                         sublist.push(ret);
                     } else {
                         sublist.push(filter.clone());
@@ -617,7 +617,7 @@ mod _sre {
         fn expand(zelf: PyRef<Match>, template: PyStrRef, vm: &VirtualMachine) -> PyResult {
             let re = vm.import("re", None, 0)?;
             let func = re.get_attr("_expand", vm)?;
-            vm.invoke(&func, (zelf.pattern.clone(), zelf, template))
+            func.call((zelf.pattern.clone(), zelf, template), vm)
         }
 
         #[pymethod]

@@ -80,7 +80,8 @@ impl TryFromObject for Fildes {
                         "argument must be an int, or have a fileno() method.".to_owned(),
                     )
                 })?;
-                vm.invoke(&fileno_meth, ())?
+                fileno_meth
+                    .call((), vm)?
                     .downcast()
                     .map_err(|_| vm.new_type_error("fileno() returned a non-integer".to_owned()))?
             }
@@ -98,7 +99,6 @@ impl TryFromObject for Fildes {
 #[pymodule]
 mod _io {
     use super::*;
-
     use crate::{
         builtins::{
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
@@ -111,14 +111,16 @@ mod _io {
         },
         convert::ToPyObject,
         function::{
-            ArgBytesLike, ArgIterable, ArgMemoryBuffer, Either, FuncArgs, OptionalArg,
-            OptionalOption, PySetterValue,
+            ArgBytesLike, ArgIterable, ArgMemoryBuffer, Either, FuncArgs, IntoFuncArgs,
+            OptionalArg, OptionalOption, PySetterValue,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
         },
         recursion::ReprGuard,
-        types::{Constructor, DefaultConstructor, Destructor, Initializer, IterNext, Iterable},
+        types::{
+            Callable, Constructor, DefaultConstructor, Destructor, Initializer, IterNext, Iterable,
+        },
         vm::VirtualMachine,
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, TryFromObject,
@@ -463,7 +465,7 @@ mod _io {
             let read = instance.get_attr("read", vm)?;
             let mut res = Vec::new();
             while size.map_or(true, |s| res.len() < s) {
-                let read_res = ArgBytesLike::try_from_object(vm, vm.invoke(&read, (1,))?)?;
+                let read_res = ArgBytesLike::try_from_object(vm, read.call((1,), vm)?)?;
                 if read_res.with_ref(|b| b.is_empty()) {
                     break;
                 }
@@ -865,7 +867,7 @@ mod _io {
                     }
                 }
             }
-            // vm.invoke(&raw.get_attr("seek", vm)?, args)
+            // raw.get_attr("seek", vm)?.call(args, vm)
             if self.writable() {
                 self.flush(vm)?;
             }
@@ -1198,7 +1200,7 @@ mod _io {
                 .get_str_method(self.raw.clone().unwrap(), "readall")
                 .transpose()?;
             if let Some(readall) = readall {
-                let res = vm.invoke(&readall, ())?;
+                let res = readall.call((), vm)?;
                 let res = <Option<PyBytesRef>>::try_from_object(vm, res)?;
                 let ret = if let Some(mut data) = data {
                     if let Some(bytes) = res {
@@ -3596,9 +3598,10 @@ mod _io {
                 "Couldn't get FileIO, io.open likely isn't supported on your platform".to_owned(),
             )
         })?;
-        let raw = vm.invoke(
+        let raw = PyType::call(
             file_io_class,
-            (file, mode.rawmode(), opts.closefd, opts.opener),
+            (file, mode.rawmode(), opts.closefd, opts.opener).into_args(vm),
+            vm,
         )?;
 
         let isatty = opts.buffering < 0 && {
@@ -3631,12 +3634,12 @@ mod _io {
         } else {
             BufferedWriter::static_type()
         };
-        let buffered = vm.invoke(cls, (raw, buffering))?;
+        let buffered = PyType::call(cls, (raw, buffering).into_args(vm), vm)?;
 
         match mode.encode {
             EncodeMode::Text => {
                 let tio = TextIOWrapper::static_type();
-                let wrapper = vm.invoke(
+                let wrapper = PyType::call(
                     tio,
                     (
                         buffered,
@@ -3644,7 +3647,9 @@ mod _io {
                         opts.errors,
                         opts.newline,
                         line_buffering,
-                    ),
+                    )
+                        .into_args(vm),
+                    vm,
                 )?;
                 wrapper.set_attr("mode", vm.new_pyobj(mode_string), vm)?;
                 Ok(wrapper)
@@ -3886,7 +3891,7 @@ mod fileio {
                 compute_mode(mode_str).map_err(|e| vm.new_value_error(e.error_msg(mode_str)))?;
             zelf.mode.store(mode);
             let fd = if let Some(opener) = args.opener {
-                let fd = vm.invoke(&opener, (name.clone(), flags))?;
+                let fd = opener.call((name.clone(), flags), vm)?;
                 if !fd.fast_isinstance(vm.ctx.types.int_type) {
                     return Err(vm.new_type_error("expected integer from opener".to_owned()));
                 }

@@ -50,7 +50,7 @@ impl PyModule {
             return Ok(attr);
         }
         if let Ok(getattr) = zelf.dict().get_item(identifier!(vm, __getattr__), vm) {
-            return vm.invoke(&getattr, (name,));
+            return getattr.call((name,), vm);
         }
         let module_name = if let Some(name) = Self::name(zelf.to_owned(), vm) {
             format!(" '{name}'")
@@ -71,7 +71,7 @@ impl PyModule {
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         let importlib = vm.import("_frozen_importlib", None, 0)?;
         let module_repr = importlib.get_attr("_module_repr", vm)?;
-        vm.invoke(&module_repr, (zelf,))
+        module_repr.call((zelf,), vm)
     }
 
     #[pymethod(magic)]

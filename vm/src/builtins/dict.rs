@@ -72,7 +72,7 @@ impl PyDict {
         };
         let dict = &self.entries;
         if let Some(keys) = vm.get_method(other.clone(), vm.ctx.intern_str("keys")) {
-            let keys = vm.invoke(&keys?, ())?.get_iter(vm)?;
+            let keys = keys?.call((), vm)?.get_iter(vm)?;
             while let PyIterReturn::Return(key) = keys.next(vm)? {
                 let val = other.get_item(&*key, vm)?;
                 dict.insert(vm, &*key, val)?;
@@ -529,7 +529,7 @@ impl Py<PyDict> {
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         vm.get_method(self.to_owned().into(), identifier!(vm, __missing__))
-            .map(|methods| vm.invoke(&methods?, (key.to_pyobject(vm),)))
+            .map(|methods| methods?.call((key.to_pyobject(vm),), vm))
             .transpose()
     }
 

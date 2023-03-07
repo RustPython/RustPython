@@ -388,7 +388,7 @@ mod sys {
         };
 
         match vm.get_attribute_opt(module, attrname) {
-            Ok(Some(hook)) => vm.invoke(hook.as_ref(), args),
+            Ok(Some(hook)) => hook.as_ref().call(args, vm),
             _ => print_unimportable_module_warn(),
         }
     }
@@ -567,7 +567,7 @@ mod sys {
         // TODO: print received unraisable.exc_traceback
         let tb_module = vm.import("traceback", None, 0)?;
         let print_stack = tb_module.get_attr("print_stack", vm)?;
-        vm.invoke(&print_stack, ())?;
+        print_stack.call((), vm)?;
 
         if vm.is_none(unraisable.exc_type.as_object()) {
             // TODO: early return, but with what error?

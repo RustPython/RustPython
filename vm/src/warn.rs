@@ -44,7 +44,7 @@ fn check_matched(obj: &PyObjectRef, arg: &PyObjectRef, vm: &VirtualMachine) -> P
         return Ok(false);
     }
 
-    let result = vm.invoke(obj, (arg.to_owned(),));
+    let result = obj.call((arg.to_owned(),), vm);
     Ok(result.is_ok())
 }
 
@@ -57,7 +57,7 @@ pub fn py_warn(
     // TODO: use rust warnings module
     if let Ok(module) = vm.import("warnings", None, 0) {
         if let Ok(func) = module.get_attr("warn", vm) {
-            let _ = vm.invoke(&func, (message, category.to_owned(), stack_level));
+            let _ = func.call((message, category.to_owned(), stack_level), vm);
         }
     }
     Ok(())

@@ -5,9 +5,9 @@ mod machinery;
 mod _json {
     use super::machinery;
     use crate::vm::{
-        builtins::{PyBaseExceptionRef, PyStrRef, PyTypeRef},
+        builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef},
         convert::{ToPyObject, ToPyResult},
-        function::OptionalArg,
+        function::{IntoFuncArgs, OptionalArg},
         protocol::PyIterReturn,
         types::{Callable, Constructor},
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -91,25 +91,23 @@ mod _json {
                 '{' => {
                     // TODO: parse the object in rust
                     let parse_obj = self.ctx.get_attr("parse_object", vm)?;
-                    return PyIterReturn::from_pyresult(
-                        vm.invoke(
-                            &parse_obj,
-                            (
-                                (pystr, next_idx),
-                                self.strict,
-                                scan_once,
-                                self.object_hook.clone(),
-                                self.object_pairs_hook.clone(),
-                            ),
+                    let result = parse_obj.call(
+                        (
+                            (pystr, next_idx),
+                            self.strict,
+                            scan_once,
+                            self.object_hook.clone(),
+                            self.object_pairs_hook.clone(),
                         ),
                         vm,
                     );
+                    return PyIterReturn::from_pyresult(result, vm);
                 }
                 '[' => {
                     // TODO: parse the array in rust
                     let parse_array = self.ctx.get_attr("parse_array", vm)?;
                     return PyIterReturn::from_pyresult(
-                        vm.invoke(&parse_array, ((pystr, next_idx), scan_once)),
+                        parse_array.call(((pystr, next_idx), scan_once), vm),
                         vm,
                     );
                 }
@@ -138,11 +136,8 @@ mod _json {
                 ($s:literal) => {
                     if s.starts_with($s) {
                         return Ok(PyIterReturn::Return(
-                            vm.new_tuple((
-                                vm.invoke(&self.parse_constant, ($s.to_owned(),))?,
-                                idx + $s.len(),
-                            ))
-                            .into(),
+                            vm.new_tuple((self.parse_constant.call(($s,), vm)?, idx + $s.len()))
+                                .into(),
                         ));
                     }
                 };
@@ -181,12 +176,12 @@ mod _json {
             let ret = if has_decimal || has_exponent {
                 // float
                 if let Some(ref parse_float) = self.parse_float {
-                    vm.invoke(parse_float, (buf.to_owned(),))
+                    parse_float.call((buf,), vm)
                 } else {
                     Ok(vm.ctx.new_float(f64::from_str(buf).unwrap()).into())
                 }
             } else if let Some(ref parse_int) = self.parse_int {
-                vm.invoke(parse_int, (buf.to_owned(),))
+                parse_int.call((buf,), vm)
             } else {
                 Ok(vm.new_pyobj(BigInt::from_str(buf).unwrap()))
             };
@@ -243,7 +238,7 @@ mod _json {
     ) -> PyBaseExceptionRef {
         let get_error = || -> PyResult<_> {
             let cls = vm.try_class("json", "JSONDecodeError")?;
-            let exc = vm.invoke(&cls, (e.msg, s, e.pos))?;
+            let exc = PyType::call(&cls, (e.msg, s, e.pos).into_args(vm), vm)?;
             exc.try_into_value(vm)
         };
         match get_error() {

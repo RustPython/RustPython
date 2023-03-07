@@ -57,7 +57,7 @@ impl IterNext for PyFilter {
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter
                 // iteration
-                match PyIterReturn::from_pyresult(vm.invoke(predicate, (next_obj.clone(),)), vm)? {
+                match PyIterReturn::from_pyresult(predicate.call((next_obj.clone(),), vm), vm)? {
                     PyIterReturn::Return(obj) => obj,
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
                 }

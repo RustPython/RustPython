@@ -858,24 +858,23 @@ impl PyType {
             })
             .collect::<PyResult<Vec<_>>>()?;
         for (obj, name, set_name) in attributes {
-            vm.invoke(&set_name, (typ.clone(), name.to_owned()))
-                .map_err(|e| {
-                    let err = vm.new_runtime_error(format!(
-                        "Error calling __set_name__ on '{}' instance {} in '{}'",
-                        obj.class().name(),
-                        name,
-                        typ.name()
-                    ));
-                    err.set_cause(Some(e));
-                    err
-                })?;
+            set_name.call((typ.clone(), name), vm).map_err(|e| {
+                let err = vm.new_runtime_error(format!(
+                    "Error calling __set_name__ on '{}' instance {} in '{}'",
+                    obj.class().name(),
+                    name,
+                    typ.name()
+                ));
+                err.set_cause(Some(e));
+                err
+            })?;
         }
 
         if let Some(init_subclass) = typ.get_super_attr(identifier!(vm, __init_subclass__)) {
             let init_subclass = vm
                 .call_get_descriptor_specific(init_subclass.clone(), None, Some(typ.clone().into()))
                 .unwrap_or(Ok(init_subclass))?;
-            vm.invoke(&init_subclass, kwargs)?;
+            init_subclass.call(kwargs, vm)?;
         };
 
         Ok(typ.into())

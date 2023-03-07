@@ -64,7 +64,7 @@ impl IterNext for PyMap {
         }
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        PyIterReturn::from_pyresult(vm.invoke(&zelf.mapper, next_objs), vm)
+        PyIterReturn::from_pyresult(zelf.mapper.call(next_objs, vm), vm)
     }
 }
 

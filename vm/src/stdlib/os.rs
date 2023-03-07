@@ -150,7 +150,7 @@ impl FsPath {
                     obj.class().name()
                 )
             })?;
-        let result = vm.invoke(&method, ())?;
+        let result = method.call((), vm)?;
         match1(result)?.map_err(|result| {
             vm.new_type_error(format!(
                 "expected {}.__fspath__() to return str or bytes, not {}",

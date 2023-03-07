@@ -226,7 +226,7 @@ impl VirtualMachine {
         };
         let encoding_module = import::import_frozen(self, encoding_module_name)?;
         let getregentry = encoding_module.get_attr("getregentry", self)?;
-        let codec_info = self.invoke(&getregentry, ())?;
+        let codec_info = getregentry.call((), self)?;
         self.state
             .codec_registry
             .register_manual("utf-8", codec_info.try_into_value(self)?)?;
@@ -360,7 +360,7 @@ impl VirtualMachine {
             err_msg: self.new_pyobj(msg),
             object,
         };
-        if let Err(e) = self.invoke(&unraisablehook, (args,)) {
+        if let Err(e) = unraisablehook.call((args,), self) {
             println!("{}", e.as_object().repr(self).unwrap().as_str());
         }
     }
@@ -521,7 +521,8 @@ impl VirtualMachine {
                     Some(tup) => tup.to_pyobject(self),
                     None => self.new_tuple(()).into(),
                 };
-                self.invoke(&import_func, (module, globals, locals, from_list, level))
+                import_func
+                    .call((module, globals, locals, from_list, level), self)
                     .map_err(|exc| import::remove_importlib_frames(self, &exc))
             }
         }
@@ -664,12 +665,6 @@ impl VirtualMachine {
     pub(crate) fn get_str_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {
         let method_name = self.ctx.interned_str(method_name)?;
         self.get_method(obj, method_name)
-    }
-
-    pub fn is_callable(&self, obj: &PyObject) -> bool {
-        obj.class()
-            .mro_find_map(|cls| cls.slots.call.load())
-            .is_some()
     }
 
     #[inline]
@@ -820,7 +815,7 @@ impl VirtualMachine {
     pub fn run_module(&self, module: &str) -> PyResult<()> {
         let runpy = self.import("runpy", None, 0)?;
         let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
-        self.invoke(&run_module_as_main, (module,))?;
+        run_module_as_main.call((module,), self)?;
         Ok(())
     }
 }
