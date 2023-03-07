@@ -249,7 +249,9 @@ pub fn hash_not_implemented(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<Py
 }
 
 fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf.to_owned(), identifier!(vm, __call__), args)
+    vm.with_recursion("while calling a Python object", || {
+        vm.call_special_method(zelf.to_owned(), identifier!(vm, __call__), args)
+    })
 }
 
 fn getattro_wrapper(zelf: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
