@@ -60,7 +60,7 @@ pub trait PyClassDef {
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
     const BASICSIZE: usize;
-    const UNHASHABLE: bool;
+    const UNHASHABLE: bool = false;
 }
 
 impl<T> PyClassDef for PyRef<T>
@@ -72,7 +72,7 @@ where
     const TP_NAME: &'static str = T::TP_NAME;
     const DOC: Option<&'static str> = T::DOC;
     const BASICSIZE: usize = T::BASICSIZE;
-    const UNHASHABLE: bool = false;
+    const UNHASHABLE: bool = T::UNHASHABLE;
 }
 
 pub trait PyClassImpl: PyClassDef {
