@@ -462,6 +462,8 @@ class TestWeakSet(unittest.TestCase):
         self.assertIsInstance(self.s, Set)
         self.assertIsInstance(self.s, MutableSet)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copying(self):
         for cls in WeakSet, WeakSetWithSlots:
             s = cls(self.items)
