@@ -545,8 +545,6 @@ class TestContextDecorator(unittest.TestCase):
         self.assertEqual(test.b, 2)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typo_enter(self):
         class mycontext(ContextDecorator):
             def __unter__(self):
@@ -559,8 +557,6 @@ class TestContextDecorator(unittest.TestCase):
                 pass
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_typo_exit(self):
         class mycontext(ContextDecorator):
             def __enter__(self):
