@@ -244,7 +244,7 @@ fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
 }
 
 /// Marks a type as unhashable. Similar to PyObject_HashNotImplemented in CPython
-pub fn unhashable_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
+pub fn hash_not_implemented(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     Err(vm.new_type_error(format!("unhashable type: {}", zelf.class().name())))
 }
 
@@ -425,7 +425,7 @@ impl PyType {
                     .get(identifier!(ctx, __hash__))
                     .map_or(false, |a| a.is(&ctx.none));
                 let wrapper = if is_unhashable {
-                    unhashable_wrapper
+                    hash_not_implemented
                 } else {
                     hash_wrapper
                 };

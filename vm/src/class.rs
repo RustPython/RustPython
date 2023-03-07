@@ -4,7 +4,7 @@ use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
     identifier,
     object::{Py, PyObjectPayload, PyObjectRef, PyRef},
-    types::{unhashable_wrapper, PyTypeFlags, PyTypeSlots},
+    types::{hash_not_implemented, PyTypeFlags, PyTypeSlots},
     vm::Context,
 };
 use rustpython_common::{lock::PyRwLock, static_cell};
@@ -115,7 +115,7 @@ pub trait PyClassImpl: PyClassDef {
             class.set_attr(identifier!(ctx, __new__), bound);
         }
 
-        if class.slots.hash.load().map_or(0, |h| h as usize) == unhashable_wrapper as usize {
+        if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
             class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
         }
     }
@@ -148,7 +148,7 @@ pub trait PyClassImpl: PyClassDef {
         };
 
         if Self::UNHASHABLE {
-            slots.hash.store(Some(unhashable_wrapper));
+            slots.hash.store(Some(hash_not_implemented));
         }
 
         Self::extend_slots(&mut slots);

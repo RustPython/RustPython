@@ -19,7 +19,7 @@ use crate::{
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
-        unhashable_wrapper, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
+        hash_not_implemented, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
         Hashable, Initializer, IterNext, IterNextIterable, Iterable, PyComparisonOp,
         Unconstructible,
     },

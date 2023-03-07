@@ -30,7 +30,7 @@ use crate::{
     },
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        unhashable_wrapper, AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable,
+        hash_not_implemented, AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable,
         Constructor, Initializer, IterNext, IterNextIterable, Iterable, PyComparisonOp,
         Unconstructible,
     },

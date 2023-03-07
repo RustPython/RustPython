@@ -13,8 +13,8 @@ use crate::{
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        unhashable_wrapper, AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        hash_not_implemented, AsMapping, AsSequence, Comparable, Constructor, Initializer,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
