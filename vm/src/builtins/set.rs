@@ -17,7 +17,7 @@ use crate::{
     types::AsNumber,
     types::{
         AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        Iterable, PyComparisonOp, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -28,7 +28,7 @@ use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
-#[pyclass(module = false, name = "set")]
+#[pyclass(module = false, name = "set", unhashable = true)]
 #[derive(Default)]
 pub struct PySet {
     pub(super) inner: PySetInner,
@@ -70,7 +70,7 @@ impl PySet {
     }
 }
 
-#[pyclass(module = false, name = "frozenset")]
+#[pyclass(module = false, name = "frozenset", unhashable = true)]
 #[derive(Default)]
 pub struct PyFrozenSet {
     inner: PySetInner,
@@ -489,15 +489,7 @@ fn reduce_set(
 }
 
 #[pyclass(
-    with(
-        Constructor,
-        Initializer,
-        AsSequence,
-        Hashable,
-        Comparable,
-        Iterable,
-        AsNumber
-    ),
+    with(Constructor, Initializer, AsSequence, Comparable, Iterable, AsNumber),
     flags(BASETYPE)
 )]
 impl PySet {
@@ -804,8 +796,6 @@ impl Comparable for PySet {
         })
     }
 }
-
-impl Unhashable for PySet {}
 
 impl Iterable for PySet {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {

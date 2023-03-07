@@ -19,8 +19,8 @@ use crate::{
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
-        AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable, Initializer,
-        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer, IterNext,
+        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -32,7 +32,7 @@ use std::fmt;
 
 pub type DictContentType = dictdatatype::Dict;
 
-#[pyclass(module = false, name = "dict")]
+#[pyclass(module = false, name = "dict", unhashable = true)]
 #[derive(Default)]
 pub struct PyDict {
     entries: DictContentType,
@@ -206,7 +206,6 @@ impl PyDict {
         Constructor,
         Initializer,
         AsMapping,
-        Hashable,
         Comparable,
         Iterable,
         AsSequence,
@@ -511,8 +510,6 @@ impl Comparable for PyDict {
         })
     }
 }
-
-impl Unhashable for PyDict {}
 
 impl Iterable for PyDict {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {

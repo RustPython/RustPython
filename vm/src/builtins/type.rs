@@ -1019,11 +1019,10 @@ impl SetAttr for PyType {
         }
         let assign = value.is_assign();
 
-        let mut attributes = zelf.attributes.write();
         if let PySetterValue::Assign(value) = value {
-            attributes.insert(attr_name, value);
+            zelf.attributes.write().insert(attr_name, value);
         } else {
-            let prev_value = attributes.remove(attr_name);
+            let prev_value = zelf.attributes.write().remove(attr_name);
             if prev_value.is_none() {
                 return Err(vm.new_exception(
                     vm.ctx.exceptions.attribute_error.to_owned(),

@@ -16,8 +16,8 @@ mod _collections {
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
         types::{
-            AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
-            Iterable, PyComparisonOp, Unhashable,
+            AsSequence, Comparable, Constructor, Initializer, IterNext, IterNextIterable, Iterable,
+            PyComparisonOp,
         },
         utils::collection_repr,
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -27,7 +27,7 @@ mod _collections {
     use std::collections::VecDeque;
 
     #[pyattr]
-    #[pyclass(name = "deque")]
+    #[pyclass(name = "deque", unhashable = true)]
     #[derive(Debug, Default, PyPayload)]
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
@@ -57,7 +57,7 @@ mod _collections {
 
     #[pyclass(
         flags(BASETYPE),
-        with(Constructor, Initializer, AsSequence, Comparable, Hashable, Iterable)
+        with(Constructor, Initializer, AsSequence, Comparable, Iterable)
     )]
     impl PyDeque {
         #[pymethod]
@@ -573,8 +573,6 @@ mod _collections {
                 .map(PyComparisonValue::Implemented)
         }
     }
-
-    impl Unhashable for PyDeque {}
 
     impl Iterable for PyDeque {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {

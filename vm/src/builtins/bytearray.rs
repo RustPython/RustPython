@@ -30,9 +30,8 @@ use crate::{
     },
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
-        Initializer, IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
-        Unhashable,
+        AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -41,7 +40,7 @@ use bstr::ByteSlice;
 use once_cell::sync::Lazy;
 use std::mem::size_of;
 
-#[pyclass(module = false, name = "bytearray")]
+#[pyclass(module = false, name = "bytearray", unhashable = true)]
 #[derive(Debug, Default)]
 pub struct PyByteArray {
     inner: PyRwLock<PyBytesInner>,
@@ -100,7 +99,6 @@ pub(crate) fn init(context: &Context) {
     with(
         Constructor,
         Initializer,
-        Hashable,
         Comparable,
         AsBuffer,
         AsMapping,
@@ -872,8 +870,6 @@ impl AsNumber for PyByteArray {
         &AS_NUMBER
     }
 }
-
-impl Unhashable for PyByteArray {}
 
 impl Iterable for PyByteArray {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {

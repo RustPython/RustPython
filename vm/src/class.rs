@@ -4,7 +4,7 @@ use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
     identifier,
     object::{Py, PyObjectPayload, PyObjectRef, PyRef},
-    types::{PyTypeFlags, PyTypeSlots},
+    types::{hash_not_implemented, PyTypeFlags, PyTypeSlots},
     vm::Context,
 };
 use rustpython_common::{lock::PyRwLock, static_cell};
@@ -60,6 +60,7 @@ pub trait PyClassDef {
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
     const BASICSIZE: usize;
+    const UNHASHABLE: bool = false;
 }
 
 impl<T> PyClassDef for PyRef<T>
@@ -71,6 +72,7 @@ where
     const TP_NAME: &'static str = T::TP_NAME;
     const DOC: Option<&'static str> = T::DOC;
     const BASICSIZE: usize = T::BASICSIZE;
+    const UNHASHABLE: bool = T::UNHASHABLE;
 }
 
 pub trait PyClassImpl: PyClassDef {
@@ -112,6 +114,10 @@ pub trait PyClassImpl: PyClassDef {
                     .into();
             class.set_attr(identifier!(ctx, __new__), bound);
         }
+
+        if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
+            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
+        }
     }
 
     fn make_class(ctx: &Context) -> PyTypeRef
@@ -140,6 +146,11 @@ pub trait PyClassImpl: PyClassDef {
             doc: Self::DOC,
             ..Default::default()
         };
+
+        if Self::UNHASHABLE {
+            slots.hash.store(Some(hash_not_implemented));
+        }
+
         Self::extend_slots(&mut slots);
         slots
     }

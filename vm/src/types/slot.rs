@@ -243,6 +243,11 @@ fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     }
 }
 
+/// Marks a type as unhashable. Similar to PyObject_HashNotImplemented in CPython
+pub fn hash_not_implemented(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
+    Err(vm.new_type_error(format!("unhashable type: {}", zelf.class().name())))
+}
+
 fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(zelf.to_owned(), identifier!(vm, __call__), args)
 }
@@ -414,7 +419,17 @@ impl PyType {
                 update_pointer_slot!(as_mapping, mapping_methods);
             }
             _ if name == identifier!(ctx, __hash__) => {
-                toggle_slot!(hash, hash_wrapper);
+                let is_unhashable = self
+                    .attributes
+                    .read()
+                    .get(identifier!(ctx, __hash__))
+                    .map_or(false, |a| a.is(&ctx.none));
+                let wrapper = if is_unhashable {
+                    hash_not_implemented
+                } else {
+                    hash_wrapper
+                };
+                toggle_slot!(hash, wrapper);
             }
             _ if name == identifier!(ctx, __call__) => {
                 toggle_slot!(call, call_wrapper);
@@ -661,22 +676,6 @@ pub trait Hashable: PyPayload {
     }
 
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
-}
-
-pub trait Unhashable: PyPayload {}
-
-impl<T> Hashable for T
-where
-    T: Unhashable,
-{
-    fn slot_hash(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
-        Err(vm.new_type_error(format!("unhashable type: '{}'", zelf.class().name())))
-    }
-
-    #[cold]
-    fn hash(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
-        unreachable!("slot_hash is implemented for unhashable types");
-    }
 }
 
 #[pyclass]

@@ -5,13 +5,13 @@ use crate::{
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
-    types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
+    types::{Comparable, Constructor, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass(module = false, name = "slice")]
+#[pyclass(module = false, name = "slice", unhashable = true)]
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
@@ -25,7 +25,7 @@ impl PyPayload for PySlice {
     }
 }
 
-#[pyclass(with(Hashable, Comparable))]
+#[pyclass(with(Comparable))]
 impl PySlice {
     #[pygetset]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -257,8 +257,6 @@ impl Comparable for PySlice {
         Ok(PyComparisonValue::Implemented(ret))
     }
 }
-
-impl Unhashable for PySlice {}
 
 #[pyclass(module = false, name = "EllipsisType")]
 #[derive(Debug)]
