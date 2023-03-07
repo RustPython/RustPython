@@ -115,13 +115,7 @@ pub trait PyClassImpl: PyClassDef {
             class.set_attr(identifier!(ctx, __new__), bound);
         }
 
-        if class
-            .slots
-            .hash
-            .load()
-            .map(|h| h as usize == unhashable_wrapper as usize)
-            .unwrap_or(false)
-        {
+        if class.slots.hash.load().map_or(0, |h| h as usize) == unhashable_wrapper as usize {
             class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
         }
     }
