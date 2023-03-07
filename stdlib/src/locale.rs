@@ -38,7 +38,7 @@ mod _locale {
         }
 
         let mut ptr = group;
-        while ![0_i8, libc::c_char::MAX].contains(&*ptr) {
+        while ![0, libc::c_char::MAX].contains(&*ptr) {
             let val = vm.ctx.new_int(*ptr);
             group_vec.push(val.into());
             ptr = ptr.add(1);
