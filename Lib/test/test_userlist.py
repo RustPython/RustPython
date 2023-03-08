@@ -7,11 +7,6 @@ import unittest
 class UserListTest(list_tests.CommonTest):
     type2test = UserList
 
-    import sys
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, unexpectedly panics somewhere")
-    def test_repr_deep(self):  # XXX: RUSTPYTHON; remove this method when fixed
-        super().test_repr_deep()
-
     def test_getslice(self):
         super().test_getslice()
         l = [0, 1, 2, 3, 4]
