@@ -1114,8 +1114,6 @@ class BaseTest:
             b = array.array('B', range(64))
         self.assertEqual(rc, sys.getrefcount(10))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass_with_kwargs(self):
         # SF bug #1486663 -- this used to erroneously raise a TypeError
         ArraySubclassWithKwargs('b', newarg=1)

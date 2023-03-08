@@ -47,7 +47,9 @@ mod array {
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromObject},
-            function::{ArgBytesLike, ArgIntoFloat, ArgIterable, OptionalArg, PyComparisonValue},
+            function::{
+                ArgBytesLike, ArgIntoFloat, ArgIterable, KwArgs, OptionalArg, PyComparisonValue,
+            },
             protocol::{
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
                 PyMappingMethods, PySequenceMethods,
@@ -645,11 +647,11 @@ mod array {
     }
 
     impl Constructor for PyArray {
-        type Args = ArrayNewArgs;
+        type Args = (ArrayNewArgs, KwArgs);
 
         fn py_new(
             cls: PyTypeRef,
-            Self::Args { spec, init }: Self::Args,
+            (ArrayNewArgs { spec, init }, _kwargs): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
             let spec = spec.as_str().chars().exactly_one().map_err(|_| {
