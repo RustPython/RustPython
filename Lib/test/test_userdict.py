@@ -214,5 +214,6 @@ class UserDictTest(mapping_tests.TestHashMappingProtocol):
             self.fail("g[42] didn't raise KeyError")
 
 
+
 if __name__ == "__main__":
     unittest.main()
