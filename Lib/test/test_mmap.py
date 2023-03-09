@@ -721,7 +721,6 @@ class MmapTests(unittest.TestCase):
         self.assertRaises(ValueError, m.write_byte, 42)
         self.assertRaises(ValueError, m.write, b'abc')
 
-    @unittest.skip('TODO: RUSTPYTHON, Number Protocol is not properly implemented yet')
     def test_concat_repeat_exception(self):
         m = mmap.mmap(-1, 16)
         with self.assertRaises(TypeError):

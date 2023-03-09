@@ -2,7 +2,7 @@ use crate::{
     builtins::{type_::PointerSlot, PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     convert::ToPyObject,
     function::PyArithmeticValue,
-    protocol::PyMapping,
+    protocol::{PyMapping, PyNumberBinaryOpSlot},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -118,7 +118,7 @@ impl PySequence<'_> {
 
         // if both arguments apear to be sequences, try fallback to __add__
         if self.check() && other.to_sequence(vm).check() {
-            let ret = vm._add(self.obj, other)?;
+            let ret = vm.binary_op1(self.obj, other, &PyNumberBinaryOpSlot::Add)?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
             }
@@ -137,7 +137,11 @@ impl PySequence<'_> {
 
         // fallback to __mul__
         if self.check() {
-            let ret = vm._mul(self.obj, &n.to_pyobject(vm))?;
+            let ret = vm.binary_op1(
+                self.obj,
+                &n.to_pyobject(vm),
+                &PyNumberBinaryOpSlot::Multiply,
+            )?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
             }

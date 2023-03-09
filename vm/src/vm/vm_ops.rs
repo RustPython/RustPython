@@ -131,7 +131,12 @@ impl VirtualMachine {
     ///   b.rop(b,a)[*], a.op(a,b), b.rop(b,a)
     ///
     /// [*] only when Py_TYPE(a) != Py_TYPE(b) && Py_TYPE(b) is a subclass of Py_TYPE(a)
-    fn binary_op1(&self, a: &PyObject, b: &PyObject, op_slot: &PyNumberBinaryOpSlot) -> PyResult {
+    pub fn binary_op1(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        op_slot: &PyNumberBinaryOpSlot,
+    ) -> PyResult {
         let slot_a = a.class().slots.number.get_left_binary_op(op_slot)?;
         let mut slot_b = if b.class().is(a.class()) {
             None
