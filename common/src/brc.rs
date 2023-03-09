@@ -95,7 +95,7 @@ impl Brc {
 
             if let Ok(_) =
                 self.shared
-                    .compare_exchange_weak(old, new, Ordering::SeqCst, Ordering::SeqCst)
+                    .compare_exchange(old, new, Ordering::SeqCst, Ordering::SeqCst)
             {
                 break;
             }
