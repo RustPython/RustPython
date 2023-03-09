@@ -509,7 +509,23 @@ mod array {
         fn to_object(self, vm: &VirtualMachine) -> PyObjectRef;
     }
 
-    macro_rules! impl_array_element {
+    macro_rules! impl_int_element {
+        ($($t:ty,)*) => {$(
+            impl ArrayElement for $t {
+                fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                    obj.try_index(vm)?.try_to_primitive(vm)
+                }
+                fn byteswap(self) -> Self {
+                    <$t>::swap_bytes(self)
+                }
+                fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+                    self.to_pyobject(vm)
+                }
+            }
+        )*};
+    }
+
+    macro_rules! impl_float_element {
         ($(($t:ty, $f_from:path, $f_swap:path, $f_to:path),)*) => {$(
             impl ArrayElement for $t {
                 fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -525,15 +541,8 @@ mod array {
         )*};
     }
 
-    impl_array_element!(
-        (i8, i8::try_from_object, i8::swap_bytes, PyInt::from),
-        (u8, u8::try_from_object, u8::swap_bytes, PyInt::from),
-        (i16, i16::try_from_object, i16::swap_bytes, PyInt::from),
-        (u16, u16::try_from_object, u16::swap_bytes, PyInt::from),
-        (i32, i32::try_from_object, i32::swap_bytes, PyInt::from),
-        (u32, u32::try_from_object, u32::swap_bytes, PyInt::from),
-        (i64, i64::try_from_object, i64::swap_bytes, PyInt::from),
-        (u64, u64::try_from_object, u64::swap_bytes, PyInt::from),
+    impl_int_element!(i8, u8, i16, u16, i32, u32, i64, u64,);
+    impl_float_element!(
         (
             f32,
             f32_try_into_from_object,
