@@ -20,9 +20,9 @@ use crate::{
         },
     },
     convert::{ToPyObject, ToPyResult},
-    function::Either,
     function::{
-        ArgBytesLike, ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
+        ArgBytesLike, ArgIterable, ArgSize, Either, FuncArgs, OptionalArg, OptionalOption,
+        PyComparisonValue,
     },
     protocol::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -66,6 +66,10 @@ impl PyByteArray {
 
     pub fn borrow_buf_mut(&self) -> PyMappedRwLockWriteGuard<'_, Vec<u8>> {
         PyRwLockWriteGuard::map(self.inner.write(), |inner| &mut inner.elements)
+    }
+
+    fn repeat(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
+        self.inner().mul(value, vm).map(|x| x.into())
     }
 }
 
@@ -658,13 +662,13 @@ impl PyByteArray {
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<Self> {
-        self.inner().mul(value, vm).map(|x| x.into())
+    fn mul(&self, value: ArgSize, vm: &VirtualMachine) -> PyResult<Self> {
+        self.repeat(value.into(), vm)
     }
 
     #[pymethod(magic)]
-    fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::irepeat(&zelf, value, vm)?;
+    fn imul(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::irepeat(&zelf, value.into(), vm)?;
         Ok(zelf)
     }
 
@@ -820,7 +824,7 @@ impl AsSequence for PyByteArray {
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 PyByteArray::sequence_downcast(seq)
-                    .mul(n, vm)
+                    .repeat(n, vm)
                     .map(|x| x.into_pyobject(vm))
             }),
             item: atomic_func!(|seq, i, vm| {
@@ -849,7 +853,8 @@ impl AsSequence for PyByteArray {
             }),
             inplace_repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyByteArray::sequence_downcast(seq).to_owned();
-                PyByteArray::imul(zelf, n, vm).map(|x| x.into())
+                PyByteArray::irepeat(&zelf, n, vm)?;
+                Ok(zelf.into())
             }),
         };
         &AS_SEQUENCE

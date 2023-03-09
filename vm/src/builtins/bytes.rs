@@ -11,8 +11,9 @@ use crate::{
     class::PyClassImpl,
     common::{hash::PyHash, lock::PyMutex},
     convert::{ToPyObject, ToPyResult},
-    function::Either,
-    function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{
+        ArgBytesLike, ArgIndex, ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue,
+    },
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods,
         PySequenceMethods,
@@ -98,6 +99,19 @@ impl Constructor for PyBytes {
 impl PyBytes {
     pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(Self::from(data), ctx.types.bytes_type.to_owned(), None)
+    }
+
+    fn repeat(zelf: PyRef<Self>, count: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        if count == 1 && zelf.class().is(vm.ctx.types.bytes_type) {
+            // Special case: when some `bytes` is multiplied by `1`,
+            // nothing really happens, we need to return an object itself
+            // with the same `id()` to be compatible with CPython.
+            // This only works for `bytes` itself, not its subclasses.
+            return Ok(zelf);
+        }
+        zelf.inner
+            .mul(count, vm)
+            .map(|x| Self::from(x).into_ref(vm))
     }
 }
 
@@ -497,17 +511,8 @@ impl PyBytes {
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if value == 1 && zelf.class().is(vm.ctx.types.bytes_type) {
-            // Special case: when some `bytes` is multiplied by `1`,
-            // nothing really happens, we need to return an object itself
-            // with the same `id()` to be compatible with CPython.
-            // This only works for `bytes` itself, not its subclasses.
-            return Ok(zelf);
-        }
-        zelf.inner
-            .mul(value, vm)
-            .map(|x| Self::from(x).into_ref(vm))
+    fn mul(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::repeat(zelf, value.try_to_primitive(vm)?, vm)
     }
 
     #[pymethod(name = "__mod__")]
@@ -605,7 +610,7 @@ impl AsSequence for PyBytes {
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 if let Ok(zelf) = seq.obj.to_owned().downcast::<PyBytes>() {
-                    PyBytes::mul(zelf, n, vm).to_pyresult(vm)
+                    PyBytes::repeat(zelf, n, vm).to_pyresult(vm)
                 } else {
                     Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
                 }
