@@ -7,7 +7,7 @@ use crate::{
     identifier,
     protocol::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberBinaryFunc,
-        PyNumberBinaryOpSlot, PyNumberMethods, PyNumberUnaryFunc, PySequence, PySequenceMethods,
+        PyNumberBinaryOp, PyNumberMethods, PyNumberUnaryFunc, PySequence, PySequenceMethods,
     },
     vm::Context,
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -163,9 +163,9 @@ pub struct PyNumberSlots {
 impl PyNumberSlots {
     pub fn get_left_binary_op(
         &self,
-        op_slot: &PyNumberBinaryOpSlot,
+        op_slot: PyNumberBinaryOp,
     ) -> PyResult<Option<PyNumberBinaryFunc>> {
-        use PyNumberBinaryOpSlot::*;
+        use PyNumberBinaryOp::*;
         let binary_op = match op_slot {
             Add => self.add.load(),
             Subtract => self.subtract.load(),
@@ -200,9 +200,9 @@ impl PyNumberSlots {
 
     pub fn get_right_binary_op(
         &self,
-        op_slot: &PyNumberBinaryOpSlot,
+        op_slot: PyNumberBinaryOp,
     ) -> PyResult<Option<PyNumberBinaryFunc>> {
-        use PyNumberBinaryOpSlot::*;
+        use PyNumberBinaryOp::*;
         let binary_op = match op_slot {
             Add => self.right_add.load(),
             Subtract => self.right_subtract.load(),
@@ -1281,7 +1281,7 @@ macro_rules! extend_number_slot {
         if $methods.$method.is_some() {
             $slots.number.$method.store($methods.$method);
             $slots.number.$right_method.store(Some(|num, other, vm| {
-                num.get_binary_op(&PyNumberBinaryOpSlot::$op_slot)?.unwrap()(
+                num.get_binary_op(PyNumberBinaryOp::$op_slot)?.unwrap()(
                     other.to_number(),
                     num.obj,
                     vm,

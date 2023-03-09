@@ -21,7 +21,7 @@ mod builtins {
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike,
             Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
         },
-        protocol::{PyIter, PyIterReturn, PyNumberBinaryOpSlot},
+        protocol::{PyIter, PyIterReturn, PyNumberBinaryOp},
         py_io,
         readline::{Readline, ReadlineResult},
         stdlib::sys,
@@ -605,7 +605,7 @@ mod builtins {
             modulus,
         } = args;
         match modulus {
-            None => vm.binary_op(&x, &y, &PyNumberBinaryOpSlot::Power, "pow"),
+            None => vm.binary_op(&x, &y, PyNumberBinaryOp::Power, "pow"),
             Some(z) => {
                 let try_pow_value = |obj: &PyObject,
                                      args: (PyObjectRef, PyObjectRef, PyObjectRef)|

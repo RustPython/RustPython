@@ -196,9 +196,9 @@ impl PyNumberMethods {
 
     pub fn get_binary_op(
         &self,
-        op_slot: &PyNumberBinaryOpSlot,
+        op_slot: PyNumberBinaryOp,
     ) -> PyResult<&Option<PyNumberBinaryFunc>> {
-        use PyNumberBinaryOpSlot::*;
+        use PyNumberBinaryOp::*;
         let binary_op = match op_slot {
             Add => &self.add,
             Subtract => &self.subtract,
@@ -233,7 +233,7 @@ impl PyNumberMethods {
 }
 
 #[derive(Copy, Clone)]
-pub enum PyNumberBinaryOpSlot {
+pub enum PyNumberBinaryOp {
     Add,
     Subtract,
     Multiply,
@@ -291,7 +291,7 @@ impl PyNumber<'_> {
 
     pub fn get_binary_op(
         &self,
-        op_slot: &PyNumberBinaryOpSlot,
+        op_slot: PyNumberBinaryOp,
     ) -> PyResult<&Option<PyNumberBinaryFunc>> {
         self.methods().get_binary_op(op_slot)
     }

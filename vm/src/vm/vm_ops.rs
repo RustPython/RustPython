@@ -2,7 +2,7 @@ use super::{PyMethod, VirtualMachine};
 use crate::{
     builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::{PyIterReturn, PyNumberBinaryOpSlot, PySequence},
+    protocol::{PyIterReturn, PyNumberBinaryOp, PySequence},
     types::PyComparisonOp,
 };
 use num_traits::ToPrimitive;
@@ -10,7 +10,7 @@ use num_traits::ToPrimitive;
 macro_rules! binary_func {
     ($fn:ident, $op_slot:ident, $op:expr) => {
         pub fn $fn(&self, a: &PyObject, b: &PyObject) -> PyResult {
-            self.binary_op(a, b, &PyNumberBinaryOpSlot::$op_slot, $op)
+            self.binary_op(a, b, PyNumberBinaryOp::$op_slot, $op)
         }
     };
 }
@@ -21,8 +21,8 @@ macro_rules! inplace_binary_func {
             self.binary_iop(
                 a,
                 b,
-                &PyNumberBinaryOpSlot::$iop_slot,
-                &PyNumberBinaryOpSlot::$op_slot,
+                PyNumberBinaryOp::$iop_slot,
+                PyNumberBinaryOp::$op_slot,
                 $op,
             )
         }
@@ -131,12 +131,7 @@ impl VirtualMachine {
     ///   b.rop(b,a)[*], a.op(a,b), b.rop(b,a)
     ///
     /// [*] only when Py_TYPE(a) != Py_TYPE(b) && Py_TYPE(b) is a subclass of Py_TYPE(a)
-    pub fn binary_op1(
-        &self,
-        a: &PyObject,
-        b: &PyObject,
-        op_slot: &PyNumberBinaryOpSlot,
-    ) -> PyResult {
+    pub fn binary_op1(&self, a: &PyObject, b: &PyObject, op_slot: PyNumberBinaryOp) -> PyResult {
         let slot_a = a.class().slots.number.get_left_binary_op(op_slot)?;
         let mut slot_b = if b.class().is(a.class()) {
             None
@@ -181,7 +176,7 @@ impl VirtualMachine {
         &self,
         a: &PyObject,
         b: &PyObject,
-        op_slot: &PyNumberBinaryOpSlot,
+        op_slot: PyNumberBinaryOp,
         op: &str,
     ) -> PyResult {
         let result = self.binary_op1(a, b, op_slot)?;
@@ -208,8 +203,8 @@ impl VirtualMachine {
         &self,
         a: &PyObject,
         b: &PyObject,
-        iop_slot: &PyNumberBinaryOpSlot,
-        op_slot: &PyNumberBinaryOpSlot,
+        iop_slot: PyNumberBinaryOp,
+        op_slot: PyNumberBinaryOp,
     ) -> PyResult {
         if let Some(slot) = a.class().slots.number.get_left_binary_op(iop_slot)? {
             let x = slot(a.to_number(), b, self)?;
@@ -224,8 +219,8 @@ impl VirtualMachine {
         &self,
         a: &PyObject,
         b: &PyObject,
-        iop_slot: &PyNumberBinaryOpSlot,
-        op_slot: &PyNumberBinaryOpSlot,
+        iop_slot: PyNumberBinaryOp,
+        op_slot: PyNumberBinaryOp,
         op: &str,
     ) -> PyResult {
         let result = self.binary_iop1(a, b, iop_slot, op_slot)?;
@@ -261,7 +256,7 @@ impl VirtualMachine {
     inplace_binary_func!(_imatmul, InplaceMatrixMultiply, MatrixMultiply, "@=");
 
     pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        let result = self.binary_op1(a, b, &PyNumberBinaryOpSlot::Add)?;
+        let result = self.binary_op1(a, b, PyNumberBinaryOp::Add)?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
@@ -275,12 +270,7 @@ impl VirtualMachine {
     }
 
     pub fn _iadd(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        let result = self.binary_iop1(
-            a,
-            b,
-            &PyNumberBinaryOpSlot::InplaceAdd,
-            &PyNumberBinaryOpSlot::Add,
-        )?;
+        let result = self.binary_iop1(a, b, PyNumberBinaryOp::InplaceAdd, PyNumberBinaryOp::Add)?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
@@ -294,7 +284,7 @@ impl VirtualMachine {
     }
 
     pub fn _mul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        let result = self.binary_op1(a, b, &PyNumberBinaryOpSlot::Multiply)?;
+        let result = self.binary_op1(a, b, PyNumberBinaryOp::Multiply)?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
@@ -318,8 +308,8 @@ impl VirtualMachine {
         let result = self.binary_iop1(
             a,
             b,
-            &PyNumberBinaryOpSlot::InplaceMultiply,
-            &PyNumberBinaryOpSlot::Multiply,
+            PyNumberBinaryOp::InplaceMultiply,
+            PyNumberBinaryOp::Multiply,
         )?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
