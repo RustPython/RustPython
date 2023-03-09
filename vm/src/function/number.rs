@@ -154,3 +154,31 @@ impl TryFromObject for ArgIndex {
         })
     }
 }
+
+#[derive(Debug)]
+#[repr(transparent)]
+pub struct ArgSize {
+    value: isize,
+}
+
+impl From<ArgSize> for isize {
+    fn from(arg: ArgSize) -> Self {
+        arg.value
+    }
+}
+
+impl Deref for ArgSize {
+    type Target = isize;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl TryFromObject for ArgSize {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Ok(Self {
+            value: obj.try_index(vm)?.try_to_primitive(vm)?,
+        })
+    }
+}
