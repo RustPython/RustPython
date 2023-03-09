@@ -1301,14 +1301,16 @@ impl AsMapping for PyStr {
 
 impl AsNumber for PyStr {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            remainder: atomic_func!(|number, other, vm| {
-                PyStr::number_downcast(number)
-                    .modulo(other.to_owned(), vm)
-                    .to_pyresult(vm)
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            remainder: Some(|number, other, vm| {
+                if let Some(number) = number.obj.downcast_ref::<PyStr>() {
+                    number.modulo(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }

@@ -548,14 +548,27 @@ where
                     other
                 ),
             };
-            quote_spanned! { ident.span() =>
-                class.set_str_attr(
-                    #py_name,
-                    ctx.make_funcdef(#py_name, Self::#ident)
-                        #doc
-                        #build_func,
-                    ctx,
-                );
+            if py_name.starts_with("__") && py_name.ends_with("__") {
+                let name_ident = Ident::new(&py_name, ident.span());
+                quote_spanned! { ident.span() =>
+                    class.set_attr(
+                        ctx.names.#name_ident,
+                        ctx.make_funcdef(#py_name, Self::#ident)
+                            #doc
+                            #build_func
+                        .into(),
+                    );
+                }
+            } else {
+                quote_spanned! { ident.span() =>
+                    class.set_str_attr(
+                        #py_name,
+                        ctx.make_funcdef(#py_name, Self::#ident)
+                            #doc
+                            #build_func,
+                        ctx,
+                    );
+                }
             }
         };
 

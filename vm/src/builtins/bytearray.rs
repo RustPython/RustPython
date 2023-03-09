@@ -37,7 +37,6 @@ use crate::{
     VirtualMachine,
 };
 use bstr::ByteSlice;
-use once_cell::sync::Lazy;
 use std::mem::size_of;
 
 #[pyclass(module = false, name = "bytearray", unhashable = true)]
@@ -859,14 +858,16 @@ impl AsSequence for PyByteArray {
 
 impl AsNumber for PyByteArray {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            remainder: atomic_func!(|number, other, vm| {
-                PyByteArray::number_downcast(number)
-                    .mod_(other.to_owned(), vm)
-                    .to_pyresult(vm)
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            remainder: Some(|number, other, vm| {
+                if let Some(number) = number.obj.downcast_ref::<PyByteArray>() {
+                    number.mod_(other.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }

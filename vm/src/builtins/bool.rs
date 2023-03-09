@@ -1,6 +1,11 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::{
-    class::PyClassImpl, convert::ToPyObject, function::OptionalArg, identifier, types::Constructor,
+    class::PyClassImpl,
+    convert::{ToPyObject, ToPyResult},
+    function::OptionalArg,
+    identifier,
+    protocol::PyNumberMethods,
+    types::{AsNumber, Constructor},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
@@ -102,7 +107,7 @@ impl Constructor for PyBool {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, AsNumber))]
 impl PyBool {
     #[pymethod(magic)]
     fn repr(zelf: bool, vm: &VirtualMachine) -> PyStrRef {
@@ -163,6 +168,24 @@ impl PyBool {
         } else {
             get_py_int(&lhs).xor(rhs, vm).to_pyobject(vm)
         }
+    }
+}
+
+impl AsNumber for PyBool {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            and: Some(|number, other, vm| {
+                PyBool::and(number.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
+            }),
+            xor: Some(|number, other, vm| {
+                PyBool::xor(number.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
+            }),
+            or: Some(|number, other, vm| {
+                PyBool::or(number.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
+            }),
+            ..PyInt::AS_NUMBER
+        };
+        &AS_NUMBER
     }
 }
 

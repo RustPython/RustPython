@@ -1,6 +1,5 @@
 use super::{float, PyByteArray, PyBytes, PyStr, PyType, PyTypeRef};
 use crate::{
-    atomic_func,
     builtins::PyStrRef,
     bytesinner::PyBytesInner,
     class::PyClassImpl,
@@ -20,7 +19,6 @@ use num_bigint::{BigInt, BigUint, Sign};
 use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-use once_cell::sync::Lazy;
 use std::ops::{Div, Neg};
 use std::{fmt, ops::Not};
 
@@ -729,54 +727,7 @@ impl Hashable for PyInt {
 
 impl AsNumber for PyInt {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            add: atomic_func!(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a + b, vm)),
-            subtract: atomic_func!(|num, other, vm| PyInt::number_op(
-                num,
-                other,
-                |a, b, _vm| a - b,
-                vm
-            )),
-            multiply: atomic_func!(|num, other, vm| PyInt::number_op(
-                num,
-                other,
-                |a, b, _vm| a * b,
-                vm
-            )),
-            remainder: atomic_func!(|num, other, vm| PyInt::number_op(num, other, inner_mod, vm)),
-            divmod: atomic_func!(|num, other, vm| PyInt::number_op(num, other, inner_divmod, vm)),
-            power: atomic_func!(|num, other, vm| PyInt::number_op(num, other, inner_pow, vm)),
-            negative: atomic_func!(|num, vm| (&PyInt::number_downcast(num).value)
-                .neg()
-                .to_pyresult(vm)),
-            positive: atomic_func!(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
-            absolute: atomic_func!(|num, vm| PyInt::number_downcast(num)
-                .value
-                .abs()
-                .to_pyresult(vm)),
-            boolean: atomic_func!(|num, _vm| Ok(PyInt::number_downcast(num).value.is_zero())),
-            invert: atomic_func!(|num, vm| (&PyInt::number_downcast(num).value)
-                .not()
-                .to_pyresult(vm)),
-            lshift: atomic_func!(|num, other, vm| PyInt::number_op(num, other, inner_lshift, vm)),
-            rshift: atomic_func!(|num, other, vm| PyInt::number_op(num, other, inner_rshift, vm)),
-            and: atomic_func!(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a & b, vm)),
-            xor: atomic_func!(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a ^ b, vm)),
-            or: atomic_func!(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a | b, vm)),
-            int: atomic_func!(|num, vm| Ok(PyInt::number_downcast_exact(num, vm))),
-            float: atomic_func!(|num, vm| {
-                let zelf = PyInt::number_downcast(num);
-                try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
-            }),
-            floor_divide: atomic_func!(|num, other, vm| {
-                PyInt::number_op(num, other, inner_floordiv, vm)
-            }),
-            true_divide: atomic_func!(|num, other, vm| {
-                PyInt::number_op(num, other, inner_truediv, vm)
-            }),
-            index: atomic_func!(|num, vm| Ok(PyInt::number_downcast_exact(num, vm))),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        static AS_NUMBER: PyNumberMethods = PyInt::AS_NUMBER;
         &AS_NUMBER
     }
 
@@ -787,6 +738,34 @@ impl AsNumber for PyInt {
 }
 
 impl PyInt {
+    pub(super) const AS_NUMBER: PyNumberMethods = PyNumberMethods {
+        add: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a + b, vm)),
+        subtract: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a - b, vm)),
+        multiply: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a * b, vm)),
+        remainder: Some(|num, other, vm| PyInt::number_op(num, other, inner_mod, vm)),
+        divmod: Some(|num, other, vm| PyInt::number_op(num, other, inner_divmod, vm)),
+        power: Some(|num, other, vm| PyInt::number_op(num, other, inner_pow, vm)),
+        negative: Some(|num, vm| (&PyInt::number_downcast(num).value).neg().to_pyresult(vm)),
+        positive: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
+        absolute: Some(|num, vm| PyInt::number_downcast(num).value.abs().to_pyresult(vm)),
+        boolean: Some(|num, _vm| Ok(PyInt::number_downcast(num).value.is_zero())),
+        invert: Some(|num, vm| (&PyInt::number_downcast(num).value).not().to_pyresult(vm)),
+        lshift: Some(|num, other, vm| PyInt::number_op(num, other, inner_lshift, vm)),
+        rshift: Some(|num, other, vm| PyInt::number_op(num, other, inner_rshift, vm)),
+        and: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a & b, vm)),
+        xor: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a ^ b, vm)),
+        or: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a | b, vm)),
+        int: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm))),
+        float: Some(|num, vm| {
+            let zelf = PyInt::number_downcast(num);
+            try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
+        }),
+        floor_divide: Some(|num, other, vm| PyInt::number_op(num, other, inner_floordiv, vm)),
+        true_divide: Some(|num, other, vm| PyInt::number_op(num, other, inner_truediv, vm)),
+        index: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm))),
+        ..PyNumberMethods::NOT_IMPLEMENTED
+    };
+
     fn number_op<F, R>(number: PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(&BigInt, &BigInt, &VirtualMachine) -> R,

@@ -1,11 +1,33 @@
 use super::{PyMethod, VirtualMachine};
 use crate::{
-    builtins::{PyInt, PyIntRef, PyStr, PyStrInterned, PyStrRef},
-    function::PyArithmeticValue,
+    builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::PyIterReturn,
+    protocol::{PyIterReturn, PyNumberBinaryOp, PySequence},
     types::PyComparisonOp,
 };
+use num_traits::ToPrimitive;
+
+macro_rules! binary_func {
+    ($fn:ident, $op_slot:ident, $op:expr) => {
+        pub fn $fn(&self, a: &PyObject, b: &PyObject) -> PyResult {
+            self.binary_op(a, b, PyNumberBinaryOp::$op_slot, $op)
+        }
+    };
+}
+
+macro_rules! inplace_binary_func {
+    ($fn:ident, $iop_slot:ident, $op_slot:ident, $op:expr) => {
+        pub fn $fn(&self, a: &PyObject, b: &PyObject) -> PyResult {
+            self.binary_iop(
+                a,
+                b,
+                PyNumberBinaryOp::$iop_slot,
+                PyNumberBinaryOp::$op_slot,
+                $op,
+            )
+        }
+    };
+}
 
 /// Collection of operators
 impl VirtualMachine {
@@ -103,371 +125,212 @@ impl VirtualMachine {
         }
     }
 
-    /// Calls a method on `obj` passing `arg`, if the method exists.
+    /// Calling scheme used for binary operations:
     ///
-    /// Otherwise, or if the result is the special `NotImplemented` built-in constant,
-    /// calls `unsupported` to determine fallback value.
-    pub fn call_or_unsupported<F>(
-        &self,
-        obj: &PyObject,
-        arg: &PyObject,
-        method: &'static PyStrInterned,
-        unsupported: F,
-    ) -> PyResult
-    where
-        F: Fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
-    {
-        if let Some(method_or_err) = self.get_method(obj.to_owned(), method) {
-            let method = method_or_err?;
-            let result = method.call((arg.to_owned(),), self)?;
-            if let PyArithmeticValue::Implemented(x) = PyArithmeticValue::from_object(self, result)
-            {
+    /// Order operations are tried until either a valid result or error:
+    ///   b.rop(b,a)[*], a.op(a,b), b.rop(b,a)
+    ///
+    /// [*] only when Py_TYPE(a) != Py_TYPE(b) && Py_TYPE(b) is a subclass of Py_TYPE(a)
+    pub fn binary_op1(&self, a: &PyObject, b: &PyObject, op_slot: PyNumberBinaryOp) -> PyResult {
+        let slot_a = a.class().slots.number.left_binary_op(op_slot)?;
+        let mut slot_b = if b.class().is(a.class()) {
+            None
+        } else {
+            match b.class().slots.number.right_binary_op(op_slot)? {
+                Some(slot_b)
+                    if slot_b as usize == slot_a.map(|s| s as usize).unwrap_or_default() =>
+                {
+                    None
+                }
+                slot_b => slot_b,
+            }
+        };
+
+        if let Some(slot_a) = slot_a {
+            if let Some(slot_bb) = slot_b {
+                if b.fast_isinstance(a.class()) {
+                    let x = slot_bb(b.to_number(), a, self)?;
+                    if !x.is(&self.ctx.not_implemented) {
+                        return Ok(x);
+                    }
+                    slot_b = None;
+                }
+            }
+            let x = slot_a(a.to_number(), b, self)?;
+            if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
             }
         }
-        unsupported(self, obj, arg)
-    }
 
-    /// Calls a method, falling back to its reflection with the operands
-    /// reversed, and then to the value provided by `unsupported`.
-    ///
-    /// For example: the following:
-    ///
-    /// `call_or_reflection(lhs, rhs, "__and__", "__rand__", unsupported)`
-    ///
-    /// 1. Calls `__and__` with `lhs` and `rhs`.
-    /// 2. If above is not implemented, calls `__rand__` with `rhs` and `lhs`.
-    /// 3. If above is not implemented, invokes `unsupported` for the result.
-    pub fn call_or_reflection(
-        &self,
-        lhs: &PyObject,
-        rhs: &PyObject,
-        default: &'static PyStrInterned,
-        reflection: &'static PyStrInterned,
-        unsupported: fn(&VirtualMachine, &PyObject, &PyObject) -> PyResult,
-    ) -> PyResult {
-        if rhs.fast_isinstance(lhs.class()) {
-            let lop = lhs.get_class_attr(reflection);
-            let rop = rhs.get_class_attr(reflection);
-            if let Some((lop, rop)) = lop.zip(rop) {
-                if !lop.is(&rop) {
-                    if let Ok(r) = self.call_or_unsupported(rhs, lhs, reflection, |vm, _, _| {
-                        Err(vm.new_exception_empty(vm.ctx.exceptions.exception_type.to_owned()))
-                    }) {
-                        return Ok(r);
-                    }
-                }
+        if let Some(slot_b) = slot_b {
+            let x = slot_b(b.to_number(), a, self)?;
+            if !x.is(&self.ctx.not_implemented) {
+                return Ok(x);
             }
         }
-        // Try to call the default method
-        self.call_or_unsupported(lhs, rhs, default, move |vm, lhs, rhs| {
-            // Try to call the reflection method
-            // don't call reflection method if operands are of the same type
-            if !lhs.class().is(rhs.class()) {
-                vm.call_or_unsupported(rhs, lhs, reflection, |_, rhs, lhs| {
-                    // switch them around again
-                    unsupported(vm, lhs, rhs)
-                })
-            } else {
-                unsupported(vm, lhs, rhs)
+
+        Ok(self.ctx.not_implemented())
+    }
+
+    pub fn binary_op(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        op_slot: PyNumberBinaryOp,
+        op: &str,
+    ) -> PyResult {
+        let result = self.binary_op1(a, b, op_slot)?;
+        if !result.is(&self.ctx.not_implemented) {
+            return Ok(result);
+        }
+        Err(self.new_unsupported_binop_error(a, b, op))
+    }
+
+    /// Binary in-place operators
+    ///
+    /// The in-place operators are defined to fall back to the 'normal',
+    /// non in-place operations, if the in-place methods are not in place.
+    ///
+    /// - If the left hand object has the appropriate struct members, and
+    ///   they are filled, call the appropriate function and return the
+    ///   result.  No coercion is done on the arguments; the left-hand object
+    ///   is the one the operation is performed on, and it's up to the
+    ///   function to deal with the right-hand object.
+    ///
+    /// - Otherwise, in-place modification is not supported. Handle it exactly as
+    ///   a non in-place operation of the same kind.
+    fn binary_iop1(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        iop_slot: PyNumberBinaryOp,
+        op_slot: PyNumberBinaryOp,
+    ) -> PyResult {
+        if let Some(slot) = a.class().slots.number.left_binary_op(iop_slot)? {
+            let x = slot(a.to_number(), b, self)?;
+            if !x.is(&self.ctx.not_implemented) {
+                return Ok(x);
             }
-        })
+        }
+        self.binary_op1(a, b, op_slot)
     }
 
-    pub fn _sub(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __sub__),
-            identifier!(self, __rsub__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "-")),
-        )
+    fn binary_iop(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        iop_slot: PyNumberBinaryOp,
+        op_slot: PyNumberBinaryOp,
+        op: &str,
+    ) -> PyResult {
+        let result = self.binary_iop1(a, b, iop_slot, op_slot)?;
+        if !result.is(&self.ctx.not_implemented) {
+            return Ok(result);
+        }
+        Err(self.new_unsupported_binop_error(a, b, op))
     }
 
-    pub fn _isub(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __isub__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __sub__),
-                identifier!(self, __rsub__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "-=")),
-            )
-        })
-    }
+    binary_func!(_sub, Subtract, "-");
+    binary_func!(_mod, Remainder, "%");
+    binary_func!(_divmod, Divmod, "divmod");
+    binary_func!(_pow, Power, "**");
+    binary_func!(_lshift, Lshift, "<<");
+    binary_func!(_rshift, Rshift, ">>");
+    binary_func!(_and, And, "&");
+    binary_func!(_xor, Xor, "^");
+    binary_func!(_or, Or, "|");
+    binary_func!(_floordiv, FloorDivide, "//");
+    binary_func!(_truediv, TrueDivide, "/");
+    binary_func!(_matmul, MatrixMultiply, "@");
+
+    inplace_binary_func!(_isub, InplaceSubtract, Subtract, "-=");
+    inplace_binary_func!(_imod, InplaceRemainder, Remainder, "%=");
+    inplace_binary_func!(_ipow, InplacePower, Power, "**=");
+    inplace_binary_func!(_ilshift, InplaceLshift, Lshift, "<<=");
+    inplace_binary_func!(_irshift, InplaceRshift, Rshift, ">>=");
+    inplace_binary_func!(_iand, InplaceAnd, And, "&=");
+    inplace_binary_func!(_ixor, InplaceXor, Xor, "^=");
+    inplace_binary_func!(_ior, InplaceOr, Or, "|=");
+    inplace_binary_func!(_ifloordiv, InplaceFloorDivide, FloorDivide, "//=");
+    inplace_binary_func!(_itruediv, InplaceTrueDivide, TrueDivide, "/=");
+    inplace_binary_func!(_imatmul, InplaceMatrixMultiply, MatrixMultiply, "@=");
 
     pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __add__),
-            identifier!(self, __radd__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "+")),
-        )
+        let result = self.binary_op1(a, b, PyNumberBinaryOp::Add)?;
+        if !result.is(&self.ctx.not_implemented) {
+            return Ok(result);
+        }
+        if let Ok(seq_a) = PySequence::try_protocol(a, self) {
+            let result = seq_a.concat(b, self)?;
+            if !result.is(&self.ctx.not_implemented) {
+                return Ok(result);
+            }
+        }
+        Err(self.new_unsupported_binop_error(a, b, "+"))
     }
 
     pub fn _iadd(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __iadd__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __add__),
-                identifier!(self, __radd__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "+=")),
-            )
-        })
+        let result = self.binary_iop1(a, b, PyNumberBinaryOp::InplaceAdd, PyNumberBinaryOp::Add)?;
+        if !result.is(&self.ctx.not_implemented) {
+            return Ok(result);
+        }
+        if let Ok(seq_a) = PySequence::try_protocol(a, self) {
+            let result = seq_a.inplace_concat(b, self)?;
+            if !result.is(&self.ctx.not_implemented) {
+                return Ok(result);
+            }
+        }
+        Err(self.new_unsupported_binop_error(a, b, "+="))
     }
 
     pub fn _mul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __mul__),
-            identifier!(self, __rmul__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "*")),
-        )
+        let result = self.binary_op1(a, b, PyNumberBinaryOp::Multiply)?;
+        if !result.is(&self.ctx.not_implemented) {
+            return Ok(result);
+        }
+        if let Ok(seq_a) = PySequence::try_protocol(a, self) {
+            let n =
+                b.try_index(self)?.as_bigint().to_isize().ok_or_else(|| {
+                    self.new_overflow_error("repeated bytes are too long".to_owned())
+                })?;
+            return seq_a.repeat(n, self);
+        } else if let Ok(seq_b) = PySequence::try_protocol(b, self) {
+            let n =
+                a.try_index(self)?.as_bigint().to_isize().ok_or_else(|| {
+                    self.new_overflow_error("repeated bytes are too long".to_owned())
+                })?;
+            return seq_b.repeat(n, self);
+        }
+        Err(self.new_unsupported_binop_error(a, b, "*"))
     }
 
     pub fn _imul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __imul__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __mul__),
-                identifier!(self, __rmul__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "*=")),
-            )
-        })
-    }
-
-    pub fn _matmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
+        let result = self.binary_iop1(
             a,
             b,
-            identifier!(self, __matmul__),
-            identifier!(self, __rmatmul__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "@")),
-        )
-    }
-
-    pub fn _imatmul(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __imatmul__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __matmul__),
-                identifier!(self, __rmatmul__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "@=")),
-            )
-        })
-    }
-
-    pub fn _truediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __truediv__),
-            identifier!(self, __rtruediv__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "/")),
-        )
-    }
-
-    pub fn _itruediv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __itruediv__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __truediv__),
-                identifier!(self, __rtruediv__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "/=")),
-            )
-        })
-    }
-
-    pub fn _floordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __floordiv__),
-            identifier!(self, __rfloordiv__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "//")),
-        )
-    }
-
-    pub fn _ifloordiv(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __ifloordiv__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __floordiv__),
-                identifier!(self, __rfloordiv__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "//=")),
-            )
-        })
-    }
-
-    pub fn _pow(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __pow__),
-            identifier!(self, __rpow__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "**")),
-        )
-    }
-
-    pub fn _ipow(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __ipow__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __pow__),
-                identifier!(self, __rpow__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "**=")),
-            )
-        })
-    }
-
-    pub fn _mod(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __mod__),
-            identifier!(self, __rmod__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "%")),
-        )
-    }
-
-    pub fn _imod(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __imod__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __mod__),
-                identifier!(self, __rmod__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "%=")),
-            )
-        })
-    }
-
-    pub fn _divmod(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __divmod__),
-            identifier!(self, __rdivmod__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "divmod")),
-        )
-    }
-
-    pub fn _lshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __lshift__),
-            identifier!(self, __rlshift__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "<<")),
-        )
-    }
-
-    pub fn _ilshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __ilshift__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __lshift__),
-                identifier!(self, __rlshift__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "<<=")),
-            )
-        })
-    }
-
-    pub fn _rshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __rshift__),
-            identifier!(self, __rrshift__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, ">>")),
-        )
-    }
-
-    pub fn _irshift(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __irshift__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __rshift__),
-                identifier!(self, __rrshift__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, ">>=")),
-            )
-        })
-    }
-
-    pub fn _xor(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __xor__),
-            identifier!(self, __rxor__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "^")),
-        )
-    }
-
-    pub fn _ixor(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __ixor__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __xor__),
-                identifier!(self, __rxor__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "^=")),
-            )
-        })
-    }
-
-    pub fn _or(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __or__),
-            identifier!(self, __ror__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "|")),
-        )
-    }
-
-    pub fn _ior(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __ior__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __or__),
-                identifier!(self, __ror__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "|=")),
-            )
-        })
-    }
-
-    pub fn _and(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_reflection(
-            a,
-            b,
-            identifier!(self, __and__),
-            identifier!(self, __rand__),
-            |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "&")),
-        )
-    }
-
-    pub fn _iand(&self, a: &PyObject, b: &PyObject) -> PyResult {
-        self.call_or_unsupported(a, b, identifier!(self, __iand__), |vm, a, b| {
-            vm.call_or_reflection(
-                a,
-                b,
-                identifier!(self, __and__),
-                identifier!(self, __rand__),
-                |vm, a, b| Err(vm.new_unsupported_binop_error(a, b, "&=")),
-            )
-        })
+            PyNumberBinaryOp::InplaceMultiply,
+            PyNumberBinaryOp::Multiply,
+        )?;
+        if !result.is(&self.ctx.not_implemented) {
+            return Ok(result);
+        }
+        if let Ok(seq_a) = PySequence::try_protocol(a, self) {
+            let n =
+                b.try_index(self)?.as_bigint().to_isize().ok_or_else(|| {
+                    self.new_overflow_error("repeated bytes are too long".to_owned())
+                })?;
+            return seq_a.inplace_repeat(n, self);
+        } else if let Ok(seq_b) = PySequence::try_protocol(b, self) {
+            let n =
+                a.try_index(self)?.as_bigint().to_isize().ok_or_else(|| {
+                    self.new_overflow_error("repeated bytes are too long".to_owned())
+                })?;
+            /* Note that the right hand operand should not be
+             * mutated in this case so inplace_repeat is not
+             * used. */
+            return seq_b.repeat(n, self);
+        }
+        Err(self.new_unsupported_binop_error(a, b, "*="))
     }
 
     pub fn _abs(&self, a: &PyObject) -> PyResult<PyObjectRef> {

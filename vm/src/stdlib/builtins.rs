@@ -21,7 +21,7 @@ mod builtins {
             ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike,
             Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
         },
-        protocol::{PyIter, PyIterReturn},
+        protocol::{PyIter, PyIterReturn, PyNumberBinaryOp},
         py_io,
         readline::{Readline, ReadlineResult},
         stdlib::sys,
@@ -605,13 +605,7 @@ mod builtins {
             modulus,
         } = args;
         match modulus {
-            None => vm.call_or_reflection(
-                &x,
-                &y,
-                identifier!(vm, __pow__),
-                identifier!(vm, __rpow__),
-                |vm, x, y| Err(vm.new_unsupported_binop_error(x, y, "pow")),
-            ),
+            None => vm.binary_op(&x, &y, PyNumberBinaryOp::Power, "pow"),
             Some(z) => {
                 let try_pow_value = |obj: &PyObject,
                                      args: (PyObjectRef, PyObjectRef, PyObjectRef)|
@@ -954,6 +948,11 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     crate::protocol::VecBuffer::make_class(&vm.ctx);
 
     builtins::extend_module(vm, &module);
+    use crate::AsObject;
+    ctx.types
+        .generic_alias_type
+        .as_object()
+        .init_builtin_number_slots(&vm.ctx);
 
     let debug_mode: bool = vm.state.settings.optimize == 0;
     extend_module!(vm, module, {
