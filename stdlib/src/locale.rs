@@ -50,7 +50,10 @@ mod _locale {
         ptr,
     };
 
-    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+    #[cfg(all(
+        unix,
+        not(any(target_os = "ios", target_os = "android", target_os = "redox"))
+    ))]
     #[pyattr]
     use libc::{
         ABDAY_1, ABDAY_2, ABDAY_3, ABDAY_4, ABDAY_5, ABDAY_6, ABDAY_7, ABMON_1, ABMON_10, ABMON_11,

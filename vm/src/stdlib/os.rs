@@ -1685,7 +1685,7 @@ pub(super) mod _os {
         }
 
         cfg_if::cfg_if! {
-            if #[cfg(target_os = "android")] {
+            if #[cfg(any(target_os = "android", target_os = "redox"))] {
                 Ok(Some("UTF-8".to_owned()))
             } else if #[cfg(windows)] {
                 let cp = match fd {

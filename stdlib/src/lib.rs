@@ -30,7 +30,7 @@ mod statistics;
 mod bz2;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 mod syslog;
 mod unicodedata;
 mod zlib;
@@ -62,7 +62,8 @@ mod termios;
     target_os = "android",
     target_os = "ios",
     target_os = "windows",
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    target_os = "redox",
 )))]
 mod uuid;
 
@@ -138,11 +139,11 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
-            "syslog" => syslog::make_module,
             "mmap" => mmap::make_module,
         }
         #[cfg(all(unix, not(target_os = "redox")))]
         {
+            "syslog" => syslog::make_module,
             "resource" => resource::make_module,
         }
         #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
@@ -157,7 +158,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_scproxy" => scproxy::make_module,
         }
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32")))]
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32", target_os = "redox")))]
         {
             "_uuid" => uuid::make_module,
         }

@@ -27,7 +27,7 @@ mod mmap {
     use std::fs::File;
     use std::io::Write;
     use std::ops::{Deref, DerefMut};
-    #[cfg(all(unix, not(target_os = "redox")))]
+    #[cfg(unix)]
     use std::os::unix::io::{FromRawFd, IntoRawFd, RawFd};
 
     fn advice_try_from_i32(vm: &VirtualMachine, i: i32) -> PyResult<Advice> {
@@ -224,6 +224,7 @@ mod mmap {
         end: Option<isize>,
     }
 
+    #[cfg(not(target_os = "redox"))]
     #[derive(FromArgs)]
     pub struct AdviseOptions {
         #[pyarg(positional)]
@@ -234,6 +235,7 @@ mod mmap {
         length: Option<PyIntRef>,
     }
 
+    #[cfg(not(target_os = "redox"))]
     impl AdviseOptions {
         fn values(self, len: usize, vm: &VirtualMachine) -> PyResult<(libc::c_int, usize, usize)> {
             let start = self
@@ -273,7 +275,7 @@ mod mmap {
         type Args = MmapNewArgs;
 
         // TODO: Windows is not supported right now.
-        #[cfg(all(unix, not(target_os = "redox")))]
+        #[cfg(unix)]
         fn py_new(
             cls: PyTypeRef,
             MmapNewArgs {
@@ -671,6 +673,7 @@ mod mmap {
             Ok(())
         }
 
+        #[cfg(not(target_os = "redox"))]
         #[allow(unused_assignments)]
         #[pymethod]
         fn madvise(&self, options: AdviseOptions, vm: &VirtualMachine) -> PyResult<()> {

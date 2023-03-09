@@ -552,7 +552,7 @@ mod unix {
         target_os = "linux",
     )))]
     #[pyfunction]
-    fn get_clock_info(_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyNamespace> {
+    fn get_clock_info(_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
         Err(vm.new_not_implemented_error("get_clock_info unsupported on this system".to_owned()))
     }
 
