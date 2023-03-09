@@ -328,6 +328,10 @@ impl<T> KwArgs<T> {
     pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
         self.0.remove(name)
     }
+
+    pub fn is_empty(self) -> bool {
+        self.0.is_empty()
+    }
 }
 impl<T> FromIterator<(String, T)> for KwArgs<T> {
     fn from_iter<I: IntoIterator<Item = (String, T)>>(iter: I) -> Self {
