@@ -1,4 +1,4 @@
-use super::{Py, PyObject, PyObjectRef, PyRef, PyResult};
+use super::{Py, PyObjectRef, PyRef, PyResult};
 use crate::{
     builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
     types::PyTypeFlags,
@@ -21,11 +21,6 @@ pub trait PyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {
     #[inline]
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         self.into_ref(vm).into()
-    }
-
-    #[inline(always)]
-    fn special_retrieve(_vm: &VirtualMachine, _obj: &PyObject) -> Option<PyResult<PyRef<Self>>> {
-        None
     }
 
     #[inline]

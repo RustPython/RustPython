@@ -53,10 +53,6 @@ impl PyPayload for PyInt {
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_int(self.value).into()
     }
-
-    fn special_retrieve(vm: &VirtualMachine, obj: &PyObject) -> Option<PyResult<PyRef<Self>>> {
-        Some(obj.try_index(vm))
-    }
 }
 
 macro_rules! impl_into_pyobject_int {
