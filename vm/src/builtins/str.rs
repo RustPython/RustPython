@@ -13,7 +13,7 @@ use crate::{
     },
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
-    function::{ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{ArgSize, ArgIterable, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     sequence::SequenceExt,
@@ -350,6 +350,25 @@ impl PyStr {
     fn borrow(&self) -> &BorrowedStr {
         unsafe { std::mem::transmute(self) }
     }
+
+    fn repeat(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        if value == 0 && zelf.class().is(vm.ctx.types.str_type) {
+            // Special case: when some `str` is multiplied by `0`,
+            // returns the empty `str`.
+            return Ok(vm.ctx.empty_str.clone());
+        }
+        if (value == 1 || zelf.is_empty()) && zelf.class().is(vm.ctx.types.str_type) {
+            // Special case: when some `str` is multiplied by `1` or is the empty `str`,
+            // nothing really happens, we need to return an object itself
+            // with the same `id()` to be compatible with CPython.
+            // This only works for `str` itself, not its subclasses.
+            return Ok(zelf);
+        }
+        zelf.as_str()
+            .as_bytes()
+            .mul(vm, value)
+            .map(|x| Self::from(unsafe { String::from_utf8_unchecked(x) }).into_ref(vm))
+    }
 }
 
 #[pyclass(
@@ -467,23 +486,8 @@ impl PyStr {
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if value == 0 && zelf.class().is(vm.ctx.types.str_type) {
-            // Special case: when some `str` is multiplied by `0`,
-            // returns the empty `str`.
-            return Ok(vm.ctx.empty_str.clone());
-        }
-        if (value == 1 || zelf.is_empty()) && zelf.class().is(vm.ctx.types.str_type) {
-            // Special case: when some `str` is multiplied by `1` or is the empty `str`,
-            // nothing really happens, we need to return an object itself
-            // with the same `id()` to be compatible with CPython.
-            // This only works for `str` itself, not its subclasses.
-            return Ok(zelf);
-        }
-        zelf.as_str()
-            .as_bytes()
-            .mul(vm, value)
-            .map(|x| Self::from(unsafe { String::from_utf8_unchecked(x) }).into_ref(vm))
+    fn mul(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::repeat(zelf, value.into(), vm)
     }
 
     #[pymethod(magic)]
@@ -1325,7 +1329,7 @@ impl AsSequence for PyStr {
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
-                PyStr::mul(zelf.to_owned(), n, vm).map(|x| x.into())
+                PyStr::repeat(zelf.to_owned(), n, vm).map(|x| x.into())
             }),
             item: atomic_func!(|seq, i, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
