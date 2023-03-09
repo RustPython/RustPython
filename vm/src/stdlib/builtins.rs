@@ -948,6 +948,11 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
     crate::protocol::VecBuffer::make_class(&vm.ctx);
 
     builtins::extend_module(vm, &module);
+    use crate::AsObject;
+    ctx.types
+        .generic_alias_type
+        .as_object()
+        .init_builtin_number_slots(&vm.ctx);
 
     let debug_mode: bool = vm.state.settings.optimize == 0;
     extend_module!(vm, module, {
