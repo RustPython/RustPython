@@ -1879,20 +1879,14 @@ mod _io {
         write_through: bool,
     }
 
-    #[derive(Debug, Copy, Clone)]
+    #[derive(Debug, Copy, Clone, Default)]
     enum Newlines {
+        #[default]
         Universal,
         Passthrough,
         Lf,
         Cr,
         Crlf,
-    }
-
-    impl Default for Newlines {
-        #[inline]
-        fn default() -> Self {
-            Newlines::Universal
-        }
     }
 
     impl Newlines {
@@ -2054,8 +2048,9 @@ mod _io {
         data: PendingWritesData,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     enum PendingWritesData {
+        #[default]
         None,
         One(PendingWrite),
         Many(Vec<PendingWrite>),
@@ -2073,12 +2068,6 @@ mod _io {
                 Self::Utf8(s) => s.as_str().as_bytes(),
                 Self::Bytes(b) => b.as_bytes(),
             }
-        }
-    }
-
-    impl Default for PendingWritesData {
-        fn default() -> Self {
-            PendingWritesData::None
         }
     }
 

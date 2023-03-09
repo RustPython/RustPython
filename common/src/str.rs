@@ -245,10 +245,10 @@ pub mod levenshtein {
         if a == b {
             return 0;
         }
-        if (b'A'..=b'Z').contains(&a) {
+        if a.is_ascii_uppercase() {
             a += b'a' - b'A';
         }
-        if (b'A'..=b'Z').contains(&b) {
+        if b.is_ascii_uppercase() {
             b += b'a' - b'A';
         }
         if a == b {
