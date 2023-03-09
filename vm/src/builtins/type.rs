@@ -187,25 +187,6 @@ impl PyType {
 
         *slots.name.get_mut() = Some(String::from(name));
 
-        #[allow(clippy::mutable_key_type)]
-        let mut slot_name_set = HashSet::new();
-
-        for cls in mro.iter() {
-            for &name in cls.attributes.read().keys() {
-                if name != identifier!(ctx, __new__)
-                    && name.as_str().starts_with("__")
-                    && name.as_str().ends_with("__")
-                {
-                    slot_name_set.insert(name);
-                }
-            }
-        }
-        for &name in attrs.keys() {
-            if name.as_str().starts_with("__") && name.as_str().ends_with("__") {
-                slot_name_set.insert(name);
-            }
-        }
-
         let new_type = PyRef::new_ref(
             PyType {
                 base: Some(base),
@@ -220,9 +201,7 @@ impl PyType {
             None,
         );
 
-        for attr_name in slot_name_set {
-            new_type.update_slot::<true>(attr_name, ctx);
-        }
+        new_type.init_slots(ctx);
 
         let weakref_type = super::PyWeak::static_type();
         for base in &new_type.bases {
@@ -278,6 +257,30 @@ impl PyType {
         }
 
         Ok(new_type)
+    }
+
+    pub(crate) fn init_slots(&self, ctx: &Context) {
+        #[allow(clippy::mutable_key_type)]
+        let mut slot_name_set = std::collections::HashSet::new();
+
+        for cls in self.mro.iter() {
+            for &name in cls.attributes.read().keys() {
+                if name == identifier!(ctx, __new__) {
+                    continue;
+                }
+                if name.as_str().starts_with("__") && name.as_str().ends_with("__") {
+                    slot_name_set.insert(name);
+                }
+            }
+        }
+        for &name in self.attributes.read().keys() {
+            if name.as_str().starts_with("__") && name.as_str().ends_with("__") {
+                slot_name_set.insert(name);
+            }
+        }
+        for attr_name in slot_name_set {
+            self.update_slot::<true>(attr_name, ctx);
+        }
     }
 
     pub fn slot_name(&self) -> String {
@@ -1327,5 +1330,66 @@ mod tests {
             ])),
             map_ids(Ok(vec![a, b, object]))
         );
+    }
+}
+
+impl crate::PyObject {
+    // temporary tool to fill missing number protocols for builtin types
+    pub fn init_builtin_number_slots(&self, ctx: &Context) {
+        let typ = self
+            .downcast_ref::<PyType>()
+            .expect("not called from a type");
+        macro_rules! call_update_slot {
+            ($name:ident) => {
+                let id = identifier!(ctx, $name);
+                if typ.has_attr(id) {
+                    typ.update_slot::<true>(identifier!(ctx, $name), ctx);
+                }
+            };
+        }
+        call_update_slot!(__add__);
+        call_update_slot!(__radd__);
+        call_update_slot!(__iadd__);
+        call_update_slot!(__sub__);
+        call_update_slot!(__rsub__);
+        call_update_slot!(__isub__);
+        call_update_slot!(__mul__);
+        call_update_slot!(__rmul__);
+        call_update_slot!(__imul__);
+        call_update_slot!(__mod__);
+        call_update_slot!(__rmod__);
+        call_update_slot!(__imod__);
+        call_update_slot!(__div__);
+        call_update_slot!(__rdiv__);
+        call_update_slot!(__idiv__);
+        call_update_slot!(__divmod__);
+        call_update_slot!(__rdivmod__);
+        call_update_slot!(__pow__);
+        call_update_slot!(__rpow__);
+        call_update_slot!(__ipow__);
+        call_update_slot!(__lshift__);
+        call_update_slot!(__rlshift__);
+        call_update_slot!(__ilshift__);
+        call_update_slot!(__rshift__);
+        call_update_slot!(__rrshift__);
+        call_update_slot!(__irshift__);
+        call_update_slot!(__and__);
+        call_update_slot!(__rand__);
+        call_update_slot!(__iand__);
+        call_update_slot!(__xor__);
+        call_update_slot!(__rxor__);
+        call_update_slot!(__ixor__);
+        call_update_slot!(__or__);
+        call_update_slot!(__ror__);
+        call_update_slot!(__ior__);
+        call_update_slot!(__floordiv__);
+        call_update_slot!(__rfloordiv__);
+        call_update_slot!(__ifloordiv__);
+        call_update_slot!(__truediv__);
+        call_update_slot!(__rtruediv__);
+        call_update_slot!(__itruediv__);
+        call_update_slot!(__matmul__);
+        call_update_slot!(__rmatmul__);
+        call_update_slot!(__imatmul__);
     }
 }
