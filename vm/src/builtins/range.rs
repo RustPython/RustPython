@@ -5,7 +5,7 @@ use crate::{
     atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
@@ -176,10 +176,10 @@ pub fn init(context: &Context) {
 
 #[pyclass(with(AsMapping, AsSequence, Hashable, Comparable, Iterable))]
 impl PyRange {
-    fn new(cls: PyTypeRef, stop: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
             start: vm.new_pyref(0),
-            stop: stop.try_index(vm)?,
+            stop: stop.into(),
             step: vm.new_pyref(1),
         }
         .into_ref_with_type(vm, cls)
@@ -189,10 +189,10 @@ impl PyRange {
         cls: PyTypeRef,
         start: PyObjectRef,
         stop: PyObjectRef,
-        step: OptionalArg<PyObjectRef>,
+        step: OptionalArg<ArgIndex>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let step = step.unwrap_or_else(|| vm.new_pyobj(1)).try_index(vm)?;
+        let step = step.map_or_else(|| vm.ctx.new_int(1), |step| step.into());
         if step.as_bigint().is_zero() {
             return Err(vm.new_value_error("range() arg 3 must not be zero".to_owned()));
         }
