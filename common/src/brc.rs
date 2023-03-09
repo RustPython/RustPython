@@ -1,3 +1,8 @@
+// REFERENCES
+// https://github.com/colesbury/nogil
+// https://iacoma.cs.uiuc.edu/iacoma-papers/pact18.pdf
+
+
 use std::{
     cell::Cell,
     sync::atomic::{AtomicI32, Ordering},
