@@ -6,7 +6,7 @@ use crate::{
     atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject},
-    function::{OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{ArgSize, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -169,6 +169,22 @@ impl PyTuple {
     pub fn as_slice(&self) -> &[PyObjectRef] {
         &self.elements
     }
+
+    fn repeat(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Ok(if zelf.elements.is_empty() || value == 0 {
+            vm.ctx.empty_tuple.clone()
+        } else if value == 1 && zelf.class().is(vm.ctx.types.tuple_type) {
+            // Special case: when some `tuple` is multiplied by `1`,
+            // nothing really happens, we need to return an object itself
+            // with the same `id()` to be compatible with CPython.
+            // This only works for `tuple` itself, not its subclasses.
+            zelf
+        } else {
+            let v = zelf.elements.mul(vm, value)?;
+            let elements = v.into_boxed_slice();
+            Self { elements }.into_ref(vm)
+        })
+    }
 }
 
 #[pyclass(
@@ -244,20 +260,8 @@ impl PyTuple {
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Ok(if zelf.elements.is_empty() || value == 0 {
-            vm.ctx.empty_tuple.clone()
-        } else if value == 1 && zelf.class().is(vm.ctx.types.tuple_type) {
-            // Special case: when some `tuple` is multiplied by `1`,
-            // nothing really happens, we need to return an object itself
-            // with the same `id()` to be compatible with CPython.
-            // This only works for `tuple` itself, not its subclasses.
-            zelf
-        } else {
-            let v = zelf.elements.mul(vm, value)?;
-            let elements = v.into_boxed_slice();
-            Self { elements }.into_ref(vm)
-        })
+    fn mul(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::repeat(zelf, value.into(), vm)
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -353,7 +357,7 @@ impl AsSequence for PyTuple {
             }),
             repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
-                PyTuple::mul(zelf.to_owned(), n, vm).map(|x| x.into())
+                PyTuple::repeat(zelf.to_owned(), n, vm).map(|x| x.into())
             }),
             item: atomic_func!(|seq, i, vm| {
                 let zelf = PyTuple::sequence_downcast(seq);
