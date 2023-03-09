@@ -6,6 +6,7 @@ name = "rustpython"
 version = "0.2.0"
 authors = ["RustPython Team"]
 edition = "2021"
+rust-version = "1.67.1"
 description = "A python interpreter written in rust."
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
