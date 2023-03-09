@@ -11,7 +11,6 @@ use crate::{
 };
 use num_bigint::Sign;
 use num_traits::Zero;
-use once_cell::sync::Lazy;
 use std::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {
@@ -172,28 +171,9 @@ impl PyBool {
     }
 }
 
-macro_rules! int_method {
-    ($method:ident) => {
-        PyInt::as_number().$method
-    };
-}
-
 impl AsNumber for PyBool {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            add: int_method!(add),
-            subtract: int_method!(subtract),
-            multiply: int_method!(multiply),
-            remainder: int_method!(remainder),
-            divmod: int_method!(divmod),
-            power: int_method!(power),
-            negative: int_method!(negative),
-            positive: int_method!(positive),
-            absolute: int_method!(absolute),
-            boolean: int_method!(boolean),
-            invert: int_method!(invert),
-            lshift: int_method!(lshift),
-            rshift: int_method!(rshift),
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             and: Some(|number, other, vm| {
                 PyBool::and(number.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
             }),
@@ -203,13 +183,8 @@ impl AsNumber for PyBool {
             or: Some(|number, other, vm| {
                 PyBool::or(number.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
             }),
-            int: int_method!(int),
-            float: int_method!(float),
-            floor_divide: int_method!(floor_divide),
-            true_divide: int_method!(true_divide),
-            index: int_method!(index),
-            ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+            ..PyInt::AS_NUMBER
+        };
         &AS_NUMBER
     }
 }
