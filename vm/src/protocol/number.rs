@@ -194,41 +194,37 @@ impl PyNumberMethods {
         inplace_matrix_multiply: None,
     };
 
-    pub fn get_binary_op(
-        &self,
-        op_slot: PyNumberBinaryOp,
-    ) -> PyResult<&Option<PyNumberBinaryFunc>> {
+    pub fn binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
         use PyNumberBinaryOp::*;
-        let binary_op = match op_slot {
-            Add => &self.add,
-            Subtract => &self.subtract,
-            Multiply => &self.multiply,
-            Remainder => &self.remainder,
-            Divmod => &self.divmod,
-            Power => &self.power,
-            Lshift => &self.lshift,
-            Rshift => &self.rshift,
-            And => &self.and,
-            Xor => &self.xor,
-            Or => &self.or,
-            InplaceAdd => &self.inplace_add,
-            InplaceSubtract => &self.inplace_subtract,
-            InplaceMultiply => &self.inplace_multiply,
-            InplaceRemainder => &self.inplace_remainder,
-            InplacePower => &self.inplace_power,
-            InplaceLshift => &self.inplace_lshift,
-            InplaceRshift => &self.inplace_rshift,
-            InplaceAnd => &self.inplace_and,
-            InplaceXor => &self.inplace_xor,
-            InplaceOr => &self.inplace_or,
-            FloorDivide => &self.floor_divide,
-            TrueDivide => &self.true_divide,
-            InplaceFloorDivide => &self.inplace_floor_divide,
-            InplaceTrueDivide => &self.inplace_true_divide,
-            MatrixMultiply => &self.matrix_multiply,
-            InplaceMatrixMultiply => &self.inplace_matrix_multiply,
-        };
-        Ok(binary_op)
+        match op_slot {
+            Add => self.add,
+            Subtract => self.subtract,
+            Multiply => self.multiply,
+            Remainder => self.remainder,
+            Divmod => self.divmod,
+            Power => self.power,
+            Lshift => self.lshift,
+            Rshift => self.rshift,
+            And => self.and,
+            Xor => self.xor,
+            Or => self.or,
+            InplaceAdd => self.inplace_add,
+            InplaceSubtract => self.inplace_subtract,
+            InplaceMultiply => self.inplace_multiply,
+            InplaceRemainder => self.inplace_remainder,
+            InplacePower => self.inplace_power,
+            InplaceLshift => self.inplace_lshift,
+            InplaceRshift => self.inplace_rshift,
+            InplaceAnd => self.inplace_and,
+            InplaceXor => self.inplace_xor,
+            InplaceOr => self.inplace_or,
+            FloorDivide => self.floor_divide,
+            TrueDivide => self.true_divide,
+            InplaceFloorDivide => self.inplace_floor_divide,
+            InplaceTrueDivide => self.inplace_true_divide,
+            MatrixMultiply => self.matrix_multiply,
+            InplaceMatrixMultiply => self.inplace_matrix_multiply,
+        }
     }
 }
 
@@ -266,7 +262,7 @@ pub enum PyNumberBinaryOp {
 #[derive(Copy, Clone)]
 pub struct PyNumber<'a> {
     pub obj: &'a PyObject,
-    methods: &'a PyNumberMethods,
+    pub(crate) methods: &'a PyNumberMethods,
 }
 
 impl<'a> From<&'a PyObject> for PyNumber<'a> {
@@ -283,17 +279,6 @@ impl<'a> From<&'a PyObject> for PyNumber<'a> {
 impl PyNumber<'_> {
     fn find_methods(obj: &PyObject) -> Option<PointerSlot<PyNumberMethods>> {
         obj.class().mro_find_map(|x| x.slots.as_number.load())
-    }
-
-    pub fn methods(&self) -> &PyNumberMethods {
-        self.methods
-    }
-
-    pub fn get_binary_op(
-        &self,
-        op_slot: PyNumberBinaryOp,
-    ) -> PyResult<&Option<PyNumberBinaryFunc>> {
-        self.methods().get_binary_op(op_slot)
     }
 
     // PyNumber_Check

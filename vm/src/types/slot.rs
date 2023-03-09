@@ -161,7 +161,7 @@ pub struct PyNumberSlots {
 }
 
 impl PyNumberSlots {
-    pub fn get_left_binary_op(
+    pub fn left_binary_op(
         &self,
         op_slot: PyNumberBinaryOp,
     ) -> PyResult<Option<PyNumberBinaryFunc>> {
@@ -198,7 +198,7 @@ impl PyNumberSlots {
         Ok(binary_op)
     }
 
-    pub fn get_right_binary_op(
+    pub fn right_binary_op(
         &self,
         op_slot: PyNumberBinaryOp,
     ) -> PyResult<Option<PyNumberBinaryFunc>> {
@@ -1281,7 +1281,7 @@ macro_rules! extend_number_slot {
         if $methods.$method.is_some() {
             $slots.number.$method.store($methods.$method);
             $slots.number.$right_method.store(Some(|num, other, vm| {
-                num.get_binary_op(PyNumberBinaryOp::$op_slot)?.unwrap()(
+                num.methods.binary_op(PyNumberBinaryOp::$op_slot).unwrap()(
                     other.to_number(),
                     num.obj,
                     vm,
