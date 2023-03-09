@@ -3,7 +3,9 @@ pub(crate) use _bisect::make_module;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        function::OptionalArg, types::PyComparisonOp, PyObjectRef, PyResult, VirtualMachine,
+        function::{ArgIndex, OptionalArg},
+        types::PyComparisonOp,
+        PyObjectRef, PyResult, VirtualMachine,
     };
 
     #[derive(FromArgs)]
@@ -11,21 +13,18 @@ mod _bisect {
         a: PyObjectRef,
         x: PyObjectRef,
         #[pyarg(any, optional)]
-        lo: OptionalArg<PyObjectRef>,
+        lo: OptionalArg<ArgIndex>,
         #[pyarg(any, optional)]
-        hi: OptionalArg<PyObjectRef>,
+        hi: OptionalArg<ArgIndex>,
         #[pyarg(named, default)]
         key: Option<PyObjectRef>,
     }
 
     // Handles objects that implement __index__ and makes sure index fits in needed isize.
     #[inline]
-    fn handle_default(
-        arg: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<isize>> {
+    fn handle_default(arg: OptionalArg<ArgIndex>, vm: &VirtualMachine) -> PyResult<Option<isize>> {
         arg.into_option()
-            .map(|v| v.try_index(vm)?.try_to_primitive(vm))
+            .map(|v| v.try_to_primitive(vm))
             .transpose()
     }
 
@@ -38,8 +37,8 @@ mod _bisect {
     //    input sequence.
     #[inline]
     fn as_usize(
-        lo: OptionalArg<PyObjectRef>,
-        hi: OptionalArg<PyObjectRef>,
+        lo: OptionalArg<ArgIndex>,
+        hi: OptionalArg<ArgIndex>,
         seq_len: usize,
         vm: &VirtualMachine,
     ) -> PyResult<(usize, usize)> {
