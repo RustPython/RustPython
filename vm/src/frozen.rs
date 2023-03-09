@@ -1,13 +1,10 @@
-use crate::bytecode::FrozenModule;
+use crate::bytecode::frozen_lib::FrozenModule;
 
-pub fn core_frozen_inits() -> impl Iterator<Item = (String, FrozenModule)> {
+pub fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     let iter = std::iter::empty();
     macro_rules! ext_modules {
-        ($iter:ident, ($modules:expr)) => {
-            let $iter = $iter.chain($modules);
-        };
         ($iter:ident, $($t:tt)*) => {
-            ext_modules!($iter, (py_freeze!($($t)*)))
+            let $iter = $iter.chain(py_freeze!($($t)*));
         };
     }
 
@@ -23,10 +20,8 @@ pub fn core_frozen_inits() -> impl Iterator<Item = (String, FrozenModule)> {
     // Includes _importlib_bootstrap and _importlib_bootstrap_external
     ext_modules!(
         iter,
-        (rustpython_derive::py_freeze!(
-            dir = "./Lib/python_builtins",
-            crate_name = "rustpython_compiler_core"
-        ))
+        dir = "./Lib/python_builtins",
+        crate_name = "rustpython_compiler_core"
     );
 
     // core stdlib Python modules that the vm calls into, but are still used in Python
@@ -34,10 +29,8 @@ pub fn core_frozen_inits() -> impl Iterator<Item = (String, FrozenModule)> {
     #[cfg(not(feature = "freeze-stdlib"))]
     ext_modules!(
         iter,
-        (rustpython_derive::py_freeze!(
-            dir = "./Lib/core_modules",
-            crate_name = "rustpython_compiler_core"
-        ))
+        dir = "./Lib/core_modules",
+        crate_name = "rustpython_compiler_core"
     );
 
     iter

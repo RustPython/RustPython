@@ -10,6 +10,5 @@ pub const LIB_PATH: &str = match option_env!("win_lib_path") {
 };
 
 #[cfg(feature = "freeze-stdlib")]
-pub fn frozen_stdlib() -> impl Iterator<Item = (String, rustpython_compiler_core::FrozenModule)> {
-    rustpython_derive::py_freeze!(dir = "./Lib", crate_name = "rustpython_compiler_core")
-}
+pub const FROZEN_STDLIB: &rustpython_compiler_core::frozen_lib::FrozenLib =
+    rustpython_derive::py_freeze!(dir = "./Lib", crate_name = "rustpython_compiler_core");

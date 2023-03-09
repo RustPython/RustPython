@@ -46,7 +46,7 @@ impl StoredVirtualMachine {
             vm.add_native_modules(rustpython_stdlib::get_module_inits());
 
             #[cfg(feature = "freeze-stdlib")]
-            vm.add_frozen(rustpython_pylib::frozen_stdlib());
+            vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
 
             vm.wasm_id = Some(id);
 

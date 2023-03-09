@@ -5,7 +5,7 @@
 use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyStrInterned,
-    bytecode::{self, BorrowedConstant, CodeFlags, Constant, ConstantBag},
+    bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg},
@@ -97,8 +97,21 @@ impl Constant for Literal {
     }
 }
 
+impl<'a> AsBag for &'a Context {
+    type Bag = PyObjBag<'a>;
+    fn as_bag(self) -> PyObjBag<'a> {
+        PyObjBag(self)
+    }
+}
+impl<'a> AsBag for &'a VirtualMachine {
+    type Bag = PyObjBag<'a>;
+    fn as_bag(self) -> PyObjBag<'a> {
+        PyObjBag(&self.ctx)
+    }
+}
+
 #[derive(Clone, Copy)]
-pub(crate) struct PyObjBag<'a>(pub &'a Context);
+pub struct PyObjBag<'a>(pub &'a Context);
 
 impl ConstantBag for PyObjBag<'_> {
     type Constant = Literal;
@@ -163,6 +176,12 @@ impl IntoCodeObject for CodeObject {
 impl IntoCodeObject for bytecode::CodeObject {
     fn into_code_object(self, ctx: &Context) -> CodeObject {
         self.map_bag(PyObjBag(ctx))
+    }
+}
+
+impl<B: AsRef<[u8]>> IntoCodeObject for bytecode::frozen_lib::FrozenCodeObject<B> {
+    fn into_code_object(self, ctx: &Context) -> CodeObject {
+        self.decode(ctx)
     }
 }
 

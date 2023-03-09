@@ -165,6 +165,7 @@ macro_rules! jit_function {
                 crate_name = "rustpython_compiler_core",
                 source = $($t)*
             );
+            let code = code.decode(rustpython_compiler_core::BasicBag);
             let mut machine = $crate::common::StackMachine::new();
             machine.run(code);
             machine.get_function(stringify!($func_name)).compile()

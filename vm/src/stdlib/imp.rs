@@ -1,4 +1,5 @@
-use crate::{builtins::PyBaseExceptionRef, bytecode::FrozenModule, PyObjectRef, VirtualMachine};
+use crate::bytecode::frozen_lib::FrozenModule;
+use crate::{builtins::PyBaseExceptionRef, PyObjectRef, VirtualMachine};
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _imp::make_module(vm);
@@ -73,8 +74,12 @@ impl FrozenError {
 }
 
 // find_frozen in frozen.c
-fn find_frozen<'a>(name: &str, vm: &'a VirtualMachine) -> Result<&'a FrozenModule, FrozenError> {
-    vm.state.frozen.get(name).ok_or(FrozenError::NotFound)
+fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenError> {
+    vm.state
+        .frozen
+        .get(name)
+        .copied()
+        .ok_or(FrozenError::NotFound)
 }
 
 #[pymodule]
@@ -139,11 +144,9 @@ mod _imp {
 
     #[pyfunction]
     fn is_frozen_package(name: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        vm.state
-            .frozen
-            .get(name.as_str())
+        super::find_frozen(name.as_str(), vm)
             .map(|frozen| frozen.package)
-            .ok_or_else(|| vm.new_import_error(format!("No such frozen object named {name}"), name))
+            .map_err(|e| e.to_pyexception(name.as_str(), vm))
     }
 
     #[pyfunction]

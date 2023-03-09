@@ -77,7 +77,7 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
         vm.state.frozen.get(name).ok_or_else(|| {
             vm.new_import_error(format!("No such frozen object named {name}"), name)
         })?;
-    Ok(vm.ctx.new_code(frozen.code.clone()))
+    Ok(vm.ctx.new_code(frozen.code))
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {

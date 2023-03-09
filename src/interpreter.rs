@@ -41,7 +41,7 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
 
     // if we're on freeze-stdlib, the core stdlib modules will be included anyway
     #[cfg(feature = "freeze-stdlib")]
-    vm.add_frozen(rustpython_pylib::frozen_stdlib());
+    vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
 
     #[cfg(not(feature = "freeze-stdlib"))]
     {
