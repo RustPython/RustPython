@@ -659,6 +659,13 @@ mod array {
                     "array() argument 1 must be a unicode character, not str".to_owned(),
                 )
             })?;
+
+            if cls.is(PyArray::class(vm)) {
+                return Err(
+                    vm.new_type_error("array.array() takes no keyword arguments".to_owned())
+                );
+            }
+
             let mut array =
                 ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err))?;
 
