@@ -651,7 +651,7 @@ mod array {
 
         fn py_new(
             cls: PyTypeRef,
-            (ArrayNewArgs { spec, init }, _kwargs): Self::Args,
+            (ArrayNewArgs { spec, init }, kwargs): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
             let spec = spec.as_str().chars().exactly_one().map_err(|_| {
@@ -660,7 +660,7 @@ mod array {
                 )
             })?;
 
-            if cls.is(PyArray::class(vm)) {
+            if cls.is(PyArray::class(vm)) && !kwargs.is_empty() {
                 return Err(
                     vm.new_type_error("array.array() takes no keyword arguments".to_owned())
                 );
