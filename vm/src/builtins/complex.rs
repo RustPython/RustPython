@@ -1,6 +1,5 @@
 use super::{float, PyStr, PyType, PyTypeRef};
 use crate::{
-    atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, ToPyResult},
     function::{
@@ -15,7 +14,6 @@ use crate::{
 };
 use num_complex::Complex64;
 use num_traits::Zero;
-use once_cell::sync::Lazy;
 use rustpython_common::{float_ops, hash};
 use std::num::Wrapping;
 
@@ -454,38 +452,34 @@ impl Hashable for PyComplex {
 
 impl AsNumber for PyComplex {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            add: atomic_func!(|number, other, vm| {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            add: Some(|number, other, vm| {
                 PyComplex::number_op(number, other, |a, b, _vm| a + b, vm)
             }),
-            subtract: atomic_func!(|number, other, vm| {
+            subtract: Some(|number, other, vm| {
                 PyComplex::number_op(number, other, |a, b, _vm| a - b, vm)
             }),
-            multiply: atomic_func!(|number, other, vm| {
+            multiply: Some(|number, other, vm| {
                 PyComplex::number_op(number, other, |a, b, _vm| a * b, vm)
             }),
-            power: atomic_func!(|number, other, vm| PyComplex::number_op(
-                number, other, inner_pow, vm
-            )),
-            negative: atomic_func!(|number, vm| {
+            power: Some(|number, other, vm| PyComplex::number_op(number, other, inner_pow, vm)),
+            negative: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
                 (-value).to_pyresult(vm)
             }),
-            positive: atomic_func!(
-                |number, vm| PyComplex::number_downcast_exact(number, vm).to_pyresult(vm)
-            ),
-            absolute: atomic_func!(|number, vm| {
+            positive: Some(|number, vm| {
+                PyComplex::number_downcast_exact(number, vm).to_pyresult(vm)
+            }),
+            absolute: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
                 value.norm().to_pyresult(vm)
             }),
-            boolean: atomic_func!(|number, _vm| Ok(PyComplex::number_downcast(number)
-                .value
-                .is_zero())),
-            true_divide: atomic_func!(|number, other, vm| {
+            boolean: Some(|number, _vm| Ok(PyComplex::number_downcast(number).value.is_zero())),
+            true_divide: Some(|number, other, vm| {
                 PyComplex::number_op(number, other, inner_div, vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 

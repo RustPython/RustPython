@@ -1,5 +1,3 @@
-use once_cell::sync::Lazy;
-
 use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
 use crate::{
     atomic_func,
@@ -10,6 +8,7 @@ use crate::{
     types::{AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
+use once_cell::sync::Lazy;
 
 #[pyclass(module = false, name = "mappingproxy")]
 #[derive(Debug)]
@@ -70,7 +69,7 @@ impl Constructor for PyMappingProxy {
     }
 }
 
-#[pyclass(with(AsMapping, Iterable, Constructor, AsSequence, Comparable))]
+#[pyclass(with(AsMapping, Iterable, Constructor, AsSequence, Comparable, AsNumber))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
@@ -232,15 +231,23 @@ impl AsSequence for PyMappingProxy {
 
 impl AsNumber for PyMappingProxy {
     fn as_number() -> &'static PyNumberMethods {
-        static AS_NUMBER: Lazy<PyNumberMethods> = Lazy::new(|| PyNumberMethods {
-            or: atomic_func!(|num, args, vm| {
-                PyMappingProxy::number_downcast(num).or(args.to_pyobject(vm), vm)
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            or: Some(|num, args, vm| {
+                if let Some(num) = num.obj.downcast_ref::<PyMappingProxy>() {
+                    num.or(args.to_pyobject(vm), vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
-            inplace_or: atomic_func!(|num, args, vm| {
-                PyMappingProxy::number_downcast(num).ior(args.to_pyobject(vm), vm)
+            inplace_or: Some(|num, args, vm| {
+                if let Some(num) = num.obj.downcast_ref::<PyMappingProxy>() {
+                    num.ior(args.to_pyobject(vm), vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
-        });
+        };
         &AS_NUMBER
     }
 }

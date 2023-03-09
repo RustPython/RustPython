@@ -128,18 +128,15 @@ impl VirtualMachine {
     /// Calling scheme used for binary operations:
     ///
     /// Order operations are tried until either a valid result or error:
-    ///   b.op(a,b)[*], a.op(a,b), b.op(a,b)
+    ///   b.rop(b,a)[*], a.op(a,b), b.rop(b,a)
     ///
     /// [*] only when Py_TYPE(a) != Py_TYPE(b) && Py_TYPE(b) is a subclass of Py_TYPE(a)
     fn binary_op1(&self, a: &PyObject, b: &PyObject, op_slot: &PyNumberBinaryOpSlot) -> PyResult {
-        let num_a = a.to_number();
-        let num_b = b.to_number();
-
-        let slot_a = num_a.get_binary_op(op_slot)?.load();
+        let slot_a = a.class().slots.number.get_left_binary_op(op_slot)?;
         let mut slot_b = if b.class().is(a.class()) {
             None
         } else {
-            match num_b.get_binary_op(op_slot)?.load() {
+            match b.class().slots.number.get_right_binary_op(op_slot)? {
                 Some(slot_b)
                     if slot_b as usize == slot_a.map(|s| s as usize).unwrap_or_default() =>
                 {
@@ -152,21 +149,21 @@ impl VirtualMachine {
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b {
                 if b.fast_isinstance(a.class()) {
-                    let x = slot_bb(num_a, b, self)?;
+                    let x = slot_bb(b.to_number(), a, self)?;
                     if !x.is(&self.ctx.not_implemented) {
                         return Ok(x);
                     }
                     slot_b = None;
                 }
             }
-            let x = slot_a(num_a, b, self)?;
+            let x = slot_a(a.to_number(), b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
             }
         }
 
         if let Some(slot_b) = slot_b {
-            let x = slot_b(num_a, b, self)?;
+            let x = slot_b(b.to_number(), a, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
             }
@@ -209,9 +206,8 @@ impl VirtualMachine {
         iop_slot: &PyNumberBinaryOpSlot,
         op_slot: &PyNumberBinaryOpSlot,
     ) -> PyResult {
-        let num_a = a.to_number();
-        if let Some(slot) = num_a.get_binary_op(iop_slot)?.load() {
-            let x = slot(num_a, b, self)?;
+        if let Some(slot) = a.class().slots.number.get_left_binary_op(iop_slot)? {
+            let x = slot(a.to_number(), b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
             }
