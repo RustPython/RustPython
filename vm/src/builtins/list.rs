@@ -6,7 +6,7 @@ use crate::common::lock::{
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -72,6 +72,17 @@ impl PyList {
 
     pub fn borrow_vec_mut(&self) -> PyRwLockWriteGuard<'_, Vec<PyObjectRef>> {
         self.elements.write()
+    }
+
+    fn repeat(&self, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        let elements = &*self.borrow_vec();
+        let v = elements.mul(vm, n)?;
+        Ok(Self::new_ref(v, &vm.ctx))
+    }
+
+    fn irepeat(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.borrow_vec_mut().imul(vm, n)?;
+        Ok(zelf)
     }
 }
 
@@ -232,16 +243,13 @@ impl PyList {
 
     #[pymethod(magic)]
     #[pymethod(name = "__rmul__")]
-    fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let elements = &*self.borrow_vec();
-        let v = elements.mul(vm, n)?;
-        Ok(Self::new_ref(v, &vm.ctx))
+    fn mul(&self, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        self.repeat(n.into(), vm)
     }
 
     #[pymethod(magic)]
-    fn imul(zelf: PyRef<Self>, n: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.borrow_vec_mut().imul(vm, n)?;
-        Ok(zelf)
+    fn imul(zelf: PyRef<Self>, n: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::irepeat(zelf, n.into(), vm)
     }
 
     #[pymethod]
@@ -423,7 +431,9 @@ impl AsSequence for PyList {
                     .map(|x| x.into())
             }),
             repeat: atomic_func!(|seq, n, vm| {
-                PyList::sequence_downcast(seq).mul(n, vm).map(|x| x.into())
+                PyList::sequence_downcast(seq)
+                    .repeat(n, vm)
+                    .map(|x| x.into())
             }),
             item: atomic_func!(|seq, i, vm| {
                 PyList::sequence_downcast(seq)
@@ -448,8 +458,7 @@ impl AsSequence for PyList {
             }),
             inplace_repeat: atomic_func!(|seq, n, vm| {
                 let zelf = PyList::sequence_downcast(seq);
-                zelf.borrow_vec_mut().imul(vm, n)?;
-                Ok(zelf.to_owned().into())
+                Ok(PyList::irepeat(zelf.to_owned(), n, vm)?.into())
             }),
         };
         &AS_SEQUENCE
