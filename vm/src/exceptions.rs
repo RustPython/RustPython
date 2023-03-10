@@ -322,6 +322,7 @@ impl ExceptionCtor {
 #[derive(Debug, Clone)]
 pub struct ExceptionZoo {
     pub base_exception_type: &'static Py<PyType>,
+    pub base_exception_group: &'static Py<PyType>,
     pub system_exit: &'static Py<PyType>,
     pub keyboard_interrupt: &'static Py<PyType>,
     pub generator_exit: &'static Py<PyType>,
@@ -538,6 +539,7 @@ impl ExceptionZoo {
         let base_exception_type = PyBaseException::init_bare_type();
 
         // Sorted By Hierarchy then alphabetized.
+        let base_exception_group = PyBaseExceptionGroup::init_bare_type();
         let system_exit = PySystemExit::init_bare_type();
         let keyboard_interrupt = PyKeyboardInterrupt::init_bare_type();
         let generator_exit = PyGeneratorExit::init_bare_type();
@@ -623,6 +625,7 @@ impl ExceptionZoo {
 
         Self {
             base_exception_type,
+            base_exception_group,
             system_exit,
             keyboard_interrupt,
             generator_exit,
@@ -704,6 +707,10 @@ impl ExceptionZoo {
         PyBaseException::extend_class(ctx, excs.base_exception_type);
 
         // Sorted By Hierarchy then alphabetized.
+        extend_exception!(PyBaseExceptionGroup, ctx, excs.base_exception_group, {
+            "message" => ctx.new_readonly_getset("message", excs.base_exception_group, make_arg_getter(0)),
+            "exceptions" => ctx.new_readonly_getset("exceptions", excs.base_exception_group, make_arg_getter(1)),
+        });
         extend_exception!(PySystemExit, ctx, excs.system_exit, {
             "code" => ctx.new_readonly_getset("code", excs.system_exit, system_exit_code),
         });
@@ -1138,6 +1145,12 @@ pub(super) mod types {
         PyBaseException,
         system_exit,
         "Request to exit from the interpreter."
+    }
+    define_exception! {
+        PyBaseExceptionGroup,
+        PyBaseException,
+        base_exception_group,
+        "A combination of multiple unrelated exceptions."
     }
     define_exception! {
         PyGeneratorExit,

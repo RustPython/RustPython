@@ -994,6 +994,7 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         // ordered by exception_hierarchy.txt
         // Exceptions:
         "BaseException" => ctx.exceptions.base_exception_type.to_owned(),
+        "BaseExceptionGroup" => ctx.exceptions.base_exception_group.to_owned(),
         "SystemExit" => ctx.exceptions.system_exit.to_owned(),
         "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.to_owned(),
         "GeneratorExit" => ctx.exceptions.generator_exit.to_owned(),
