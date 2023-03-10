@@ -1,7 +1,10 @@
 use once_cell::sync::Lazy;
 
 use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
-use crate::common::{hash::PyHash, lock::PyMutex};
+use crate::common::{
+    hash::{PyHash, PyUHash},
+    lock::PyMutex,
+};
 use crate::{
     atomic_func,
     class::PyClassImpl,
@@ -525,7 +528,38 @@ impl<T: TransmuteFromObject> ToPyObject for PyTupleTyped<T> {
 }
 
 pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyHash> {
-    // TODO: See #3460 for the correct implementation.
-    // https://github.com/RustPython/RustPython/pull/3460
-    crate::utils::hash_iter(elements.iter(), vm)
+    #[cfg(target_pointer_width = "64")]
+    const PRIME1: PyUHash = 11400714785074694791;
+    #[cfg(target_pointer_width = "64")]
+    const PRIME2: PyUHash = 14029467366897019727;
+    #[cfg(target_pointer_width = "64")]
+    const PRIME5: PyUHash = 2870177450012600261;
+    #[cfg(target_pointer_width = "64")]
+    const ROTATE: u32 = 31;
+
+    #[cfg(target_pointer_width = "32")]
+    const PRIME1: PyUHash = 2654435761;
+    #[cfg(target_pointer_width = "32")]
+    const PRIME2: PyUHash = 2246822519;
+    #[cfg(target_pointer_width = "32")]
+    const PRIME5: PyUHash = 374761393;
+    #[cfg(target_pointer_width = "32")]
+    const ROTATE: u32 = 13;
+
+    let mut acc = PRIME5;
+    let len = elements.len() as PyUHash;
+
+    for val in elements {
+        let lane = val.hash(vm)? as PyUHash;
+        acc = acc.wrapping_add(lane.wrapping_mul(PRIME2));
+        acc = acc.rotate_left(ROTATE);
+        acc = acc.wrapping_mul(PRIME1);
+    }
+
+    acc = acc.wrapping_add(len ^ (PRIME5 ^ 3527539));
+
+    if acc as PyHash == -1 {
+        return Ok(1546275796);
+    }
+    Ok(acc as PyHash)
 }
