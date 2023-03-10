@@ -2,17 +2,24 @@
 // https://github.com/colesbury/nogil
 // https://iacoma.cs.uiuc.edu/iacoma-papers/pact18.pdf
 
-
 use std::{
     cell::Cell,
+    marker::PhantomData,
     sync::atomic::{AtomicI32, Ordering},
-    thread::ThreadId,
 };
 
-pub struct Brc {
+type ThreadId = std::num::NonZeroUsize;
+
+pub struct Brc<Op: ?Sized> {
     tid: Cell<Option<ThreadId>>,
     biased: Cell<u32>,
     shared: AtomicI32,
+    phantom: PhantomData<Op>,
+}
+
+pub trait BrcThreadOp {
+    fn current_thread_id() -> ThreadId;
+    fn enqueue(brc: &Brc<Self>, tid: ThreadId);
 }
 
 // TODO: IMMORTAL & DEFERRED
@@ -22,7 +29,7 @@ const SHARED_SHIFT: i32 = 2;
 const SHARED_FLAG_MERGED: i32 = 1;
 const SHARED_FLAG_QUEUED: i32 = 2;
 
-impl Brc {
+impl<Op: BrcThreadOp> Brc<Op> {
     pub fn increment(&self) {
         if self.is_local_thread() {
             self.fast_increment();
@@ -112,7 +119,7 @@ impl Brc {
     }
 
     fn is_local_thread(&self) -> bool {
-        self.tid.get() == Some(std::thread::current().id())
+        self.tid.get() == Some(Op::current_thread_id())
     }
 }
 
