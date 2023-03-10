@@ -632,7 +632,9 @@ class CompatPickleTests(unittest.TestCase):
                            ResourceWarning,
                            StopAsyncIteration,
                            RecursionError,
-                           EncodingWarning):
+                           EncodingWarning,
+                           #ExceptionGroup, # TODO: RUSTPYTHON
+                           BaseExceptionGroup):
                     continue
                 if exc is not OSError and issubclass(exc, OSError):
                     self.assertEqual(reverse_mapping('builtins', name),
