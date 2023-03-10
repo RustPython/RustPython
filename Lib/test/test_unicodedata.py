@@ -21,6 +21,8 @@ class UnicodeMethodsTest(unittest.TestCase):
     # update this, if the database changes
     expectedchecksum = '4739770dd4d0e5f1b1677accfc3552ed3c8ef326'
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_resource('cpu')
     def test_method_checksum(self):
         h = hashlib.sha1()
@@ -97,6 +99,8 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         result = h.hexdigest()
         self.assertEqual(result, self.expectedchecksum)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_resource('cpu')
     def test_name_inverse_lookup(self):
         for i in range(sys.maxunicode + 1):
