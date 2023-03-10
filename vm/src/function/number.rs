@@ -1,5 +1,8 @@
+use super::argument::OptionalArg;
 use crate::{builtins::PyIntRef, AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+use num_bigint::BigInt;
 use num_complex::Complex64;
+use num_traits::PrimInt;
 use std::ops::Deref;
 
 /// A Python complex-like object.
@@ -157,28 +160,39 @@ impl TryFromObject for ArgIndex {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct ArgSize {
-    value: isize,
+pub struct ArgPrimitiveIndex<T> {
+    pub value: T,
 }
 
-impl From<ArgSize> for isize {
-    fn from(arg: ArgSize) -> Self {
-        arg.value
+impl<T> OptionalArg<ArgPrimitiveIndex<T>> {
+    pub fn into_primitive(self) -> OptionalArg<T> {
+        self.map(|x| x.value)
     }
 }
 
-impl Deref for ArgSize {
-    type Target = isize;
+impl<T> Deref for ArgPrimitiveIndex<T> {
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
         &self.value
     }
 }
 
-impl TryFromObject for ArgSize {
+impl<T> TryFromObject for ArgPrimitiveIndex<T>
+where
+    T: PrimInt + for<'a> TryFrom<&'a BigInt>,
+{
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         Ok(Self {
             value: obj.try_index(vm)?.try_to_primitive(vm)?,
         })
+    }
+}
+
+pub type ArgSize = ArgPrimitiveIndex<isize>;
+
+impl From<ArgSize> for isize {
+    fn from(arg: ArgSize) -> Self {
+        arg.value
     }
 }
