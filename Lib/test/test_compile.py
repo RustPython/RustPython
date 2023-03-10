@@ -851,8 +851,6 @@ class TestStackSizeStability(unittest.TestCase):
             self.fail("stack sizes diverge with # of consecutive snippets: "
                       "%s\n%s\n%s" % (sizes, snippet, out.getvalue()))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_if(self):
         snippet = """
             if x:
@@ -860,8 +858,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_if_else(self):
         snippet = """
             if x:
@@ -873,8 +869,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_bare(self):
         snippet = """
             try:
@@ -884,8 +878,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_qualified(self):
         snippet = """
             try:
@@ -899,8 +891,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_except_as(self):
         snippet = """
             try:
@@ -914,8 +904,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_try_finally(self):
         snippet = """
                 try:
@@ -925,8 +913,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_with(self):
         snippet = """
             with x as y:
@@ -934,8 +920,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_while_else(self):
         snippet = """
             while x:
@@ -945,8 +929,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_for(self):
         snippet = """
             for x in y:
@@ -954,8 +936,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_for_else(self):
         snippet = """
             for x in y:
@@ -965,8 +945,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_for_break_continue(self):
         snippet = """
             for x in y:
@@ -981,8 +959,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_for_break_continue_inside_try_finally_block(self):
         snippet = """
             for x in y:
@@ -1000,8 +976,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_for_break_continue_inside_finally_block(self):
         snippet = """
             for x in y:
@@ -1019,8 +993,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_for_break_continue_inside_except_block(self):
         snippet = """
             for x in y:
@@ -1038,8 +1010,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_for_break_continue_inside_with_block(self):
         snippet = """
             for x in y:
@@ -1055,8 +1025,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_return_inside_try_finally_block(self):
         snippet = """
             try:
@@ -1069,8 +1037,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_return_inside_finally_block(self):
         snippet = """
             try:
@@ -1083,8 +1049,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_return_inside_except_block(self):
         snippet = """
             try:
@@ -1097,8 +1061,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_return_inside_with_block(self):
         snippet = """
             with c:
@@ -1109,8 +1071,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_with(self):
         snippet = """
             async with x as y:
@@ -1118,8 +1078,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet, async_=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_for(self):
         snippet = """
             async for x in y:
@@ -1127,8 +1085,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet, async_=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_async_for_else(self):
         snippet = """
             async for x in y:
@@ -1138,8 +1094,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet, async_=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_for_break_continue_inside_async_with_block(self):
         snippet = """
             for x in y:
@@ -1155,8 +1109,6 @@ class TestStackSizeStability(unittest.TestCase):
             """
         self.check_stack_size(snippet, async_=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_return_inside_async_with_block(self):
         snippet = """
             async with c:

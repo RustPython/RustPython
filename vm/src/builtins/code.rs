@@ -214,6 +214,11 @@ impl PyRef<PyCode> {
     }
 
     #[pygetset]
+    fn co_stacksize(self) -> u32 {
+        self.code.max_stackdepth
+    }
+
+    #[pygetset]
     pub fn co_filename(self) -> PyStrRef {
         self.code.source_path.to_owned()
     }
