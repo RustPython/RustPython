@@ -1,14 +1,52 @@
 use crate::{AsObject, PyObject, VirtualMachine};
 use itertools::Itertools;
+use rustpython_common::brc::{Brc, BrcThreadOp};
 use std::{
     cell::RefCell,
+    collections::HashMap,
+    num::NonZeroUsize,
     ptr::{null, NonNull},
+    sync::Mutex,
     thread_local,
 };
 
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
     static VM_CURRENT: RefCell<*const VirtualMachine> = null::<VirtualMachine>().into();
+}
+
+pub struct BrcImpl;
+
+impl BrcThreadOp for BrcImpl {
+    type ThreadId = NonZeroUsize;
+
+    fn current_thread_id() -> Self::ThreadId {
+        // REFERENCE: parking_lot::GetThreadId
+        // The address of a thread-local variable is guaranteed to be unique to the
+        // current thread, and is also guaranteed to be non-zero. The variable has to have a
+        // non-zero size to guarantee it has a unique address for each thread.
+        thread_local!(static KEY: u8 = 0);
+        KEY.with(|x| {
+            Self::ThreadId::new(x as *const _ as usize)
+                .expect("thread-local variable address is null")
+        })
+    }
+
+    fn enqueue(brc: &Brc<Self>, tid: Self::ThreadId) {
+        // TODO: fix unwrap
+        buckets.with(|x| {
+            x.lock()
+                .unwrap()
+                .entry(tid)
+                .or_default()
+                .push(brc as *const Brc<Self> as *const _)
+        })
+    }
+}
+
+thread_local! {
+    // TODO: reduce lock
+    static buckets: Mutex<HashMap<NonZeroUsize, Vec<*const PyObject>>> = Default::default()
 }
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {

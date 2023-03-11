@@ -4,22 +4,19 @@
 
 use std::{
     cell::Cell,
-    marker::PhantomData,
     sync::atomic::{AtomicI32, Ordering},
 };
 
-type ThreadId = std::num::NonZeroUsize;
-
-pub struct Brc<Op: ?Sized> {
-    tid: Cell<Option<ThreadId>>,
+pub struct Brc<Op: BrcThreadOp + ?Sized> {
+    tid: Cell<Option<Op::ThreadId>>,
     biased: Cell<u32>,
     shared: AtomicI32,
-    phantom: PhantomData<Op>,
 }
 
 pub trait BrcThreadOp {
-    fn current_thread_id() -> ThreadId;
-    fn enqueue(brc: &Brc<Self>, tid: ThreadId);
+    type ThreadId: Copy + Eq;
+    fn current_thread_id() -> Self::ThreadId;
+    fn enqueue(brc: &Brc<Self>, tid: Self::ThreadId);
 }
 
 // TODO: IMMORTAL & DEFERRED
@@ -81,7 +78,7 @@ impl<Op: BrcThreadOp> Brc<Op> {
         // We need to grab the thread-id before modifying the refcount
         // because the owning thread may set it to zero if we mark the
         // object as queued.
-        let tid = self.tid.get();
+        let tid = self.tid.get().expect("tid is None on slow_decrement()");
         let mut queue;
         let mut new;
 
@@ -110,6 +107,7 @@ impl<Op: BrcThreadOp> Brc<Op> {
 
         if queue {
             // TODO: queue object
+            Op::enqueue(self, tid);
             false
         } else if is_merged(new) && (new >> SHARED_SHIFT) == 0 {
             true
