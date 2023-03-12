@@ -602,8 +602,7 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(object.__lt__, types.WrapperDescriptorType)
         self.assertIsInstance(int.__lt__, types.WrapperDescriptorType)
 
-    # TODO: No signature found in builtin method __get__ of 'method_descriptor'
-    # objects so ValueError is raised
+    # TODO: RUSTPYTHON No signature found in builtin method __get__ of 'method_descriptor' objects.
     @unittest.expectedFailure
     def test_dunder_get_signature(self):
         sig = inspect.signature(object.__init__.__get__)
