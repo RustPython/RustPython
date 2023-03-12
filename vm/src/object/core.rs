@@ -24,9 +24,10 @@ use crate::{
         lock::{PyMutex, PyMutexGuard, PyRwLock},
         refcount::RefCount,
     },
-    vm::VirtualMachine,
+    vm::{VirtualMachine, thread::BrcImpl},
 };
 use itertools::Itertools;
+use rustpython_common::brc::Brc;
 use std::{
     any::TypeId,
     borrow::Borrow,
@@ -108,7 +109,8 @@ impl PyObjVTable {
 /// payload can be a rust float or rust int in case of float and int objects.
 #[repr(C)]
 struct PyInner<T> {
-    ref_count: RefCount,
+    // ref_count: RefCount,
+    ref_count: Brc<BrcImpl>,
     // TODO: move typeid into vtable once TypeId::of is const
     typeid: TypeId,
     vtable: &'static PyObjVTable,
@@ -432,7 +434,7 @@ impl<T: PyObjectPayload> PyInner<T> {
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Box<Self> {
         let member_count = typ.slots.member_count;
         Box::new(PyInner {
-            ref_count: RefCount::new(),
+            ref_count: Default::default(),
             typeid: TypeId::of::<T>(),
             vtable: PyObjVTable::of::<T>(),
             typ: PyAtomicRef::from(typ),
@@ -1135,7 +1137,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         };
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
-                ref_count: RefCount::new(),
+                ref_count: Default::default(),
                 typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
@@ -1147,7 +1149,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         )));
         let object_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
-                ref_count: RefCount::new(),
+                ref_count: Default::default(),
                 typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,

@@ -16,8 +16,18 @@ pub struct Brc<Op: BrcThreadOp + ?Sized> {
 pub trait BrcThreadOp {
     type ThreadId: Copy + Eq;
     fn current_thread_id() -> Self::ThreadId;
+    #[cold]
     fn enqueue(brc: &Brc<Self>, tid: Self::ThreadId);
 }
+
+impl<Op: BrcThreadOp> Default for Brc<Op> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+unsafe impl<Op: BrcThreadOp> Send for Brc<Op> {}
+unsafe impl<Op: BrcThreadOp> Sync for Brc<Op> {}
 
 // TODO: IMMORTAL & DEFERRED
 const BIASED_SHIFT: i32 = 0;
@@ -27,7 +37,15 @@ const SHARED_FLAG_MERGED: i32 = 1;
 const SHARED_FLAG_QUEUED: i32 = 2;
 
 impl<Op: BrcThreadOp> Brc<Op> {
-    pub fn increment(&self) {
+    pub fn new() -> Self {
+        Self {
+            tid: Cell::new(Some(Op::current_thread_id())),
+            biased: Cell::new(1),
+            shared: AtomicI32::new(0),
+        }
+    }
+
+    pub fn inc(&self) {
         if self.is_local_thread() {
             self.fast_increment();
         } else {
@@ -35,12 +53,32 @@ impl<Op: BrcThreadOp> Brc<Op> {
         }
     }
 
-    pub fn decrement(&self) {
+    pub fn dec(&self) -> bool {
         if self.is_local_thread() {
-            self.fast_decrement();
+            self.fast_decrement()
         } else {
-            self.slow_decrement();
+            self.slow_decrement()
         }
+    }
+
+    pub fn safe_inc(&self) -> bool {
+        // TODO: DEFERRED?
+        self.inc();
+        true
+    }
+
+    pub fn get(&self) -> usize {
+        ((self.biased.get() >> BIASED_SHIFT)
+            + (self.shared.load(Ordering::SeqCst) >> SHARED_SHIFT) as u32) as usize
+    }
+
+    pub fn leak(&self) {
+        // TODO: IMMORTAL?
+        self.biased.set(self.biased.get() + (1 << 31))
+    }
+
+    pub fn is_leaked(&self) -> bool {
+        self.biased.get() & (1 << 31) != 0
     }
 
     fn fast_increment(&self) {
@@ -59,18 +97,17 @@ impl<Op: BrcThreadOp> Brc<Op> {
         rc -= 1 << BIASED_SHIFT;
         self.biased.set(rc);
 
-        // still alive
+        // still alive?
         if rc != 0 {
             return false;
         }
 
-        // local ref reached zero
+        // set merged flag
+        let shared = self.shared.fetch_or(SHARED_FLAG_MERGED, Ordering::SeqCst);
         // release the tid
         self.tid.set(None);
-        // set merged flag
-        let old = self.shared.fetch_or(SHARED_FLAG_MERGED, Ordering::SeqCst);
-        // if queued flag not set, free to dealloc
-        old & !SHARED_FLAG_QUEUED == 0
+        // free to dealloc if shared count is zero
+        shared_count(shared) == 0
     }
 
     #[cold]
@@ -78,15 +115,15 @@ impl<Op: BrcThreadOp> Brc<Op> {
         // We need to grab the thread-id before modifying the refcount
         // because the owning thread may set it to zero if we mark the
         // object as queued.
-        let tid = self.tid.get().expect("tid is None on slow_decrement()");
+        let tid = self.tid.get();
         let mut queue;
-        let mut new;
+        let mut shared;
 
         loop {
             let old = self.shared.load(Ordering::Relaxed);
 
             queue = old == 0;
-            new = if queue {
+            shared = if queue {
                 // If the object had refcount zero, not queued, and not merged,
                 // then we enqueue the object to be merged by the owning thread.
                 // TODO: we should subtract one either here or where queue the object
@@ -97,22 +134,21 @@ impl<Op: BrcThreadOp> Brc<Op> {
                 old - (1 << SHARED_SHIFT)
             };
 
-            if let Ok(_) =
-                self.shared
-                    .compare_exchange(old, new, Ordering::SeqCst, Ordering::SeqCst)
+            if self
+                .shared
+                .compare_exchange(old, shared, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
             {
                 break;
             }
         }
 
         if queue {
-            // TODO: queue object
+            let tid = tid.expect("tid is None but try to queue the object");
             Op::enqueue(self, tid);
             false
-        } else if is_merged(new) && (new >> SHARED_SHIFT) == 0 {
-            true
         } else {
-            false
+            is_merged(shared) && shared_count(shared) == 0
         }
     }
 
@@ -127,4 +163,12 @@ fn is_merged(shared: i32) -> bool {
 
 fn is_queued(shared: i32) -> bool {
     shared & SHARED_FLAG_QUEUED != 0
+}
+
+fn shared_count(shared: i32) -> i32 {
+    shared >> SHARED_SHIFT
+}
+
+fn biased_count(biased: u32) -> u32 {
+    biased >> BIASED_SHIFT
 }
