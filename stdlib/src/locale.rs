@@ -1,11 +1,6 @@
-#[cfg(any(
-    unix,
-    windows,
-    not(any(target_os = "ios", target_os = "android", target_arch = "wasm32"))
-))]
 pub(crate) use _locale::make_module;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(windows)]
 #[repr(C)]
 struct lconv {
     decimal_point: *mut libc::c_char,
@@ -34,16 +29,14 @@ struct lconv {
     int_n_sign_posn: libc::c_char,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(windows)]
 extern "C" {
     fn localeconv() -> *mut lconv;
 }
 
-#[cfg(any(
-    unix,
-    windows,
-    not(any(target_os = "ios", target_os = "android", target_arch = "wasm32"))
-))]
+#[cfg(unix)]
+use libc::localeconv;
+
 #[pymodule]
 mod _locale {
     use rustpython_vm::{
@@ -71,11 +64,6 @@ mod _locale {
     #[pyattr]
     use libc::{LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY, LC_NUMERIC, LC_TIME};
 
-    #[cfg(any(
-        unix,
-        windows,
-        not(any(target_os = "ios", target_os = "android", target_arch = "wasm32"))
-    ))]
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
         vm.ctx.new_int(libc::c_char::MAX)
@@ -108,11 +96,6 @@ mod _locale {
         Ok(vm.new_pyobj(string))
     }
 
-    #[cfg(any(
-        unix,
-        windows,
-        not(any(target_os = "ios", target_os = "android", target_arch = "wasm32"))
-    ))]
     #[pyattr(name = "Error", once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
@@ -122,11 +105,6 @@ mod _locale {
         )
     }
 
-    #[cfg(any(
-        unix,
-        windows,
-        not(any(target_os = "ios", target_os = "android", target_arch = "wasm32"))
-    ))]
     #[pyfunction]
     fn strcoll(string1: PyStrRef, string2: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let cstr1 = CString::new(string1.as_str()).map_err(|e| e.to_pyexception(vm))?;
@@ -134,11 +112,6 @@ mod _locale {
         Ok(vm.new_pyobj(unsafe { libc::strcoll(cstr1.as_ptr(), cstr2.as_ptr()) }))
     }
 
-    #[cfg(any(
-        unix,
-        windows,
-        not(any(target_os = "ios", target_os = "android", target_arch = "wasm32"))
-    ))]
     #[pyfunction]
     fn strxfrm(string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
@@ -154,8 +127,8 @@ mod _locale {
         Ok(vm.new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
     }
 
-    #[pyfunction(name = "localeconv")]
-    fn _localeconv(vm: &VirtualMachine) -> PyResult<PyDictRef> {
+    #[pyfunction]
+    fn localeconv(vm: &VirtualMachine) -> PyResult<PyDictRef> {
         let result = vm.ctx.new_dict();
 
         unsafe {
@@ -216,11 +189,6 @@ mod _locale {
         locale: OptionalArg<Option<PyStrRef>>,
     }
 
-    #[cfg(any(
-        unix,
-        windows,
-        not(any(target_os = "ios", target_os = "android", target_arch = "wasm32"))
-    ))]
     #[pyfunction]
     fn setlocale(args: LocaleArgs, vm: &VirtualMachine) -> PyResult {
         let error = error(vm);

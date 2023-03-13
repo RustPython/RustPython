@@ -15,6 +15,7 @@ mod dis;
 mod gc;
 mod hashlib;
 mod json;
+#[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
 mod locale;
 mod math;
 #[cfg(unix)]
@@ -160,7 +161,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_uuid" => uuid::make_module,
         }
-        #[cfg(any(unix, windows, not(any(target_os = "ios", target_os = "android", target_arch="wasm32"))))]
+        #[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
         {
             "_locale" => locale::make_module,
         }
