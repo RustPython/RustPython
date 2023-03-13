@@ -1,7 +1,42 @@
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 pub(crate) use _locale::make_module;
 
-#[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
+#[cfg(windows)]
+#[repr(C)]
+struct lconv {
+    decimal_point: *mut libc::c_char,
+    thousands_sep: *mut libc::c_char,
+    grouping: *mut libc::c_char,
+    int_curr_symbol: *mut libc::c_char,
+    currency_symbol: *mut libc::c_char,
+    mon_decimal_point: *mut libc::c_char,
+    mon_thousands_sep: *mut libc::c_char,
+    mon_grouping: *mut libc::c_char,
+    positive_sign: *mut libc::c_char,
+    negative_sign: *mut libc::c_char,
+    int_frac_digits: libc::c_char,
+    frac_digits: libc::c_char,
+    p_cs_precedes: libc::c_char,
+    p_sep_by_space: libc::c_char,
+    n_cs_precedes: libc::c_char,
+    n_sep_by_space: libc::c_char,
+    p_sign_posn: libc::c_char,
+    n_sign_posn: libc::c_char,
+    int_p_cs_precedes: libc::c_char,
+    int_n_cs_precedes: libc::c_char,
+    int_p_sep_by_space: libc::c_char,
+    int_n_sep_by_space: libc::c_char,
+    int_p_sign_posn: libc::c_char,
+    int_n_sign_posn: libc::c_char,
+}
+
+#[cfg(windows)]
+extern "C" {
+    fn localeconv() -> *mut lconv;
+}
+
+#[cfg(unix)]
+use libc::localeconv;
+
 #[pymodule]
 mod _locale {
     use rustpython_vm::{
@@ -15,16 +50,19 @@ mod _locale {
         ptr,
     };
 
+    #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
     #[pyattr]
     use libc::{
         ABDAY_1, ABDAY_2, ABDAY_3, ABDAY_4, ABDAY_5, ABDAY_6, ABDAY_7, ABMON_1, ABMON_10, ABMON_11,
         ABMON_12, ABMON_2, ABMON_3, ABMON_4, ABMON_5, ABMON_6, ABMON_7, ABMON_8, ABMON_9,
         ALT_DIGITS, AM_STR, CODESET, CRNCYSTR, DAY_1, DAY_2, DAY_3, DAY_4, DAY_5, DAY_6, DAY_7,
-        D_FMT, D_T_FMT, ERA, ERA_D_FMT, ERA_D_T_FMT, ERA_T_FMT, LC_ALL, LC_COLLATE, LC_CTYPE,
-        LC_MESSAGES, LC_MONETARY, LC_NUMERIC, LC_TIME, MON_1, MON_10, MON_11, MON_12, MON_2, MON_3,
-        MON_4, MON_5, MON_6, MON_7, MON_8, MON_9, NOEXPR, PM_STR, RADIXCHAR, THOUSEP, T_FMT,
-        T_FMT_AMPM, YESEXPR,
+        D_FMT, D_T_FMT, ERA, ERA_D_FMT, ERA_D_T_FMT, ERA_T_FMT, LC_MESSAGES, MON_1, MON_10, MON_11,
+        MON_12, MON_2, MON_3, MON_4, MON_5, MON_6, MON_7, MON_8, MON_9, NOEXPR, PM_STR, RADIXCHAR,
+        THOUSEP, T_FMT, T_FMT_AMPM, YESEXPR,
     };
+
+    #[pyattr]
+    use libc::{LC_ALL, LC_COLLATE, LC_CTYPE, LC_MONETARY, LC_NUMERIC, LC_TIME};
 
     #[pyattr(name = "CHAR_MAX")]
     fn char_max(vm: &VirtualMachine) -> PyIntRef {
@@ -78,11 +116,14 @@ mod _locale {
     fn strxfrm(string: PyStrRef, vm: &VirtualMachine) -> PyResult {
         // https://github.com/python/cpython/blob/eaae563b6878aa050b4ad406b67728b6b066220e/Modules/_localemodule.c#L390-L442
         let n1 = string.byte_len() + 1;
-        let mut buff: Vec<u8> = vec![0; n1];
+        let mut buff = vec![0u8; n1];
 
         let cstr = CString::new(string.as_str()).map_err(|e| e.to_pyexception(vm))?;
         let n2 = unsafe { libc::strxfrm(buff.as_mut_ptr() as _, cstr.as_ptr(), n1) };
-        buff.truncate(n2);
+        buff = vec![0u8; n2 + 1];
+        unsafe {
+            libc::strxfrm(buff.as_mut_ptr() as _, cstr.as_ptr(), n2 + 1);
+        }
         Ok(vm.new_pyobj(String::from_utf8(buff).expect("strxfrm returned invalid utf-8 string")))
     }
 
@@ -91,52 +132,51 @@ mod _locale {
         let result = vm.ctx.new_dict();
 
         unsafe {
-            let lc = libc::localeconv();
-
             macro_rules! set_string_field {
-                ($field:ident) => {{
+                ($lc:expr, $field:ident) => {{
                     result.set_item(
                         stringify!($field),
-                        pystr_from_raw_cstr(vm, (*lc).$field)?,
+                        pystr_from_raw_cstr(vm, (*$lc).$field)?,
                         vm,
                     )?
                 }};
             }
 
             macro_rules! set_int_field {
-                ($field:ident) => {{
-                    result.set_item(stringify!($field), vm.new_pyobj((*lc).$field), vm)?
+                ($lc:expr, $field:ident) => {{
+                    result.set_item(stringify!($field), vm.new_pyobj((*$lc).$field), vm)?
                 }};
             }
 
             macro_rules! set_group_field {
-                ($field:ident) => {{
+                ($lc:expr, $field:ident) => {{
                     result.set_item(
                         stringify!($field),
-                        copy_grouping((*lc).$field, vm).into(),
+                        copy_grouping((*$lc).$field, vm).into(),
                         vm,
                     )?
                 }};
             }
 
-            set_group_field!(mon_grouping);
-            set_group_field!(grouping);
-            set_int_field!(int_frac_digits);
-            set_int_field!(frac_digits);
-            set_int_field!(p_cs_precedes);
-            set_int_field!(p_sep_by_space);
-            set_int_field!(n_cs_precedes);
-            set_int_field!(p_sign_posn);
-            set_int_field!(n_sign_posn);
-            set_string_field!(decimal_point);
-            set_string_field!(thousands_sep);
-            set_string_field!(int_curr_symbol);
-            set_string_field!(currency_symbol);
-            set_string_field!(mon_decimal_point);
-            set_string_field!(mon_thousands_sep);
-            set_int_field!(n_sep_by_space);
-            set_string_field!(positive_sign);
-            set_string_field!(negative_sign);
+            let lc = super::localeconv();
+            set_group_field!(lc, mon_grouping);
+            set_group_field!(lc, grouping);
+            set_int_field!(lc, int_frac_digits);
+            set_int_field!(lc, frac_digits);
+            set_int_field!(lc, p_cs_precedes);
+            set_int_field!(lc, p_sep_by_space);
+            set_int_field!(lc, n_cs_precedes);
+            set_int_field!(lc, p_sign_posn);
+            set_int_field!(lc, n_sign_posn);
+            set_string_field!(lc, decimal_point);
+            set_string_field!(lc, thousands_sep);
+            set_string_field!(lc, int_curr_symbol);
+            set_string_field!(lc, currency_symbol);
+            set_string_field!(lc, mon_decimal_point);
+            set_string_field!(lc, mon_thousands_sep);
+            set_int_field!(lc, n_sep_by_space);
+            set_string_field!(lc, positive_sign);
+            set_string_field!(lc, negative_sign);
         }
         Ok(result)
     }
@@ -151,6 +191,10 @@ mod _locale {
 
     #[pyfunction]
     fn setlocale(args: LocaleArgs, vm: &VirtualMachine) -> PyResult {
+        let error = error(vm);
+        if cfg!(windows) && (args.category < LC_ALL || args.category > LC_TIME) {
+            return Err(vm.new_exception_msg(error, String::from("unsupported locale setting")));
+        }
         unsafe {
             let result = match args.locale.flatten() {
                 None => libc::setlocale(args.category, ptr::null()),
@@ -161,7 +205,6 @@ mod _locale {
                 }
             };
             if result.is_null() {
-                let error = error(vm);
                 return Err(vm.new_exception_msg(error, String::from("unsupported locale setting")));
             }
             pystr_from_raw_cstr(vm, result)
