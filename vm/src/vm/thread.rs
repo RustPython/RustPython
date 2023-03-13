@@ -1,6 +1,6 @@
 use crate::{AsObject, PyObject, VirtualMachine};
 use itertools::Itertools;
-use rustpython_common::brc::{Brc, BrcThreadOp};
+use rustpython_common::brc::{Brc, BrcOp};
 use std::{
     cell::RefCell,
     collections::HashMap,
@@ -17,7 +17,7 @@ thread_local! {
 
 pub struct BrcImpl;
 
-impl BrcThreadOp for BrcImpl {
+impl BrcOp for BrcImpl {
     type ThreadId = NonZeroUsize;
 
     fn current_thread_id() -> Self::ThreadId {
@@ -34,13 +34,17 @@ impl BrcThreadOp for BrcImpl {
 
     fn enqueue(brc: &Brc<Self>, tid: Self::ThreadId) {
         // TODO: fix unwrap
-        buckets.with(|x| {
-            x.lock()
-                .unwrap()
-                .entry(tid)
-                .or_default()
-                .push(brc as *const Brc<Self> as *const _)
-        })
+        // buckets.with(|x| {
+        //     x.lock()
+        //         .unwrap()
+        //         .entry(tid)
+        //         .or_default()
+        //         .push(brc as *const Brc<Self> as *const _)
+        // })
+    }
+
+    fn dealloc(brc: &Brc<Self>) {
+        unsafe { PyObject::drop_slow(NonNull::new_unchecked(brc as *const Brc<Self> as *mut Brc<Self> as *mut _)) }
     }
 }
 
