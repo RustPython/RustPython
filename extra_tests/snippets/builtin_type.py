@@ -560,3 +560,8 @@ def my_repr_func():
     pass
 
 assert repr(my_repr_func).startswith('<function my_repr_func at 0x')
+
+
+# https://github.com/RustPython/RustPython/issues/3100
+import types
+assert types.BuiltinFunctionType is types.BuiltinMethodType
