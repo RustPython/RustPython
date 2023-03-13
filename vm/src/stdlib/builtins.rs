@@ -18,8 +18,9 @@ mod builtins {
         common::{hash::PyHash, str::to_ascii},
         convert::ToPyException,
         function::{
-            ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike,
-            Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
+            ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
+            ArgStrOrBytesLike, Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
+            PyArithmeticValue,
         },
         protocol::{PyIter, PyIterReturn, PyNumberBinaryOp},
         py_io,
@@ -360,7 +361,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn hex(number: PyIntRef) -> String {
+    fn hex(number: ArgIndex) -> String {
         let n = number.as_bigint();
         format!("{n:#x}")
     }
@@ -548,7 +549,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn oct(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyResult {
         let n = number.as_bigint();
         let s = if n.is_negative() {
             format!("-0o{:o}", n.abs())

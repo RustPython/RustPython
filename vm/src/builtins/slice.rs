@@ -1,9 +1,9 @@
 // sliceobject.{h,c} in CPython
-use super::{PyInt, PyIntRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyTupleRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
     types::{Comparable, Constructor, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -114,7 +114,7 @@ impl PySlice {
             step = One::one();
         } else {
             // Clone the value, not the reference.
-            let this_step: PyRef<PyInt> = self.step(vm).try_into_value(vm)?;
+            let this_step = self.step(vm).try_index(vm)?;
             step = this_step.as_bigint().clone();
 
             if step.is_zero() {
@@ -148,7 +148,7 @@ impl PySlice {
                 lower.clone()
             };
         } else {
-            let this_start: PyRef<PyInt> = self.start(vm).try_into_value(vm)?;
+            let this_start = self.start(vm).try_index(vm)?;
             start = this_start.as_bigint().clone();
 
             if start < Zero::zero() {
@@ -168,7 +168,7 @@ impl PySlice {
         if vm.is_none(&self.stop) {
             stop = if backwards { lower } else { upper };
         } else {
-            let this_stop: PyRef<PyInt> = self.stop(vm).try_into_value(vm)?;
+            let this_stop = self.stop(vm).try_index(vm)?;
             stop = this_stop.as_bigint().clone();
 
             if stop < Zero::zero() {
@@ -186,7 +186,7 @@ impl PySlice {
     }
 
     #[pymethod]
-    fn indices(&self, length: PyIntRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn indices(&self, length: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let length = length.as_bigint();
         if length.is_negative() {
             return Err(vm.new_value_error("length should not be negative.".to_owned()));

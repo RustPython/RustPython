@@ -44,14 +44,11 @@ impl PyObject {
         F: Fn(&T) -> PyResult<R>,
     {
         let class = T::class(vm);
-        let special;
         let py_ref = if self.fast_isinstance(class) {
             self.downcast_ref()
                 .ok_or_else(|| vm.new_downcast_runtime_error(class, self))?
         } else {
-            special = T::special_retrieve(vm, self)
-                .unwrap_or_else(|| Err(vm.new_downcast_type_error(class, self)))?;
-            &special
+            return Err(vm.new_downcast_type_error(class, self));
         };
         f(py_ref)
     }
@@ -74,8 +71,7 @@ where
             obj.downcast()
                 .map_err(|obj| vm.new_downcast_runtime_error(class, &obj))
         } else {
-            T::special_retrieve(vm, &obj)
-                .unwrap_or_else(|| Err(vm.new_downcast_type_error(class, &obj)))
+            Err(vm.new_downcast_type_error(class, &obj))
         }
     }
 }

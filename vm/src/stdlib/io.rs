@@ -111,7 +111,7 @@ mod _io {
         },
         convert::ToPyObject,
         function::{
-            ArgBytesLike, ArgIterable, ArgMemoryBuffer, Either, FuncArgs, IntoFuncArgs,
+            ArgBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Either, FuncArgs, IntoFuncArgs,
             OptionalArg, OptionalOption, PySetterValue,
         },
         protocol::{
@@ -169,7 +169,7 @@ mod _io {
         // In a few functions, the default value is -1 rather than None.
         // Make sure the default value doesn't affect compatibility.
         #[pyarg(positional, default)]
-        size: Option<isize>,
+        size: Option<ArgSize>,
     }
 
     impl OptionalSize {
@@ -181,6 +181,7 @@ mod _io {
         pub fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
             self.size
                 .map(|v| {
+                    let v = *v;
                     if v >= 0 {
                         Ok(v as usize)
                     } else {
@@ -1597,7 +1598,7 @@ mod _io {
         fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Option<PyBytesRef>> {
             let mut data = self.reader().lock(vm)?;
             let raw = data.check_init(vm)?;
-            let n = size.size.unwrap_or(-1);
+            let n = size.size.map(|s| *s).unwrap_or(-1);
             if n < -1 {
                 return Err(vm.new_value_error("read length must be non-negative or -1".to_owned()));
             }

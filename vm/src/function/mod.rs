@@ -17,7 +17,7 @@ pub use builtin::{IntoPyNativeFunc, OwnedParam, PyNativeFunc, RefParam};
 pub use either::Either;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
-pub use number::{ArgIntoBool, ArgIntoComplex, ArgIntoFloat};
+pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 
 use crate::{builtins::PyStr, convert::TryFromBorrowedObject, PyObject, PyResult, VirtualMachine};
