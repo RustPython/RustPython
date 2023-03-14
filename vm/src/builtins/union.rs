@@ -7,7 +7,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
-    types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp},
+    types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -34,14 +34,16 @@ impl PyPayload for PyUnion {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Hashable, Comparable, AsMapping, AsNumber))]
+#[pyclass(
+    flags(BASETYPE),
+    with(Hashable, Comparable, AsMapping, AsNumber, Representable)
+)]
 impl PyUnion {
     pub fn new(args: PyTupleRef, vm: &VirtualMachine) -> Self {
         let parameters = make_parameters(&args, vm);
         Self { args, parameters }
     }
 
-    #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
             if obj.is(vm.ctx.types.none_type) {
@@ -304,6 +306,13 @@ impl GetAttr for PyUnion {
             }
         }
         zelf.as_object().to_pyobject(vm).get_attr(attr, vm)
+    }
+}
+
+impl Representable for PyUnion {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        zelf.repr(vm).map(|s| PyStr::from(s).into_ref(vm))
     }
 }
 

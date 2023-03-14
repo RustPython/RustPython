@@ -16,7 +16,9 @@ use crate::{
     frame::Frame,
     function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
-    types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
+    types::{
+        Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp, Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
@@ -337,7 +339,10 @@ impl PyPayload for PyFunction {
     }
 }
 
-#[pyclass(with(GetDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
+#[pyclass(
+    with(GetDescriptor, Callable, Representable),
+    flags(HAS_DICT, METHOD_DESCR)
+)]
 impl PyFunction {
     #[pygetset(magic)]
     fn code(&self) -> PyRef<PyCode> {
@@ -414,11 +419,6 @@ impl PyFunction {
         Ok(())
     }
 
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        format!("<function {} at {:#x}>", zelf.qualname(), zelf.get_id())
-    }
-
     #[cfg(feature = "jit")]
     #[pymethod(magic)]
     fn jit(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
@@ -454,6 +454,18 @@ impl Callable for PyFunction {
     #[inline]
     fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
+    }
+}
+
+impl Representable for PyFunction {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from(format!(
+            "<function {} at {:#x}>",
+            zelf.qualname(),
+            zelf.get_id()
+        ))
+        .into_ref(vm))
     }
 }
 

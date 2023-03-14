@@ -1,11 +1,11 @@
-use super::{PyCode, PyStrRef, PyType};
+use super::{PyCode, PyStr, PyStrRef, PyType};
 use crate::{
     class::PyClassImpl,
     coroutine::Coro,
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{Constructor, IterNext, IterNextIterable, Unconstructible},
+    types::{Constructor, IterNext, IterNextIterable, Representable, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -22,7 +22,7 @@ impl PyPayload for PyCoroutine {
     }
 }
 
-#[pyclass(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext, Representable))]
 impl PyCoroutine {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -42,11 +42,6 @@ impl PyCoroutine {
     #[pygetset(magic, setter)]
     fn set_name(&self, name: PyStrRef) {
         self.inner.set_name(name)
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)
     }
 
     #[pymethod]
@@ -105,6 +100,13 @@ impl PyCoroutine {
     }
 }
 impl Unconstructible for PyCoroutine {}
+
+impl Representable for PyCoroutine {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)).into_ref(vm))
+    }
+}
 
 impl IterNextIterable for PyCoroutine {}
 impl IterNext for PyCoroutine {

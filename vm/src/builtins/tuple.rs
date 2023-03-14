@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
 
-use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
     atomic_func,
@@ -14,7 +14,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible,
+        Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -189,7 +189,15 @@ impl PyTuple {
 
 #[pyclass(
     flags(BASETYPE),
-    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor)
+    with(
+        AsMapping,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        Constructor,
+        Representable
+    )
 )]
 impl PyTuple {
     #[pymethod(magic)]
@@ -240,22 +248,6 @@ impl PyTuple {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if zelf.len() == 0 {
-            "()".to_owned()
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            if zelf.len() == 1 {
-                format!("({},)", zelf.elements[0].repr(vm)?)
-            } else {
-                collection_repr(None, "(", ")", zelf.elements.iter(), vm)?
-            }
-        } else {
-            "(...)".to_owned()
-        };
-        Ok(s)
     }
 
     #[pymethod(name = "__rmul__")]
@@ -403,6 +395,24 @@ impl Iterable for PyTuple {
             internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_pyobject(vm))
+    }
+}
+
+impl Representable for PyTuple {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let s = if zelf.len() == 0 {
+            "()".to_owned()
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            if zelf.len() == 1 {
+                format!("({},)", zelf.elements[0].repr(vm)?)
+            } else {
+                collection_repr(None, "(", ")", zelf.elements.iter(), vm)?
+            }
+        } else {
+            "(...)".to_owned()
+        };
+        Ok(PyStr::from(s).into_ref(vm))
     }
 }
 

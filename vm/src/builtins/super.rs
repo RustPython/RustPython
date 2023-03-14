@@ -3,11 +3,11 @@
 See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/Objects/typeobject.c#L7663)
 */
 
-use super::{PyStrRef, PyType, PyTypeRef};
+use super::{PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     function::{IntoFuncArgs, OptionalArg},
-    types::{Callable, Constructor, GetAttr, GetDescriptor},
+    types::{Callable, Constructor, GetAttr, GetDescriptor, Representable},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -97,7 +97,7 @@ impl Constructor for PySuper {
     }
 }
 
-#[pyclass(with(GetAttr, GetDescriptor, Constructor))]
+#[pyclass(with(GetAttr, GetDescriptor, Constructor, Representable))]
 impl PySuper {
     fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let obj = if vm.is_none(&obj) {
@@ -122,15 +122,6 @@ impl PySuper {
     #[pygetset]
     fn __self__(&self) -> Option<PyObjectRef> {
         Some(self.obj.as_ref()?.0.clone())
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        let name = &self.typ.name();
-        match self.obj {
-            Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", name, ty.name()),
-            None => format!("<super: <class '{name}'>, NULL>"),
-        }
     }
 }
 
@@ -189,6 +180,22 @@ impl GetDescriptor for PySuper {
         } else {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
             PyType::call(zelf.class(), (zelf.typ.clone(), obj).into_args(vm), vm)
+        }
+    }
+}
+
+impl Representable for PySuper {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let typname = &zelf.typ.name();
+        match zelf.obj {
+            Some((_, ref ty)) => Ok(PyStr::from(format!(
+                "<super: <class '{}'>, <{} object>>",
+                typname,
+                ty.name()
+            ))
+            .into_ref(vm)),
+            None => Ok(PyStr::from(format!("<super: <class '{typname}'>, NULL>")).into_ref(vm)),
         }
     }
 }

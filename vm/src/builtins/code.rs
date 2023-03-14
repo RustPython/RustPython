@@ -2,13 +2,14 @@
 
 */
 
-use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyStrInterned,
     bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg},
+    types::Representable,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
@@ -215,26 +216,29 @@ impl PyPayload for PyCode {
     }
 }
 
-#[pyclass(with(PyRef))]
+#[pyclass(with(PyRef, Representable))]
 impl PyCode {}
+
+impl Representable for PyCode {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let code = &zelf.code;
+        Ok(PyStr::from(format!(
+            "<code object {} at {:#x} file {:?}, line {}>",
+            code.obj_name,
+            zelf.get_id(),
+            code.source_path.as_str(),
+            code.first_line_number
+        ))
+        .into_ref(vm))
+    }
+}
 
 #[pyclass]
 impl PyRef<PyCode> {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
-    }
-
-    #[pymethod(magic)]
-    fn repr(self) -> String {
-        let code = &self.code;
-        format!(
-            "<code object {} at {:#x} file {:?}, line {}>",
-            code.obj_name,
-            self.get_id(),
-            code.source_path.as_str(),
-            code.first_line_number
-        )
     }
 
     #[pygetset]

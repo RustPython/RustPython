@@ -22,7 +22,7 @@ use crate::{
     sliceable::SequenceIndexOp,
     types::{
         AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        IterNextIterable, Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -75,7 +75,8 @@ impl Constructor for PyMemoryView {
     AsMapping,
     AsSequence,
     Constructor,
-    Iterable
+    Iterable,
+    Representable
 ))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
@@ -593,15 +594,6 @@ impl PyMemoryView {
         Ok(other.into_ref(vm))
     }
 
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        if zelf.released.load() {
-            format!("<released memory at {:#x}>", zelf.get_id())
-        } else {
-            format!("<memory at {:#x}>", zelf.get_id())
-        }
-    }
-
     #[pymethod]
     fn hex(
         &self,
@@ -1055,6 +1047,17 @@ impl Hashable for PyMemoryView {
 impl PyPayload for PyMemoryView {
     fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.memoryview_type
+    }
+}
+
+impl Representable for PyMemoryView {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        if zelf.released.load() {
+            Ok(PyStr::from(format!("<released memory at {:#x}>", zelf.get_id())).into_ref(vm))
+        } else {
+            Ok(PyStr::from(format!("<memory at {:#x}>", zelf.get_id())).into_ref(vm))
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
+use super::{PyCode, PyGenericAlias, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyBaseExceptionRef,
     class::PyClassImpl,
@@ -6,7 +6,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{Constructor, IterNext, IterNextIterable, Unconstructible},
+    types::{Constructor, IterNext, IterNextIterable, Representable, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -26,7 +26,7 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, Representable))]
 impl PyAsyncGen {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -47,11 +47,6 @@ impl PyAsyncGen {
     #[pygetset(magic, setter)]
     fn set_name(&self, name: PyStrRef) {
         self.inner.set_name(name)
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)
     }
 
     #[pymethod(magic)]
@@ -129,6 +124,14 @@ impl PyAsyncGen {
         PyGenericAlias::new(cls, args, vm)
     }
 }
+
+impl Representable for PyAsyncGen {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)).into_ref(vm))
+    }
+}
+
 impl Unconstructible for PyAsyncGen {}
 
 #[pyclass(module = false, name = "async_generator_wrapped_value")]

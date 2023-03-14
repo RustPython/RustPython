@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::FuncArgs,
-    types::{GetAttr, Initializer},
+    types::{GetAttr, Initializer, Representable},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -26,7 +26,7 @@ pub struct ModuleInitArgs {
     doc: Option<PyStrRef>,
 }
 
-#[pyclass(with(GetAttr, Initializer), flags(BASETYPE, HAS_DICT))]
+#[pyclass(with(GetAttr, Initializer, Representable), flags(BASETYPE, HAS_DICT))]
 impl PyModule {
     // pub(crate) fn new(d: PyDictRef) -> Self {
     //     PyModule { dict: d.into() }
@@ -65,13 +65,6 @@ impl PyModule {
             .generic_getattr_opt(identifier!(vm, __name__).to_owned(), None, vm)
             .unwrap_or(None)
             .and_then(|obj| obj.downcast::<PyStr>().ok())
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        let importlib = vm.import("_frozen_importlib", None, 0)?;
-        let module_repr = importlib.get_attr("_module_repr", vm)?;
-        module_repr.call((zelf,), vm)
     }
 
     #[pymethod(magic)]
@@ -144,6 +137,18 @@ impl Initializer for PyModule {
 impl GetAttr for PyModule {
     fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         Self::getattr_inner(zelf, name, vm)
+    }
+}
+
+impl Representable for PyModule {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let importlib = vm.import("_frozen_importlib", None, 0)?;
+        let module_repr = importlib.get_attr("_module_repr", vm)?;
+        module_repr.call((zelf.to_owned(),), vm).and_then(|obj| {
+            obj.downcast()
+                .map_err(|_| vm.new_type_error("_module_repr did not return a string".into()))
+        })
     }
 }
 

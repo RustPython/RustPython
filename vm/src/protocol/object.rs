@@ -317,8 +317,12 @@ impl PyObject {
 
     pub fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         vm.with_recursion("while getting the repr of an object", || {
-            let repr = vm.call_special_method(self.to_owned(), identifier!(vm, __repr__), ())?;
-            repr.try_into_value(vm)
+            match self.class().slots.repr.load() {
+                Some(slot) => slot(self, vm),
+                None => vm
+                    .call_special_method(self.to_owned(), identifier!(vm, __repr__), ())?
+                    .try_into_value(vm),
+            }
         })
     }
 

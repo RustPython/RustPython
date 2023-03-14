@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::atomic_func;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
@@ -14,7 +14,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible,
+        Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -97,7 +97,15 @@ pub(crate) struct SortOptions {
 pub type PyListRef = PyRef<PyList>;
 
 #[pyclass(
-    with(Constructor, Initializer, AsMapping, Iterable, Comparable, AsSequence),
+    with(
+        Constructor,
+        Initializer,
+        AsMapping,
+        Iterable,
+        Comparable,
+        AsSequence,
+        Representable
+    ),
     flags(BASETYPE)
 )]
 impl PyList {
@@ -227,18 +235,6 @@ impl PyList {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         self._setitem(&needle, value, vm)
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if zelf.len() == 0 {
-            "[]".to_owned()
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            collection_repr(None, "[", "]", zelf.borrow_vec().iter(), vm)?
-        } else {
-            "[...]".to_owned()
-        };
-        Ok(s)
     }
 
     #[pymethod(magic)]
@@ -490,6 +486,20 @@ impl Comparable for PyList {
         a.iter()
             .richcompare(b.iter(), op, vm)
             .map(PyComparisonValue::Implemented)
+    }
+}
+
+impl Representable for PyList {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let s = if zelf.len() == 0 {
+            "[]".to_owned()
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            collection_repr(None, "[", "]", zelf.borrow_vec().iter(), vm)?
+        } else {
+            "[...]".to_owned()
+        };
+        Ok(PyStr::from(s).into_ref(vm))
     }
 }
 

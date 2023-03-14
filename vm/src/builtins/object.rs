@@ -187,11 +187,9 @@ impl PyBaseObject {
         zelf.repr(vm)
     }
 
-    /// Return repr(self).
-    #[pymethod(magic)]
-    fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> Option<String> {
+    #[pyslot]
+    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let class = zelf.class();
-
         match (
             class
                 .qualname(vm)
@@ -199,19 +197,27 @@ impl PyBaseObject {
                 .map(|n| n.as_str()),
             class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
         ) {
-            (None, _) => None,
-            (Some(qualname), Some(module)) if module != "builtins" => Some(format!(
+            (None, _) => Err(vm.new_type_error("Unknown qualified name".into())),
+            (Some(qualname), Some(module)) if module != "builtins" => Ok(PyStr::from(format!(
                 "<{}.{} object at {:#x}>",
                 module,
                 qualname,
                 zelf.get_id()
-            )),
-            _ => Some(format!(
+            ))
+            .into_ref(vm)),
+            _ => Ok(PyStr::from(format!(
                 "<{} object at {:#x}>",
                 class.slot_name(),
                 zelf.get_id()
-            )),
+            ))
+            .into_ref(vm)),
         }
+    }
+
+    /// Return repr(self).
+    #[pymethod(magic)]
+    fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Self::slot_repr(&zelf, vm)
     }
 
     #[pyclassmethod(magic)]

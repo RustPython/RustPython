@@ -2,12 +2,13 @@
 
 */
 
-use super::{PyCode, PyDictRef, PyIntRef};
+use super::{PyCode, PyDictRef, PyIntRef, PyStr, PyStrRef};
 use crate::{
     class::PyClassImpl,
     frame::{Frame, FrameRef},
     function::PySetterValue,
-    types::{Constructor, Unconstructible},
+    object::PyPayload,
+    types::{Constructor, Representable, Unconstructible},
     AsObject, Context, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
@@ -16,17 +17,20 @@ pub fn init(context: &Context) {
     FrameRef::extend_class(context, context.types.frame_type);
 }
 
-#[pyclass(with(Constructor, PyRef))]
+#[pyclass(with(Constructor, PyRef, Representable))]
 impl Frame {}
+
 impl Unconstructible for Frame {}
+
+impl Representable for Frame {
+    #[inline]
+    fn repr(_zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from("<frame object at .. >").into_ref(vm))
+    }
+}
 
 #[pyclass]
 impl FrameRef {
-    #[pymethod(magic)]
-    fn repr(self) -> String {
-        "<frame object at .. >".to_owned()
-    }
-
     #[pymethod]
     fn clear(self) {
         // TODO

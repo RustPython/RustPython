@@ -1,10 +1,10 @@
-use super::{PyType, PyTypeRef};
+use super::{PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyDict,
     class::PyClassImpl,
     function::{FuncArgs, PyComparisonValue},
     recursion::ReprGuard,
-    types::{Comparable, Constructor, Initializer, PyComparisonOp},
+    types::{Comparable, Constructor, Initializer, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -39,33 +39,11 @@ impl PyNamespace {
     }
 }
 
-#[pyclass(flags(BASETYPE, HAS_DICT), with(Constructor, Initializer, Comparable))]
-impl PyNamespace {
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let o = zelf.as_object();
-        let name = if o.class().is(vm.ctx.types.namespace_type) {
-            "namespace".to_owned()
-        } else {
-            o.class().slot_name()
-        };
-
-        let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let dict = zelf.as_object().dict().unwrap();
-            let mut parts = Vec::with_capacity(dict.len());
-            for (key, value) in dict {
-                let k = &key.repr(vm)?;
-                let key_str = k.as_str();
-                let value_repr = value.repr(vm)?;
-                parts.push(format!("{}={}", &key_str[1..key_str.len() - 1], value_repr));
-            }
-            format!("{}({})", name, parts.join(", "))
-        } else {
-            format!("{name}(...)")
-        };
-        Ok(repr)
-    }
-}
+#[pyclass(
+    flags(BASETYPE, HAS_DICT),
+    with(Constructor, Initializer, Comparable, Representable)
+)]
+impl PyNamespace {}
 
 impl Initializer for PyNamespace {
     type Args = FuncArgs;
@@ -94,6 +72,33 @@ impl Comparable for PyNamespace {
             other.as_object().dict().unwrap(),
         );
         PyDict::cmp(&d1, d2.as_object(), op, vm)
+    }
+}
+
+impl Representable for PyNamespace {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let o = zelf.as_object();
+        let name = if o.class().is(vm.ctx.types.namespace_type) {
+            "namespace".to_owned()
+        } else {
+            o.class().slot_name()
+        };
+
+        let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let dict = zelf.as_object().dict().unwrap();
+            let mut parts = Vec::with_capacity(dict.len());
+            for (key, value) in dict {
+                let k = &key.repr(vm)?;
+                let key_str = k.as_str();
+                let value_repr = value.repr(vm)?;
+                parts.push(format!("{}={}", &key_str[1..key_str.len() - 1], value_repr));
+            }
+            format!("{}({})", name, parts.join(", "))
+        } else {
+            format!("{name}(...)")
+        };
+        Ok(PyStr::from(repr).into_ref(vm))
     }
 }
 

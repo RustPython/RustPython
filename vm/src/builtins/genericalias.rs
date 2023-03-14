@@ -9,7 +9,10 @@ use crate::{
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
     protocol::PyMappingMethods,
-    types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
+    types::{
+        AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp,
+        Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -60,7 +63,15 @@ impl Constructor for PyGenericAlias {
 }
 
 #[pyclass(
-    with(AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable),
+    with(
+        AsMapping,
+        Callable,
+        Comparable,
+        Constructor,
+        GetAttr,
+        Hashable,
+        Representable
+    ),
     flags(BASETYPE)
 )]
 impl PyGenericAlias {
@@ -79,7 +90,6 @@ impl PyGenericAlias {
         }
     }
 
-    #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
             if obj.is(&vm.ctx.ellipsis) {
@@ -387,6 +397,13 @@ impl GetAttr for PyGenericAlias {
             }
         }
         zelf.origin().get_attr(attr, vm)
+    }
+}
+
+impl Representable for PyGenericAlias {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        zelf.repr(vm).map(|s| PyStr::from(s).into_ref(vm))
     }
 }
 

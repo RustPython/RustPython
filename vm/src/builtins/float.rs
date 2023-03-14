@@ -14,7 +14,7 @@ use crate::{
         PyComparisonValue,
     },
     protocol::{PyNumber, PyNumberMethods},
-    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
@@ -185,7 +185,10 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     })
 }
 
-#[pyclass(flags(BASETYPE), with(Comparable, Hashable, Constructor, AsNumber))]
+#[pyclass(
+    flags(BASETYPE),
+    with(Comparable, Hashable, Constructor, AsNumber, Representable)
+)]
 impl PyFloat {
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
@@ -354,11 +357,6 @@ impl PyFloat {
     #[pymethod(magic)]
     fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
         self.simple_op(other, |a, b| Ok(b - a), vm)
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        float_ops::to_string(self.value)
     }
 
     #[pymethod(magic)]
@@ -577,6 +575,13 @@ impl AsNumber for PyFloat {
     #[inline]
     fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
         vm.ctx.new_float(zelf.value)
+    }
+}
+
+impl Representable for PyFloat {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from(float_ops::to_string(zelf.value)).into_ref(vm))
     }
 }
 

@@ -1,9 +1,9 @@
-use super::{PyType, PyTypeRef};
+use super::{PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     protocol::PyNumberMethods,
-    types::{AsNumber, Constructor},
+    types::{AsNumber, Constructor, Representable},
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -42,16 +42,18 @@ impl Constructor for PyNone {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber))]
+#[pyclass(with(Constructor, AsNumber, Representable))]
 impl PyNone {
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        "None".to_owned()
-    }
-
     #[pymethod(magic)]
     fn bool(&self) -> bool {
         false
+    }
+}
+
+impl Representable for PyNone {
+    #[inline]
+    fn repr(_zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from("None").into_ref(vm))
     }
 }
 
@@ -94,13 +96,15 @@ impl PyNotImplemented {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        "NotImplemented".to_owned()
-    }
-
-    #[pymethod(magic)]
     fn reduce(&self) -> String {
         "NotImplemented".to_owned()
+    }
+}
+
+impl Representable for PyNotImplemented {
+    #[inline]
+    fn repr(_zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from("NotImplemented").into_ref(vm))
     }
 }
 

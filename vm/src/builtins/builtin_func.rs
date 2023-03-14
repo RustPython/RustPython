@@ -3,7 +3,7 @@ use crate::{
     builtins::PyBoundMethod,
     class::PyClassImpl,
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
-    types::{Callable, Constructor, GetDescriptor, Unconstructible},
+    types::{Callable, Constructor, GetDescriptor, Representable, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use std::fmt;
@@ -145,10 +145,6 @@ impl PyBuiltinFunction {
     fn reduce_ex(&self, _ver: PyObjectRef) -> PyStrRef {
         self.name()
     }
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        format!("<built-in function {}>", self.value.name)
-    }
     #[pygetset(magic)]
     fn text_signature(&self) -> Option<String> {
         self.value.doc.as_ref().and_then(|doc| {
@@ -157,6 +153,14 @@ impl PyBuiltinFunction {
         })
     }
 }
+
+impl Representable for PyBuiltinFunction {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from(format!("<built-in function {}>", zelf.value.name)).into_ref(vm))
+    }
+}
+
 impl Unconstructible for PyBuiltinFunction {}
 
 // `PyBuiltinMethod` is similar to both `PyMethodDescrObject` in
@@ -225,7 +229,10 @@ impl PyBuiltinMethod {
     }
 }
 
-#[pyclass(with(GetDescriptor, Callable, Constructor), flags(METHOD_DESCR))]
+#[pyclass(
+    with(GetDescriptor, Callable, Constructor, Representable),
+    flags(METHOD_DESCR)
+)]
 impl PyBuiltinMethod {
     #[pygetset(magic)]
     fn name(&self) -> PyStrRef {
@@ -247,14 +254,6 @@ impl PyBuiltinMethod {
         })
     }
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        format!(
-            "<method '{}' of '{}' objects>",
-            &self.value.name,
-            self.class.name()
-        )
-    }
-    #[pymethod(magic)]
     fn reduce(
         &self,
         vm: &VirtualMachine,
@@ -264,6 +263,19 @@ impl PyBuiltinMethod {
         (builtins_getattr, (classname, self.value.name.clone()))
     }
 }
+
+impl Representable for PyBuiltinMethod {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from(format!(
+            "<method '{}' of '{}' objects>",
+            &zelf.value.name,
+            zelf.class.name()
+        ))
+        .into_ref(vm))
+    }
+}
+
 impl Unconstructible for PyBuiltinMethod {}
 
 pub fn init(context: &Context) {

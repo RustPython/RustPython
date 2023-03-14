@@ -1,12 +1,12 @@
 // sliceobject.{h,c} in CPython
 // spell-checker:ignore sliceobject
-use super::{PyTupleRef, PyType, PyTypeRef};
+use super::{PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
-    types::{Comparable, Constructor, PyComparisonOp},
+    types::{Comparable, Constructor, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_bigint::{BigInt, ToBigInt};
@@ -26,7 +26,7 @@ impl PyPayload for PySlice {
     }
 }
 
-#[pyclass(with(Comparable))]
+#[pyclass(with(Comparable, Representable))]
 impl PySlice {
     #[pygetset]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -55,20 +55,6 @@ impl PySlice {
             Some(v) => v,
             None => vm.ctx.none.as_object(),
         }
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let start_repr = self.start_ref(vm).repr(vm)?;
-        let stop_repr = &self.stop.repr(vm)?;
-        let step_repr = self.step_ref(vm).repr(vm)?;
-
-        Ok(format!(
-            "slice({}, {}, {})",
-            start_repr.as_str(),
-            stop_repr.as_str(),
-            step_repr.as_str()
-        ))
     }
 
     pub fn to_saturated(&self, vm: &VirtualMachine) -> PyResult<SaturatedSlice> {
@@ -258,6 +244,22 @@ impl Comparable for PySlice {
         Ok(PyComparisonValue::Implemented(ret))
     }
 }
+impl Representable for PySlice {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let start_repr = zelf.start_ref(vm).repr(vm)?;
+        let stop_repr = &zelf.stop.repr(vm)?;
+        let step_repr = zelf.step_ref(vm).repr(vm)?;
+
+        Ok(PyStr::from(format!(
+            "slice({}, {}, {})",
+            start_repr.as_str(),
+            stop_repr.as_str(),
+            step_repr.as_str()
+        ))
+        .into_ref(vm))
+    }
+}
 
 #[pyclass(module = false, name = "EllipsisType")]
 #[derive(Debug)]
@@ -277,16 +279,18 @@ impl Constructor for PyEllipsis {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, Representable))]
 impl PyEllipsis {
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        "Ellipsis".to_owned()
-    }
-
     #[pymethod(magic)]
     fn reduce(&self) -> String {
         "Ellipsis".to_owned()
+    }
+}
+
+impl Representable for PyEllipsis {
+    #[inline]
+    fn repr(_zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(PyStr::from("Ellipsis").into_ref(vm))
     }
 }
 

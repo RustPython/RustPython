@@ -21,8 +21,7 @@ use crate::{
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
-    types::AsNumber,
-    types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
+    types::{AsNumber, Callable, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::{map::Entry, IndexMap};
@@ -375,7 +374,10 @@ impl Py<PyType> {
     }
 }
 
-#[pyclass(with(GetAttr, SetAttr, Callable, AsNumber), flags(BASETYPE))]
+#[pyclass(
+    with(GetAttr, SetAttr, Callable, AsNumber, Representable),
+    flags(BASETYPE)
+)]
 impl PyType {
     // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -457,27 +459,6 @@ impl PyType {
             }
         })
         .into()
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> String {
-        let module = self.module(vm);
-        let module = module.downcast_ref::<PyStr>().map(|m| m.as_str());
-
-        match module {
-            Some(module) if module != "builtins" => {
-                let name = self.name();
-                format!(
-                    "<class '{}.{}'>",
-                    module,
-                    self.qualname(vm)
-                        .downcast_ref::<PyStr>()
-                        .map(|n| n.as_str())
-                        .unwrap_or_else(|| &name)
-                )
-            }
-            _ => format!("<class '{}'>", self.slot_name()),
-        }
     }
 
     #[pygetset(magic)]
@@ -1069,6 +1050,30 @@ impl AsNumber for PyType {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
+    }
+}
+
+impl Representable for PyType {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let module = zelf.module(vm);
+        let module = module.downcast_ref::<PyStr>().map(|m| m.as_str());
+
+        match module {
+            Some(module) if module != "builtins" => {
+                let name = zelf.name();
+                Ok(PyStr::from(format!(
+                    "<class '{}.{}'>",
+                    module,
+                    zelf.qualname(vm)
+                        .downcast_ref::<PyStr>()
+                        .map(|n| n.as_str())
+                        .unwrap_or_else(|| &name)
+                ))
+                .into_ref(vm))
+            }
+            _ => Ok(PyStr::from(format!("<class '{}'>", zelf.slot_name())).into_ref(vm)),
+        }
     }
 }
 

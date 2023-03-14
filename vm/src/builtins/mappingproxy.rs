@@ -1,11 +1,16 @@
-use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
+use super::{
+    PyDict, PyDictRef, PyGenericAlias, PyList, PyStr, PyStrRef, PyTuple, PyType, PyTypeRef,
+};
 use crate::{
     atomic_func,
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
     protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequenceMethods},
-    types::{AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp},
+    types::{
+        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
+        Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use once_cell::sync::Lazy;
@@ -69,7 +74,15 @@ impl Constructor for PyMappingProxy {
     }
 }
 
-#[pyclass(with(AsMapping, Iterable, Constructor, AsSequence, Comparable, AsNumber))]
+#[pyclass(with(
+    AsMapping,
+    Iterable,
+    Constructor,
+    AsSequence,
+    Comparable,
+    AsNumber,
+    Representable
+))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
@@ -148,11 +161,6 @@ impl PyMappingProxy {
                 Ok(PyDict::from_attributes(c.attributes.read().clone(), vm)?.to_pyobject(vm))
             }
         }
-    }
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let obj = self.to_object(vm)?;
-        Ok(format!("mappingproxy({})", obj.repr(vm)?))
     }
 
     #[pyclassmethod(magic)]
@@ -257,6 +265,14 @@ impl Iterable for PyMappingProxy {
         let obj = zelf.to_object(vm)?;
         let iter = obj.get_iter(vm)?;
         Ok(iter.into())
+    }
+}
+
+impl Representable for PyMappingProxy {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let obj = zelf.to_object(vm)?;
+        Ok(PyStr::from(format!("mappingproxy({})", obj.repr(vm)?)).into_ref(vm))
     }
 }
 

@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
-    PyType, PyTypeRef,
+    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStr, PyStrRef, PyTuple,
+    PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     anystr::{self, AnyStr},
@@ -31,7 +31,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer,
-        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -107,7 +107,8 @@ pub(crate) fn init(context: &Context) {
         AsMapping,
         AsSequence,
         AsNumber,
-        Iterable
+        Iterable,
+        Representable
     )
 )]
 impl PyByteArray {
@@ -124,13 +125,6 @@ impl PyByteArray {
     #[inline]
     fn inner_mut(&self) -> PyRwLockWriteGuard<'_, PyBytesInner> {
         self.inner.write()
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let class = zelf.class();
-        let class_name = class.name();
-        zelf.inner().repr(Some(&class_name), vm)
     }
 
     #[pymethod(magic)]
@@ -886,6 +880,17 @@ impl Iterable for PyByteArray {
     }
 }
 
+impl Representable for PyByteArray {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let class = zelf.class();
+        let class_name = class.name();
+        zelf.inner()
+            .repr(Some(&class_name), vm)
+            .map(|s| PyStr::from(s).into_ref(vm))
+    }
+}
+
 // fn set_value(obj: &PyObject, value: Vec<u8>) {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
@@ -922,6 +927,7 @@ impl PyByteArrayIterator {
             .set_state(state, |obj, pos| pos.min(obj.len()), vm)
     }
 }
+
 impl Unconstructible for PyByteArrayIterator {}
 
 impl IterNextIterable for PyByteArrayIterator {}

@@ -20,7 +20,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        IterNextIterable, Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
@@ -377,6 +377,7 @@ impl PyStr {
         AsMapping,
         AsNumber,
         AsSequence,
+        Representable,
         Hashable,
         Comparable,
         Iterable,
@@ -495,11 +496,12 @@ impl PyStr {
         zelf
     }
 
-    #[pymethod(magic)]
-    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
+    #[inline]
+    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         rustpython_common::str::repr(self.as_str())
             .to_string_checked()
             .map_err(|err| vm.new_overflow_error(err.to_string()))
+            .map(|s| PyStr::from(s).into_ref(vm))
     }
 
     #[pymethod]
@@ -1256,6 +1258,13 @@ impl PyStrRef {
         s.push_str(self.as_ref());
         s.push_str(other);
         *self = PyStr::from(s).into_ref(vm);
+    }
+}
+
+impl Representable for PyStr {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        zelf.repr(vm)
     }
 }
 

@@ -5,7 +5,7 @@ use crate::{
     function::OptionalArg,
     identifier,
     protocol::PyNumberMethods,
-    types::{AsNumber, Constructor},
+    types::{AsNumber, Constructor, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
@@ -107,18 +107,8 @@ impl Constructor for PyBool {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber))]
+#[pyclass(with(Constructor, AsNumber, Representable))]
 impl PyBool {
-    #[pymethod(magic)]
-    fn repr(zelf: bool, vm: &VirtualMachine) -> PyStrRef {
-        if zelf {
-            vm.ctx.names.True
-        } else {
-            vm.ctx.names.False
-        }
-        .to_owned()
-    }
-
     #[pymethod(magic)]
     fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         if format_spec.is_empty() {
@@ -186,6 +176,31 @@ impl AsNumber for PyBool {
             ..PyInt::AS_NUMBER
         };
         &AS_NUMBER
+    }
+}
+
+impl Representable for PyBool {
+    #[inline]
+    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        if get_value(zelf) {
+            Ok(vm.ctx.names.True.to_owned())
+        } else {
+            Ok(vm.ctx.names.False.to_owned())
+        }
+    }
+
+    #[inline]
+    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Self::slot_repr(&zelf, vm)
+    }
+
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        if get_value(zelf.as_object()) {
+            Ok(vm.ctx.names.True.to_owned())
+        } else {
+            Ok(vm.ctx.names.False.to_owned())
+        }
     }
 }
 

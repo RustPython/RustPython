@@ -1,5 +1,6 @@
 use super::{
-    PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyDictRef, PyIntRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+    PyTypeRef,
 };
 use crate::{
     anystr::{self, AnyStr},
@@ -21,7 +22,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
-        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -125,15 +126,11 @@ impl PyBytes {
         AsBuffer,
         Iterable,
         Constructor,
-        AsNumber
+        AsNumber,
+        Representable,
     )
 )]
 impl PyBytes {
-    #[pymethod(magic)]
-    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        self.inner.repr(None, vm)
-    }
-
     #[pymethod(magic)]
     #[inline]
     pub fn len(&self) -> usize {
@@ -686,6 +683,15 @@ impl Iterable for PyBytes {
             internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_pyobject(vm))
+    }
+}
+
+impl Representable for PyBytes {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        zelf.inner
+            .repr(None, vm)
+            .map(|s| PyStr::from(s).into_ref(vm))
     }
 }
 

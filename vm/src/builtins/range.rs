@@ -1,5 +1,6 @@
 use super::{
-    builtins_iter, tuple::tuple_hash, PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef,
+    builtins_iter, tuple::tuple_hash, PyInt, PyIntRef, PySlice, PyStr, PyStrRef, PyTupleRef,
+    PyType, PyTypeRef,
 };
 use crate::{
     atomic_func,
@@ -9,7 +10,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible,
+        Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -174,7 +175,7 @@ pub fn init(context: &Context) {
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
 }
 
-#[pyclass(with(AsMapping, AsSequence, Hashable, Comparable, Iterable))]
+#[pyclass(with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Representable))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
@@ -258,15 +259,6 @@ impl PyRange {
     #[pymethod(magic)]
     fn len(&self) -> BigInt {
         self.compute_length()
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        if self.step.as_bigint().is_one() {
-            format!("range({}, {})", self.start, self.stop)
-        } else {
-            format!("range({}, {}, {})", self.start, self.stop, self.step)
-        }
     }
 
     #[pymethod(magic)]
@@ -507,6 +499,21 @@ impl Iterable for PyRange {
                 length,
             }
             .into_pyobject(vm))
+        }
+    }
+}
+
+impl Representable for PyRange {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        if zelf.step.as_bigint().is_one() {
+            Ok(PyStr::from(format!("range({}, {})", zelf.start, zelf.stop)).into_ref(vm))
+        } else {
+            Ok(PyStr::from(format!(
+                "range({}, {}, {})",
+                zelf.start, zelf.stop, zelf.step
+            ))
+            .into_ref(vm))
         }
     }
 }

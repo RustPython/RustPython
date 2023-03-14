@@ -1,4 +1,4 @@
-use super::{float, PyStr, PyType, PyTypeRef};
+use super::{float, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::{ToPyObject, ToPyResult},
@@ -9,7 +9,7 @@ use crate::{
     },
     identifier,
     protocol::{PyNumber, PyNumberMethods},
-    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_complex::Complex64;
@@ -211,7 +211,10 @@ impl PyComplex {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Comparable, Hashable, Constructor, AsNumber))]
+#[pyclass(
+    flags(BASETYPE),
+    with(Comparable, Hashable, Constructor, AsNumber, Representable)
+)]
 impl PyComplex {
     #[pymethod(magic)]
     fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {
@@ -332,44 +335,6 @@ impl PyComplex {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        // TODO: when you fix this, move it to rustpython_common::complex::repr and update
-        //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
-        let Complex64 { re, im } = self.value;
-        // integer => drop ., fractional => float_ops
-        let mut im_part = if im.fract() == 0.0 {
-            im.to_string()
-        } else {
-            float_ops::to_string(im)
-        };
-        im_part.push('j');
-
-        // positive empty => return im_part, integer => drop ., fractional => float_ops
-        let re_part = if re == 0.0 {
-            if re.is_sign_positive() {
-                return im_part;
-            } else {
-                re.to_string()
-            }
-        } else if re.fract() == 0.0 {
-            re.to_string()
-        } else {
-            float_ops::to_string(re)
-        };
-        let mut result = String::with_capacity(
-            re_part.len() + im_part.len() + 2 + im.is_sign_positive() as usize,
-        );
-        result.push('(');
-        result.push_str(&re_part);
-        if im.is_sign_positive() || im.is_nan() {
-            result.push('+');
-        }
-        result.push_str(&im_part);
-        result.push(')');
-        result
-    }
-
-    #[pymethod(magic)]
     fn pow(
         &self,
         other: PyObjectRef,
@@ -485,6 +450,46 @@ impl AsNumber for PyComplex {
 
     fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
         vm.ctx.new_complex(zelf.value)
+    }
+}
+
+impl Representable for PyComplex {
+    #[inline]
+    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // TODO: when you fix this, move it to rustpython_common::complex::repr and update
+        //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
+        let Complex64 { re, im } = zelf.value;
+        // integer => drop ., fractional => float_ops
+        let mut im_part = if im.fract() == 0.0 {
+            im.to_string()
+        } else {
+            float_ops::to_string(im)
+        };
+        im_part.push('j');
+
+        // positive empty => return im_part, integer => drop ., fractional => float_ops
+        let re_part = if re == 0.0 {
+            if re.is_sign_positive() {
+                return Ok(PyStr::from(im_part).into_ref(vm));
+            } else {
+                re.to_string()
+            }
+        } else if re.fract() == 0.0 {
+            re.to_string()
+        } else {
+            float_ops::to_string(re)
+        };
+        let mut result = String::with_capacity(
+            re_part.len() + im_part.len() + 2 + im.is_sign_positive() as usize,
+        );
+        result.push('(');
+        result.push_str(&re_part);
+        if im.is_sign_positive() || im.is_nan() {
+            result.push('+');
+        }
+        result.push_str(&im_part);
+        result.push(')');
+        Ok(PyStr::from(result).into_ref(vm))
     }
 }
 
