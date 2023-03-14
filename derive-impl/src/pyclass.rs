@@ -738,7 +738,7 @@ where
                 quote!(.with_doc(#doc.to_owned(), ctx))
             });
             let build_func = match self.inner.attr_name {
-                AttrName::Method => quote!(.build_method(ctx, class)),
+                AttrName::Method => quote!(.build_method(ctx, class, false)),
                 AttrName::ClassMethod => quote!(.build_classmethod(ctx, class)),
                 AttrName::StaticMethod => quote!(.build_staticmethod(ctx, class)),
                 other => unreachable!(
