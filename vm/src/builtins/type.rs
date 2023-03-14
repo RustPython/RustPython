@@ -362,6 +362,7 @@ impl Py<PyType> {
     /// Determines if `subclass` is actually a subclass of `cls`, this doesn't call __subclasscheck__,
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
+    /// Similar to CPython PyType_IsSubtype
     pub fn fast_issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
         self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
     }
@@ -387,7 +388,36 @@ impl PyType {
                 subtype = subtype.name(),
             )));
         }
-        call_slot_new(zelf, subtype, args, vm)
+
+        let typ = zelf;
+        // Check that the use doesn't do something silly and unsafe like
+        // object.__new__(dict).  To do this, we check that the
+        // most derived base that's not a heap type is this type. */
+        let mut static_base = subtype.clone();
+        loop {
+            if static_base
+                .slots
+                .new
+                .load()
+                .map_or(false, |f| f as usize == crate::types::new_wrapper as usize)
+            {
+                static_base = static_base.base().unwrap();
+            } else {
+                break;
+            }
+        }
+        if static_base.slots.new.load().map_or(0, |f| f as usize)
+            != typ.slots.new.load().map_or(0, |f| f as usize)
+        {
+            return Err(vm.new_type_error(format!(
+                "{}.__new__({}) is not safe, use {}.__new__()",
+                typ.name(),
+                subtype.name(),
+                static_base.name()
+            )));
+        }
+
+        call_slot_new(typ, subtype, args, vm)
     }
 
     #[pygetset(name = "__mro__")]
@@ -1128,6 +1158,7 @@ pub(crate) fn init(ctx: &Context) {
     PyType::extend_class(ctx, ctx.types.type_type);
 }
 
+// part of tp_new_wrapper *after* subtype check
 pub(crate) fn call_slot_new(
     typ: PyTypeRef,
     subtype: PyTypeRef,
