@@ -6,7 +6,7 @@ use crate::{
 use std::marker::PhantomData;
 
 /// A built-in Python function.
-pub type PyNativeFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine, FuncArgs) -> PyResult)>;
+pub type PyNativeFunc = py_dyn_fn!(dyn Fn(&VirtualMachine, FuncArgs) -> PyResult);
 
 /// Implemented by types that are or can generate built-in functions.
 ///
@@ -32,8 +32,10 @@ pub trait IntoPyNativeFunc<Kind>: Sized + PyThreadingConstraint + 'static {
     /// `IntoPyNativeFunc::into_func()` generates a PyNativeFunc that performs the
     /// appropriate type and arity checking, any requested conversions, and then if
     /// successful calls the function with the extracted parameters.
-    fn into_func(self) -> PyNativeFunc {
-        Box::new(move |vm: &VirtualMachine, args| self.call(vm, args))
+    fn into_func(self) -> &'static PyNativeFunc {
+        Box::leak(Box::new(move |vm: &VirtualMachine, args| {
+            self.call(vm, args)
+        }))
     }
 }
 
@@ -177,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_intonativefunc_noalloc() {
-        let check_zst = |f: PyNativeFunc| assert_eq!(std::mem::size_of_val(f.as_ref()), 0);
+        let check_zst = |f: &'static PyNativeFunc| assert_eq!(std::mem::size_of_val(f), 0);
         fn py_func(_b: bool, _vm: &crate::VirtualMachine) -> i32 {
             1
         }
