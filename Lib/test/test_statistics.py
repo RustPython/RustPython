@@ -1950,8 +1950,6 @@ class TestFMean(unittest.TestCase):
         with self.assertRaises(TypeError):
             fmean([10, 20, 60], 70)                 # too many arguments
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_special_values(self):
         # Rules for special values are inherited from math.fsum()
         fmean = statistics.fmean

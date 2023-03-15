@@ -664,7 +664,7 @@ mod math {
         }
         if special_sum != 0.0 {
             return if inf_sum.is_nan() {
-                Err(vm.new_overflow_error("-inf + inf in fsum".to_owned()))
+                Err(vm.new_value_error("-inf + inf in fsum".to_owned()))
             } else {
                 Ok(special_sum)
             };
