@@ -355,6 +355,31 @@ impl PyType {
 
         attributes
     }
+
+    // bound method for every type
+    pub(crate) fn __new__(zelf: PyRef<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
+        if !subtype.fast_issubclass(&zelf) {
+            return Err(vm.new_type_error(format!(
+                "{zelf}.__new__({subtype}): {subtype} is not a subtype of {zelf}",
+                zelf = zelf.name(),
+                subtype = subtype.name(),
+            )));
+        }
+        call_slot_new(zelf, subtype, args, vm)
+    }
+
+    pub fn name(&self) -> BorrowedValue<str> {
+        PyRwLockReadGuard::map(self.slots.name.read(), |slot_name| {
+            let name = slot_name.as_ref().unwrap();
+            if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+                name.as_str()
+            } else {
+                name.rsplit('.').next().unwrap()
+            }
+        })
+        .into()
+    }
 }
 
 impl Py<PyType> {
@@ -375,30 +400,10 @@ impl Py<PyType> {
 }
 
 #[pyclass(
-    with(GetAttr, SetAttr, Callable, AsNumber, Representable),
+    with(Py, GetAttr, SetAttr, Callable, AsNumber, Representable),
     flags(BASETYPE)
 )]
 impl PyType {
-    // bound method for every type
-    pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
-        if !subtype.fast_issubclass(&zelf) {
-            return Err(vm.new_type_error(format!(
-                "{zelf}.__new__({subtype}): {subtype} is not a subtype of {zelf}",
-                zelf = zelf.name(),
-                subtype = subtype.name(),
-            )));
-        }
-        call_slot_new(zelf, subtype, args, vm)
-    }
-
-    #[pygetset(name = "__mro__")]
-    fn get_mro(zelf: PyRef<Self>) -> PyTuple {
-        let elements: Vec<PyObjectRef> =
-            zelf.iter_mro().map(|x| x.as_object().to_owned()).collect();
-        PyTuple::new_unchecked(elements.into_boxed_slice())
-    }
-
     #[pygetset(magic)]
     fn bases(&self, vm: &VirtualMachine) -> PyTupleRef {
         vm.ctx.new_tuple(
@@ -419,46 +424,9 @@ impl PyType {
         self.slots.flags.bits()
     }
 
-    #[pymethod(magic)]
-    fn dir(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyList {
-        let attributes: Vec<PyObjectRef> = zelf
-            .get_attributes()
-            .into_iter()
-            .map(|(k, _)| k.to_object())
-            .collect();
-        PyList::from(attributes)
-    }
-
-    #[pymethod(magic)]
-    fn instancecheck(zelf: PyRef<Self>, obj: PyObjectRef) -> bool {
-        obj.fast_isinstance(&zelf)
-    }
-
-    #[pymethod(magic)]
-    fn subclasscheck(zelf: PyRef<Self>, subclass: PyTypeRef) -> bool {
-        subclass.fast_issubclass(&zelf)
-    }
-
-    #[pyclassmethod(magic)]
-    fn subclasshook(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
-    }
-
     #[pygetset]
     fn __name__(&self) -> String {
         self.name().to_string()
-    }
-
-    pub fn name(&self) -> BorrowedValue<str> {
-        PyRwLockReadGuard::map(self.slots.name.read(), |slot_name| {
-            let name = slot_name.as_ref().unwrap();
-            if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-                name.as_str()
-            } else {
-                name.rsplit('.').next().unwrap()
-            }
-        })
-        .into()
     }
 
     #[pygetset(magic)]
@@ -605,11 +573,6 @@ impl PyType {
                 .map(|x| x.upgrade().unwrap())
                 .collect::<Vec<_>>(),
         )
-    }
-
-    #[pymethod]
-    fn mro(zelf: PyRef<Self>) -> Vec<PyObjectRef> {
-        zelf.iter_mro().map(|cls| cls.to_owned().into()).collect()
     }
 
     #[pymethod(magic)]
@@ -903,6 +866,46 @@ impl PyType {
             .doc
             .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
             .map(|signature| signature.to_string())
+    }
+}
+
+#[pyclass]
+impl Py<PyType> {
+    #[pygetset(name = "__mro__")]
+    fn get_mro(&self) -> PyTuple {
+        let elements: Vec<PyObjectRef> =
+            self.iter_mro().map(|x| x.as_object().to_owned()).collect();
+        PyTuple::new_unchecked(elements.into_boxed_slice())
+    }
+
+    #[pymethod(magic)]
+    fn dir(&self) -> PyList {
+        let attributes: Vec<PyObjectRef> = self
+            .get_attributes()
+            .into_iter()
+            .map(|(k, _)| k.to_object())
+            .collect();
+        PyList::from(attributes)
+    }
+
+    #[pymethod(magic)]
+    fn instancecheck(&self, obj: PyObjectRef) -> bool {
+        obj.fast_isinstance(self)
+    }
+
+    #[pymethod(magic)]
+    fn subclasscheck(&self, subclass: PyTypeRef) -> bool {
+        subclass.fast_issubclass(self)
+    }
+
+    #[pyclassmethod(magic)]
+    fn subclasshook(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
+    }
+
+    #[pymethod]
+    fn mro(&self) -> Vec<PyObjectRef> {
+        self.iter_mro().map(|cls| cls.to_owned().into()).collect()
     }
 }
 
