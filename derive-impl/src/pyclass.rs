@@ -1,12 +1,12 @@
 use super::Diagnostic;
 use crate::util::{
     format_doc, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem,
-    ContentItemInner, ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta,
+    ContentItemInner, ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, NameAndCfgs, SimpleItemMeta,
     ALL_ALLOWED_NAMES,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::str::FromStr;
 use syn::{
     parse::{Parse, ParseStream, Result as ParsingResult},
@@ -175,7 +175,7 @@ pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream
             } else {
                 quote! {}
             };
-            let extra_methods = iter_chain![
+            let extra_methods = [
                 parse_quote! {
                     fn __extend_py_class(
                         ctx: &::rustpython_vm::Context,
@@ -759,7 +759,7 @@ where
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 struct GetSetNursery {
-    map: HashMap<(String, Vec<Attribute>), (Option<Ident>, Option<Ident>, Option<Ident>)>,
+    map: BTreeMap<NameAndCfgs, (Option<Ident>, Option<Ident>, Option<Ident>)>,
     validated: bool,
 }
 
@@ -781,7 +781,11 @@ impl GetSetNursery {
         if !matches!(kind, GetSetItemKind::Get) && !cfgs.is_empty() {
             bail_span!(item_ident, "Only the getter can have #[cfg]",);
         }
-        let entry = self.map.entry((name.clone(), cfgs)).or_default();
+        let key = NameAndCfgs {
+            name: name.clone(),
+            cfgs,
+        };
+        let entry = self.map.entry(key).or_default();
         let func = match kind {
             GetSetItemKind::Get => &mut entry.0,
             GetSetItemKind::Set => &mut entry.1,
@@ -800,7 +804,7 @@ impl GetSetNursery {
 
     fn validate(&mut self) -> Result<()> {
         let mut errors = Vec::new();
-        for ((name, _cfgs), (getter, setter, deleter)) in &self.map {
+        for (NameAndCfgs { name, .. }, (getter, setter, deleter)) in &self.map {
             if getter.is_none() {
                 errors.push(err_span!(
                     setter.as_ref().or(deleter.as_ref()).unwrap(),
@@ -821,7 +825,8 @@ impl ToTokens for GetSetNursery {
         let properties = self
             .map
             .iter()
-            .map(|((name, cfgs), (getter, setter, deleter))| {
+            .map(|(name_and_cfgs, (getter, setter, deleter))| {
+                let NameAndCfgs { name, cfgs } = name_and_cfgs;
                 let setter = match setter {
                     Some(setter) => quote_spanned! { setter.span() => .with_set(Self::#setter)},
                     None => quote! {},
@@ -852,7 +857,7 @@ impl ToTokens for GetSetNursery {
 #[derive(Default)]
 #[allow(clippy::type_complexity)]
 struct MemberNursery {
-    map: HashMap<(String, MemberKind), (Option<Ident>, Option<Ident>)>,
+    map: BTreeMap<(String, MemberKind), (Option<Ident>, Option<Ident>)>,
     validated: bool,
 }
 
@@ -861,7 +866,7 @@ enum MemberItemKind {
     Set,
 }
 
-#[derive(Eq, PartialEq, Hash)]
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
 enum MemberKind {
     Bool,
     ObjectEx,

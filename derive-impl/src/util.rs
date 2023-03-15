@@ -493,13 +493,6 @@ impl ErrorVec for Vec<syn::Error> {
     }
 }
 
-macro_rules! iter_chain {
-    ($($it:expr),*$(,)?) => {
-        ::std::iter::empty()
-            $(.chain(::std::iter::once($it)))*
-    };
-}
-
 pub(crate) fn iter_use_idents<'a, F, R: 'a>(item_use: &'a syn::ItemUse, mut f: F) -> Result<Vec<R>>
 where
     F: FnMut(&'a syn::Ident, bool) -> Result<R>,
@@ -589,4 +582,116 @@ fn func_sig(sig: &Signature) -> String {
 
 pub(crate) fn format_doc(sig: &str, doc: &str) -> String {
     format!("{sig}\n--\n\n{doc}")
+}
+
+macro_rules! match_tok {
+    (match $input:ident { $($matches:tt)* }) => {{
+        let input: syn::parse::ParseStream = $input;
+        let lookahead = input.lookahead1();
+        match_tok!(@match lookahead, input { $($matches)* })
+    }};
+
+    (@match $lookahead:ident, $input:ident { $binding:tt @ $tok:ty => $body:block $($rest:tt)* }) => {
+        match_tok!(@case $lookahead, $input, $binding, $tok, $body, { $($rest)* })
+    };
+    (@match $lookahead:ident, $input:ident { $tok:ty => $body:block $($rest:tt)* }) => {
+        match_tok!(@case $lookahead, $input, _, $tok, $body, { $($rest)* })
+    };
+    (@match $lookahead:ident, $input:ident { $binding:tt @ $tok:ty => $body:expr, $($rest:tt)* }) => {
+        match_tok!(@case $lookahead, $input, $binding, $tok, $body, { $($rest)* })
+    };
+    (@match $lookahead:ident, $input:ident { $tok:ty => $body:expr, $($rest:tt)* }) => {
+        match_tok!(@case $lookahead, $input, _, $tok, $body, { $($rest)* })
+    };
+
+    (@match $lookahead:ident, $input:ident {}) => {
+        return Err($lookahead.error())
+    };
+
+    (@case $lookahead:ident, $input:ident, $binding:tt, $tok:ty, $body:expr, { $($rest:tt)* }) => {
+        if $crate::util::peek1::<$tok>(&$lookahead) {
+            let $binding = $input.parse::<$tok>()?;
+            $body
+        } else {
+            match_tok!(@match $lookahead, $input { $($rest)* })
+        }
+    };
+}
+
+pub(crate) fn peek1<T: syn::token::Token>(lookahead: &syn::parse::Lookahead1) -> bool {
+    lookahead.peek(|x| -> T { match x {} })
+}
+
+#[derive(Eq, PartialEq)]
+pub(crate) struct NameAndCfgs {
+    pub name: String,
+    pub cfgs: Vec<Attribute>,
+}
+impl PartialOrd for NameAndCfgs {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for NameAndCfgs {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        Ord::cmp(&self.name, &other.name).then_with(|| {
+            cmp_iters(self.cfgs.iter(), other.cfgs.iter(), |a, b| {
+                crate::util::cmp_tokenstream(a.to_token_stream(), b.to_token_stream())
+            })
+        })
+    }
+}
+
+fn cmp_iters<A, B>(
+    a: impl Iterator<Item = A>,
+    b: impl Iterator<Item = B>,
+    cmp: impl Fn(A, B) -> std::cmp::Ordering,
+) -> std::cmp::Ordering {
+    a.zip_longest(b)
+        .map(|el| match el {
+            itertools::EitherOrBoth::Both(a, b) => cmp(a, b),
+            itertools::EitherOrBoth::Left(_) => std::cmp::Ordering::Greater,
+            itertools::EitherOrBoth::Right(_) => std::cmp::Ordering::Less,
+        })
+        .find(|ord| ord.is_ne())
+        .unwrap_or(std::cmp::Ordering::Equal)
+}
+
+fn cmp_tokenstream(a: TokenStream, b: TokenStream) -> std::cmp::Ordering {
+    let tt_discr = |a: &proc_macro2::TokenTree| match a {
+        proc_macro2::TokenTree::Group(_) => 0,
+        proc_macro2::TokenTree::Ident(_) => 1,
+        proc_macro2::TokenTree::Punct(_) => 2,
+        proc_macro2::TokenTree::Literal(_) => 3,
+    };
+    cmp_iters(a.into_iter(), b.into_iter(), |a, b| {
+        Ord::cmp(&tt_discr(&a), &tt_discr(&b)).then_with(|| match (a, b) {
+            (proc_macro2::TokenTree::Group(a), proc_macro2::TokenTree::Group(b)) => {
+                let delim_discr = |d| match d {
+                    proc_macro2::Delimiter::Parenthesis => 0,
+                    proc_macro2::Delimiter::Brace => 1,
+                    proc_macro2::Delimiter::Bracket => 2,
+                    proc_macro2::Delimiter::None => 3,
+                };
+                Ord::cmp(&delim_discr(a.delimiter()), &delim_discr(b.delimiter()))
+                    .then_with(|| cmp_tokenstream(a.stream(), b.stream()))
+            }
+            (proc_macro2::TokenTree::Ident(a), proc_macro2::TokenTree::Ident(b)) => {
+                Ord::cmp(&a, &b)
+            }
+            (proc_macro2::TokenTree::Punct(a), proc_macro2::TokenTree::Punct(b)) => {
+                let spacing_discr = |sp| match sp {
+                    proc_macro2::Spacing::Alone => 0,
+                    proc_macro2::Spacing::Joint => 1,
+                };
+                Ord::cmp(&a.as_char(), &b.as_char()).then_with(|| {
+                    Ord::cmp(&spacing_discr(a.spacing()), &spacing_discr(b.spacing()))
+                })
+            }
+            (proc_macro2::TokenTree::Literal(a), proc_macro2::TokenTree::Literal(b)) => {
+                Ord::cmp(&a.to_string(), &b.to_string())
+            }
+            _ => unreachable!(),
+        })
+    })
 }

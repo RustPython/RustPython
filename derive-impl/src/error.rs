@@ -120,15 +120,6 @@ impl From<Error> for Diagnostic {
     }
 }
 
-pub fn extract_spans(node: &dyn ToTokens) -> Option<(Span, Span)> {
-    let mut t = TokenStream::new();
-    node.to_tokens(&mut t);
-    let mut tokens = t.into_iter();
-    let start = tokens.next().map(|t| t.span());
-    let end = tokens.last().map(|t| t.span());
-    start.map(|start| (start, end.unwrap_or(start)))
-}
-
 impl ToTokens for Diagnostic {
     fn to_tokens(&self, dst: &mut TokenStream) {
         match &self.inner {

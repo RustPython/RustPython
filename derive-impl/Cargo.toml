@@ -12,7 +12,6 @@ itertools = { workspace = true }
 once_cell = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits"] }
 
-maplit = "1.0.2"
 proc-macro2 = "1.0.37"
 quote = "1.0.18"
 syn-ext = { version = "0.4.0", features = ["full"] }

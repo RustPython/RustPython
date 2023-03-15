@@ -5,9 +5,6 @@
 extern crate proc_macro;
 
 #[macro_use]
-extern crate maplit;
-
-#[macro_use]
 mod error;
 #[macro_use]
 mod util;
@@ -19,7 +16,7 @@ mod pymodule;
 mod pypayload;
 mod pystructseq;
 
-use error::{extract_spans, Diagnostic};
+use error::Diagnostic;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use rustpython_doc as doc;
