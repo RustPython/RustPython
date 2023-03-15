@@ -30,8 +30,8 @@ impl From<Vec<u8>> for PyBytesInner {
     }
 }
 
-impl TryFromBorrowedObject for PyBytesInner {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for PyBytesInner {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         bytes_from_object(vm, obj).map(Self::from)
     }
 }

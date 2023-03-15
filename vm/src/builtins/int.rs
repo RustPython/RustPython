@@ -69,8 +69,8 @@ impl_into_pyobject_int!(isize i8 i16 i32 i64 i128 usize u8 u16 u32 u64 u128 BigI
 
 macro_rules! impl_try_from_object_int {
     ($(($t:ty, $to_prim:ident),)*) => {$(
-        impl TryFromBorrowedObject for $t {
-            fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+        impl<'a> TryFromBorrowedObject<'a> for $t {
+            fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
                 obj.try_value_with(|int: &PyInt| {
                     int.try_to_primitive(vm)
                 }, vm)

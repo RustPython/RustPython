@@ -435,8 +435,8 @@ mod unix {
     #[pyattr]
     use libc::{CLOCK_PROF, CLOCK_UPTIME};
 
-    impl TryFromBorrowedObject for ClockId {
-        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+    impl<'a> TryFromBorrowedObject<'a> for ClockId {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
             obj.try_to_value(vm).map(ClockId::from_raw)
         }
     }

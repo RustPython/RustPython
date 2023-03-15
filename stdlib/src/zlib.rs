@@ -584,8 +584,8 @@ mod zlib {
         }
     }
 
-    impl TryFromBorrowedObject for Level {
-        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+    impl<'a> TryFromBorrowedObject<'a> for Level {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
             let int: i32 = obj.try_index(vm)?.try_to_primitive(vm)?;
             Ok(Self::new(int))
         }

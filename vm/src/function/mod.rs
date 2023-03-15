@@ -28,8 +28,8 @@ pub enum ArgByteOrder {
     Little,
 }
 
-impl TryFromBorrowedObject for ArgByteOrder {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for ArgByteOrder {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         obj.try_value_with(
             |s: &PyStr| match s.as_str() {
                 "big" => Ok(Self::Big),

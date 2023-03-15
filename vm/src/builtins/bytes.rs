@@ -739,8 +739,8 @@ impl IterNext for PyBytesIterator {
     }
 }
 
-impl TryFromBorrowedObject for PyBytes {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for PyBytes {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         PyBytesInner::try_from_borrowed_object(vm, obj).map(|x| x.into())
     }
 }
