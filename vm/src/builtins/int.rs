@@ -743,39 +743,39 @@ impl AsNumber for PyInt {
 
 impl PyInt {
     pub(super) const AS_NUMBER: PyNumberMethods = PyNumberMethods {
-        add: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a + b, vm)),
-        subtract: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a - b, vm)),
-        multiply: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a * b, vm)),
-        remainder: Some(|num, other, vm| PyInt::number_op(num, other, inner_mod, vm)),
-        divmod: Some(|num, other, vm| PyInt::number_op(num, other, inner_divmod, vm)),
-        power: Some(|num, other, vm| PyInt::number_op(num, other, inner_pow, vm)),
+        add: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a + b, vm)),
+        subtract: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a - b, vm)),
+        multiply: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a * b, vm)),
+        remainder: Some(|a, b, vm| PyInt::number_op(a, b, inner_mod, vm)),
+        divmod: Some(|a, b, vm| PyInt::number_op(a, b, inner_divmod, vm)),
+        power: Some(|a, b, vm| PyInt::number_op(a, b, inner_pow, vm)),
         negative: Some(|num, vm| (&PyInt::number_downcast(num).value).neg().to_pyresult(vm)),
         positive: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
         absolute: Some(|num, vm| PyInt::number_downcast(num).value.abs().to_pyresult(vm)),
         boolean: Some(|num, _vm| Ok(PyInt::number_downcast(num).value.is_zero())),
         invert: Some(|num, vm| (&PyInt::number_downcast(num).value).not().to_pyresult(vm)),
-        lshift: Some(|num, other, vm| PyInt::number_op(num, other, inner_lshift, vm)),
-        rshift: Some(|num, other, vm| PyInt::number_op(num, other, inner_rshift, vm)),
-        and: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a & b, vm)),
-        xor: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a ^ b, vm)),
-        or: Some(|num, other, vm| PyInt::number_op(num, other, |a, b, _vm| a | b, vm)),
-        int: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm))),
+        lshift: Some(|a, b, vm| PyInt::number_op(a, b, inner_lshift, vm)),
+        rshift: Some(|a, b, vm| PyInt::number_op(a, b, inner_rshift, vm)),
+        and: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a & b, vm)),
+        xor: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a ^ b, vm)),
+        or: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a | b, vm)),
+        int: Some(|a, vm| Ok(PyInt::number_downcast_exact(a, vm))),
         float: Some(|num, vm| {
             let zelf = PyInt::number_downcast(num);
             try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
         }),
-        floor_divide: Some(|num, other, vm| PyInt::number_op(num, other, inner_floordiv, vm)),
-        true_divide: Some(|num, other, vm| PyInt::number_op(num, other, inner_truediv, vm)),
+        floor_divide: Some(|a, b, vm| PyInt::number_op(a, b, inner_floordiv, vm)),
+        true_divide: Some(|a, b, vm| PyInt::number_op(a, b, inner_truediv, vm)),
         index: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm))),
         ..PyNumberMethods::NOT_IMPLEMENTED
     };
 
-    fn number_op<F, R>(number: PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    fn number_op<F, R>(a: &PyObject, b: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(&BigInt, &BigInt, &VirtualMachine) -> R,
         R: ToPyResult,
     {
-        if let (Some(a), Some(b)) = (number.obj.payload::<Self>(), other.payload::<Self>()) {
+        if let (Some(a), Some(b)) = (a.payload::<Self>(), b.payload::<Self>()) {
             op(&a.value, &b.value, vm).to_pyresult(vm)
         } else {
             Ok(vm.ctx.not_implemented())

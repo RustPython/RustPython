@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber, &VirtualMachine) -> PyResult<R>;
-pub type PyNumberBinaryFunc = fn(PyNumber, &PyObject, &VirtualMachine) -> PyResult;
+pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
 
 impl PyObject {
     #[inline]
@@ -263,6 +263,19 @@ pub enum PyNumberBinaryOp {
     InplaceTrueDivide,
     MatrixMultiply,
     InplaceMatrixMultiply,
+}
+
+pub trait PyNumberOps {
+    fn add(&self, a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult;
+}
+
+impl PyNumberOps for PyNumberMethods {
+    fn add(&self, a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+        let Some(f) = self.add else {
+            return Ok(vm.ctx.not_implemented());
+        };
+        f(a, b, vm)
+    }
 }
 
 #[derive(Default)]

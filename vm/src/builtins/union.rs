@@ -252,8 +252,8 @@ impl AsMapping for PyUnion {
 impl AsNumber for PyUnion {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|num, other, vm| {
-                PyUnion::or(num.obj.to_owned(), other.to_owned(), vm).to_pyresult(vm)
+            or: Some(|a, b, vm| {
+                PyUnion::or(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };

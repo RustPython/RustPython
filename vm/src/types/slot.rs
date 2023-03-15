@@ -227,7 +227,7 @@ macro_rules! number_binary_op_wrapper {
     ($name:ident) => {
         |num, other, vm| {
             vm.call_special_method(
-                num.obj.to_owned(),
+                num.to_owned(),
                 identifier!(vm, $name),
                 (other.to_owned(),),
             )
@@ -1200,7 +1200,7 @@ macro_rules! extend_number_slot {
             $slots.number.$right_method.store(Some(|num, other, vm| {
                 num.methods.binary_op(PyNumberBinaryOp::$op_slot).unwrap()(
                     other.to_number(),
-                    num.obj,
+                    num,
                     vm,
                 )
             }));

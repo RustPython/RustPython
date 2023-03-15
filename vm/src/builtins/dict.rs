@@ -472,16 +472,16 @@ impl AsSequence for PyDict {
 impl AsNumber for PyDict {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|num, args, vm| {
-                if let Some(num) = num.obj.downcast_ref::<PyDict>() {
-                    PyDict::or(num, args.to_pyobject(vm), vm)
+            or: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyDict>() {
+                    PyDict::or(a, b.to_pyobject(vm), vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
-            inplace_or: Some(|num, args, vm| {
-                if let Some(num) = num.obj.downcast_ref::<PyDict>() {
-                    PyDict::ior(num.to_owned(), args.to_pyobject(vm), vm).map(|d| d.into())
+            inplace_or: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyDict>() {
+                    PyDict::ior(a.to_owned(), b.to_pyobject(vm), vm).map(|d| d.into())
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
@@ -1169,51 +1169,10 @@ impl AsSequence for PyDictKeys {
 impl AsNumber for PyDictKeys {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            subtract: Some(|num, args, vm| {
-                let num = PySetInner::from_iter(
-                    ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
-                    vm,
-                )?;
-                Ok(PySet {
-                    inner: num
-                        .difference(ArgIterable::try_from_object(vm, args.to_owned())?, vm)?,
-                }
-                .into_pyobject(vm))
-            }),
-            and: Some(|num, args, vm| {
-                let num = PySetInner::from_iter(
-                    ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
-                    vm,
-                )?;
-                Ok(PySet {
-                    inner: num
-                        .intersection(ArgIterable::try_from_object(vm, args.to_owned())?, vm)?,
-                }
-                .into_pyobject(vm))
-            }),
-            xor: Some(|num, args, vm| {
-                let num = PySetInner::from_iter(
-                    ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
-                    vm,
-                )?;
-                Ok(PySet {
-                    inner: num.symmetric_difference(
-                        ArgIterable::try_from_object(vm, args.to_owned())?,
-                        vm,
-                    )?,
-                }
-                .into_pyobject(vm))
-            }),
-            or: Some(|num, args, vm| {
-                let num = PySetInner::from_iter(
-                    ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
-                    vm,
-                )?;
-                Ok(PySet {
-                    inner: num.union(ArgIterable::try_from_object(vm, args.to_owned())?, vm)?,
-                }
-                .into_pyobject(vm))
-            }),
+            subtract: Some(inner_set_number_subtract),
+            add: Some(inner_set_number_add),
+            xor: Some(inner_set_number_xor),
+            or: Some(inner_set_number_or),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
@@ -1288,51 +1247,10 @@ impl AsSequence for PyDictItems {
 impl AsNumber for PyDictItems {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            subtract: Some(|num, args, vm| {
-                let num = PySetInner::from_iter(
-                    ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
-                    vm,
-                )?;
-                Ok(PySet {
-                    inner: num
-                        .difference(ArgIterable::try_from_object(vm, args.to_owned())?, vm)?,
-                }
-                .into_pyobject(vm))
-            }),
-            and: Some(|num, args, vm| {
-                let num = PySetInner::from_iter(
-                    ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
-                    vm,
-                )?;
-                Ok(PySet {
-                    inner: num
-                        .intersection(ArgIterable::try_from_object(vm, args.to_owned())?, vm)?,
-                }
-                .into_pyobject(vm))
-            }),
-            xor: Some(|num, args, vm| {
-                let num = PySetInner::from_iter(
-                    ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
-                    vm,
-                )?;
-                Ok(PySet {
-                    inner: num.symmetric_difference(
-                        ArgIterable::try_from_object(vm, args.to_owned())?,
-                        vm,
-                    )?,
-                }
-                .into_pyobject(vm))
-            }),
-            or: Some(|num, args, vm| {
-                let num = PySetInner::from_iter(
-                    ArgIterable::try_from_object(vm, num.obj.to_owned())?.iter(vm)?,
-                    vm,
-                )?;
-                Ok(PySet {
-                    inner: num.union(ArgIterable::try_from_object(vm, args.to_owned())?, vm)?,
-                }
-                .into_pyobject(vm))
-            }),
+            subtract: Some(inner_set_number_subtract),
+            and: Some(inner_set_number_add),
+            xor: Some(inner_set_number_xor),
+            or: Some(inner_set_number_or),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
@@ -1356,6 +1274,34 @@ impl AsSequence for PyDictValues {
         });
         &AS_SEQUENCE
     }
+}
+
+fn inner_set_number_op<F>(a: &PyObject, b: &PyObject, f: F, vm: &VirtualMachine) -> PyResult
+where
+    F: FnOnce(PySetInner, ArgIterable) -> PyResult<PySetInner>,
+{
+    let a = PySetInner::from_iter(
+        ArgIterable::try_from_object(vm, a.to_owned())?.iter(vm)?,
+        vm,
+    )?;
+    let b = ArgIterable::try_from_object(vm, b.to_owned())?;
+    Ok(PySet { inner: f(a, b)? }.into_pyobject(vm))
+}
+
+fn inner_set_number_subtract(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    inner_set_number_op(a, b, |a, b| a.difference(b, vm), vm)
+}
+
+fn inner_set_number_add(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    inner_set_number_op(a, b, |a, b| a.intersection(b, vm), vm)
+}
+
+fn inner_set_number_xor(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    inner_set_number_op(a, b, |a, b| a.symmetric_difference(b, vm), vm)
+}
+
+fn inner_set_number_or(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+    inner_set_number_op(a, b, |a, b| a.union(b, vm), vm)
 }
 
 pub(crate) fn init(context: &Context) {

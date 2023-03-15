@@ -149,21 +149,21 @@ impl VirtualMachine {
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b {
                 if b.fast_isinstance(a.class()) {
-                    let x = slot_bb(b.to_number(), a, self)?;
+                    let x = slot_bb(b, a, self)?;
                     if !x.is(&self.ctx.not_implemented) {
                         return Ok(x);
                     }
                     slot_b = None;
                 }
             }
-            let x = slot_a(a.to_number(), b, self)?;
+            let x = slot_a(a, b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
             }
         }
 
         if let Some(slot_b) = slot_b {
-            let x = slot_b(b.to_number(), a, self)?;
+            let x = slot_b(b, a, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
             }
@@ -207,7 +207,7 @@ impl VirtualMachine {
         op_slot: PyNumberBinaryOp,
     ) -> PyResult {
         if let Some(slot) = a.class().slots.number.left_binary_op(iop_slot)? {
-            let x = slot(a.to_number(), b, self)?;
+            let x = slot(a, b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
             }
