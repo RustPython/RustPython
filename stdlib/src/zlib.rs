@@ -5,8 +5,9 @@ mod zlib {
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
         common::lock::PyMutex,
+        convert::TryFromBorrowedObject,
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
-        PyPayload, PyResult, VirtualMachine,
+        PyObject, PyPayload, PyResult, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
     use crossbeam_utils::atomic::AtomicCell;
@@ -78,23 +79,12 @@ mod zlib {
         crate::binascii::crc32(data, begin_state)
     }
 
-    // TODO: rewrite with TryFromBorrowedObject
-    fn compression_from_int(level: i32) -> Option<Compression> {
-        match level {
-            Z_DEFAULT_COMPRESSION => Some(Compression::default()),
-            valid_level @ Z_NO_COMPRESSION..=Z_BEST_COMPRESSION => {
-                Some(Compression::new(valid_level as u32))
-            }
-            _ => None,
-        }
-    }
-
     #[derive(FromArgs)]
     struct PyFuncCompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(any, default = "Z_DEFAULT_COMPRESSION")]
-        level: i32,
+        #[pyarg(any, default = "Level::new(Z_DEFAULT_COMPRESSION)")]
+        level: Level,
         #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
         wbits: ArgPrimitiveIndex<i8>,
     }
@@ -107,9 +97,7 @@ mod zlib {
             level,
             ref wbits,
         } = args;
-
-        let level = compression_from_int(level)
-            .ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
+        let level = level.ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
 
         let encoded_bytes = if args.wbits.value == MAX_WBITS {
             let mut encoder = ZlibEncoder::new(Vec::new(), level);
@@ -431,8 +419,8 @@ mod zlib {
     #[derive(FromArgs)]
     #[allow(dead_code)] // FIXME: use args
     struct CompressobjArgs {
-        #[pyarg(any, default = "Z_DEFAULT_COMPRESSION")]
-        level: i32,
+        #[pyarg(any, default = "Level::new(Z_DEFAULT_COMPRESSION)")]
+        level: Level,
         // only DEFLATED is valid right now, it's w/e
         #[pyarg(any, default = "DEFLATED")]
         _method: i32,
@@ -457,8 +445,8 @@ mod zlib {
             zdict,
             ..
         } = args;
-        let level = compression_from_int(level)
-            .ok_or_else(|| vm.new_value_error("invalid initialization option".to_owned()))?;
+        let level =
+            level.ok_or_else(|| vm.new_value_error("invalid initialization option".to_owned()))?;
         #[allow(unused_mut)]
         let mut compress = InitOptions::new(wbits.value, vm)?.compress(level);
         #[cfg(feature = "zlib")]
@@ -573,5 +561,33 @@ mod zlib {
 
     fn new_zlib_error(message: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception_msg(vm.class("zlib", "error"), message.to_owned())
+    }
+
+    struct Level(Option<flate2::Compression>);
+
+    impl Level {
+        fn new(level: i32) -> Self {
+            let compression = match level {
+                Z_DEFAULT_COMPRESSION => Compression::default(),
+                valid_level @ Z_NO_COMPRESSION..=Z_BEST_COMPRESSION => {
+                    Compression::new(valid_level as u32)
+                }
+                _ => return Self(None),
+            };
+            Self(Some(compression))
+        }
+        fn ok_or_else(
+            self,
+            f: impl FnOnce() -> PyBaseExceptionRef,
+        ) -> PyResult<flate2::Compression> {
+            self.0.ok_or_else(f)
+        }
+    }
+
+    impl TryFromBorrowedObject for Level {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+            let int: i32 = obj.try_index(vm)?.try_to_primitive(vm)?;
+            Ok(Self::new(int))
+        }
     }
 }

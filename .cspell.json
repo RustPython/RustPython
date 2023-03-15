@@ -30,6 +30,7 @@
     "bindgen",
     "cstring",
     "chrono",
+    "flate2",
     "insta",
     "peekable",
     "lalrpop",
