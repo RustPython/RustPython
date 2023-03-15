@@ -2912,10 +2912,8 @@ class TestNormalDistPython(unittest.TestCase, TestNormalDist):
     def tearDown(self):
         sys.modules['statistics'] = statistics
 
-    # TODO: RUSTPYTHON, ValueError: math domain error
-    @unittest.expectedFailure
-    def test_inv_cdf(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_inv_cdf() # TODO: RUSTPYTHON, remove when this passes
+    def test_inv_cdf(self):
+        super().test_inv_cdf()
 
 
 @unittest.skipUnless(c_statistics, 'requires _statistics')
