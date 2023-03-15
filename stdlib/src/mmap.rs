@@ -72,8 +72,8 @@ mod mmap {
         Copy = 3,
     }
 
-    impl TryFromBorrowedObject for AccessMode {
-        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+    impl<'a> TryFromBorrowedObject<'a> for AccessMode {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
             let i = u32::try_from_borrowed_object(vm, obj)?;
             Ok(match i {
                 0 => Self::Default,

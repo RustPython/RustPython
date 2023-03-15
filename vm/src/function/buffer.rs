@@ -65,8 +65,8 @@ impl From<ArgBytesLike> for PyBuffer {
     }
 }
 
-impl TryFromBorrowedObject for ArgBytesLike {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for ArgBytesLike {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
         if buffer.desc.is_contiguous() {
             Ok(Self(buffer))
@@ -107,8 +107,8 @@ impl From<ArgMemoryBuffer> for PyBuffer {
     }
 }
 
-impl TryFromBorrowedObject for ArgMemoryBuffer {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for ArgMemoryBuffer {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
         if !buffer.desc.is_contiguous() {
             Err(vm.new_type_error("non-contiguous buffer is not a bytes-like object".to_owned()))
