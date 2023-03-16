@@ -45,6 +45,7 @@ pub struct InstructionInfo {
     pub location: Location,
 }
 
+// spell-checker:ignore petgraph
 // TODO: look into using petgraph for handling blocks and stuff? it's heavier than this, but it
 // might enable more analysis/optimizations
 #[derive(Debug)]
@@ -223,12 +224,12 @@ impl CodeInfo {
     fn max_stackdepth(&self) -> u32 {
         let mut maxdepth = 0u32;
         let mut stack = Vec::with_capacity(self.blocks.len());
-        let mut startdepths = vec![u32::MAX; self.blocks.len()];
-        startdepths[0] = 0;
+        let mut start_depths = vec![u32::MAX; self.blocks.len()];
+        start_depths[0] = 0;
         stack.push(BlockIdx(0));
         const DEBUG: bool = false;
         'process_blocks: while let Some(block) = stack.pop() {
-            let mut depth = startdepths[block.idx()];
+            let mut depth = start_depths[block.idx()];
             if DEBUG {
                 eprintln!("===BLOCK {}===", block.0);
             }
@@ -266,14 +267,14 @@ impl CodeInfo {
                     if target_depth > maxdepth {
                         maxdepth = target_depth
                     }
-                    stackdepth_push(&mut stack, &mut startdepths, i.target, target_depth);
+                    stackdepth_push(&mut stack, &mut start_depths, i.target, target_depth);
                 }
                 depth = new_depth;
                 if instr.unconditional_branch() {
                     continue 'process_blocks;
                 }
             }
-            stackdepth_push(&mut stack, &mut startdepths, block.next, depth);
+            stackdepth_push(&mut stack, &mut start_depths, block.next, depth);
         }
         if DEBUG {
             eprintln!("DONE: {maxdepth}");
@@ -293,7 +294,7 @@ impl InstrDisplayContext for CodeInfo {
     fn get_varname(&self, i: usize) -> &str {
         self.varname_cache[i].as_ref()
     }
-    fn get_cellname(&self, i: usize) -> &str {
+    fn get_cell_name(&self, i: usize) -> &str {
         self.cellvar_cache
             .get_index(i)
             .unwrap_or_else(|| &self.freevar_cache[i - self.cellvar_cache.len()])
@@ -303,11 +304,11 @@ impl InstrDisplayContext for CodeInfo {
 
 fn stackdepth_push(
     stack: &mut Vec<BlockIdx>,
-    startdepths: &mut [u32],
+    start_depths: &mut [u32],
     target: BlockIdx,
     depth: u32,
 ) {
-    let block_depth = &mut startdepths[target.idx()];
+    let block_depth = &mut start_depths[target.idx()];
     if *block_depth == u32::MAX || depth > *block_depth {
         *block_depth = depth;
         stack.push(target);

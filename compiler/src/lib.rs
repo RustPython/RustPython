@@ -50,7 +50,7 @@ fn error_from_parse(error: parser::ParseError, source: &str) -> CompileError {
     CompileError::from(error, source)
 }
 
-/// Compile a given sourcecode into a bytecode object.
+/// Compile a given source code into a bytecode object.
 pub fn compile(
     source: &str,
     mode: compile::Mode,

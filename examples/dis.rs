@@ -88,7 +88,7 @@ fn display_script(
     let code = compiler::compile(&source, mode, path.to_string_lossy().into_owned(), opts)?;
     println!("{}:", path.display());
     if expand_codeobjects {
-        println!("{}", code.display_expand_codeobjects());
+        println!("{}", code.display_expand_code_objects());
     } else {
         println!("{code}");
     }
