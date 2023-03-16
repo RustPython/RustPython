@@ -1950,8 +1950,6 @@ class TestFMean(unittest.TestCase):
         with self.assertRaises(TypeError):
             fmean([10, 20, 60], 70)                 # too many arguments
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_special_values(self):
         # Rules for special values are inherited from math.fsum()
         fmean = statistics.fmean
@@ -2913,12 +2911,7 @@ class TestNormalDistPython(unittest.TestCase, TestNormalDist):
 
     def tearDown(self):
         sys.modules['statistics'] = statistics
-
-    # TODO: RUSTPYTHON, ValueError: math domain error
-    @unittest.expectedFailure
-    def test_inv_cdf(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_inv_cdf() # TODO: RUSTPYTHON, remove when this passes
-
+ 
 
 @unittest.skipUnless(c_statistics, 'requires _statistics')
 class TestNormalDistC(unittest.TestCase, TestNormalDist):

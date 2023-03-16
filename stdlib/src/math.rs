@@ -211,6 +211,9 @@ mod math {
     #[pyfunction]
     fn sqrt(value: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         let value = *value;
+        if value.is_nan() {
+            return Ok(value);
+        }
         if value.is_sign_negative() {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
@@ -664,7 +667,7 @@ mod math {
         }
         if special_sum != 0.0 {
             return if inf_sum.is_nan() {
-                Err(vm.new_overflow_error("-inf + inf in fsum".to_owned()))
+                Err(vm.new_value_error("-inf + inf in fsum".to_owned()))
             } else {
                 Ok(special_sum)
             };
