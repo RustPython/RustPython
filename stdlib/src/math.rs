@@ -213,7 +213,7 @@ mod math {
         let value = *value;
         if value.is_nan() {
             return Ok(value);
-        } //return nan if value is nan
+        }
         if value.is_sign_negative() {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
