@@ -38,7 +38,7 @@ static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
 enum CompilationSourceKind {
     /// Source is a File (Path)
     File(PathBuf),
-    /// Direct Raw sourcecode
+    /// Direct Raw source code
     SourceCode(String),
     /// Source is a directory
     Dir(PathBuf),

@@ -4,7 +4,7 @@
 
 pub(crate) mod asyncgenerator;
 pub use asyncgenerator::PyAsyncGen;
-pub(crate) mod builtinfunc;
+pub(crate) mod builtin_func;
 pub(crate) mod bytearray;
 pub use bytearray::PyByteArray;
 pub(crate) mod bytes;

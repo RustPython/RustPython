@@ -81,9 +81,9 @@ fn extract_items_into_context<'a, Item>(
 {
     for item in items {
         let r = item.try_split_attr_mut(|attrs, item| {
-            let (pyitems, cfgs) = attrs_to_content_items(attrs, impl_item_new::<Item>)?;
-            for pyitem in pyitems.iter().rev() {
-                let r = pyitem.gen_impl_item(ImplItemArgs::<Item> {
+            let (py_items, cfgs) = attrs_to_content_items(attrs, impl_item_new::<Item>)?;
+            for py_item in py_items.iter().rev() {
+                let r = py_item.gen_impl_item(ImplItemArgs::<Item> {
                     item,
                     attrs,
                     context,
@@ -393,6 +393,7 @@ pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStre
     // We need this method, because of how `CPython` copies `__init__`
     // from `BaseException` in `SimpleExtendsException` macro.
     // See: `(initproc)BaseException_init`
+    // spell-checker:ignore initproc
     let init_method = match init {
         Some(init_def) => quote! { #init_def(zelf, args, vm) },
         None => quote! { #base_class::init(zelf, args, vm) },
@@ -553,7 +554,7 @@ where
                 quote_spanned! { ident.span() =>
                     class.set_attr(
                         ctx.names.#name_ident,
-                        ctx.make_funcdef(#py_name, Self::#ident)
+                        ctx.make_func_def(#py_name, Self::#ident)
                             #doc
                             #build_func
                         .into(),
@@ -563,7 +564,7 @@ where
                 quote_spanned! { ident.span() =>
                     class.set_str_attr(
                         #py_name,
-                        ctx.make_funcdef(#py_name, Self::#ident)
+                        ctx.make_func_def(#py_name, Self::#ident)
                             #doc
                             #build_func,
                         ctx,
@@ -1048,8 +1049,8 @@ impl ItemMeta for SlotItemMeta {
     where
         I: std::iter::Iterator<Item = NestedMeta>,
     {
-        let meta_map = if let Some(nmeta) = nested.next() {
-            match nmeta {
+        let meta_map = if let Some(nested_meta) = nested.next() {
+            match nested_meta {
                 NestedMeta::Meta(meta) => {
                     Some([("name".to_owned(), (0, meta))].iter().cloned().collect())
                 }
@@ -1059,7 +1060,7 @@ impl ItemMeta for SlotItemMeta {
             Some(HashMap::default())
         };
         let (Some(meta_map), None) = (meta_map, nested.next()) else {
-            bail_span!(meta_ident, "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]")
+            bail_span!(meta_ident, "#[pyslot] must be of the form #[pyslot] or #[pyslot(slot_name)]")
         };
         Ok(Self::from_inner(ItemMetaInner {
             item_ident,
@@ -1096,7 +1097,7 @@ impl SlotItemMeta {
         slot_name.ok_or_else(|| {
             err_span!(
                 inner.meta_ident,
-                "#[pyslot] must be of the form #[pyslot] or #[pyslot(slotname)]",
+                "#[pyslot] must be of the form #[pyslot] or #[pyslot(slot_name)]",
             )
         })
     }

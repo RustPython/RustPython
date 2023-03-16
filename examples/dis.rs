@@ -57,7 +57,7 @@ fn main() {
     let matches = app.get_matches();
 
     let mode = matches.value_of_lossy("mode").unwrap().parse().unwrap();
-    let expand_codeobjects = !matches.is_present("no_expand");
+    let expand_code_objects = !matches.is_present("no_expand");
     let optimize = matches.occurrences_of("optimize") as u8;
     let scripts = matches.values_of_os("scripts").unwrap();
 
@@ -68,7 +68,7 @@ fn main() {
 
     for script in scripts.map(Path::new) {
         if script.exists() && script.is_file() {
-            let res = display_script(script, mode, opts.clone(), expand_codeobjects);
+            let res = display_script(script, mode, opts.clone(), expand_code_objects);
             if let Err(e) = res {
                 error!("Error while compiling {:?}: {}", script, e);
             }
@@ -82,12 +82,12 @@ fn display_script(
     path: &Path,
     mode: compiler::Mode,
     opts: compiler::CompileOpts,
-    expand_codeobjects: bool,
+    expand_code_objects: bool,
 ) -> Result<(), Box<dyn Error>> {
     let source = fs::read_to_string(path)?;
     let code = compiler::compile(&source, mode, path.to_string_lossy().into_owned(), opts)?;
     println!("{}:", path.display());
-    if expand_codeobjects {
+    if expand_code_objects {
         println!("{}", code.display_expand_code_objects());
     } else {
         println!("{code}");

@@ -1,6 +1,6 @@
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
-    builtins::builtinfunc::PyBuiltinMethod,
+    builtins::builtin_func::PyBuiltinMethod,
     class::PyClassImpl,
     common::lock::PyMutex,
     function::{FuncArgs, IntoPyNativeFunc},
