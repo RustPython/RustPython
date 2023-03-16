@@ -135,6 +135,7 @@
     "kwonlyargs",
     "uninit",
     "miri",
+    "tracebacks",
     // cpython
     "linearise",
     "dictoffset",
