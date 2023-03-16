@@ -3065,8 +3065,6 @@ mod _io {
         closed: AtomicCell<bool>,
     }
 
-    type StringIORef = PyRef<StringIO>;
-
     #[derive(FromArgs)]
     struct StringIONewArgs {
         #[pyarg(positional, optional)]
@@ -3135,7 +3133,7 @@ mod _io {
     }
 
     #[pyclass]
-    impl StringIORef {
+    impl PyRef<StringIO> {
         //write string to underlying vector
         #[pymethod]
         fn write(self, data: PyStrRef, vm: &VirtualMachine) -> PyResult {
@@ -3216,8 +3214,6 @@ mod _io {
         exports: AtomicCell<usize>,
     }
 
-    type BytesIORef = PyRef<BytesIO>;
-
     impl Constructor for BytesIO {
         type Args = OptionalArg<Option<PyBytesRef>>;
 
@@ -3261,7 +3257,7 @@ mod _io {
     }
 
     #[pyclass]
-    impl BytesIORef {
+    impl PyRef<BytesIO> {
         #[pymethod]
         fn write(self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
             let mut buffer = self.try_resizable(vm)?;

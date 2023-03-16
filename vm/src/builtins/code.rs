@@ -437,5 +437,5 @@ impl ToPyObject for bytecode::CodeObject {
 }
 
 pub fn init(ctx: &Context) {
-    PyRef::<PyCode>::extend_class(ctx, ctx.types.code_type);
+    PyCode::extend_class(ctx, ctx.types.code_type);
 }
