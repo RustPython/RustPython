@@ -13,7 +13,8 @@ pub use argument::{
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
-pub use builtin::{IntoPyNativeFunc, OwnedParam, PyNativeFunc, RefParam};
+pub(self) use builtin::{BorrowedParam, OwnedParam, RefParam};
+pub use builtin::{IntoPyNativeFunc, PyNativeFunc};
 pub use either::Either;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};

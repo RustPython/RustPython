@@ -1,6 +1,7 @@
 use super::{FromArgs, FuncArgs};
 use crate::{
-    convert::ToPyResult, object::PyThreadingConstraint, PyPayload, PyRef, PyResult, VirtualMachine,
+    convert::ToPyResult, object::PyThreadingConstraint, Py, PyPayload, PyRef, PyResult,
+    VirtualMachine,
 };
 use std::marker::PhantomData;
 
@@ -59,6 +60,8 @@ use sealed::PyNativeFuncInternal;
 #[doc(hidden)]
 pub struct OwnedParam<T>(PhantomData<T>);
 #[doc(hidden)]
+pub struct BorrowedParam<T>(PhantomData<T>);
+#[doc(hidden)]
 pub struct RefParam<T>(PhantomData<T>);
 
 // This is the "magic" that allows rust functions of varying signatures to
@@ -77,6 +80,20 @@ macro_rules! into_py_native_func_tuple {
                 let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
                 (self)($($n,)* vm).to_pyresult(vm)
+            }
+        }
+
+        impl<F, S, $($T,)* R> PyNativeFuncInternal<(BorrowedParam<S>, $(OwnedParam<$T>,)*), R, VirtualMachine> for F
+        where
+            F: Fn(&Py<S>, $($T,)* &VirtualMachine) -> R + PyThreadingConstraint + 'static,
+            S: PyPayload,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
+                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+
+                (self)(&zelf, $($n,)* vm).to_pyresult(vm)
             }
         }
 
@@ -104,6 +121,20 @@ macro_rules! into_py_native_func_tuple {
                 let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
 
                 (self)($($n,)*).to_pyresult(vm)
+            }
+        }
+
+        impl<F, S, $($T,)* R> PyNativeFuncInternal<(BorrowedParam<S>, $(OwnedParam<$T>,)*), R, ()> for F
+        where
+            F: Fn(&Py<S>, $($T,)*) -> R + PyThreadingConstraint + 'static,
+            S: PyPayload,
+            $($T: FromArgs,)*
+            R: ToPyResult,
+        {
+            fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
+                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+
+                (self)(&zelf, $($n,)*).to_pyresult(vm)
             }
         }
 
