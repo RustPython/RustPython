@@ -2911,10 +2911,7 @@ class TestNormalDistPython(unittest.TestCase, TestNormalDist):
 
     def tearDown(self):
         sys.modules['statistics'] = statistics
-
-    def test_inv_cdf(self):
-        super().test_inv_cdf()
-
+ 
 
 @unittest.skipUnless(c_statistics, 'requires _statistics')
 class TestNormalDistC(unittest.TestCase, TestNormalDist):
