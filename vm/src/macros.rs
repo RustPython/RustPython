@@ -58,8 +58,8 @@ macro_rules! py_namespace {
 
 /// Macro to match on the built-in class of a Python object.
 ///
-/// Like `match`, `match_class!` must be exhaustive, so a default arm with
-/// the uncasted object is required.
+/// Like `match`, `match_class!` must be exhaustive, so a default arm without
+/// casting is required.
 ///
 /// # Examples
 ///
@@ -184,7 +184,7 @@ macro_rules! identifier(
     };
 );
 
-/// Super detailed logging. Might soon overflow your logbuffers
+/// Super detailed logging. Might soon overflow your log buffers
 /// Default, this logging is discarded, except when a the `vm-tracing-logging`
 /// build feature is enabled.
 macro_rules! vm_trace {
@@ -218,7 +218,7 @@ macro_rules! named_function {
         #[allow(unused_variables)] // weird lint, something to do with paste probably
         let ctx: &$crate::Context = &$ctx;
         $crate::__exports::paste::expr! {
-            ctx.make_funcdef(
+            ctx.make_func_def(
                 stringify!($func),
                 [<$module _ $func>],
             )

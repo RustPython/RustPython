@@ -221,7 +221,7 @@ impl PyBuiltinMethod {
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        ctx.make_funcdef(name, f).build_method(ctx, class)
+        ctx.make_func_def(name, f).build_method(ctx, class)
     }
 }
 
@@ -259,9 +259,9 @@ impl PyBuiltinMethod {
         &self,
         vm: &VirtualMachine,
     ) -> (Option<PyObjectRef>, (Option<PyObjectRef>, PyStrRef)) {
-        let builtinfunc_getattr = vm.builtins.get_attr("getattr", vm).ok();
+        let builtins_getattr = vm.builtins.get_attr("getattr", vm).ok();
         let classname = vm.builtins.get_attr(self.class.name().to_string(), vm).ok();
-        (builtinfunc_getattr, (classname, self.value.name.clone()))
+        (builtins_getattr, (classname, self.value.name.clone()))
     }
 }
 impl Unconstructible for PyBuiltinMethod {}

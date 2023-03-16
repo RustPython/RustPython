@@ -189,14 +189,14 @@ macro_rules! emit {
     ($c:expr, Instruction::$op:ident { $arg:ident$(,)? }$(,)?) => {
         $c.emit_arg($arg, |x| Instruction::$op { $arg: x })
     };
-    ($c:expr, Instruction::$op:ident { $arg:ident : $argval:expr $(,)? }$(,)?) => {
-        $c.emit_arg($argval, |x| Instruction::$op { $arg: x })
+    ($c:expr, Instruction::$op:ident { $arg:ident : $arg_val:expr $(,)? }$(,)?) => {
+        $c.emit_arg($arg_val, |x| Instruction::$op { $arg: x })
     };
-    ($c:expr, Instruction::$op:ident( $argval:expr $(,)? )$(,)?) => {
-        $c.emit_arg($argval, Instruction::$op)
+    ($c:expr, Instruction::$op:ident( $arg_val:expr $(,)? )$(,)?) => {
+        $c.emit_arg($arg_val, Instruction::$op)
     };
     ($c:expr, Instruction::$op:ident$(,)?) => {
-        $c.emit_noarg(Instruction::$op)
+        $c.emit_no_arg(Instruction::$op)
     };
 }
 
@@ -331,7 +331,7 @@ impl Compiler {
         cache: impl FnOnce(&mut ir::CodeInfo) -> &mut IndexSet<String>,
     ) -> bytecode::NameIdx {
         let name = self.mangle(name);
-        let cache = cache(self.current_codeinfo());
+        let cache = cache(self.current_code_info());
         cache
             .get_index_of(name.as_ref())
             .unwrap_or_else(|| cache.insert_full(name.into_owned()).0)
@@ -821,7 +821,7 @@ impl Compiler {
                     Some(v) => {
                         if self.ctx.func == FunctionContext::AsyncFunction
                             && self
-                                .current_codeinfo()
+                                .current_code_info()
                                 .flags
                                 .contains(bytecode::CodeFlags::IS_GENERATOR)
                         {
@@ -929,12 +929,12 @@ impl Compiler {
             );
         }
 
-        let mut funcflags = bytecode::MakeFunctionFlags::empty();
+        let mut func_flags = bytecode::MakeFunctionFlags::empty();
         if have_defaults {
-            funcflags |= bytecode::MakeFunctionFlags::DEFAULTS;
+            func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
         }
         if !args.kw_defaults.is_empty() {
-            funcflags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
+            func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
         }
 
         self.push_output(
@@ -954,15 +954,15 @@ impl Compiler {
         }
 
         if let Some(name) = args.vararg.as_deref() {
-            self.current_codeinfo().flags |= bytecode::CodeFlags::HAS_VARARGS;
+            self.current_code_info().flags |= bytecode::CodeFlags::HAS_VARARGS;
             self.varname(&name.node.arg)?;
         }
         if let Some(name) = args.kwarg.as_deref() {
-            self.current_codeinfo().flags |= bytecode::CodeFlags::HAS_VARKEYWORDS;
+            self.current_code_info().flags |= bytecode::CodeFlags::HAS_VARKEYWORDS;
             self.varname(&name.node.arg)?;
         }
 
-        Ok(funcflags)
+        Ok(func_flags)
     }
 
     fn prepare_decorators(&mut self, decorator_list: &[ast::Expr]) -> CompileResult<()> {
@@ -1133,8 +1133,8 @@ impl Compiler {
         // Create bytecode for this function:
 
         self.prepare_decorators(decorator_list)?;
-        let mut funcflags = self.enter_function(name, args)?;
-        self.current_codeinfo()
+        let mut func_flags = self.enter_function(name, args)?;
+        self.current_code_info()
             .flags
             .set(bytecode::CodeFlags::IS_COROUTINE, is_async);
 
@@ -1157,7 +1157,7 @@ impl Compiler {
 
         let (doc_str, body) = split_doc(body);
 
-        self.current_codeinfo()
+        self.current_code_info()
             .constants
             .insert_full(ConstantData::None);
 
@@ -1210,7 +1210,7 @@ impl Compiler {
         }
 
         if num_annotations > 0 {
-            funcflags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
+            func_flags |= bytecode::MakeFunctionFlags::ANNOTATIONS;
             emit!(
                 self,
                 Instruction::BuildMap {
@@ -1220,7 +1220,7 @@ impl Compiler {
         }
 
         if self.build_closure(&code) {
-            funcflags |= bytecode::MakeFunctionFlags::CLOSURE;
+            func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
         }
 
         self.emit_constant(ConstantData::Code {
@@ -1231,7 +1231,7 @@ impl Compiler {
         });
 
         // Turn code object into function object:
-        emit!(self, Instruction::MakeFunction(funcflags));
+        emit!(self, Instruction::MakeFunction(func_flags));
 
         emit!(self, Instruction::Duplicate);
         self.load_docstring(doc_str);
@@ -1388,10 +1388,10 @@ impl Compiler {
         self.qualified_path.append(global_path_prefix.as_mut());
         self.ctx = prev_ctx;
 
-        let mut funcflags = bytecode::MakeFunctionFlags::empty();
+        let mut func_flags = bytecode::MakeFunctionFlags::empty();
 
         if self.build_closure(&code) {
-            funcflags |= bytecode::MakeFunctionFlags::CLOSURE;
+            func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
         }
 
         self.emit_constant(ConstantData::Code {
@@ -1402,7 +1402,7 @@ impl Compiler {
         });
 
         // Turn code object into function object:
-        emit!(self, Instruction::MakeFunction(funcflags));
+        emit!(self, Instruction::MakeFunction(func_flags));
 
         self.emit_constant(ConstantData::Str {
             value: name.to_owned(),
@@ -1417,7 +1417,7 @@ impl Compiler {
     }
 
     fn load_docstring(&mut self, doc_str: Option<String>) {
-        // TODO: __doc__ must be default None and no bytecodes unless it is Some
+        // TODO: __doc__ must be default None and no bytecode unless it is Some
         // Duplicate top of stack (the function or class object)
 
         // Doc string value:
@@ -1603,12 +1603,12 @@ impl Compiler {
         &mut self,
         left: &ast::Expr,
         ops: &[ast::Cmpop],
-        vals: &[ast::Expr],
+        exprs: &[ast::Expr],
     ) -> CompileResult<()> {
         assert!(!ops.is_empty());
-        assert_eq!(vals.len(), ops.len());
+        assert_eq!(exprs.len(), ops.len());
         let (last_op, mid_ops) = ops.split_last().unwrap();
-        let (last_val, mid_vals) = vals.split_last().unwrap();
+        let (last_val, mid_exprs) = exprs.split_last().unwrap();
 
         use bytecode::ComparisonOperator::*;
         use bytecode::TestOperator::*;
@@ -1626,7 +1626,7 @@ impl Compiler {
         };
 
         // a == b == c == d
-        // compile into (pseudocode):
+        // compile into (pseudo code):
         // result = a == b
         // if result:
         //   result = b == c
@@ -1636,7 +1636,7 @@ impl Compiler {
         // initialize lhs outside of loop
         self.compile_expression(left)?;
 
-        let end_blocks = if mid_vals.is_empty() {
+        let end_blocks = if mid_exprs.is_empty() {
             None
         } else {
             let break_block = self.new_block();
@@ -1645,7 +1645,7 @@ impl Compiler {
         };
 
         // for all comparisons except the last (as the last one doesn't need a conditional jump)
-        for (op, val) in mid_ops.iter().zip(mid_vals) {
+        for (op, val) in mid_ops.iter().zip(mid_exprs) {
             self.compile_expression(val)?;
             // store rhs for the next comparison in chain
             emit!(self, Instruction::Duplicate);
@@ -2206,7 +2206,7 @@ impl Compiler {
                 let prev_ctx = self.ctx;
 
                 let name = "<lambda>".to_owned();
-                let mut funcflags = self.enter_function(&name, args)?;
+                let mut func_flags = self.enter_function(&name, args)?;
 
                 self.ctx = CompileContext {
                     loop_data: Option::None,
@@ -2214,7 +2214,7 @@ impl Compiler {
                     func: FunctionContext::Function,
                 };
 
-                self.current_codeinfo()
+                self.current_code_info()
                     .constants
                     .insert_full(ConstantData::None);
 
@@ -2222,14 +2222,14 @@ impl Compiler {
                 emit!(self, Instruction::ReturnValue);
                 let code = self.pop_code_object();
                 if self.build_closure(&code) {
-                    funcflags |= bytecode::MakeFunctionFlags::CLOSURE;
+                    func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
                 }
                 self.emit_constant(ConstantData::Code {
                     code: Box::new(code),
                 });
                 self.emit_constant(ConstantData::Str { value: name });
                 // Turn code object into function object:
-                emit!(self, Instruction::MakeFunction(funcflags));
+                emit!(self, Instruction::MakeFunction(func_flags));
 
                 self.ctx = prev_ctx;
             }
@@ -2345,24 +2345,24 @@ impl Compiler {
     fn compile_keywords(&mut self, keywords: &[ast::Keyword]) -> CompileResult<()> {
         let mut size = 0;
         let groupby = keywords.iter().group_by(|e| e.node.arg.is_none());
-        for (is_unpacking, subkeywords) in &groupby {
+        for (is_unpacking, sub_keywords) in &groupby {
             if is_unpacking {
-                for keyword in subkeywords {
+                for keyword in sub_keywords {
                     self.compile_expression(&keyword.node.value)?;
                     size += 1;
                 }
             } else {
-                let mut subsize = 0;
-                for keyword in subkeywords {
+                let mut sub_size = 0;
+                for keyword in sub_keywords {
                     if let Some(name) = &keyword.node.arg {
                         self.emit_constant(ConstantData::Str {
                             value: name.to_owned(),
                         });
                         self.compile_expression(&keyword.node.value)?;
-                        subsize += 1;
+                        sub_size += 1;
                     }
                 }
-                emit!(self, Instruction::BuildMap { size: subsize });
+                emit!(self, Instruction::BuildMap { size: sub_size });
                 size += 1;
             }
         }
@@ -2634,9 +2634,9 @@ impl Compiler {
 
         self.ctx = prev_ctx;
 
-        let mut funcflags = bytecode::MakeFunctionFlags::empty();
+        let mut func_flags = bytecode::MakeFunctionFlags::empty();
         if self.build_closure(&code) {
-            funcflags |= bytecode::MakeFunctionFlags::CLOSURE;
+            func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
         }
 
         // List comprehension code:
@@ -2650,7 +2650,7 @@ impl Compiler {
         });
 
         // Turn code object into function object:
-        emit!(self, Instruction::MakeFunction(funcflags));
+        emit!(self, Instruction::MakeFunction(func_flags));
 
         // Evaluate iterated item:
         self.compile_expression(&generators[0].iter)?;
@@ -2694,7 +2694,7 @@ impl Compiler {
         });
     }
 
-    fn emit_noarg(&mut self, ins: Instruction) {
+    fn emit_no_arg(&mut self, ins: Instruction) {
         self._emit(ins, OpArg::null(), ir::BlockIdx::NULL)
     }
 
@@ -2710,29 +2710,29 @@ impl Compiler {
     // fn block_done()
 
     fn emit_constant(&mut self, constant: ConstantData) {
-        let info = self.current_codeinfo();
+        let info = self.current_code_info();
         let idx = info.constants.insert_full(constant).0.to_u32();
         self.emit_arg(idx, |idx| Instruction::LoadConst { idx })
     }
 
-    fn current_codeinfo(&mut self) -> &mut ir::CodeInfo {
+    fn current_code_info(&mut self) -> &mut ir::CodeInfo {
         self.code_stack.last_mut().expect("no code on stack")
     }
 
     fn current_block(&mut self) -> &mut ir::Block {
-        let info = self.current_codeinfo();
+        let info = self.current_code_info();
         &mut info.blocks[info.current_block]
     }
 
     fn new_block(&mut self) -> ir::BlockIdx {
-        let code = self.current_codeinfo();
+        let code = self.current_code_info();
         let idx = ir::BlockIdx(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
         idx
     }
 
     fn switch_to_block(&mut self, block: ir::BlockIdx) {
-        let code = self.current_codeinfo();
+        let code = self.current_code_info();
         let prev = code.current_block;
         assert_eq!(
             code.blocks[block].next,
@@ -2762,7 +2762,7 @@ impl Compiler {
     }
 
     fn mark_generator(&mut self) {
-        self.current_codeinfo().flags |= bytecode::CodeFlags::IS_GENERATOR
+        self.current_code_info().flags |= bytecode::CodeFlags::IS_GENERATOR
     }
 }
 
@@ -2882,7 +2882,7 @@ mod tests {
         ($value:expr) => {
             insta::assert_snapshot!(
                 insta::internals::AutoName,
-                $value.display_expand_codeobjects().to_string(),
+                $value.display_expand_code_objects().to_string(),
                 stringify!($value)
             )
         };
@@ -2925,7 +2925,7 @@ if (True and False) or (False and True):
 for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
     with self.subTest(type=type(stop_exc)):
         try:
-            async with woohoo():
+            async with egg():
                 raise stop_exc
         except Exception as ex:
             self.assertIs(ex, stop_exc)

@@ -1,6 +1,6 @@
 ---
 source: compiler/codegen/src/compile.rs
-expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n    with self.subTest(type=type(stop_exc)):\n        try:\n            async with woohoo():\n                raise stop_exc\n        except Exception as ex:\n            self.assertIs(ex, stop_exc)\n        else:\n            self.fail(f'{stop_exc} was suppressed')\n\")"
+expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n    with self.subTest(type=type(stop_exc)):\n        try:\n            async with egg():\n                raise stop_exc\n        except Exception as ex:\n            self.assertIs(ex, stop_exc)\n        else:\n            self.fail(f'{stop_exc} was suppressed')\n\")"
 ---
   1           0 SetupLoop
               1 LoadNameAny          (0, StopIteration)
@@ -26,7 +26,7 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
 
   3          20 SetupExcept          (40)
 
-  4          21 LoadNameAny          (6, woohoo)
+  4          21 LoadNameAny          (6, egg)
              22 CallFunctionPositional(0)
              23 BeforeAsyncWith
              24 GetAwaitable

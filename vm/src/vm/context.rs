@@ -1,6 +1,6 @@
 use crate::{
     builtins::{
-        builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
+        builtin_func::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         code::{self, PyCode},
         descriptor::{
@@ -43,7 +43,7 @@ pub struct Context {
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
     pub int_cache_pool: Vec<PyIntRef>,
-    // there should only be exact objects of str in here, no non-strs and no subclasses
+    // there should only be exact objects of str in here, no non-str objects and no subclasses
     pub(crate) string_pool: StringPool,
     pub(crate) slot_new_wrapper: PyObjectRef,
     pub names: ConstName,
@@ -461,7 +461,7 @@ impl Context {
     }
 
     #[inline]
-    pub fn make_funcdef<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyNativeFuncDef
+    pub fn make_func_def<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyNativeFuncDef
     where
         F: IntoPyNativeFunc<FKind>,
     {
@@ -505,7 +505,7 @@ impl Context {
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        self.make_funcdef(name, f).build_function(self)
+        self.make_func_def(name, f).build_function(self)
     }
 
     pub fn new_method<F, FKind>(

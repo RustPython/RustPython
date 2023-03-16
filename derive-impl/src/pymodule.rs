@@ -74,9 +74,9 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
             continue;
         }
         let r = item.try_split_attr_mut(|attrs, item| {
-            let (pyitems, cfgs) = attrs_to_module_items(attrs, module_item_new)?;
-            for pyitem in pyitems.iter().rev() {
-                let r = pyitem.gen_module_item(ModuleItemArgs {
+            let (py_items, cfgs) = attrs_to_module_items(attrs, module_item_new)?;
+            for py_item in py_items.iter().rev() {
+                let r = py_item.gen_module_item(ModuleItemArgs {
                     item,
                     attrs,
                     context: &mut context,
@@ -145,20 +145,20 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
 fn module_item_new(
     index: usize,
     attr_name: AttrName,
-    pyattrs: Vec<usize>,
+    py_attrs: Vec<usize>,
 ) -> Box<dyn ModuleItem<AttrName = AttrName>> {
     match attr_name {
         AttrName::Function => Box::new(FunctionItem {
             inner: ContentItemInner { index, attr_name },
-            pyattrs,
+            py_attrs,
         }),
         AttrName::Attr => Box::new(AttributeItem {
             inner: ContentItemInner { index, attr_name },
-            pyattrs,
+            py_attrs,
         }),
         AttrName::Class => Box::new(ClassItem {
             inner: ContentItemInner { index, attr_name },
-            pyattrs,
+            py_attrs,
         }),
     }
 }
@@ -186,7 +186,7 @@ where
     }
 
     let mut closed = false;
-    let mut pyattrs = Vec::new();
+    let mut py_attrs = Vec::new();
     for (i, attr) in iter {
         // take py items but no cfgs
         let attr_name = if let Some(ident) = attr.get_ident() {
@@ -218,16 +218,16 @@ where
                     "#[pyattr] must be placed on top of other #[py*] items",
                 )
             }
-            pyattrs.push(i);
+            py_attrs.push(i);
             continue;
         }
 
-        if pyattrs.is_empty() {
+        if py_attrs.is_empty() {
             result.push(item_new(i, attr_name, Vec::new()));
         } else {
             match attr_name {
                 AttrName::Class | AttrName::Function => {
-                    result.push(item_new(i, attr_name, pyattrs.clone()));
+                    result.push(item_new(i, attr_name, py_attrs.clone()));
                 }
                 _ => {
                     bail_span!(
@@ -236,14 +236,14 @@ where
                     )
                 }
             }
-            pyattrs.clear();
+            py_attrs.clear();
             closed = true;
         }
     }
 
-    if let Some(last) = pyattrs.pop() {
+    if let Some(last) = py_attrs.pop() {
         assert!(!closed);
-        result.push(item_new(last, AttrName::Attr, pyattrs));
+        result.push(item_new(last, AttrName::Attr, py_attrs));
     }
     Ok((result, cfgs))
 }
@@ -251,19 +251,19 @@ where
 /// #[pyfunction]
 struct FunctionItem {
     inner: ContentItemInner<AttrName>,
-    pyattrs: Vec<usize>,
+    py_attrs: Vec<usize>,
 }
 
 /// #[pyclass]
 struct ClassItem {
     inner: ContentItemInner<AttrName>,
-    pyattrs: Vec<usize>,
+    py_attrs: Vec<usize>,
 }
 
 /// #[pyattr]
 struct AttributeItem {
     inner: ContentItemInner<AttrName>,
-    pyattrs: Vec<usize>,
+    py_attrs: Vec<usize>,
 }
 
 impl ContentItem for FunctionItem {
@@ -334,14 +334,14 @@ impl ModuleItem for FunctionItem {
             };
             let doc = quote!(.with_doc(#doc.to_owned(), &vm.ctx));
             let new_func = quote_spanned!(ident.span()=>
-                vm.ctx.make_funcdef(#py_name, #ident)
+                vm.ctx.make_func_def(#py_name, #ident)
                     #doc
                     .into_function()
                     .with_module(vm.new_pyobj(#module.to_owned()))
                     .into_ref(&vm.ctx)
             );
 
-            if self.pyattrs.is_empty() {
+            if self.py_attrs.is_empty() {
                 (
                     quote_spanned! { ident.span() => {
                         let func = #new_func;
@@ -352,7 +352,7 @@ impl ModuleItem for FunctionItem {
             } else {
                 let mut py_names = HashSet::new();
                 py_names.insert(py_name);
-                for attr_index in self.pyattrs.iter().rev() {
+                for attr_index in self.py_attrs.iter().rev() {
                     let mut loop_unit = || {
                         let attr_attr = args.attrs.remove(*attr_index);
                         let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
@@ -402,7 +402,7 @@ impl ModuleItem for ClassItem {
         let (class_name, class_new) = {
             let class_attr = &mut args.attrs[self.inner.index];
             let no_attr = class_attr.try_remove_name("no_attr")?;
-            if self.pyattrs.is_empty() {
+            if self.py_attrs.is_empty() {
                 // check no_attr before ClassItemMeta::from_attr
                 if no_attr.is_none() {
                     bail_span!(
@@ -439,7 +439,7 @@ impl ModuleItem for ClassItem {
         };
 
         let mut py_names = Vec::new();
-        for attr_index in self.pyattrs.iter().rev() {
+        for attr_index in self.py_attrs.iter().rev() {
             let mut loop_unit = || {
                 let attr_attr = args.attrs.remove(*attr_index);
                 let item_meta = SimpleItemMeta::from_attr(ident.clone(), &attr_attr)?;
@@ -540,7 +540,7 @@ impl ModuleItem for AttributeItem {
                 )
             }
             Item::Use(item) => {
-                if !self.pyattrs.is_empty() {
+                if !self.py_attrs.is_empty() {
                     return Err(self
                         .new_syn_error(item.span(), "Only single #[pyattr] is allowed for `use`"));
                 }
@@ -578,7 +578,7 @@ impl ModuleItem for AttributeItem {
             }
         };
 
-        let (tokens, py_names) = if self.pyattrs.is_empty() {
+        let (tokens, py_names) = if self.py_attrs.is_empty() {
             (
                 quote_spanned! { ident.span() => {
                     #let_obj
@@ -588,7 +588,7 @@ impl ModuleItem for AttributeItem {
             )
         } else {
             let mut names = vec![py_name];
-            for attr_index in self.pyattrs.iter().rev() {
+            for attr_index in self.py_attrs.iter().rev() {
                 let mut loop_unit = || {
                     let attr_attr = args.attrs.remove(*attr_index);
                     let item_meta = AttrItemMeta::from_attr(ident.clone(), &attr_attr)?;
