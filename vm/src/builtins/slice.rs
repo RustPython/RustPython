@@ -1,4 +1,5 @@
 // sliceobject.{h,c} in CPython
+// spell-checker:ignore sliceobject
 use super::{PyTupleRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,

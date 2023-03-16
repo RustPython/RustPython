@@ -225,9 +225,9 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
             .get_attr(identifier!(vm, __parameters__), vm)
             .and_then(|obj| PyTupleRef::try_from_object(vm, obj))
         {
-            for subparam in &subparams {
-                if !parameters.iter().any(|param| param.is(subparam)) {
-                    parameters.push(subparam.clone());
+            for sub_param in &subparams {
+                if !parameters.iter().any(|param| param.is(sub_param)) {
+                    parameters.push(sub_param.clone());
                 }
             }
         }

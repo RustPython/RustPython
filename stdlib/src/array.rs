@@ -1,3 +1,5 @@
+// spell-checker:ignore typecode tofile tolist fromfile
+
 use rustpython_vm::{PyObjectRef, VirtualMachine};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {

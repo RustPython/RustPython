@@ -345,19 +345,19 @@ impl PyRange {
     fn getitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match RangeIndex::try_from_object(vm, subscript)? {
             RangeIndex::Slice(slice) => {
-                let (mut substart, mut substop, mut substep) =
+                let (mut sub_start, mut sub_stop, mut sub_step) =
                     slice.inner_indices(&self.compute_length(), vm)?;
                 let range_step = &self.step;
                 let range_start = &self.start;
 
-                substep *= range_step.as_bigint();
-                substart = (substart * range_step.as_bigint()) + range_start.as_bigint();
-                substop = (substop * range_step.as_bigint()) + range_start.as_bigint();
+                sub_step *= range_step.as_bigint();
+                sub_start = (sub_start * range_step.as_bigint()) + range_start.as_bigint();
+                sub_stop = (sub_stop * range_step.as_bigint()) + range_start.as_bigint();
 
                 Ok(PyRange {
-                    start: vm.new_pyref(substart),
-                    stop: vm.new_pyref(substop),
-                    step: vm.new_pyref(substep),
+                    start: vm.new_pyref(sub_start),
+                    stop: vm.new_pyref(sub_stop),
+                    step: vm.new_pyref(sub_step),
                 }
                 .into_ref(vm)
                 .into())
@@ -582,8 +582,8 @@ impl IterNext for PyLongRangeIterator {
     }
 }
 
-// When start, stop, step are isizes, we can use a faster more compact representation
-// that only operates using isizes to track values.
+// When start, stop, step are isize, we can use a faster more compact representation
+// that only operates using isize to track values.
 #[pyclass(module = false, name = "range_iterator")]
 #[derive(Debug)]
 pub struct PyRangeIterator {

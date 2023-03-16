@@ -1044,7 +1044,7 @@ impl AnyStr for [u8] {
     where
         F: Fn(&Self) -> PyObjectRef,
     {
-        let mut splited = Vec::new();
+        let mut splits = Vec::new();
         let mut count = maxsplit;
         let mut haystack = self;
         while let Some(offset) = haystack.find_byteset(ASCII_WHITESPACES) {
@@ -1052,22 +1052,22 @@ impl AnyStr for [u8] {
                 if count == 0 {
                     break;
                 }
-                splited.push(convert(&haystack[..offset]));
+                splits.push(convert(&haystack[..offset]));
                 count -= 1;
             }
             haystack = &haystack[offset + 1..];
         }
         if !haystack.is_empty() {
-            splited.push(convert(haystack));
+            splits.push(convert(haystack));
         }
-        splited
+        splits
     }
 
     fn py_rsplit_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
     where
         F: Fn(&Self) -> PyObjectRef,
     {
-        let mut splited = Vec::new();
+        let mut splits = Vec::new();
         let mut count = maxsplit;
         let mut haystack = self;
         while let Some(offset) = haystack.rfind_byteset(ASCII_WHITESPACES) {
@@ -1075,15 +1075,15 @@ impl AnyStr for [u8] {
                 if count == 0 {
                     break;
                 }
-                splited.push(convert(&haystack[offset + 1..]));
+                splits.push(convert(&haystack[offset + 1..]));
                 count -= 1;
             }
             haystack = &haystack[..offset];
         }
         if !haystack.is_empty() {
-            splited.push(convert(haystack));
+            splits.push(convert(haystack));
         }
-        splited
+        splits
     }
 }
 

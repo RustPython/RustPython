@@ -1,3 +1,5 @@
+// spell-checker:ignore usedforsecurity HASHXOF
+
 pub(crate) use hashlib::make_module;
 
 #[pymodule]
