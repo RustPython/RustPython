@@ -1,3 +1,13 @@
+// spell-checker:ignore libsqlite3 threadsafety PYSQLITE decltypes colnames collseq cantinit dirtywal
+// spell-checker:ignore corruptfs narg setinputsizes setoutputsize lastrowid arraysize executemany
+// spell-checker:ignore blobopen executescript iterdump getlimit setlimit errorcode errorname
+// spell-checker:ignore rowid rowcount fetchone fetchmany fetchall errcode errname vtable pagecount
+// spell-checker:ignore autocommit libversion toobig errmsg nomem threadsafe longlong vdbe reindex
+// spell-checker:ignore savepoint cantopen ioerr nolfs nomem notadb notfound fullpath notempdir vtab
+// spell-checker:ignore checkreservedlock noent fstat rdlock shmlock shmmap shmopen shmsize sharedcache
+// spell-checker:ignore cantlock commithook foreignkey notnull primarykey gettemppath autoindex convpath
+// spell-checker:ignore dbmoved vnode nbytes
+
 use rustpython_vm::{PyObjectRef, VirtualMachine};
 
 // pub(crate) use _sqlite::make_module;
@@ -365,7 +375,7 @@ mod _sqlite {
             })
         }
 
-        fn retrive(&self) -> (&PyObject, &VirtualMachine) {
+        fn retrieve(&self) -> (&PyObject, &VirtualMachine) {
             unsafe { (&*self.obj, &*self.vm) }
         }
 
@@ -379,7 +389,7 @@ mod _sqlite {
             argv: *mut *mut sqlite3_value,
         ) {
             let context = SqliteContext::from(context);
-            let (func, vm) = (*context.user_data::<Self>()).retrive();
+            let (func, vm) = (*context.user_data::<Self>()).retrieve();
             let args = std::slice::from_raw_parts(argv, argc as usize);
 
             let f = || -> PyResult<()> {
@@ -406,7 +416,7 @@ mod _sqlite {
             argv: *mut *mut sqlite3_value,
         ) {
             let context = SqliteContext::from(context);
-            let (cls, vm) = (*context.user_data::<Self>()).retrive();
+            let (cls, vm) = (*context.user_data::<Self>()).retrieve();
             let args = std::slice::from_raw_parts(argv, argc as usize);
             let instance = context.aggregate_context::<*const PyObject>();
             if (*instance).is_null() {
@@ -428,7 +438,7 @@ mod _sqlite {
 
         unsafe extern "C" fn finalize_callback(context: *mut sqlite3_context) {
             let context = SqliteContext::from(context);
-            let (_, vm) = (*context.user_data::<Self>()).retrive();
+            let (_, vm) = (*context.user_data::<Self>()).retrieve();
             let instance = context.aggregate_context::<*const PyObject>();
             let Some(instance) = (*instance).as_ref() else { return; };
 
@@ -442,7 +452,7 @@ mod _sqlite {
             b_len: c_int,
             b_ptr: *const c_void,
         ) -> c_int {
-            let (callable, vm) = (*data.cast::<Self>()).retrive();
+            let (callable, vm) = (*data.cast::<Self>()).retrieve();
 
             let f = || -> PyResult<c_int> {
                 let text1 = ptr_to_string(a_ptr.cast(), a_len, null_mut(), vm)?;
@@ -469,7 +479,7 @@ mod _sqlite {
 
         unsafe extern "C" fn value_callback(context: *mut sqlite3_context) {
             let context = SqliteContext::from(context);
-            let (_, vm) = (*context.user_data::<Self>()).retrive();
+            let (_, vm) = (*context.user_data::<Self>()).retrieve();
             let instance = context.aggregate_context::<*const PyObject>();
             let instance = &**instance;
 
@@ -482,7 +492,7 @@ mod _sqlite {
             argv: *mut *mut sqlite3_value,
         ) {
             let context = SqliteContext::from(context);
-            let (_, vm) = (*context.user_data::<Self>()).retrive();
+            let (_, vm) = (*context.user_data::<Self>()).retrieve();
             let args = std::slice::from_raw_parts(argv, argc as usize);
             let instance = context.aggregate_context::<*const PyObject>();
             let instance = &**instance;
@@ -498,7 +508,7 @@ mod _sqlite {
             db_name: *const libc::c_char,
             access: *const libc::c_char,
         ) -> c_int {
-            let (callable, vm) = (*data.cast::<Self>()).retrive();
+            let (callable, vm) = (*data.cast::<Self>()).retrieve();
             let f = || -> PyResult<c_int> {
                 let arg1 = ptr_to_str(arg1, vm)?;
                 let arg2 = ptr_to_str(arg2, vm)?;
@@ -521,7 +531,7 @@ mod _sqlite {
             stmt: *mut c_void,
             sql: *mut c_void,
         ) -> c_int {
-            let (callable, vm) = (*data.cast::<Self>()).retrive();
+            let (callable, vm) = (*data.cast::<Self>()).retrieve();
             let expanded = sqlite3_expanded_sql(stmt.cast());
             let f = || -> PyResult<()> {
                 let stmt = ptr_to_str(expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
@@ -533,7 +543,7 @@ mod _sqlite {
         }
 
         unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
-            let (callable, vm) = (*data.cast::<Self>()).retrive();
+            let (callable, vm) = (*data.cast::<Self>()).retrieve();
             if let Ok(val) = callable.call((), vm) {
                 if let Ok(val) = val.is_true(vm) {
                     return val as c_int;
@@ -922,7 +932,7 @@ mod _sqlite {
 
         #[pymethod]
         fn commit(&self, vm: &VirtualMachine) -> PyResult<()> {
-            self.db_lock(vm)?.implicity_commit(vm)
+            self.db_lock(vm)?.implicit_commit(vm)
         }
 
         #[pymethod]
@@ -1115,7 +1125,7 @@ mod _sqlite {
 
             // TODO: replace with Result.inspect_err when stable
             if let Err(exc) = db.check(ret, vm) {
-                // create_colation do not call destructor if error occur
+                // create_collation do not call destructor if error occur
                 unsafe { Box::from_raw(data) };
                 Err(exc)
             } else {
@@ -1526,7 +1536,7 @@ mod _sqlite {
 
             db.sql_limit(script.byte_len(), vm)?;
 
-            db.implicity_commit(vm)?;
+            db.implicit_commit(vm)?;
 
             let script = script.to_cstring(vm)?;
             let mut ptr = script.as_ptr();
@@ -2124,8 +2134,9 @@ mod _sqlite {
                 let ret = inner.blob.write_single(value, index);
                 self.check(ret, vm)
             } else if let Some(_slice) = needle.payload::<PySlice>() {
-                Err(vm
-                    .new_not_implemented_error("Blob slice assigment is not implmented".to_owned()))
+                Err(vm.new_not_implemented_error(
+                    "Blob slice assignment is not implemented".to_owned(),
+                ))
                 // let blob_len = inner.blob.bytes();
                 // let slice = slice.to_saturated(vm)?;
                 // let (range, step, length) = slice.adjust_indices(blob_len as usize);
@@ -2380,7 +2391,7 @@ mod _sqlite {
             unsafe { sqlite3_last_insert_rowid(self.db) }
         }
 
-        fn implicity_commit(self, vm: &VirtualMachine) -> PyResult<()> {
+        fn implicit_commit(self, vm: &VirtualMachine) -> PyResult<()> {
             if self.is_autocommit() {
                 Ok(())
             } else {
