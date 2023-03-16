@@ -1,6 +1,6 @@
 use crate::{
     builtins::{
-        asyncgenerator, bool_, builtinfunc, bytearray, bytes, classmethod, code, complex,
+        asyncgenerator, bool_, builtin_func, bytearray, bytes, classmethod, code, complex,
         coroutine, descriptor, dict, enumerate, filter, float, frame, function, generator,
         genericalias, getset, int, iter, list, map, mappingproxy, memory, module, namespace,
         object, property, pystr, range, set, singletons, slice, staticmethod, super_, traceback,
@@ -134,7 +134,7 @@ impl TypeZoo {
             async_generator_athrow: asyncgenerator::PyAsyncGenAThrow::init_bare_type(),
             async_generator_wrapped_value: asyncgenerator::PyAsyncGenWrappedValue::init_bare_type(),
             bound_method_type: function::PyBoundMethod::init_bare_type(),
-            builtin_function_or_method_type: builtinfunc::PyBuiltinFunction::init_bare_type(),
+            builtin_function_or_method_type: builtin_func::PyBuiltinFunction::init_bare_type(),
             bytearray_iterator_type: bytearray::PyByteArrayIterator::init_bare_type(),
             bytes_iterator_type: bytes::PyBytesIterator::init_bare_type(),
             callable_iterator: iter::PyCallableIterator::init_bare_type(),
@@ -171,7 +171,7 @@ impl TypeZoo {
             traceback_type: traceback::PyTraceback::init_bare_type(),
             tuple_iterator_type: tuple::PyTupleIterator::init_bare_type(),
             weakproxy_type: weakproxy::PyWeakProxy::init_bare_type(),
-            method_descriptor_type: builtinfunc::PyBuiltinMethod::init_bare_type(),
+            method_descriptor_type: builtin_func::PyBuiltinMethod::init_bare_type(),
             none_type: singletons::PyNone::init_bare_type(),
             not_implemented_type: singletons::PyNotImplemented::init_bare_type(),
             generic_alias_type: genericalias::PyGenericAlias::init_bare_type(),
@@ -189,7 +189,7 @@ impl TypeZoo {
         set::init(context);
         tuple::init(context);
         dict::init(context);
-        builtinfunc::init(context);
+        builtin_func::init(context);
         function::init(context);
         staticmethod::init(context);
         classmethod::init(context);

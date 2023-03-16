@@ -86,7 +86,7 @@ impl ArgAttribute {
                         self.default = Some(None);
                     }
                 } else {
-                    bail_span!(path, "Unrecognised pyarg attribute");
+                    bail_span!(path, "Unrecognized pyarg attribute");
                 }
             }
             NestedMeta::Meta(Meta::NameValue(name_value)) => {
@@ -109,10 +109,10 @@ impl ArgAttribute {
                         _ => bail_span!(name_value, "Expected string value for name argument"),
                     }
                 } else {
-                    bail_span!(name_value, "Unrecognised pyarg attribute");
+                    bail_span!(name_value, "Unrecognized pyarg attribute");
                 }
             }
-            _ => bail_span!(arg, "Unrecognised pyarg attribute"),
+            _ => bail_span!(arg, "Unrecognized pyarg attribute"),
         }
 
         Ok(())
@@ -138,24 +138,24 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
     };
 
     let name = field.ident.as_ref();
-    let namestring = name.map(Ident::to_string);
-    if matches!(&namestring, Some(s) if s.starts_with("_phantom")) {
+    let name_string = name.map(Ident::to_string);
+    if matches!(&name_string, Some(s) if s.starts_with("_phantom")) {
         return Ok(quote! {
             #name: ::std::marker::PhantomData,
         });
     }
-    let fieldname = match name {
+    let field_name = match name {
         Some(id) => id.to_token_stream(),
         None => syn::Index::from(i).into_token_stream(),
     };
     if let ParameterKind::Flatten = attr.kind {
         return Ok(quote! {
-            #fieldname: ::rustpython_vm::function::FromArgs::from_args(vm, args)?,
+            #field_name: ::rustpython_vm::function::FromArgs::from_args(vm, args)?,
         });
     }
     let pyname = attr
         .name
-        .or(namestring)
+        .or(name_string)
         .ok_or_else(|| err_span!(field, "field in tuple struct must have name attribute"))?;
     let middle = quote! {
         .map(|x| ::rustpython_vm::convert::TryFromObject::try_from_object(vm, x)).transpose()?
@@ -184,17 +184,17 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
     let file_output = match attr.kind {
         ParameterKind::PositionalOnly => {
             quote! {
-                #fieldname: args.take_positional()#middle #ending,
+                #field_name: args.take_positional()#middle #ending,
             }
         }
         ParameterKind::PositionalOrKeyword => {
             quote! {
-                #fieldname: args.take_positional_keyword(#pyname)#middle #ending,
+                #field_name: args.take_positional_keyword(#pyname)#middle #ending,
             }
         }
         ParameterKind::KeywordOnly => {
             quote! {
-                #fieldname: args.take_keyword(#pyname)#middle #ending,
+                #field_name: args.take_keyword(#pyname)#middle #ending,
             }
         }
         ParameterKind::Flatten => unreachable!(),

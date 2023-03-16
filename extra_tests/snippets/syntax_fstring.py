@@ -113,7 +113,7 @@ assert f'{"42"=!s:<5}' == '"42"=42   ', '#'+ f'{"42"=!s:<5}' +'#'
 assert f'{"42"=!s:>5}' == '"42"=   42', '#'+ f'{"42"=!s:>5}' +'#'
 
 
-### Tests for fstring selfdocumenting form CPython
+### Tests for fstring self documenting form CPython
 
 class C:
     def assertEqual(self, a,b):

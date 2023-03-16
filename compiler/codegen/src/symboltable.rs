@@ -16,7 +16,7 @@ use rustpython_ast as ast;
 use rustpython_compiler_core::Location;
 use std::{borrow::Cow, fmt};
 
-/// Captures all symbols in the current scope, and has a list of subscopes in this scope.
+/// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
 pub struct SymbolTable {
     /// The name of this symbol table. Often the name of the class or function.
@@ -25,7 +25,7 @@ pub struct SymbolTable {
     /// The type of symbol table
     pub typ: SymbolTableType,
 
-    /// The line number in the sourcecode where this symboltable begins.
+    /// The line number in the source code where this symboltable begins.
     pub line_number: usize,
 
     // Return True if the block is a nested class or function
@@ -34,7 +34,7 @@ pub struct SymbolTable {
     /// A set of symbols present on this scope level.
     pub symbols: IndexMap<String, Symbol>,
 
-    /// A list of subscopes in the order as found in the
+    /// A list of sub-scopes in the order as found in the
     /// AST nodes.
     pub sub_tables: Vec<SymbolTable>,
 }
@@ -107,7 +107,7 @@ bitflags! {
         // this is required to correct the scope in the analysis.
         const ASSIGNED_IN_COMPREHENSION = 0x040;
         // indicates that the symbol is used a bound iterator variable. We distinguish this case
-        // from normal assignment to detect unallowed re-assignment to iterator variables.
+        // from normal assignment to detect disallowed re-assignment to iterator variables.
         const ITER = 0x080;
         /// indicates that the symbol is a free variable in a class method from the scope that the
         /// class is defined in, e.g.:
@@ -531,7 +531,7 @@ enum SymbolUsage {
     AnnotationAssigned,
     Parameter,
     AnnotationParameter,
-    AssignedNamedExprInCompr,
+    AssignedNamedExprInComprehension,
     Iter,
 }
 
@@ -741,7 +741,7 @@ impl SymbolTableBuilder {
             Import { names } | ImportFrom { names, .. } => {
                 for name in names {
                     if let Some(alias) = &name.node.asname {
-                        // `import mymodule as myalias`
+                        // `import my_module as my_alias`
                         self.register_name(alias, SymbolUsage::Imported, location)?;
                     } else {
                         // `import module`
@@ -1042,7 +1042,11 @@ impl SymbolTableBuilder {
                 if let Name { id, .. } = &target.node {
                     let table = self.tables.last().unwrap();
                     if table.typ == SymbolTableType::Comprehension {
-                        self.register_name(id, SymbolUsage::AssignedNamedExprInCompr, location)?;
+                        self.register_name(
+                            id,
+                            SymbolUsage::AssignedNamedExprInComprehension,
+                            location,
+                        )?;
                     } else {
                         // omit one recursion. When the handling of an store changes for
                         // Identifiers this needs adapted - more forward safe would be
@@ -1256,7 +1260,7 @@ impl SymbolTableBuilder {
             SymbolUsage::Assigned => {
                 flags.insert(SymbolFlags::ASSIGNED);
             }
-            SymbolUsage::AssignedNamedExprInCompr => {
+            SymbolUsage::AssignedNamedExprInComprehension => {
                 flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::ASSIGNED_IN_COMPREHENSION);
             }
             SymbolUsage::Global => {
@@ -1273,7 +1277,7 @@ impl SymbolTableBuilder {
         // and even more checking
         // it is not allowed to assign to iterator variables (by named expressions)
         if flags.contains(SymbolFlags::ITER | SymbolFlags::ASSIGNED)
-        /*&& symbol.is_assign_namedexpr_in_comprehension*/
+        /*&& symbol.is_assign_named_expr_in_comprehension*/
         {
             return Err(SymbolTableError {
                 error:
