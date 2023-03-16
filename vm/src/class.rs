@@ -3,7 +3,7 @@
 use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
     identifier,
-    object::{Py, PyObjectPayload, PyObjectRef, PyRef},
+    object::{Py, PyObjectRef},
     types::{hash_not_implemented, PyTypeFlags, PyTypeSlots},
     vm::Context,
 };
@@ -61,18 +61,6 @@ pub trait PyClassDef {
     const DOC: Option<&'static str> = None;
     const BASICSIZE: usize;
     const UNHASHABLE: bool = false;
-}
-
-impl<T> PyClassDef for PyRef<T>
-where
-    T: PyObjectPayload + PyClassDef,
-{
-    const NAME: &'static str = T::NAME;
-    const MODULE_NAME: Option<&'static str> = T::MODULE_NAME;
-    const TP_NAME: &'static str = T::TP_NAME;
-    const DOC: Option<&'static str> = T::DOC;
-    const BASICSIZE: usize = T::BASICSIZE;
-    const UNHASHABLE: bool = T::UNHASHABLE;
 }
 
 pub trait PyClassImpl: PyClassDef {

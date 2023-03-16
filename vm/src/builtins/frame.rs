@@ -13,7 +13,7 @@ use crate::{
 use num_traits::Zero;
 
 pub fn init(context: &Context) {
-    FrameRef::extend_class(context, context.types.frame_type);
+    Frame::extend_class(context, context.types.frame_type);
 }
 
 #[pyclass(with(Constructor, PyRef, Representable))]
@@ -35,7 +35,7 @@ impl Representable for Frame {
 }
 
 #[pyclass]
-impl FrameRef {
+impl PyRef<Frame> {
     #[pymethod]
     fn clear(self) {
         // TODO
