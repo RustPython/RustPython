@@ -194,6 +194,13 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          target: aarch64-unknown-linux-gnu
+
+      - name: Check compilation for aarch64 linux gnu
+        run: cargo check --target aarch64-unknown-linux-gnu
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
           target: i686-unknown-linux-musl
 
       - name: Check compilation for musl
