@@ -196,6 +196,8 @@ jobs:
         with:
           target: aarch64-unknown-linux-gnu
 
+      - name: Install gcc-aarch64-linux-gnu
+        run: sudo apt install gcc-aarch64-linux-gnu
       - name: Check compilation for aarch64 linux gnu
         run: cargo check --target aarch64-unknown-linux-gnu
 
