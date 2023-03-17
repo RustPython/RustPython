@@ -384,16 +384,18 @@ impl PySetInner {
         others: impl std::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let mut temp_inner = self.copy();
-        self.clear();
         for iterable in others {
+            let temp_inner = PySetInner::default();
             for item in iterable.iter(vm)? {
                 let obj = item?;
-                if temp_inner.contains(&obj, vm)? {
-                    self.add(obj, vm)?;
+                if self.contains(&obj, vm)? {
+                    temp_inner.add(obj, vm)?;
                 }
             }
-            temp_inner = self.copy()
+            self.clear();
+            for item in temp_inner.elements() {
+                self.add(item, vm)?;
+            }
         }
         Ok(())
     }
@@ -403,10 +405,15 @@ impl PySetInner {
         others: impl std::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let temp_inner = self.copy();
         for iterable in others {
             for item in iterable.iter(vm)? {
-                self.content.delete_if_exists(vm, &*item?)?;
+                temp_inner.content.delete_if_exists(vm, &*item?)?;
             }
+        }
+        self.clear();
+        for item in temp_inner.elements() {
+            self.add(item, vm)?;
         }
         Ok(())
     }
