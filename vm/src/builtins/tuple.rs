@@ -56,7 +56,7 @@ impl IntoPyTuple for Vec<PyObjectRef> {
     }
 }
 
-macro_rules! impl_intopyobj_tuple {
+macro_rules! impl_into_pyobj_tuple {
     ($(($T:ident, $idx:tt)),+) => {
         impl<$($T: ToPyObject),*> IntoPyTuple for ($($T,)*) {
             fn into_pytuple(self, vm: &VirtualMachine) -> PyTupleRef {
@@ -72,13 +72,13 @@ macro_rules! impl_intopyobj_tuple {
     };
 }
 
-impl_intopyobj_tuple!((A, 0));
-impl_intopyobj_tuple!((A, 0), (B, 1));
-impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2));
-impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3));
-impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4));
-impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5));
-impl_intopyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
+impl_into_pyobj_tuple!((A, 0));
+impl_into_pyobj_tuple!((A, 0), (B, 1));
+impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2));
+impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3));
+impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4));
+impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5));
+impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
 
 impl PyTuple {
     pub(crate) fn fast_getitem(&self, idx: usize) -> PyObjectRef {

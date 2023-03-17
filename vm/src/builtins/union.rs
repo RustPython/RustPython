@@ -151,14 +151,14 @@ fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
             if !parameters.iter().any(|param| param.is(arg)) {
                 parameters.push(arg.clone());
             }
-        } else if let Ok(subparams) = arg
+        } else if let Ok(sub_params) = arg
             .clone()
             .get_attr(identifier!(vm, __parameters__), vm)
             .and_then(|obj| PyTupleRef::try_from_object(vm, obj))
         {
-            for subparam in &subparams {
-                if !parameters.iter().any(|param| param.is(subparam)) {
-                    parameters.push(subparam.clone());
+            for sub_param in &sub_params {
+                if !parameters.iter().any(|param| param.is(sub_param)) {
+                    parameters.push(sub_param.clone());
                 }
             }
         }

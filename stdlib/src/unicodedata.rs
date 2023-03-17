@@ -1,6 +1,9 @@
 /* Access to the unicode database.
    See also: https://docs.python.org/3/library/unicodedata.html
 */
+
+// spell-checker:ignore nfkc unistr unidata
+
 use crate::vm::{
     builtins::PyStr, convert::TryFromBorrowedObject, PyObject, PyObjectRef, PyPayload, PyResult,
     VirtualMachine,

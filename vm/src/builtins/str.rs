@@ -693,9 +693,9 @@ impl PyStr {
     /// If the string ends with the suffix string, return string[:len(suffix)]
     /// Otherwise, return a copy of the original string.
     #[pymethod]
-    fn removesuffix(&self, suff: PyStrRef) -> String {
+    fn removesuffix(&self, suffix: PyStrRef) -> String {
         self.as_str()
-            .py_removesuffix(suff.as_str(), suff.byte_len(), |s, p| s.ends_with(p))
+            .py_removesuffix(suffix.as_str(), suffix.byte_len(), |s, p| s.ends_with(p))
             .to_owned()
     }
 
@@ -711,15 +711,15 @@ impl PyStr {
 
     #[pymethod]
     fn isdigit(&self) -> bool {
-        // python's isdigit also checks if exponents are digits, these are the unicodes for exponents
-        let valid_unicodes: [u16; 10] = [
+        // python's isdigit also checks if exponents are digits, these are the unicode codepoints for exponents
+        let valid_codepoints: [u16; 10] = [
             0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
         ];
         let s = self.as_str();
         !s.is_empty()
             && s.chars()
                 .filter(|c| !c.is_ascii_digit())
-                .all(|c| valid_unicodes.contains(&(c as u16)))
+                .all(|c| valid_codepoints.contains(&(c as u16)))
     }
 
     #[pymethod]
@@ -827,12 +827,12 @@ impl PyStr {
     fn replace(&self, old: PyStrRef, new: PyStrRef, count: OptionalArg<isize>) -> String {
         let s = self.as_str();
         match count {
-            OptionalArg::Present(maxcount) if maxcount >= 0 => {
-                if maxcount == 0 || s.is_empty() {
+            OptionalArg::Present(max_count) if max_count >= 0 => {
+                if max_count == 0 || s.is_empty() {
                     // nothing to do; return the original bytes
                     s.into()
                 } else {
-                    s.replacen(old.as_str(), new.as_str(), maxcount as usize)
+                    s.replacen(old.as_str(), new.as_str(), max_count as usize)
                 }
             }
             _ => s.replace(old.as_str(), new.as_str()),
@@ -1692,7 +1692,7 @@ impl AnyStr for str {
         F: Fn(&Self) -> PyObjectRef,
     {
         // CPython split_whitespace
-        let mut splited = Vec::new();
+        let mut splits = Vec::new();
         let mut last_offset = 0;
         let mut count = maxsplit;
         for (offset, _) in self.match_indices(|c: char| c.is_ascii_whitespace() || c == '\x0b') {
@@ -1703,14 +1703,14 @@ impl AnyStr for str {
             if count == 0 {
                 break;
             }
-            splited.push(convert(&self[last_offset..offset]));
+            splits.push(convert(&self[last_offset..offset]));
             last_offset = offset + 1;
             count -= 1;
         }
         if last_offset != self.len() {
-            splited.push(convert(&self[last_offset..]));
+            splits.push(convert(&self[last_offset..]));
         }
-        splited
+        splits
     }
 
     fn py_rsplit_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
@@ -1718,7 +1718,7 @@ impl AnyStr for str {
         F: Fn(&Self) -> PyObjectRef,
     {
         // CPython rsplit_whitespace
-        let mut splited = Vec::new();
+        let mut splits = Vec::new();
         let mut last_offset = self.len();
         let mut count = maxsplit;
         for (offset, _) in self.rmatch_indices(|c: char| c.is_ascii_whitespace() || c == '\x0b') {
@@ -1729,14 +1729,14 @@ impl AnyStr for str {
             if count == 0 {
                 break;
             }
-            splited.push(convert(&self[offset + 1..last_offset]));
+            splits.push(convert(&self[offset + 1..last_offset]));
             last_offset = offset;
             count -= 1;
         }
         if last_offset != 0 {
-            splited.push(convert(&self[..last_offset]));
+            splits.push(convert(&self[..last_offset]));
         }
-        splited
+        splits
     }
 }
 

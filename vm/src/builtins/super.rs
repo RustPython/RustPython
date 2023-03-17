@@ -126,10 +126,10 @@ impl PySuper {
 
     #[pymethod(magic)]
     fn repr(&self) -> String {
-        let typname = &self.typ.name();
+        let name = &self.typ.name();
         match self.obj {
-            Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", typname, ty.name()),
-            None => format!("<super: <class '{typname}'>, NULL>"),
+            Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", name, ty.name()),
+            None => format!("<super: <class '{name}'>, NULL>"),
         }
     }
 }

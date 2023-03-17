@@ -194,7 +194,7 @@ pub trait AnyStr {
         SW: Fn(&Self, isize, &VirtualMachine) -> Vec<R>,
     {
         let (sep, maxsplit) = args.get_value(vm)?;
-        let splited = if let Some(pattern) = sep {
+        let splits = if let Some(pattern) = sep {
             if maxsplit < 0 {
                 split(self, pattern.as_ref(), vm)
             } else {
@@ -203,7 +203,7 @@ pub trait AnyStr {
         } else {
             splitw(self, maxsplit, vm)
         };
-        Ok(splited)
+        Ok(splits)
     }
     fn py_split_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
     where

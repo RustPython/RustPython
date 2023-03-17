@@ -1,3 +1,5 @@
+// spell-checker:ignore logoption openlog setlogmask upto
+
 pub(crate) use syslog::make_module;
 
 #[pymodule(name = "syslog")]

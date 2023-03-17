@@ -1,3 +1,5 @@
+// spell-checker:ignore hexlify unhexlify uuencodes
+
 pub(super) use decl::crc32;
 pub(crate) use decl::make_module;
 use rustpython_vm::{builtins::PyBaseExceptionRef, convert::ToPyException, VirtualMachine};
