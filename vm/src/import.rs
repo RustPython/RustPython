@@ -81,30 +81,24 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    make_frozen(vm, module_name).and_then(|frozen| {
-        let module = import_codeobj(vm, module_name, frozen, false)?;
-        // TODO: give a correct origname here
-        module.set_attr("__origname__", vm.ctx.new_str(module_name.to_owned()), vm)?;
-        Ok(module)
-    })
+    let frozen = make_frozen(vm, module_name)?;
+    let module = import_codeobj(vm, module_name, frozen, false)?;
+    // TODO: give a correct origname here
+    module.set_attr("__origname__", vm.ctx.new_str(module_name.to_owned()), vm)?;
+    Ok(module)
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    vm.state
-        .module_inits
-        .get(module_name)
-        .ok_or_else(|| {
-            vm.new_import_error(
-                format!("Cannot import builtin module {module_name}"),
-                module_name,
-            )
-        })
-        .and_then(|make_module_func| {
-            let module = make_module_func(vm);
-            let sys_modules = vm.sys_module.get_attr("modules", vm)?;
-            sys_modules.set_item(module_name, module.clone(), vm)?;
-            Ok(module)
-        })
+    let make_module_func = vm.state.module_inits.get(module_name).ok_or_else(|| {
+        vm.new_import_error(
+            format!("Cannot import builtin module {module_name}"),
+            module_name,
+        )
+    })?;
+    let module = make_module_func(vm);
+    let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+    sys_modules.set_item(module_name, module.clone(), vm)?;
+    Ok(module)
 }
 
 #[cfg(feature = "rustpython-compiler")]

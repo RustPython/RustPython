@@ -84,14 +84,12 @@ mod builtins {
 
     #[pyfunction]
     fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<String> {
-        match i
+        let value = i
             .try_to_primitive::<isize>(vm)?
             .to_u32()
             .and_then(char::from_u32)
-        {
-            Some(value) => Ok(value.to_string()),
-            None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned())),
-        }
+            .ok_or_else(|| vm.new_value_error("chr() arg not in range(0x110000)".to_owned()))?;
+        Ok(value.to_string())
     }
 
     #[derive(FromArgs)]

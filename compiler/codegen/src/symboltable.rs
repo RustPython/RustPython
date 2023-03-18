@@ -414,21 +414,20 @@ impl SymbolTableAnalyzer {
         st_typ: SymbolTableType,
     ) -> Option<SymbolScope> {
         sub_tables.iter().find_map(|st| {
-            st.symbols.get(name).and_then(|sym| {
-                if sym.scope == SymbolScope::Free || sym.flags.contains(SymbolFlags::FREE_CLASS) {
-                    if st_typ == SymbolTableType::Class && name != "__class__" {
-                        None
-                    } else {
-                        Some(SymbolScope::Cell)
-                    }
-                } else if sym.scope == SymbolScope::GlobalExplicit && self.tables.is_empty() {
-                    // the symbol is defined on the module level, and an inner scope declares
-                    // a global that points to it
-                    Some(SymbolScope::GlobalExplicit)
-                } else {
+            let sym = st.symbols.get(name)?;
+            if sym.scope == SymbolScope::Free || sym.flags.contains(SymbolFlags::FREE_CLASS) {
+                if st_typ == SymbolTableType::Class && name != "__class__" {
                     None
+                } else {
+                    Some(SymbolScope::Cell)
                 }
-            })
+            } else if sym.scope == SymbolScope::GlobalExplicit && self.tables.is_empty() {
+                // the symbol is defined on the module level, and an inner scope declares
+                // a global that points to it
+                Some(SymbolScope::GlobalExplicit)
+            } else {
+                None
+            }
         })
     }
 
