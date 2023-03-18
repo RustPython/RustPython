@@ -893,8 +893,41 @@ impl PyStr {
 
     #[pymethod]
     fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        self.as_str()
-            .py_splitlines(args, |s| self.new_substr(s.to_owned()).to_pyobject(vm))
+        let into_wrapper = |s: &str| self.new_substr(s.to_owned()).to_pyobject(vm);
+        let mut elements = Vec::new();
+        let mut last_i = 0;
+        let self_str = self.as_str();
+        let mut enumerated = self_str.char_indices().peekable();
+        while let Some((i, ch)) = enumerated.next() {
+            let end_len = match ch {
+                '\n' => 1,
+                '\r' => {
+                    let is_rn = enumerated.peek().map_or(false, |(_, ch)| *ch == '\n');
+                    if is_rn {
+                        let _ = enumerated.next();
+                        2
+                    } else {
+                        1
+                    }
+                }
+                '\x0b' | '\x0c' | '\x1c' | '\x1d' | '\x1e' | '\u{0085}' | '\u{2028}'
+                | '\u{2029}' => ch.len_utf8(),
+                _ => {
+                    continue;
+                }
+            };
+            let range = if args.keepends {
+                last_i..i + end_len
+            } else {
+                last_i..i
+            };
+            last_i = i + end_len;
+            elements.push(into_wrapper(&self_str[range]));
+        }
+        if last_i != self_str.len() {
+            elements.push(into_wrapper(&self_str[last_i..]));
+        }
+        elements
     }
 
     #[pymethod]

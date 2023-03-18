@@ -376,7 +376,7 @@ pub trait AnyStr {
         }
     }
 
-    fn py_splitlines<FW, W>(&self, options: SplitLinesArgs, into_wrapper: FW) -> Vec<W>
+    fn py_bytes_splitlines<FW, W>(&self, options: SplitLinesArgs, into_wrapper: FW) -> Vec<W>
     where
         FW: Fn(&Self) -> W,
     {

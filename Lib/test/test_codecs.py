@@ -149,8 +149,6 @@ class ReadTest(MixInCheckStateHandling):
             "".join(codecs.iterdecode([bytes([c]) for c in encoded], self.encoding))
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_readline(self):
         def getreader(input):
             stream = io.BytesIO(input.encode(self.encoding))
@@ -465,6 +463,12 @@ class UTF32Test(ReadTest, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    def test_readline(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_readline() # TODO: RUSTPYTHON, remove when this passes
+
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_only_one_bom(self):
         _,_,reader,writer = codecs.lookup(self.encoding)
         # encode some stream
@@ -595,6 +599,11 @@ class UTF32LETest(ReadTest, unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    def test_readline(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_readline() # TODO: RUSTPYTHON, remove when this passes
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_partial(self):
         self.check_partial(
             "\x00\xff\u0100\uffff\U00010000",
@@ -676,6 +685,11 @@ class UTF32LETest(ReadTest, unittest.TestCase):
 class UTF32BETest(ReadTest, unittest.TestCase):
     encoding = "utf-32-be"
     ill_formed_sequence = b"\x00\x00\xdc\x80"
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readline(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_readline() # TODO: RUSTPYTHON, remove when this passes
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -1047,6 +1061,11 @@ class UTF8Test(ReadTest, unittest.TestCase):
 
 class UTF7Test(ReadTest, unittest.TestCase):
     encoding = "utf-7"
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readline(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_readline() # TODO: RUSTPYTHON, remove when this passes
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -2546,6 +2565,11 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
     def test_incremental_surrogatepass(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_incremental_surrogatepass() # TODO: RUSTPYTHON, remove when this passes
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readline(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_readline() # TODO: RUSTPYTHON, remove when this passes
+
     def test_empty(self):
         self.assertEqual(codecs.unicode_escape_encode(""), (b"", 0))
         self.assertEqual(codecs.unicode_escape_decode(b""), ("", 0))
@@ -2682,6 +2706,11 @@ class RawUnicodeEscapeTest(ReadTest, unittest.TestCase):
     @unittest.expectedFailure
     def test_incremental_surrogatepass(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_incremental_surrogatepass() # TODO: RUSTPYTHON, remove when this passes
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_readline(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_readline() # TODO: RUSTPYTHON, remove when this passes
 
     def test_empty(self):
         self.assertEqual(codecs.raw_unicode_escape_encode(""), (b"", 0))
