@@ -15,15 +15,18 @@ pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(&PyObject, &VirtualMachine) -> 
 pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
 
 macro_rules! load_pynumber_method {
-    ($cls:expr, $x:ident) => {{
+    ($cls:expr, $x:ident, $y:ident) => {{
         let class = $cls;
         if let Some(ext) = class.heaptype_ext {
-            ext.number_slots.$x.load()
+            ext.number_slots.$y.load()
         } else if let Some(methods) = class.slots.as_number {
             methods.$x
         } else {
             None
         }
+    }};
+    ($cls:expr, $x:ident) => {{
+        load_pynumber_method!($cls, $x, $x)
     }};
 }
 
@@ -258,7 +261,6 @@ pub struct PyNumberMethods {
 impl PyNumberMethods {
     /// this is NOT a global variable
     // TODO: weak order read for performance
-    #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
         add: None,
         subtract: None,
@@ -296,39 +298,6 @@ impl PyNumberMethods {
         matrix_multiply: None,
         inplace_matrix_multiply: None,
     };
-
-    pub fn binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
-        use PyNumberBinaryOp::*;
-        match op_slot {
-            Add => self.add,
-            Subtract => self.subtract,
-            Multiply => self.multiply,
-            Remainder => self.remainder,
-            Divmod => self.divmod,
-            Power => self.power,
-            Lshift => self.lshift,
-            Rshift => self.rshift,
-            And => self.and,
-            Xor => self.xor,
-            Or => self.or,
-            InplaceAdd => self.inplace_add,
-            InplaceSubtract => self.inplace_subtract,
-            InplaceMultiply => self.inplace_multiply,
-            InplaceRemainder => self.inplace_remainder,
-            InplacePower => self.inplace_power,
-            InplaceLshift => self.inplace_lshift,
-            InplaceRshift => self.inplace_rshift,
-            InplaceAnd => self.inplace_and,
-            InplaceXor => self.inplace_xor,
-            InplaceOr => self.inplace_or,
-            FloorDivide => self.floor_divide,
-            TrueDivide => self.true_divide,
-            InplaceFloorDivide => self.inplace_floor_divide,
-            InplaceTrueDivide => self.inplace_true_divide,
-            MatrixMultiply => self.matrix_multiply,
-            InplaceMatrixMultiply => self.inplace_matrix_multiply,
-        }
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -360,6 +329,62 @@ pub enum PyNumberBinaryOp {
     InplaceTrueDivide,
     MatrixMultiply,
     InplaceMatrixMultiply,
+}
+
+impl PyNumberBinaryOp {
+    pub fn left(self, cls: &PyType) -> Option<PyNumberBinaryFunc> {
+        use PyNumberBinaryOp::*;
+        match self {
+            Add => load_pynumber_method!(cls, add),
+            Subtract => load_pynumber_method!(cls, subtract),
+            Multiply => load_pynumber_method!(cls, multiply),
+            Remainder => load_pynumber_method!(cls, remainder),
+            Divmod => load_pynumber_method!(cls, divmod),
+            Power => load_pynumber_method!(cls, power),
+            Lshift => load_pynumber_method!(cls, lshift),
+            Rshift => load_pynumber_method!(cls, rshift),
+            And => load_pynumber_method!(cls, and),
+            Xor => load_pynumber_method!(cls, xor),
+            Or => load_pynumber_method!(cls, or),
+            InplaceAdd => load_pynumber_method!(cls, inplace_add),
+            InplaceSubtract => load_pynumber_method!(cls, inplace_subtract),
+            InplaceMultiply => load_pynumber_method!(cls, inplace_multiply),
+            InplaceRemainder => load_pynumber_method!(cls, inplace_remainder),
+            InplacePower => load_pynumber_method!(cls, inplace_power),
+            InplaceLshift => load_pynumber_method!(cls, inplace_lshift),
+            InplaceRshift => load_pynumber_method!(cls, inplace_rshift),
+            InplaceAnd => load_pynumber_method!(cls, inplace_and),
+            InplaceXor => load_pynumber_method!(cls, inplace_xor),
+            InplaceOr => load_pynumber_method!(cls, inplace_or),
+            FloorDivide => load_pynumber_method!(cls, floor_divide),
+            TrueDivide => load_pynumber_method!(cls, true_divide),
+            InplaceFloorDivide => load_pynumber_method!(cls, inplace_floor_divide),
+            InplaceTrueDivide => load_pynumber_method!(cls, inplace_true_divide),
+            MatrixMultiply => load_pynumber_method!(cls, matrix_multiply),
+            InplaceMatrixMultiply => load_pynumber_method!(cls, inplace_matrix_multiply),
+        }
+    }
+
+    pub fn right(self, cls: &PyType) -> Option<PyNumberBinaryFunc> {
+        use PyNumberBinaryOp::*;
+        match self {
+            Add => load_pynumber_method!(cls, add, right_add),
+            Subtract => load_pynumber_method!(cls, subtract, right_subtract),
+            Multiply => load_pynumber_method!(cls, multiply, right_multiply),
+            Remainder => load_pynumber_method!(cls, remainder, right_remainder),
+            Divmod => load_pynumber_method!(cls, divmod, right_divmod),
+            Power => load_pynumber_method!(cls, power, right_power),
+            Lshift => load_pynumber_method!(cls, lshift, right_lshift),
+            Rshift => load_pynumber_method!(cls, rshift, right_rshift),
+            And => load_pynumber_method!(cls, and, right_and),
+            Xor => load_pynumber_method!(cls, xor, right_xor),
+            Or => load_pynumber_method!(cls, or, right_or),
+            FloorDivide => load_pynumber_method!(cls, floor_divide, right_floor_divide),
+            TrueDivide => load_pynumber_method!(cls, true_divide, right_true_divide),
+            MatrixMultiply => load_pynumber_method!(cls, matrix_multiply, right_matrix_multiply),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -475,62 +500,6 @@ impl From<&PyNumberMethods> for PyNumberSlots {
             matrix_multiply: AtomicCell::new(value.matrix_multiply),
             right_matrix_multiply: AtomicCell::new(value.matrix_multiply),
             inplace_matrix_multiply: AtomicCell::new(value.inplace_matrix_multiply),
-        }
-    }
-}
-
-impl PyNumberSlots {
-    pub fn left_binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
-        use PyNumberBinaryOp::*;
-        match op_slot {
-            Add => self.add.load(),
-            Subtract => self.subtract.load(),
-            Multiply => self.multiply.load(),
-            Remainder => self.remainder.load(),
-            Divmod => self.divmod.load(),
-            Power => self.power.load(),
-            Lshift => self.lshift.load(),
-            Rshift => self.rshift.load(),
-            And => self.and.load(),
-            Xor => self.xor.load(),
-            Or => self.or.load(),
-            InplaceAdd => self.inplace_add.load(),
-            InplaceSubtract => self.inplace_subtract.load(),
-            InplaceMultiply => self.inplace_multiply.load(),
-            InplaceRemainder => self.inplace_remainder.load(),
-            InplacePower => self.inplace_power.load(),
-            InplaceLshift => self.inplace_lshift.load(),
-            InplaceRshift => self.inplace_rshift.load(),
-            InplaceAnd => self.inplace_and.load(),
-            InplaceXor => self.inplace_xor.load(),
-            InplaceOr => self.inplace_or.load(),
-            FloorDivide => self.floor_divide.load(),
-            TrueDivide => self.true_divide.load(),
-            InplaceFloorDivide => self.inplace_floor_divide.load(),
-            InplaceTrueDivide => self.inplace_true_divide.load(),
-            MatrixMultiply => self.matrix_multiply.load(),
-            InplaceMatrixMultiply => self.inplace_matrix_multiply.load(),
-        }
-    }
-
-    pub fn right_binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
-        use PyNumberBinaryOp::*;
-        match op_slot {
-            Add => self.right_add.load(),
-            Subtract => self.right_subtract.load(),
-            Multiply => self.right_multiply.load(),
-            Remainder => self.right_remainder.load(),
-            Divmod => self.right_divmod.load(),
-            Power => self.right_power.load(),
-            Lshift => self.right_lshift.load(),
-            Rshift => self.right_rshift.load(),
-            And => self.right_and.load(),
-            Xor => self.right_xor.load(),
-            Or => self.right_or.load(),
-            FloorDivide => self.right_floor_divide.load(),
-            TrueDivide => self.right_true_divide.load(),
-            MatrixMultiply => self.right_matrix_multiply.load(),
-            _ => None,
         }
     }
 }
