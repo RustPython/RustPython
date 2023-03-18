@@ -3,7 +3,11 @@ use crate::{
     builtins::PyStrRef,
     bytesinner::PyBytesInner,
     class::PyClassImpl,
-    common::{format::FormatSpec, hash},
+    common::{
+        format::FormatSpec,
+        hash,
+        int::{bigint_to_finite_float, bytes_to_int},
+    },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         ArgByteOrder, ArgIntoBool, OptionalArg, OptionalOption, PyArithmeticValue,
@@ -14,8 +18,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
-use bstr::ByteSlice;
-use num_bigint::{BigInt, BigUint, Sign};
+use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
@@ -836,138 +839,16 @@ fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<Big
     }
 }
 
-pub(crate) fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
-    // split sign
-    let mut lit = lit.trim();
-    let sign = match lit.first()? {
-        b'+' => Some(Sign::Plus),
-        b'-' => Some(Sign::Minus),
-        _ => None,
-    };
-    if sign.is_some() {
-        lit = &lit[1..];
-    }
-
-    // split radix
-    let first = *lit.first()?;
-    let has_radix = if first == b'0' {
-        match base {
-            0 => {
-                if let Some(parsed) = lit.get(1).and_then(detect_base) {
-                    base = parsed;
-                    true
-                } else {
-                    if let [_first, ref others @ .., last] = lit {
-                        let is_zero =
-                            others.iter().all(|&c| c == b'0' || c == b'_') && *last == b'0';
-                        if !is_zero {
-                            return None;
-                        }
-                    }
-                    return Some(BigInt::zero());
-                }
-            }
-            16 => lit.get(1).map_or(false, |&b| matches!(b, b'x' | b'X')),
-            2 => lit.get(1).map_or(false, |&b| matches!(b, b'b' | b'B')),
-            8 => lit.get(1).map_or(false, |&b| matches!(b, b'o' | b'O')),
-            _ => false,
-        }
-    } else {
-        if base == 0 {
-            base = 10;
-        }
-        false
-    };
-    if has_radix {
-        lit = &lit[2..];
-        if lit.first()? == &b'_' {
-            lit = &lit[1..];
-        }
-    }
-
-    // remove zeroes
-    let mut last = *lit.first()?;
-    if last == b'0' {
-        let mut count = 0;
-        for &cur in &lit[1..] {
-            if cur == b'_' {
-                if last == b'_' {
-                    return None;
-                }
-            } else if cur != b'0' {
-                break;
-            };
-            count += 1;
-            last = cur;
-        }
-        let prefix_last = lit[count];
-        lit = &lit[count + 1..];
-        if lit.is_empty() && prefix_last == b'_' {
-            return None;
-        }
-    }
-
-    // validate
-    for c in lit {
-        let c = *c;
-        if !(c.is_ascii_alphanumeric() || c == b'_') {
-            return None;
-        }
-
-        if c == b'_' && last == b'_' {
-            return None;
-        }
-
-        last = c;
-    }
-    if last == b'_' {
-        return None;
-    }
-
-    // parse
-    Some(if lit.is_empty() {
-        BigInt::zero()
-    } else {
-        let uint = BigUint::parse_bytes(lit, base)?;
-        BigInt::from_biguint(sign.unwrap_or(Sign::Plus), uint)
-    })
-}
-
-fn detect_base(c: &u8) -> Option<u32> {
-    match c {
-        b'x' | b'X' => Some(16),
-        b'b' | b'B' => Some(2),
-        b'o' | b'O' => Some(8),
-        _ => None,
-    }
-}
-
 // Retrieve inner int value:
 pub(crate) fn get_value(obj: &PyObject) -> &BigInt {
     &obj.payload::<PyInt>().unwrap().value
 }
 
 pub fn try_to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
-    i2f(int).ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
-}
-// num-bigint now returns Some(inf) for to_f64() in some cases, so just keep that the same for now
-fn i2f(int: &BigInt) -> Option<f64> {
-    int.to_f64().filter(|f| f.is_finite())
+    bigint_to_finite_float(int)
+        .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
 }
 
 pub(crate) fn init(context: &Context) {
     PyInt::extend_class(context, context.types.int_type);
-}
-
-#[test]
-fn test_bytes_to_int() {
-    assert_eq!(bytes_to_int(&b"0b101"[..], 2).unwrap(), BigInt::from(5));
-    assert_eq!(bytes_to_int(&b"0x_10"[..], 16).unwrap(), BigInt::from(16));
-    assert_eq!(bytes_to_int(&b"0b"[..], 16).unwrap(), BigInt::from(11));
-    assert_eq!(bytes_to_int(&b"+0b101"[..], 2).unwrap(), BigInt::from(5));
-    assert_eq!(bytes_to_int(&b"0_0_0"[..], 10).unwrap(), BigInt::from(0));
-    assert_eq!(bytes_to_int(&b"09_99"[..], 0), None);
-    assert_eq!(bytes_to_int(&b"000"[..], 0).unwrap(), BigInt::from(0));
-    assert_eq!(bytes_to_int(&b"0_"[..], 0), None);
-    assert_eq!(bytes_to_int(&b"0_100"[..], 10).unwrap(), BigInt::from(100));
 }

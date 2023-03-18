@@ -1984,6 +1984,7 @@ version = "0.2.0"
 dependencies = [
  "ascii",
  "bitflags",
+ "bstr",
  "cfg-if",
  "hexf-parse",
  "itertools",
