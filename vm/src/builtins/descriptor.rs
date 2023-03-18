@@ -2,7 +2,7 @@ use super::{PyStr, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     function::PySetterValue,
-    types::{Constructor, GetDescriptor, Unconstructible},
+    types::{Constructor, GetDescriptor, Representable, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use rustpython_common::lock::PyRwLock;
@@ -100,17 +100,8 @@ fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Opti
     }
 }
 
-#[pyclass(with(GetDescriptor, Constructor), flags(BASETYPE))]
+#[pyclass(with(GetDescriptor, Constructor, Representable), flags(BASETYPE))]
 impl MemberDescrObject {
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        format!(
-            "<member '{}' of '{}' objects>",
-            zelf.common.name,
-            zelf.common.typ.name(),
-        )
-    }
-
     #[pygetset(magic)]
     fn doc(zelf: PyRef<Self>) -> Option<String> {
         zelf.member.doc.to_owned()
@@ -196,6 +187,17 @@ fn set_slot_at_object(
 }
 
 impl Unconstructible for MemberDescrObject {}
+
+impl Representable for MemberDescrObject {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<member '{}' of '{}' objects>",
+            zelf.common.name,
+            zelf.common.typ.name(),
+        ))
+    }
+}
 
 impl GetDescriptor for MemberDescrObject {
     fn descr_get(

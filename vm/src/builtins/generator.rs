@@ -9,7 +9,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{Constructor, IterNext, IterNextIterable, Unconstructible},
+    types::{Constructor, IterNext, IterNextIterable, Representable, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -45,11 +45,6 @@ impl PyGenerator {
     #[pygetset(magic, setter)]
     fn set_name(&self, name: PyStrRef) {
         self.inner.set_name(name)
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)
     }
 
     #[pymethod]
@@ -96,11 +91,19 @@ impl PyGenerator {
         self.inner.frame().yield_from_target()
     }
 }
+
 impl Unconstructible for PyGenerator {}
+
+impl Representable for PyGenerator {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        Ok(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm))
+    }
+}
 
 impl IterNextIterable for PyGenerator {}
 impl IterNext for PyGenerator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         Self::send(zelf.to_owned(), vm.ctx.none(), vm)
     }
 }

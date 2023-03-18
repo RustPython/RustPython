@@ -6,7 +6,10 @@ use crate::{
     class::PyClassImpl,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
     protocol::{PyMappingMethods, PySequenceMethods},
-    types::{AsMapping, AsSequence, Comparable, Constructor, GetAttr, PyComparisonOp, SetAttr},
+    types::{
+        AsMapping, AsSequence, Comparable, Constructor, GetAttr, PyComparisonOp, Representable,
+        SetAttr,
+    },
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -61,7 +64,15 @@ crate::common::static_cell! {
     static WEAK_SUBCLASS: PyTypeRef;
 }
 
-#[pyclass(with(GetAttr, SetAttr, Constructor, Comparable, AsSequence, AsMapping))]
+#[pyclass(with(
+    GetAttr,
+    SetAttr,
+    Constructor,
+    Comparable,
+    AsSequence,
+    AsMapping,
+    Representable
+))]
 impl PyWeakProxy {
     fn try_upgrade(&self, vm: &VirtualMachine) -> PyResult {
         self.weak.upgrade().ok_or_else(|| new_reference_error(vm))
@@ -84,11 +95,6 @@ impl PyWeakProxy {
     #[pymethod(magic)]
     fn bytes(&self, vm: &VirtualMachine) -> PyResult {
         self.try_upgrade(vm)?.bytes(vm)
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        self.try_upgrade(vm)?.repr(vm)
     }
 
     #[pymethod(magic)]
@@ -134,7 +140,7 @@ impl GetAttr for PyWeakProxy {
 
 impl SetAttr for PyWeakProxy {
     fn setattro(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         attr_name: PyStrRef,
         value: PySetterValue,
         vm: &VirtualMachine,
@@ -146,7 +152,7 @@ impl SetAttr for PyWeakProxy {
 
 impl Comparable for PyWeakProxy {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -188,6 +194,18 @@ impl AsMapping for PyWeakProxy {
             }),
         };
         &AS_MAPPING
+    }
+}
+
+impl Representable for PyWeakProxy {
+    #[inline]
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        zelf.try_upgrade(vm)?.repr(vm)
+    }
+
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
     }
 }
 

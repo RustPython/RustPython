@@ -10,7 +10,7 @@ use crate::{
         PyComparisonValue,
     },
     protocol::{PyNumber, PyNumberMethods},
-    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
@@ -316,7 +316,10 @@ impl PyInt {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Comparable, Hashable, Constructor, AsNumber))]
+#[pyclass(
+    flags(BASETYPE),
+    with(Comparable, Hashable, Constructor, AsNumber, Representable)
+)]
 impl PyInt {
     #[pymethod(name = "__radd__")]
     #[pymethod(magic)]
@@ -556,11 +559,6 @@ impl PyInt {
     }
 
     #[pymethod(magic)]
-    pub(crate) fn repr(&self) -> String {
-        self.value.to_string()
-    }
-
-    #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
         FormatSpec::parse(spec.as_str())
             .and_then(|format_spec| format_spec.format_int(&self.value))
@@ -702,7 +700,7 @@ impl PyInt {
 
 impl Comparable for PyInt {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -714,9 +712,16 @@ impl Comparable for PyInt {
     }
 }
 
+impl Representable for PyInt {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(zelf.value.to_string())
+    }
+}
+
 impl Hashable for PyInt {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_bigint(zelf.as_bigint()))
     }
 }

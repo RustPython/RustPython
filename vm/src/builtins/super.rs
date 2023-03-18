@@ -7,7 +7,7 @@ use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     function::{IntoFuncArgs, OptionalArg},
-    types::{Callable, Constructor, GetAttr, GetDescriptor},
+    types::{Callable, Constructor, GetAttr, GetDescriptor, Representable},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -97,7 +97,7 @@ impl Constructor for PySuper {
     }
 }
 
-#[pyclass(with(GetAttr, GetDescriptor, Constructor))]
+#[pyclass(with(GetAttr, GetDescriptor, Constructor, Representable))]
 impl PySuper {
     fn new(typ: PyTypeRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let obj = if vm.is_none(&obj) {
@@ -122,15 +122,6 @@ impl PySuper {
     #[pygetset]
     fn __self__(&self) -> Option<PyObjectRef> {
         Some(self.obj.as_ref()?.0.clone())
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        let name = &self.typ.name();
-        match self.obj {
-            Some((_, ref ty)) => format!("<super: <class '{}'>, <{} object>>", name, ty.name()),
-            None => format!("<super: <class '{name}'>, NULL>"),
-        }
     }
 }
 
@@ -190,6 +181,20 @@ impl GetDescriptor for PySuper {
             let obj = vm.unwrap_or_none(zelf.obj.clone().map(|(o, _)| o));
             PyType::call(zelf.class(), (zelf.typ.clone(), obj).into_args(vm), vm)
         }
+    }
+}
+
+impl Representable for PySuper {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let type_name = &zelf.typ.name();
+        let repr = match zelf.obj {
+            Some((_, ref ty)) => {
+                format!("<super: <class '{}'>, <{} object>>", type_name, ty.name())
+            }
+            None => format!("<super: <class '{type_name}'>, NULL>"),
+        };
+        Ok(repr)
     }
 }
 

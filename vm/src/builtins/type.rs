@@ -21,8 +21,7 @@ use crate::{
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
-    types::AsNumber,
-    types::{Callable, GetAttr, PyTypeFlags, PyTypeSlots, SetAttr},
+    types::{AsNumber, Callable, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::{map::Entry, IndexMap};
@@ -375,7 +374,10 @@ impl Py<PyType> {
     }
 }
 
-#[pyclass(with(GetAttr, SetAttr, Callable, AsNumber), flags(BASETYPE))]
+#[pyclass(
+    with(GetAttr, SetAttr, Callable, AsNumber, Representable),
+    flags(BASETYPE)
+)]
 impl PyType {
     // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -457,27 +459,6 @@ impl PyType {
             }
         })
         .into()
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> String {
-        let module = self.module(vm);
-        let module = module.downcast_ref::<PyStr>().map(|m| m.as_str());
-
-        match module {
-            Some(module) if module != "builtins" => {
-                let name = self.name();
-                format!(
-                    "<class '{}.{}'>",
-                    module,
-                    self.qualname(vm)
-                        .downcast_ref::<PyStr>()
-                        .map(|n| n.as_str())
-                        .unwrap_or_else(|| &name)
-                )
-            }
-            _ => format!("<class '{}'>", self.slot_name()),
-        }
     }
 
     #[pygetset(magic)]
@@ -1004,7 +985,7 @@ impl GetAttr for PyType {
 
 impl SetAttr for PyType {
     fn setattro(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         attr_name: PyStrRef,
         value: PySetterValue,
         vm: &VirtualMachine,
@@ -1043,7 +1024,7 @@ impl SetAttr for PyType {
 
 impl Callable for PyType {
     type Args = FuncArgs;
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 
@@ -1069,6 +1050,30 @@ impl AsNumber for PyType {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
+    }
+}
+
+impl Representable for PyType {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let module = zelf.module(vm);
+        let module = module.downcast_ref::<PyStr>().map(|m| m.as_str());
+
+        let repr = match module {
+            Some(module) if module != "builtins" => {
+                let name = zelf.name();
+                format!(
+                    "<class '{}.{}'>",
+                    module,
+                    zelf.qualname(vm)
+                        .downcast_ref::<PyStr>()
+                        .map(|n| n.as_str())
+                        .unwrap_or_else(|| &name)
+                )
+            }
+            _ => format!("<class '{}'>", zelf.slot_name()),
+        };
+        Ok(repr)
     }
 }
 

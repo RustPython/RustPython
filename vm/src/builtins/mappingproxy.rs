@@ -5,7 +5,10 @@ use crate::{
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
     protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequenceMethods},
-    types::{AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp},
+    types::{
+        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
+        Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use once_cell::sync::Lazy;
@@ -69,7 +72,15 @@ impl Constructor for PyMappingProxy {
     }
 }
 
-#[pyclass(with(AsMapping, Iterable, Constructor, AsSequence, Comparable, AsNumber))]
+#[pyclass(with(
+    AsMapping,
+    Iterable,
+    Constructor,
+    AsSequence,
+    Comparable,
+    AsNumber,
+    Representable
+))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
@@ -149,11 +160,6 @@ impl PyMappingProxy {
             }
         }
     }
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let obj = self.to_object(vm)?;
-        Ok(format!("mappingproxy({})", obj.repr(vm)?))
-    }
 
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
@@ -192,7 +198,7 @@ impl PyMappingProxy {
 
 impl Comparable for PyMappingProxy {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -257,6 +263,14 @@ impl Iterable for PyMappingProxy {
         let obj = zelf.to_object(vm)?;
         let iter = obj.get_iter(vm)?;
         Ok(iter.into())
+    }
+}
+
+impl Representable for PyMappingProxy {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let obj = zelf.to_object(vm)?;
+        Ok(format!("mappingproxy({})", obj.repr(vm)?))
     }
 }
 

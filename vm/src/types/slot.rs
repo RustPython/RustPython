@@ -1,5 +1,7 @@
 use crate::{
-    builtins::{type_::PointerSlot, PyFloat, PyInt, PyStrInterned, PyStrRef, PyType, PyTypeRef},
+    builtins::{
+        type_::PointerSlot, PyFloat, PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef,
+    },
     bytecode::ComparisonOperator,
     common::{hash::PyHash, lock::PyRwLock},
     convert::{ToPyObject, ToPyResult},
@@ -44,6 +46,7 @@ pub struct PyTypeSlots {
     pub hash: AtomicCell<Option<HashFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
     // tp_str
+    pub repr: AtomicCell<Option<StringifyFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
     pub setattro: AtomicCell<Option<SetattroFunc>>,
 
@@ -273,6 +276,7 @@ impl Default for PyTypeFlags {
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
+pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyStrRef>;
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObject, PyStrRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
@@ -367,6 +371,16 @@ fn setitem_wrapper<K: ToPyObject>(
         None => vm.call_special_method(obj.to_owned(), identifier!(vm, __delitem__), (needle,)),
     }
     .map(drop)
+}
+
+fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    let ret = vm.call_special_method(zelf.to_owned(), identifier!(vm, __repr__), ())?;
+    ret.downcast::<PyStr>().map_err(|obj| {
+        vm.new_type_error(format!(
+            "__repr__ returned non-string (type {})",
+            obj.class()
+        ))
+    })
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
@@ -560,6 +574,9 @@ impl PyType {
                     setitem_wrapper(mapping.obj, key, value, vm)
                 });
                 update_pointer_slot!(as_mapping, mapping_methods);
+            }
+            _ if name == identifier!(ctx, __repr__) => {
+                update_slot!(repr, repr_wrapper);
             }
             _ if name == identifier!(ctx, __hash__) => {
                 let is_unhashable = self
@@ -991,6 +1008,32 @@ pub trait Hashable: PyPayload {
     }
 
     fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash>;
+}
+
+#[pyclass]
+pub trait Representable: PyPayload {
+    #[inline]
+    #[pyslot]
+    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        if let Some(zelf) = zelf.downcast_ref() {
+            Self::repr(zelf, vm)
+        } else {
+            Err(vm.new_type_error("unexpected payload for __repr__".to_owned()))
+        }
+    }
+
+    #[inline]
+    #[pymethod]
+    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Self::slot_repr(&zelf, vm)
+    }
+
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let repr = Self::repr_str(zelf, vm)?;
+        Ok(vm.ctx.new_str(repr))
+    }
+
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String>;
 }
 
 #[pyclass]

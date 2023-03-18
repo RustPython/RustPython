@@ -9,7 +9,10 @@ use crate::{
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
     protocol::PyMappingMethods,
-    types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
+    types::{
+        AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp,
+        Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -60,7 +63,15 @@ impl Constructor for PyGenericAlias {
 }
 
 #[pyclass(
-    with(AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable),
+    with(
+        AsMapping,
+        Callable,
+        Comparable,
+        Constructor,
+        GetAttr,
+        Hashable,
+        Representable
+    ),
     flags(BASETYPE)
 )]
 impl PyGenericAlias {
@@ -79,7 +90,6 @@ impl PyGenericAlias {
         }
     }
 
-    #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
             if obj.is(&vm.ctx.ellipsis) {
@@ -334,7 +344,7 @@ impl AsMapping for PyGenericAlias {
 
 impl Callable for PyGenericAlias {
     type Args = FuncArgs;
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyType::call(&zelf.origin, args, vm).map(|obj| {
             if let Err(exc) = obj.set_attr(identifier!(vm, __orig_class__), zelf.to_owned(), vm) {
                 if !exc.fast_isinstance(vm.ctx.exceptions.attribute_error)
@@ -350,7 +360,7 @@ impl Callable for PyGenericAlias {
 
 impl Comparable for PyGenericAlias {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -374,7 +384,7 @@ impl Comparable for PyGenericAlias {
 
 impl Hashable for PyGenericAlias {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.origin.as_object().hash(vm)? ^ zelf.args.as_object().hash(vm)?)
     }
 }
@@ -387,6 +397,13 @@ impl GetAttr for PyGenericAlias {
             }
         }
         zelf.origin().get_attr(attr, vm)
+    }
+}
+
+impl Representable for PyGenericAlias {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.repr(vm)
     }
 }
 

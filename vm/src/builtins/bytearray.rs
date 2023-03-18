@@ -31,7 +31,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer,
-        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        IterNext, IterNextIterable, Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -107,7 +107,8 @@ pub(crate) fn init(context: &Context) {
         AsMapping,
         AsSequence,
         AsNumber,
-        Iterable
+        Iterable,
+        Representable
     )
 )]
 impl PyByteArray {
@@ -124,13 +125,6 @@ impl PyByteArray {
     #[inline]
     fn inner_mut(&self) -> PyRwLockWriteGuard<'_, PyBytesInner> {
         self.inner.write()
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let class = zelf.class();
-        let class_name = class.name();
-        zelf.inner().repr(Some(&class_name), vm)
     }
 
     #[pymethod(magic)]
@@ -300,7 +294,7 @@ impl PyByteArray {
         }
     }
 
-    fn irepeat(zelf: &crate::Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn irepeat(zelf: &Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
         if n == 1 {
             return Ok(());
         }
@@ -739,7 +733,7 @@ impl Initializer for PyByteArray {
 
 impl Comparable for PyByteArray {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -886,6 +880,15 @@ impl Iterable for PyByteArray {
     }
 }
 
+impl Representable for PyByteArray {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let class = zelf.class();
+        let class_name = class.name();
+        zelf.inner().repr(Some(&class_name), vm)
+    }
+}
+
 // fn set_value(obj: &PyObject, value: Vec<u8>) {
 //     obj.borrow_mut().kind = PyObjectPayload::Bytes { value };
 // }
@@ -922,11 +925,12 @@ impl PyByteArrayIterator {
             .set_state(state, |obj, pos| pos.min(obj.len()), vm)
     }
 }
+
 impl Unconstructible for PyByteArrayIterator {}
 
 impl IterNextIterable for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytearray, pos| {
             let buf = bytearray.borrow_buf();
             Ok(PyIterReturn::from_result(

@@ -9,6 +9,7 @@ use crate::{
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg},
+    types::Representable,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
@@ -215,26 +216,28 @@ impl PyPayload for PyCode {
     }
 }
 
-#[pyclass(with(PyRef))]
+#[pyclass(with(PyRef, Representable))]
 impl PyCode {}
+
+impl Representable for PyCode {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let code = &zelf.code;
+        Ok(format!(
+            "<code object {} at {:#x} file {:?}, line {}>",
+            code.obj_name,
+            zelf.get_id(),
+            code.source_path.as_str(),
+            code.first_line_number
+        ))
+    }
+}
 
 #[pyclass]
 impl PyRef<PyCode> {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
-    }
-
-    #[pymethod(magic)]
-    fn repr(self) -> String {
-        let code = &self.code;
-        format!(
-            "<code object {} at {:#x} file {:?}, line {}>",
-            code.obj_name,
-            self.get_id(),
-            code.source_path.as_str(),
-            code.first_line_number
-        )
     }
 
     #[pygetset]

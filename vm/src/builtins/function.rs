@@ -16,7 +16,9 @@ use crate::{
     frame::Frame,
     function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
-    types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
+    types::{
+        Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp, Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
@@ -337,7 +339,10 @@ impl PyPayload for PyFunction {
     }
 }
 
-#[pyclass(with(GetDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
+#[pyclass(
+    with(GetDescriptor, Callable, Representable),
+    flags(HAS_DICT, METHOD_DESCR)
+)]
 impl PyFunction {
     #[pygetset(magic)]
     fn code(&self) -> PyRef<PyCode> {
@@ -414,11 +419,6 @@ impl PyFunction {
         Ok(())
     }
 
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        format!("<function {} at {:#x}>", zelf.qualname(), zelf.get_id())
-    }
-
     #[cfg(feature = "jit")]
     #[pymethod(magic)]
     fn jit(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
@@ -452,8 +452,19 @@ impl GetDescriptor for PyFunction {
 impl Callable for PyFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
+    }
+}
+
+impl Representable for PyFunction {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<function {} at {:#x}>",
+            zelf.qualname(),
+            zelf.get_id()
+        ))
     }
 }
 
@@ -467,7 +478,7 @@ pub struct PyBoundMethod {
 impl Callable for PyBoundMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.prepend_arg(zelf.object.clone());
         zelf.function.call(args, vm)
     }
@@ -475,7 +486,7 @@ impl Callable for PyBoundMethod {
 
 impl Comparable for PyBoundMethod {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,

@@ -1,6 +1,4 @@
-use once_cell::sync::Lazy;
-
-use super::{PositionIterInternal, PyGenericAlias, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::{
     atomic_func,
@@ -14,12 +12,13 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible,
+        Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
+use once_cell::sync::Lazy;
 use std::{fmt, marker::PhantomData};
 
 #[pyclass(module = false, name = "tuple")]
@@ -189,7 +188,15 @@ impl PyTuple {
 
 #[pyclass(
     flags(BASETYPE),
-    with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Constructor)
+    with(
+        AsMapping,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        Constructor,
+        Representable
+    )
 )]
 impl PyTuple {
     #[pymethod(magic)]
@@ -240,22 +247,6 @@ impl PyTuple {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if zelf.len() == 0 {
-            "()".to_owned()
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            if zelf.len() == 1 {
-                format!("({},)", zelf.elements[0].repr(vm)?)
-            } else {
-                collection_repr(None, "(", ")", zelf.elements.iter(), vm)?
-            }
-        } else {
-            "(...)".to_owned()
-        };
-        Ok(s)
     }
 
     #[pymethod(name = "__rmul__")]
@@ -375,14 +366,14 @@ impl AsSequence for PyTuple {
 
 impl Hashable for PyTuple {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         tuple_hash(zelf.as_slice(), vm)
     }
 }
 
 impl Comparable for PyTuple {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -403,6 +394,30 @@ impl Iterable for PyTuple {
             internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
         }
         .into_pyobject(vm))
+    }
+}
+
+impl Representable for PyTuple {
+    #[inline]
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let s = if zelf.len() == 0 {
+            vm.ctx.intern_str("()").to_owned()
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let s = if zelf.len() == 1 {
+                format!("({},)", zelf.elements[0].repr(vm)?)
+            } else {
+                collection_repr(None, "(", ")", zelf.elements.iter(), vm)?
+            };
+            vm.ctx.new_str(s)
+        } else {
+            vm.ctx.intern_str("(...)").to_owned()
+        };
+        Ok(s)
+    }
+
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
     }
 }
 
@@ -443,7 +458,7 @@ impl Unconstructible for PyTupleIterator {}
 
 impl IterNextIterable for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
-    fn next(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|tuple, pos| {
             Ok(PyIterReturn::from_result(
                 tuple.get(pos).cloned().ok_or(None),

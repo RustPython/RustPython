@@ -53,7 +53,7 @@ impl PyMap {
 
 impl IterNextIterable for PyMap {}
 impl IterNext for PyMap {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut next_objs = Vec::new();
         for iterator in &zelf.iterators {
             let item = match iterator.next(vm)? {

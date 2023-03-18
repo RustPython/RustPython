@@ -14,7 +14,7 @@ use crate::{
         PyComparisonValue,
     },
     protocol::{PyNumber, PyNumberMethods},
-    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp},
+    types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
@@ -185,7 +185,10 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     })
 }
 
-#[pyclass(flags(BASETYPE), with(Comparable, Hashable, Constructor, AsNumber))]
+#[pyclass(
+    flags(BASETYPE),
+    with(Comparable, Hashable, Constructor, AsNumber, Representable)
+)]
 impl PyFloat {
     #[pymethod(magic)]
     fn format(&self, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
@@ -357,11 +360,6 @@ impl PyFloat {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        float_ops::to_string(self.value)
-    }
-
-    #[pymethod(magic)]
     fn truediv(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<f64>> {
         self.simple_op(other, |a, b| inner_div(a, b, vm), vm)
     }
@@ -497,7 +495,7 @@ impl PyFloat {
 
 impl Comparable for PyFloat {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -538,7 +536,7 @@ impl Comparable for PyFloat {
 
 impl Hashable for PyFloat {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_float(zelf.to_f64()).unwrap_or_else(|| hash::hash_object_id(zelf.get_id())))
     }
 }
@@ -577,6 +575,13 @@ impl AsNumber for PyFloat {
     #[inline]
     fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
         vm.ctx.new_float(zelf.value)
+    }
+}
+
+impl Representable for PyFloat {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(float_ops::to_string(zelf.value))
     }
 }
 

@@ -7,7 +7,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
-    types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp},
+    types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -34,14 +34,12 @@ impl PyPayload for PyUnion {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Hashable, Comparable, AsMapping, AsNumber))]
 impl PyUnion {
     pub fn new(args: PyTupleRef, vm: &VirtualMachine) -> Self {
         let parameters = make_parameters(&args, vm);
         Self { args, parameters }
     }
 
-    #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
             if obj.is(vm.ctx.types.none_type) {
@@ -80,7 +78,13 @@ impl PyUnion {
             .collect::<PyResult<Vec<_>>>()?
             .join(" | "))
     }
+}
 
+#[pyclass(
+    flags(BASETYPE),
+    with(Hashable, Comparable, AsMapping, AsNumber, Representable)
+)]
+impl PyUnion {
     #[pygetset(magic)]
     fn parameters(&self) -> PyObjectRef {
         self.parameters.clone().into()
@@ -268,7 +272,7 @@ impl AsNumber for PyUnion {
 
 impl Comparable for PyUnion {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -290,7 +294,7 @@ impl Comparable for PyUnion {
 
 impl Hashable for PyUnion {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         let set = PyFrozenSet::from_iter(vm, zelf.args.into_iter().cloned())?;
         PyFrozenSet::hash(&set.into_ref(vm), vm)
     }
@@ -304,6 +308,13 @@ impl GetAttr for PyUnion {
             }
         }
         zelf.as_object().to_pyobject(vm).get_attr(attr, vm)
+    }
+}
+
+impl Representable for PyUnion {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.repr(vm)
     }
 }
 

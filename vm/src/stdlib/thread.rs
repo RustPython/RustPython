@@ -380,7 +380,7 @@ pub(crate) mod _thread {
 
     impl SetAttr for Local {
         fn setattro(
-            zelf: &crate::Py<Self>,
+            zelf: &Py<Self>,
             attr: PyStrRef,
             value: PySetterValue,
             vm: &VirtualMachine,

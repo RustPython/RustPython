@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     function::{FuncArgs, PyComparisonValue},
     recursion::ReprGuard,
-    types::{Comparable, Constructor, Initializer, PyComparisonOp},
+    types::{Comparable, Constructor, Initializer, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -39,10 +39,45 @@ impl PyNamespace {
     }
 }
 
-#[pyclass(flags(BASETYPE, HAS_DICT), with(Constructor, Initializer, Comparable))]
-impl PyNamespace {
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+#[pyclass(
+    flags(BASETYPE, HAS_DICT),
+    with(Constructor, Initializer, Comparable, Representable)
+)]
+impl PyNamespace {}
+
+impl Initializer for PyNamespace {
+    type Args = FuncArgs;
+
+    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        if !args.args.is_empty() {
+            return Err(vm.new_type_error("no positional arguments expected".to_owned()));
+        }
+        for (name, value) in args.kwargs.into_iter() {
+            zelf.as_object().set_attr(name, value, vm)?;
+        }
+        Ok(())
+    }
+}
+
+impl Comparable for PyNamespace {
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        let other = class_or_notimplemented!(Self, other);
+        let (d1, d2) = (
+            zelf.as_object().dict().unwrap(),
+            other.as_object().dict().unwrap(),
+        );
+        PyDict::cmp(&d1, d2.as_object(), op, vm)
+    }
+}
+
+impl Representable for PyNamespace {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let o = zelf.as_object();
         let name = if o.class().is(vm.ctx.types.namespace_type) {
             "namespace".to_owned()
@@ -64,36 +99,6 @@ impl PyNamespace {
             format!("{name}(...)")
         };
         Ok(repr)
-    }
-}
-
-impl Initializer for PyNamespace {
-    type Args = FuncArgs;
-
-    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        if !args.args.is_empty() {
-            return Err(vm.new_type_error("no positional arguments expected".to_owned()));
-        }
-        for (name, value) in args.kwargs.into_iter() {
-            zelf.as_object().set_attr(name, value, vm)?;
-        }
-        Ok(())
-    }
-}
-
-impl Comparable for PyNamespace {
-    fn cmp(
-        zelf: &crate::Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        let other = class_or_notimplemented!(Self, other);
-        let (d1, d2) = (
-            zelf.as_object().dict().unwrap(),
-            other.as_object().dict().unwrap(),
-        );
-        PyDict::cmp(&d1, d2.as_object(), op, vm)
     }
 }
 

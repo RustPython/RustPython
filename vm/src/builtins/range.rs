@@ -9,7 +9,7 @@ use crate::{
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible,
+        Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -174,7 +174,7 @@ pub fn init(context: &Context) {
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
 }
 
-#[pyclass(with(AsMapping, AsSequence, Hashable, Comparable, Iterable))]
+#[pyclass(with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Representable))]
 impl PyRange {
     fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
@@ -258,15 +258,6 @@ impl PyRange {
     #[pymethod(magic)]
     fn len(&self) -> BigInt {
         self.compute_length()
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        if self.step.as_bigint().is_one() {
-            format!("range({}, {})", self.start, self.stop)
-        } else {
-            format!("range({}, {}, {})", self.start, self.stop, self.step)
-        }
     }
 
     #[pymethod(magic)]
@@ -426,7 +417,7 @@ impl AsSequence for PyRange {
 }
 
 impl Hashable for PyRange {
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.compute_length();
         let elements = if length.is_zero() {
             [vm.ctx.new_int(length).into(), vm.ctx.none(), vm.ctx.none()]
@@ -511,6 +502,18 @@ impl Iterable for PyRange {
     }
 }
 
+impl Representable for PyRange {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let repr = if zelf.step.as_bigint().is_one() {
+            format!("range({}, {})", zelf.start, zelf.stop)
+        } else {
+            format!("range({}, {}, {})", zelf.start, zelf.stop, zelf.step)
+        };
+        Ok(repr)
+    }
+}
+
 // Semantically, this is the same as the previous representation.
 //
 // Unfortunately, since AtomicCell requires a Copy type, no BigInt implementations can
@@ -567,7 +570,7 @@ impl Unconstructible for PyLongRangeIterator {}
 
 impl IterNextIterable for PyLongRangeIterator {}
 impl IterNext for PyLongRangeIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
@@ -633,7 +636,7 @@ impl Unconstructible for PyRangeIterator {}
 
 impl IterNextIterable for PyRangeIterator {}
 impl IterNext for PyRangeIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.

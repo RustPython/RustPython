@@ -1,6 +1,6 @@
 use super::{
     set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias,
-    PyMappingProxy, PySet, PyStr, PyTupleRef, PyType, PyTypeRef,
+    PyMappingProxy, PySet, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     atomic_func,
@@ -20,7 +20,7 @@ use crate::{
     recursion::ReprGuard,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        IterNextIterable, Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -209,7 +209,8 @@ impl PyDict {
         Comparable,
         Iterable,
         AsSequence,
-        AsNumber
+        AsNumber,
+        Representable
     ),
     flags(BASETYPE)
 )]
@@ -252,23 +253,6 @@ impl PyDict {
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         std::mem::size_of::<Self>() + self.entries.sizeof()
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let mut str_parts = Vec::with_capacity(zelf.len());
-            for (key, value) in zelf {
-                let key_repr = &key.repr(vm)?;
-                let value_repr = value.repr(vm)?;
-                str_parts.push(format!("{key_repr}: {value_repr}"));
-            }
-
-            format!("{{{}}}", str_parts.join(", "))
-        } else {
-            "{...}".to_owned()
-        };
-        Ok(s)
     }
 
     #[pymethod(magic)]
@@ -520,6 +504,30 @@ impl Iterable for PyDict {
     }
 }
 
+impl Representable for PyDict {
+    #[inline]
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let mut str_parts = Vec::with_capacity(zelf.len());
+            for (key, value) in zelf {
+                let key_repr = &key.repr(vm)?;
+                let value_repr = value.repr(vm)?;
+                str_parts.push(format!("{key_repr}: {value_repr}"));
+            }
+
+            vm.ctx.new_str(format!("{{{}}}", str_parts.join(", ")))
+        } else {
+            vm.ctx.intern_str("{...}").to_owned()
+        };
+        Ok(s)
+    }
+
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
+    }
+}
+
 impl Py<PyDict> {
     #[inline]
     fn exact_dict(&self, vm: &VirtualMachine) -> bool {
@@ -727,7 +735,7 @@ impl ExactSizeIterator for DictIter<'_> {
 }
 
 #[pyclass]
-trait DictView: PyPayload + PyClassDef + Iterable
+trait DictView: PyPayload + PyClassDef + Iterable + Representable
 where
     Self::ReverseIter: PyPayload,
 {
@@ -739,21 +747,6 @@ where
     #[pymethod(magic)]
     fn len(&self) -> usize {
         self.dict().len()
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let mut str_parts = Vec::with_capacity(zelf.len());
-            for (key, value) in zelf.dict().clone() {
-                let s = &Self::item(vm, key, value).repr(vm)?;
-                str_parts.push(s.as_str().to_owned());
-            }
-            format!("{}([{}])", Self::NAME, str_parts.join(", "))
-        } else {
-            "{...}".to_owned()
-        };
-        Ok(s)
     }
 
     #[pymethod(magic)]
@@ -799,6 +792,29 @@ macro_rules! dict_view {
         impl PyPayload for $name {
             fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
                 vm.ctx.types.$class
+            }
+        }
+
+        impl Representable for $name {
+            #[inline]
+            fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+                let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                    let mut str_parts = Vec::with_capacity(zelf.len());
+                    for (key, value) in zelf.dict().clone() {
+                        let s = &Self::item(vm, key, value).repr(vm)?;
+                        str_parts.push(s.as_str().to_owned());
+                    }
+                    vm.ctx
+                        .new_str(format!("{}([{}])", Self::NAME, str_parts.join(", ")))
+                } else {
+                    vm.ctx.intern_str("{...}").to_owned()
+                };
+                Ok(s)
+            }
+
+            #[cold]
+            fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+                unreachable!("use repr instead")
             }
         }
 
@@ -1099,7 +1115,8 @@ impl ViewSetOps for PyDictKeys {}
     Iterable,
     ViewSetOps,
     AsSequence,
-    AsNumber
+    AsNumber,
+    Representable
 ))]
 impl PyDictKeys {
     #[pymethod(magic)]
@@ -1203,7 +1220,8 @@ impl ViewSetOps for PyDictItems {}
     Iterable,
     ViewSetOps,
     AsSequence,
-    AsNumber
+    AsNumber,
+    Representable
 ))]
 impl PyDictItems {
     #[pymethod(magic)]
@@ -1313,7 +1331,7 @@ impl AsNumber for PyDictItems {
     }
 }
 
-#[pyclass(with(DictView, Constructor, Iterable, AsSequence))]
+#[pyclass(with(DictView, Constructor, Iterable, AsSequence, Representable))]
 impl PyDictValues {
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {

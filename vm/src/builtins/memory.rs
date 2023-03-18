@@ -22,7 +22,7 @@ use crate::{
     sliceable::SequenceIndexOp,
     types::{
         AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        IterNextIterable, Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -75,7 +75,8 @@ impl Constructor for PyMemoryView {
     AsMapping,
     AsSequence,
     Constructor,
-    Iterable
+    Iterable,
+    Representable
 ))]
 impl PyMemoryView {
     fn parse_format(format: &str, vm: &VirtualMachine) -> PyResult<FormatSpec> {
@@ -593,15 +594,6 @@ impl PyMemoryView {
         Ok(other.into_ref(vm))
     }
 
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        if zelf.released.load() {
-            format!("<released memory at {:#x}>", zelf.get_id())
-        } else {
-            format!("<memory at {:#x}>", zelf.get_id())
-        }
-    }
-
     #[pymethod]
     fn hex(
         &self,
@@ -723,7 +715,7 @@ impl PyMemoryView {
         }
     }
 
-    fn eq(zelf: &crate::Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    fn eq(zelf: &Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         if zelf.is(other) {
             return Ok(true);
         }
@@ -1016,7 +1008,7 @@ impl AsSequence for PyMemoryView {
 
 impl Comparable for PyMemoryView {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -1037,7 +1029,7 @@ impl Comparable for PyMemoryView {
 }
 
 impl Hashable for PyMemoryView {
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         zelf.hash
             .get_or_try_init(|| {
                 zelf.try_not_released(vm)?;
@@ -1055,6 +1047,18 @@ impl Hashable for PyMemoryView {
 impl PyPayload for PyMemoryView {
     fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
         vm.ctx.types.memoryview_type
+    }
+}
+
+impl Representable for PyMemoryView {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let repr = if zelf.released.load() {
+            format!("<released memory at {:#x}>", zelf.get_id())
+        } else {
+            format!("<memory at {:#x}>", zelf.get_id())
+        };
+        Ok(repr)
     }
 }
 
@@ -1139,7 +1143,7 @@ impl Unconstructible for PyMemoryViewIterator {}
 
 impl IterNextIterable for PyMemoryViewIterator {}
 impl IterNext for PyMemoryViewIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|mv, pos| {
             let len = mv.len(vm)?;
             Ok(if pos >= len {

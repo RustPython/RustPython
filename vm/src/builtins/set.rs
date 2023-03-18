@@ -17,7 +17,7 @@ use crate::{
     types::AsNumber,
     types::{
         AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible,
+        Iterable, PyComparisonOp, Representable, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -489,7 +489,15 @@ fn reduce_set(
 }
 
 #[pyclass(
-    with(Constructor, Initializer, AsSequence, Comparable, Iterable, AsNumber),
+    with(
+        Constructor,
+        Initializer,
+        AsSequence,
+        Comparable,
+        Iterable,
+        AsNumber,
+        Representable
+    ),
     flags(BASETYPE)
 )]
 impl PySet {
@@ -624,26 +632,6 @@ impl PySet {
         } else {
             Ok(PyArithmeticValue::NotImplemented)
         }
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let class = zelf.class();
-        let borrowed_name = class.name();
-        let class_name = borrowed_name.deref();
-        let s = if zelf.inner.len() == 0 {
-            format!("{class_name}()")
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let name = if class_name != "set" {
-                Some(class_name)
-            } else {
-                None
-            };
-            zelf.inner.repr(name, vm)?
-        } else {
-            format!("{class_name}(...)")
-        };
-        Ok(s)
     }
 
     #[pymethod]
@@ -888,6 +876,28 @@ impl AsNumber for PySet {
     }
 }
 
+impl Representable for PySet {
+    #[inline]
+    fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let class = zelf.class();
+        let borrowed_name = class.name();
+        let class_name = borrowed_name.deref();
+        let s = if zelf.inner.len() == 0 {
+            format!("{class_name}()")
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let name = if class_name != "set" {
+                Some(class_name)
+            } else {
+                None
+            };
+            zelf.inner.repr(name, vm)?
+        } else {
+            format!("{class_name}(...)")
+        };
+        Ok(s)
+    }
+}
+
 impl Constructor for PyFrozenSet {
     type Args = OptionalArg<PyObjectRef>;
 
@@ -918,7 +928,15 @@ impl Constructor for PyFrozenSet {
 
 #[pyclass(
     flags(BASETYPE),
-    with(Constructor, AsSequence, Hashable, Comparable, Iterable, AsNumber)
+    with(
+        Constructor,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        AsNumber,
+        Representable
+    )
 )]
 impl PyFrozenSet {
     #[pymethod(magic)]
@@ -1060,21 +1078,6 @@ impl PyFrozenSet {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let inner = &zelf.inner;
-        let class = zelf.class();
-        let class_name = class.name();
-        let s = if inner.len() == 0 {
-            format!("{class_name}()")
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            inner.repr(Some(&class_name), vm)?
-        } else {
-            format!("{class_name}(...)")
-        };
-        Ok(s)
-    }
-
-    #[pymethod(magic)]
     fn reduce(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
@@ -1161,6 +1164,23 @@ impl AsNumber for PyFrozenSet {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
+    }
+}
+
+impl Representable for PyFrozenSet {
+    #[inline]
+    fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let inner = &zelf.inner;
+        let class = zelf.class();
+        let class_name = class.name();
+        let s = if inner.len() == 0 {
+            format!("{class_name}()")
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            inner.repr(Some(&class_name), vm)?
+        } else {
+            format!("{class_name}(...)")
+        };
+        Ok(s)
     }
 }
 
