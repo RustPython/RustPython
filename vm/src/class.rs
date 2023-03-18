@@ -7,7 +7,8 @@ use crate::{
     types::{hash_not_implemented, PyTypeFlags, PyTypeSlots},
     vm::Context,
 };
-use rustpython_common::{lock::PyRwLock, static_cell};
+use crossbeam_utils::atomic::AtomicCell;
+use rustpython_common::static_cell;
 
 pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
@@ -29,22 +30,21 @@ pub trait StaticType {
             .unwrap_or_else(|_| panic!("double initialization from init_manually"));
         cell.get().unwrap()
     }
-    fn init_bare_type() -> &'static Py<PyType>
+    fn init_builtin_type() -> &'static Py<PyType>
     where
         Self: PyClassImpl,
     {
-        let typ = Self::create_bare_type();
+        let typ = Self::create_static_type();
         let cell = Self::static_cell();
         cell.set(typ)
             .unwrap_or_else(|_| panic!("double initialization of {}", Self::NAME));
         cell.get().unwrap()
     }
-    fn create_bare_type() -> PyTypeRef
+    fn create_static_type() -> PyTypeRef
     where
         Self: PyClassImpl,
     {
-        PyType::new_bare_ref(
-            Self::NAME,
+        PyType::new_static(
             Self::static_baseclass().to_owned(),
             Default::default(),
             Self::make_slots(),
@@ -73,6 +73,9 @@ pub trait PyClassImpl: PyClassDef {
         {
             assert!(class.slots.flags.is_created_with_flags());
         }
+
+        let _ = ctx.intern_str(Self::NAME); // intern type name
+
         if Self::TP_FLAGS.has_feature(PyTypeFlags::HAS_DICT) {
             let __dict__ = identifier!(ctx, __dict__);
             class.set_attr(
@@ -113,7 +116,7 @@ pub trait PyClassImpl: PyClassDef {
         Self: StaticType,
     {
         (*Self::static_cell().get_or_init(|| {
-            let typ = Self::create_bare_type();
+            let typ = Self::create_static_type();
             Self::extend_class(ctx, unsafe {
                 // typ will be saved in static_cell
                 let r: &Py<PyType> = &typ;
@@ -129,7 +132,7 @@ pub trait PyClassImpl: PyClassDef {
     fn make_slots() -> PyTypeSlots {
         let mut slots = PyTypeSlots {
             flags: Self::TP_FLAGS,
-            name: PyRwLock::new(Some(Self::TP_NAME.to_owned())),
+            name: AtomicCell::new(Self::TP_NAME),
             basicsize: Self::BASICSIZE,
             doc: Self::DOC,
             ..Default::default()

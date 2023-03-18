@@ -79,7 +79,7 @@ fn format_internal(
                 for name_part in parts {
                     match name_part {
                         FieldNamePart::Attribute(attribute) => {
-                            argument = argument.get_attr(attribute.as_str(), vm)?;
+                            argument = argument.get_attr(&vm.ctx.new_str(attribute), vm)?;
                         }
                         FieldNamePart::Index(index) => {
                             argument = argument.get_item(&index, vm)?;

@@ -350,7 +350,7 @@ mod _codecs {
     #[inline]
     fn delegate_pycodecs(
         cell: &'static StaticCell<PyObjectRef>,
-        name: &str,
+        name: &'static str,
         args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult {

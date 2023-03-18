@@ -3,9 +3,9 @@
 
 use super::VirtualMachine;
 use crate::{
-    builtins::{PyBaseObject, PyStrInterned, PyStrRef},
+    builtins::{PyBaseObject, PyStr, PyStrInterned},
     function::IntoFuncArgs,
-    object::{AsObject, PyObjectRef, PyResult},
+    object::{AsObject, Py, PyObjectRef, PyResult},
     types::PyTypeFlags,
 };
 
@@ -19,14 +19,15 @@ pub enum PyMethod {
 }
 
 impl PyMethod {
-    pub fn get(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn get(obj: PyObjectRef, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Self> {
         let cls = obj.class();
         let getattro = cls.mro_find_map(|cls| cls.slots.getattro.load()).unwrap();
         if getattro as usize != PyBaseObject::getattro as usize {
             return obj.get_attr(name, vm).map(Self::Attribute);
         }
 
-        let interned_name = vm.ctx.interned_str(&*name);
+        // any correct method name is always interned already.
+        let interned_name = vm.ctx.interned_str(name);
         let mut is_method = false;
 
         let cls_attr = match interned_name.and_then(|name| cls.get_attr(name)) {
@@ -54,7 +55,7 @@ impl PyMethod {
         };
 
         if let Some(dict) = obj.dict() {
-            if let Some(attr) = dict.get_item_opt(&*name, vm)? {
+            if let Some(attr) = dict.get_item_opt(name, vm)? {
                 return Ok(Self::Attribute(attr));
             }
         }
@@ -72,14 +73,14 @@ impl PyMethod {
                 None => Ok(Self::Attribute(attr)),
             }
         } else if let Some(getter) = cls.get_attr(identifier!(vm, __getattr__)) {
-            getter.call((obj, name), vm).map(Self::Attribute)
+            getter.call((obj, name.to_owned()), vm).map(Self::Attribute)
         } else {
             let exc = vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
                 cls.name(),
                 name
             ));
-            vm.set_attribute_error_context(&exc, obj.clone(), name);
+            vm.set_attribute_error_context(&exc, obj.clone(), name.to_owned());
             Err(exc)
         }
     }

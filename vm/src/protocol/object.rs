@@ -3,8 +3,8 @@
 
 use crate::{
     builtins::{
-        pystr::IntoPyStrRef, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStr, PyStrRef,
-        PyTupleRef, PyTypeRef,
+        pystr::{AsPyStr, IntoPyStrRef},
+        PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
     },
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
@@ -75,26 +75,26 @@ impl PyObjectRef {
 }
 
 impl PyObject {
-    pub fn has_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.get_attr(attr_name, vm).map(|o| vm.is_none(&o))
+    pub fn has_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult<bool> {
+        self.get_attr(attr_name, vm).map(|o| !vm.is_none(&o))
     }
 
-    pub fn get_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult {
-        let attr_name = attr_name.into_pystr_ref(vm);
-        self._get_attr(attr_name, vm)
+    pub fn get_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult {
+        let attr_name = attr_name.as_pystr(&vm.ctx);
+        self.get_attr_inner(attr_name, vm)
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
     #[cfg_attr(feature = "flame-it", flame("PyObjectRef"))]
     #[inline]
-    fn _get_attr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn get_attr_inner(&self, attr_name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__: {:?} {:?}", self, attr_name);
         let getattro = self
             .class()
             .mro_find_map(|cls| cls.slots.getattro.load())
             .unwrap();
-        getattro(self, attr_name.clone(), vm).map_err(|exc| {
-            vm.set_attribute_error_context(&exc, self.to_owned(), attr_name);
+        getattro(self, attr_name, vm).map_err(|exc| {
+            vm.set_attribute_error_context(&exc, self.to_owned(), attr_name.to_owned());
             exc
         })
     }

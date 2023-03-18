@@ -78,7 +78,8 @@ impl<'vm> ShellHelper<'vm> {
             let mut current = self.globals.get_item_opt(first.as_str(), self.vm).ok()??;
 
             for attr in parents {
-                current = current.get_attr(attr.as_str(), self.vm).ok()?;
+                let attr = self.vm.ctx.new_str(attr.as_str());
+                current = current.get_attr(&attr, self.vm).ok()?;
             }
 
             let current_iter = str_iter_method(current, identifier!(self.vm, __dir__)).ok()?;

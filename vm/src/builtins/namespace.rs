@@ -82,7 +82,7 @@ impl Representable for PyNamespace {
         let name = if o.class().is(vm.ctx.types.namespace_type) {
             "namespace".to_owned()
         } else {
-            o.class().slot_name()
+            o.class().slot_name().to_owned()
         };
 
         let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {

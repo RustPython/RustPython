@@ -1,7 +1,7 @@
 use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
-    builtins::PyStrInterned,
+    builtins::{pystr::AsPyStr, PyStrInterned},
     class::PyClassImpl,
     convert::ToPyObject,
     function::FuncArgs,
@@ -30,29 +30,24 @@ impl PyModule {
     // pub(crate) fn new(d: PyDictRef) -> Self {
     //     PyModule { dict: d.into() }
     // }
+}
 
-    // #[inline]
-    // pub fn dict(&self) -> PyDictRef {
-    //     self.dict.get()
-    // }
-
-    fn getattr_inner(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(attr) = zelf.as_object().generic_getattr_opt(&name, None, vm)? {
+impl Py<PyModule> {
+    fn getattr_inner(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        if let Some(attr) = self.as_object().generic_getattr_opt(name, None, vm)? {
             return Ok(attr);
         }
-        if let Ok(getattr) = zelf.dict().get_item(identifier!(vm, __getattr__), vm) {
-            return getattr.call((name,), vm);
+        if let Ok(getattr) = self.dict().get_item(identifier!(vm, __getattr__), vm) {
+            return getattr.call((name.to_owned(),), vm);
         }
-        let module_name = if let Some(name) = zelf.name(vm) {
+        let module_name = if let Some(name) = self.name(vm) {
             format!(" '{name}'")
         } else {
             "".to_owned()
         };
         Err(vm.new_attribute_error(format!("module{module_name} has no attribute '{name}'")))
     }
-}
 
-impl Py<PyModule> {
     fn name(&self, vm: &VirtualMachine) -> Option<PyStrRef> {
         let name = self
             .as_object()
@@ -85,9 +80,10 @@ impl Py<PyModule> {
             .expect("Failed to set __spec__ on module");
     }
 
-    pub fn get_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult {
-        PyModule::getattr_inner(self, attr_name.into_pystr_ref(vm), vm)
+    pub fn get_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult {
+        self.getattr_inner(attr_name.as_pystr(&vm.ctx), vm)
     }
+
     pub fn set_attr(
         &self,
         attr_name: impl IntoPyStrRef,
@@ -135,8 +131,8 @@ impl Initializer for PyModule {
 }
 
 impl GetAttr for PyModule {
-    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::getattr_inner(zelf, name, vm)
+    fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        zelf.getattr_inner(name, vm)
     }
 }
 

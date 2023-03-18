@@ -3,7 +3,7 @@ use crate::{
         type_::PointerSlot, PyFloat, PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef,
     },
     bytecode::ComparisonOperator,
-    common::{hash::PyHash, lock::PyRwLock},
+    common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
     function::{Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     identifier,
@@ -30,7 +30,10 @@ macro_rules! atomic_func {
 #[derive(Default)]
 #[non_exhaustive]
 pub struct PyTypeSlots {
-    pub name: PyRwLock<Option<String>>, // tp_name, not class name
+    /// # Safety
+    /// For static types, always safe.
+    /// For heap types, `__name__` must alive
+    pub(crate) name: AtomicCell<&'static str>, // tp_name with <module>.<class> for print, not class name
 
     pub basicsize: usize,
     // tp_itemsize
@@ -91,8 +94,9 @@ pub struct PyTypeSlots {
 }
 
 impl PyTypeSlots {
-    pub fn from_flags(flags: PyTypeFlags) -> Self {
+    pub fn new(name: &'static str, flags: PyTypeFlags) -> Self {
         Self {
+            name: AtomicCell::new(name),
             flags,
             ..Default::default()
         }
@@ -277,7 +281,7 @@ pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyRe
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
 pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyStrRef>;
-pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
+pub(crate) type GetattroFunc = fn(&PyObject, &Py<PyStr>, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObject, PyStrRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsBufferFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyBuffer>;
@@ -400,13 +404,13 @@ fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResul
     vm.call_special_method(zelf.to_owned(), identifier!(vm, __call__), args)
 }
 
-fn getattro_wrapper(zelf: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+fn getattro_wrapper(zelf: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
     let __getattribute__ = identifier!(vm, __getattribute__);
     let __getattr__ = identifier!(vm, __getattr__);
-    match vm.call_special_method(zelf.to_owned(), __getattribute__, (name.clone(),)) {
+    match vm.call_special_method(zelf.to_owned(), __getattribute__, (name.to_owned(),)) {
         Ok(r) => Ok(r),
         Err(_) if zelf.class().has_attr(__getattr__) => {
-            vm.call_special_method(zelf.to_owned(), __getattr__, (name,))
+            vm.call_special_method(zelf.to_owned(), __getattr__, (name.to_owned(),))
         }
         Err(e) => Err(e),
     }
@@ -1215,19 +1219,19 @@ impl PyComparisonOp {
 #[pyclass]
 pub trait GetAttr: PyPayload {
     #[pyslot]
-    fn slot_getattro(obj: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn slot_getattro(obj: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         let zelf = obj.downcast_ref().ok_or_else(|| {
             vm.new_type_error("unexpected payload for __getattribute__".to_owned())
         })?;
         Self::getattro(zelf, name, vm)
     }
 
-    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult;
+    fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult;
 
     #[inline]
     #[pymethod(magic)]
     fn getattribute(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::getattro(&zelf, name, vm)
+        Self::getattro(&zelf, &name, vm)
     }
 }
 

@@ -1,7 +1,7 @@
 use super::{genericalias, type_};
 use crate::{
     atomic_func,
-    builtins::{PyFrozenSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType},
+    builtins::{PyFrozenSet, PyStr, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
     common::hash,
     convert::{ToPyObject, ToPyResult},
@@ -141,7 +141,7 @@ pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
 
 fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
     let class = obj.class();
-    class.slot_name() == "TypeVar"
+    "TypeVar" == &*class.slot_name()
         && class
             .get_attr(identifier!(vm, __module__))
             .and_then(|o| o.downcast_ref::<PyStr>().map(|s| s.as_str() == "typing"))
@@ -301,10 +301,10 @@ impl Hashable for PyUnion {
 }
 
 impl GetAttr for PyUnion {
-    fn getattro(zelf: &Py<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         for &exc in CLS_ATTRS {
             if *exc == attr.to_string() {
-                return zelf.as_object().generic_getattr(&attr, vm);
+                return zelf.as_object().generic_getattr(attr, vm);
             }
         }
         zelf.as_object().to_pyobject(vm).get_attr(attr, vm)

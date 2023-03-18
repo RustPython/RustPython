@@ -77,7 +77,7 @@ mod _ast {
     use super::PY_COMPILE_FLAG_AST_ONLY;
 }
 
-fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &str, typ: &str) -> PyResult {
+fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &'static str, typ: &str) -> PyResult {
     vm.get_attribute_opt(obj.to_owned(), field)?
         .ok_or_else(|| vm.new_type_error(format!("required field \"{field}\" missing from {typ}")))
 }
@@ -85,7 +85,7 @@ fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &str, typ: &str) -
 fn get_node_field_opt(
     vm: &VirtualMachine,
     obj: &PyObject,
-    field: &str,
+    field: &'static str,
 ) -> PyResult<Option<PyObjectRef>> {
     Ok(vm
         .get_attribute_opt(obj.to_owned(), field)?

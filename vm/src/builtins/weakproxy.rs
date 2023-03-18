@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
 
-use super::{PyStrRef, PyType, PyTypeRef, PyWeak};
+use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     atomic_func,
     class::PyClassImpl,
@@ -132,7 +132,7 @@ fn new_reference_error(vm: &VirtualMachine) -> PyRef<super::PyBaseException> {
 
 impl GetAttr for PyWeakProxy {
     // TODO: callbacks
-    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         let obj = zelf.try_upgrade(vm)?;
         obj.get_attr(name, vm)
     }

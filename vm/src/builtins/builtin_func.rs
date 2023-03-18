@@ -259,7 +259,7 @@ impl PyBuiltinMethod {
         vm: &VirtualMachine,
     ) -> (Option<PyObjectRef>, (Option<PyObjectRef>, PyStrRef)) {
         let builtins_getattr = vm.builtins.get_attr("getattr", vm).ok();
-        let classname = vm.builtins.get_attr(self.class.name().to_string(), vm).ok();
+        let classname = vm.builtins.get_attr(&self.class.__name__(vm), vm).ok();
         (builtins_getattr, (classname, self.value.name.clone()))
     }
 }

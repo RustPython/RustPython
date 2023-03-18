@@ -189,6 +189,42 @@ impl IntoPyStrRef for &'static PyStrInterned {
     }
 }
 
+pub trait AsPyStr<'a>
+where
+    Self: 'a,
+{
+    #[allow(clippy::wrong_self_convention)] // to implement on refs
+    fn as_pystr(self, ctx: &Context) -> &'a Py<PyStr>;
+}
+
+impl<'a> AsPyStr<'a> for &'a Py<PyStr> {
+    #[inline]
+    fn as_pystr(self, _ctx: &Context) -> &'a Py<PyStr> {
+        self
+    }
+}
+
+impl<'a> AsPyStr<'a> for &'a PyStrRef {
+    #[inline]
+    fn as_pystr(self, _ctx: &Context) -> &'a Py<PyStr> {
+        self
+    }
+}
+
+impl AsPyStr<'static> for &'static str {
+    #[inline]
+    fn as_pystr(self, ctx: &Context) -> &'static Py<PyStr> {
+        ctx.intern_str(self)
+    }
+}
+
+impl<'a> AsPyStr<'a> for &'a PyStrInterned {
+    #[inline]
+    fn as_pystr(self, _ctx: &Context) -> &'a Py<PyStr> {
+        self
+    }
+}
+
 #[pyclass(module = false, name = "str_iterator")]
 #[derive(Debug)]
 pub struct PyStrIterator {
