@@ -3,7 +3,7 @@ use crate::{
     class::PyClassImpl,
     function::PySetterValue,
     types::{Constructor, GetDescriptor, Representable, Unconstructible},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use rustpython_common::lock::PyRwLock;
 
@@ -103,8 +103,8 @@ fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Opti
 #[pyclass(with(GetDescriptor, Constructor, Representable), flags(BASETYPE))]
 impl MemberDescrObject {
     #[pygetset(magic)]
-    fn doc(zelf: PyRef<Self>) -> Option<String> {
-        zelf.member.doc.to_owned()
+    fn doc(&self) -> Option<String> {
+        self.member.doc.to_owned()
     }
 
     #[pygetset(magic)]
