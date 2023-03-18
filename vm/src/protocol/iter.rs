@@ -234,11 +234,14 @@ where
     type Item = PyResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let obj = PyIter::new(self.obj.borrow())
-            .next(self.vm)
-            .map(|iret| iret.into_result().ok())
-            .transpose()?;
-        Some(obj.and_then(|obj| T::try_from_object(self.vm, obj)))
+        let imp = |next: PyResult<PyIterReturn>| -> PyResult<Option<T>> {
+            let Some(obj) = next?.into_result().ok() else {
+                return Ok(None);
+            };
+            Ok(Some(T::try_from_object(self.vm, obj)?))
+        };
+        let next = PyIter::new(self.obj.borrow()).next(self.vm);
+        imp(next).transpose()
     }
 
     #[inline]
