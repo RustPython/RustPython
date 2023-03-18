@@ -3098,7 +3098,6 @@ mod _io {
         }
     }
 
-    #[pyclass(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
     impl StringIO {
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
             if !self.closed.load() {
@@ -3107,7 +3106,10 @@ mod _io {
                 Err(io_closed_error(vm))
             }
         }
+    }
 
+    #[pyclass(flags(BASETYPE, HAS_DICT), with(Constructor))]
+    impl StringIO {
         #[pymethod]
         fn readable(&self) -> bool {
             true
@@ -3130,34 +3132,28 @@ mod _io {
         fn close(&self) {
             self.closed.store(true);
         }
-    }
 
-    #[pyclass]
-    impl PyRef<StringIO> {
-        //write string to underlying vector
+        // write string to underlying vector
         #[pymethod]
-        fn write(self, data: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        fn write(&self, data: PyStrRef, vm: &VirtualMachine) -> PyResult<u64> {
             let bytes = data.as_str().as_bytes();
-
-            match self.buffer(vm)?.write(bytes) {
-                Some(value) => Ok(vm.ctx.new_int(value).into()),
-                None => Err(vm.new_type_error("Error Writing String".to_owned())),
-            }
+            self.buffer(vm)?
+                .write(bytes)
+                .ok_or_else(|| vm.new_type_error("Error Writing String".to_owned()))
         }
 
-        //return the entire contents of the underlying
+        // return the entire contents of the underlying
         #[pymethod]
-        fn getvalue(self, vm: &VirtualMachine) -> PyResult {
-            match String::from_utf8(self.buffer(vm)?.getvalue()) {
-                Ok(result) => Ok(vm.ctx.new_str(result).into()),
-                Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
-            }
+        fn getvalue(&self, vm: &VirtualMachine) -> PyResult<String> {
+            let bytes = self.buffer(vm)?.getvalue();
+            String::from_utf8(bytes)
+                .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))
         }
 
-        //skip to the jth position
+        // skip to the jth position
         #[pymethod]
         fn seek(
-            self,
+            &self,
             offset: PyObjectRef,
             how: OptionalArg<i32>,
             vm: &VirtualMachine,
@@ -3167,38 +3163,34 @@ mod _io {
                 .map_err(|err| os_err(vm, err))
         }
 
-        //Read k bytes from the object and return.
-        //If k is undefined || k == -1, then we read all bytes until the end of the file.
-        //This also increments the stream position by the value of k
+        // Read k bytes from the object and return.
+        // If k is undefined || k == -1, then we read all bytes until the end of the file.
+        // This also increments the stream position by the value of k
         #[pymethod]
-        fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
-            let data = match self.buffer(vm)?.read(size.to_usize()) {
-                Some(value) => value,
-                None => Vec::new(),
-            };
+        fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<String> {
+            let data = self.buffer(vm)?.read(size.to_usize()).unwrap_or_default();
 
             let value = String::from_utf8(data)
                 .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))?;
-            Ok(vm.ctx.new_str(value).into())
+            Ok(value)
         }
 
         #[pymethod]
-        fn tell(self, vm: &VirtualMachine) -> PyResult<u64> {
+        fn tell(&self, vm: &VirtualMachine) -> PyResult<u64> {
             Ok(self.buffer(vm)?.tell())
         }
 
         #[pymethod]
-        fn readline(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<String> {
+        fn readline(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<String> {
             // TODO size should correspond to the number of characters, at the moments its the number of
             // bytes.
-            match String::from_utf8(self.buffer(vm)?.readline(size.to_usize(), vm)?) {
-                Ok(value) => Ok(value),
-                Err(_) => Err(vm.new_value_error("Error Retrieving Value".to_owned())),
-            }
+            let input = self.buffer(vm)?.readline(size.to_usize(), vm)?;
+            String::from_utf8(input)
+                .map_err(|_| vm.new_value_error("Error Retrieving Value".to_owned()))
         }
 
         #[pymethod]
-        fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<usize> {
+        fn truncate(&self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<usize> {
             let mut buffer = self.buffer(vm)?;
             let pos = pos.try_usize(vm)?;
             Ok(buffer.truncate(pos))
@@ -3232,7 +3224,6 @@ mod _io {
         }
     }
 
-    #[pyclass(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
     impl BytesIO {
         fn buffer(&self, vm: &VirtualMachine) -> PyResult<PyRwLockWriteGuard<'_, BufferedIO>> {
             if !self.closed.load() {
@@ -3241,7 +3232,10 @@ mod _io {
                 Err(io_closed_error(vm))
             }
         }
+    }
 
+    #[pyclass(flags(BASETYPE, HAS_DICT), with(PyRef, Constructor))]
+    impl BytesIO {
         #[pymethod]
         fn readable(&self) -> bool {
             true
@@ -3254,37 +3248,33 @@ mod _io {
         fn seekable(&self) -> bool {
             true
         }
-    }
 
-    #[pyclass]
-    impl PyRef<BytesIO> {
         #[pymethod]
-        fn write(self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
+        fn write(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
             let mut buffer = self.try_resizable(vm)?;
-            match data.with_ref(|b| buffer.write(b)) {
-                Some(value) => Ok(value),
-                None => Err(vm.new_type_error("Error Writing Bytes".to_owned())),
-            }
+            data.with_ref(|b| buffer.write(b))
+                .ok_or_else(|| vm.new_type_error("Error Writing Bytes".to_owned()))
         }
 
-        //Retrieves the entire bytes object value from the underlying buffer
+        // Retrieves the entire bytes object value from the underlying buffer
         #[pymethod]
-        fn getvalue(self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-            Ok(vm.ctx.new_bytes(self.buffer(vm)?.getvalue()))
+        fn getvalue(&self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+            let bytes = self.buffer(vm)?.getvalue();
+            Ok(vm.ctx.new_bytes(bytes))
         }
 
-        //Takes an integer k (bytes) and returns them from the underlying buffer
-        //If k is undefined || k == -1, then we read all bytes until the end of the file.
-        //This also increments the stream position by the value of k
+        // Takes an integer k (bytes) and returns them from the underlying buffer
+        // If k is undefined || k == -1, then we read all bytes until the end of the file.
+        // This also increments the stream position by the value of k
         #[pymethod]
         #[pymethod(name = "read1")]
-        fn read(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let buf = self.buffer(vm)?.read(size.to_usize()).unwrap_or_default();
             Ok(buf)
         }
 
         #[pymethod]
-        fn readinto(self, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
+        fn readinto(&self, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
             let mut buf = self.buffer(vm)?;
             let ret = buf
                 .cursor
@@ -3297,7 +3287,7 @@ mod _io {
         //skip to the jth position
         #[pymethod]
         fn seek(
-            self,
+            &self,
             offset: PyObjectRef,
             how: OptionalArg<i32>,
             vm: &VirtualMachine,
@@ -3308,22 +3298,17 @@ mod _io {
         }
 
         #[pymethod]
-        fn seekable(self) -> bool {
-            true
-        }
-
-        #[pymethod]
-        fn tell(self, vm: &VirtualMachine) -> PyResult<u64> {
+        fn tell(&self, vm: &VirtualMachine) -> PyResult<u64> {
             Ok(self.buffer(vm)?.tell())
         }
 
         #[pymethod]
-        fn readline(self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn readline(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             self.buffer(vm)?.readline(size.to_usize(), vm)
         }
 
         #[pymethod]
-        fn truncate(self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<usize> {
+        fn truncate(&self, pos: OptionalSize, vm: &VirtualMachine) -> PyResult<usize> {
             if self.closed.load() {
                 return Err(io_closed_error(vm));
             }
@@ -3333,17 +3318,20 @@ mod _io {
         }
 
         #[pygetset]
-        fn closed(self) -> bool {
+        fn closed(&self) -> bool {
             self.closed.load()
         }
 
         #[pymethod]
-        fn close(self, vm: &VirtualMachine) -> PyResult<()> {
+        fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
             drop(self.try_resizable(vm)?);
             self.closed.store(true);
             Ok(())
         }
+    }
 
+    #[pyclass]
+    impl PyRef<BytesIO> {
         #[pymethod]
         fn getbuffer(self, vm: &VirtualMachine) -> PyResult<PyMemoryView> {
             let len = self.buffer.read().cursor.get_ref().len();
