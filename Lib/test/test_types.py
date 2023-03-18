@@ -403,7 +403,6 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(locale.format_string('%g', x, grouping=True), format(x, 'n'))
             self.assertEqual(locale.format_string('%.10g', x, grouping=True), format(x, '.10n'))
 
-    @unittest.skip("TODO: RustPython format code n is not integrated with locale")
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8')
     def test_int__format__locale(self):
         # test locale support for __format__ code 'n' for integers
@@ -422,6 +421,9 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(len(format(0, rfmt)), len(format(x, rfmt)))
             self.assertEqual(len(format(0, lfmt)), len(format(x, lfmt)))
             self.assertEqual(len(format(0, cfmt)), len(format(x, cfmt)))
+    
+    if sys.platform != "darwin":
+        test_int__format__locale = unittest.expectedFailure(test_int__format__locale)
 
     def test_float__format__(self):
         def test(f, format_spec, result):
