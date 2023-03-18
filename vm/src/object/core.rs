@@ -385,7 +385,7 @@ impl Drop for PyWeak {
     }
 }
 
-impl PyRef<PyWeak> {
+impl Py<PyWeak> {
     #[inline(always)]
     pub fn upgrade(&self) -> Option<PyObjectRef> {
         PyWeak::upgrade(self)
