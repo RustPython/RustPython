@@ -376,8 +376,8 @@ pub trait AnyStr {
         }
     }
 
-    # TODO: remove this function from anystr.
-    # See https://github.com/RustPython/RustPython/pull/4709/files#r1141013993
+    // TODO: remove this function from anystr.
+    // See https://github.com/RustPython/RustPython/pull/4709/files#r1141013993
     fn py_bytes_splitlines<FW, W>(&self, options: SplitLinesArgs, into_wrapper: FW) -> Vec<W>
     where
         FW: Fn(&Self) -> W,
