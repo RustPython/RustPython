@@ -883,7 +883,8 @@ mod _sqlite {
                 unsafe { cursor.row_factory.swap(zelf.row_factory.to_owned()) };
                 cursor
             } else {
-                Cursor::new(zelf.clone(), zelf.row_factory.to_owned(), vm).into_ref(vm)
+                let row_factory = zelf.row_factory.to_owned();
+                Cursor::new(zelf, row_factory, vm).into_ref(vm)
             };
             Ok(cursor)
         }
@@ -952,7 +953,8 @@ mod _sqlite {
             parameters: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let cursor = Cursor::new(zelf.clone(), zelf.row_factory.to_owned(), vm).into_ref(vm);
+            let row_factory = zelf.row_factory.to_owned();
+            let cursor = Cursor::new(zelf, row_factory, vm).into_ref(vm);
             Cursor::execute(cursor, sql, parameters, vm)
         }
 
@@ -963,7 +965,8 @@ mod _sqlite {
             seq_of_params: ArgIterable,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            let cursor = Cursor::new(zelf.clone(), zelf.row_factory.to_owned(), vm).into_ref(vm);
+            let row_factory = zelf.row_factory.to_owned();
+            let cursor = Cursor::new(zelf, row_factory, vm).into_ref(vm);
             Cursor::executemany(cursor, sql, seq_of_params, vm)
         }
 
@@ -973,15 +976,12 @@ mod _sqlite {
             script: PyStrRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
-            Cursor::executescript(
-                Cursor::new(zelf.clone(), zelf.row_factory.to_owned(), vm).into_ref(vm),
-                script,
-                vm,
-            )
+            let row_factory = zelf.row_factory.to_owned();
+            Cursor::executescript(Cursor::new(zelf, row_factory, vm).into_ref(vm), script, vm)
         }
 
         #[pymethod]
-        fn backup(zelf: PyRef<Self>, args: BackupArgs, vm: &VirtualMachine) -> PyResult<()> {
+        fn backup(zelf: &Py<Self>, args: BackupArgs, vm: &VirtualMachine) -> PyResult<()> {
             let BackupArgs {
                 target,
                 pages,
@@ -1550,8 +1550,8 @@ mod _sqlite {
         }
 
         #[pymethod]
-        fn fetchone(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            Self::next(&zelf, vm).map(|x| match x {
+        fn fetchone(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+            Self::next(zelf, vm).map(|x| match x {
                 PyIterReturn::Return(row) => row,
                 PyIterReturn::StopIteration(_) => vm.ctx.none(),
             })
@@ -1559,13 +1559,13 @@ mod _sqlite {
 
         #[pymethod]
         fn fetchmany(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             max_rows: OptionalArg<c_int>,
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
             let max_rows = max_rows.unwrap_or_else(|| zelf.arraysize.load(Ordering::Relaxed));
             let mut list = vec![];
-            while let PyIterReturn::Return(row) = Self::next(&zelf, vm)? {
+            while let PyIterReturn::Return(row) = Self::next(zelf, vm)? {
                 list.push(row);
                 if list.len() as c_int >= max_rows {
                     break;
@@ -1575,9 +1575,9 @@ mod _sqlite {
         }
 
         #[pymethod]
-        fn fetchall(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        fn fetchall(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
             let mut list = vec![];
-            while let PyIterReturn::Return(row) = Self::next(&zelf, vm)? {
+            while let PyIterReturn::Return(row) = Self::next(zelf, vm)? {
                 list.push(row);
             }
             Ok(list)
