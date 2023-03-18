@@ -3,7 +3,7 @@ use crate::common::hash::PyHash;
 use crate::{
     class::PyClassImpl,
     function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
-    types::PyComparisonOp,
+    types::{Constructor, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -24,11 +24,10 @@ impl PyPayload for PyBaseObject {
     }
 }
 
-#[pyclass(flags(BASETYPE))]
-impl PyBaseObject {
-    /// Create and return a new object.  See help(type) for accurate signature.
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+impl Constructor for PyBaseObject {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
         // more or less __new__ operator
         let dict = if cls.is(vm.ctx.types.object_type) {
             None
@@ -49,7 +48,10 @@ impl PyBaseObject {
 
         Ok(crate::PyRef::new_ref(PyBaseObject, cls, dict).into())
     }
+}
 
+#[pyclass(with(Constructor), flags(BASETYPE))]
+impl PyBaseObject {
     #[pyslot]
     fn slot_richcompare(
         zelf: &PyObject,
