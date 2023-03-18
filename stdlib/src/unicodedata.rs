@@ -41,8 +41,8 @@ enum NormalizeForm {
     Nfkd,
 }
 
-impl TryFromBorrowedObject for NormalizeForm {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for NormalizeForm {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         obj.try_value_with(
             |form: &PyStr| {
                 Ok(match form.as_str() {

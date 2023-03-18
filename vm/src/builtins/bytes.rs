@@ -101,23 +101,38 @@ impl PyBytes {
         PyRef::new_ref(Self::from(data), ctx.types.bytes_type.to_owned(), None)
     }
 
-    fn repeat(zelf: PyRef<Self>, count: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if count == 1 && zelf.class().is(vm.ctx.types.bytes_type) {
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "byte")? {
+            SequenceIndex::Int(i) => self
+                .getitem_by_index(vm, i)
+                .map(|x| vm.ctx.new_int(x).into()),
+            SequenceIndex::Slice(slice) => self
+                .getitem_by_slice(vm, slice)
+                .map(|x| vm.ctx.new_bytes(x).into()),
+        }
+    }
+}
+
+impl PyRef<PyBytes> {
+    fn repeat(self, count: isize, vm: &VirtualMachine) -> PyResult<PyRef<PyBytes>> {
+        if count == 1 && self.class().is(vm.ctx.types.bytes_type) {
             // Special case: when some `bytes` is multiplied by `1`,
             // nothing really happens, we need to return an object itself
             // with the same `id()` to be compatible with CPython.
             // This only works for `bytes` itself, not its subclasses.
-            return Ok(zelf);
+            return Ok(self);
         }
-        zelf.inner
+        self.inner
             .mul(count, vm)
-            .map(|x| Self::from(x).into_ref(vm))
+            .map(|x| PyBytes::from(x).into_ref(vm))
     }
 }
 
 #[pyclass(
     flags(BASETYPE),
     with(
+        Py,
+        PyRef,
         AsMapping,
         AsSequence,
         Hashable,
@@ -147,15 +162,6 @@ impl PyBytes {
     }
 
     #[pymethod(magic)]
-    fn bytes(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        if zelf.is(vm.ctx.types.bytes_type) {
-            zelf
-        } else {
-            PyBytes::from(zelf.inner.clone()).into_ref(vm)
-        }
-    }
-
-    #[pymethod(magic)]
     fn sizeof(&self) -> usize {
         size_of::<Self>() + self.len() * size_of::<u8>()
     }
@@ -177,17 +183,6 @@ impl PyBytes {
     #[pystaticmethod]
     fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         PyBytesInner::maketrans(from, to, vm)
-    }
-
-    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle, "byte")? {
-            SequenceIndex::Int(i) => self
-                .getitem_by_index(vm, i)
-                .map(|x| vm.ctx.new_int(x).into()),
-            SequenceIndex::Slice(slice) => self
-                .getitem_by_slice(vm, slice)
-                .map(|x| vm.ctx.new_bytes(x).into()),
-        }
     }
 
     #[pymethod(magic)]
@@ -372,52 +367,10 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn lstrip(
-        zelf: PyRef<Self>,
-        chars: OptionalOption<PyBytesInner>,
-        vm: &VirtualMachine,
-    ) -> PyRef<Self> {
-        let stripped = zelf.inner.lstrip(chars);
-        if stripped == zelf.as_bytes() {
-            zelf
-        } else {
-            vm.ctx.new_bytes(stripped.to_vec())
-        }
-    }
-
-    #[pymethod]
-    fn rstrip(
-        zelf: PyRef<Self>,
-        chars: OptionalOption<PyBytesInner>,
-        vm: &VirtualMachine,
-    ) -> PyRef<Self> {
-        let stripped = zelf.inner.rstrip(chars);
-        if stripped == zelf.as_bytes() {
-            zelf
-        } else {
-            vm.ctx.new_bytes(stripped.to_vec())
-        }
-    }
-
-    /// removeprefix($self, prefix, /)
-    ///
-    ///
-    /// Return a bytes object with the given prefix string removed if present.
-    ///
-    /// If the bytes starts with the prefix string, return string[len(prefix):]
-    /// Otherwise, return a copy of the original bytes.
-    #[pymethod]
     fn removeprefix(&self, prefix: PyBytesInner) -> Self {
         self.inner.removeprefix(prefix).into()
     }
 
-    /// removesuffix(self, prefix, /)
-    ///
-    ///
-    /// Return a bytes object with the given suffix string removed if present.
-    ///
-    /// If the bytes ends with the suffix string, return string[:len(suffix)]
-    /// Otherwise, return a copy of the original bytes.
     #[pymethod]
     fn removesuffix(&self, suffix: PyBytesInner) -> Self {
         self.inner.removesuffix(suffix).into()
@@ -508,7 +461,7 @@ impl PyBytes {
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Self::repeat(zelf, value.try_to_primitive(vm)?, vm)
+        zelf.repeat(value.try_to_primitive(vm)?, vm)
     }
 
     #[pymethod(name = "__mod__")]
@@ -522,6 +475,66 @@ impl PyBytes {
         vm.ctx.not_implemented()
     }
 
+    #[pymethod(magic)]
+    fn getnewargs(&self, vm: &VirtualMachine) -> PyTupleRef {
+        let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
+        PyTuple::new_ref(param, &vm.ctx)
+    }
+}
+
+#[pyclass]
+impl Py<PyBytes> {
+    #[pymethod(magic)]
+    fn reduce_ex(
+        &self,
+        _proto: usize,
+        vm: &VirtualMachine,
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        Self::reduce(self, vm)
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        let bytes = PyBytes::from(self.to_vec()).to_pyobject(vm);
+        (
+            self.class().to_owned(),
+            PyTuple::new_ref(vec![bytes], &vm.ctx),
+            self.as_object().dict(),
+        )
+    }
+}
+
+#[pyclass]
+impl PyRef<PyBytes> {
+    #[pymethod(magic)]
+    fn bytes(self, vm: &VirtualMachine) -> PyRef<PyBytes> {
+        if self.is(vm.ctx.types.bytes_type) {
+            self
+        } else {
+            PyBytes::from(self.inner.clone()).into_ref(vm)
+        }
+    }
+
+    #[pymethod]
+    fn lstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<PyBytes> {
+        let stripped = self.inner.lstrip(chars);
+        if stripped == self.as_bytes() {
+            self
+        } else {
+            vm.ctx.new_bytes(stripped.to_vec())
+        }
+    }
+
+    #[pymethod]
+    fn rstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<PyBytes> {
+        let stripped = self.inner.rstrip(chars);
+        if stripped == self.as_bytes() {
+            self
+        } else {
+            vm.ctx.new_bytes(stripped.to_vec())
+        }
+    }
+
     /// Return a string decoded from the given bytes.
     /// Default encoding is 'utf-8'.
     /// Default errors is 'strict', meaning that encoding errors raise a UnicodeError.
@@ -530,36 +543,8 @@ impl PyBytes {
     /// see https://docs.python.org/3/library/codecs.html#standard-encodings
     /// currently, only 'utf-8' and 'ascii' emplemented
     #[pymethod]
-    fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        bytes_decode(zelf.into(), args, vm)
-    }
-
-    #[pymethod(magic)]
-    fn getnewargs(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
-        PyTuple::new_ref(param, &vm.ctx)
-    }
-
-    #[pymethod(magic)]
-    fn reduce_ex(
-        zelf: PyRef<Self>,
-        _proto: usize,
-        vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        Self::reduce(zelf, vm)
-    }
-
-    #[pymethod(magic)]
-    fn reduce(
-        zelf: PyRef<Self>,
-        vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        let bytes = PyBytes::from(zelf.to_vec()).to_pyobject(vm);
-        (
-            zelf.class().to_owned(),
-            PyTuple::new_ref(vec![bytes], &vm.ctx),
-            zelf.as_object().dict(),
-        )
+    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        bytes_decode(self.into(), args, vm)
     }
 }
 
@@ -605,11 +590,10 @@ impl AsSequence for PyBytes {
                     .map(|x| vm.ctx.new_bytes(x).into())
             }),
             repeat: atomic_func!(|seq, n, vm| {
-                if let Ok(zelf) = seq.obj.to_owned().downcast::<PyBytes>() {
-                    PyBytes::repeat(zelf, n, vm).to_pyresult(vm)
-                } else {
-                    Err(vm.new_type_error("bad argument type for built-in operation".to_owned()))
-                }
+                let zelf = seq.obj.to_owned().downcast::<PyBytes>().map_err(|_| {
+                    vm.new_type_error("bad argument type for built-in operation".to_owned())
+                })?;
+                zelf.repeat(n, vm).to_pyresult(vm)
             }),
             item: atomic_func!(|seq, i, vm| {
                 PyBytes::sequence_downcast(seq)
@@ -742,8 +726,8 @@ impl IterNext for PyBytesIterator {
     }
 }
 
-impl TryFromBorrowedObject for PyBytes {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for PyBytes {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         PyBytesInner::try_from_borrowed_object(vm, obj).map(|x| x.into())
     }
 }

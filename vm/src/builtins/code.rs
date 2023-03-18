@@ -10,7 +10,7 @@ use crate::{
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg},
     types::Representable,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
 use std::{borrow::Borrow, fmt, ops::Deref};
@@ -216,9 +216,6 @@ impl PyPayload for PyCode {
     }
 }
 
-#[pyclass(with(PyRef, Representable))]
-impl PyCode {}
-
 impl Representable for PyCode {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
@@ -233,35 +230,35 @@ impl Representable for PyCode {
     }
 }
 
-#[pyclass]
-impl PyRef<PyCode> {
+#[pyclass(with(Py))]
+impl PyCode {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("Cannot directly create code object".to_owned()))
     }
 
     #[pygetset]
-    fn co_posonlyargcount(self) -> usize {
+    fn co_posonlyargcount(&self) -> usize {
         self.code.posonlyarg_count as usize
     }
 
     #[pygetset]
-    fn co_argcount(self) -> usize {
+    fn co_argcount(&self) -> usize {
         self.code.arg_count as usize
     }
 
     #[pygetset]
-    fn co_stacksize(self) -> u32 {
+    fn co_stacksize(&self) -> u32 {
         self.code.max_stackdepth
     }
 
     #[pygetset]
-    pub fn co_filename(self) -> PyStrRef {
+    pub fn co_filename(&self) -> PyStrRef {
         self.code.source_path.to_owned()
     }
 
     #[pygetset]
-    pub fn co_cellvars(self, vm: &VirtualMachine) -> PyTupleRef {
+    pub fn co_cellvars(&self, vm: &VirtualMachine) -> PyTupleRef {
         let cellvars = self
             .code
             .cellvars
@@ -273,33 +270,33 @@ impl PyRef<PyCode> {
     }
 
     #[pygetset]
-    fn co_nlocals(self) -> usize {
+    fn co_nlocals(&self) -> usize {
         self.varnames.len()
     }
 
     #[pygetset]
-    fn co_firstlineno(self) -> usize {
+    fn co_firstlineno(&self) -> usize {
         self.code.first_line_number as usize
     }
 
     #[pygetset]
-    fn co_kwonlyargcount(self) -> usize {
+    fn co_kwonlyargcount(&self) -> usize {
         self.code.kwonlyarg_count as usize
     }
 
     #[pygetset]
-    fn co_consts(self, vm: &VirtualMachine) -> PyTupleRef {
+    fn co_consts(&self, vm: &VirtualMachine) -> PyTupleRef {
         let consts = self.code.constants.iter().map(|x| x.0.clone()).collect();
         vm.ctx.new_tuple(consts)
     }
 
     #[pygetset]
-    fn co_name(self) -> PyStrRef {
+    fn co_name(&self) -> PyStrRef {
         self.code.obj_name.to_owned()
     }
 
     #[pygetset]
-    fn co_names(self, vm: &VirtualMachine) -> PyTupleRef {
+    fn co_names(&self, vm: &VirtualMachine) -> PyTupleRef {
         let names = self
             .code
             .names
@@ -311,18 +308,18 @@ impl PyRef<PyCode> {
     }
 
     #[pygetset]
-    fn co_flags(self) -> u16 {
+    fn co_flags(&self) -> u16 {
         self.code.flags.bits()
     }
 
     #[pygetset]
-    pub fn co_varnames(self, vm: &VirtualMachine) -> PyTupleRef {
+    pub fn co_varnames(&self, vm: &VirtualMachine) -> PyTupleRef {
         let varnames = self.code.varnames.iter().map(|s| s.to_object()).collect();
         vm.ctx.new_tuple(varnames)
     }
 
     #[pygetset]
-    pub fn co_freevars(self, vm: &VirtualMachine) -> PyTupleRef {
+    pub fn co_freevars(&self, vm: &VirtualMachine) -> PyTupleRef {
         let names = self
             .code
             .freevars
@@ -334,7 +331,7 @@ impl PyRef<PyCode> {
     }
 
     #[pymethod]
-    pub fn replace(self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
+    pub fn replace(&self, args: ReplaceArgs, vm: &VirtualMachine) -> PyResult<PyCode> {
         let posonlyarg_count = match args.co_posonlyargcount {
             OptionalArg::Present(posonlyarg_count) => posonlyarg_count,
             OptionalArg::Missing => self.code.posonlyarg_count,
@@ -421,6 +418,21 @@ impl PyRef<PyCode> {
     }
 }
 
+#[pyclass]
+impl Py<PyCode> {
+    #[pymethod(magic)]
+    fn repr(&self) -> String {
+        let code = &self.code;
+        format!(
+            "<code object {} at {:#x} file {:?}, line {}>",
+            code.obj_name,
+            self.get_id(),
+            code.source_path.as_str(),
+            code.first_line_number
+        )
+    }
+}
+
 impl fmt::Display for PyCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
@@ -440,5 +452,5 @@ impl ToPyObject for bytecode::CodeObject {
 }
 
 pub fn init(ctx: &Context) {
-    PyRef::<PyCode>::extend_class(ctx, ctx.types.code_type);
+    PyCode::extend_class(ctx, ctx.types.code_type);
 }

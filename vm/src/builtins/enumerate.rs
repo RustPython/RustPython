@@ -8,7 +8,7 @@ use crate::{
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, IterNextIterable},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use num_bigint::BigInt;
 use num_traits::Zero;
@@ -51,17 +51,21 @@ impl Constructor for PyEnumerate {
     }
 }
 
-#[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyclass(with(Py, IterNext, Constructor), flags(BASETYPE))]
 impl PyEnumerate {
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
+}
+
+#[pyclass]
+impl Py<PyEnumerate> {
     #[pymethod(magic)]
-    fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, BigInt)) {
+    fn reduce(&self) -> (PyTypeRef, (PyIter, BigInt)) {
         (
-            zelf.class().to_owned(),
-            (zelf.iterator.clone(), zelf.counter.read().clone()),
+            self.class().to_owned(),
+            (self.iterator.clone(), self.counter.read().clone()),
         )
     }
 }

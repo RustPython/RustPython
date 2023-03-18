@@ -1,7 +1,7 @@
 use crate::{
     builtins::PyFloat,
     object::{AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult},
-    vm::VirtualMachine,
+    Py, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 
@@ -15,7 +15,7 @@ pub trait TryFromObject: Sized {
 }
 
 /// Rust-side only version of TryFromObject to reduce unnecessary Rc::clone
-impl<T: TryFromBorrowedObject> TryFromObject for T {
+impl<T: for<'a> TryFromBorrowedObject<'a>> TryFromObject for T {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         TryFromBorrowedObject::try_from_borrowed_object(vm, &obj)
     }
@@ -31,9 +31,9 @@ impl PyObjectRef {
 }
 
 impl PyObject {
-    pub fn try_to_value<T>(&self, vm: &VirtualMachine) -> PyResult<T>
+    pub fn try_to_value<'a, T: 'a>(&'a self, vm: &VirtualMachine) -> PyResult<T>
     where
-        T: TryFromBorrowedObject,
+        T: TryFromBorrowedObject<'a>,
     {
         T::try_from_borrowed_object(vm, self)
     }
@@ -55,9 +55,12 @@ impl PyObject {
 }
 
 /// Lower-cost variation of `TryFromObject`
-pub trait TryFromBorrowedObject: Sized {
+pub trait TryFromBorrowedObject<'a>: Sized
+where
+    Self: 'a,
+{
     /// Attempt to convert a Python object to a value of this type.
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self>;
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self>;
 }
 
 impl<T> TryFromObject for PyRef<T>
@@ -93,9 +96,21 @@ impl<T: TryFromObject> TryFromObject for Option<T> {
     }
 }
 
-impl<T: TryFromObject> TryFromBorrowedObject for Vec<T> {
-    fn try_from_borrowed_object(vm: &VirtualMachine, value: &PyObject) -> PyResult<Self> {
+impl<'a, T: 'a + TryFromObject> TryFromBorrowedObject<'a> for Vec<T> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, value: &'a PyObject) -> PyResult<Self> {
         vm.extract_elements_with(value, |obj| T::try_from_object(vm, obj))
+    }
+}
+
+impl<'a, T: PyPayload> TryFromBorrowedObject<'a> for &'a Py<T> {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+        let class = T::class(vm);
+        if obj.fast_isinstance(class) {
+            obj.downcast_ref()
+                .ok_or_else(|| vm.new_downcast_runtime_error(class, &obj))
+        } else {
+            Err(vm.new_downcast_type_error(class, &obj))
+        }
     }
 }
 

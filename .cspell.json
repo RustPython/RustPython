@@ -61,6 +61,7 @@
     "rsplitn",
     "rustc",
     "rustfmt",
+    "seekfrom",
     "splitn",
     "subsec",
     "timsort",

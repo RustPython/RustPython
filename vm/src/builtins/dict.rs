@@ -203,6 +203,8 @@ impl PyDict {
 #[allow(clippy::len_without_is_empty)]
 #[pyclass(
     with(
+        Py,
+        PyRef,
         Constructor,
         Initializer,
         AsMapping,
@@ -270,30 +272,9 @@ impl PyDict {
         self.entries.clear()
     }
 
-    #[pymethod]
-    fn keys(zelf: PyRef<Self>) -> PyDictKeys {
-        PyDictKeys::new(zelf)
-    }
-
-    #[pymethod]
-    fn values(zelf: PyRef<Self>) -> PyDictValues {
-        PyDictValues::new(zelf)
-    }
-
-    #[pymethod]
-    fn items(zelf: PyRef<Self>) -> PyDictItems {
-        PyDictItems::new(zelf)
-    }
-
     #[pymethod(magic)]
     fn setitem(&self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner_setitem(&*key, value, vm)
-    }
-
-    #[pymethod(magic)]
-    #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
-    fn getitem(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        zelf.inner_getitem(&*key, vm)
     }
 
     #[pymethod]
@@ -396,14 +377,41 @@ impl PyDict {
         Ok((key, value))
     }
 
-    #[pymethod(magic)]
-    fn reversed(zelf: PyRef<Self>) -> PyDictReverseKeyIterator {
-        PyDictReverseKeyIterator::new(zelf)
-    }
-
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
+    }
+}
+
+#[pyclass]
+impl Py<PyDict> {
+    #[pymethod(magic)]
+    #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
+    fn getitem(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self.inner_getitem(&*key, vm)
+    }
+}
+
+#[pyclass]
+impl PyRef<PyDict> {
+    #[pymethod]
+    fn keys(self) -> PyDictKeys {
+        PyDictKeys::new(self)
+    }
+
+    #[pymethod]
+    fn values(self) -> PyDictValues {
+        PyDictValues::new(self)
+    }
+
+    #[pymethod]
+    fn items(self) -> PyDictItems {
+        PyDictItems::new(self)
+    }
+
+    #[pymethod(magic)]
+    fn reversed(self) -> PyDictReverseKeyIterator {
+        PyDictReverseKeyIterator::new(self)
     }
 }
 
@@ -847,9 +855,9 @@ macro_rules! dict_view {
 
             #[allow(clippy::redundant_closure_call)]
             #[pymethod(magic)]
-            fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+            fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
                 let iter = builtins_iter(vm).to_owned();
-                let internal = zelf.internal.lock();
+                let internal = self.internal.lock();
                 let entries = match &internal.status {
                     IterStatus::Active(dict) => dict
                         .into_iter()
@@ -917,9 +925,9 @@ macro_rules! dict_view {
 
             #[allow(clippy::redundant_closure_call)]
             #[pymethod(magic)]
-            fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+            fn reduce(&self, vm: &VirtualMachine) -> PyTupleRef {
                 let iter = builtins_reversed(vm).to_owned();
-                let internal = zelf.internal.lock();
+                let internal = self.internal.lock();
                 // TODO: entries must be reversed too
                 let entries = match &internal.status {
                     IterStatus::Active(dict) => dict
@@ -1240,7 +1248,7 @@ impl PyDictItems {
             return Ok(false);
         }
         let value = needle.fast_getitem(1);
-        let found = PyDict::getitem(zelf.dict().clone(), key, vm)?;
+        let found = zelf.dict().getitem(key, vm)?;
         vm.identical_or_equal(&found, &value)
     }
     #[pygetset]
