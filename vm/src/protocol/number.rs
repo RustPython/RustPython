@@ -2,6 +2,7 @@ use crate::{
     builtins::{
         int, type_::PointerSlot, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr,
     },
+    common::int::bytes_to_int,
     function::ArgBytesLike,
     stdlib::warnings,
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
@@ -40,14 +41,17 @@ impl PyObject {
     pub fn try_int(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
         fn try_convert(obj: &PyObject, lit: &[u8], vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let base = 10;
-            match int::bytes_to_int(lit, base) {
-                Some(i) => Ok(PyInt::from(i).into_ref(vm)),
-                None => Err(vm.new_value_error(format!(
+            let i = bytes_to_int(lit, base).ok_or_else(|| {
+                let repr = match obj.repr(vm) {
+                    Ok(repr) => repr,
+                    Err(err) => return err,
+                };
+                vm.new_value_error(format!(
                     "invalid literal for int() with base {}: {}",
-                    base,
-                    obj.repr(vm)?,
-                ))),
-            }
+                    base, repr,
+                ))
+            })?;
+            Ok(PyInt::from(i).into_ref(vm))
         }
 
         if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {

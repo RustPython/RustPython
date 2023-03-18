@@ -17,6 +17,7 @@ pub mod encodings;
 pub mod float_ops;
 pub mod format;
 pub mod hash;
+pub mod int;
 pub mod linked_list;
 pub mod lock;
 pub mod os;
