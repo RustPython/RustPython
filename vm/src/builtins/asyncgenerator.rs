@@ -26,7 +26,7 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyclass(with(Constructor, Representable))]
+#[pyclass(with(PyRef, Constructor, Representable))]
 impl PyAsyncGen {
     pub fn as_coro(&self) -> &Coro {
         &self.inner
@@ -49,59 +49,6 @@ impl PyAsyncGen {
         self.inner.set_name(name)
     }
 
-    #[pymethod(magic)]
-    fn aiter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyRef<Self> {
-        zelf
-    }
-
-    #[pymethod(magic)]
-    fn anext(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyAsyncGenASend {
-        Self::asend(zelf, vm.ctx.none(), vm)
-    }
-
-    #[pymethod]
-    fn asend(zelf: PyRef<Self>, value: PyObjectRef, _vm: &VirtualMachine) -> PyAsyncGenASend {
-        PyAsyncGenASend {
-            ag: zelf,
-            state: AtomicCell::new(AwaitableState::Init),
-            value,
-        }
-    }
-
-    #[pymethod]
-    fn athrow(
-        zelf: PyRef<Self>,
-        exc_type: PyObjectRef,
-        exc_val: OptionalArg,
-        exc_tb: OptionalArg,
-        vm: &VirtualMachine,
-    ) -> PyAsyncGenAThrow {
-        PyAsyncGenAThrow {
-            ag: zelf,
-            aclose: false,
-            state: AtomicCell::new(AwaitableState::Init),
-            value: (
-                exc_type,
-                exc_val.unwrap_or_none(vm),
-                exc_tb.unwrap_or_none(vm),
-            ),
-        }
-    }
-
-    #[pymethod]
-    fn aclose(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyAsyncGenAThrow {
-        PyAsyncGenAThrow {
-            ag: zelf,
-            aclose: true,
-            state: AtomicCell::new(AwaitableState::Init),
-            value: (
-                vm.ctx.exceptions.generator_exit.to_owned().into(),
-                vm.ctx.none(),
-                vm.ctx.none(),
-            ),
-        }
-    }
-
     #[pygetset]
     fn ag_await(&self, _vm: &VirtualMachine) -> Option<PyObjectRef> {
         self.inner.frame().yield_from_target()
@@ -122,6 +69,62 @@ impl PyAsyncGen {
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
+    }
+}
+
+#[pyclass]
+impl PyRef<PyAsyncGen> {
+    #[pymethod(magic)]
+    fn aiter(self, _vm: &VirtualMachine) -> PyRef<PyAsyncGen> {
+        self
+    }
+
+    #[pymethod(magic)]
+    fn anext(self, vm: &VirtualMachine) -> PyAsyncGenASend {
+        Self::asend(self, vm.ctx.none(), vm)
+    }
+
+    #[pymethod]
+    fn asend(self, value: PyObjectRef, _vm: &VirtualMachine) -> PyAsyncGenASend {
+        PyAsyncGenASend {
+            ag: self,
+            state: AtomicCell::new(AwaitableState::Init),
+            value,
+        }
+    }
+
+    #[pymethod]
+    fn athrow(
+        self,
+        exc_type: PyObjectRef,
+        exc_val: OptionalArg,
+        exc_tb: OptionalArg,
+        vm: &VirtualMachine,
+    ) -> PyAsyncGenAThrow {
+        PyAsyncGenAThrow {
+            ag: self,
+            aclose: false,
+            state: AtomicCell::new(AwaitableState::Init),
+            value: (
+                exc_type,
+                exc_val.unwrap_or_none(vm),
+                exc_tb.unwrap_or_none(vm),
+            ),
+        }
+    }
+
+    #[pymethod]
+    fn aclose(self, vm: &VirtualMachine) -> PyAsyncGenAThrow {
+        PyAsyncGenAThrow {
+            ag: self,
+            aclose: true,
+            state: AtomicCell::new(AwaitableState::Init),
+            value: (
+                vm.ctx.exceptions.generator_exit.to_owned().into(),
+                vm.ctx.none(),
+                vm.ctx.none(),
+            ),
+        }
     }
 }
 
