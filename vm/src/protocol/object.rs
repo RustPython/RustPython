@@ -13,7 +13,7 @@ use crate::{
     function::{Either, OptionalArg, PyArithmeticValue, PySetterValue},
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 // RustPython doesn't need these items
@@ -182,27 +182,26 @@ impl PyObject {
         }
     }
 
-    pub fn generic_getattr(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        self.generic_getattr_opt(name.clone(), None, vm)?
-            .ok_or_else(|| {
-                vm.new_attribute_error(format!(
-                    "'{}' object has no attribute '{}'",
-                    self.class().name(),
-                    name
-                ))
-            })
+    pub fn generic_getattr(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        self.generic_getattr_opt(name, None, vm)?.ok_or_else(|| {
+            vm.new_attribute_error(format!(
+                "'{}' object has no attribute '{}'",
+                self.class().name(),
+                name
+            ))
+        })
     }
 
     /// CPython _PyObject_GenericGetAttrWithDict
     pub fn generic_getattr_opt(
         &self,
-        name_str: PyStrRef,
+        name_str: &Py<PyStr>,
         dict: Option<PyDictRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.as_str();
         let obj_cls = self.class();
-        let cls_attr_name = vm.ctx.interned_str(&*name_str);
+        let cls_attr_name = vm.ctx.interned_str(name_str);
         let cls_attr = match cls_attr_name.and_then(|name| obj_cls.get_attr(name)) {
             Some(descr) => {
                 let descr_cls = descr.class();

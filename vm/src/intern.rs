@@ -164,6 +164,13 @@ impl<T: PyPayload> std::hash::Hash for PyInterned<T> {
     }
 }
 
+impl<T: PyPayload> AsRef<Py<T>> for PyInterned<T> {
+    #[inline(always)]
+    fn as_ref(&self) -> &Py<T> {
+        &self.inner
+    }
+}
+
 impl<T: PyPayload> Deref for PyInterned<T> {
     type Target = Py<T>;
     #[inline(always)]

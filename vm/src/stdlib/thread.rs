@@ -366,7 +366,7 @@ pub(crate) mod _thread {
                 Ok(ldict.into())
             } else {
                 zelf.as_object()
-                    .generic_getattr_opt(attr.clone(), Some(ldict), vm)?
+                    .generic_getattr_opt(&attr, Some(ldict), vm)?
                     .ok_or_else(|| {
                         vm.new_attribute_error(format!(
                             "{} has no attribute '{}'",

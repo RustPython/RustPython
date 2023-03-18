@@ -26,7 +26,6 @@ pub struct ModuleInitArgs {
     doc: Option<PyStrRef>,
 }
 
-#[pyclass(with(GetAttr, Initializer, Representable), flags(BASETYPE, HAS_DICT))]
 impl PyModule {
     // pub(crate) fn new(d: PyDictRef) -> Self {
     //     PyModule { dict: d.into() }
@@ -37,49 +36,31 @@ impl PyModule {
     //     self.dict.get()
     // }
 
-    #[pyslot]
-    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyModule {}.into_ref_with_type(vm, cls).map(Into::into)
-    }
-
     fn getattr_inner(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        if let Some(attr) = zelf
-            .as_object()
-            .generic_getattr_opt(name.clone(), None, vm)?
-        {
+        if let Some(attr) = zelf.as_object().generic_getattr_opt(&name, None, vm)? {
             return Ok(attr);
         }
         if let Ok(getattr) = zelf.dict().get_item(identifier!(vm, __getattr__), vm) {
             return getattr.call((name,), vm);
         }
-        let module_name = if let Some(name) = Self::name(zelf.to_owned(), vm) {
+        let module_name = if let Some(name) = zelf.name(vm) {
             format!(" '{name}'")
         } else {
             "".to_owned()
         };
         Err(vm.new_attribute_error(format!("module{module_name} has no attribute '{name}'")))
     }
+}
 
-    fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<PyStrRef> {
-        let name = zelf
+impl Py<PyModule> {
+    fn name(&self, vm: &VirtualMachine) -> Option<PyStrRef> {
+        let name = self
             .as_object()
-            .generic_getattr_opt(identifier!(vm, __name__).to_owned(), None, vm)
+            .generic_getattr_opt(identifier!(vm, __name__), None, vm)
             .unwrap_or_default()?;
         name.downcast::<PyStr>().ok()
     }
 
-    #[pymethod(magic)]
-    fn dir(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let dict = zelf
-            .as_object()
-            .dict()
-            .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?;
-        let attrs = dict.into_iter().map(|(k, _v)| k).collect();
-        Ok(attrs)
-    }
-}
-
-impl Py<PyModule> {
     // TODO: to be replaced by the commented-out dict method above once dictoffsets land
     pub fn dict(&self) -> PyDictRef {
         self.as_object().dict().unwrap()
@@ -114,6 +95,24 @@ impl Py<PyModule> {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         self.as_object().set_attr(attr_name, attr_value, vm)
+    }
+}
+
+#[pyclass(with(GetAttr, Initializer, Representable), flags(BASETYPE, HAS_DICT))]
+impl PyModule {
+    #[pyslot]
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyModule {}.into_ref_with_type(vm, cls).map(Into::into)
+    }
+
+    #[pymethod(magic)]
+    fn dir(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let dict = zelf
+            .as_object()
+            .dict()
+            .ok_or_else(|| vm.new_value_error("module has no dict".to_owned()))?;
+        let attrs = dict.into_iter().map(|(k, _v)| k).collect();
+        Ok(attrs)
     }
 }
 

@@ -130,13 +130,13 @@ impl GetAttr for PySuper {
         let skip = |zelf: &Py<Self>, name| zelf.as_object().generic_getattr(name, vm);
         let (obj, start_type): (PyObjectRef, PyTypeRef) = match zelf.obj.clone() {
             Some(o) => o,
-            None => return skip(zelf, name),
+            None => return skip(zelf, &name),
         };
         // We want __class__ to return the class of the super object
         // (i.e. super, or a subclass), not the class of su->obj.
 
         if name.as_str() == "__class__" {
-            return skip(zelf, name);
+            return skip(zelf, &name);
         }
 
         if let Some(name) = vm.ctx.interned_str(&*name) {
@@ -159,7 +159,7 @@ impl GetAttr for PySuper {
                 }
             }
         }
-        skip(zelf, name)
+        skip(zelf, &name)
     }
 }
 

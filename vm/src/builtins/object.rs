@@ -298,7 +298,7 @@ impl PyBaseObject {
     #[pyslot]
     pub(crate) fn getattro(obj: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
-        obj.as_object().generic_getattr(name, vm)
+        obj.as_object().generic_getattr(&name, vm)
     }
 
     #[pymethod(magic)]
