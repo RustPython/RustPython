@@ -41,7 +41,7 @@ pub struct PyTypeSlots {
     // Methods to implement standard operations
 
     // Method suites for standard classes
-    pub as_number: AtomicCell<Option<PointerSlot<PyNumberMethods>>>,
+    pub as_number: Option<&'static PyNumberMethods>,
     pub as_sequence: AtomicCell<Option<PointerSlot<PySequenceMethods>>>,
     pub as_mapping: AtomicCell<Option<PointerSlot<PyMappingMethods>>>,
 
@@ -90,7 +90,6 @@ pub struct PyTypeSlots {
 
     // The count of tp_members.
     pub member_count: usize,
-    pub number: PyNumberSlots,
 }
 
 impl PyTypeSlots {
