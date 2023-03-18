@@ -70,6 +70,9 @@ macro_rules! declare_const_name {
 declare_const_name! {
     True,
     False,
+    None,
+    NotImplemented,
+    Ellipsis,
 
     // magic methods
     __abs__,

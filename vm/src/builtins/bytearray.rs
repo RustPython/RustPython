@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStr, PyStrRef, PyTuple,
-    PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
+    PyType, PyTypeRef,
 };
 use crate::{
     anystr::{self, AnyStr},
@@ -294,7 +294,7 @@ impl PyByteArray {
         }
     }
 
-    fn irepeat(zelf: &crate::Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn irepeat(zelf: &Py<Self>, n: isize, vm: &VirtualMachine) -> PyResult<()> {
         if n == 1 {
             return Ok(());
         }
@@ -733,7 +733,7 @@ impl Initializer for PyByteArray {
 
 impl Comparable for PyByteArray {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -882,12 +882,10 @@ impl Iterable for PyByteArray {
 
 impl Representable for PyByteArray {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let class = zelf.class();
         let class_name = class.name();
-        zelf.inner()
-            .repr(Some(&class_name), vm)
-            .map(|s| PyStr::from(s).into_ref(vm))
+        zelf.inner().repr(Some(&class_name), vm)
     }
 }
 
@@ -932,7 +930,7 @@ impl Unconstructible for PyByteArrayIterator {}
 
 impl IterNextIterable for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytearray, pos| {
             let buf = bytearray.borrow_buf();
             Ok(PyIterReturn::from_result(

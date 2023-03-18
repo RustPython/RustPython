@@ -140,7 +140,7 @@ impl GetAttr for PyWeakProxy {
 
 impl SetAttr for PyWeakProxy {
     fn setattro(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         attr_name: PyStrRef,
         value: PySetterValue,
         vm: &VirtualMachine,
@@ -152,7 +152,7 @@ impl SetAttr for PyWeakProxy {
 
 impl Comparable for PyWeakProxy {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -199,8 +199,13 @@ impl AsMapping for PyWeakProxy {
 
 impl Representable for PyWeakProxy {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         zelf.try_upgrade(vm)?.repr(vm)
+    }
+
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
     }
 }
 

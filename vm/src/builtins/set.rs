@@ -2,8 +2,8 @@
  * Builtin set type with a sequence of unique items.
  */
 use super::{
-    builtins_iter, IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyStr,
-    PyStrRef, PyTupleRef, PyType, PyTypeRef,
+    builtins_iter, IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef,
+    PyType, PyTypeRef,
 };
 use crate::{
     atomic_func,
@@ -878,7 +878,7 @@ impl AsNumber for PySet {
 
 impl Representable for PySet {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let class = zelf.class();
         let borrowed_name = class.name();
         let class_name = borrowed_name.deref();
@@ -894,7 +894,7 @@ impl Representable for PySet {
         } else {
             format!("{class_name}(...)")
         };
-        Ok(PyStr::from(s).into_ref(vm))
+        Ok(s)
     }
 }
 
@@ -1169,7 +1169,7 @@ impl AsNumber for PyFrozenSet {
 
 impl Representable for PyFrozenSet {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let inner = &zelf.inner;
         let class = zelf.class();
         let class_name = class.name();
@@ -1180,7 +1180,7 @@ impl Representable for PyFrozenSet {
         } else {
             format!("{class_name}(...)")
         };
-        Ok(PyStr::from(s).into_ref(vm))
+        Ok(s)
     }
 }
 

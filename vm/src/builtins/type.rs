@@ -985,7 +985,7 @@ impl GetAttr for PyType {
 
 impl SetAttr for PyType {
     fn setattro(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         attr_name: PyStrRef,
         value: PySetterValue,
         vm: &VirtualMachine,
@@ -1024,7 +1024,7 @@ impl SetAttr for PyType {
 
 impl Callable for PyType {
     type Args = FuncArgs;
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type_call: {:?}", zelf);
         let obj = call_slot_new(zelf.to_owned(), zelf.to_owned(), args.clone(), vm)?;
 
@@ -1055,25 +1055,25 @@ impl AsNumber for PyType {
 
 impl Representable for PyType {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let module = zelf.module(vm);
         let module = module.downcast_ref::<PyStr>().map(|m| m.as_str());
 
-        match module {
+        let repr = match module {
             Some(module) if module != "builtins" => {
                 let name = zelf.name();
-                Ok(PyStr::from(format!(
+                format!(
                     "<class '{}.{}'>",
                     module,
                     zelf.qualname(vm)
                         .downcast_ref::<PyStr>()
                         .map(|n| n.as_str())
                         .unwrap_or_else(|| &name)
-                ))
-                .into_ref(vm))
+                )
             }
-            _ => Ok(PyStr::from(format!("<class '{}'>", zelf.slot_name())).into_ref(vm)),
-        }
+            _ => format!("<class '{}'>", zelf.slot_name()),
+        };
+        Ok(repr)
     }
 }
 

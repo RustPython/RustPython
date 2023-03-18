@@ -1,4 +1,4 @@
-use super::{PyCode, PyStr, PyStrRef, PyType};
+use super::{PyCode, PyStrRef, PyType};
 use crate::{
     class::PyClassImpl,
     coroutine::Coro,
@@ -103,14 +103,14 @@ impl Unconstructible for PyCoroutine {}
 
 impl Representable for PyCoroutine {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(PyStr::from(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)).into_ref(vm))
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        Ok(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm))
     }
 }
 
 impl IterNextIterable for PyCoroutine {}
 impl IterNext for PyCoroutine {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         Self::send(zelf.to_owned(), vm.ctx.none(), vm)
     }
 }
@@ -149,7 +149,7 @@ impl PyCoroutineWrapper {
 
 impl IterNextIterable for PyCoroutineWrapper {}
 impl IterNext for PyCoroutineWrapper {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         Self::send(zelf.to_owned(), vm.ctx.none(), vm)
     }
 }

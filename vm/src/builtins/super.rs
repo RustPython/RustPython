@@ -3,7 +3,7 @@
 See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/Objects/typeobject.c#L7663)
 */
 
-use super::{PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     function::{IntoFuncArgs, OptionalArg},
@@ -186,17 +186,15 @@ impl GetDescriptor for PySuper {
 
 impl Representable for PySuper {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let typname = &zelf.typ.name();
-        match zelf.obj {
-            Some((_, ref ty)) => Ok(PyStr::from(format!(
-                "<super: <class '{}'>, <{} object>>",
-                typname,
-                ty.name()
-            ))
-            .into_ref(vm)),
-            None => Ok(PyStr::from(format!("<super: <class '{typname}'>, NULL>")).into_ref(vm)),
-        }
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let type_name = &zelf.typ.name();
+        let repr = match zelf.obj {
+            Some((_, ref ty)) => {
+                format!("<super: <class '{}'>, <{} object>>", type_name, ty.name())
+            }
+            None => format!("<super: <class '{type_name}'>, NULL>"),
+        };
+        Ok(repr)
     }
 }
 

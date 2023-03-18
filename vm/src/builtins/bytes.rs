@@ -1,6 +1,5 @@
 use super::{
-    PositionIterInternal, PyDictRef, PyIntRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
-    PyTypeRef,
+    PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     anystr::{self, AnyStr},
@@ -647,14 +646,14 @@ impl AsNumber for PyBytes {
 
 impl Hashable for PyBytes {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.inner.hash(vm))
     }
 }
 
 impl Comparable for PyBytes {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -688,10 +687,8 @@ impl Iterable for PyBytes {
 
 impl Representable for PyBytes {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        zelf.inner
-            .repr(None, vm)
-            .map(|s| PyStr::from(s).into_ref(vm))
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.inner.repr(None, vm)
     }
 }
 
@@ -732,7 +729,7 @@ impl Unconstructible for PyBytesIterator {}
 
 impl IterNextIterable for PyBytesIterator {}
 impl IterNext for PyBytesIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytes, pos| {
             Ok(PyIterReturn::from_result(
                 bytes

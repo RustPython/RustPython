@@ -1,4 +1,4 @@
-use super::{PyCode, PyGenericAlias, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyBaseExceptionRef,
     class::PyClassImpl,
@@ -127,8 +127,8 @@ impl PyAsyncGen {
 
 impl Representable for PyAsyncGen {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(PyStr::from(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm)).into_ref(vm))
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        Ok(zelf.inner.repr(zelf.as_object(), zelf.get_id(), vm))
     }
 }
 
@@ -267,7 +267,7 @@ impl PyAsyncGenASend {
 
 impl IterNextIterable for PyAsyncGenASend {}
 impl IterNext for PyAsyncGenASend {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }
 }
@@ -413,7 +413,7 @@ impl PyAsyncGenAThrow {
 
 impl IterNextIterable for PyAsyncGenAThrow {}
 impl IterNext for PyAsyncGenAThrow {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
     }
 }

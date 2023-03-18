@@ -1,6 +1,6 @@
 // sliceobject.{h,c} in CPython
 // spell-checker:ignore sliceobject
-use super::{PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
@@ -199,7 +199,7 @@ impl PySlice {
 
 impl Comparable for PySlice {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -246,18 +246,17 @@ impl Comparable for PySlice {
 }
 impl Representable for PySlice {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let start_repr = zelf.start_ref(vm).repr(vm)?;
         let stop_repr = &zelf.stop.repr(vm)?;
         let step_repr = zelf.step_ref(vm).repr(vm)?;
 
-        Ok(PyStr::from(format!(
+        Ok(format!(
             "slice({}, {}, {})",
             start_repr.as_str(),
             stop_repr.as_str(),
             step_repr.as_str()
         ))
-        .into_ref(vm))
     }
 }
 
@@ -282,15 +281,20 @@ impl Constructor for PyEllipsis {
 #[pyclass(with(Constructor, Representable))]
 impl PyEllipsis {
     #[pymethod(magic)]
-    fn reduce(&self) -> String {
-        "Ellipsis".to_owned()
+    fn reduce(&self, vm: &VirtualMachine) -> PyStrRef {
+        vm.ctx.names.Ellipsis.to_owned()
     }
 }
 
 impl Representable for PyEllipsis {
     #[inline]
-    fn repr(_zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(PyStr::from("Ellipsis").into_ref(vm))
+    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(vm.ctx.names.Ellipsis.to_owned())
+    }
+
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
     }
 }
 

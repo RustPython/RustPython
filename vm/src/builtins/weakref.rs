@@ -1,4 +1,4 @@
-use super::{PyGenericAlias, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyGenericAlias, PyType, PyTypeRef};
 use crate::common::{
     atomic::{Ordering, Radium},
     hash::{self, PyHash},
@@ -29,7 +29,7 @@ impl PyPayload for PyWeak {
 impl Callable for PyWeak {
     type Args = ();
     #[inline]
-    fn call(zelf: &crate::Py<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
         Ok(vm.unwrap_or_none(zelf.upgrade()))
     }
 }
@@ -59,7 +59,7 @@ impl PyWeak {
 }
 
 impl Hashable for PyWeak {
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let hash = match zelf.hash.load(Ordering::Relaxed) {
             hash::SENTINEL => {
                 let obj = zelf
@@ -85,7 +85,7 @@ impl Hashable for PyWeak {
 
 impl Comparable for PyWeak {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -104,19 +104,19 @@ impl Comparable for PyWeak {
 
 impl Representable for PyWeak {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         let id = zelf.get_id();
-        if let Some(o) = zelf.upgrade() {
-            Ok(PyStr::from(format!(
+        let repr = if let Some(o) = zelf.upgrade() {
+            format!(
                 "<weakref at {:#x}; to '{}' at {:#x}>",
                 id,
                 o.class().name(),
                 o.get_id(),
-            ))
-            .into_ref(vm))
+            )
         } else {
-            Ok(PyStr::from(format!("<weakref at {id:#x}; dead>")).into_ref(vm))
-        }
+            format!("<weakref at {id:#x}; dead>")
+        };
+        Ok(repr)
     }
 }
 

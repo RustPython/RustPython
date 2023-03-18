@@ -506,7 +506,7 @@ impl Iterable for PyDict {
 
 impl Representable for PyDict {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let mut str_parts = Vec::with_capacity(zelf.len());
             for (key, value) in zelf {
@@ -515,11 +515,16 @@ impl Representable for PyDict {
                 str_parts.push(format!("{key_repr}: {value_repr}"));
             }
 
-            format!("{{{}}}", str_parts.join(", "))
+            vm.ctx.new_str(format!("{{{}}}", str_parts.join(", ")))
         } else {
-            "{...}".to_owned()
+            vm.ctx.intern_str("{...}").to_owned()
         };
-        Ok(PyStr::from(s).into_ref(vm))
+        Ok(s)
+    }
+
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
     }
 }
 
@@ -792,18 +797,24 @@ macro_rules! dict_view {
 
         impl Representable for $name {
             #[inline]
-            fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
                 let s = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                     let mut str_parts = Vec::with_capacity(zelf.len());
                     for (key, value) in zelf.dict().clone() {
                         let s = &Self::item(vm, key, value).repr(vm)?;
                         str_parts.push(s.as_str().to_owned());
                     }
-                    format!("{}([{}])", Self::NAME, str_parts.join(", "))
+                    vm.ctx
+                        .new_str(format!("{}([{}])", Self::NAME, str_parts.join(", ")))
                 } else {
-                    "{...}".to_owned()
+                    vm.ctx.intern_str("{...}").to_owned()
                 };
-                Ok(PyStr::from(s).into_ref(vm))
+                Ok(s)
+            }
+
+            #[cold]
+            fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+                unreachable!("use repr instead")
             }
         }
 

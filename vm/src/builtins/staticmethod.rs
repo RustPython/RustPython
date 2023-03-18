@@ -1,4 +1,4 @@
-use super::{PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyStr, PyType, PyTypeRef};
 use crate::{
     builtins::builtin_func::PyBuiltinMethod,
     class::PyClassImpl,
@@ -158,15 +158,14 @@ impl PyStaticMethod {
 impl Callable for PyStaticMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let callable = zelf.callable.lock().clone();
         callable.call(args, vm)
     }
 }
 
 impl Representable for PyStaticMethod {
-    #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let callable = zelf.callable.lock().repr(vm).unwrap();
         let class = Self::class(vm);
 
@@ -179,9 +178,9 @@ impl Representable for PyStaticMethod {
         ) {
             (None, _) => Err(vm.new_type_error("Unknown qualified name".into())),
             (Some(qualname), Some(module)) if module != "builtins" => {
-                Ok(PyStr::from(format!("<{module}.{qualname}({callable})>")).into_ref(vm))
+                Ok(format!("<{module}.{qualname}({callable})>"))
             }
-            _ => Ok(PyStr::from(format!("<{}({})>", class.slot_name(), callable)).into_ref(vm)),
+            _ => Ok(format!("<{}({})>", class.slot_name(), callable)),
         }
     }
 }

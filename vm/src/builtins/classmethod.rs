@@ -1,4 +1,4 @@
-use super::{PyBoundMethod, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyBoundMethod, PyStr, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     common::lock::PyMutex,
@@ -158,23 +158,24 @@ impl PyClassMethod {
 
 impl Representable for PyClassMethod {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let callable = zelf.callable.lock().repr(vm).unwrap();
         let class = Self::class(vm);
 
-        match (
+        let repr = match (
             class
                 .qualname(vm)
                 .downcast_ref::<PyStr>()
                 .map(|n| n.as_str()),
             class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
         ) {
-            (None, _) => Err(vm.new_type_error("Unknown qualified name".into())),
+            (None, _) => return Err(vm.new_type_error("Unknown qualified name".into())),
             (Some(qualname), Some(module)) if module != "builtins" => {
-                Ok(PyStr::from(format!("<{module}.{qualname}({callable})>")).into_ref(vm))
+                format!("<{module}.{qualname}({callable})>")
             }
-            _ => Ok(PyStr::from(format!("<{}({})>", class.slot_name(), callable)).into_ref(vm)),
-        }
+            _ => format!("<{}({})>", class.slot_name(), callable),
+        };
+        Ok(repr)
     }
 }
 

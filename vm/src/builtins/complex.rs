@@ -1,4 +1,4 @@
-use super::{float, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{float, PyStr, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::{ToPyObject, ToPyResult},
@@ -371,7 +371,7 @@ impl PyComplex {
 
 impl Comparable for PyComplex {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -401,7 +401,7 @@ impl Comparable for PyComplex {
 
 impl Hashable for PyComplex {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         let value = zelf.value;
 
         let re_hash =
@@ -455,7 +455,7 @@ impl AsNumber for PyComplex {
 
 impl Representable for PyComplex {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         // TODO: when you fix this, move it to rustpython_common::complex::repr and update
         //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
         let Complex64 { re, im } = zelf.value;
@@ -470,7 +470,7 @@ impl Representable for PyComplex {
         // positive empty => return im_part, integer => drop ., fractional => float_ops
         let re_part = if re == 0.0 {
             if re.is_sign_positive() {
-                return Ok(PyStr::from(im_part).into_ref(vm));
+                return Ok(im_part);
             } else {
                 re.to_string()
             }
@@ -489,7 +489,7 @@ impl Representable for PyComplex {
         }
         result.push_str(&im_part);
         result.push(')');
-        Ok(PyStr::from(result).into_ref(vm))
+        Ok(result)
     }
 }
 

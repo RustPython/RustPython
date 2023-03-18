@@ -2,7 +2,7 @@
 
 */
 
-use super::{PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyStrInterned,
     bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
@@ -221,16 +221,15 @@ impl PyCode {}
 
 impl Representable for PyCode {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         let code = &zelf.code;
-        Ok(PyStr::from(format!(
+        Ok(format!(
             "<code object {} at {:#x} file {:?}, line {}>",
             code.obj_name,
             zelf.get_id(),
             code.source_path.as_str(),
             code.first_line_number
         ))
-        .into_ref(vm))
     }
 }
 

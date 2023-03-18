@@ -45,7 +45,8 @@ pub struct PyTypeSlots {
     // More standard operations (here for binary compatibility)
     pub hash: AtomicCell<Option<HashFunc>>,
     pub call: AtomicCell<Option<GenericMethod>>,
-    pub repr: AtomicCell<Option<ReprFunc>>,
+    // tp_str
+    pub repr: AtomicCell<Option<StringifyFunc>>,
     pub getattro: AtomicCell<Option<GetattroFunc>>,
     pub setattro: AtomicCell<Option<SetattroFunc>>,
 
@@ -275,7 +276,7 @@ impl Default for PyTypeFlags {
 pub(crate) type GenericMethod = fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 // CallFunc = GenericMethod
-pub(crate) type ReprFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyStrRef>;
+pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyStrRef>;
 pub(crate) type GetattroFunc = fn(&PyObject, PyStrRef, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObject, PyStrRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
@@ -1027,7 +1028,12 @@ pub trait Representable: PyPayload {
         Self::slot_repr(&zelf, vm)
     }
 
-    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef>;
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let repr = Self::repr_str(zelf, vm)?;
+        Ok(vm.ctx.new_str(repr))
+    }
+
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String>;
 }
 
 #[pyclass]

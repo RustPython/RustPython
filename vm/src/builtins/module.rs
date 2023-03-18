@@ -142,13 +142,18 @@ impl GetAttr for PyModule {
 
 impl Representable for PyModule {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let importlib = vm.import("_frozen_importlib", None, 0)?;
         let module_repr = importlib.get_attr("_module_repr", vm)?;
         module_repr.call((zelf.to_owned(),), vm).and_then(|obj| {
             obj.downcast()
                 .map_err(|_| vm.new_type_error("_module_repr did not return a string".into()))
         })
+    }
+
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
     }
 }
 

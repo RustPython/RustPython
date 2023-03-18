@@ -34,10 +34,6 @@ impl PyPayload for PyUnion {
     }
 }
 
-#[pyclass(
-    flags(BASETYPE),
-    with(Hashable, Comparable, AsMapping, AsNumber, Representable)
-)]
 impl PyUnion {
     pub fn new(args: PyTupleRef, vm: &VirtualMachine) -> Self {
         let parameters = make_parameters(&args, vm);
@@ -82,7 +78,13 @@ impl PyUnion {
             .collect::<PyResult<Vec<_>>>()?
             .join(" | "))
     }
+}
 
+#[pyclass(
+    flags(BASETYPE),
+    with(Hashable, Comparable, AsMapping, AsNumber, Representable)
+)]
+impl PyUnion {
     #[pygetset(magic)]
     fn parameters(&self) -> PyObjectRef {
         self.parameters.clone().into()
@@ -270,7 +272,7 @@ impl AsNumber for PyUnion {
 
 impl Comparable for PyUnion {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -292,7 +294,7 @@ impl Comparable for PyUnion {
 
 impl Hashable for PyUnion {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         let set = PyFrozenSet::from_iter(vm, zelf.args.into_iter().cloned())?;
         PyFrozenSet::hash(&set.into_ref(vm), vm)
     }
@@ -311,8 +313,8 @@ impl GetAttr for PyUnion {
 
 impl Representable for PyUnion {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        zelf.repr(vm).map(|s| PyStr::from(s).into_ref(vm))
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.repr(vm)
     }
 }
 

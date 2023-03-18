@@ -715,7 +715,7 @@ impl PyMemoryView {
         }
     }
 
-    fn eq(zelf: &crate::Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    fn eq(zelf: &Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         if zelf.is(other) {
             return Ok(true);
         }
@@ -1008,7 +1008,7 @@ impl AsSequence for PyMemoryView {
 
 impl Comparable for PyMemoryView {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -1029,7 +1029,7 @@ impl Comparable for PyMemoryView {
 }
 
 impl Hashable for PyMemoryView {
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         zelf.hash
             .get_or_try_init(|| {
                 zelf.try_not_released(vm)?;
@@ -1052,12 +1052,13 @@ impl PyPayload for PyMemoryView {
 
 impl Representable for PyMemoryView {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if zelf.released.load() {
-            Ok(PyStr::from(format!("<released memory at {:#x}>", zelf.get_id())).into_ref(vm))
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let repr = if zelf.released.load() {
+            format!("<released memory at {:#x}>", zelf.get_id())
         } else {
-            Ok(PyStr::from(format!("<memory at {:#x}>", zelf.get_id())).into_ref(vm))
-        }
+            format!("<memory at {:#x}>", zelf.get_id())
+        };
+        Ok(repr)
     }
 }
 
@@ -1142,7 +1143,7 @@ impl Unconstructible for PyMemoryViewIterator {}
 
 impl IterNextIterable for PyMemoryViewIterator {}
 impl IterNext for PyMemoryViewIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|mv, pos| {
             let len = mv.len(vm)?;
             Ok(if pos >= len {

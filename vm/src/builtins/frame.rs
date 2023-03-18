@@ -2,14 +2,13 @@
 
 */
 
-use super::{PyCode, PyDictRef, PyIntRef, PyStr, PyStrRef};
+use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
     class::PyClassImpl,
     frame::{Frame, FrameRef},
     function::PySetterValue,
-    object::PyPayload,
     types::{Constructor, Representable, Unconstructible},
-    AsObject, Context, PyObjectRef, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
 
@@ -24,8 +23,14 @@ impl Unconstructible for Frame {}
 
 impl Representable for Frame {
     #[inline]
-    fn repr(_zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(PyStr::from("<frame object at .. >").into_ref(vm))
+    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        const REPR: &str = "<frame object at .. >";
+        Ok(vm.ctx.intern_str(REPR).to_owned())
+    }
+
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
     }
 }
 

@@ -549,7 +549,7 @@ impl PyObjectRef {
     /// # Safety
     /// T must be the exact payload type
     #[inline(always)]
-    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &crate::Py<T> {
+    pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
         debug_assert!(self.payload_is::<T>());
         &*(self as *const PyObjectRef as *const PyRef<T>)
     }

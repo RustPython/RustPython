@@ -1,6 +1,5 @@
 use super::{
-    builtins_iter, tuple::tuple_hash, PyInt, PyIntRef, PySlice, PyStr, PyStrRef, PyTupleRef,
-    PyType, PyTypeRef,
+    builtins_iter, tuple::tuple_hash, PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
     atomic_func,
@@ -418,7 +417,7 @@ impl AsSequence for PyRange {
 }
 
 impl Hashable for PyRange {
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.compute_length();
         let elements = if length.is_zero() {
             [vm.ctx.new_int(length).into(), vm.ctx.none(), vm.ctx.none()]
@@ -505,16 +504,13 @@ impl Iterable for PyRange {
 
 impl Representable for PyRange {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if zelf.step.as_bigint().is_one() {
-            Ok(PyStr::from(format!("range({}, {})", zelf.start, zelf.stop)).into_ref(vm))
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let repr = if zelf.step.as_bigint().is_one() {
+            format!("range({}, {})", zelf.start, zelf.stop)
         } else {
-            Ok(PyStr::from(format!(
-                "range({}, {}, {})",
-                zelf.start, zelf.stop, zelf.step
-            ))
-            .into_ref(vm))
-        }
+            format!("range({}, {}, {})", zelf.start, zelf.stop, zelf.step)
+        };
+        Ok(repr)
     }
 }
 
@@ -574,7 +570,7 @@ impl Unconstructible for PyLongRangeIterator {}
 
 impl IterNextIterable for PyLongRangeIterator {}
 impl IterNext for PyLongRangeIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
@@ -640,7 +636,7 @@ impl Unconstructible for PyRangeIterator {}
 
 impl IterNextIterable for PyRangeIterator {}
 impl IterNext for PyRangeIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.

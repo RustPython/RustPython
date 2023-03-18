@@ -109,7 +109,7 @@ impl PyBuiltinFunction {
 impl Callable for PyBuiltinFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }
 }
@@ -156,8 +156,8 @@ impl PyBuiltinFunction {
 
 impl Representable for PyBuiltinFunction {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(PyStr::from(format!("<built-in function {}>", zelf.value.name)).into_ref(vm))
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!("<built-in function {}>", zelf.value.name))
     }
 }
 
@@ -210,7 +210,7 @@ impl GetDescriptor for PyBuiltinMethod {
 impl Callable for PyBuiltinMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         (zelf.value.func)(vm, args)
     }
 }
@@ -266,13 +266,12 @@ impl PyBuiltinMethod {
 
 impl Representable for PyBuiltinMethod {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(PyStr::from(format!(
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
             "<method '{}' of '{}' objects>",
             &zelf.value.name,
             zelf.class.name()
         ))
-        .into_ref(vm))
     }
 }
 

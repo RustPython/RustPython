@@ -182,25 +182,17 @@ impl AsNumber for PyBool {
 impl Representable for PyBool {
     #[inline]
     fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if get_value(zelf) {
-            Ok(vm.ctx.names.True.to_owned())
+        let name = if get_value(zelf.as_object()) {
+            vm.ctx.names.True
         } else {
-            Ok(vm.ctx.names.False.to_owned())
-        }
+            vm.ctx.names.False
+        };
+        Ok(name.to_owned())
     }
 
-    #[inline]
-    fn __repr__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Self::slot_repr(&zelf, vm)
-    }
-
-    #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if get_value(zelf.as_object()) {
-            Ok(vm.ctx.names.True.to_owned())
-        } else {
-            Ok(vm.ctx.names.False.to_owned())
-        }
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use slot_repr instead")
     }
 }
 

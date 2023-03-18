@@ -321,7 +321,7 @@ impl PyObject {
                 Some(slot) => slot(self, vm),
                 None => vm
                     .call_special_method(self.to_owned(), identifier!(vm, __repr__), ())?
-                    .try_into_value(vm),
+                    .try_into_value(vm), // TODO: remove magic method call once __repr__ is fully ported to slot
             }
         })
     }

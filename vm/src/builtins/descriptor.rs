@@ -1,4 +1,4 @@
-use super::{PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyStr, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     function::PySetterValue,
@@ -190,13 +190,12 @@ impl Unconstructible for MemberDescrObject {}
 
 impl Representable for MemberDescrObject {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(PyStr::from(format!(
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
             "<member '{}' of '{}' objects>",
             zelf.common.name,
             zelf.common.typ.name(),
         ))
-        .into_ref(vm))
     }
 }
 

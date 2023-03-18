@@ -229,7 +229,7 @@ impl Unconstructible for PyStrIterator {}
 
 impl IterNextIterable for PyStrIterator {}
 impl IterNext for PyStrIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
 
         if let IterStatus::Active(s) = &internal.0.status {
@@ -497,11 +497,10 @@ impl PyStr {
     }
 
     #[inline]
-    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         rustpython_common::str::repr(self.as_str())
             .to_string_checked()
             .map_err(|err| vm.new_overflow_error(err.to_string()))
-            .map(|s| PyStr::from(s).into_ref(vm))
     }
 
     #[pymethod]
@@ -1263,21 +1262,21 @@ impl PyStrRef {
 
 impl Representable for PyStr {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         zelf.repr(vm)
     }
 }
 
 impl Hashable for PyStr {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.hash(vm))
     }
 }
 
 impl Comparable for PyStr {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,

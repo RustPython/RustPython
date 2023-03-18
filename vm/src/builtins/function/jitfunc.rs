@@ -3,7 +3,7 @@ use crate::{
     bytecode::CodeFlags,
     convert::ToPyObject,
     function::FuncArgs,
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 use rustpython_jit::{AbiValue, Args, CompiledCode, JitArgumentError, JitType};
@@ -64,10 +64,7 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
     }
 }
 
-pub fn get_jit_arg_types(
-    func: &crate::Py<PyFunction>,
-    vm: &VirtualMachine,
-) -> PyResult<Vec<JitType>> {
+pub fn get_jit_arg_types(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<Vec<JitType>> {
     let arg_names = func.code.arg_names();
 
     if func

@@ -1,4 +1,4 @@
-use super::{PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyType, PyTypeRef};
 use crate::{
     builtins::PyDict,
     class::PyClassImpl,
@@ -61,7 +61,7 @@ impl Initializer for PyNamespace {
 
 impl Comparable for PyNamespace {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -77,7 +77,7 @@ impl Comparable for PyNamespace {
 
 impl Representable for PyNamespace {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let o = zelf.as_object();
         let name = if o.class().is(vm.ctx.types.namespace_type) {
             "namespace".to_owned()
@@ -98,7 +98,7 @@ impl Representable for PyNamespace {
         } else {
             format!("{name}(...)")
         };
-        Ok(PyStr::from(repr).into_ref(vm))
+        Ok(repr)
     }
 }
 

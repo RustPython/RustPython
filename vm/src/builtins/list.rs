@@ -1,4 +1,4 @@
-use super::{PositionIterInternal, PyGenericAlias, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef};
 use crate::atomic_func;
 use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
@@ -472,7 +472,7 @@ impl Iterable for PyList {
 
 impl Comparable for PyList {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -491,7 +491,7 @@ impl Comparable for PyList {
 
 impl Representable for PyList {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let s = if zelf.len() == 0 {
             "[]".to_owned()
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
@@ -499,7 +499,7 @@ impl Representable for PyList {
         } else {
             "[...]".to_owned()
         };
-        Ok(PyStr::from(s).into_ref(vm))
+        Ok(s)
     }
 }
 
@@ -567,7 +567,7 @@ impl Unconstructible for PyListIterator {}
 
 impl IterNextIterable for PyListIterator {}
 impl IterNext for PyListIterator {
-    fn next(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|list, pos| {
             let vec = list.borrow_vec();
             Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
@@ -612,7 +612,7 @@ impl Unconstructible for PyListReverseIterator {}
 
 impl IterNextIterable for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {
-    fn next(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().rev_next(|list, pos| {
             let vec = list.borrow_vec();
             Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))

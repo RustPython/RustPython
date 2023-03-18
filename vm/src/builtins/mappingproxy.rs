@@ -1,6 +1,4 @@
-use super::{
-    PyDict, PyDictRef, PyGenericAlias, PyList, PyStr, PyStrRef, PyTuple, PyType, PyTypeRef,
-};
+use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
 use crate::{
     atomic_func,
     class::PyClassImpl,
@@ -200,7 +198,7 @@ impl PyMappingProxy {
 
 impl Comparable for PyMappingProxy {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -270,9 +268,9 @@ impl Iterable for PyMappingProxy {
 
 impl Representable for PyMappingProxy {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let obj = zelf.to_object(vm)?;
-        Ok(PyStr::from(format!("mappingproxy({})", obj.repr(vm)?)).into_ref(vm))
+        Ok(format!("mappingproxy({})", obj.repr(vm)?))
     }
 }
 

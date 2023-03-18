@@ -495,7 +495,7 @@ impl PyFloat {
 
 impl Comparable for PyFloat {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -536,7 +536,7 @@ impl Comparable for PyFloat {
 
 impl Hashable for PyFloat {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(hash::hash_float(zelf.to_f64()).unwrap_or_else(|| hash::hash_object_id(zelf.get_id())))
     }
 }
@@ -580,8 +580,8 @@ impl AsNumber for PyFloat {
 
 impl Representable for PyFloat {
     #[inline]
-    fn repr(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        Ok(PyStr::from(float_ops::to_string(zelf.value)).into_ref(vm))
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(float_ops::to_string(zelf.value))
     }
 }
 
