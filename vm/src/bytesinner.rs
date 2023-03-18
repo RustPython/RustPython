@@ -716,7 +716,7 @@ impl PyBytesInner {
     where
         FW: Fn(&[u8]) -> W,
     {
-        self.elements.py_splitlines(options, into_wrapper)
+        self.elements.py_bytes_splitlines(options, into_wrapper)
     }
 
     pub fn zfill(&self, width: isize) -> Vec<u8> {

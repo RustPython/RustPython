@@ -171,6 +171,8 @@ assert 'hello\nhallo\nHallo'.splitlines() == ['hello', 'hallo', 'Hallo']
 assert 'hello\nhallo\nHallo\n'.splitlines() == ['hello', 'hallo', 'Hallo']
 assert 'hello\nhallo\nHallo'.splitlines(keepends=True) == ['hello\n', 'hallo\n', 'Hallo']
 assert 'hello\nhallo\nHallo\n'.splitlines(keepends=True) == ['hello\n', 'hallo\n', 'Hallo\n']
+assert 'hello\vhallo\x0cHallo\x1cHELLO\x1dhoho\x1ehaha\x85another\u2028yetanother\u2029last\r\n.'.splitlines() == ['hello', 'hallo', 'Hallo', 'HELLO', 'hoho', 'haha', 'another', 'yetanother', 'last', '.']
+assert 'hello\vhallo\x0cHallo\x1cHELLO\x1dhoho\x1ehaha\x85another\u2028yetanother\u2029last\r\n.'.splitlines(keepends=True) == ['hello\x0b', 'hallo\x0c', 'Hallo\x1c', 'HELLO\x1d', 'hoho\x1e', 'haha\x85', 'another\u2028', 'yetanother\u2029', 'last\r\n', '.']
 assert 'abc\t12345\txyz'.expandtabs() == 'abc     12345   xyz'
 assert '-'.join(['1', '2', '3']) == '1-2-3'
 assert 'HALLO'.isupper()
