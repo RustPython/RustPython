@@ -11,7 +11,7 @@ use crate::{
     py_io::{self, Write},
     stdlib::sys,
     suggestion::offer_suggestions,
-    types::Callable,
+    types::{Callable, Constructor, Initializer},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -414,7 +414,7 @@ macro_rules! extend_exception {
     };
 }
 
-#[pyclass(flags(BASETYPE, HAS_DICT))]
+#[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
@@ -424,21 +424,6 @@ impl PyBaseException {
             suppress_context: AtomicCell::new(false),
             args: PyRwLock::new(PyTuple::new_ref(args, &vm.ctx)),
         }
-    }
-
-    #[pyslot]
-    pub(crate) fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyBaseException::new(args.args, vm)
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
-    }
-
-    #[pyslot]
-    #[pymethod(magic)]
-    pub(crate) fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-        *zelf.args.write() = PyTuple::new_ref(args.args, &vm.ctx);
-        Ok(())
     }
 
     pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
@@ -529,6 +514,25 @@ impl PyBaseException {
         } else {
             vm.new_tuple((zelf.class().to_owned(), zelf.args()))
         }
+    }
+}
+
+impl Constructor for PyBaseException {
+    type Args = FuncArgs;
+
+    fn py_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        PyBaseException::new(args.args, vm)
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
+    }
+}
+
+impl Initializer for PyBaseException {
+    type Args = FuncArgs;
+
+    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        *zelf.args.write() = PyTuple::new_ref(args.args, &vm.ctx);
+        Ok(())
     }
 }
 
@@ -1119,6 +1123,7 @@ pub(super) mod types {
         builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
         convert::ToPyResult,
         function::FuncArgs,
+        types::{Constructor, Initializer},
         PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -1371,7 +1376,7 @@ pub(super) mod types {
 
             new_args.args.truncate(2);
         }
-        PyBaseException::init(zelf, new_args, vm)
+        PyBaseException::slot_init(zelf, new_args, vm)
     }
 
     define_exception! {

@@ -471,7 +471,7 @@ pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStre
     // spell-checker:ignore initproc
     let init_method = match init {
         Some(init_def) => quote! { #init_def(zelf, args, vm) },
-        None => quote! { #base_class::init(zelf, args, vm) },
+        None => quote! { #base_class::slot_init(zelf, args, vm) },
     };
 
     let ret = quote! {
@@ -499,8 +499,8 @@ pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStre
             }
 
             #[pyslot]
-            #[pymethod(magic)]
-            pub(crate) fn init(
+            #[pymethod(name="__init__")]
+            pub(crate) fn slot_init(
                 zelf: PyObjectRef,
                 args: ::rustpython_vm::function::FuncArgs,
                 vm: &::rustpython_vm::VirtualMachine,
