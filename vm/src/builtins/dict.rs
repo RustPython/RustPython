@@ -563,8 +563,9 @@ impl Py<PyDict> {
     pub fn to_attributes(&self, vm: &VirtualMachine) -> PyAttributes {
         let mut attrs = PyAttributes::default();
         for (key, value) in self {
-            let key: PyRefExact<PyStr> = key.downcast_exact(vm).expect("dict has non-string keys");
-            attrs.insert(vm.ctx.intern_str(key), value);
+            if let Ok(key) = key.downcast_exact::<PyStr>(vm) {
+                attrs.insert(vm.ctx.intern_str(key), value);
+            }
         }
         attrs
     }
