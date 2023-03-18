@@ -248,19 +248,14 @@ mod zlib {
         } = args;
         data.with_ref(|data| {
             let mut d = InitOptions::new(wbits.value, vm)?.decompress();
-
-            _decompress(data, &mut d, bufsize.value, None, false, vm).and_then(
-                |(buf, stream_end)| {
-                    if stream_end {
-                        Ok(buf)
-                    } else {
-                        Err(new_zlib_error(
-                            "Error -5 while decompressing data: incomplete or truncated stream",
-                            vm,
-                        ))
-                    }
-                },
-            )
+            let (buf, stream_end) = _decompress(data, &mut d, bufsize.value, None, false, vm)?;
+            if !stream_end {
+                return Err(new_zlib_error(
+                    "Error -5 while decompressing data: incomplete or truncated stream",
+                    vm,
+                ));
+            }
+            Ok(buf)
         })
     }
 

@@ -461,20 +461,20 @@ impl PyObject {
     }
 
     fn abstract_isinstance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if let Ok(typ) = PyTypeRef::try_from_object(vm, cls.to_owned()) {
+        let r = if let Ok(typ) = PyTypeRef::try_from_object(vm, cls.to_owned()) {
             if self.class().fast_issubclass(&typ) {
-                Ok(true)
+                true
             } else if let Ok(icls) = PyTypeRef::try_from_object(
                 vm,
                 self.to_owned().get_attr(identifier!(vm, __class__), vm)?,
             ) {
                 if icls.is(self.class()) {
-                    Ok(false)
+                    false
                 } else {
-                    Ok(icls.fast_issubclass(&typ))
+                    icls.fast_issubclass(&typ)
                 }
             } else {
-                Ok(false)
+                false
             }
         } else {
             self.check_cls(cls, vm, || {
@@ -482,16 +482,15 @@ impl PyObject {
                     "isinstance() arg 2 must be a type or tuple of types, not {}",
                     cls.class()
                 )
-            })
-            .and_then(|_| {
-                let icls: PyObjectRef = self.to_owned().get_attr(identifier!(vm, __class__), vm)?;
-                if vm.is_none(&icls) {
-                    Ok(false)
-                } else {
-                    icls.abstract_issubclass(cls, vm)
-                }
-            })
-        }
+            })?;
+            let icls: PyObjectRef = self.to_owned().get_attr(identifier!(vm, __class__), vm)?;
+            if vm.is_none(&icls) {
+                false
+            } else {
+                icls.abstract_issubclass(cls, vm)?
+            }
+        };
+        Ok(r)
     }
 
     /// Determines if `self` is an instance of `cls`, either directly, indirectly or virtually via

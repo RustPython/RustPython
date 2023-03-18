@@ -188,13 +188,12 @@ mod winreg {
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, usize)> {
         let subkey = subkey.as_ref().map_or("", |s| s.as_str());
-        key.with_key(|k| k.get_raw_value(subkey))
-            .map_err(|e| e.to_pyexception(vm))
-            .and_then(|regval| {
-                #[allow(clippy::redundant_clone)]
-                let ty = regval.vtype.clone() as usize;
-                Ok((reg_to_py(regval, vm)?, ty))
-            })
+        let regval = key
+            .with_key(|k| k.get_raw_value(subkey))
+            .map_err(|e| e.to_pyexception(vm))?;
+        #[allow(clippy::redundant_clone)]
+        let ty = regval.vtype.clone() as usize;
+        Ok((reg_to_py(regval, vm)?, ty))
     }
 
     #[pyfunction]
@@ -214,18 +213,17 @@ mod winreg {
         index: u32,
         vm: &VirtualMachine,
     ) -> PyResult<(String, PyObjectRef, usize)> {
-        key.with_key(|k| k.enum_values().nth(index as usize))
+        let (name, value) = key
+            .with_key(|k| k.enum_values().nth(index as usize))
             .unwrap_or_else(|| {
                 Err(io::Error::from_raw_os_error(
                     winerror::ERROR_NO_MORE_ITEMS as i32,
                 ))
             })
-            .map_err(|e| e.to_pyexception(vm))
-            .and_then(|(name, value)| {
-                #[allow(clippy::redundant_clone)]
-                let ty = value.vtype.clone() as usize;
-                Ok((name, reg_to_py(value, vm)?, ty))
-            })
+            .map_err(|e| e.to_pyexception(vm))?;
+        #[allow(clippy::redundant_clone)]
+        let ty = value.vtype.clone() as usize;
+        Ok((name, reg_to_py(value, vm)?, ty))
     }
 
     #[pyfunction]

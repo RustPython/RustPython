@@ -147,10 +147,10 @@ impl PyBuiltinFunction {
     }
     #[pygetset(magic)]
     fn text_signature(&self) -> Option<String> {
-        self.value.doc.as_ref().and_then(|doc| {
-            type_::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
-                .map(|signature| signature.to_string())
-        })
+        let doc = self.value.doc.as_ref()?;
+        let signature =
+            type_::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())?;
+        Some(signature.to_owned())
     }
 }
 

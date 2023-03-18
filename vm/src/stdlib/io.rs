@@ -175,7 +175,7 @@ mod _io {
     impl OptionalSize {
         #[allow(clippy::wrong_self_convention)]
         pub fn to_usize(self) -> Option<usize> {
-            self.size.and_then(|v| v.to_usize())
+            self.size?.to_usize()
         }
 
         pub fn try_usize(self, vm: &VirtualMachine) -> PyResult<Option<usize>> {
@@ -2225,11 +2225,11 @@ mod _io {
                     codec.get_incremental_encoder(Some(errors.clone()), vm)?;
                 let encoding_name = vm.get_attribute_opt(incremental_encoder.clone(), "name")?;
                 let encodefunc = encoding_name.and_then(|name| {
-                    name.payload::<PyStr>()
-                        .and_then(|name| match name.as_str() {
-                            "utf-8" => Some(textio_encode_utf8 as EncodeFunc),
-                            _ => None,
-                        })
+                    let name = name.payload::<PyStr>()?;
+                    match name.as_str() {
+                        "utf-8" => Some(textio_encode_utf8 as EncodeFunc),
+                        _ => None,
+                    }
                 });
                 Some((incremental_encoder, encodefunc))
             } else {

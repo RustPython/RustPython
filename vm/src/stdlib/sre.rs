@@ -157,17 +157,17 @@ mod _sre {
         where
             F: FnOnce(&str) -> PyResult<R>,
         {
-            string
+            let string = string
                 .payload::<PyStr>()
-                .ok_or_else(|| vm.new_type_error("expected string".to_owned()))
-                .and_then(|x| f(x.as_str()))
+                .ok_or_else(|| vm.new_type_error("expected string".to_owned()))?;
+            f(string.as_str())
         }
 
         fn with_bytes<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
         where
             F: FnOnce(&[u8]) -> PyResult<R>,
         {
-            PyBuffer::try_from_borrowed_object(vm, string).and_then(|x| x.contiguous_or_collect(f))
+            PyBuffer::try_from_borrowed_object(vm, string)?.contiguous_or_collect(f)
         }
 
         #[pymethod(name = "match")]
@@ -572,9 +572,8 @@ mod _sre {
         }
         #[pygetset]
         fn lastgroup(&self) -> Option<PyStrRef> {
-            self.lastindex
-                .to_usize()
-                .and_then(|i| self.pattern.indexgroup.get(i).cloned().flatten())
+            let i = self.lastindex.to_usize()?;
+            self.pattern.indexgroup.get(i)?.clone()
         }
         #[pygetset]
         fn re(&self) -> PyRef<Pattern> {

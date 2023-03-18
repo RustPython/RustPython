@@ -197,7 +197,7 @@ impl ToPyResult for PyIterReturn {
 
 impl ToPyResult for PyResult<PyIterReturn> {
     fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        self.and_then(|obj| obj.to_pyresult(vm))
+        self?.to_pyresult(vm)
     }
 }
 
@@ -234,11 +234,14 @@ where
     type Item = PyResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        PyIter::new(self.obj.borrow())
-            .next(self.vm)
-            .map(|iret| iret.into_result().ok())
-            .transpose()
-            .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
+        let imp = |next: PyResult<PyIterReturn>| -> PyResult<Option<T>> {
+            let Some(obj) = next?.into_result().ok() else {
+                return Ok(None);
+            };
+            Ok(Some(T::try_from_object(self.vm, obj)?))
+        };
+        let next = PyIter::new(self.obj.borrow()).next(self.vm);
+        imp(next).transpose()
     }
 
     #[inline]

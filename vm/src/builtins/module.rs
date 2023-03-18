@@ -61,10 +61,11 @@ impl PyModule {
     }
 
     fn name(zelf: PyRef<Self>, vm: &VirtualMachine) -> Option<PyStrRef> {
-        zelf.as_object()
+        let name = zelf
+            .as_object()
             .generic_getattr_opt(identifier!(vm, __name__).to_owned(), None, vm)
-            .unwrap_or(None)
-            .and_then(|obj| obj.downcast::<PyStr>().ok())
+            .unwrap_or_default()?;
+        name.downcast::<PyStr>().ok()
     }
 
     #[pymethod(magic)]
@@ -145,10 +146,9 @@ impl Representable for PyModule {
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let importlib = vm.import("_frozen_importlib", None, 0)?;
         let module_repr = importlib.get_attr("_module_repr", vm)?;
-        module_repr.call((zelf.to_owned(),), vm).and_then(|obj| {
-            obj.downcast()
-                .map_err(|_| vm.new_type_error("_module_repr did not return a string".into()))
-        })
+        let repr = module_repr.call((zelf.to_owned(),), vm)?;
+        repr.downcast()
+            .map_err(|_| vm.new_type_error("_module_repr did not return a string".into()))
     }
 
     #[cold]

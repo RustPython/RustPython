@@ -809,7 +809,7 @@ mod _sqlite {
         type Args = ConnectArgs;
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            Self::new(args, vm).and_then(|x| x.into_ref_with_type(vm, cls).map(Into::into))
+            Ok(Self::new(args, vm)?.into_ref_with_type(vm, cls)?.into())
         }
     }
 
