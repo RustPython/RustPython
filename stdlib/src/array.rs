@@ -746,7 +746,7 @@ mod array {
         }
 
         #[pymethod]
-        fn append(zelf: PyRef<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn append(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             zelf.try_resizable(vm)?.push(x, vm)
         }
 
@@ -762,12 +762,12 @@ mod array {
         }
 
         #[pymethod]
-        fn remove(zelf: PyRef<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn remove(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             zelf.try_resizable(vm)?.remove(x, vm)
         }
 
         #[pymethod]
-        fn extend(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn extend(zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut w = zelf.try_resizable(vm)?;
             if zelf.is(&obj) {
                 w.imul(2, vm)
@@ -828,7 +828,7 @@ mod array {
         }
 
         #[pymethod]
-        fn fromunicode(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn fromunicode(zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let utf8 = PyStrRef::try_from_object(vm, obj.clone()).map_err(|_| {
                 vm.new_type_error(format!(
                     "fromunicode() argument must be str, not {}",
@@ -922,18 +922,13 @@ mod array {
         }
 
         #[pymethod]
-        fn insert(
-            zelf: PyRef<Self>,
-            i: isize,
-            x: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn insert(zelf: &Py<Self>, i: isize, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut w = zelf.try_resizable(vm)?;
             w.insert(i, x, vm)
         }
 
         #[pymethod]
-        fn pop(zelf: PyRef<Self>, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+        fn pop(zelf: &Py<Self>, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
             let mut w = zelf.try_resizable(vm)?;
             if w.len() == 0 {
                 Err(vm.new_index_error("pop from empty array".to_owned()))
@@ -982,7 +977,7 @@ mod array {
         }
 
         #[pymethod]
-        fn fromlist(zelf: PyRef<Self>, list: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn fromlist(zelf: &Py<Self>, list: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
             zelf.try_resizable(vm)?.fromlist(&list, vm)
         }
 
@@ -1014,7 +1009,7 @@ mod array {
         }
 
         fn _setitem(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             needle: &PyObject,
             value: PyObjectRef,
             vm: &VirtualMachine,
@@ -1052,7 +1047,7 @@ mod array {
 
         #[pymethod(magic)]
         fn setitem(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             needle: PyObjectRef,
             value: PyObjectRef,
             vm: &VirtualMachine,
@@ -1120,7 +1115,7 @@ mod array {
         }
 
         #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let class = zelf.class();
             let class_name = class.name();
             if zelf.read().typecode() == 'u' {
@@ -1167,7 +1162,7 @@ mod array {
 
         #[pymethod(magic)]
         fn reduce_ex(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             proto: usize,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
@@ -1191,7 +1186,7 @@ mod array {
 
         #[pymethod(magic)]
         fn reduce(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
             let array = zelf.read();
@@ -1325,7 +1320,7 @@ mod array {
                 ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                     let zelf = PyArray::mapping_downcast(mapping);
                     if let Some(value) = value {
-                        PyArray::_setitem(zelf.to_owned(), needle, value, vm)
+                        PyArray::_setitem(zelf, needle, value, vm)
                     } else {
                         zelf._delitem(needle, vm)
                     }
