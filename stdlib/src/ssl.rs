@@ -539,7 +539,7 @@ mod _ssl {
 
         #[pygetset]
         fn options(&self) -> libc::c_ulong {
-            self.ctx.read().options().bits().try_into().unwrap()
+            self.ctx.read().options().bits() as _
         }
         #[pygetset(setter)]
         fn set_options(&self, opts: libc::c_ulong) {
