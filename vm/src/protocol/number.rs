@@ -1,9 +1,9 @@
+use std::ops::Deref;
+
 use crossbeam_utils::atomic::AtomicCell;
 
 use crate::{
-    builtins::{
-        int, type_::PointerSlot, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr,
-    },
+    builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr, PyType},
     common::int::bytes_to_int,
     function::ArgBytesLike,
     stdlib::warnings,
@@ -11,8 +11,19 @@ use crate::{
     VirtualMachine,
 };
 
-pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(&PyObject, &VirtualMachine) -> PyResult<R>;
+pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber, &VirtualMachine) -> PyResult<R>;
 pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
+
+#[derive(Copy, Clone)]
+pub struct PyNumber<'a>(&'a PyObject);
+
+impl Deref for PyNumber<'_> {
+    type Target = PyObject;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
 
 macro_rules! load_pynumber_method {
     ($cls:expr, $x:ident, $y:ident) => {{
@@ -30,9 +41,9 @@ macro_rules! load_pynumber_method {
     }};
 }
 
-impl PyObject {
-    pub fn pynumber_check(&self) -> bool {
-        let class = self.class();
+impl PyNumber<'_> {
+    pub fn check(obj: &PyObject) -> bool {
+        let class = obj.class();
         if let Some(ext) = class.heaptype_ext {
             ext.number_slots.int.load().is_some()
                 || ext.number_slots.index.load().is_some()
@@ -40,16 +51,16 @@ impl PyObject {
         } else if let Some(methods) = class.slots.as_number {
             methods.int.is_some() || methods.index.is_some() || methods.float.is_some()
         } else {
-            self.payload_is::<PyComplex>()
+            obj.payload_is::<PyComplex>()
         }
     }
 
-    pub fn is_index(&self) -> bool {
+    pub fn is_index(self) -> bool {
         load_pynumber_method!(self.class(), index).is_some()
     }
 
     #[inline]
-    pub fn pynumber_int(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
+    pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
         load_pynumber_method!(self.class(), int).map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(vm)) {
@@ -73,7 +84,7 @@ impl PyObject {
     }
 
     #[inline]
-    pub fn pynumber_index(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
+    pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
         load_pynumber_method!(self.class(), index).map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(vm)) {
@@ -97,7 +108,7 @@ impl PyObject {
     }
 
     #[inline]
-    pub fn pynumber_float(&self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
+    pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
         load_pynumber_method!(self.class(), float).map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyFloat::class(vm)) {
@@ -119,6 +130,12 @@ impl PyObject {
             Ok(value)
         })
     }
+}
+
+impl PyObject {
+    pub fn to_number(&self) -> PyNumber {
+        PyNumber(self)
+    }
 
     pub fn try_index_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
         if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
@@ -126,7 +143,7 @@ impl PyObject {
         } else if let Some(i) = self.payload::<PyInt>() {
             Some(Ok(vm.ctx.new_bigint(i.as_bigint())))
         } else {
-            self.pynumber_index(vm)
+            self.to_number().index(vm)
         }
     }
 
@@ -158,7 +175,7 @@ impl PyObject {
 
         if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
             Ok(i.to_owned())
-        } else if let Some(i) = self.pynumber_int(vm).or_else(|| self.try_index_opt(vm)) {
+        } else if let Some(i) = self.to_number().int(vm).or_else(|| self.try_index_opt(vm)) {
             i
         } else if let Ok(Ok(f)) = vm.get_special_method(self.to_owned(), identifier!(vm, __trunc__))
         {
@@ -196,7 +213,7 @@ impl PyObject {
     pub fn try_float_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
         if let Some(float) = self.downcast_ref_if_exact::<PyFloat>(vm) {
             Some(Ok(float.to_owned()))
-        } else if let Some(f) = self.pynumber_float(vm) {
+        } else if let Some(f) = self.to_number().float(vm) {
             Some(f)
         } else {
             self.try_index_opt(vm)
