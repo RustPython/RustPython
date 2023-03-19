@@ -611,14 +611,13 @@ impl PyObject {
             None
         };
         let cls_is_weakref = typ.is(vm.ctx.types.weakref_type);
-        self.weak_ref_list()
-            .map(|wrl| wrl.add(self, typ, cls_is_weakref, callback, dict))
-            .ok_or_else(|| {
-                vm.new_type_error(format!(
-                    "cannot create weak reference to '{}' object",
-                    self.class().name()
-                ))
-            })
+        let wrl = self.weak_ref_list().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot create weak reference to '{}' object",
+                self.class().name()
+            ))
+        })?;
+        Ok(wrl.add(self, typ, cls_is_weakref, callback, dict))
     }
 
     pub fn downgrade(

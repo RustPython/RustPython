@@ -1653,10 +1653,7 @@ mod tests {
             let translated = text.translate(translated, vm).unwrap();
             assert_eq!(translated, "🎅xda".to_owned());
             let translated = text.translate(vm.ctx.new_int(3).into(), vm);
-            assert_eq!(
-                translated.unwrap_err().class().name().deref(),
-                "TypeError".to_owned()
-            );
+            assert_eq!("TypeError", &*translated.unwrap_err().class().name(),);
         })
     }
 }
