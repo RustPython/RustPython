@@ -544,7 +544,7 @@ mod _ssl {
         #[pygetset(setter)]
         fn set_options(&self, opts: libc::c_ulong) {
             self.builder()
-                .set_options(SslOptions::from_bits_truncate(opts.into()));
+                .set_options(SslOptions::from_bits_truncate(opts as _));
         }
         #[pygetset]
         fn protocol(&self) -> i32 {
