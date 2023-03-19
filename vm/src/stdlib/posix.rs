@@ -429,6 +429,10 @@ pub mod module {
         )
     }
 
+    #[cfg(not(target_os = "redox"))]
+    const MKNOD_DIR_FD: bool = cfg!(not(target_vendor = "apple"));
+
+    #[cfg(not(target_os = "redox"))]
     #[derive(FromArgs)]
     struct MknodArgs {
         #[pyarg(any)]
@@ -437,11 +441,11 @@ pub mod module {
         mode: libc::mode_t,
         #[pyarg(any)]
         device: libc::dev_t,
-        #[allow(unused)]
         #[pyarg(flatten)]
-        dir_fd: DirFd<1>,
+        dir_fd: DirFd<{ MKNOD_DIR_FD as usize }>,
     }
 
+    #[cfg(not(target_os = "redox"))]
     impl MknodArgs {
         fn _mknod(self, vm: &VirtualMachine) -> PyResult<i32> {
             Ok(unsafe {
@@ -473,6 +477,7 @@ pub mod module {
         }
         #[cfg(target_vendor = "apple")]
         fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
+            let [] = self.dir_fd.0;
             let ret = self._mknod(vm)?;
             if ret != 0 {
                 Err(errno_err(vm))
@@ -482,6 +487,7 @@ pub mod module {
         }
     }
 
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn mknod(args: MknodArgs, vm: &VirtualMachine) -> PyResult<()> {
         args.mknod(vm)
@@ -1568,10 +1574,8 @@ pub mod module {
             SupportFunc::new("lchown", None, None, None),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("fchown", Some(true), None, Some(true)),
-            #[cfg(not(target_os = "macos"))]
-            SupportFunc::new("mknod", Some(true), Some(true), Some(false)),
-            #[cfg(target_os = "macos")]
-            SupportFunc::new("mknod", Some(true), Some(false), Some(false)),
+            #[cfg(not(target_os = "redox"))]
+            SupportFunc::new("mknod", Some(true), Some(MKNOD_DIR_FD), Some(false)),
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),
             SupportFunc::new("execv", None, None, None),
             SupportFunc::new("pathconf", Some(true), None, None),
