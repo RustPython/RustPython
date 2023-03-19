@@ -16,7 +16,7 @@ mod mmap {
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
         },
         sliceable::{SaturatedSlice, SequenceIndex, SequenceIndexOp},
-        types::{AsBuffer, AsMapping, AsSequence, Constructor},
+        types::{AsBuffer, AsMapping, AsSequence, Constructor, Representable},
         AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine,
     };
@@ -433,7 +433,7 @@ mod mmap {
                 ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                     let zelf = PyMmap::mapping_downcast(mapping);
                     if let Some(value) = value {
-                        PyMmap::_setitem(zelf.to_owned(), needle, value, vm)
+                        PyMmap::_setitem(zelf, needle, value, vm)
                     } else {
                         Err(vm
                             .new_type_error("mmap object doesn't support item deletion".to_owned()))
@@ -456,7 +456,7 @@ mod mmap {
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
                     if let Some(value) = value {
-                        PyMmap::setitem_by_index(zelf.to_owned(), i, value, vm)
+                        PyMmap::setitem_by_index(zelf, i, value, vm)
                     } else {
                         Err(vm
                             .new_type_error("mmap object doesn't support item deletion".to_owned()))
@@ -468,7 +468,10 @@ mod mmap {
         }
     }
 
-    #[pyclass(with(Constructor, AsMapping, AsSequence, AsBuffer), flags(BASETYPE))]
+    #[pyclass(
+        with(Constructor, AsMapping, AsSequence, AsBuffer, Representable),
+        flags(BASETYPE)
+    )]
     impl PyMmap {
         fn as_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
             PyMutexGuard::map(self.mmap.lock(), |m| {
@@ -554,32 +557,6 @@ mod mmap {
         #[pygetset]
         fn closed(&self) -> bool {
             self.closed.load()
-        }
-
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>) -> PyResult<String> {
-            let mmap = zelf.mmap.lock();
-
-            if mmap.is_none() {
-                return Ok("<mmap.mmap closed=True>".to_owned());
-            }
-
-            let access_str = match zelf.access {
-                AccessMode::Default => "ACCESS_DEFAULT",
-                AccessMode::Read => "ACCESS_READ",
-                AccessMode::Write => "ACCESS_WRITE",
-                AccessMode::Copy => "ACCESS_COPY",
-            };
-
-            let repr = format!(
-                "<mmap.mmap closed=False, access={}, length={}, pos={}, offset={}>",
-                access_str,
-                zelf.len(),
-                zelf.pos(),
-                zelf.offset
-            );
-
-            Ok(repr)
         }
 
         #[pymethod]
@@ -738,9 +715,12 @@ mod mmap {
         fn read(&self, n: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
             let num_bytes = n
                 .map(|obj| {
-                    let name = obj.class().name().to_string();
+                    let class = obj.class().to_owned();
                     obj.try_into_value::<Option<isize>>(vm).map_err(|_| {
-                        vm.new_type_error(format!("read argument must be int or None, not {name}",))
+                        vm.new_type_error(format!(
+                            "read argument must be int or None, not {}",
+                            class.name()
+                        ))
                     })
                 })
                 .transpose()?
@@ -818,7 +798,7 @@ mod mmap {
             Ok(result)
         }
 
-        //TODO: supports resize
+        // TODO: supports resize
         #[pymethod]
         fn resize(&self, _newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
             self.check_resizeable(vm)?;
@@ -924,6 +904,34 @@ mod mmap {
             Ok(())
         }
 
+        #[pymethod(magic)]
+        fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+            self._getitem(&needle, vm)
+        }
+
+        #[pymethod(magic)]
+        fn setitem(
+            zelf: &Py<Self>,
+            needle: PyObjectRef,
+            value: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            Self::_setitem(zelf, &needle, value, vm)
+        }
+
+        #[pymethod(magic)]
+        fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            let _m = zelf.check_valid(vm)?;
+            Ok(zelf.to_owned())
+        }
+
+        #[pymethod(magic)]
+        fn exit(zelf: &Py<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            zelf.close(vm)
+        }
+    }
+
+    impl PyMmap {
         fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let i = i
                 .wrapped_at(self.len())
@@ -984,13 +992,8 @@ mod mmap {
             }
         }
 
-        #[pymethod(magic)]
-        fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            self._getitem(&needle, vm)
-        }
-
         fn _setitem(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             needle: &PyObject,
             value: PyObjectRef,
             vm: &VirtualMachine,
@@ -1002,18 +1005,18 @@ mod mmap {
         }
 
         fn setitem_by_index(
-            zelf: PyRef<Self>,
+            &self,
             i: isize,
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let i: usize = i
-                .wrapped_at(zelf.len())
+                .wrapped_at(self.len())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range".to_owned()))?;
 
             let b = value_from_object(vm, &value)?;
 
-            zelf.try_writable(vm, |mmap| {
+            self.try_writable(vm, |mmap| {
                 mmap[i] = b;
             })?;
 
@@ -1021,12 +1024,12 @@ mod mmap {
         }
 
         fn setitem_by_slice(
-            zelf: PyRef<Self>,
+            &self,
             slice: &SaturatedSlice,
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let (range, step, slice_len) = slice.adjust_indices(zelf.len());
+            let (range, step, slice_len) = slice.adjust_indices(self.len());
 
             let bytes = bytes_from_object(vm, &value)?;
 
@@ -1038,7 +1041,7 @@ mod mmap {
                 // do nothing
                 Ok(())
             } else if step == 1 {
-                zelf.try_writable(vm, |mmap| {
+                self.try_writable(vm, |mmap| {
                     (&mut mmap[range])
                         .write(&bytes)
                         .map_err(|e| vm.new_os_error(e.to_string()))?;
@@ -1048,14 +1051,14 @@ mod mmap {
                 let mut bi = 0; // bytes index
                 if step.is_negative() {
                     for i in range.rev().step_by(step.unsigned_abs()) {
-                        zelf.try_writable(vm, |mmap| {
+                        self.try_writable(vm, |mmap| {
                             mmap[i] = bytes[bi];
                         })?;
                         bi += 1;
                     }
                 } else {
                     for i in range.step_by(step.unsigned_abs()) {
-                        zelf.try_writable(vm, |mmap| {
+                        self.try_writable(vm, |mmap| {
                             mmap[i] = bytes[bi];
                         })?;
                         bi += 1;
@@ -1064,26 +1067,33 @@ mod mmap {
                 Ok(())
             }
         }
+    }
 
-        #[pymethod(magic)]
-        fn setitem(
-            zelf: PyRef<Self>,
-            needle: PyObjectRef,
-            value: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            Self::_setitem(zelf, &needle, value, vm)
-        }
+    impl Representable for PyMmap {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            let mmap = zelf.mmap.lock();
 
-        #[pymethod(magic)]
-        fn enter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-            let _m = zelf.check_valid(vm)?;
-            Ok(zelf.to_owned())
-        }
+            if mmap.is_none() {
+                return Ok("<mmap.mmap closed=True>".to_owned());
+            }
 
-        #[pymethod(magic)]
-        fn exit(zelf: PyRef<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.close(vm)
+            let access_str = match zelf.access {
+                AccessMode::Default => "ACCESS_DEFAULT",
+                AccessMode::Read => "ACCESS_READ",
+                AccessMode::Write => "ACCESS_WRITE",
+                AccessMode::Copy => "ACCESS_COPY",
+            };
+
+            let repr = format!(
+                "<mmap.mmap closed=False, access={}, length={}, pos={}, offset={}>",
+                access_str,
+                zelf.len(),
+                zelf.pos(),
+                zelf.offset
+            );
+
+            Ok(repr)
         }
     }
 }
