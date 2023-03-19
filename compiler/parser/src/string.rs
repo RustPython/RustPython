@@ -81,7 +81,7 @@ impl<'a> StringParser<'a> {
             }
         }
         match p {
-            0xD800..=0xDFFF => Ok(std::char::REPLACEMENT_CHARACTER),
+            0xD800..=0xDFFF => Ok(unsafe { std::char::from_u32_unchecked(p) }),
             _ => std::char::from_u32(p).ok_or(unicode_error),
         }
     }
