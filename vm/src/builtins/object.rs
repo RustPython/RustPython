@@ -161,19 +161,19 @@ impl PyBaseObject {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        obj.generic_setattr(name, PySetterValue::Assign(value), vm)
+        obj.generic_setattr(&name, PySetterValue::Assign(value), vm)
     }
 
     /// Implement delattr(self, name).
     #[pymethod]
     fn __delattr__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        obj.generic_setattr(name, PySetterValue::Delete, vm)
+        obj.generic_setattr(&name, PySetterValue::Delete, vm)
     }
 
     #[pyslot]
     fn slot_setattro(
         obj: &PyObject,
-        attr_name: PyStrRef,
+        attr_name: &Py<PyStr>,
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {

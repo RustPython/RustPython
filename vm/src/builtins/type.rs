@@ -374,23 +374,30 @@ impl PyType {
         call_slot_new(zelf, subtype, args, vm)
     }
 
-    pub fn slot_name(&self) -> BorrowedValue<str> {
+    fn name_inner<'a, R: 'a>(
+        &'a self,
+        static_f: impl FnOnce(&'static str) -> R,
+        heap_f: impl FnOnce(&'a HeapTypeExt) -> R,
+    ) -> R {
         if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-            return self.slots.name.load().into();
+            static_f(self.slots.name.load())
+        } else {
+            heap_f(self.heaptype_ext.as_ref().unwrap())
         }
-        let name_lock = self.heaptype_ext.as_ref().unwrap().name.read();
-        PyRwLockReadGuard::map(name_lock, |_| self.slots.name.load()).into()
+    }
+
+    pub fn slot_name(&self) -> BorrowedValue<str> {
+        self.name_inner(
+            |name| name.into(),
+            |ext| PyRwLockReadGuard::map(ext.name.read(), |name| name.as_str()).into(),
+        )
     }
 
     pub fn name(&self) -> BorrowedValue<str> {
-        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-            return self.slots.name.load().into();
-        }
-        let name_lock = self.heaptype_ext.as_ref().unwrap().name.read();
-        PyRwLockReadGuard::map(name_lock, |name| {
-            name.as_str() // = self.slots.name.load().rsplit_once('.').unwrap().1
-        })
-        .into()
+        self.name_inner(
+            |name| name.rsplit_once('.').map_or(name, |(_, name)| name).into(),
+            |ext| PyRwLockReadGuard::map(ext.name.read(), |name| name.as_str()).into(),
+        )
     }
 }
 
@@ -438,19 +445,20 @@ impl PyType {
 
     #[pygetset]
     pub fn __name__(&self, vm: &VirtualMachine) -> PyStrRef {
-        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-            vm.ctx
-                .interned_str(self.slots.name.load())
-                .unwrap_or_else(|| {
-                    panic!(
-                        "static type name must be already interned but {} is not",
-                        self.slots.name.load()
-                    )
-                })
-                .to_owned()
-        } else {
-            self.heaptype_ext.as_ref().unwrap().name.read().clone()
-        }
+        self.name_inner(
+            |name| {
+                vm.ctx
+                    .interned_str(name.rsplit_once('.').map_or(name, |(_, name)| name))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "static type name must be already interned but {} is not",
+                            self.slots.name.load()
+                        )
+                    })
+                    .to_owned()
+            },
+            |ext| ext.name.read().clone(),
+        )
     }
 
     #[pygetset(magic)]
@@ -1037,7 +1045,7 @@ impl GetAttr for PyType {
 impl SetAttr for PyType {
     fn setattro(
         zelf: &Py<Self>,
-        attr_name: PyStrRef,
+        attr_name: &Py<PyStr>,
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {

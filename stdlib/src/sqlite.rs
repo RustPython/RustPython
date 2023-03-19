@@ -766,7 +766,7 @@ mod _sqlite {
 
     pub(super) fn setup_module(module: &PyObject, vm: &VirtualMachine) {
         for (name, code) in ERROR_CODES {
-            let name = vm.ctx.new_str(*name);
+            let name = vm.ctx.intern_str(*name);
             let code = vm.new_pyobj(*code);
             module.set_attr(name, code, vm).unwrap();
         }

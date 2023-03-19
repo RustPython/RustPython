@@ -141,7 +141,7 @@ impl GetAttr for PyWeakProxy {
 impl SetAttr for PyWeakProxy {
     fn setattro(
         zelf: &Py<Self>,
-        attr_name: PyStrRef,
+        attr_name: &Py<PyStr>,
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {

@@ -5,7 +5,7 @@ pub(crate) use _thread::{make_module, RawRMutex};
 #[pymodule]
 pub(crate) mod _thread {
     use crate::{
-        builtins::{PyDictRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyStr, PyTupleRef, PyTypeRef},
         convert::ToPyException,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, SetAttr},
@@ -381,7 +381,7 @@ pub(crate) mod _thread {
     impl SetAttr for Local {
         fn setattro(
             zelf: &Py<Self>,
-            attr: PyStrRef,
+            attr: &Py<PyStr>,
             value: PySetterValue,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -393,9 +393,9 @@ pub(crate) mod _thread {
             } else {
                 let dict = zelf.ldict(vm);
                 if let PySetterValue::Assign(value) = value {
-                    dict.set_item(&*attr, value, vm)?;
+                    dict.set_item(attr, value, vm)?;
                 } else {
-                    dict.del_item(&*attr, vm)?;
+                    dict.del_item(attr, vm)?;
                 }
                 Ok(())
             }

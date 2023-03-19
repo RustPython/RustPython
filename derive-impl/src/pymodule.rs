@@ -458,6 +458,7 @@ impl ModuleItem for ClassItem {
         let set_attr = match py_names.len() {
             0 => quote! {
                 let _ = new_class;  // suppress warning
+                let _ = vm.ctx.intern_str(#class_name);
             },
             1 => {
                 let py_name = &py_names[0];

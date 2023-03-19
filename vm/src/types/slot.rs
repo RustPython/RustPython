@@ -283,7 +283,7 @@ pub(crate) type HashFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyHash>;
 pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyStrRef>;
 pub(crate) type GetattroFunc = fn(&PyObject, &Py<PyStr>, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
-    fn(&PyObject, PyStrRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
+    fn(&PyObject, &Py<PyStr>, PySetterValue, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AsBufferFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type RichCompareFunc = fn(
     &PyObject,
@@ -418,11 +418,12 @@ fn getattro_wrapper(zelf: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> P
 
 fn setattro_wrapper(
     zelf: &PyObject,
-    name: PyStrRef,
+    name: &Py<PyStr>,
     value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let zelf = zelf.to_owned();
+    let name = name.to_owned();
     match value {
         PySetterValue::Assign(value) => {
             vm.call_special_method(zelf, identifier!(vm, __setattr__), (name, value))?;
@@ -1241,7 +1242,7 @@ pub trait SetAttr: PyPayload {
     #[inline]
     fn slot_setattro(
         obj: &PyObject,
-        name: PyStrRef,
+        name: &Py<PyStr>,
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1253,7 +1254,7 @@ pub trait SetAttr: PyPayload {
 
     fn setattro(
         zelf: &Py<Self>,
-        name: PyStrRef,
+        name: &Py<PyStr>,
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()>;
@@ -1266,13 +1267,13 @@ pub trait SetAttr: PyPayload {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::setattro(&zelf, name, PySetterValue::Assign(value), vm)
+        Self::setattro(&zelf, &name, PySetterValue::Assign(value), vm)
     }
 
     #[inline]
     #[pymethod(magic)]
     fn delattr(zelf: PyRef<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::setattro(&zelf, name, PySetterValue::Delete, vm)
+        Self::setattro(&zelf, &name, PySetterValue::Delete, vm)
     }
 }
 

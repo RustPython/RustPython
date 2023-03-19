@@ -17,7 +17,7 @@ mod vm_ops;
 use crate::{
     builtins::{
         code::PyCode,
-        pystr::{AsPyStr, IntoPyStrRef},
+        pystr::AsPyStr,
         tuple::{PyTuple, PyTupleTyped},
         PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned, PyStrRef,
         PyTypeRef,
@@ -270,8 +270,9 @@ impl VirtualMachine {
                         Default::default(),
                         self,
                     )?;
+                    let dunder_name = self.ctx.intern_str(format!("__{name}__"));
                     self.sys_module.set_attr(
-                        format!("__{name}__"), // e.g. __stdin__
+                        dunder_name, // e.g. __stdin__
                         stdio.clone(),
                         self,
                     )?;
@@ -795,12 +796,12 @@ impl VirtualMachine {
     pub fn __module_set_attr(
         &self,
         module: &PyObject,
-        attr_name: impl IntoPyStrRef,
+        attr_name: &str,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
         module.generic_setattr(
-            attr_name.into_pystr_ref(self),
+            self.ctx.intern_str(attr_name),
             PySetterValue::Assign(val),
             self,
         )

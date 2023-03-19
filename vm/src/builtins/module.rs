@@ -1,4 +1,3 @@
-use super::pystr::IntoPyStrRef;
 use super::{PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     builtins::{pystr::AsPyStr, PyStrInterned},
@@ -84,9 +83,9 @@ impl Py<PyModule> {
         self.getattr_inner(attr_name.as_pystr(&vm.ctx), vm)
     }
 
-    pub fn set_attr(
+    pub fn set_attr<'a>(
         &self,
-        attr_name: impl IntoPyStrRef,
+        attr_name: impl AsPyStr<'a>,
         attr_value: impl Into<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {

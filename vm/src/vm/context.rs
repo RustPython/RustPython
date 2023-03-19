@@ -389,8 +389,12 @@ impl Context {
         pystr::PyStr::new_ref(s, self)
     }
 
-    pub fn interned_or_new_str(&self, s: &str) -> PyRef<PyStr> {
-        match self.interned_str(s) {
+    pub fn interned_or_new_str<S, M>(&self, s: S) -> PyRef<PyStr>
+    where
+        S: Into<PyStr> + AsRef<M>,
+        M: MaybeInternedString,
+    {
+        match self.interned_str(s.as_ref()) {
             Some(s) => s.to_owned(),
             None => self.new_str(s),
         }

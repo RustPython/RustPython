@@ -50,7 +50,7 @@ mod _ast {
                 )));
             }
             for (name, arg) in fields.iter().zip(args.args) {
-                zelf.set_attr(name.clone(), arg, vm)?;
+                zelf.set_attr(name, arg, vm)?;
             }
             for (key, value) in args.kwargs {
                 if let Some(pos) = fields.iter().position(|f| f.as_str() == key) {
@@ -62,7 +62,7 @@ mod _ast {
                         )));
                     }
                 }
-                zelf.set_attr(key, value, vm)?;
+                zelf.set_attr(vm.ctx.intern_str(key), value, vm)?;
             }
             Ok(())
         }
