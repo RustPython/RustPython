@@ -1,6 +1,5 @@
 use crate::{
     builtins::{
-        pystr::IntoPyStrRef,
         tuple::{IntoPyTuple, PyTupleRef},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyModule, PyStrRef, PyType, PyTypeRef,
     },
@@ -268,12 +267,10 @@ impl VirtualMachine {
         syntax_error
     }
 
-    pub fn new_import_error(&self, msg: String, name: impl IntoPyStrRef) -> PyBaseExceptionRef {
+    pub fn new_import_error(&self, msg: String, name: PyStrRef) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.to_owned();
         let exc = self.new_exception_msg(import_error, msg);
-        exc.as_object()
-            .set_attr("name", name.into_pystr_ref(self), self)
-            .unwrap();
+        exc.as_object().set_attr("name", name, self).unwrap();
         exc
     }
 

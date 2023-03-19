@@ -143,52 +143,6 @@ impl fmt::Display for PyStr {
     }
 }
 
-pub trait IntoPyStrRef {
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyStrRef;
-}
-
-impl IntoPyStrRef for PyStrRef {
-    #[inline]
-    fn into_pystr_ref(self, _vm: &VirtualMachine) -> PyRef<PyStr> {
-        self
-    }
-}
-
-impl IntoPyStrRef for PyStr {
-    #[inline]
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        self.into_ref(vm)
-    }
-}
-
-impl IntoPyStrRef for AsciiString {
-    #[inline]
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        PyStr::from(self).into_ref(vm)
-    }
-}
-
-impl IntoPyStrRef for String {
-    #[inline]
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        PyStr::from(self).into_ref(vm)
-    }
-}
-
-impl IntoPyStrRef for &str {
-    #[inline]
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        PyStr::from(self).into_ref(vm)
-    }
-}
-
-impl IntoPyStrRef for &'static PyStrInterned {
-    #[inline]
-    fn into_pystr_ref(self, _vm: &VirtualMachine) -> PyRef<PyStr> {
-        self.to_owned()
-    }
-}
-
 pub trait AsPyStr<'a>
 where
     Self: 'a,
@@ -655,7 +609,7 @@ impl PyStr {
         if s == stripped {
             zelf
         } else {
-            stripped.into_pystr_ref(vm)
+            vm.ctx.new_str(stripped)
         }
     }
 
@@ -674,7 +628,7 @@ impl PyStr {
         if s == stripped {
             zelf
         } else {
-            stripped.into_pystr_ref(vm)
+            vm.ctx.new_str(stripped)
         }
     }
 
@@ -985,7 +939,7 @@ impl PyStr {
             }
             Err(iter) => zelf.as_str().py_join(iter)?,
         };
-        Ok(joined.into_pystr_ref(vm))
+        Ok(vm.ctx.new_str(joined))
     }
 
     // FIXME: two traversals of str is expensive

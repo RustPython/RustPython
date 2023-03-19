@@ -367,7 +367,7 @@ mod sys {
             _ => return print_unimportable_module_warn(),
         };
 
-        let (module_path, attr_name) = if last.eq(&env_var) {
+        let (module_path, attr_name) = if last == env_var {
             ("builtins", env_var.as_str())
         } else {
             (&env_var[..(env_var.len() - last.len() - 1)], last)
