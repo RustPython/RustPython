@@ -84,12 +84,12 @@ fn spec_format_bytes(
             }
         },
         CFormatType::Float(_) => {
-            let type_name = obj.class().name().to_string();
+            let class = obj.class().to_owned();
             let value = ArgIntoFloat::try_from_object(vm, obj).map_err(|e| {
                 if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                     // formatfloat in bytesobject.c generates its own specific exception
                     // text in this case, mirror it here.
-                    vm.new_type_error(format!("float argument required, not {type_name}"))
+                    vm.new_type_error(format!("float argument required, not {}", class.name()))
                 } else {
                     e
                 }
