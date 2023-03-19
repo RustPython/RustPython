@@ -17,7 +17,7 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::{Signed, ToPrimitive};
-use std::{borrow::Borrow, cmp::Ordering};
+use std::{borrow::Borrow, cmp::Ordering, ops::Deref};
 
 #[macro_export]
 macro_rules! atomic_func {
@@ -199,21 +199,21 @@ pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize
 }
 
 fn int_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-    let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __int__), ())?;
+    let ret = vm.call_special_method(num.deref().to_owned(), identifier!(vm, __int__), ())?;
     ret.downcast::<PyInt>().map_err(|obj| {
         vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
     })
 }
 
 fn index_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-    let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __index__), ())?;
+    let ret = vm.call_special_method(num.deref().to_owned(), identifier!(vm, __index__), ())?;
     ret.downcast::<PyInt>().map_err(|obj| {
         vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
     })
 }
 
 fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-    let ret = vm.call_special_method(num.obj.to_owned(), identifier!(vm, __float__), ())?;
+    let ret = vm.call_special_method(num.deref().to_owned(), identifier!(vm, __float__), ())?;
     ret.downcast::<PyFloat>().map_err(|obj| {
         vm.new_type_error(format!(
             "__float__ returned non-float (type {})",
@@ -1242,11 +1242,11 @@ pub trait AsNumber: PyPayload {
     fn as_number() -> &'static PyNumberMethods;
 
     fn number_downcast(zelf: PyNumber) -> &Py<Self> {
-        zelf.downcast_ref().unwrap()
+        unsafe { zelf.obj().downcast_unchecked_ref() }
     }
 
     fn number_downcast_exact(zelf: PyNumber, vm: &VirtualMachine) -> PyRef<Self> {
-        if let Some(zelf) = zelf.downcast_ref_if_exact(vm) {
+        if let Some(zelf) = zelf.downcast_ref_if_exact::<Self>(vm) {
             zelf.to_owned()
         } else {
             Self::clone_exact(Self::number_downcast(zelf), vm)

@@ -173,8 +173,7 @@ impl AsNumber for PyBool {
             or: Some(|a, b, vm| {
                 PyBool::or(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)
             }),
-            // ..PyInt::AS_NUMBER
-            ..*PyInt::as_number()
+            ..PyInt::AS_NUMBER
         };
         &AS_NUMBER
     }

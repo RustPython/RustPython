@@ -17,7 +17,7 @@ pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyRes
 #[derive(Copy, Clone)]
 pub struct PyNumber<'a>(&'a PyObject);
 
-impl Deref for PyNumber<'_> {
+impl<'a> Deref for PyNumber<'a> {
     type Target = PyObject;
 
     fn deref(&self) -> &Self::Target {
@@ -25,10 +25,16 @@ impl Deref for PyNumber<'_> {
     }
 }
 
+impl<'a> PyNumber<'a> {
+    pub(crate) fn obj(self) -> &'a PyObject {
+        self.0
+    }
+}
+
 macro_rules! load_pynumber_method {
     ($cls:expr, $x:ident, $y:ident) => {{
         let class = $cls;
-        if let Some(ext) = class.heaptype_ext {
+        if let Some(ext) = class.heaptype_ext.as_ref() {
             ext.number_slots.$y.load()
         } else if let Some(methods) = class.slots.as_number {
             methods.$x
@@ -44,7 +50,7 @@ macro_rules! load_pynumber_method {
 impl PyNumber<'_> {
     pub fn check(obj: &PyObject) -> bool {
         let class = obj.class();
-        if let Some(ext) = class.heaptype_ext {
+        if let Some(ext) = class.heaptype_ext.as_ref() {
             ext.number_slots.int.load().is_some()
                 || ext.number_slots.index.load().is_some()
                 || ext.number_slots.float.load().is_some()

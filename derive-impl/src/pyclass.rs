@@ -701,8 +701,9 @@ where
         let slot_ident = Ident::new(&slot_ident.to_string().to_lowercase(), slot_ident.span());
         let slot_name = slot_ident.to_string();
         let tokens = {
-            const NON_ATOMIC_SLOTS: &[&str] = &["as_buffer", "as_number"];
+            const NON_ATOMIC_SLOTS: &[&str] = &["as_buffer"];
             const POINTER_SLOTS: &[&str] = &["as_sequence", "as_mapping"];
+            const STATIC_SLOTS: &[&str] = &["as_number"];
             if NON_ATOMIC_SLOTS.contains(&slot_name.as_str()) {
                 quote_spanned! { span =>
                     slots.#slot_ident = Some(Self::#ident as _);
@@ -710,6 +711,10 @@ where
             } else if POINTER_SLOTS.contains(&slot_name.as_str()) {
                 quote_spanned! { span =>
                     slots.#slot_ident.store(Some(PointerSlot::from(Self::#ident())));
+                }
+            } else if STATIC_SLOTS.contains(&slot_name.as_str()) {
+                quote_spanned! { span =>
+                    slots.#slot_ident = Some(Self::#ident());
                 }
             } else {
                 quote_spanned! { span =>
