@@ -3637,7 +3637,7 @@ mod _io {
     }
 
     pub(super) fn make_unsupportedop(ctx: &Context) -> PyTypeRef {
-        PyType::new_ref(
+        PyType::new_heap(
             "UnsupportedOperation",
             vec![
                 ctx.exceptions.os_error.to_owned(),

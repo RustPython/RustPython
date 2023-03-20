@@ -53,7 +53,8 @@ impl Initializer for PyNamespace {
             return Err(vm.new_type_error("no positional arguments expected".to_owned()));
         }
         for (name, value) in args.kwargs.into_iter() {
-            zelf.as_object().set_attr(name, value, vm)?;
+            let name = vm.ctx.new_str(name);
+            zelf.as_object().set_attr(&name, value, vm)?;
         }
         Ok(())
     }
@@ -82,7 +83,7 @@ impl Representable for PyNamespace {
         let name = if o.class().is(vm.ctx.types.namespace_type) {
             "namespace".to_owned()
         } else {
-            o.class().slot_name()
+            o.class().slot_name().to_owned()
         };
 
         let repr = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {

@@ -69,7 +69,7 @@ impl FrozenError {
             Excluded => format!("Excluded frozen object named {mod_name}"),
             Invalid => format!("Frozen object named {mod_name} is invalid"),
         };
-        vm.new_import_error(msg, mod_name)
+        vm.new_import_error(msg, vm.ctx.new_str(mod_name))
     }
 }
 

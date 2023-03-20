@@ -143,49 +143,39 @@ impl fmt::Display for PyStr {
     }
 }
 
-pub trait IntoPyStrRef {
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyStrRef;
+pub trait AsPyStr<'a>
+where
+    Self: 'a,
+{
+    #[allow(clippy::wrong_self_convention)] // to implement on refs
+    fn as_pystr(self, ctx: &Context) -> &'a Py<PyStr>;
 }
 
-impl IntoPyStrRef for PyStrRef {
+impl<'a> AsPyStr<'a> for &'a Py<PyStr> {
     #[inline]
-    fn into_pystr_ref(self, _vm: &VirtualMachine) -> PyRef<PyStr> {
+    fn as_pystr(self, _ctx: &Context) -> &'a Py<PyStr> {
         self
     }
 }
 
-impl IntoPyStrRef for PyStr {
+impl<'a> AsPyStr<'a> for &'a PyStrRef {
     #[inline]
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        self.into_ref(vm)
+    fn as_pystr(self, _ctx: &Context) -> &'a Py<PyStr> {
+        self
     }
 }
 
-impl IntoPyStrRef for AsciiString {
+impl AsPyStr<'static> for &'static str {
     #[inline]
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        PyStr::from(self).into_ref(vm)
+    fn as_pystr(self, ctx: &Context) -> &'static Py<PyStr> {
+        ctx.intern_str(self)
     }
 }
 
-impl IntoPyStrRef for String {
+impl<'a> AsPyStr<'a> for &'a PyStrInterned {
     #[inline]
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        PyStr::from(self).into_ref(vm)
-    }
-}
-
-impl IntoPyStrRef for &str {
-    #[inline]
-    fn into_pystr_ref(self, vm: &VirtualMachine) -> PyRef<PyStr> {
-        PyStr::from(self).into_ref(vm)
-    }
-}
-
-impl IntoPyStrRef for &'static PyStrInterned {
-    #[inline]
-    fn into_pystr_ref(self, _vm: &VirtualMachine) -> PyRef<PyStr> {
-        self.to_owned()
+    fn as_pystr(self, _ctx: &Context) -> &'a Py<PyStr> {
+        self
     }
 }
 
@@ -619,7 +609,7 @@ impl PyStr {
         if s == stripped {
             zelf
         } else {
-            stripped.into_pystr_ref(vm)
+            vm.ctx.new_str(stripped)
         }
     }
 
@@ -638,7 +628,7 @@ impl PyStr {
         if s == stripped {
             zelf
         } else {
-            stripped.into_pystr_ref(vm)
+            vm.ctx.new_str(stripped)
         }
     }
 
@@ -949,7 +939,7 @@ impl PyStr {
             }
             Err(iter) => zelf.as_str().py_join(iter)?,
         };
-        Ok(joined.into_pystr_ref(vm))
+        Ok(vm.ctx.new_str(joined))
     }
 
     // FIXME: two traversals of str is expensive

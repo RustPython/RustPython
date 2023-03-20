@@ -1650,8 +1650,6 @@ class GeneralModuleTests(unittest.TestCase):
             f = None
             support.gc_collect()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_name_closed_socketio(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             fp = sock.makefile("rb")

@@ -1,9 +1,9 @@
 use super::PyMethod;
 use crate::{
-    builtins::{PyBaseExceptionRef, PyList, PyStr, PyStrInterned},
+    builtins::{pystr::AsPyStr, PyBaseExceptionRef, PyList, PyStrInterned},
     function::IntoFuncArgs,
     identifier,
-    object::{AsObject, PyObject, PyObjectRef, PyPayload, PyResult},
+    object::{AsObject, PyObject, PyObjectRef, PyResult},
     vm::VirtualMachine,
 };
 
@@ -104,10 +104,14 @@ impl VirtualMachine {
     {
         flame_guard!(format!("call_method({:?})", method_name));
 
-        let name = self
-            .ctx
-            .interned_str(method_name)
-            .map_or_else(|| PyStr::from(method_name).into_ref(self), |s| s.to_owned());
+        let dynamic_name;
+        let name = match self.ctx.interned_str(method_name) {
+            Some(name) => name.as_pystr(&self.ctx),
+            None => {
+                dynamic_name = self.ctx.new_str(method_name);
+                &dynamic_name
+            }
+        };
         PyMethod::get(obj.to_owned(), name, self)?.invoke(args, self)
     }
 

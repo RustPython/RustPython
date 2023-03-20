@@ -314,7 +314,7 @@ impl WASMVirtualMachine {
                 let (key, value) = entry?;
                 let key = Object::from(key).to_string();
                 extend_module!(vm, py_module, {
-                    String::from(key) => convert::js_to_py(vm, value),
+                    &String::from(key) => convert::js_to_py(vm, value),
                 });
             }
 

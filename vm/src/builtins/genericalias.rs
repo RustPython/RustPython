@@ -3,7 +3,7 @@ use once_cell::sync::Lazy;
 use super::type_;
 use crate::{
     atomic_func,
-    builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
@@ -214,9 +214,9 @@ impl PyGenericAlias {
     }
 }
 
-fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
+pub(crate) fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
     let class = obj.class();
-    class.slot_name() == "TypeVar"
+    "TypeVar" == &*class.slot_name()
         && class
             .get_attr(identifier!(vm, __module__))
             .and_then(|o| o.downcast_ref::<PyStr>().map(|s| s.as_str() == "typing"))
@@ -390,7 +390,7 @@ impl Hashable for PyGenericAlias {
 }
 
 impl GetAttr for PyGenericAlias {
-    fn getattro(zelf: &Py<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         for exc in ATTR_EXCEPTIONS.iter() {
             if *(*exc) == attr.to_string() {
                 return zelf.as_object().generic_getattr(attr, vm);

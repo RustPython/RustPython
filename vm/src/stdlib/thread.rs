@@ -5,7 +5,7 @@ pub(crate) use _thread::{make_module, RawRMutex};
 #[pymodule]
 pub(crate) mod _thread {
     use crate::{
-        builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyStr, PyTupleRef, PyTypeRef},
         convert::ToPyException,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, SetAttr},
@@ -360,13 +360,13 @@ pub(crate) mod _thread {
     }
 
     impl GetAttr for Local {
-        fn getattro(zelf: &Py<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
             let ldict = zelf.ldict(vm);
             if attr.as_str() == "__dict__" {
                 Ok(ldict.into())
             } else {
                 zelf.as_object()
-                    .generic_getattr_opt(attr.clone(), Some(ldict), vm)?
+                    .generic_getattr_opt(attr, Some(ldict), vm)?
                     .ok_or_else(|| {
                         vm.new_attribute_error(format!(
                             "{} has no attribute '{}'",
@@ -381,7 +381,7 @@ pub(crate) mod _thread {
     impl SetAttr for Local {
         fn setattro(
             zelf: &Py<Self>,
-            attr: PyStrRef,
+            attr: &Py<PyStr>,
             value: PySetterValue,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -393,9 +393,9 @@ pub(crate) mod _thread {
             } else {
                 let dict = zelf.ldict(vm);
                 if let PySetterValue::Assign(value) = value {
-                    dict.set_item(&*attr, value, vm)?;
+                    dict.set_item(attr, value, vm)?;
                 } else {
-                    dict.del_item(&*attr, vm)?;
+                    dict.del_item(attr, vm)?;
                 }
                 Ok(())
             }

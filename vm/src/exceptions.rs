@@ -414,7 +414,6 @@ macro_rules! extend_exception {
     };
 }
 
-#[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
 impl PyBaseException {
     pub(crate) fn new(args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyBaseException {
         PyBaseException {
@@ -429,7 +428,10 @@ impl PyBaseException {
     pub fn get_arg(&self, idx: usize) -> Option<PyObjectRef> {
         self.args.read().get(idx).cloned()
     }
+}
 
+#[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
+impl PyBaseException {
     #[pygetset]
     pub fn args(&self) -> PyTupleRef {
         self.args.read().clone()
@@ -540,92 +542,92 @@ impl ExceptionZoo {
     pub(crate) fn init() -> Self {
         use self::types::*;
 
-        let base_exception_type = PyBaseException::init_bare_type();
+        let base_exception_type = PyBaseException::init_builtin_type();
 
         // Sorted By Hierarchy then alphabetized.
-        let base_exception_group = PyBaseExceptionGroup::init_bare_type();
-        let system_exit = PySystemExit::init_bare_type();
-        let keyboard_interrupt = PyKeyboardInterrupt::init_bare_type();
-        let generator_exit = PyGeneratorExit::init_bare_type();
+        let base_exception_group = PyBaseExceptionGroup::init_builtin_type();
+        let system_exit = PySystemExit::init_builtin_type();
+        let keyboard_interrupt = PyKeyboardInterrupt::init_builtin_type();
+        let generator_exit = PyGeneratorExit::init_builtin_type();
 
-        let exception_type = PyException::init_bare_type();
-        let stop_iteration = PyStopIteration::init_bare_type();
-        let stop_async_iteration = PyStopAsyncIteration::init_bare_type();
-        let arithmetic_error = PyArithmeticError::init_bare_type();
-        let floating_point_error = PyFloatingPointError::init_bare_type();
-        let overflow_error = PyOverflowError::init_bare_type();
-        let zero_division_error = PyZeroDivisionError::init_bare_type();
+        let exception_type = PyException::init_builtin_type();
+        let stop_iteration = PyStopIteration::init_builtin_type();
+        let stop_async_iteration = PyStopAsyncIteration::init_builtin_type();
+        let arithmetic_error = PyArithmeticError::init_builtin_type();
+        let floating_point_error = PyFloatingPointError::init_builtin_type();
+        let overflow_error = PyOverflowError::init_builtin_type();
+        let zero_division_error = PyZeroDivisionError::init_builtin_type();
 
-        let assertion_error = PyAssertionError::init_bare_type();
-        let attribute_error = PyAttributeError::init_bare_type();
-        let buffer_error = PyBufferError::init_bare_type();
-        let eof_error = PyEOFError::init_bare_type();
+        let assertion_error = PyAssertionError::init_builtin_type();
+        let attribute_error = PyAttributeError::init_builtin_type();
+        let buffer_error = PyBufferError::init_builtin_type();
+        let eof_error = PyEOFError::init_builtin_type();
 
-        let import_error = PyImportError::init_bare_type();
-        let module_not_found_error = PyModuleNotFoundError::init_bare_type();
+        let import_error = PyImportError::init_builtin_type();
+        let module_not_found_error = PyModuleNotFoundError::init_builtin_type();
 
-        let lookup_error = PyLookupError::init_bare_type();
-        let index_error = PyIndexError::init_bare_type();
-        let key_error = PyKeyError::init_bare_type();
+        let lookup_error = PyLookupError::init_builtin_type();
+        let index_error = PyIndexError::init_builtin_type();
+        let key_error = PyKeyError::init_builtin_type();
 
-        let memory_error = PyMemoryError::init_bare_type();
+        let memory_error = PyMemoryError::init_builtin_type();
 
-        let name_error = PyNameError::init_bare_type();
-        let unbound_local_error = PyUnboundLocalError::init_bare_type();
+        let name_error = PyNameError::init_builtin_type();
+        let unbound_local_error = PyUnboundLocalError::init_builtin_type();
 
         // os errors
-        let os_error = PyOSError::init_bare_type();
-        let blocking_io_error = PyBlockingIOError::init_bare_type();
-        let child_process_error = PyChildProcessError::init_bare_type();
+        let os_error = PyOSError::init_builtin_type();
+        let blocking_io_error = PyBlockingIOError::init_builtin_type();
+        let child_process_error = PyChildProcessError::init_builtin_type();
 
-        let connection_error = PyConnectionError::init_bare_type();
-        let broken_pipe_error = PyBrokenPipeError::init_bare_type();
-        let connection_aborted_error = PyConnectionAbortedError::init_bare_type();
-        let connection_refused_error = PyConnectionRefusedError::init_bare_type();
-        let connection_reset_error = PyConnectionResetError::init_bare_type();
+        let connection_error = PyConnectionError::init_builtin_type();
+        let broken_pipe_error = PyBrokenPipeError::init_builtin_type();
+        let connection_aborted_error = PyConnectionAbortedError::init_builtin_type();
+        let connection_refused_error = PyConnectionRefusedError::init_builtin_type();
+        let connection_reset_error = PyConnectionResetError::init_builtin_type();
 
-        let file_exists_error = PyFileExistsError::init_bare_type();
-        let file_not_found_error = PyFileNotFoundError::init_bare_type();
-        let interrupted_error = PyInterruptedError::init_bare_type();
-        let is_a_directory_error = PyIsADirectoryError::init_bare_type();
-        let not_a_directory_error = PyNotADirectoryError::init_bare_type();
-        let permission_error = PyPermissionError::init_bare_type();
-        let process_lookup_error = PyProcessLookupError::init_bare_type();
-        let timeout_error = PyTimeoutError::init_bare_type();
+        let file_exists_error = PyFileExistsError::init_builtin_type();
+        let file_not_found_error = PyFileNotFoundError::init_builtin_type();
+        let interrupted_error = PyInterruptedError::init_builtin_type();
+        let is_a_directory_error = PyIsADirectoryError::init_builtin_type();
+        let not_a_directory_error = PyNotADirectoryError::init_builtin_type();
+        let permission_error = PyPermissionError::init_builtin_type();
+        let process_lookup_error = PyProcessLookupError::init_builtin_type();
+        let timeout_error = PyTimeoutError::init_builtin_type();
 
-        let reference_error = PyReferenceError::init_bare_type();
+        let reference_error = PyReferenceError::init_builtin_type();
 
-        let runtime_error = PyRuntimeError::init_bare_type();
-        let not_implemented_error = PyNotImplementedError::init_bare_type();
-        let recursion_error = PyRecursionError::init_bare_type();
+        let runtime_error = PyRuntimeError::init_builtin_type();
+        let not_implemented_error = PyNotImplementedError::init_builtin_type();
+        let recursion_error = PyRecursionError::init_builtin_type();
 
-        let syntax_error = PySyntaxError::init_bare_type();
-        let indentation_error = PyIndentationError::init_bare_type();
-        let tab_error = PyTabError::init_bare_type();
+        let syntax_error = PySyntaxError::init_builtin_type();
+        let indentation_error = PyIndentationError::init_builtin_type();
+        let tab_error = PyTabError::init_builtin_type();
 
-        let system_error = PySystemError::init_bare_type();
-        let type_error = PyTypeError::init_bare_type();
-        let value_error = PyValueError::init_bare_type();
-        let unicode_error = PyUnicodeError::init_bare_type();
-        let unicode_decode_error = PyUnicodeDecodeError::init_bare_type();
-        let unicode_encode_error = PyUnicodeEncodeError::init_bare_type();
-        let unicode_translate_error = PyUnicodeTranslateError::init_bare_type();
+        let system_error = PySystemError::init_builtin_type();
+        let type_error = PyTypeError::init_builtin_type();
+        let value_error = PyValueError::init_builtin_type();
+        let unicode_error = PyUnicodeError::init_builtin_type();
+        let unicode_decode_error = PyUnicodeDecodeError::init_builtin_type();
+        let unicode_encode_error = PyUnicodeEncodeError::init_builtin_type();
+        let unicode_translate_error = PyUnicodeTranslateError::init_builtin_type();
 
         #[cfg(feature = "jit")]
-        let jit_error = PyJitError::init_bare_type();
+        let jit_error = PyJitError::init_builtin_type();
 
-        let warning = PyWarning::init_bare_type();
-        let deprecation_warning = PyDeprecationWarning::init_bare_type();
-        let pending_deprecation_warning = PyPendingDeprecationWarning::init_bare_type();
-        let runtime_warning = PyRuntimeWarning::init_bare_type();
-        let syntax_warning = PySyntaxWarning::init_bare_type();
-        let user_warning = PyUserWarning::init_bare_type();
-        let future_warning = PyFutureWarning::init_bare_type();
-        let import_warning = PyImportWarning::init_bare_type();
-        let unicode_warning = PyUnicodeWarning::init_bare_type();
-        let bytes_warning = PyBytesWarning::init_bare_type();
-        let resource_warning = PyResourceWarning::init_bare_type();
-        let encoding_warning = PyEncodingWarning::init_bare_type();
+        let warning = PyWarning::init_builtin_type();
+        let deprecation_warning = PyDeprecationWarning::init_builtin_type();
+        let pending_deprecation_warning = PyPendingDeprecationWarning::init_builtin_type();
+        let runtime_warning = PyRuntimeWarning::init_builtin_type();
+        let syntax_warning = PySyntaxWarning::init_builtin_type();
+        let user_warning = PyUserWarning::init_builtin_type();
+        let future_warning = PyFutureWarning::init_builtin_type();
+        let import_warning = PyImportWarning::init_builtin_type();
+        let unicode_warning = PyUnicodeWarning::init_builtin_type();
+        let bytes_warning = PyBytesWarning::init_builtin_type();
+        let resource_warning = PyResourceWarning::init_builtin_type();
+        let encoding_warning = PyEncodingWarning::init_builtin_type();
 
         Self {
             base_exception_type,

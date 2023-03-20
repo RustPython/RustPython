@@ -161,19 +161,19 @@ impl PyBaseObject {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        obj.generic_setattr(name, PySetterValue::Assign(value), vm)
+        obj.generic_setattr(&name, PySetterValue::Assign(value), vm)
     }
 
     /// Implement delattr(self, name).
     #[pymethod]
     fn __delattr__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        obj.generic_setattr(name, PySetterValue::Delete, vm)
+        obj.generic_setattr(&name, PySetterValue::Delete, vm)
     }
 
     #[pyslot]
     fn slot_setattro(
         obj: &PyObject,
-        attr_name: PyStrRef,
+        attr_name: &Py<PyStr>,
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -296,14 +296,14 @@ impl PyBaseObject {
 
     /// Return getattr(self, name).
     #[pyslot]
-    pub(crate) fn getattro(obj: &PyObject, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn getattro(obj: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
         obj.as_object().generic_getattr(name, vm)
     }
 
     #[pymethod(magic)]
     fn getattribute(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::getattro(&obj, name, vm)
+        Self::getattro(&obj, &name, vm)
     }
 
     #[pymethod(magic)]

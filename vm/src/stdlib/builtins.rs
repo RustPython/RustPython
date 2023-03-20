@@ -187,7 +187,7 @@ mod builtins {
 
     #[pyfunction]
     fn delattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        obj.del_attr(attr, vm)
+        obj.del_attr(&attr, vm)
     }
 
     #[pyfunction]
@@ -326,9 +326,9 @@ mod builtins {
         vm: &VirtualMachine,
     ) -> PyResult {
         if let OptionalArg::Present(default) = default {
-            Ok(vm.get_attribute_opt(obj, attr)?.unwrap_or(default))
+            Ok(vm.get_attribute_opt(obj, &attr)?.unwrap_or(default))
         } else {
-            obj.get_attr(attr, vm)
+            obj.get_attr(&attr, vm)
         }
     }
 
@@ -339,7 +339,7 @@ mod builtins {
 
     #[pyfunction]
     fn hasattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        Ok(vm.get_attribute_opt(obj, attr)?.is_some())
+        Ok(vm.get_attribute_opt(obj, &attr)?.is_some())
     }
 
     #[pyfunction]
@@ -744,7 +744,7 @@ mod builtins {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        obj.set_attr(attr, value, vm)?;
+        obj.set_attr(&attr, value, vm)?;
         Ok(())
     }
 
@@ -803,10 +803,9 @@ mod builtins {
     #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
-            obj.get_attr(identifier!(vm, __dict__).to_owned(), vm)
-                .map_err(|_| {
-                    vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
-                })
+            obj.get_attr(identifier!(vm, __dict__), vm).map_err(|_| {
+                vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
+            })
         } else {
             Ok(vm.current_locals()?.into())
         }
@@ -882,7 +881,7 @@ mod builtins {
                     }
                 }
                 let meta_name = metaclass.slot_name();
-                (metaclass.into(), meta_name)
+                (metaclass.to_owned().into(), meta_name.to_owned())
             }
             Err(obj) => (obj, "<metaclass>".to_owned()),
         };

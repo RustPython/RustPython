@@ -3,7 +3,7 @@
 See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d9a90c5bb36e2bef6179548ea927a35a/Objects/typeobject.c#L7663)
 */
 
-use super::{PyStrRef, PyType, PyTypeRef};
+use super::{PyStr, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     function::{IntoFuncArgs, OptionalArg},
@@ -126,7 +126,7 @@ impl PySuper {
 }
 
 impl GetAttr for PySuper {
-    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         let skip = |zelf: &Py<Self>, name| zelf.as_object().generic_getattr(name, vm);
         let (obj, start_type): (PyObjectRef, PyTypeRef) = match zelf.obj.clone() {
             Some(o) => o,
@@ -139,7 +139,7 @@ impl GetAttr for PySuper {
             return skip(zelf, name);
         }
 
-        if let Some(name) = vm.ctx.interned_str(&*name) {
+        if let Some(name) = vm.ctx.interned_str(name) {
             // skip the classes in start_type.mro up to and including zelf.typ
             let mro: Vec<_> = start_type
                 .iter_mro()

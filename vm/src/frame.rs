@@ -516,7 +516,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::ImportName { idx } => {
-                self.import(vm, Some(self.code.names[idx.get(arg) as usize].to_owned()))?;
+                self.import(vm, Some(self.code.names[idx.get(arg) as usize]))?;
                 Ok(None)
             }
             bytecode::Instruction::ImportNameless => {
@@ -1020,7 +1020,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::LoadMethod { idx } => {
                 let obj = self.pop_value();
                 let method_name = self.code.names[idx.get(arg) as usize];
-                let method = PyMethod::get(obj, method_name.to_owned(), vm)?;
+                let method = PyMethod::get(obj, method_name, vm)?;
                 let (target, is_method, func) = match method {
                     PyMethod::Function { target, func } => (target, true, func),
                     PyMethod::Attribute(val) => (vm.ctx.none(), false, val),
@@ -1129,8 +1129,8 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import(&mut self, vm: &VirtualMachine, module: Option<PyStrRef>) -> PyResult<()> {
-        let module = module.unwrap_or_else(|| vm.ctx.empty_str.clone());
+    fn import(&mut self, vm: &VirtualMachine, module: Option<&Py<PyStr>>) -> PyResult<()> {
+        let module = module.unwrap_or(&vm.ctx.empty_str);
         let from_list = <Option<PyTupleTyped<PyStrRef>>>::try_from_object(vm, self.pop_value())?;
         let level = usize::try_from_object(vm, self.pop_value())?;
 
@@ -1144,7 +1144,7 @@ impl ExecutingFrame<'_> {
     fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> PyResult {
         let module = self.last_value();
         let name = self.code.names[idx as usize];
-        let err = || vm.new_import_error(format!("cannot import name '{name}'"), name);
+        let err = || vm.new_import_error(format!("cannot import name '{name}'"), name.to_owned());
         // Load attribute, and transform any error into import error.
         if let Some(obj) = vm.get_attribute_opt(module.clone(), name)? {
             return Ok(obj);

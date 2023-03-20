@@ -3,7 +3,7 @@
 
 use crate::{
     builtins::{
-        pystr::IntoPyStrRef, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStr, PyStrRef,
+        pystr::AsPyStr, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStr, PyStrRef,
         PyTupleRef, PyTypeRef,
     },
     bytesinner::ByteInnerNewOptions,
@@ -13,7 +13,7 @@ use crate::{
     function::{Either, OptionalArg, PyArithmeticValue, PySetterValue},
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 // RustPython doesn't need these items
@@ -75,26 +75,26 @@ impl PyObjectRef {
 }
 
 impl PyObject {
-    pub fn has_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.get_attr(attr_name, vm).map(|o| vm.is_none(&o))
+    pub fn has_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult<bool> {
+        self.get_attr(attr_name, vm).map(|o| !vm.is_none(&o))
     }
 
-    pub fn get_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult {
-        let attr_name = attr_name.into_pystr_ref(vm);
-        self._get_attr(attr_name, vm)
+    pub fn get_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult {
+        let attr_name = attr_name.as_pystr(&vm.ctx);
+        self.get_attr_inner(attr_name, vm)
     }
 
     // get_attribute should be used for full attribute access (usually from user code).
     #[cfg_attr(feature = "flame-it", flame("PyObjectRef"))]
     #[inline]
-    fn _get_attr(&self, attr_name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub(crate) fn get_attr_inner(&self, attr_name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__: {:?} {:?}", self, attr_name);
         let getattro = self
             .class()
             .mro_find_map(|cls| cls.slots.getattro.load())
             .unwrap();
-        getattro(self, attr_name.clone(), vm).map_err(|exc| {
-            vm.set_attribute_error_context(&exc, self.to_owned(), attr_name);
+        getattro(self, attr_name, vm).map_err(|exc| {
+            vm.set_attribute_error_context(&exc, self.to_owned(), attr_name.to_owned());
             exc
         })
     }
@@ -102,7 +102,7 @@ impl PyObject {
     pub fn call_set_attr(
         &self,
         vm: &VirtualMachine,
-        attr_name: PyStrRef,
+        attr_name: &Py<PyStr>,
         attr_value: PySetterValue,
     ) -> PyResult<()> {
         let setattro = {
@@ -126,13 +126,13 @@ impl PyObject {
         setattro(self, attr_name, attr_value, vm)
     }
 
-    pub fn set_attr(
+    pub fn set_attr<'a>(
         &self,
-        attr_name: impl IntoPyStrRef,
+        attr_name: impl AsPyStr<'a>,
         attr_value: impl Into<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let attr_name = attr_name.into_pystr_ref(vm);
+        let attr_name = attr_name.as_pystr(&vm.ctx);
         self.call_set_attr(vm, attr_name, PySetterValue::Assign(attr_value.into()))
     }
 
@@ -140,14 +140,14 @@ impl PyObject {
     #[cfg_attr(feature = "flame-it", flame)]
     pub fn generic_setattr(
         &self,
-        attr_name: PyStrRef, // TODO: Py<PyStr>
+        attr_name: &Py<PyStr>,
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         vm_trace!("object.__setattr__({:?}, {}, {:?})", self, attr_name, value);
         if let Some(attr) = vm
             .ctx
-            .interned_str(&*attr_name)
+            .interned_str(attr_name)
             .and_then(|attr_name| self.get_class_attr(attr_name))
         {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
@@ -158,9 +158,9 @@ impl PyObject {
 
         if let Some(dict) = self.dict() {
             if let PySetterValue::Assign(value) = value {
-                dict.set_item(&*attr_name, value, vm)?;
+                dict.set_item(attr_name, value, vm)?;
             } else {
-                dict.del_item(&*attr_name, vm).map_err(|e| {
+                dict.del_item(attr_name, vm).map_err(|e| {
                     if e.fast_isinstance(vm.ctx.exceptions.key_error) {
                         vm.new_attribute_error(format!(
                             "'{}' object has no attribute '{}'",
@@ -182,27 +182,26 @@ impl PyObject {
         }
     }
 
-    pub fn generic_getattr(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        self.generic_getattr_opt(name.clone(), None, vm)?
-            .ok_or_else(|| {
-                vm.new_attribute_error(format!(
-                    "'{}' object has no attribute '{}'",
-                    self.class().name(),
-                    name
-                ))
-            })
+    pub fn generic_getattr(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
+        self.generic_getattr_opt(name, None, vm)?.ok_or_else(|| {
+            vm.new_attribute_error(format!(
+                "'{}' object has no attribute '{}'",
+                self.class().name(),
+                name
+            ))
+        })
     }
 
     /// CPython _PyObject_GenericGetAttrWithDict
     pub fn generic_getattr_opt(
         &self,
-        name_str: PyStrRef,
+        name_str: &Py<PyStr>,
         dict: Option<PyDictRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
         let name = name_str.as_str();
         let obj_cls = self.class();
-        let cls_attr_name = vm.ctx.interned_str(&*name_str);
+        let cls_attr_name = vm.ctx.interned_str(name_str);
         let cls_attr = match cls_attr_name.and_then(|name| obj_cls.get_attr(name)) {
             Some(descr) => {
                 let descr_cls = descr.class();
@@ -244,8 +243,8 @@ impl PyObject {
         }
     }
 
-    pub fn del_attr(&self, attr_name: impl IntoPyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let attr_name = attr_name.into_pystr_ref(vm);
+    pub fn del_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult<()> {
+        let attr_name = attr_name.as_pystr(&vm.ctx);
         self.call_set_attr(vm, attr_name, PySetterValue::Delete)
     }
 

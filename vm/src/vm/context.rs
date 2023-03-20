@@ -18,7 +18,7 @@ use crate::{
     common::rc::PyRc,
     exceptions,
     function::{IntoPyGetterFunc, IntoPyNativeFunc, IntoPySetterFunc},
-    intern::{Internable, MaybeInterned, StringPool},
+    intern::{InternableString, MaybeInternedString, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     PyResult, VirtualMachine,
@@ -320,11 +320,14 @@ impl Context {
         context
     }
 
-    pub fn intern_str<S: Internable>(&self, s: S) -> &'static PyStrInterned {
+    pub fn intern_str<S: InternableString>(&self, s: S) -> &'static PyStrInterned {
         unsafe { self.string_pool.intern(s, self.types.str_type.to_owned()) }
     }
 
-    pub fn interned_str<S: MaybeInterned + ?Sized>(&self, s: &S) -> Option<&'static PyStrInterned> {
+    pub fn interned_str<S: MaybeInternedString + ?Sized>(
+        &self,
+        s: &S,
+    ) -> Option<&'static PyStrInterned> {
         self.string_pool.interned(s)
     }
 
@@ -386,6 +389,17 @@ impl Context {
         pystr::PyStr::new_ref(s, self)
     }
 
+    pub fn interned_or_new_str<S, M>(&self, s: S) -> PyRef<PyStr>
+    where
+        S: Into<PyStr> + AsRef<M>,
+        M: MaybeInternedString,
+    {
+        match self.interned_str(s.as_ref()) {
+            Some(s) => s.to_owned(),
+            None => self.new_str(s),
+        }
+    }
+
     #[inline]
     pub fn new_bytes(&self, data: Vec<u8>) -> PyRef<bytes::PyBytes> {
         bytes::PyBytes::new_ref(data, self)
@@ -427,7 +441,7 @@ impl Context {
         if let Some(module) = module {
             attrs.insert(identifier!(self, __module__), self.new_str(module).into());
         };
-        PyType::new_ref(
+        PyType::new_heap(
             name,
             vec![base],
             attrs,
@@ -452,11 +466,15 @@ impl Context {
         let mut attrs = PyAttributes::default();
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
 
-        PyType::new_ref(
+        let interned_name = self.intern_str(name);
+        PyType::new_heap(
             name,
             bases,
             attrs,
-            PyBaseException::make_slots(),
+            PyTypeSlots {
+                name: interned_name.as_str(),
+                ..PyBaseException::make_slots()
+            },
             self.types.type_type.to_owned(),
             self,
         )

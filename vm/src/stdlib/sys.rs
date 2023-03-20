@@ -336,27 +336,24 @@ mod sys {
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let envar = std::env::var("PYTHONBREAKPOINT")
-            .and_then(|envar| {
-                if envar.is_empty() {
+        let env_var = std::env::var("PYTHONBREAKPOINT")
+            .and_then(|env_var| {
+                if env_var.is_empty() {
                     Err(VarError::NotPresent)
                 } else {
-                    Ok(envar)
+                    Ok(env_var)
                 }
             })
             .unwrap_or_else(|_| "pdb.set_trace".to_owned());
 
-        if envar.eq("0") {
+        if env_var.eq("0") {
             return Ok(vm.ctx.none());
         };
 
         let print_unimportable_module_warn = || {
             warn(
                 vm.ctx.exceptions.runtime_warning,
-                format!(
-                    "Ignoring unimportable $PYTHONBREAKPOINT: \"{}\"",
-                    envar.to_owned(),
-                ),
+                format!("Ignoring unimportable $PYTHONBREAKPOINT: \"{env_var}\"",),
                 0,
                 vm,
             )
@@ -364,30 +361,26 @@ mod sys {
             Ok(vm.ctx.none())
         };
 
-        let last = match envar.split('.').last() {
-            Some(last) => last,
-            None => {
-                return print_unimportable_module_warn();
-            }
+        let last = match env_var.rsplit_once('.') {
+            Some((_, last)) => last,
+            None if !env_var.is_empty() => env_var.as_str(),
+            _ => return print_unimportable_module_warn(),
         };
 
-        let (modulepath, attrname) = if last.eq(&envar) {
-            ("builtins".to_owned(), envar.to_owned())
+        let (module_path, attr_name) = if last == env_var {
+            ("builtins", env_var.as_str())
         } else {
-            (
-                envar[..(envar.len() - last.len() - 1)].to_owned(),
-                last.to_owned(),
-            )
+            (&env_var[..(env_var.len() - last.len() - 1)], last)
         };
 
-        let module = match vm.import(modulepath, None, 0) {
+        let module = match vm.import(&vm.ctx.new_str(module_path), None, 0) {
             Ok(module) => module,
             Err(_) => {
                 return print_unimportable_module_warn();
             }
         };
 
-        match vm.get_attribute_opt(module, attrname) {
+        match vm.get_attribute_opt(module, &vm.ctx.new_str(attr_name)) {
             Ok(Some(hook)) => hook.as_ref().call(args, vm),
             _ => print_unimportable_module_warn(),
         }

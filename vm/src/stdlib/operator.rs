@@ -4,7 +4,7 @@ pub(crate) use _operator::make_module;
 mod _operator {
     use crate::common::cmp;
     use crate::{
-        builtins::{PyInt, PyIntRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
         function::Either,
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
         identifier,
@@ -383,16 +383,17 @@ mod _operator {
         // Go through dotted parts of string and call getattr on whatever is returned.
         fn get_single_attr(
             obj: PyObjectRef,
-            attr: &str,
+            attr: &Py<PyStr>,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let parts = attr.split('.').collect::<Vec<_>>();
+            let attr_str = attr.as_str();
+            let parts = attr_str.split('.').collect::<Vec<_>>();
             if parts.len() == 1 {
-                return obj.get_attr(parts[0], vm);
+                return obj.get_attr(attr, vm);
             }
             let mut obj = obj;
             for part in parts {
-                obj = obj.get_attr(part, vm)?;
+                obj = obj.get_attr(&vm.ctx.new_str(part), vm)?;
             }
             Ok(obj)
         }
@@ -429,12 +430,12 @@ mod _operator {
         fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
             // Handle case where we only have one attribute.
             if zelf.attrs.len() == 1 {
-                return Self::get_single_attr(obj, zelf.attrs[0].as_str(), vm);
+                return Self::get_single_attr(obj, &zelf.attrs[0], vm);
             }
             // Build tuple and call get_single on each element in attrs.
             let mut results = Vec::with_capacity(zelf.attrs.len());
             for o in &zelf.attrs {
-                results.push(Self::get_single_attr(obj.clone(), o.as_str(), vm)?);
+                results.push(Self::get_single_attr(obj.clone(), o, vm)?);
             }
             Ok(vm.ctx.new_tuple(results).into())
         }

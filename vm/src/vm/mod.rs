@@ -17,9 +17,10 @@ mod vm_ops;
 use crate::{
     builtins::{
         code::PyCode,
-        pystr::IntoPyStrRef,
+        pystr::AsPyStr,
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStrInterned, PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned, PyStrRef,
+        PyTypeRef,
     },
     bytecode::frozen_lib::FrozenModule,
     codecs::CodecsRegistry,
@@ -33,7 +34,7 @@ use crate::{
     scope::Scope,
     signal, stdlib,
     warn::WarningsState,
-    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
@@ -269,8 +270,9 @@ impl VirtualMachine {
                         Default::default(),
                         self,
                     )?;
+                    let dunder_name = self.ctx.intern_str(format!("__{name}__"));
                     self.sys_module.set_attr(
-                        format!("__{name}__"), // e.g. __stdin__
+                        dunder_name, // e.g. __stdin__
                         stdio.clone(),
                         self,
                     )?;
@@ -444,7 +446,7 @@ impl VirtualMachine {
         Ref::map(frame, |f| &f.globals)
     }
 
-    pub fn try_class(&self, module: &str, class: &str) -> PyResult<PyTypeRef> {
+    pub fn try_class(&self, module: &'static str, class: &'static str) -> PyResult<PyTypeRef> {
         let class = self
             .import(module, None, 0)?
             .get_attr(class, self)?
@@ -453,10 +455,11 @@ impl VirtualMachine {
         Ok(class)
     }
 
-    pub fn class(&self, module: &str, class: &str) -> PyTypeRef {
+    pub fn class(&self, module: &'static str, class: &'static str) -> PyTypeRef {
         let module = self
             .import(module, None, 0)
             .unwrap_or_else(|_| panic!("unable to import {module}"));
+
         let class = module
             .get_attr(class, self)
             .unwrap_or_else(|_| panic!("module {module:?} has no class {class}"));
@@ -464,18 +467,18 @@ impl VirtualMachine {
     }
 
     #[inline]
-    pub fn import(
+    pub fn import<'a>(
         &self,
-        module: impl IntoPyStrRef,
+        module: impl AsPyStr<'a>,
         from_list: Option<PyTupleTyped<PyStrRef>>,
         level: usize,
     ) -> PyResult {
-        self._import_inner(module.into_pystr_ref(self), from_list, level)
+        self.import_inner(module.as_pystr(&self.ctx), from_list, level)
     }
 
-    fn _import_inner(
+    fn import_inner(
         &self,
-        module: PyStrRef,
+        module: &Py<PyStr>,
         from_list: Option<PyTupleTyped<PyStrRef>>,
         level: usize,
     ) -> PyResult {
@@ -489,7 +492,7 @@ impl VirtualMachine {
             None
         } else {
             let sys_modules = self.sys_module.get_attr("modules", self)?;
-            sys_modules.get_item(&*module, self).ok()
+            sys_modules.get_item(module, self).ok()
         };
 
         match cached_module {
@@ -497,7 +500,7 @@ impl VirtualMachine {
                 if self.is_none(&cached_module) {
                     Err(self.new_import_error(
                         format!("import of {module} halted; None in sys.modules"),
-                        module,
+                        module.to_owned(),
                     ))
                 } else {
                     Ok(cached_module)
@@ -509,7 +512,7 @@ impl VirtualMachine {
                     .clone()
                     .get_attr(identifier!(self, __import__), self)
                     .map_err(|_| {
-                        self.new_import_error("__import__ not found".to_owned(), module.clone())
+                        self.new_import_error("__import__ not found".to_owned(), module.to_owned())
                     })?;
 
                 let (locals, globals) = if let Some(frame) = self.current_frame() {
@@ -522,7 +525,7 @@ impl VirtualMachine {
                     None => self.new_tuple(()).into(),
                 };
                 import_func
-                    .call((module, globals, locals, from_list, level), self)
+                    .call((module.to_owned(), globals, locals, from_list, level), self)
                     .map_err(|exc| import::remove_importlib_frames(self, &exc))
             }
         }
@@ -606,15 +609,13 @@ impl VirtualMachine {
         Ok(results)
     }
 
-    pub fn get_attribute_opt<T>(
+    pub fn get_attribute_opt<'a>(
         &self,
         obj: PyObjectRef,
-        attr_name: T,
-    ) -> PyResult<Option<PyObjectRef>>
-    where
-        T: IntoPyStrRef,
-    {
-        match obj.get_attr(attr_name, self) {
+        attr_name: impl AsPyStr<'a>,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let attr_name = attr_name.as_pystr(&self.ctx);
+        match obj.get_attr_inner(attr_name, self) {
             Ok(attr) => Ok(Some(attr)),
             Err(e) if e.fast_isinstance(self.ctx.exceptions.attribute_error) => Ok(None),
             Err(e) => Err(e),
@@ -795,12 +796,12 @@ impl VirtualMachine {
     pub fn __module_set_attr(
         &self,
         module: &PyObject,
-        attr_name: impl IntoPyStrRef,
+        attr_name: &str,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
         module.generic_setattr(
-            attr_name.into_pystr_ref(self),
+            self.ctx.intern_str(attr_name),
             PySetterValue::Assign(val),
             self,
         )

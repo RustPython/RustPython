@@ -22,7 +22,8 @@ use crate::{
     identifier,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{AsNumber, Callable, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
 };
 use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
@@ -39,8 +40,8 @@ pub struct PyType {
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
 }
 
-#[derive(Default)]
 pub struct HeapTypeExt {
+    pub name: PyRwLock<PyStrRef>,
     pub slots: Option<PyTupleTyped<PyStrRef>>,
     pub number_methods: PyNumberMethods,
     pub sequence_methods: PySequenceMethods,
@@ -119,12 +120,12 @@ impl PyPayload for PyType {
 }
 
 impl PyType {
-    pub fn new_simple_ref(
+    pub fn new_simple_heap(
         name: &str,
         base: &PyTypeRef,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
-        Self::new_ref(
+        Self::new_heap(
             name,
             vec![base.clone()],
             Default::default(),
@@ -133,7 +134,7 @@ impl PyType {
             ctx,
         )
     }
-    pub fn new_ref(
+    pub fn new_heap(
         name: &str,
         bases: Vec<PyRef<Self>>,
         attrs: PyAttributes,
@@ -141,21 +142,24 @@ impl PyType {
         metaclass: PyRef<Self>,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
-        Self::new_verbose_ref(
-            name,
-            bases[0].clone(),
-            bases,
-            attrs,
-            slots,
-            HeapTypeExt::default(),
-            metaclass,
-            ctx,
-        )
+        // TODO: ensure clean slot name
+        // assert_eq!(slots.name.borrow(), "");
+
+        let name = ctx.new_str(name);
+        let heaptype_ext = HeapTypeExt {
+            name: PyRwLock::new(name),
+            slots: None,
+            number_methods: PyNumberMethods::default(),
+            sequence_methods: PySequenceMethods::default(),
+            mapping_methods: PyMappingMethods::default(),
+        };
+        let base = bases[0].clone();
+
+        Self::new_heap_inner(base, bases, attrs, slots, heaptype_ext, metaclass, ctx)
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_verbose_ref(
-        name: &str,
+    fn new_heap_inner(
         base: PyRef<Self>,
         bases: Vec<PyRef<Self>>,
         attrs: PyAttributes,
@@ -181,8 +185,6 @@ impl PyType {
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
-
-        *slots.name.get_mut() = Some(String::from(name));
 
         let new_type = PyRef::new_ref(
             PyType {
@@ -213,8 +215,7 @@ impl PyType {
         Ok(new_type)
     }
 
-    pub fn new_bare_ref(
-        name: &str,
+    pub fn new_static(
         base: PyRef<Self>,
         attrs: PyAttributes,
         mut slots: PyTypeSlots,
@@ -223,8 +224,6 @@ impl PyType {
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
-
-        *slots.name.get_mut() = Some(String::from(name));
 
         let bases = vec![base.clone()];
         let mro = base.iter_mro().map(|x| x.to_owned()).collect();
@@ -278,10 +277,6 @@ impl PyType {
         for attr_name in slot_name_set {
             self.update_slot::<true>(attr_name, ctx);
         }
-    }
-
-    pub fn slot_name(&self) -> String {
-        self.slots.name.read().as_ref().unwrap().to_string()
     }
 
     pub fn iter_mro(&self) -> impl Iterator<Item = &PyType> + DoubleEndedIterator {
@@ -369,16 +364,30 @@ impl PyType {
         call_slot_new(zelf, subtype, args, vm)
     }
 
+    fn name_inner<'a, R: 'a>(
+        &'a self,
+        static_f: impl FnOnce(&'static str) -> R,
+        heap_f: impl FnOnce(&'a HeapTypeExt) -> R,
+    ) -> R {
+        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            static_f(self.slots.name)
+        } else {
+            heap_f(self.heaptype_ext.as_ref().unwrap())
+        }
+    }
+
+    pub fn slot_name(&self) -> BorrowedValue<str> {
+        self.name_inner(
+            |name| name.into(),
+            |ext| PyRwLockReadGuard::map(ext.name.read(), |name| name.as_str()).into(),
+        )
+    }
+
     pub fn name(&self) -> BorrowedValue<str> {
-        PyRwLockReadGuard::map(self.slots.name.read(), |slot_name| {
-            let name = slot_name.as_ref().unwrap();
-            if self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-                name.as_str()
-            } else {
-                name.rsplit('.').next().unwrap()
-            }
-        })
-        .into()
+        self.name_inner(
+            |name| name.rsplit_once('.').map_or(name, |(_, name)| name).into(),
+            |ext| PyRwLockReadGuard::map(ext.name.read(), |name| name.as_str()).into(),
+        )
     }
 }
 
@@ -425,8 +434,21 @@ impl PyType {
     }
 
     #[pygetset]
-    fn __name__(&self) -> String {
-        self.name().to_string()
+    pub fn __name__(&self, vm: &VirtualMachine) -> PyStrRef {
+        self.name_inner(
+            |name| {
+                vm.ctx
+                    .interned_str(name.rsplit_once('.').map_or(name, |(_, name)| name))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "static type name must be already interned but {} is not",
+                            self.slot_name()
+                        )
+                    })
+                    .to_owned()
+            },
+            |ext| ext.name.read().clone(),
+        )
     }
 
     #[pygetset(magic)]
@@ -608,7 +630,7 @@ impl PyType {
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
 
-        if name.as_str().contains(char::from(0)) {
+        if name.as_str().as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
         }
 
@@ -733,17 +755,24 @@ impl PyType {
             base.slots.member_count + heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
 
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
-        let heaptype_ext = HeapTypeExt {
-            slots: heaptype_slots.to_owned(),
-            ..HeapTypeExt::default()
-        };
-        let slots = PyTypeSlots {
-            member_count,
-            ..PyTypeSlots::from_flags(flags)
+        let (slots, heaptype_ext) = unsafe {
+            // # Safety
+            // `slots.name` live long enough because `heaptype_ext` is alive.
+            let slots = PyTypeSlots {
+                member_count,
+                ..PyTypeSlots::new(&*(name.as_str() as *const _), flags)
+            };
+            let heaptype_ext = HeapTypeExt {
+                name: PyRwLock::new(name),
+                slots: heaptype_slots.to_owned(),
+                number_methods: PyNumberMethods::default(),
+                sequence_methods: PySequenceMethods::default(),
+                mapping_methods: PyMappingMethods::default(),
+            };
+            (slots, heaptype_ext)
         };
 
-        let typ = Self::new_verbose_ref(
-            name.as_str(),
+        let typ = Self::new_heap_inner(
             base,
             bases,
             attributes,
@@ -837,26 +866,38 @@ impl PyType {
         ))
     }
 
-    #[pygetset(magic, setter)]
-    fn set_name(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+    fn check_set_special_type_attr(
+        &self,
+        _value: &PyObject,
+        name: &PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
             return Err(vm.new_type_error(format!(
                 "cannot set '{}' attribute of immutable type '{}'",
-                "__name__",
-                self.name()
+                name,
+                self.slot_name()
             )));
         }
-        let name = value.downcast_ref::<PyStr>().ok_or_else(|| {
+        Ok(())
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_name(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.check_set_special_type_attr(&value, identifier!(vm, __name__), vm)?;
+        let name = value.downcast::<PyStr>().map_err(|value| {
             vm.new_type_error(format!(
                 "can only assign string to {}.__name__, not '{}'",
-                self.name(),
-                value.class().name()
+                self.slot_name(),
+                value.class().slot_name(),
             ))
         })?;
-        if name.as_str().contains(char::from(0)) {
+        if name.as_str().as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
         }
-        *self.slots.name.write() = Some(name.as_str().to_string());
+
+        *self.heaptype_ext.as_ref().unwrap().name.write() = name;
+
         Ok(())
     }
 
@@ -932,7 +973,7 @@ pub(crate) fn get_text_signature_from_internal_doc<'a>(
 }
 
 impl GetAttr for PyType {
-    fn getattro(zelf: &Py<Self>, name_str: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, name_str: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         #[cold]
         fn attribute_error(
             zelf: &Py<PyType>,
@@ -946,7 +987,7 @@ impl GetAttr for PyType {
             ))
         }
 
-        let Some(name) = vm.ctx.interned_str(&*name_str) else {
+        let Some(name) = vm.ctx.interned_str(name_str) else {
             return Err(attribute_error(zelf, name_str.as_str(), vm));
         };
         vm_trace!("type.__getattribute__({:?}, {:?})", zelf, name);
@@ -989,7 +1030,7 @@ impl GetAttr for PyType {
 impl SetAttr for PyType {
     fn setattro(
         zelf: &Py<Self>,
-        attr_name: PyStrRef,
+        attr_name: &Py<PyStr>,
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -1302,7 +1343,7 @@ mod tests {
         let object = context.types.object_type.to_owned();
         let type_type = context.types.type_type.to_owned();
 
-        let a = PyType::new_ref(
+        let a = PyType::new_heap(
             "A",
             vec![object.clone()],
             PyAttributes::default(),
@@ -1311,7 +1352,7 @@ mod tests {
             context,
         )
         .unwrap();
-        let b = PyType::new_ref(
+        let b = PyType::new_heap(
             "B",
             vec![object.clone()],
             PyAttributes::default(),
