@@ -149,7 +149,7 @@ impl PyType {
         let heaptype_ext = HeapTypeExt {
             name: PyRwLock::new(name),
             slots: None,
-            number_methods: PyNumberMethods::default(),
+            number_slots: PyNumberSlots::default(),
             sequence_methods: PySequenceMethods::default(),
             mapping_methods: PyMappingMethods::default(),
         };
@@ -755,6 +755,9 @@ impl PyType {
             base.slots.member_count + heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
 
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
+
+        let number_slots = base.slots.as_number.map(|x| x.into()).unwrap_or_default();
+
         let (slots, heaptype_ext) = unsafe {
             // # Safety
             // `slots.name` live long enough because `heaptype_ext` is alive.
@@ -765,7 +768,7 @@ impl PyType {
             let heaptype_ext = HeapTypeExt {
                 name: PyRwLock::new(name),
                 slots: heaptype_slots.to_owned(),
-                number_methods: PyNumberMethods::default(),
+                number_slots,
                 sequence_methods: PySequenceMethods::default(),
                 mapping_methods: PyMappingMethods::default(),
             };
@@ -1377,63 +1380,63 @@ mod tests {
     }
 }
 
-impl crate::PyObject {
-    // temporary tool to fill missing number protocols for builtin types
-    pub fn init_builtin_number_slots(&self, ctx: &Context) {
-        let typ = self
-            .downcast_ref::<PyType>()
-            .expect("not called from a type");
-        macro_rules! call_update_slot {
-            ($name:ident) => {
-                let id = identifier!(ctx, $name);
-                if typ.has_attr(id) {
-                    typ.update_slot::<true>(identifier!(ctx, $name), ctx);
-                }
-            };
-        }
-        call_update_slot!(__add__);
-        call_update_slot!(__radd__);
-        call_update_slot!(__iadd__);
-        call_update_slot!(__sub__);
-        call_update_slot!(__rsub__);
-        call_update_slot!(__isub__);
-        call_update_slot!(__mul__);
-        call_update_slot!(__rmul__);
-        call_update_slot!(__imul__);
-        call_update_slot!(__mod__);
-        call_update_slot!(__rmod__);
-        call_update_slot!(__imod__);
-        call_update_slot!(__div__);
-        call_update_slot!(__rdiv__);
-        call_update_slot!(__idiv__);
-        call_update_slot!(__divmod__);
-        call_update_slot!(__rdivmod__);
-        call_update_slot!(__pow__);
-        call_update_slot!(__rpow__);
-        call_update_slot!(__ipow__);
-        call_update_slot!(__lshift__);
-        call_update_slot!(__rlshift__);
-        call_update_slot!(__ilshift__);
-        call_update_slot!(__rshift__);
-        call_update_slot!(__rrshift__);
-        call_update_slot!(__irshift__);
-        call_update_slot!(__and__);
-        call_update_slot!(__rand__);
-        call_update_slot!(__iand__);
-        call_update_slot!(__xor__);
-        call_update_slot!(__rxor__);
-        call_update_slot!(__ixor__);
-        call_update_slot!(__or__);
-        call_update_slot!(__ror__);
-        call_update_slot!(__ior__);
-        call_update_slot!(__floordiv__);
-        call_update_slot!(__rfloordiv__);
-        call_update_slot!(__ifloordiv__);
-        call_update_slot!(__truediv__);
-        call_update_slot!(__rtruediv__);
-        call_update_slot!(__itruediv__);
-        call_update_slot!(__matmul__);
-        call_update_slot!(__rmatmul__);
-        call_update_slot!(__imatmul__);
-    }
-}
+// impl crate::PyObject {
+//     // temporary tool to fill missing number protocols for builtin types
+//     pub fn init_builtin_number_slots(&self, ctx: &Context) {
+//         let typ = self
+//             .downcast_ref::<PyType>()
+//             .expect("not called from a type");
+//         macro_rules! call_update_slot {
+//             ($name:ident) => {
+//                 let id = identifier!(ctx, $name);
+//                 if typ.has_attr(id) {
+//                     typ.update_slot::<true>(identifier!(ctx, $name), ctx);
+//                 }
+//             };
+//         }
+//         call_update_slot!(__add__);
+//         call_update_slot!(__radd__);
+//         call_update_slot!(__iadd__);
+//         call_update_slot!(__sub__);
+//         call_update_slot!(__rsub__);
+//         call_update_slot!(__isub__);
+//         call_update_slot!(__mul__);
+//         call_update_slot!(__rmul__);
+//         call_update_slot!(__imul__);
+//         call_update_slot!(__mod__);
+//         call_update_slot!(__rmod__);
+//         call_update_slot!(__imod__);
+//         call_update_slot!(__div__);
+//         call_update_slot!(__rdiv__);
+//         call_update_slot!(__idiv__);
+//         call_update_slot!(__divmod__);
+//         call_update_slot!(__rdivmod__);
+//         call_update_slot!(__pow__);
+//         call_update_slot!(__rpow__);
+//         call_update_slot!(__ipow__);
+//         call_update_slot!(__lshift__);
+//         call_update_slot!(__rlshift__);
+//         call_update_slot!(__ilshift__);
+//         call_update_slot!(__rshift__);
+//         call_update_slot!(__rrshift__);
+//         call_update_slot!(__irshift__);
+//         call_update_slot!(__and__);
+//         call_update_slot!(__rand__);
+//         call_update_slot!(__iand__);
+//         call_update_slot!(__xor__);
+//         call_update_slot!(__rxor__);
+//         call_update_slot!(__ixor__);
+//         call_update_slot!(__or__);
+//         call_update_slot!(__ror__);
+//         call_update_slot!(__ior__);
+//         call_update_slot!(__floordiv__);
+//         call_update_slot!(__rfloordiv__);
+//         call_update_slot!(__ifloordiv__);
+//         call_update_slot!(__truediv__);
+//         call_update_slot!(__rtruediv__);
+//         call_update_slot!(__itruediv__);
+//         call_update_slot!(__matmul__);
+//         call_update_slot!(__rmatmul__);
+//         call_update_slot!(__imatmul__);
+//     }
+// }
