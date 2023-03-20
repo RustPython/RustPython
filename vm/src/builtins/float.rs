@@ -13,7 +13,7 @@ use crate::{
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
-    protocol::{PyNumber, PyNumberMethods},
+    protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,

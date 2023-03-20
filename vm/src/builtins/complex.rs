@@ -8,7 +8,7 @@ use crate::{
         PyComparisonValue,
     },
     identifier,
-    protocol::{PyNumber, PyNumberMethods},
+    protocol::PyNumberMethods,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -418,15 +418,9 @@ impl Hashable for PyComplex {
 impl AsNumber for PyComplex {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            add: Some(|a, b, vm| {
-                PyComplex::number_op(a, b, |a, b, _vm| a + b, vm)
-            }),
-            subtract: Some(|a, b, vm| {
-                PyComplex::number_op(a, b, |a, b, _vm| a - b, vm)
-            }),
-            multiply: Some(|a, b, vm| {
-                PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)
-            }),
+            add: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a + b, vm)),
+            subtract: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a - b, vm)),
+            multiply: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)),
             power: Some(|a, b, vm| PyComplex::number_op(a, b, inner_pow, vm)),
             negative: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;

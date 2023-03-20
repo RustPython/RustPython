@@ -8,8 +8,7 @@ use crate::{
     function::{Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     identifier,
     protocol::{
-        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberBinaryFunc,
-        PyNumberBinaryOp, PyNumberMethods, PyNumberSlots, PyNumberUnaryFunc, PySequence,
+        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberMethods, PySequence,
         PySequenceMethods,
     },
     vm::Context,

@@ -164,15 +164,9 @@ impl PyBool {
 impl AsNumber for PyBool {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            and: Some(|a, b, vm| {
-                PyBool::and(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)
-            }),
-            xor: Some(|a, b, vm| {
-                PyBool::xor(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)
-            }),
-            or: Some(|a, b, vm| {
-                PyBool::or(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)
-            }),
+            and: Some(|a, b, vm| PyBool::and(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            xor: Some(|a, b, vm| PyBool::xor(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            or: Some(|a, b, vm| PyBool::or(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
             ..PyInt::AS_NUMBER
         };
         &AS_NUMBER
