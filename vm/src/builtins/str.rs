@@ -1288,7 +1288,7 @@ impl PyStr {
 #[pyclass]
 impl PyRef<PyStr> {
     #[pymethod(magic)]
-    fn str(self, vm: &VirtualMachine) -> PyRefExact<PyStr> {
+    pub fn str(self, vm: &VirtualMachine) -> PyRefExact<PyStr> {
         self.into_exact_or(&vm.ctx, |zelf| unsafe {
             // Creating a copy with same kind is safe
             PyStr::new_str_unchecked(zelf.bytes.to_vec(), zelf.kind.kind()).into_exact_ref(&vm.ctx)
