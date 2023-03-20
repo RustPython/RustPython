@@ -51,14 +51,19 @@ impl PyNumber<'_> {
     pub fn check(obj: &PyObject) -> bool {
         let class = obj.class();
         if let Some(ext) = class.heaptype_ext.as_ref() {
-            ext.number_slots.int.load().is_some()
+            if ext.number_slots.int.load().is_some()
                 || ext.number_slots.index.load().is_some()
                 || ext.number_slots.float.load().is_some()
-        } else if let Some(methods) = class.slots.as_number {
-            methods.int.is_some() || methods.index.is_some() || methods.float.is_some()
-        } else {
-            obj.payload_is::<PyComplex>()
+            {
+                return true;
+            }
         }
+        if let Some(methods) = class.slots.as_number {
+            if methods.int.is_some() || methods.index.is_some() || methods.float.is_some() {
+                return true;
+            }
+        }
+        obj.payload_is::<PyComplex>()
     }
 
     pub fn is_index(self) -> bool {
@@ -472,7 +477,6 @@ impl From<&PyNumberMethods> for PyNumberSlots {
     fn from(value: &PyNumberMethods) -> Self {
         // right_* functions will use the same left function as PyNumberMethods garrentee to
         // support both f(self, other) and f(other, self)
-        // the caller will have to reverse direction when calling right_* functions
         Self {
             add: AtomicCell::new(value.add),
             subtract: AtomicCell::new(value.subtract),
