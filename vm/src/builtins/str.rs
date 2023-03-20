@@ -364,6 +364,7 @@ impl PyStr {
 #[pyclass(
     flags(BASETYPE),
     with(
+        PyRef,
         AsMapping,
         AsNumber,
         AsSequence,
@@ -479,11 +480,6 @@ impl PyStr {
     #[pymethod(magic)]
     fn mul(zelf: PyRef<Self>, value: ArgSize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         Self::repeat(zelf, value.into(), vm)
-    }
-
-    #[pymethod(magic)]
-    fn str(zelf: PyRef<Self>) -> PyStrRef {
-        zelf
     }
 
     #[inline]
@@ -1267,6 +1263,17 @@ impl PyStr {
     #[pymethod(magic)]
     fn getnewargs(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
         (zelf.as_str(),).to_pyobject(vm)
+    }
+}
+
+#[pyclass]
+impl PyRef<PyStr> {
+    #[pymethod(magic)]
+    fn str(self, vm: &VirtualMachine) -> PyRefExact<PyStr> {
+        self.into_exact_or(&vm.ctx, |zelf| unsafe {
+            // Creating a copy with same kind is safe
+            PyStr::new_str_unchecked(zelf.bytes.to_vec(), zelf.kind.kind()).into_exact_ref(&vm.ctx)
+        })
     }
 }
 
