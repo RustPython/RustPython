@@ -82,8 +82,8 @@ pub struct MemberDescrObject {
 }
 
 impl PyPayload for MemberDescrObject {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.member_descriptor_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.member_descriptor_type
     }
 }
 

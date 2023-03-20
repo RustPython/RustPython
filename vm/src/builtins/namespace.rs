@@ -16,8 +16,8 @@ use crate::{
 pub struct PyNamespace {}
 
 impl PyPayload for PyNamespace {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.namespace_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.namespace_type
     }
 }
 

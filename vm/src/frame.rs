@@ -15,7 +15,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     stdlib::builtins,
-    vm::PyMethod,
+    vm::{Context, PyMethod},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
@@ -116,8 +116,8 @@ pub struct Frame {
 }
 
 impl PyPayload for Frame {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.frame_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.frame_type
     }
 }
 
@@ -138,7 +138,7 @@ impl Frame {
         closure: &[PyCellRef],
         vm: &VirtualMachine,
     ) -> Frame {
-        let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(vm))
+        let cells_frees = std::iter::repeat_with(|| PyCell::default().into_ref(&vm.ctx))
             .take(code.cellvars.len())
             .chain(closure.iter().cloned())
             .collect();
@@ -383,7 +383,7 @@ impl ExecutingFrame<'_> {
                             loc.row(),
                         );
                         vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
-                        exception.set_traceback(Some(new_traceback.into_ref(vm)));
+                        exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
 
                         vm.contextualize_exception(&exception);
 
@@ -1333,7 +1333,7 @@ impl ExecutingFrame<'_> {
             stop,
             step,
         }
-        .into_ref(vm);
+        .into_ref(&vm.ctx);
         self.push_value(obj.into());
         Ok(None)
     }

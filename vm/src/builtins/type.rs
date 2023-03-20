@@ -114,8 +114,8 @@ impl fmt::Debug for PyType {
 }
 
 impl PyPayload for PyType {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.type_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.type_type
     }
 }
 
@@ -793,14 +793,15 @@ impl PyType {
                     setter: MemberSetter::Offset(offset),
                     doc: None,
                 };
-                let member_descriptor: PyRef<MemberDescrObject> = vm.new_pyref(MemberDescrObject {
-                    common: DescrObject {
-                        typ: typ.to_owned(),
-                        name: member.to_string(),
-                        qualname: PyRwLock::new(None),
-                    },
-                    member: member_def,
-                });
+                let member_descriptor: PyRef<MemberDescrObject> =
+                    vm.ctx.new_pyref(MemberDescrObject {
+                        common: DescrObject {
+                            typ: typ.to_owned(),
+                            name: member.to_string(),
+                            qualname: PyRwLock::new(None),
+                        },
+                        member: member_def,
+                    });
 
                 let attr_name = vm.ctx.intern_str(member.to_string());
                 if !typ.has_attr(attr_name) {

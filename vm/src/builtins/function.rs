@@ -312,7 +312,7 @@ impl PyFunction {
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             vm,
         )
-        .into_ref(vm);
+        .into_ref(&vm.ctx);
 
         self.fill_locals_from_args(&frame, func_args, vm)?;
 
@@ -334,8 +334,8 @@ impl PyFunction {
 }
 
 impl PyPayload for PyFunction {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.function_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.function_type
     }
 }
 
@@ -623,8 +623,8 @@ impl PyBoundMethod {
 }
 
 impl PyPayload for PyBoundMethod {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bound_method_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bound_method_type
     }
 }
 
@@ -636,8 +636,8 @@ pub(crate) struct PyCell {
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.cell_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.cell_type
     }
 }
 

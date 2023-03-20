@@ -186,7 +186,7 @@ fn remove_importlib_frames_inner(
                 traceback.lasti,
                 traceback.lineno,
             )
-            .into_ref(vm),
+            .into_ref(&vm.ctx),
         ),
         now_in_importlib,
     )

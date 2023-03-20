@@ -21,8 +21,8 @@ pub struct PyAsyncGen {
 type PyAsyncGenRef = PyRef<PyAsyncGen>;
 
 impl PyPayload for PyAsyncGen {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.async_generator
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.async_generator
     }
 }
 
@@ -141,8 +141,8 @@ impl Unconstructible for PyAsyncGen {}
 #[derive(Debug)]
 pub(crate) struct PyAsyncGenWrappedValue(pub PyObjectRef);
 impl PyPayload for PyAsyncGenWrappedValue {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.async_generator_wrapped_value
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.async_generator_wrapped_value
     }
 }
 
@@ -190,8 +190,8 @@ pub(crate) struct PyAsyncGenASend {
 }
 
 impl PyPayload for PyAsyncGenASend {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.async_generator_asend
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.async_generator_asend
     }
 }
 
@@ -285,8 +285,8 @@ pub(crate) struct PyAsyncGenAThrow {
 }
 
 impl PyPayload for PyAsyncGenAThrow {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.async_generator_athrow
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.async_generator_athrow
     }
 }
 

@@ -12,8 +12,8 @@ use crate::{
 pub struct PyNone;
 
 impl PyPayload for PyNone {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.none_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.none_type
     }
 }
 
@@ -77,8 +77,8 @@ impl AsNumber for PyNone {
 pub struct PyNotImplemented;
 
 impl PyPayload for PyNotImplemented {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.not_implemented_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.not_implemented_type
     }
 }
 

@@ -6,7 +6,7 @@ use crate::{
     convert::ToPyObject,
     scope::Scope,
     vm::VirtualMachine,
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef,
+    AsObject, Py, PyObject, PyObjectRef, PyRef,
 };
 
 /// Collection of object creation helpers
@@ -14,14 +14,6 @@ impl VirtualMachine {
     /// Create a new python object
     pub fn new_pyobj(&self, value: impl ToPyObject) -> PyObjectRef {
         value.to_pyobject(self)
-    }
-
-    pub fn new_pyref<T, P>(&self, value: T) -> PyRef<P>
-    where
-        T: Into<P>,
-        P: PyPayload,
-    {
-        value.into().into_ref(self)
     }
 
     pub fn new_tuple(&self, value: impl IntoPyTuple) -> PyTupleRef {

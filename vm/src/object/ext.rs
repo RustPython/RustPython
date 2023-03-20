@@ -135,7 +135,7 @@ impl<T: PyObjectPayload> Clone for PyRefExact<T> {
 
 impl<T: PyPayload> TryFromObject for PyRefExact<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let target_cls = T::class(vm);
+        let target_cls = T::class(&vm.ctx);
         let cls = obj.class();
         if cls.is(target_cls) {
             let obj = obj

@@ -21,8 +21,8 @@ pub struct WeakNewArgs {
 }
 
 impl PyPayload for PyWeak {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.weakref_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.weakref_type
     }
 }
 

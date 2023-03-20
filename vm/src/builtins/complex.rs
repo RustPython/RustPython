@@ -33,8 +33,8 @@ impl PyComplex {
 }
 
 impl PyPayload for PyComplex {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.complex_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.complex_type
     }
 }
 
@@ -221,7 +221,7 @@ impl PyComplex {
         if zelf.is(vm.ctx.types.complex_type) {
             zelf
         } else {
-            PyComplex::from(zelf.value).into_ref(vm)
+            PyComplex::from(zelf.value).into_ref(&vm.ctx)
         }
     }
 

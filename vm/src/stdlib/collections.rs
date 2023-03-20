@@ -521,12 +521,12 @@ mod _collections {
                 concat: atomic_func!(|seq, other, vm| {
                     PyDeque::sequence_downcast(seq)
                         .concat(other, vm)
-                        .map(|x| x.into_ref(vm).into())
+                        .map(|x| x.into_ref(&vm.ctx).into())
                 }),
                 repeat: atomic_func!(|seq, n, vm| {
                     PyDeque::sequence_downcast(seq)
                         .mul(n, vm)
-                        .map(|x| x.into_ref(vm).into())
+                        .map(|x| x.into_ref(&vm.ctx).into())
                 }),
                 item: atomic_func!(|seq, i, vm| PyDeque::sequence_downcast(seq).getitem(i, vm)),
                 ass_item: atomic_func!(|seq, i, value, vm| {
@@ -636,7 +636,7 @@ mod _collections {
             let internal = zelf.internal.lock();
             let deque = match &internal.status {
                 Active(obj) => obj.clone(),
-                Exhausted => PyDeque::default().into_ref(vm),
+                Exhausted => PyDeque::default().into_ref(&vm.ctx),
             };
             (
                 zelf.class().to_owned(),
@@ -702,7 +702,7 @@ mod _collections {
             let internal = zelf.internal.lock();
             let deque = match &internal.status {
                 Active(obj) => obj.clone(),
-                Exhausted => PyDeque::default().into_ref(vm),
+                Exhausted => PyDeque::default().into_ref(&vm.ctx),
             };
             Ok((
                 zelf.class().to_owned(),

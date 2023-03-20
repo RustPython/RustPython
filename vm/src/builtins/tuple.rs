@@ -34,8 +34,8 @@ impl fmt::Debug for PyTuple {
 }
 
 impl PyPayload for PyTuple {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.tuple_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.tuple_type
     }
 }
 
@@ -181,7 +181,7 @@ impl PyTuple {
         } else {
             let v = zelf.elements.mul(vm, value)?;
             let elements = v.into_boxed_slice();
-            Self { elements }.into_ref(vm)
+            Self { elements }.into_ref(&vm.ctx)
         })
     }
 }
@@ -216,7 +216,7 @@ impl PyTuple {
                     .chain(other.as_slice())
                     .cloned()
                     .collect::<Box<[_]>>();
-                Self { elements }.into_ref(vm)
+                Self { elements }.into_ref(&vm.ctx)
             }
         });
         PyArithmeticValue::from_option(added.ok())
@@ -428,8 +428,8 @@ pub(crate) struct PyTupleIterator {
 }
 
 impl PyPayload for PyTupleIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.tuple_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.tuple_iterator_type
     }
 }
 

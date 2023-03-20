@@ -70,8 +70,8 @@ pub struct PyRange {
 }
 
 impl PyPayload for PyRange {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.range_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.range_type
     }
 }
 
@@ -178,9 +178,9 @@ pub fn init(context: &Context) {
 impl PyRange {
     fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
-            start: vm.new_pyref(0),
+            start: vm.ctx.new_pyref(0),
             stop: stop.into(),
-            step: vm.new_pyref(1),
+            step: vm.ctx.new_pyref(1),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -346,11 +346,11 @@ impl PyRange {
                 sub_stop = (sub_stop * range_step.as_bigint()) + range_start.as_bigint();
 
                 Ok(PyRange {
-                    start: vm.new_pyref(sub_start),
-                    stop: vm.new_pyref(sub_stop),
-                    step: vm.new_pyref(sub_step),
+                    start: vm.ctx.new_pyref(sub_start),
+                    stop: vm.ctx.new_pyref(sub_stop),
+                    step: vm.ctx.new_pyref(sub_step),
                 }
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into())
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
@@ -404,7 +404,7 @@ impl AsSequence for PyRange {
             item: atomic_func!(|seq, i, vm| {
                 PyRange::sequence_downcast(seq)
                     .get(&i.into())
-                    .map(|x| PyInt::from(x).into_ref(vm).into())
+                    .map(|x| PyInt::from(x).into_ref(&vm.ctx).into())
                     .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
             }),
             contains: atomic_func!(|seq, needle, vm| {
@@ -532,8 +532,8 @@ pub struct PyLongRangeIterator {
 }
 
 impl PyPayload for PyLongRangeIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.long_range_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.long_range_iterator_type
     }
 }
 
@@ -597,8 +597,8 @@ pub struct PyRangeIterator {
 }
 
 impl PyPayload for PyRangeIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.range_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.range_iterator_type
     }
 }
 
@@ -661,9 +661,9 @@ fn range_iter_reduce(
     let iter = builtins_iter(vm).to_owned();
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
-        start: PyInt::from(start).into_ref(vm),
-        stop: PyInt::from(stop).into_ref(vm),
-        step: PyInt::from(step).into_ref(vm),
+        start: PyInt::from(start).into_ref(&vm.ctx),
+        stop: PyInt::from(stop).into_ref(&vm.ctx),
+        step: PyInt::from(step).into_ref(&vm.ctx),
     };
     Ok(vm.new_tuple((iter, (range,), index)))
 }

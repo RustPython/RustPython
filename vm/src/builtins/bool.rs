@@ -80,8 +80,8 @@ impl PyObjectRef {
 pub struct PyBool;
 
 impl PyPayload for PyBool {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bool_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bool_type
     }
 }
 

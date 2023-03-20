@@ -923,7 +923,7 @@ pub(super) mod _os {
                                     stat: OnceCell::new(),
                                     ino: AtomicCell::new(ino),
                                 }
-                                .into_ref(vm)
+                                .into_ref(&vm.ctx)
                                 .into(),
                             ))
                         }
@@ -946,7 +946,7 @@ pub(super) mod _os {
             entries: PyRwLock::new(Some(entries)),
             mode: path.mode,
         }
-        .into_ref(vm)
+        .into_ref(&vm.ctx)
         .into())
     }
 
@@ -1010,13 +1010,13 @@ pub(super) mod _os {
             let to_f64 = |(s, ns)| (s as f64) + (ns as f64) / (NANOS_PER_SEC as f64);
             let to_ns = |(s, ns)| s as i128 * NANOS_PER_SEC as i128 + ns as i128;
             StatResult {
-                st_mode: vm.new_pyref(stat.st_mode),
-                st_ino: vm.new_pyref(stat.st_ino),
-                st_dev: vm.new_pyref(stat.st_dev),
-                st_nlink: vm.new_pyref(stat.st_nlink),
-                st_uid: vm.new_pyref(stat.st_uid),
-                st_gid: vm.new_pyref(stat.st_gid),
-                st_size: vm.new_pyref(stat.st_size),
+                st_mode: vm.ctx.new_pyref(stat.st_mode),
+                st_ino: vm.ctx.new_pyref(stat.st_ino),
+                st_dev: vm.ctx.new_pyref(stat.st_dev),
+                st_nlink: vm.ctx.new_pyref(stat.st_nlink),
+                st_uid: vm.ctx.new_pyref(stat.st_uid),
+                st_gid: vm.ctx.new_pyref(stat.st_gid),
+                st_size: vm.ctx.new_pyref(stat.st_size),
                 __st_atime_int: atime.0,
                 __st_mtime_int: mtime.0,
                 __st_ctime_int: ctime.0,
@@ -1799,9 +1799,9 @@ pub fn extend_module(vm: &VirtualMachine, module: &PyObject) {
     _os::extend_module(vm, module);
 
     let support_funcs = _os::support_funcs();
-    let supports_fd = PySet::default().into_ref(vm);
-    let supports_dir_fd = PySet::default().into_ref(vm);
-    let supports_follow_symlinks = PySet::default().into_ref(vm);
+    let supports_fd = PySet::default().into_ref(&vm.ctx);
+    let supports_dir_fd = PySet::default().into_ref(&vm.ctx);
+    let supports_follow_symlinks = PySet::default().into_ref(&vm.ctx);
     for support in support_funcs {
         let func_obj = module.to_owned().get_attr(support.name, vm).unwrap();
         if support.fd.unwrap_or(false) {

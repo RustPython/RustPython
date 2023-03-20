@@ -775,7 +775,7 @@ mod decl {
             let grouper = PyItertoolsGrouper {
                 groupby: zelf.to_owned(),
             }
-            .into_ref(vm);
+            .into_ref(&vm.ctx);
 
             state.grouper = Some(grouper.downgrade(None, vm).unwrap());
             Ok(PyIterReturn::Return(
@@ -1202,8 +1202,8 @@ mod decl {
     #[pyclass(with(IterNext, Constructor))]
     impl PyItertoolsTee {
         fn from_iter(iterator: PyIter, vm: &VirtualMachine) -> PyResult {
-            let class = PyItertoolsTee::class(vm);
-            if iterator.class().is(PyItertoolsTee::class(vm)) {
+            let class = PyItertoolsTee::class(&vm.ctx);
+            if iterator.class().is(PyItertoolsTee::class(&vm.ctx)) {
                 return vm.call_special_method(iterator.into(), identifier!(vm, __copy__), ());
             }
             Ok(PyItertoolsTee {

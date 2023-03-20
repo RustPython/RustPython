@@ -39,8 +39,8 @@ impl std::fmt::Debug for PyGetSet {
 }
 
 impl PyPayload for PyGetSet {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.getset_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.getset_type
     }
 }
 
@@ -61,7 +61,7 @@ impl GetDescriptor for PyGetSet {
             Err(vm.new_attribute_error(format!(
                 "attribute '{}' of '{}' objects is not readable",
                 zelf.name,
-                Self::class(vm).name()
+                Self::class(&vm.ctx).name()
             )))
         }
     }

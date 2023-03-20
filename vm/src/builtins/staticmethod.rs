@@ -15,8 +15,8 @@ pub struct PyStaticMethod {
 }
 
 impl PyPayload for PyStaticMethod {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.staticmethod_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.staticmethod_type
     }
 }
 
@@ -167,7 +167,7 @@ impl Callable for PyStaticMethod {
 impl Representable for PyStaticMethod {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let callable = zelf.callable.lock().repr(vm).unwrap();
-        let class = Self::class(vm);
+        let class = Self::class(&vm.ctx);
 
         match (
             class

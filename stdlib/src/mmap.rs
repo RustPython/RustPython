@@ -742,7 +742,7 @@ mod mmap {
                 MmapObj::Write(mmap) => mmap[pos..end_pos].to_vec(),
             };
 
-            let result = PyBytes::from(bytes).into_ref(vm);
+            let result = PyBytes::from(bytes).into_ref(&vm.ctx);
 
             self.advance_pos(num_bytes);
 
@@ -763,7 +763,7 @@ mod mmap {
 
             self.advance_pos(1);
 
-            Ok(PyInt::from(b).into_ref(vm))
+            Ok(PyInt::from(b).into_ref(&vm.ctx))
         }
 
         #[pymethod]
@@ -773,7 +773,7 @@ mod mmap {
 
             let remaining = self.len().saturating_sub(pos);
             if remaining == 0 {
-                return Ok(PyBytes::from(vec![]).into_ref(vm));
+                return Ok(PyBytes::from(vec![]).into_ref(&vm.ctx));
             }
 
             let eof = match mmap.as_ref().unwrap() {
@@ -794,7 +794,7 @@ mod mmap {
                 MmapObj::Write(mmap) => mmap[pos..end_pos].to_vec(),
             };
 
-            let result = PyBytes::from(bytes).into_ref(vm);
+            let result = PyBytes::from(bytes).into_ref(&vm.ctx);
 
             self.advance_pos(end_pos - pos);
 
@@ -856,7 +856,7 @@ mod mmap {
                 Err(e) => return Err(vm.new_os_error(e.to_string())),
             };
 
-            Ok(PyInt::from(file_len).into_ref(vm))
+            Ok(PyInt::from(file_len).into_ref(&vm.ctx))
         }
 
         #[pymethod]
@@ -884,7 +884,7 @@ mod mmap {
 
             self.advance_pos(len);
 
-            Ok(PyInt::from(len).into_ref(vm))
+            Ok(PyInt::from(len).into_ref(&vm.ctx))
         }
 
         #[pymethod]
@@ -945,7 +945,7 @@ mod mmap {
                 MmapObj::Write(mmap) => mmap[i],
             };
 
-            Ok(PyInt::from(b).into_ref(vm).into())
+            Ok(PyInt::from(b).into_ref(&vm.ctx).into())
         }
 
         fn getitem_by_slice(
@@ -958,13 +958,13 @@ mod mmap {
             let mmap = self.check_valid(vm)?;
 
             if slice_len == 0 {
-                return Ok(PyBytes::from(vec![]).into_ref(vm).into());
+                return Ok(PyBytes::from(vec![]).into_ref(&vm.ctx).into());
             } else if step == 1 {
                 let bytes = match mmap.deref().as_ref().unwrap() {
                     MmapObj::Read(mmap) => &mmap[range],
                     MmapObj::Write(mmap) => &mmap[range],
                 };
-                return Ok(PyBytes::from(bytes.to_vec()).into_ref(vm).into());
+                return Ok(PyBytes::from(bytes.to_vec()).into_ref(&vm.ctx).into());
             }
 
             let mut result_buf = Vec::with_capacity(slice_len);
@@ -985,7 +985,7 @@ mod mmap {
                     result_buf.push(b);
                 }
             }
-            Ok(PyBytes::from(result_buf).into_ref(vm).into())
+            Ok(PyBytes::from(result_buf).into_ref(&vm.ctx).into())
         }
 
         fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {

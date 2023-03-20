@@ -2,7 +2,8 @@ use super::{Py, PyObjectRef, PyRef, PyResult};
 use crate::{
     builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
     types::PyTypeFlags,
-    vm::VirtualMachine,
+    vm::{Context, VirtualMachine},
+    PyRefExact,
 };
 
 cfg_if::cfg_if! {
@@ -16,17 +17,17 @@ cfg_if::cfg_if! {
 }
 
 pub trait PyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType>;
+    fn class(ctx: &Context) -> &'static Py<PyType>;
 
     #[inline]
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.into_ref(vm).into()
+        self.into_ref(&vm.ctx).into()
     }
 
     #[inline]
-    fn _into_ref(self, cls: PyTypeRef, vm: &VirtualMachine) -> PyRef<Self> {
+    fn _into_ref(self, cls: PyTypeRef, ctx: &Context) -> PyRef<Self> {
         let dict = if cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
-            Some(vm.ctx.new_dict())
+            Some(ctx.new_dict())
         } else {
             None
         };
@@ -34,16 +35,24 @@ pub trait PyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 
     #[inline]
-    fn into_ref(self, vm: &VirtualMachine) -> PyRef<Self> {
-        let cls = Self::class(vm);
-        self._into_ref(cls.to_owned(), vm)
+    fn into_exact_ref(self, ctx: &Context) -> PyRefExact<Self> {
+        unsafe {
+            // Self::into_ref() always returns exact typed PyRef
+            PyRefExact::new_unchecked(self.into_ref(ctx))
+        }
+    }
+
+    #[inline]
+    fn into_ref(self, ctx: &Context) -> PyRef<Self> {
+        let cls = Self::class(ctx);
+        self._into_ref(cls.to_owned(), ctx)
     }
 
     #[inline]
     fn into_ref_with_type(self, vm: &VirtualMachine, cls: PyTypeRef) -> PyResult<PyRef<Self>> {
-        let exact_class = Self::class(vm);
+        let exact_class = Self::class(&vm.ctx);
         if cls.fast_issubclass(exact_class) {
-            Ok(self._into_ref(cls, vm))
+            Ok(self._into_ref(cls, &vm.ctx))
         } else {
             #[cold]
             #[inline(never)]

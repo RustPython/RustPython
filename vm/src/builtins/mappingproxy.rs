@@ -26,8 +26,8 @@ enum MappingProxyInner {
 }
 
 impl PyPayload for PyMappingProxy {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.mappingproxy_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.mappingproxy_type
     }
 }
 
@@ -185,7 +185,7 @@ impl PyMappingProxy {
     fn ior(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error(format!(
             "\"'|=' is not supported by {}; use '|' instead\"",
-            Self::class(vm)
+            Self::class(&vm.ctx)
         )))
     }
 
