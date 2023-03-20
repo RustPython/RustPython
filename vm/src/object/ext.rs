@@ -9,6 +9,7 @@ use crate::common::{
 use crate::{
     builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
     convert::{IntoPyException, ToPyObject, ToPyResult, TryFromObject},
+    vm::Context,
     VirtualMachine,
 };
 use std::{borrow::Borrow, fmt, marker::PhantomData, ops::Deref, ptr::null_mut};
@@ -104,6 +105,20 @@ impl<T: PyPayload> std::borrow::ToOwned for PyExact<T> {
     fn to_owned(&self) -> Self::Owned {
         let owned = self.inner.to_owned();
         unsafe { PyRefExact::new_unchecked(owned) }
+    }
+}
+
+impl<T: PyPayload> PyRef<T> {
+    pub fn into_exact_or(
+        self,
+        ctx: &Context,
+        f: impl FnOnce(Self) -> PyRefExact<T>,
+    ) -> PyRefExact<T> {
+        if self.class().is(T::class(ctx)) {
+            unsafe { PyRefExact::new_unchecked(self) }
+        } else {
+            f(self)
+        }
     }
 }
 

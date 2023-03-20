@@ -15,7 +15,7 @@ use crate::{
     },
     protocol::{PyNumber, PyNumberMethods},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
 use num_bigint::{BigInt, Sign};
@@ -321,7 +321,7 @@ impl PyInt {
 
 #[pyclass(
     flags(BASETYPE),
-    with(Comparable, Hashable, Constructor, AsNumber, Representable)
+    with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyInt {
     #[pymethod(name = "__radd__")]
@@ -522,11 +522,6 @@ impl PyInt {
     }
 
     #[pymethod(magic)]
-    fn int(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
-    }
-
-    #[pymethod(magic)]
     fn pos(&self) -> BigInt {
         self.value.clone()
     }
@@ -537,23 +532,23 @@ impl PyInt {
     }
 
     #[pymethod(magic)]
-    fn trunc(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::clone_if_subclass(zelf, vm)
+    fn trunc(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.int(vm)
     }
 
     #[pymethod(magic)]
-    fn floor(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::clone_if_subclass(zelf, vm)
+    fn floor(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.int(vm)
     }
 
     #[pymethod(magic)]
-    fn ceil(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::clone_if_subclass(zelf, vm)
+    fn ceil(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.int(vm)
     }
 
     #[pymethod(magic)]
-    fn index(zelf: PyRef<Self>) -> PyRef<Self> {
-        zelf
+    fn index(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.int(vm)
     }
 
     #[pymethod(magic)]
@@ -589,8 +584,8 @@ impl PyInt {
     }
 
     #[pymethod]
-    fn conjugate(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::clone_if_subclass(zelf, vm)
+    fn conjugate(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.int(vm)
     }
 
     #[pyclassmethod]
@@ -659,18 +654,9 @@ impl PyInt {
         Ok(bytes.into())
     }
 
-    #[inline]
-    fn clone_if_subclass(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        if zelf.class().is(vm.ctx.types.int_type) {
-            return zelf;
-        }
-
-        vm.ctx.new_bigint(&zelf.value)
-    }
-
     #[pygetset]
-    fn real(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::clone_if_subclass(zelf, vm)
+    fn real(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.int(vm)
     }
 
     #[pygetset]
@@ -679,8 +665,8 @@ impl PyInt {
     }
 
     #[pygetset]
-    fn numerator(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        Self::clone_if_subclass(zelf, vm)
+    fn numerator(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRefExact<Self> {
+        zelf.int(vm)
     }
 
     #[pygetset]
@@ -698,6 +684,17 @@ impl PyInt {
     #[pymethod(magic)]
     fn getnewargs(&self, vm: &VirtualMachine) -> PyObjectRef {
         (self.value.clone(),).to_pyobject(vm)
+    }
+}
+
+#[pyclass]
+impl PyRef<PyInt> {
+    #[pymethod(magic)]
+    fn int(self, vm: &VirtualMachine) -> PyRefExact<PyInt> {
+        self.into_exact_or(&vm.ctx, |zelf| unsafe {
+            // TODO: this is actually safe. we need better interface
+            PyRefExact::new_unchecked(vm.ctx.new_bigint(&zelf.value))
+        })
     }
 }
 
