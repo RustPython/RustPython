@@ -475,8 +475,8 @@ pub struct PyNumberSlots {
 
 impl From<&PyNumberMethods> for PyNumberSlots {
     fn from(value: &PyNumberMethods) -> Self {
-        // right_* functions will use the same left function as PyNumberMethods garrentee to
-        // support both f(self, other) and f(other, self)
+        // right_* functions will use the same left function as PyNumberMethods
+        // allows both f(self, other) and f(other, self)
         Self {
             add: AtomicCell::new(value.add),
             subtract: AtomicCell::new(value.subtract),

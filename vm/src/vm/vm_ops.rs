@@ -147,7 +147,7 @@ impl VirtualMachine {
 
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b {
-                if class_b.fast_isinstance(class_a) {
+                if class_b.fast_issubclass(class_a) {
                     let x = slot_bb(a, b, self)?;
                     if !x.is(&self.ctx.not_implemented) {
                         return Ok(x);
