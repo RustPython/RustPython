@@ -139,19 +139,10 @@ pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
         || obj.class().is(vm.ctx.types.union_type)
 }
 
-fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
-    let class = obj.class();
-    "TypeVar" == &*class.slot_name()
-        && class
-            .get_attr(identifier!(vm, __module__))
-            .and_then(|o| o.downcast_ref::<PyStr>().map(|s| s.as_str() == "typing"))
-            .unwrap_or(false)
-}
-
 fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
     for arg in args {
-        if is_typevar(arg, vm) {
+        if genericalias::is_typevar(arg, vm) {
             if !parameters.iter().any(|param| param.is(arg)) {
                 parameters.push(arg.clone());
             }
