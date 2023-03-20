@@ -142,28 +142,18 @@ impl PyType {
         metaclass: PyRef<Self>,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
+        // TODO: ensure clean slot name
+        // assert_eq!(slots.name.borrow(), "");
+
         let name = ctx.new_str(name);
-        let (name_str, heaptype_ext) = unsafe {
-            // # Safety
-            // `name_str` live long enough because `heaptype_ext` is alive.
-            let name_str = &*(name.as_str() as *const _);
-            let heaptype_ext = HeapTypeExt {
-                name: PyRwLock::new(name),
-                slots: None,
-                number_methods: PyNumberMethods::default(),
-                sequence_methods: PySequenceMethods::default(),
-                mapping_methods: PyMappingMethods::default(),
-            };
-            (name_str, heaptype_ext)
+        let heaptype_ext = HeapTypeExt {
+            name: PyRwLock::new(name),
+            slots: None,
+            number_methods: PyNumberMethods::default(),
+            sequence_methods: PySequenceMethods::default(),
+            mapping_methods: PyMappingMethods::default(),
         };
         let base = bases[0].clone();
-        let _prev_name = slots.name.swap(name_str);
-        // TODO: ensure clean slot name
-        // assert!(
-        //     prev_name.is_empty() || prev_name == base.slots.name.load(),
-        //     "{prev_name:?} {}",
-        //     base.slots.name.load(),
-        // );
 
         Self::new_heap_inner(base, bases, attrs, slots, heaptype_ext, metaclass, ctx)
     }
@@ -380,7 +370,7 @@ impl PyType {
         heap_f: impl FnOnce(&'a HeapTypeExt) -> R,
     ) -> R {
         if !self.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-            static_f(self.slots.name.load())
+            static_f(self.slots.name)
         } else {
             heap_f(self.heaptype_ext.as_ref().unwrap())
         }
@@ -452,7 +442,7 @@ impl PyType {
                     .unwrap_or_else(|| {
                         panic!(
                             "static type name must be already interned but {} is not",
-                            self.slots.name.load()
+                            self.slot_name()
                         )
                     })
                     .to_owned()
@@ -886,7 +876,7 @@ impl PyType {
             return Err(vm.new_type_error(format!(
                 "cannot set '{}' attribute of immutable type '{}'",
                 name,
-                self.slots.name.load()
+                self.slot_name()
             )));
         }
         Ok(())
@@ -898,21 +888,16 @@ impl PyType {
         let name = value.downcast::<PyStr>().map_err(|value| {
             vm.new_type_error(format!(
                 "can only assign string to {}.__name__, not '{}'",
-                self.slots.name.load(),
-                value.class().slots.name.load(),
+                self.slot_name(),
+                value.class().slot_name(),
             ))
         })?;
         if name.as_str().as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
         }
 
-        unsafe {
-            // # Safety
-            // changing slots.name while holding __name__ lock is safe
-            let mut name_lock = self.heaptype_ext.as_ref().unwrap().name.write();
-            self.slots.name.store(&*(name.as_str() as *const _));
-            *name_lock = name;
-        }
+        *self.heaptype_ext.as_ref().unwrap().name.write() = name;
+
         Ok(())
     }
 

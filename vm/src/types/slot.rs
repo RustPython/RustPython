@@ -33,7 +33,7 @@ pub struct PyTypeSlots {
     /// # Safety
     /// For static types, always safe.
     /// For heap types, `__name__` must alive
-    pub(crate) name: AtomicCell<&'static str>, // tp_name with <module>.<class> for print, not class name
+    pub(crate) name: &'static str, // tp_name with <module>.<class> for print, not class name
 
     pub basicsize: usize,
     // tp_itemsize
@@ -96,7 +96,7 @@ pub struct PyTypeSlots {
 impl PyTypeSlots {
     pub fn new(name: &'static str, flags: PyTypeFlags) -> Self {
         Self {
-            name: AtomicCell::new(name),
+            name,
             flags,
             ..Default::default()
         }

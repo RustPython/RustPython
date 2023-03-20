@@ -214,7 +214,7 @@ impl PyGenericAlias {
     }
 }
 
-fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
+pub(crate) fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
     let class = obj.class();
     "TypeVar" == &*class.slot_name()
         && class

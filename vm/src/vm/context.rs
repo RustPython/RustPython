@@ -466,11 +466,15 @@ impl Context {
         let mut attrs = PyAttributes::default();
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
 
+        let interned_name = self.intern_str(name);
         PyType::new_heap(
             name,
             bases,
             attrs,
-            PyBaseException::make_slots(),
+            PyTypeSlots {
+                name: interned_name.as_str(),
+                ..PyBaseException::make_slots()
+            },
             self.types.type_type.to_owned(),
             self,
         )

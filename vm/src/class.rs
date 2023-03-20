@@ -7,7 +7,6 @@ use crate::{
     types::{hash_not_implemented, PyTypeFlags, PyTypeSlots},
     vm::Context,
 };
-use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::static_cell;
 
 pub trait StaticType {
@@ -132,7 +131,7 @@ pub trait PyClassImpl: PyClassDef {
     fn make_slots() -> PyTypeSlots {
         let mut slots = PyTypeSlots {
             flags: Self::TP_FLAGS,
-            name: AtomicCell::new(Self::TP_NAME),
+            name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             doc: Self::DOC,
             ..Default::default()
