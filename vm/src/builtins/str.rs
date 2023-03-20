@@ -2221,6 +2221,38 @@ impl PyStrInterned {
     pub fn to_exact(&'static self) -> PyRefExact<PyStr> {
         unsafe { PyRefExact::new_unchecked(self.to_owned()) }
     }
+
+    pub(crate) fn new_static_str(s: &'static str, ctx: &Context) -> &'static PyStrInterned {
+        if let Some(interned) = ctx.interned_str(s) {
+            return interned;
+        }
+
+        struct StaticStrData {
+            _bytes: &'static [u8],
+            _kind: StrKind,
+            _len: usize,
+        }
+        struct PyStrView {
+            _data: StaticStrData,
+            _hash: PyAtomic<hash::PyHash>,
+        }
+        let kind = s.str_kind();
+        let fake_payload = PyStrView {
+            _data: StaticStrData {
+                _bytes: s.as_bytes(),
+                _kind: kind,
+                _len: s.len(),
+            },
+            _hash: Radium::new(hash::SENTINEL),
+        };
+        let payload: PyStr = unsafe {
+            // Safety:
+            // the layout of Box<[u8]> == &<[u8]>
+            // and Box::drop will never be called by leaking
+            std::mem::transmute(fake_payload)
+        };
+        ctx.intern_str(payload.into_exact_ref(ctx))
+    }
 }
 
 impl std::fmt::Display for PyStrInterned {

@@ -79,7 +79,7 @@ pub trait PyClassImpl: PyClassDef {
             assert!(class.slots.flags.is_created_with_flags());
         }
 
-        let _ = ctx.intern_str(Self::NAME); // intern type name
+        let _ = ctx.intern_static_str(Self::NAME); // intern type name
 
         if Self::TP_FLAGS.has_feature(PyTypeFlags::HAS_DICT) {
             let __dict__ = identifier!(ctx, __dict__);
@@ -96,12 +96,15 @@ pub trait PyClassImpl: PyClassDef {
         }
         Self::impl_extend_class(ctx, class);
         if let Some(doc) = Self::DOC {
-            class.set_attr(identifier!(ctx, __doc__), ctx.new_str(doc).into());
+            class.set_attr(
+                identifier!(ctx, __doc__),
+                ctx.intern_static_str(doc).to_owned().into(),
+            );
         }
         if let Some(module_name) = Self::MODULE_NAME {
             class.set_attr(
                 identifier!(ctx, __module__),
-                ctx.new_str(module_name).into(),
+                ctx.intern_static_str(module_name).to_owned().into(),
             );
         }
 
