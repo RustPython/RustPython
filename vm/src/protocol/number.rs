@@ -25,12 +25,6 @@ impl<'a> Deref for PyNumber<'a> {
     }
 }
 
-impl<'a> PyNumber<'a> {
-    pub(crate) fn obj(self) -> &'a PyObject {
-        self.0
-    }
-}
-
 macro_rules! load_pynumber_method {
     ($cls:expr, $x:ident, $y:ident) => {{
         let class = $cls;
@@ -47,7 +41,11 @@ macro_rules! load_pynumber_method {
     }};
 }
 
-impl PyNumber<'_> {
+impl<'a> PyNumber<'a> {
+    pub(crate) fn obj(self) -> &'a PyObject {
+        self.0
+    }
+
     pub fn check(obj: &PyObject) -> bool {
         let class = obj.class();
         if let Some(ext) = class.heaptype_ext.as_ref() {
@@ -288,7 +286,6 @@ pub struct PyNumberMethods {
 
 impl PyNumberMethods {
     /// this is NOT a global variable
-    // TODO: weak order read for performance
     pub const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
         add: None,
         subtract: None,
