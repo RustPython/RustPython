@@ -722,7 +722,7 @@ mod array {
 
     #[pyclass(
         flags(BASETYPE),
-        with(Comparable, AsBuffer, AsMapping, Iterable, Constructor)
+        with(Comparable, AsBuffer, AsMapping, AsSequence, Iterable, Constructor)
     )]
     impl PyArray {
         fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
