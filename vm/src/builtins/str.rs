@@ -251,7 +251,7 @@ impl<'a> AsPyStr<'a> for &'a PyStrRef {
 impl AsPyStr<'static> for &'static str {
     #[inline]
     fn as_pystr(self, ctx: &Context) -> &'static Py<PyStr> {
-        ctx.intern_str(self)
+        ctx.intern_static_str(self)
     }
 }
 

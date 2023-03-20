@@ -397,7 +397,11 @@ fn setup_context(
     let (globals, filename, lineno) = if let Some(f) = f {
         (f.globals.clone(), f.code.source_path, f.f_lineno())
     } else {
-        (vm.current_globals().clone(), vm.ctx.intern_str("sys"), 1)
+        (
+            vm.current_globals().clone(),
+            vm.ctx.interned_str("sys").unwrap(),
+            1,
+        )
     };
 
     let registry = if let Ok(registry) = globals.get_item(__warningregistry__, vm) {
