@@ -406,7 +406,7 @@ mod builtins {
     fn breakpoint(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         match vm
             .sys_module
-            .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
+            .get_attr(vm.ctx.intern_static_str("breakpointhook"), vm)
         {
             Ok(hook) => hook.as_ref().call(args, vm),
             Err(_) => Err(vm.new_runtime_error("lost sys.breakpointhook".to_owned())),

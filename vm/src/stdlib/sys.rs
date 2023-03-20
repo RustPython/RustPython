@@ -149,7 +149,7 @@ mod sys {
     fn byteorder(vm: &VirtualMachine) -> PyStrRef {
         // https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian
         vm.ctx
-            .intern_str(if cfg!(target_endian = "little") {
+            .intern_static_str(if cfg!(target_endian = "little") {
                 "little"
             } else if cfg!(target_endian = "big") {
                 "big"
