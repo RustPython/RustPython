@@ -29,18 +29,12 @@ pub(crate) mod _struct {
             // The only performance difference is this transition cost
             let fmt = match_class! {
                 match obj {
-                    s @ PyStr => if s.is_ascii() {
-                        Some(s)
-                    } else {
-                        None
-                    },
-                    b @ PyBytes => if b.is_ascii() {
-                        Some(unsafe {
+                    s @ PyStr => s.is_ascii().then_some(s),
+                    b @ PyBytes => b.is_ascii().then(|| {
+                        unsafe {
                             PyStr::new_ascii_unchecked(b.as_bytes().to_vec())
-                        }.into_ref(&vm.ctx))
-                    } else {
-                        None
-                    },
+                        }.into_ref(&vm.ctx)
+                    }),
                     other => return Err(vm.new_type_error(format!("Struct() argument 1 must be a str or bytes object, not {}", other.class().name()))),
                 }
             }.ok_or_else(|| vm.new_unicode_decode_error("Struct format must be a ascii string".to_owned()))?;
