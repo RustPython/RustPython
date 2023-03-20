@@ -1170,7 +1170,7 @@ impl AsNumber for PyDictKeys {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(inner_set_number_subtract),
-            add: Some(inner_set_number_add),
+            and: Some(inner_set_number_and),
             xor: Some(inner_set_number_xor),
             or: Some(inner_set_number_or),
             ..PyNumberMethods::NOT_IMPLEMENTED
@@ -1248,7 +1248,7 @@ impl AsNumber for PyDictItems {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             subtract: Some(inner_set_number_subtract),
-            and: Some(inner_set_number_add),
+            and: Some(inner_set_number_and),
             xor: Some(inner_set_number_xor),
             or: Some(inner_set_number_or),
             ..PyNumberMethods::NOT_IMPLEMENTED
@@ -1292,7 +1292,7 @@ fn inner_set_number_subtract(a: &PyObject, b: &PyObject, vm: &VirtualMachine) ->
     inner_set_number_op(a, b, |a, b| a.difference(b, vm), vm)
 }
 
-fn inner_set_number_add(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
+fn inner_set_number_and(a: &PyObject, b: &PyObject, vm: &VirtualMachine) -> PyResult {
     inner_set_number_op(a, b, |a, b| a.intersection(b, vm), vm)
 }
 
