@@ -8,7 +8,6 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let array = module
         .get_attr("array", vm)
         .expect("Expect array has array type.");
-    array.init_builtin_number_slots(&vm.ctx);
 
     let collections_abc = vm
         .import("collections.abc", None, 0)
@@ -722,7 +721,7 @@ mod array {
 
     #[pyclass(
         flags(BASETYPE),
-        with(Comparable, AsBuffer, AsMapping, Iterable, Constructor)
+        with(Comparable, AsBuffer, AsMapping, AsSequence, Iterable, Constructor)
     )]
     impl PyArray {
         fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
