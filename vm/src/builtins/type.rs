@@ -756,7 +756,7 @@ impl PyType {
 
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
 
-        let number_slots = base.slots.as_number.map(|x| x.into()).unwrap_or_default();
+        let number_slots = base.slots.as_number.into();
 
         let (slots, heaptype_ext) = unsafe {
             // # Safety

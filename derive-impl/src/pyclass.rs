@@ -714,7 +714,7 @@ where
                 }
             } else if STATIC_SLOTS.contains(&slot_name.as_str()) {
                 quote_spanned! { span =>
-                    slots.#slot_ident = Some(Self::#ident());
+                    slots.#slot_ident = Self::#ident();
                 }
             } else {
                 quote_spanned! { span =>

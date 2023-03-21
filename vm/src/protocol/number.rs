@@ -30,10 +30,8 @@ macro_rules! load_pynumber_method {
         let class = $cls;
         if let Some(ext) = class.heaptype_ext.as_ref() {
             ext.number_slots.$y.load()
-        } else if let Some(methods) = class.slots.as_number {
-            methods.$x
         } else {
-            None
+            class.slots.as_number.$x
         }
     }};
     ($cls:expr, $x:ident) => {{
@@ -56,10 +54,9 @@ impl<'a> PyNumber<'a> {
                 return true;
             }
         }
-        if let Some(methods) = class.slots.as_number {
-            if methods.int.is_some() || methods.index.is_some() || methods.float.is_some() {
-                return true;
-            }
+        let methods = class.slots.as_number;
+        if methods.int.is_some() || methods.index.is_some() || methods.float.is_some() {
+            return true;
         }
         obj.payload_is::<PyComplex>()
     }
@@ -323,6 +320,11 @@ impl PyNumberMethods {
         matrix_multiply: None,
         inplace_matrix_multiply: None,
     };
+
+    pub fn not_implemented() -> &'static Self {
+        static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
+        &GLOBAL_NOT_IMPLEMENTED
+    }
 }
 
 #[derive(Copy, Clone)]
