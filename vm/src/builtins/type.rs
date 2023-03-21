@@ -43,7 +43,6 @@ pub struct PyType {
 pub struct HeapTypeExt {
     pub name: PyRwLock<PyStrRef>,
     pub slots: Option<PyTupleTyped<PyStrRef>>,
-    pub number_methods: PyNumberMethods,
     pub sequence_methods: PySequenceMethods,
     pub mapping_methods: PyMappingMethods,
 }
@@ -149,7 +148,6 @@ impl PyType {
         let heaptype_ext = HeapTypeExt {
             name: PyRwLock::new(name),
             slots: None,
-            number_methods: PyNumberMethods::default(),
             sequence_methods: PySequenceMethods::default(),
             mapping_methods: PyMappingMethods::default(),
         };
@@ -765,7 +763,6 @@ impl PyType {
             let heaptype_ext = HeapTypeExt {
                 name: PyRwLock::new(name),
                 slots: heaptype_slots.to_owned(),
-                number_methods: PyNumberMethods::default(),
                 sequence_methods: PySequenceMethods::default(),
                 mapping_methods: PyMappingMethods::default(),
             };
