@@ -38,6 +38,13 @@ impl PyObject {
         T::try_from_borrowed_object(vm, self)
     }
 
+    pub fn try_to_ref<'a, T: 'a>(&'a self, vm: &VirtualMachine) -> PyResult<&'a Py<T>>
+    where
+        T: PyPayload,
+    {
+        self.try_to_value::<&Py<T>>(vm)
+    }
+
     pub fn try_value_with<T, F, R>(&self, f: F, vm: &VirtualMachine) -> PyResult<R>
     where
         T: PyPayload,
