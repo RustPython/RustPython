@@ -47,8 +47,8 @@ impl fmt::Debug for PyDict {
 }
 
 impl PyPayload for PyDict {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.dict_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.dict_type
     }
 }
 
@@ -798,8 +798,8 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $name {
-            fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-                vm.ctx.types.$class
+            fn class(ctx: &Context) -> &'static Py<PyType> {
+                ctx.types.$class
             }
         }
 
@@ -834,8 +834,8 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $iter_name {
-            fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-                vm.ctx.types.$iter_class
+            fn class(ctx: &Context) -> &'static Py<PyType> {
+                ctx.types.$iter_class
             }
         }
 
@@ -907,8 +907,8 @@ macro_rules! dict_view {
         }
 
         impl PyPayload for $reverse_iter_name {
-            fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-                vm.ctx.types.$reverse_iter_class
+            fn class(ctx: &Context) -> &'static Py<PyType> {
+                ctx.types.$reverse_iter_class
             }
         }
 

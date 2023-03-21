@@ -29,8 +29,8 @@ impl std::fmt::Debug for PyBaseException {
 }
 
 impl PyPayload for PyBaseException {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.exceptions.base_exception_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.exceptions.base_exception_type
     }
 }
 
@@ -159,20 +159,20 @@ impl VirtualMachine {
                 let args0_repr = if str_single {
                     varargs[0]
                         .str(vm)
-                        .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(vm))
+                        .unwrap_or_else(|_| PyStr::from("<element str() failed>").into_ref(&vm.ctx))
                 } else {
-                    varargs[0]
-                        .repr(vm)
-                        .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
+                    varargs[0].repr(vm).unwrap_or_else(|_| {
+                        PyStr::from("<element repr() failed>").into_ref(&vm.ctx)
+                    })
                 };
                 vec![args0_repr]
             }
             _ => varargs
                 .iter()
                 .map(|vararg| {
-                    vararg
-                        .repr(vm)
-                        .unwrap_or_else(|_| PyStr::from("<element repr() failed>").into_ref(vm))
+                    vararg.repr(vm).unwrap_or_else(|_| {
+                        PyStr::from("<element repr() failed>").into_ref(&vm.ctx)
+                    })
                 })
                 .collect(),
         }
@@ -498,7 +498,7 @@ impl PyBaseException {
         match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => vm.ctx.empty_str.clone(),
             Ok(s) => s,
-            Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(vm),
+            Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(&vm.ctx),
         }
     }
 

@@ -135,14 +135,14 @@ impl fmt::Debug for PyFrozenSet {
 }
 
 impl PyPayload for PySet {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.set_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.set_type
     }
 }
 
 impl PyPayload for PyFrozenSet {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.frozenset_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.frozenset_type
     }
 }
 
@@ -957,7 +957,7 @@ impl PyFrozenSet {
             Self {
                 inner: zelf.inner.copy(),
             }
-            .into_ref(vm)
+            .into_ref(&vm.ctx)
         }
     }
 
@@ -1236,8 +1236,8 @@ impl fmt::Debug for PySetIterator {
 }
 
 impl PyPayload for PySetIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.set_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.set_iterator_type
     }
 }
 

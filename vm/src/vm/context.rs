@@ -346,6 +346,15 @@ impl Context {
         self.not_implemented.clone().into()
     }
 
+    // universal pyref constructor
+    pub fn new_pyref<T, P>(&self, value: T) -> PyRef<P>
+    where
+        T: Into<P>,
+        P: PyPayload,
+    {
+        value.into().into_ref(self)
+    }
+
     // shortcuts for common type
 
     #[inline]

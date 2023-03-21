@@ -167,8 +167,8 @@ pub struct PySequenceIterator {
 }
 
 impl PyPayload for PySequenceIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.iter_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.iter_type
     }
 }
 
@@ -230,8 +230,8 @@ pub struct PyCallableIterator {
 }
 
 impl PyPayload for PyCallableIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.callable_iterator
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.callable_iterator
     }
 }
 

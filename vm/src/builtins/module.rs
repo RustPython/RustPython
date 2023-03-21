@@ -13,8 +13,8 @@ use crate::{
 pub struct PyModule {}
 
 impl PyPayload for PyModule {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.module_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.module_type
     }
 }
 

@@ -161,7 +161,7 @@ impl PyMemoryView {
         other.init_slice(slice, 0, vm)?;
         other.init_len();
 
-        Ok(other.into_ref(vm).into())
+        Ok(other.into_ref(&vm.ctx).into())
     }
 
     fn getitem_by_multi_idx(&self, indexes: &[isize], vm: &VirtualMachine) -> PyResult {
@@ -461,7 +461,7 @@ impl PyMemoryView {
 
         if self.desc.ndim() == 0 {
             return VecBuffer::from(data)
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into_pybuffer_with_descriptor(self.desc.clone());
         }
 
@@ -482,7 +482,7 @@ impl PyMemoryView {
         };
 
         VecBuffer::from(data)
-            .into_ref(vm)
+            .into_ref(&vm.ctx)
             .into_pybuffer_with_descriptor(desc)
     }
 }
@@ -703,7 +703,7 @@ impl PyMemoryView {
         self.try_not_released(vm)?;
         let mut v = vec![];
         self.append_to(&mut v);
-        Ok(PyBytes::from(v).into_ref(vm))
+        Ok(PyBytes::from(v).into_ref(&vm.ctx))
     }
 
     #[pymethod]
@@ -725,7 +725,7 @@ impl PyMemoryView {
         self.try_not_released(vm)?;
         let mut other = self.new_view();
         other.desc.readonly = true;
-        Ok(other.into_ref(vm))
+        Ok(other.into_ref(&vm.ctx))
     }
 
     #[pymethod]
@@ -812,7 +812,7 @@ impl PyMemoryView {
             if shape_ndim == 0 {
                 other.desc.dim_desc = vec![];
                 other.desc.len = itemsize;
-                return Ok(other.into_ref(vm));
+                return Ok(other.into_ref(&vm.ctx));
             }
 
             let mut product_shape = itemsize;
@@ -843,9 +843,9 @@ impl PyMemoryView {
 
             other.desc.dim_desc = dim_descriptor;
 
-            Ok(other.into_ref(vm))
+            Ok(other.into_ref(&vm.ctx))
         } else {
-            Ok(self.cast_to_1d(format, vm)?.into_ref(vm))
+            Ok(self.cast_to_1d(format, vm)?.into_ref(&vm.ctx))
         }
     }
 }
@@ -1052,8 +1052,8 @@ impl Hashable for PyMemoryView {
 }
 
 impl PyPayload for PyMemoryView {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.memoryview_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.memoryview_type
     }
 }
 
@@ -1132,8 +1132,8 @@ pub struct PyMemoryViewIterator {
 }
 
 impl PyPayload for PyMemoryViewIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.memoryviewiterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.memoryviewiterator_type
     }
 }
 

@@ -319,7 +319,7 @@ pub(crate) mod _thread {
 
     #[pyfunction]
     fn _set_sentinel(vm: &VirtualMachine) -> PyRef<Lock> {
-        let lock = Lock { mu: RawMutex::INIT }.into_ref(vm);
+        let lock = Lock { mu: RawMutex::INIT }.into_ref(&vm.ctx);
         SENTINELS.with(|sents| sents.borrow_mut().push(lock.clone()));
         lock
     }

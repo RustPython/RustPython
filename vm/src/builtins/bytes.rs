@@ -78,8 +78,8 @@ impl AsRef<[u8]> for PyBytesRef {
 }
 
 impl PyPayload for PyBytes {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bytes_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytes_type
     }
 }
 
@@ -124,7 +124,7 @@ impl PyRef<PyBytes> {
         }
         self.inner
             .mul(count, vm)
-            .map(|x| PyBytes::from(x).into_ref(vm))
+            .map(|x| PyBytes::from(x).into_ref(&vm.ctx))
     }
 }
 
@@ -511,7 +511,7 @@ impl PyRef<PyBytes> {
         if self.is(vm.ctx.types.bytes_type) {
             self
         } else {
-            PyBytes::from(self.inner.clone()).into_ref(vm)
+            PyBytes::from(self.inner.clone()).into_ref(&vm.ctx)
         }
     }
 
@@ -683,8 +683,8 @@ pub struct PyBytesIterator {
 }
 
 impl PyPayload for PyBytesIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bytes_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytes_iterator_type
     }
 }
 

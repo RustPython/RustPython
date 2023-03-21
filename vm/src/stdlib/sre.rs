@@ -187,7 +187,7 @@ mod _sre {
                 state.pymatch(req);
                 Ok(state
                     .has_matched
-                    .then(|| Match::new(&state, zelf.clone(), string).into_ref(vm)))
+                    .then(|| Match::new(&state, zelf.clone(), string).into_ref(&vm.ctx)))
             })
         }
 
@@ -202,9 +202,9 @@ mod _sre {
                 req.match_all = true;
                 let mut state = State::default();
                 state.pymatch(req);
-                Ok(state
-                    .has_matched
-                    .then(|| Match::new(&state, zelf.clone(), string_args.string).into_ref(vm)))
+                Ok(state.has_matched.then(|| {
+                    Match::new(&state, zelf.clone(), string_args.string).into_ref(&vm.ctx)
+                }))
             })
         }
 
@@ -218,9 +218,9 @@ mod _sre {
                 let req = x.create_request(&zelf, string_args.pos, string_args.endpos);
                 let mut state = State::default();
                 state.search(req);
-                Ok(state
-                    .has_matched
-                    .then(|| Match::new(&state, zelf.clone(), string_args.string).into_ref(vm)))
+                Ok(state.has_matched.then(|| {
+                    Match::new(&state, zelf.clone(), string_args.string).into_ref(&vm.ctx)
+                }))
             })
         }
 
@@ -267,7 +267,7 @@ mod _sre {
                 end: string_args.endpos,
                 must_advance: AtomicCell::new(false),
             }
-            .into_ref(vm);
+            .into_ref(&vm.ctx);
             let search = vm.get_str_method(scanner.into(), "search").unwrap()?;
             let search = ArgCallable::try_from_object(vm, search)?;
             let iterator = PyCallableIterator::new(search, vm.ctx.none());
@@ -287,7 +287,7 @@ mod _sre {
                 end: string_args.endpos,
                 must_advance: AtomicCell::new(false),
             }
-            .into_ref(vm)
+            .into_ref(&vm.ctx)
         }
 
         #[pymethod]
@@ -444,7 +444,7 @@ mod _sre {
 
                     if is_callable {
                         let m = Match::new(&iter.state, zelf.clone(), string.clone());
-                        let ret = filter.call((m.into_ref(vm),), vm)?;
+                        let ret = filter.call((m.into_ref(&vm.ctx),), vm)?;
                         sublist.push(ret);
                     } else {
                         sublist.push(filter.clone());
@@ -799,7 +799,7 @@ mod _sre {
                 self.start.store(state.string_position);
 
                 Ok(state.has_matched.then(|| {
-                    Match::new(&state, self.pattern.clone(), self.string.clone()).into_ref(vm)
+                    Match::new(&state, self.pattern.clone(), self.string.clone()).into_ref(&vm.ctx)
                 }))
             })
         }
@@ -821,7 +821,7 @@ mod _sre {
                 self.start.store(state.string_position);
 
                 Ok(state.has_matched.then(|| {
-                    Match::new(&state, self.pattern.clone(), self.string.clone()).into_ref(vm)
+                    Match::new(&state, self.pattern.clone(), self.string.clone()).into_ref(&vm.ctx)
                 }))
             })
         }

@@ -36,7 +36,7 @@ pub(crate) mod _struct {
                     b @ PyBytes => if b.is_ascii() {
                         Some(unsafe {
                             PyStr::new_ascii_unchecked(b.as_bytes().to_vec())
-                        }.into_ref(vm))
+                        }.into_ref(&vm.ctx))
                     } else {
                         None
                     },

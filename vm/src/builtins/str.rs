@@ -186,8 +186,8 @@ pub struct PyStrIterator {
 }
 
 impl PyPayload for PyStrIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.str_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.str_iterator_type
     }
 }
 
@@ -357,7 +357,7 @@ impl PyStr {
         zelf.as_str()
             .as_bytes()
             .mul(vm, value)
-            .map(|x| Self::from(unsafe { String::from_utf8_unchecked(x) }).into_ref(vm))
+            .map(|x| Self::from(unsafe { String::from_utf8_unchecked(x) }).into_ref(&vm.ctx))
     }
 }
 
@@ -422,7 +422,7 @@ impl PyStr {
             SequenceIndex::Int(i) => self.getitem_by_index(vm, i).map(|x| x.to_string()),
             SequenceIndex::Slice(slice) => self.getitem_by_slice(vm, slice),
         }
-        .map(|x| self.new_substr(x).into_ref(vm).into())
+        .map(|x| self.new_substr(x).into_ref(&vm.ctx).into())
     }
 
     #[pymethod(magic)]
@@ -1279,7 +1279,7 @@ impl PyStrRef {
         let mut s = String::with_capacity(self.byte_len() + other.len());
         s.push_str(self.as_ref());
         s.push_str(other);
-        *self = PyStr::from(s).into_ref(vm);
+        *self = PyStr::from(s).into_ref(&vm.ctx);
     }
 }
 
@@ -1365,7 +1365,7 @@ impl AsSequence for PyStr {
             item: atomic_func!(|seq, i, vm| {
                 let zelf = PyStr::sequence_downcast(seq);
                 zelf.getitem_by_index(vm, i)
-                    .map(|x| zelf.new_substr(x.to_string()).into_ref(vm).into())
+                    .map(|x| zelf.new_substr(x.to_string()).into_ref(&vm.ctx).into())
             }),
             contains: atomic_func!(
                 |seq, needle, vm| PyStr::sequence_downcast(seq)._contains(needle, vm)
@@ -1397,8 +1397,8 @@ pub(crate) fn encode_string(
 }
 
 impl PyPayload for PyStr {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.str_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.str_type
     }
 }
 

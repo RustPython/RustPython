@@ -302,7 +302,7 @@ mod _sqlite {
         isolation_level: Option<PyStrRef>,
         #[pyarg(any, default = "true")]
         check_same_thread: bool,
-        #[pyarg(any, default = "Connection::class(vm).to_owned()")]
+        #[pyarg(any, default = "Connection::class(&vm.ctx).to_owned()")]
         factory: PyTypeRef,
         // TODO: cache statements
         #[allow(dead_code)]
@@ -640,14 +640,14 @@ mod _sqlite {
 
     #[pyfunction]
     fn register_adapter(typ: PyTypeRef, adapter: ArgCallable, vm: &VirtualMachine) -> PyResult<()> {
-        if typ.is(PyInt::class(vm))
-            || typ.is(PyFloat::class(vm))
-            || typ.is(PyStr::class(vm))
-            || typ.is(PyByteArray::class(vm))
+        if typ.is(PyInt::class(&vm.ctx))
+            || typ.is(PyFloat::class(&vm.ctx))
+            || typ.is(PyStr::class(&vm.ctx))
+            || typ.is(PyByteArray::class(&vm.ctx))
         {
             let _ = BASE_TYPE_ADAPTED.set(());
         }
-        let protocol = PrepareProtocol::class(vm).to_owned();
+        let protocol = PrepareProtocol::class(&vm.ctx).to_owned();
         let key = vm.ctx.new_tuple(vec![typ.into(), protocol.into()]);
         adapters().set_item(key.as_object(), adapter.into(), vm)
     }
@@ -708,7 +708,7 @@ mod _sqlite {
         // TODO: None proto
         let proto = proto
             .flatten()
-            .unwrap_or_else(|| PrepareProtocol::class(vm).to_owned());
+            .unwrap_or_else(|| PrepareProtocol::class(&vm.ctx).to_owned());
 
         _adapt(
             &obj,
@@ -818,7 +818,7 @@ mod _sqlite {
 
         fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
             if let Some(stmt) = Statement::new(zelf, &args.0, vm)? {
-                Ok(stmt.into_ref(vm).into())
+                Ok(stmt.into_ref(&vm.ctx).into())
             } else {
                 Ok(vm.ctx.none())
             }
@@ -835,7 +835,7 @@ mod _sqlite {
             if let Some(isolation_level) = &args.isolation_level {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
             }
-            let text_factory = PyStr::class(vm).to_owned().into_object();
+            let text_factory = PyStr::class(&vm.ctx).to_owned().into_object();
 
             Ok(Self {
                 db: PyMutex::new(Some(db)),
@@ -884,7 +884,7 @@ mod _sqlite {
                 cursor
             } else {
                 let row_factory = zelf.row_factory.to_owned();
-                Cursor::new(zelf, row_factory, vm).into_ref(vm)
+                Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx)
             };
             Ok(cursor)
         }
@@ -921,7 +921,7 @@ mod _sqlite {
                 connection: zelf,
                 inner: PyMutex::new(Some(BlobInner { blob, offset: 0 })),
             };
-            Ok(blob.into_ref(vm))
+            Ok(blob.into_ref(&vm.ctx))
         }
 
         #[pymethod]
@@ -954,7 +954,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             let row_factory = zelf.row_factory.to_owned();
-            let cursor = Cursor::new(zelf, row_factory, vm).into_ref(vm);
+            let cursor = Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx);
             Cursor::execute(cursor, sql, parameters, vm)
         }
 
@@ -966,7 +966,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             let row_factory = zelf.row_factory.to_owned();
-            let cursor = Cursor::new(zelf, row_factory, vm).into_ref(vm);
+            let cursor = Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx);
             Cursor::executemany(cursor, sql, seq_of_params, vm)
         }
 
@@ -977,7 +977,11 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Cursor>> {
             let row_factory = zelf.row_factory.to_owned();
-            Cursor::executescript(Cursor::new(zelf, row_factory, vm).into_ref(vm), script, vm)
+            Cursor::executescript(
+                Cursor::new(zelf, row_factory, vm).into_ref(&vm.ctx),
+                script,
+                vm,
+            )
         }
 
         #[pymethod]
@@ -1403,7 +1407,7 @@ mod _sqlite {
                 drop(inner);
                 return Ok(zelf);
             };
-            let stmt = stmt.into_ref(vm);
+            let stmt = stmt.into_ref(&vm.ctx);
 
             inner.rowcount = if stmt.is_dml { 0 } else { -1 };
 
@@ -1472,7 +1476,7 @@ mod _sqlite {
                 drop(inner);
                 return Ok(zelf);
             };
-            let stmt = stmt.into_ref(vm);
+            let stmt = stmt.into_ref(&vm.ctx);
 
             let st = stmt.lock();
 
@@ -1724,15 +1728,15 @@ mod _sqlite {
 
                             let text_factory = zelf.connection.text_factory.to_owned();
 
-                            if text_factory.is(PyStr::class(vm)) {
+                            if text_factory.is(PyStr::class(&vm.ctx)) {
                                 let text = String::from_utf8(text).map_err(|_| {
                                     new_operational_error(vm, "not valid UTF-8".to_owned())
                                 })?;
                                 vm.ctx.new_str(text).into()
-                            } else if text_factory.is(PyBytes::class(vm)) {
+                            } else if text_factory.is(PyBytes::class(&vm.ctx)) {
                                 vm.ctx.new_bytes(text).into()
-                            } else if text_factory.is(PyByteArray::class(vm)) {
-                                PyByteArray::from(text).into_ref(vm).into()
+                            } else if text_factory.is(PyByteArray::class(&vm.ctx)) {
+                                PyByteArray::from(text).into_ref(&vm.ctx).into()
                             } else {
                                 let bytes = vm.ctx.new_bytes(text);
                                 text_factory.call((bytes,), vm)?
@@ -2531,7 +2535,7 @@ mod _sqlite {
             let obj = if need_adapt(parameter, vm) {
                 adapted = _adapt(
                     parameter,
-                    PrepareProtocol::class(vm).to_owned(),
+                    PrepareProtocol::class(&vm.ctx).to_owned(),
                     |x| Ok(x.to_owned()),
                     vm,
                 )?;

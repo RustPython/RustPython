@@ -1458,7 +1458,7 @@ mod windows {
                     oids.into_iter().map(|oid| vm.ctx.new_str(oid).into()),
                 )
                 .unwrap()
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into(),
             };
             Ok(vm.new_tuple((cert, enc_type, usage)).into())

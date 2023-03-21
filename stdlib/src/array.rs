@@ -671,7 +671,7 @@ mod array {
                 )
             })?;
 
-            if cls.is(PyArray::class(vm)) && !kwargs.is_empty() {
+            if cls.is(PyArray::class(&vm.ctx)) && !kwargs.is_empty() {
                 return Err(
                     vm.new_type_error("array.array() takes no keyword arguments".to_owned())
                 );
@@ -952,7 +952,7 @@ mod array {
             let bytes = bytes.get_bytes();
 
             for b in bytes.chunks(BLOCKSIZE) {
-                let b = PyBytes::from(b.to_vec()).into_ref(vm);
+                let b = PyBytes::from(b.to_vec()).into_ref(&vm.ctx);
                 vm.call_method(&f, "write", (b,))?;
             }
             Ok(())
@@ -1072,7 +1072,7 @@ mod array {
             if let Some(other) = other.payload::<PyArray>() {
                 self.read()
                     .add(&other.read(), vm)
-                    .map(|array| PyArray::from(array).into_ref(vm))
+                    .map(|array| PyArray::from(array).into_ref(&vm.ctx))
             } else {
                 Err(vm.new_type_error(format!(
                     "can only append array (not \"{}\") to array",
@@ -1105,7 +1105,7 @@ mod array {
         fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             self.read()
                 .mul(value, vm)
-                .map(|x| Self::from(x).into_ref(vm))
+                .map(|x| Self::from(x).into_ref(&vm.ctx))
         }
 
         #[pymethod(magic)]
@@ -1565,7 +1565,7 @@ mod array {
     }
 
     fn check_array_type(typ: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-        if !typ.fast_issubclass(PyArray::class(vm)) {
+        if !typ.fast_issubclass(PyArray::class(&vm.ctx)) {
             return Err(
                 vm.new_type_error(format!("{} is not a subtype of array.array", typ.name()))
             );

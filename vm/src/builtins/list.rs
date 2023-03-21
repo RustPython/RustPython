@@ -50,8 +50,8 @@ impl FromIterator<PyObjectRef> for PyList {
 }
 
 impl PyPayload for PyList {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.list_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.list_type
     }
 }
 
@@ -132,7 +132,7 @@ impl PyList {
         let other = other.payload_if_subclass::<PyList>(vm).ok_or_else(|| {
             vm.new_type_error(format!(
                 "Cannot add {} and {}",
-                Self::class(vm).name(),
+                Self::class(&vm.ctx).name(),
                 other.class().name()
             ))
         })?;
@@ -537,8 +537,8 @@ pub struct PyListIterator {
 }
 
 impl PyPayload for PyListIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.list_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.list_iterator_type
     }
 }
 
@@ -582,8 +582,8 @@ pub struct PyListReverseIterator {
 }
 
 impl PyPayload for PyListReverseIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.list_reverseiterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.list_reverseiterator_type
     }
 }
 

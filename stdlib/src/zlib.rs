@@ -280,8 +280,8 @@ mod zlib {
         Ok(PyDecompress {
             decompress: PyMutex::new(decompress),
             eof: AtomicCell::new(false),
-            unused_data: PyMutex::new(PyBytes::from(vec![]).into_ref(vm)),
-            unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(vm)),
+            unused_data: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
+            unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
         })
     }
     #[pyattr]
@@ -326,7 +326,7 @@ mod zlib {
                     .chain(leftover)
                     .copied()
                     .collect();
-                *unused_data = vm.new_pyref(unused);
+                *unused_data = vm.ctx.new_pyref(unused);
             }
         }
 
@@ -359,7 +359,7 @@ mod zlib {
 
             let mut unconsumed_tail = self.unconsumed_tail.lock();
             if !leftover.is_empty() || !unconsumed_tail.is_empty() {
-                *unconsumed_tail = PyBytes::from(leftover.to_owned()).into_ref(vm);
+                *unconsumed_tail = PyBytes::from(leftover.to_owned()).into_ref(&vm.ctx);
             }
 
             ret
@@ -392,7 +392,7 @@ mod zlib {
             };
             self.save_unused_input(&mut d, &data, stream_end, orig_in, vm);
 
-            *data = PyBytes::from(Vec::new()).into_ref(vm);
+            *data = PyBytes::from(Vec::new()).into_ref(&vm.ctx);
 
             // TODO: drop the inner decompressor, somehow
             // if stream_end {

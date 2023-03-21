@@ -61,8 +61,8 @@ impl From<Vec<u8>> for PyByteArray {
 }
 
 impl PyPayload for PyByteArray {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bytearray_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytearray_type
     }
 }
 
@@ -668,7 +668,7 @@ impl PyRef<PyByteArray> {
             drop(inner);
             self
         } else {
-            vm.new_pyref(PyByteArray::from(stripped.to_vec()))
+            vm.ctx.new_pyref(PyByteArray::from(stripped.to_vec()))
         }
     }
 
@@ -685,7 +685,7 @@ impl PyRef<PyByteArray> {
             drop(inner);
             self
         } else {
-            vm.new_pyref(PyByteArray::from(stripped.to_vec()))
+            vm.ctx.new_pyref(PyByteArray::from(stripped.to_vec()))
         }
     }
 
@@ -885,8 +885,8 @@ pub struct PyByteArrayIterator {
 }
 
 impl PyPayload for PyByteArrayIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bytearray_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytearray_iterator_type
     }
 }
 

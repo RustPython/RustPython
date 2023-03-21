@@ -174,7 +174,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             // the browser module might not be injected
             if vm.try_class("browser", "Promise").is_ok() {
                 return js_module::PyPromise::new(promise.clone())
-                    .into_ref(vm)
+                    .into_ref(&vm.ctx)
                     .into();
             }
         }

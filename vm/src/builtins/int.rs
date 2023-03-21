@@ -49,8 +49,8 @@ where
 }
 
 impl PyPayload for PyInt {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.int_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.int_type
     }
 
     fn into_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {

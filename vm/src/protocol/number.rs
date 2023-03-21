@@ -51,7 +51,7 @@ impl PyObject {
                     base, repr,
                 ))
             })?;
-            Ok(PyInt::from(i).into_ref(vm))
+            Ok(PyInt::from(i).into_ref(&vm.ctx))
         }
 
         if let Some(i) = self.downcast_ref_if_exact::<PyInt>(vm) {
@@ -303,7 +303,7 @@ impl PyNumber<'_> {
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
         self.obj.class().slots.number.int.load().map(|f| {
             let ret = f(self, vm)?;
-            let value = if !ret.class().is(PyInt::class(vm)) {
+            let value = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
@@ -327,7 +327,7 @@ impl PyNumber<'_> {
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
         self.obj.class().slots.number.index.load().map(|f| {
             let ret = f(self, vm)?;
-            let value = if !ret.class().is(PyInt::class(vm)) {
+            let value = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(
@@ -351,7 +351,7 @@ impl PyNumber<'_> {
     pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
         self.obj.class().slots.number.float.load().map(|f| {
             let ret = f(self, vm)?;
-            let value = if !ret.class().is(PyFloat::class(vm)) {
+            let value = if !ret.class().is(PyFloat::class(&vm.ctx)) {
                 warnings::warn(
                     vm.ctx.exceptions.deprecation_warning,
                     format!(

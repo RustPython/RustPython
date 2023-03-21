@@ -30,7 +30,7 @@ fn init_window_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _window::make_module(vm);
 
     extend_module!(vm, module, {
-        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(vm),
+        "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(&vm.ctx),
     });
 
     module

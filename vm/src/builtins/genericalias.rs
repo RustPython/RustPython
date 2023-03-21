@@ -43,8 +43,8 @@ impl fmt::Debug for PyGenericAlias {
 }
 
 impl PyPayload for PyGenericAlias {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.generic_alias_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.generic_alias_type
     }
 }
 

@@ -41,8 +41,8 @@ impl From<PyObjectRef> for PyClassMethod {
 }
 
 impl PyPayload for PyClassMethod {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.classmethod_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.classmethod_type
     }
 }
 
@@ -160,7 +160,7 @@ impl Representable for PyClassMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let callable = zelf.callable.lock().repr(vm).unwrap();
-        let class = Self::class(vm);
+        let class = Self::class(&vm.ctx);
 
         let repr = match (
             class

@@ -482,8 +482,8 @@ pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStre
 
         // We need this to make extend mechanism work:
         impl ::rustpython_vm::PyPayload for #class_name {
-            fn class(vm: &::rustpython_vm::VirtualMachine) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                vm.ctx.exceptions.#ctx_name
+            fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+                ctx.exceptions.#ctx_name
             }
         }
 
