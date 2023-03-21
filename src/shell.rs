@@ -105,7 +105,6 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
         let prompt_name = if continuing { "ps2" } else { "ps1" };
         let prompt = vm
             .sys_module
-            .clone()
             .get_attr(prompt_name, vm)
             .and_then(|prompt| prompt.str(vm));
         let prompt = match prompt {

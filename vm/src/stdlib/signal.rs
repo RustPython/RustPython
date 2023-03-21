@@ -100,7 +100,6 @@ pub(crate) mod _signal {
         }
 
         let int_handler = module
-            .clone()
             .get_attr("default_int_handler", vm)
             .expect("_signal does not have this attr?");
         if !vm.state.settings.no_sig_int {

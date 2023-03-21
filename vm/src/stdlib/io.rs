@@ -146,7 +146,7 @@ mod _io {
     }
 
     fn ensure_unclosed(file: &PyObject, msg: &str, vm: &VirtualMachine) -> PyResult<()> {
-        if file.to_owned().get_attr("closed", vm)?.try_to_bool(vm)? {
+        if file.get_attr("closed", vm)?.try_to_bool(vm)? {
             Err(vm.new_value_error(msg.to_owned()))
         } else {
             Ok(())
@@ -324,7 +324,7 @@ mod _io {
     }
 
     fn file_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        file.to_owned().get_attr("closed", vm)?.try_to_bool(vm)
+        file.get_attr("closed", vm)?.try_to_bool(vm)
     }
     fn check_closed(file: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if file_closed(file, vm)? {
@@ -1346,7 +1346,7 @@ mod _io {
     }
 
     pub fn repr_fileobj_name(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Option<PyStrRef>> {
-        let name = match obj.to_owned().get_attr("name", vm) {
+        let name = match obj.get_attr("name", vm) {
             Ok(name) => Some(name),
             Err(e)
                 if e.fast_isinstance(vm.ctx.exceptions.attribute_error)
@@ -1506,24 +1506,15 @@ mod _io {
         }
         #[pygetset]
         fn closed(&self, vm: &VirtualMachine) -> PyResult {
-            self.lock(vm)?
-                .check_init(vm)?
-                .to_owned()
-                .get_attr("closed", vm)
+            self.lock(vm)?.check_init(vm)?.get_attr("closed", vm)
         }
         #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
-            self.lock(vm)?
-                .check_init(vm)?
-                .to_owned()
-                .get_attr("name", vm)
+            self.lock(vm)?.check_init(vm)?.get_attr("name", vm)
         }
         #[pygetset]
         fn mode(&self, vm: &VirtualMachine) -> PyResult {
-            self.lock(vm)?
-                .check_init(vm)?
-                .to_owned()
-                .get_attr("mode", vm)
+            self.lock(vm)?.check_init(vm)?.get_attr("mode", vm)
         }
         #[pymethod]
         fn fileno(&self, vm: &VirtualMachine) -> PyResult {

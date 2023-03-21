@@ -278,7 +278,7 @@ impl GetAttr for PyUnion {
                 return zelf.as_object().generic_getattr(attr, vm);
             }
         }
-        zelf.as_object().to_pyobject(vm).get_attr(attr, vm)
+        zelf.as_object().get_attr(attr, vm)
     }
 }
 

@@ -357,16 +357,14 @@ impl PyObject {
     where
         F: Fn() -> String,
     {
-        cls.to_owned()
-            .get_attr(identifier!(vm, __bases__), vm)
-            .map_err(|e| {
-                // Only mask AttributeErrors.
-                if e.class().is(vm.ctx.exceptions.attribute_error) {
-                    vm.new_type_error(msg())
-                } else {
-                    e
-                }
-            })
+        cls.get_attr(identifier!(vm, __bases__), vm).map_err(|e| {
+            // Only mask AttributeErrors.
+            if e.class().is(vm.ctx.exceptions.attribute_error) {
+                vm.new_type_error(msg())
+            } else {
+                e
+            }
+        })
     }
 
     fn abstract_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
