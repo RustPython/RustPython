@@ -1,4 +1,4 @@
-use super::{float, PyByteArray, PyBytes, PyStr, PyType, PyTypeRef, PyBool};
+use super::{float, PyBool, PyByteArray, PyBytes, PyStr, PyType, PyTypeRef};
 use crate::{
     builtins::PyStrRef,
     bytesinner::PyBytesInner,
@@ -214,7 +214,9 @@ impl Constructor for PyInt {
 
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
         if cls.is(PyBool::class(vm)) {
-            return Err(vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()".to_owned()));
+            return Err(
+                vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()".to_owned())
+            );
         }
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
