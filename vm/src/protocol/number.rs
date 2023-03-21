@@ -197,6 +197,11 @@ impl PyNumberMethods {
         matrix_multiply: None,
         inplace_matrix_multiply: None,
     };
+
+    pub fn not_implemented() -> &'static PyNumberMethods {
+        static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
+        &GLOBAL_NOT_IMPLEMENTED
+    }
 }
 
 #[derive(Copy, Clone)]

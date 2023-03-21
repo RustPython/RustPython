@@ -27,7 +27,6 @@ macro_rules! atomic_func {
 
 // The corresponding field in CPython is `tp_` prefixed.
 // e.g. name -> tp_name
-#[derive(Default)]
 #[non_exhaustive]
 pub struct PyTypeSlots {
     /// # Safety
@@ -41,7 +40,10 @@ pub struct PyTypeSlots {
     // Methods to implement standard operations
 
     // Method suites for standard classes
-    pub as_number: AtomicCell<Option<PointerSlot<PyNumberMethods>>>,
+    /// # Safety
+    /// use only when initializing
+    /// use slot number for protocol
+    pub(crate) as_number: &'static PyNumberMethods,
     pub as_sequence: AtomicCell<Option<PointerSlot<PySequenceMethods>>>,
     pub as_mapping: AtomicCell<Option<PointerSlot<PyMappingMethods>>>,
 
@@ -91,6 +93,36 @@ pub struct PyTypeSlots {
     // The count of tp_members.
     pub member_count: usize,
     pub number: PyNumberSlots,
+}
+
+impl Default for PyTypeSlots {
+    fn default() -> Self {
+        Self {
+            name: Default::default(),
+            basicsize: Default::default(),
+            as_number: PyNumberMethods::not_implemented(),
+            as_sequence: Default::default(),
+            as_mapping: Default::default(),
+            hash: Default::default(),
+            call: Default::default(),
+            repr: Default::default(),
+            getattro: Default::default(),
+            setattro: Default::default(),
+            as_buffer: Default::default(),
+            richcompare: Default::default(),
+            iter: Default::default(),
+            iternext: Default::default(),
+            flags: Default::default(),
+            doc: Default::default(),
+            descr_get: Default::default(),
+            descr_set: Default::default(),
+            init: Default::default(),
+            new: Default::default(),
+            del: Default::default(),
+            member_count: Default::default(),
+            number: Default::default(),
+        }
+    }
 }
 
 impl PyTypeSlots {
