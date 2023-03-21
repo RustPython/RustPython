@@ -80,7 +80,7 @@ impl VirtualMachine {
         let descr_get = descr
             .class()
             .mro_find_map(|cls| cls.slots.descr_get.load())?;
-        Some(descr_get(descr.to_owned(), obj, cls, self))
+        Some(descr_get(descr, obj, cls, self))
     }
 
     pub fn call_get_descriptor(&self, descr: &PyObject, obj: PyObjectRef) -> Option<PyResult> {

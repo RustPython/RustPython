@@ -46,14 +46,14 @@ impl PyPayload for PyGetSet {
 
 impl GetDescriptor for PyGetSet {
     fn descr_get(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: Option<PyObjectRef>,
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let (zelf, obj) = match Self::_check(&zelf, obj, vm) {
             Some(obj) => obj,
-            None => return Ok(zelf),
+            None => return Ok(zelf.to_owned()),
         };
         if let Some(ref f) = zelf.getter {
             f(vm, obj)

@@ -434,16 +434,16 @@ impl PyFunction {
 
 impl GetDescriptor for PyFunction {
     fn descr_get(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let (_zelf, obj) = Self::_unwrap(&zelf, obj, vm)?;
         let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
-            zelf
+            zelf.to_owned().into()
         } else {
-            PyBoundMethod::new_ref(obj, zelf, &vm.ctx).into()
+            PyBoundMethod::new_ref(obj, zelf.to_owned().into(), &vm.ctx).into()
         };
         Ok(obj)
     }

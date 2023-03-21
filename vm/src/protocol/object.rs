@@ -212,7 +212,7 @@ impl PyObject {
                         .is_some()
                     {
                         let cls = obj_cls.to_owned().into();
-                        return descr_get(descr, Some(self.to_owned()), Some(cls), vm).map(Some);
+                        return descr_get(&descr, Some(self.to_owned()), Some(cls), vm).map(Some);
                     }
                 }
                 Some((descr, descr_get))
@@ -234,7 +234,7 @@ impl PyObject {
             match descr_get {
                 Some(descr_get) => {
                     let cls = obj_cls.to_owned().into();
-                    descr_get(attr, Some(self.to_owned()), Some(cls), vm).map(Some)
+                    descr_get(&attr, Some(self.to_owned()), Some(cls), vm).map(Some)
                 }
                 None => Ok(Some(attr)),
             }

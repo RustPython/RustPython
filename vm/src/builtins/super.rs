@@ -8,7 +8,7 @@ use crate::{
     class::PyClassImpl,
     function::{IntoFuncArgs, OptionalArg},
     types::{Callable, Constructor, GetAttr, GetDescriptor, Representable},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "super")]
@@ -165,14 +165,14 @@ impl GetAttr for PySuper {
 
 impl GetDescriptor for PySuper {
     fn descr_get(
-        zelf_obj: PyObjectRef,
+        zelf: &PyObject,
         obj: Option<PyObjectRef>,
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(&zelf_obj, obj, vm)?;
+        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) || zelf.obj.is_some() {
-            return Ok(zelf_obj);
+            return Ok(zelf.to_owned().into());
         }
         let zelf_class = zelf.as_object().class();
         if zelf_class.is(vm.ctx.types.super_type) {

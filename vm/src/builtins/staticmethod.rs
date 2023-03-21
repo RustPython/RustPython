@@ -5,7 +5,7 @@ use crate::{
     common::lock::PyMutex,
     function::{FuncArgs, IntoPyNativeFunc},
     types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
-    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "staticmethod")]
@@ -22,7 +22,7 @@ impl PyPayload for PyStaticMethod {
 
 impl GetDescriptor for PyStaticMethod {
     fn descr_get(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: Option<PyObjectRef>,
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,

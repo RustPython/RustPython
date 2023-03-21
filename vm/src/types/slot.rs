@@ -171,7 +171,7 @@ pub(crate) type RichCompareFunc = fn(
 pub(crate) type IterFunc = fn(PyObjectRef, &VirtualMachine) -> PyResult;
 pub(crate) type IterNextFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyIterReturn>;
 pub(crate) type DescrGetFunc =
-    fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
+    fn(&PyObject, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type DescrSetFunc =
     fn(&PyObject, PyObjectRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
@@ -328,7 +328,7 @@ fn iternext_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterRetu
 }
 
 fn descr_get_wrapper(
-    zelf: PyObjectRef,
+    zelf: &PyObject,
     obj: Option<PyObjectRef>,
     cls: Option<PyObjectRef>,
     vm: &VirtualMachine,
@@ -847,7 +847,7 @@ pub trait Callable: PyPayload {
 pub trait GetDescriptor: PyPayload {
     #[pyslot]
     fn descr_get(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -861,7 +861,7 @@ pub trait GetDescriptor: PyPayload {
         cls: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        Self::descr_get(zelf, Some(obj), cls.into_option(), vm)
+        Self::descr_get(&zelf, Some(obj), cls.into_option(), vm)
     }
 
     #[inline]

@@ -201,7 +201,7 @@ impl Representable for MemberDescrObject {
 
 impl GetDescriptor for MemberDescrObject {
     fn descr_get(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: Option<PyObjectRef>,
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -211,7 +211,7 @@ impl GetDescriptor for MemberDescrObject {
                 let zelf = Self::_as_pyref(&zelf, vm)?;
                 zelf.member.get(x, vm)
             }
-            None => Ok(zelf),
+            None => Ok(zelf.to_owned()),
         }
     }
 }

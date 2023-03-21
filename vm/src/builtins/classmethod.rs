@@ -3,7 +3,7 @@ use crate::{
     class::PyClassImpl,
     common::lock::PyMutex,
     types::{Constructor, GetDescriptor, Initializer, Representable},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// classmethod(function) -> method
@@ -48,7 +48,7 @@ impl PyPayload for PyClassMethod {
 
 impl GetDescriptor for PyClassMethod {
     fn descr_get(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,

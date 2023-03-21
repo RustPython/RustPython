@@ -1001,7 +1001,7 @@ impl GetAttr for PyType {
                 let descr_get = attr_class.mro_find_map(|cls| cls.slots.descr_get.load());
                 if let Some(descr_get) = descr_get {
                     let mcl = mcl.to_owned().into();
-                    return descr_get(attr.clone(), Some(zelf.to_owned().into()), Some(mcl), vm);
+                    return descr_get(attr, Some(zelf.to_owned().into()), Some(mcl), vm);
                 }
             }
         }
@@ -1011,7 +1011,7 @@ impl GetAttr for PyType {
         if let Some(attr) = zelf_attr {
             let descr_get = attr.class().mro_find_map(|cls| cls.slots.descr_get.load());
             if let Some(descr_get) = descr_get {
-                descr_get(attr, None, Some(zelf.to_owned().into()), vm)
+                descr_get(&attr, None, Some(zelf.to_owned().into()), vm)
             } else {
                 Ok(attr)
             }

@@ -40,14 +40,14 @@ pub struct PropertyArgs {
 
 impl GetDescriptor for PyProperty {
     fn descr_get(
-        zelf_obj: PyObjectRef,
+        zelf: &PyObject,
         obj: Option<PyObjectRef>,
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(&zelf_obj, obj, vm)?;
+        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
         if vm.is_none(&obj) {
-            Ok(zelf_obj)
+            Ok(zelf.to_owned().into())
         } else if let Some(getter) = zelf.getter.read().as_ref() {
             getter.call((obj,), vm)
         } else {

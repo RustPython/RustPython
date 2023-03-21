@@ -44,7 +44,8 @@ impl PyMethod {
                             .is_some()
                         {
                             let cls = cls.to_owned().into();
-                            return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
+                            return descr_get(&descr, Some(obj), Some(cls), vm)
+                                .map(Self::Attribute);
                         }
                     }
                     descr_get
@@ -68,7 +69,7 @@ impl PyMethod {
                 }),
                 Some(descr_get) => {
                     let cls = cls.to_owned().into();
-                    descr_get(attr, Some(obj), Some(cls), vm).map(Self::Attribute)
+                    descr_get(&attr, Some(obj), Some(cls), vm).map(Self::Attribute)
                 }
                 None => Ok(Self::Attribute(attr)),
             }

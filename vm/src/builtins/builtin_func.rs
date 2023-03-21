@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
     types::{Callable, Constructor, GetDescriptor, Representable, Unconstructible},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use std::fmt;
 
@@ -189,19 +189,19 @@ impl fmt::Debug for PyBuiltinMethod {
 
 impl GetDescriptor for PyBuiltinMethod {
     fn descr_get(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let (_zelf, obj) = match Self::_check(&zelf, obj, vm) {
             Some(obj) => obj,
-            None => return Ok(zelf),
+            None => return Ok(zelf.to_owned()),
         };
         let r = if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
-            zelf
+            zelf.to_owned().into()
         } else {
-            PyBoundMethod::new_ref(obj, zelf, &vm.ctx).into()
+            PyBoundMethod::new_ref(obj, zelf.to_owned().into(), &vm.ctx).into()
         };
         Ok(r)
     }
