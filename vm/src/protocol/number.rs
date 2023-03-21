@@ -293,6 +293,64 @@ pub struct PyNumberSlots {
     pub inplace_matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
 }
 
+impl From<&PyNumberMethods> for PyNumberSlots {
+    fn from(value: &PyNumberMethods) -> Self {
+        // right_* functions will use the same left function as PyNumberMethods
+        // allows both f(self, other) and f(other, self)
+        Self {
+            add: AtomicCell::new(value.add),
+            subtract: AtomicCell::new(value.subtract),
+            multiply: AtomicCell::new(value.multiply),
+            remainder: AtomicCell::new(value.remainder),
+            divmod: AtomicCell::new(value.divmod),
+            power: AtomicCell::new(value.power),
+            negative: AtomicCell::new(value.negative),
+            positive: AtomicCell::new(value.positive),
+            absolute: AtomicCell::new(value.absolute),
+            boolean: AtomicCell::new(value.boolean),
+            invert: AtomicCell::new(value.invert),
+            lshift: AtomicCell::new(value.lshift),
+            rshift: AtomicCell::new(value.rshift),
+            and: AtomicCell::new(value.and),
+            xor: AtomicCell::new(value.xor),
+            or: AtomicCell::new(value.or),
+            int: AtomicCell::new(value.int),
+            float: AtomicCell::new(value.float),
+            right_add: AtomicCell::new(value.add),
+            right_subtract: AtomicCell::new(value.subtract),
+            right_multiply: AtomicCell::new(value.multiply),
+            right_remainder: AtomicCell::new(value.remainder),
+            right_divmod: AtomicCell::new(value.divmod),
+            right_power: AtomicCell::new(value.power),
+            right_lshift: AtomicCell::new(value.lshift),
+            right_rshift: AtomicCell::new(value.rshift),
+            right_and: AtomicCell::new(value.and),
+            right_xor: AtomicCell::new(value.xor),
+            right_or: AtomicCell::new(value.or),
+            inplace_add: AtomicCell::new(value.inplace_add),
+            inplace_subtract: AtomicCell::new(value.inplace_subtract),
+            inplace_multiply: AtomicCell::new(value.inplace_multiply),
+            inplace_remainder: AtomicCell::new(value.inplace_remainder),
+            inplace_power: AtomicCell::new(value.inplace_power),
+            inplace_lshift: AtomicCell::new(value.inplace_lshift),
+            inplace_rshift: AtomicCell::new(value.inplace_rshift),
+            inplace_and: AtomicCell::new(value.inplace_and),
+            inplace_xor: AtomicCell::new(value.inplace_xor),
+            inplace_or: AtomicCell::new(value.inplace_or),
+            floor_divide: AtomicCell::new(value.floor_divide),
+            true_divide: AtomicCell::new(value.true_divide),
+            right_floor_divide: AtomicCell::new(value.floor_divide),
+            right_true_divide: AtomicCell::new(value.true_divide),
+            inplace_floor_divide: AtomicCell::new(value.inplace_floor_divide),
+            inplace_true_divide: AtomicCell::new(value.inplace_true_divide),
+            index: AtomicCell::new(value.index),
+            matrix_multiply: AtomicCell::new(value.matrix_multiply),
+            right_matrix_multiply: AtomicCell::new(value.matrix_multiply),
+            inplace_matrix_multiply: AtomicCell::new(value.inplace_matrix_multiply),
+        }
+    }
+}
+
 impl PyNumberSlots {
     pub fn left_binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
         use PyNumberBinaryOp::*;
