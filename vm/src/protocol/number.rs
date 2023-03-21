@@ -1,5 +1,7 @@
 use std::ops::Deref;
 
+use crossbeam_utils::atomic::AtomicCell;
+
 use crate::{
     builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
     common::int::bytes_to_int,
@@ -158,8 +160,6 @@ pub struct PyNumberMethods {
 
 impl PyNumberMethods {
     /// this is NOT a global variable
-    // TODO: weak order read for performance
-    #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
         add: None,
         subtract: None,
@@ -230,6 +230,119 @@ pub enum PyNumberBinaryOp {
     InplaceMatrixMultiply,
 }
 
+#[derive(Default)]
+pub struct PyNumberSlots {
+    pub add: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub remainder: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub divmod: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub power: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub negative: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub positive: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub absolute: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub boolean: AtomicCell<Option<PyNumberUnaryFunc<bool>>>,
+    pub invert: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub and: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub xor: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub or: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub int: AtomicCell<Option<PyNumberUnaryFunc<PyRef<PyInt>>>>,
+    pub float: AtomicCell<Option<PyNumberUnaryFunc<PyRef<PyFloat>>>>,
+
+    pub right_add: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_remainder: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_divmod: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_power: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_and: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_xor: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_or: AtomicCell<Option<PyNumberBinaryFunc>>,
+
+    pub inplace_add: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_remainder: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_power: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_and: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_xor: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_or: AtomicCell<Option<PyNumberBinaryFunc>>,
+
+    pub floor_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub true_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_floor_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_true_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_floor_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_true_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+
+    pub index: AtomicCell<Option<PyNumberUnaryFunc<PyRef<PyInt>>>>,
+
+    pub matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+}
+
+impl PyNumberSlots {
+    pub fn left_binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
+        use PyNumberBinaryOp::*;
+        match op_slot {
+            Add => self.add.load(),
+            Subtract => self.subtract.load(),
+            Multiply => self.multiply.load(),
+            Remainder => self.remainder.load(),
+            Divmod => self.divmod.load(),
+            Power => self.power.load(),
+            Lshift => self.lshift.load(),
+            Rshift => self.rshift.load(),
+            And => self.and.load(),
+            Xor => self.xor.load(),
+            Or => self.or.load(),
+            InplaceAdd => self.inplace_add.load(),
+            InplaceSubtract => self.inplace_subtract.load(),
+            InplaceMultiply => self.inplace_multiply.load(),
+            InplaceRemainder => self.inplace_remainder.load(),
+            InplacePower => self.inplace_power.load(),
+            InplaceLshift => self.inplace_lshift.load(),
+            InplaceRshift => self.inplace_rshift.load(),
+            InplaceAnd => self.inplace_and.load(),
+            InplaceXor => self.inplace_xor.load(),
+            InplaceOr => self.inplace_or.load(),
+            FloorDivide => self.floor_divide.load(),
+            TrueDivide => self.true_divide.load(),
+            InplaceFloorDivide => self.inplace_floor_divide.load(),
+            InplaceTrueDivide => self.inplace_true_divide.load(),
+            MatrixMultiply => self.matrix_multiply.load(),
+            InplaceMatrixMultiply => self.inplace_matrix_multiply.load(),
+        }
+    }
+
+    pub fn right_binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
+        use PyNumberBinaryOp::*;
+        match op_slot {
+            Add => self.right_add.load(),
+            Subtract => self.right_subtract.load(),
+            Multiply => self.right_multiply.load(),
+            Remainder => self.right_remainder.load(),
+            Divmod => self.right_divmod.load(),
+            Power => self.right_power.load(),
+            Lshift => self.right_lshift.load(),
+            Rshift => self.right_rshift.load(),
+            And => self.right_and.load(),
+            Xor => self.right_xor.load(),
+            Or => self.right_or.load(),
+            FloorDivide => self.right_floor_divide.load(),
+            TrueDivide => self.right_true_divide.load(),
+            MatrixMultiply => self.right_matrix_multiply.load(),
+            _ => None,
+        }
+    }
+}
 #[derive(Copy, Clone)]
 pub struct PyNumber<'a>(&'a PyObject);
 
