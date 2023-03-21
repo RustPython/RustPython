@@ -256,13 +256,12 @@ fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>>
 
 macro_rules! number_binary_op_wrapper {
     ($name:ident) => {
-        |num, other, vm| {
-            vm.call_special_method(
-                num.deref().to_owned(),
-                identifier!(vm, $name),
-                (other.to_owned(),),
-            )
-        }
+        |a, b, vm| vm.call_special_method(a.to_owned(), identifier!(vm, $name), (b.to_owned(),))
+    };
+}
+macro_rules! number_binary_right_op_wrapper {
+    ($name:ident) => {
+        |a, b, vm| vm.call_special_method(b.to_owned(), identifier!(vm, $name), (a.to_owned(),))
     };
 }
 
@@ -560,7 +559,7 @@ impl PyType {
                 toggle_subslot!(number, add, number_binary_op_wrapper!(__add__));
             }
             _ if name == identifier!(ctx, __radd__) => {
-                toggle_subslot!(number, right_add, number_binary_op_wrapper!(__radd__));
+                toggle_subslot!(number, right_add, number_binary_right_op_wrapper!(__radd__));
             }
             _ if name == identifier!(ctx, __iadd__) => {
                 toggle_subslot!(number, inplace_add, number_binary_op_wrapper!(__iadd__));
@@ -569,7 +568,11 @@ impl PyType {
                 toggle_subslot!(number, subtract, number_binary_op_wrapper!(__sub__));
             }
             _ if name == identifier!(ctx, __rsub__) => {
-                toggle_subslot!(number, right_subtract, number_binary_op_wrapper!(__rsub__));
+                toggle_subslot!(
+                    number,
+                    right_subtract,
+                    number_binary_right_op_wrapper!(__rsub__)
+                );
             }
             _ if name == identifier!(ctx, __isub__) => {
                 toggle_subslot!(
@@ -582,7 +585,11 @@ impl PyType {
                 toggle_subslot!(number, multiply, number_binary_op_wrapper!(__mul__));
             }
             _ if name == identifier!(ctx, __rmul__) => {
-                toggle_subslot!(number, right_multiply, number_binary_op_wrapper!(__rmul__));
+                toggle_subslot!(
+                    number,
+                    right_multiply,
+                    number_binary_right_op_wrapper!(__rmul__)
+                );
             }
             _ if name == identifier!(ctx, __imul__) => {
                 toggle_subslot!(
@@ -595,7 +602,11 @@ impl PyType {
                 toggle_subslot!(number, remainder, number_binary_op_wrapper!(__mod__));
             }
             _ if name == identifier!(ctx, __rmod__) => {
-                toggle_subslot!(number, right_remainder, number_binary_op_wrapper!(__rmod__));
+                toggle_subslot!(
+                    number,
+                    right_remainder,
+                    number_binary_right_op_wrapper!(__rmod__)
+                );
             }
             _ if name == identifier!(ctx, __imod__) => {
                 toggle_subslot!(
@@ -608,13 +619,21 @@ impl PyType {
                 toggle_subslot!(number, divmod, number_binary_op_wrapper!(__divmod__));
             }
             _ if name == identifier!(ctx, __rdivmod__) => {
-                toggle_subslot!(number, right_divmod, number_binary_op_wrapper!(__rdivmod__));
+                toggle_subslot!(
+                    number,
+                    right_divmod,
+                    number_binary_right_op_wrapper!(__rdivmod__)
+                );
             }
             _ if name == identifier!(ctx, __pow__) => {
                 toggle_subslot!(number, power, number_binary_op_wrapper!(__pow__));
             }
             _ if name == identifier!(ctx, __rpow__) => {
-                toggle_subslot!(number, right_power, number_binary_op_wrapper!(__rpow__));
+                toggle_subslot!(
+                    number,
+                    right_power,
+                    number_binary_right_op_wrapper!(__rpow__)
+                );
             }
             _ if name == identifier!(ctx, __ipow__) => {
                 toggle_subslot!(number, inplace_power, number_binary_op_wrapper!(__ipow__));
@@ -623,7 +642,11 @@ impl PyType {
                 toggle_subslot!(number, lshift, number_binary_op_wrapper!(__lshift__));
             }
             _ if name == identifier!(ctx, __rlshift__) => {
-                toggle_subslot!(number, right_lshift, number_binary_op_wrapper!(__rlshift__));
+                toggle_subslot!(
+                    number,
+                    right_lshift,
+                    number_binary_right_op_wrapper!(__rlshift__)
+                );
             }
             _ if name == identifier!(ctx, __ilshift__) => {
                 toggle_subslot!(
@@ -636,7 +659,11 @@ impl PyType {
                 toggle_subslot!(number, rshift, number_binary_op_wrapper!(__rshift__));
             }
             _ if name == identifier!(ctx, __rrshift__) => {
-                toggle_subslot!(number, right_rshift, number_binary_op_wrapper!(__rrshift__));
+                toggle_subslot!(
+                    number,
+                    right_rshift,
+                    number_binary_right_op_wrapper!(__rrshift__)
+                );
             }
             _ if name == identifier!(ctx, __irshift__) => {
                 toggle_subslot!(
@@ -649,7 +676,7 @@ impl PyType {
                 toggle_subslot!(number, and, number_binary_op_wrapper!(__and__));
             }
             _ if name == identifier!(ctx, __rand__) => {
-                toggle_subslot!(number, right_and, number_binary_op_wrapper!(__rand__));
+                toggle_subslot!(number, right_and, number_binary_right_op_wrapper!(__rand__));
             }
             _ if name == identifier!(ctx, __iand__) => {
                 toggle_subslot!(number, inplace_and, number_binary_op_wrapper!(__iand__));
@@ -658,7 +685,7 @@ impl PyType {
                 toggle_subslot!(number, xor, number_binary_op_wrapper!(__xor__));
             }
             _ if name == identifier!(ctx, __rxor__) => {
-                toggle_subslot!(number, right_xor, number_binary_op_wrapper!(__rxor__));
+                toggle_subslot!(number, right_xor, number_binary_right_op_wrapper!(__rxor__));
             }
             _ if name == identifier!(ctx, __ixor__) => {
                 toggle_subslot!(number, inplace_xor, number_binary_op_wrapper!(__ixor__));
@@ -667,7 +694,7 @@ impl PyType {
                 toggle_subslot!(number, or, number_binary_op_wrapper!(__or__));
             }
             _ if name == identifier!(ctx, __ror__) => {
-                toggle_subslot!(number, right_or, number_binary_op_wrapper!(__ror__));
+                toggle_subslot!(number, right_or, number_binary_right_op_wrapper!(__ror__));
             }
             _ if name == identifier!(ctx, __ior__) => {
                 toggle_subslot!(number, inplace_or, number_binary_op_wrapper!(__ior__));
@@ -683,7 +710,7 @@ impl PyType {
                 toggle_subslot!(
                     number,
                     right_floor_divide,
-                    number_binary_op_wrapper!(__rfloordiv__)
+                    number_binary_right_op_wrapper!(__rfloordiv__)
                 );
             }
             _ if name == identifier!(ctx, __ifloordiv__) => {
@@ -700,7 +727,7 @@ impl PyType {
                 toggle_subslot!(
                     number,
                     right_true_divide,
-                    number_binary_op_wrapper!(__rtruediv__)
+                    number_binary_right_op_wrapper!(__rtruediv__)
                 );
             }
             _ if name == identifier!(ctx, __itruediv__) => {
@@ -721,7 +748,7 @@ impl PyType {
                 toggle_subslot!(
                     number,
                     right_matrix_multiply,
-                    number_binary_op_wrapper!(__rmatmul__)
+                    number_binary_right_op_wrapper!(__rmatmul__)
                 );
             }
             _ if name == identifier!(ctx, __imatmul__) => {
