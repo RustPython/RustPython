@@ -424,7 +424,7 @@ impl<'a> PyNumber<'a> {
 
     // PyNumber_Check
     pub fn check(obj: &PyObject) -> bool {
-        let methods = &obj.class().slots.number;
+        let methods = &obj.class().slots.as_number;
         methods.int.load().is_some()
             || methods.index.load().is_some()
             || methods.float.load().is_some()
@@ -435,12 +435,12 @@ impl<'a> PyNumber<'a> {
 impl PyNumber<'_> {
     // PyIndex_Check
     pub fn is_index(self) -> bool {
-        self.class().slots.number.index.load().is_some()
+        self.class().slots.as_number.index.load().is_some()
     }
 
     #[inline]
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.class().slots.number.int.load().map(|f| {
+        self.class().slots.as_number.int.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 warnings::warn(
@@ -464,7 +464,7 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.class().slots.number.index.load().map(|f| {
+        self.class().slots.as_number.index.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 warnings::warn(
@@ -488,7 +488,7 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
-        self.class().slots.number.float.load().map(|f| {
+        self.class().slots.as_number.float.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyFloat::class(&vm.ctx)) {
                 warnings::warn(

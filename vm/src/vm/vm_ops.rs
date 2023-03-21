@@ -135,11 +135,11 @@ impl VirtualMachine {
         let class_a = a.class();
         let class_b = b.class();
 
-        let slot_a = class_a.slots.number.left_binary_op(op_slot);
+        let slot_a = class_a.slots.as_number.left_binary_op(op_slot);
         let mut slot_b = None;
 
         if !class_a.is(class_b) {
-            let slot_bb = class_b.slots.number.right_binary_op(op_slot);
+            let slot_bb = class_b.slots.as_number.right_binary_op(op_slot);
             if slot_bb.map(|x| x as usize) != slot_a.map(|x| x as usize) {
                 slot_b = slot_bb;
             }
@@ -205,7 +205,7 @@ impl VirtualMachine {
         iop_slot: PyNumberBinaryOp,
         op_slot: PyNumberBinaryOp,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.number.left_binary_op(iop_slot) {
+        if let Some(slot) = a.class().slots.as_number.left_binary_op(iop_slot) {
             let x = slot(a, b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
