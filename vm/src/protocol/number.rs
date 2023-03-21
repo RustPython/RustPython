@@ -1,7 +1,7 @@
+use std::ops::Deref;
+
 use crate::{
-    builtins::{
-        int, type_::PointerSlot, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr,
-    },
+    builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
     common::int::bytes_to_int,
     function::ArgBytesLike,
     stdlib::warnings,
@@ -10,12 +10,12 @@ use crate::{
 };
 
 pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber, &VirtualMachine) -> PyResult<R>;
-pub type PyNumberBinaryFunc = fn(PyNumber, &PyObject, &VirtualMachine) -> PyResult;
+pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
 
 impl PyObject {
     #[inline]
-    pub fn to_number(&self) -> PyNumber<'_> {
-        PyNumber::from(self)
+    pub fn to_number(&self) -> PyNumber {
+        PyNumber(self)
     }
 
     pub fn try_index_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
@@ -197,39 +197,6 @@ impl PyNumberMethods {
         matrix_multiply: None,
         inplace_matrix_multiply: None,
     };
-
-    pub fn binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
-        use PyNumberBinaryOp::*;
-        match op_slot {
-            Add => self.add,
-            Subtract => self.subtract,
-            Multiply => self.multiply,
-            Remainder => self.remainder,
-            Divmod => self.divmod,
-            Power => self.power,
-            Lshift => self.lshift,
-            Rshift => self.rshift,
-            And => self.and,
-            Xor => self.xor,
-            Or => self.or,
-            InplaceAdd => self.inplace_add,
-            InplaceSubtract => self.inplace_subtract,
-            InplaceMultiply => self.inplace_multiply,
-            InplaceRemainder => self.inplace_remainder,
-            InplacePower => self.inplace_power,
-            InplaceLshift => self.inplace_lshift,
-            InplaceRshift => self.inplace_rshift,
-            InplaceAnd => self.inplace_and,
-            InplaceXor => self.inplace_xor,
-            InplaceOr => self.inplace_or,
-            FloorDivide => self.floor_divide,
-            TrueDivide => self.true_divide,
-            InplaceFloorDivide => self.inplace_floor_divide,
-            InplaceTrueDivide => self.inplace_true_divide,
-            MatrixMultiply => self.matrix_multiply,
-            InplaceMatrixMultiply => self.inplace_matrix_multiply,
-        }
-    }
 }
 
 #[derive(Copy, Clone)]
@@ -264,25 +231,19 @@ pub enum PyNumberBinaryOp {
 }
 
 #[derive(Copy, Clone)]
-pub struct PyNumber<'a> {
-    pub obj: &'a PyObject,
-    pub(crate) methods: &'a PyNumberMethods,
-}
+pub struct PyNumber<'a>(&'a PyObject);
 
-impl<'a> From<&'a PyObject> for PyNumber<'a> {
-    fn from(obj: &'a PyObject) -> Self {
-        static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
-        Self {
-            obj,
-            methods: Self::find_methods(obj)
-                .map_or(&GLOBAL_NOT_IMPLEMENTED, |m| unsafe { m.borrow_static() }),
-        }
+impl<'a> Deref for PyNumber<'a> {
+    type Target = PyObject;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
     }
 }
 
-impl PyNumber<'_> {
-    fn find_methods(obj: &PyObject) -> Option<PointerSlot<PyNumberMethods>> {
-        obj.class().mro_find_map(|x| x.slots.as_number.load())
+impl<'a> PyNumber<'a> {
+    pub(crate) fn obj(self) -> &'a PyObject {
+        self.0
     }
 
     // PyNumber_Check
@@ -293,15 +254,17 @@ impl PyNumber<'_> {
             || methods.float.load().is_some()
             || obj.payload_is::<PyComplex>()
     }
+}
 
+impl PyNumber<'_> {
     // PyIndex_Check
-    pub fn is_index(&self) -> bool {
-        self.obj.class().slots.number.index.load().is_some()
+    pub fn is_index(self) -> bool {
+        self.class().slots.number.index.load().is_some()
     }
 
     #[inline]
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.obj.class().slots.number.int.load().map(|f| {
+        self.class().slots.number.int.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 warnings::warn(
@@ -325,7 +288,7 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.obj.class().slots.number.index.load().map(|f| {
+        self.class().slots.number.index.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 warnings::warn(
@@ -349,7 +312,7 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
-        self.obj.class().slots.number.float.load().map(|f| {
+        self.class().slots.number.float.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyFloat::class(&vm.ctx)) {
                 warnings::warn(

@@ -238,16 +238,16 @@ impl AsSequence for PyMappingProxy {
 impl AsNumber for PyMappingProxy {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|num, args, vm| {
-                if let Some(num) = num.obj.downcast_ref::<PyMappingProxy>() {
-                    num.or(args.to_pyobject(vm), vm)
+            or: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyMappingProxy>() {
+                    a.or(b.to_pyobject(vm), vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }
             }),
-            inplace_or: Some(|num, args, vm| {
-                if let Some(num) = num.obj.downcast_ref::<PyMappingProxy>() {
-                    num.ior(args.to_pyobject(vm), vm)
+            inplace_or: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyMappingProxy>() {
+                    a.ior(b.to_pyobject(vm), vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }

@@ -345,7 +345,7 @@ impl AsMapping for PyGenericAlias {
 impl AsNumber for PyGenericAlias {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: Some(|a, b, vm| Ok(PyGenericAlias::or(a.obj.to_owned(), b.to_owned(), vm))),
+            or: Some(|a, b, vm| Ok(PyGenericAlias::or(a.to_owned(), b.to_owned(), vm))),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER

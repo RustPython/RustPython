@@ -8,7 +8,7 @@ use crate::{
         PyComparisonValue,
     },
     identifier,
-    protocol::{PyNumber, PyNumberMethods},
+    protocol::PyNumberMethods,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -418,16 +418,10 @@ impl Hashable for PyComplex {
 impl AsNumber for PyComplex {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            add: Some(|number, other, vm| {
-                PyComplex::number_op(number, other, |a, b, _vm| a + b, vm)
-            }),
-            subtract: Some(|number, other, vm| {
-                PyComplex::number_op(number, other, |a, b, _vm| a - b, vm)
-            }),
-            multiply: Some(|number, other, vm| {
-                PyComplex::number_op(number, other, |a, b, _vm| a * b, vm)
-            }),
-            power: Some(|number, other, vm| PyComplex::number_op(number, other, inner_pow, vm)),
+            add: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a + b, vm)),
+            subtract: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a - b, vm)),
+            multiply: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)),
+            power: Some(|a, b, vm| PyComplex::number_op(a, b, inner_pow, vm)),
             negative: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
                 (-value).to_pyresult(vm)
@@ -440,9 +434,7 @@ impl AsNumber for PyComplex {
                 value.norm().to_pyresult(vm)
             }),
             boolean: Some(|number, _vm| Ok(PyComplex::number_downcast(number).value.is_zero())),
-            true_divide: Some(|number, other, vm| {
-                PyComplex::number_op(number, other, inner_div, vm)
-            }),
+            true_divide: Some(|a, b, vm| PyComplex::number_op(a, b, inner_div, vm)),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
@@ -494,12 +486,12 @@ impl Representable for PyComplex {
 }
 
 impl PyComplex {
-    fn number_op<F, R>(number: PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    fn number_op<F, R>(a: &PyObject, b: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(Complex64, Complex64, &VirtualMachine) -> R,
         R: ToPyResult,
     {
-        if let (Some(a), Some(b)) = (to_op_complex(number.obj, vm)?, to_op_complex(other, vm)?) {
+        if let (Some(a), Some(b)) = (to_op_complex(a, vm)?, to_op_complex(b, vm)?) {
             op(a, b, vm).to_pyresult(vm)
         } else {
             Ok(vm.ctx.not_implemented())

@@ -132,40 +132,39 @@ impl VirtualMachine {
     ///
     /// [*] only when Py_TYPE(a) != Py_TYPE(b) && Py_TYPE(b) is a subclass of Py_TYPE(a)
     pub fn binary_op1(&self, a: &PyObject, b: &PyObject, op_slot: PyNumberBinaryOp) -> PyResult {
-        let slot_a = a.class().slots.number.left_binary_op(op_slot)?;
-        let mut slot_b = if b.class().is(a.class()) {
-            None
-        } else {
-            match b.class().slots.number.right_binary_op(op_slot)? {
-                Some(slot_b)
-                    if slot_b as usize == slot_a.map(|s| s as usize).unwrap_or_default() =>
-                {
-                    None
-                }
-                slot_b => slot_b,
+        let class_a = a.class();
+        let class_b = b.class();
+
+        let slot_a = class_a.slots.number.left_binary_op(op_slot);
+        let mut slot_b = None;
+
+        if !class_a.is(class_b) {
+            let slot_bb = class_b.slots.number.right_binary_op(op_slot);
+            if slot_bb.map(|x| x as usize) != slot_a.map(|x| x as usize) {
+                slot_b = slot_bb;
             }
-        };
+        }
 
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b {
-                if b.fast_isinstance(a.class()) {
-                    let x = slot_bb(b.to_number(), a, self)?;
-                    if !x.is(&self.ctx.not_implemented) {
-                        return Ok(x);
+                if class_b.fast_issubclass(class_a) {
+                    let ret = slot_bb(a, b, self)?;
+                    if !ret.is(&self.ctx.not_implemented) {
+                        return Ok(ret);
                     }
                     slot_b = None;
                 }
             }
-            let x = slot_a(a.to_number(), b, self)?;
-            if !x.is(&self.ctx.not_implemented) {
-                return Ok(x);
+            let ret = slot_a(a, b, self)?;
+            if !ret.is(&self.ctx.not_implemented) {
+                return Ok(ret);
             }
         }
 
         if let Some(slot_b) = slot_b {
-            let x = slot_b(b.to_number(), a, self)?;
-            if !x.is(&self.ctx.not_implemented) {
-                return Ok(x);
+            let ret = slot_b(a, b, self)?;
+            if !ret.is(&self.ctx.not_implemented) {
+                return Ok(ret);
             }
         }
 
@@ -206,8 +205,8 @@ impl VirtualMachine {
         iop_slot: PyNumberBinaryOp,
         op_slot: PyNumberBinaryOp,
     ) -> PyResult {
-        if let Some(slot) = a.class().slots.number.left_binary_op(iop_slot)? {
-            let x = slot(a.to_number(), b, self)?;
+        if let Some(slot) = a.class().slots.number.left_binary_op(iop_slot) {
+            let x = slot(a, b, self)?;
             if !x.is(&self.ctx.not_implemented) {
                 return Ok(x);
             }
