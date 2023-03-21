@@ -64,6 +64,7 @@ impl Constructor for PyGenericAlias {
 
 #[pyclass(
     with(
+        AsNumber,
         AsMapping,
         Callable,
         Comparable,
