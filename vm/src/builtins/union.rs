@@ -8,8 +8,7 @@ use crate::{
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use once_cell::sync::Lazy;
 use std::fmt;
@@ -139,33 +138,14 @@ pub fn is_unionable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
         || obj.class().is(vm.ctx.types.union_type)
 }
 
-fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
-    let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
-    for arg in args {
-        if genericalias::is_typevar(arg, vm) {
-            if !parameters.iter().any(|param| param.is(arg)) {
-                parameters.push(arg.clone());
-            }
-        } else if let Ok(sub_params) = arg
-            .clone()
-            .get_attr(identifier!(vm, __parameters__), vm)
-            .and_then(|obj| PyTupleRef::try_from_object(vm, obj))
-        {
-            for sub_param in &sub_params {
-                if !parameters.iter().any(|param| param.is(sub_param)) {
-                    parameters.push(sub_param.clone());
-                }
-            }
-        }
-    }
-    parameters.shrink_to_fit();
-
-    dedup_and_flatten_args(PyTuple::new_ref(parameters, &vm.ctx), vm)
+fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
+    let parameters = genericalias::make_parameters(args, vm);
+    dedup_and_flatten_args(&parameters, vm)
 }
 
-fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
+fn flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let mut total_args = 0;
-    for arg in &args {
+    for arg in args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
             total_args += pyref.args.len();
         } else {
@@ -174,7 +154,7 @@ fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     }
 
     let mut flattened_args = Vec::with_capacity(total_args);
-    for arg in &args {
+    for arg in args {
         if let Some(pyref) = arg.downcast_ref::<PyUnion>() {
             flattened_args.extend(pyref.args.iter().cloned());
         } else if vm.is_none(arg) {
@@ -187,11 +167,11 @@ fn flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     PyTuple::new_ref(flattened_args, &vm.ctx)
 }
 
-fn dedup_and_flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
+fn dedup_and_flatten_args(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let args = flatten_args(args, vm);
 
     let mut new_args: Vec<PyObjectRef> = Vec::with_capacity(args.len());
-    for arg in &args {
+    for arg in &*args {
         if !new_args.iter().any(|param| {
             param
                 .rich_compare_bool(arg, PyComparisonOp::Eq, vm)
@@ -206,7 +186,7 @@ fn dedup_and_flatten_args(args: PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
     PyTuple::new_ref(new_args, &vm.ctx)
 }
 
-pub fn make_union(args: PyTupleRef, vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_union(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyObjectRef {
     let args = dedup_and_flatten_args(args, vm);
     match args.len() {
         1 => args.fast_getitem(0),
@@ -225,7 +205,7 @@ impl PyUnion {
         )?;
         let mut res;
         if new_args.len() == 0 {
-            res = make_union(new_args, vm);
+            res = make_union(&new_args, vm);
         } else {
             res = new_args.fast_getitem(0);
             for arg in new_args.iter().skip(1) {

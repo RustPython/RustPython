@@ -1198,7 +1198,7 @@ pub(super) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) ->
     }
 
     let tuple = PyTuple::new_ref(vec![zelf, other], &vm.ctx);
-    union_::make_union(tuple, vm)
+    union_::make_union(&tuple, vm)
 }
 
 fn take_next_base(bases: &mut [Vec<PyTypeRef>]) -> Option<PyTypeRef> {

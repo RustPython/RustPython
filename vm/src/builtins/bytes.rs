@@ -300,10 +300,10 @@ impl PyBytes {
                 None => return Ok(false),
             };
         substr.py_startsendswith(
-            affix,
+            &affix,
             "endswith",
             "bytes",
-            |s, x: &PyBytesInner| s.ends_with(x.as_bytes()),
+            |s, x: PyBytesInner| s.ends_with(x.as_bytes()),
             vm,
         )
     }
@@ -320,10 +320,10 @@ impl PyBytes {
                 None => return Ok(false),
             };
         substr.py_startsendswith(
-            affix,
+            &affix,
             "startswith",
             "bytes",
-            |s, x: &PyBytesInner| s.starts_with(x.as_bytes()),
+            |s, x: PyBytesInner| s.starts_with(x.as_bytes()),
             vm,
         )
     }

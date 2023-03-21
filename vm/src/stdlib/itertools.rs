@@ -946,7 +946,7 @@ mod decl {
                 return Err(vm.new_type_error(msg));
             }
             let cur = &args[0];
-            if let Ok(cur) = usize::try_from_object(vm, cur.clone()) {
+            if let Ok(cur) = cur.try_to_value(vm) {
                 zelf.cur.store(cur);
             } else {
                 return Err(vm.new_type_error(String::from("Argument must be usize.")));
