@@ -8,7 +8,7 @@ use crate::{
     class::PyClassImpl,
     function::{FuncArgs, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "property")]
@@ -40,14 +40,14 @@ pub struct PropertyArgs {
 
 impl GetDescriptor for PyProperty {
     fn descr_get(
-        zelf: PyObjectRef,
+        zelf_obj: PyObjectRef,
         obj: Option<PyObjectRef>,
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
+        let (zelf, obj) = Self::_unwrap(&zelf_obj, obj, vm)?;
         if vm.is_none(&obj) {
-            Ok(zelf.into())
+            Ok(zelf_obj)
         } else if let Some(getter) = zelf.getter.read().as_ref() {
             getter.call((obj,), vm)
         } else {
@@ -62,12 +62,12 @@ impl PyProperty {
 
     #[pyslot]
     fn descr_set(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: PyObjectRef,
         value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
+        let zelf = zelf.try_to_ref::<Self>(vm)?;
         match value {
             PySetterValue::Assign(value) => {
                 if let Some(setter) = zelf.setter.read().as_ref() {
@@ -92,11 +92,11 @@ impl PyProperty {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::descr_set(zelf, obj, PySetterValue::Assign(value), vm)
+        Self::descr_set(&zelf, obj, PySetterValue::Assign(value), vm)
     }
     #[pymethod]
     fn __delete__(zelf: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::descr_set(zelf, obj, PySetterValue::Delete, vm)
+        Self::descr_set(&zelf, obj, PySetterValue::Delete, vm)
     }
 
     // Access functions

@@ -150,7 +150,7 @@ impl GetAttr for PySuper {
                 if let Some(descr) = cls.get_direct_attr(name) {
                     return vm
                         .call_get_descriptor_specific(
-                            descr.clone(),
+                            &descr,
                             // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
                             if obj.is(&start_type) { None } else { Some(obj) },
                             Some(start_type.as_object().to_owned()),
@@ -165,14 +165,14 @@ impl GetAttr for PySuper {
 
 impl GetDescriptor for PySuper {
     fn descr_get(
-        zelf: PyObjectRef,
+        zelf_obj: PyObjectRef,
         obj: Option<PyObjectRef>,
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
+        let (zelf, obj) = Self::_unwrap(&zelf_obj, obj, vm)?;
         if vm.is_none(&obj) || zelf.obj.is_some() {
-            return Ok(zelf.into());
+            return Ok(zelf_obj);
         }
         let zelf_class = zelf.as_object().class();
         if zelf_class.is(vm.ctx.types.super_type) {

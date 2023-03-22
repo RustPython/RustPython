@@ -851,8 +851,8 @@ impl ExecutingFrame<'_> {
                     )
                 };
                 let enter_res = vm
-                    .get_special_method(context_manager.clone(), identifier!(vm, __enter__))?
-                    .map_err(|_obj| vm.new_type_error(error_string()))?
+                    .get_special_method(&context_manager, identifier!(vm, __enter__))?
+                    .ok_or_else(|| vm.new_type_error(error_string()))?
                     .invoke((), vm)?;
 
                 let exit = context_manager
@@ -879,8 +879,8 @@ impl ExecutingFrame<'_> {
                 };
 
                 let aenter_res = vm
-                    .get_special_method(mgr.clone(), identifier!(vm, __aenter__))?
-                    .map_err(|_obj| vm.new_type_error(error_string()))?
+                    .get_special_method(&mgr, identifier!(vm, __aenter__))?
+                    .ok_or_else(|| vm.new_type_error(error_string()))?
                     .invoke((), vm)?;
                 let aexit = mgr
                     .get_attr(identifier!(vm, __aexit__), vm)
@@ -976,17 +976,17 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetAIter => {
                 let aiterable = self.pop_value();
-                let aiter = vm.call_special_method(aiterable, identifier!(vm, __aiter__), ())?;
+                let aiter = vm.call_special_method(&aiterable, identifier!(vm, __aiter__), ())?;
                 self.push_value(aiter);
                 Ok(None)
             }
             bytecode::Instruction::GetANext => {
                 let aiter = self.last_value();
-                let awaitable = vm.call_special_method(aiter, identifier!(vm, __anext__), ())?;
+                let awaitable = vm.call_special_method(&aiter, identifier!(vm, __anext__), ())?;
                 let awaitable = if awaitable.payload_is::<PyCoroutine>() {
                     awaitable
                 } else {
-                    vm.call_special_method(awaitable, identifier!(vm, __await__), ())?
+                    vm.call_special_method(&awaitable, identifier!(vm, __await__), ())?
                 };
                 self.push_value(awaitable);
                 Ok(None)
@@ -1728,7 +1728,7 @@ impl ExecutingFrame<'_> {
             Ok(d) => d.contains_key(__annotations__, vm),
             Err(o) => {
                 let needle = __annotations__.to_object();
-                self._in(vm, needle, o)?
+                self._in(vm, needle, &o)?
             }
         };
         if !has_annotations {
@@ -1801,12 +1801,7 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn _in(
-        &self,
-        vm: &VirtualMachine,
-        needle: PyObjectRef,
-        haystack: PyObjectRef,
-    ) -> PyResult<bool> {
+    fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: &PyObject) -> PyResult<bool> {
         let found = vm._contains(haystack, needle)?;
         found.try_to_bool(vm)
     }
@@ -1816,7 +1811,7 @@ impl ExecutingFrame<'_> {
         &self,
         vm: &VirtualMachine,
         needle: PyObjectRef,
-        haystack: PyObjectRef,
+        haystack: &PyObject,
     ) -> PyResult<bool> {
         Ok(!self._in(vm, needle, haystack)?)
     }
@@ -1828,8 +1823,8 @@ impl ExecutingFrame<'_> {
         let value = match op {
             bytecode::TestOperator::Is => a.is(&b),
             bytecode::TestOperator::IsNot => !a.is(&b),
-            bytecode::TestOperator::In => self._in(vm, a, b)?,
-            bytecode::TestOperator::NotIn => self._not_in(vm, a, b)?,
+            bytecode::TestOperator::In => self._in(vm, a, &b)?,
+            bytecode::TestOperator::NotIn => self._not_in(vm, a, &b)?,
             bytecode::TestOperator::ExceptionMatch => a.is_instance(&b, vm)?,
         };
 

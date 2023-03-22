@@ -17,7 +17,7 @@ use crate::{
         borrow::BorrowedValue,
         lock::{PyRwLock, PyRwLockReadGuard},
     },
-    convert::{ToPyObject, ToPyResult},
+    convert::ToPyResult,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -816,7 +816,7 @@ impl PyType {
                     cell.class().name()
                 ))
             })?;
-            cell.set(Some(typ.clone().to_pyobject(vm)));
+            cell.set(Some(typ.clone().into()));
         };
 
         // avoid deadlock
@@ -844,7 +844,7 @@ impl PyType {
 
         if let Some(init_subclass) = typ.get_super_attr(identifier!(vm, __init_subclass__)) {
             let init_subclass = vm
-                .call_get_descriptor_specific(init_subclass.clone(), None, Some(typ.clone().into()))
+                .call_get_descriptor_specific(&init_subclass, None, Some(typ.clone().into()))
                 .unwrap_or(Ok(init_subclass))?;
             init_subclass.call(kwargs, vm)?;
         };
@@ -1008,19 +1008,17 @@ impl GetAttr for PyType {
 
         let zelf_attr = zelf.get_attr(name);
 
-        if let Some(ref attr) = zelf_attr {
+        if let Some(attr) = zelf_attr {
             let descr_get = attr.class().mro_find_map(|cls| cls.slots.descr_get.load());
             if let Some(descr_get) = descr_get {
-                return descr_get(attr.clone(), None, Some(zelf.to_owned().into()), vm);
+                descr_get(attr, None, Some(zelf.to_owned().into()), vm)
+            } else {
+                Ok(attr)
             }
-        }
-
-        if let Some(cls_attr) = zelf_attr {
-            Ok(cls_attr)
         } else if let Some(attr) = mcl_attr {
-            vm.call_if_get_descriptor(attr, zelf.to_owned().into())
+            vm.call_if_get_descriptor(&attr, zelf.to_owned().into())
         } else {
-            return Err(attribute_error(zelf, name_str.as_str(), vm));
+            Err(attribute_error(zelf, name_str.as_str(), vm))
         }
     }
 }
@@ -1037,7 +1035,7 @@ impl SetAttr for PyType {
         if let Some(attr) = zelf.get_class_attr(attr_name) {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
             if let Some(descriptor) = descr_set {
-                return descriptor(attr, zelf.to_owned().into(), value, vm);
+                return descriptor(&attr, zelf.to_owned().into(), value, vm);
             }
         }
         let assign = value.is_assign();
@@ -1132,10 +1130,10 @@ fn find_base_dict_descr(cls: &Py<PyType>, vm: &VirtualMachine) -> Option<PyObjec
 fn subtype_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     // TODO: obj.class().as_pyref() need to be supported
     let ret = match find_base_dict_descr(obj.class(), vm) {
-        Some(descr) => vm.call_get_descriptor(descr, obj).unwrap_or_else(|obj| {
+        Some(descr) => vm.call_get_descriptor(&descr, obj).unwrap_or_else(|| {
             Err(vm.new_type_error(format!(
                 "this __dict__ descriptor does not support '{}' objects",
-                obj.class()
+                descr.class()
             )))
         })?,
         None => object::object_get_dict(obj, vm)?.into(),
@@ -1156,7 +1154,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
                         cls.name()
                     ))
                 })?;
-            descr_set(descr, obj, PySetterValue::Assign(value), vm)
+            descr_set(&descr, obj, PySetterValue::Assign(value), vm)
         }
         None => {
             object::object_set_dict(obj, value.try_into_value(vm)?, vm)?;

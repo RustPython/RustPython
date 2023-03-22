@@ -3,7 +3,7 @@ use crate::{
     class::PyClassImpl,
     function::PySetterValue,
     types::{Constructor, GetDescriptor, Representable, Unconstructible},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use rustpython_common::lock::PyRwLock;
 
@@ -122,12 +122,12 @@ impl MemberDescrObject {
 
     #[pyslot]
     fn descr_set(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: PyObjectRef,
         value: PySetterValue<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let zelf = Self::_zelf(zelf, vm)?;
+        let zelf = Self::_as_pyref(zelf, vm)?;
         zelf.member.set(obj, value, vm)
     }
 }
@@ -208,7 +208,7 @@ impl GetDescriptor for MemberDescrObject {
     ) -> PyResult {
         match obj {
             Some(x) => {
-                let zelf = Self::_zelf(zelf, vm)?;
+                let zelf = Self::_as_pyref(&zelf, vm)?;
                 zelf.member.get(x, vm)
             }
             None => Ok(zelf),

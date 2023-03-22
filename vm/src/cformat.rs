@@ -33,8 +33,8 @@ fn spec_format_bytes(
                     Ok(buffer.contiguous_or_collect(|bytes| spec.format_bytes(bytes)))
                 } else {
                     let bytes = vm
-                        .get_special_method(obj, identifier!(vm, __bytes__))?
-                        .map_err(|obj| {
+                        .get_special_method(&obj, identifier!(vm, __bytes__))?
+                        .ok_or_else(|| {
                             vm.new_type_error(format!(
                                 "%b requires a bytes-like object, or an object that \
                                     implements __bytes__, not '{}'",

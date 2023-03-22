@@ -438,7 +438,7 @@ mod builtins {
     #[pyfunction]
     fn aiter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if iter_target.payload_is::<PyAsyncGen>() {
-            vm.call_special_method(iter_target, identifier!(vm, __aiter__), ())
+            vm.call_special_method(&iter_target, identifier!(vm, __aiter__), ())
         } else {
             Err(vm.new_type_error("wrong argument type".to_owned()))
         }
@@ -720,8 +720,8 @@ mod builtins {
     #[pyfunction]
     fn round(RoundArgs { number, ndigits }: RoundArgs, vm: &VirtualMachine) -> PyResult {
         let meth = vm
-            .get_special_method(number, identifier!(vm, __round__))?
-            .map_err(|number| {
+            .get_special_method(&number, identifier!(vm, __round__))?
+            .ok_or_else(|| {
                 vm.new_type_error(format!(
                     "type {} doesn't define __round__",
                     number.class().name()

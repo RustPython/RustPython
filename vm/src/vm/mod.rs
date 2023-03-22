@@ -650,7 +650,7 @@ impl VirtualMachine {
             .class()
             .get_attr(method_name)
             .ok_or_else(|| self.new_type_error(err_msg()))?;
-        self.call_if_get_descriptor(method, obj)
+        self.call_if_get_descriptor(&method, obj)
     }
 
     // TODO: remove + transfer over to get_special_method
@@ -660,7 +660,7 @@ impl VirtualMachine {
         method_name: &'static PyStrInterned,
     ) -> Option<PyResult> {
         let method = obj.get_class_attr(method_name)?;
-        Some(self.call_if_get_descriptor(method, obj))
+        Some(self.call_if_get_descriptor(&method, obj))
     }
 
     pub(crate) fn get_str_method(&self, obj: PyObjectRef, method_name: &str) -> Option<PyResult> {

@@ -374,13 +374,13 @@ impl PyFunction {
     // {"__builtins__",  T_OBJECT,     OFF(func_builtins), READONLY},
     #[pymember(magic)]
     fn globals(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_zelf(zelf, vm)?;
+        let zelf = Self::_as_pyref(&zelf, vm)?;
         Ok(zelf.globals.clone().into())
     }
 
     #[pymember(magic)]
     fn closure(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_zelf(zelf, vm)?;
+        let zelf = Self::_as_pyref(&zelf, vm)?;
         Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.to_pyobject(vm))))
     }
 
@@ -439,11 +439,11 @@ impl GetDescriptor for PyFunction {
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
+        let (_zelf, obj) = Self::_unwrap(&zelf, obj, vm)?;
         let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
-            zelf.into()
+            zelf
         } else {
-            PyBoundMethod::new_ref(obj, zelf.into(), &vm.ctx).into()
+            PyBoundMethod::new_ref(obj, zelf, &vm.ctx).into()
         };
         Ok(obj)
     }
@@ -507,7 +507,7 @@ impl GetAttr for PyBoundMethod {
             .interned_str(name)
             .and_then(|attr_name| zelf.get_class_attr(attr_name));
         if let Some(obj) = class_attr {
-            return vm.call_if_get_descriptor(obj, zelf.to_owned().into());
+            return vm.call_if_get_descriptor(&obj, zelf.to_owned().into());
         }
         zelf.function.get_attr(name, vm)
     }
