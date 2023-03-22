@@ -11,6 +11,7 @@ pub use callable::PyCallable;
 pub use iter::{PyIter, PyIterIter, PyIterReturn};
 pub use mapping::{PyMapping, PyMappingMethods};
 pub use number::{
-    PyNumber, PyNumberBinaryFunc, PyNumberBinaryOp, PyNumberMethods, PyNumberUnaryFunc,
+    PyNumber, PyNumberBinaryFunc, PyNumberBinaryOp, PyNumberMethods, PyNumberSlots,
+    PyNumberUnaryFunc,
 };
 pub use sequence::{PySequence, PySequenceMethods};

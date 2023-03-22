@@ -1,7 +1,9 @@
+use std::ops::Deref;
+
+use crossbeam_utils::atomic::AtomicCell;
+
 use crate::{
-    builtins::{
-        int, type_::PointerSlot, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr,
-    },
+    builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
     common::int::bytes_to_int,
     function::ArgBytesLike,
     stdlib::warnings,
@@ -10,12 +12,12 @@ use crate::{
 };
 
 pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber, &VirtualMachine) -> PyResult<R>;
-pub type PyNumberBinaryFunc = fn(PyNumber, &PyObject, &VirtualMachine) -> PyResult;
+pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
 
 impl PyObject {
     #[inline]
-    pub fn to_number(&self) -> PyNumber<'_> {
-        PyNumber::from(self)
+    pub fn to_number(&self) -> PyNumber {
+        PyNumber(self)
     }
 
     pub fn try_index_opt(&self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
@@ -158,8 +160,6 @@ pub struct PyNumberMethods {
 
 impl PyNumberMethods {
     /// this is NOT a global variable
-    // TODO: weak order read for performance
-    #[allow(clippy::declare_interior_mutable_const)]
     pub const NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods {
         add: None,
         subtract: None,
@@ -198,37 +198,9 @@ impl PyNumberMethods {
         inplace_matrix_multiply: None,
     };
 
-    pub fn binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
-        use PyNumberBinaryOp::*;
-        match op_slot {
-            Add => self.add,
-            Subtract => self.subtract,
-            Multiply => self.multiply,
-            Remainder => self.remainder,
-            Divmod => self.divmod,
-            Power => self.power,
-            Lshift => self.lshift,
-            Rshift => self.rshift,
-            And => self.and,
-            Xor => self.xor,
-            Or => self.or,
-            InplaceAdd => self.inplace_add,
-            InplaceSubtract => self.inplace_subtract,
-            InplaceMultiply => self.inplace_multiply,
-            InplaceRemainder => self.inplace_remainder,
-            InplacePower => self.inplace_power,
-            InplaceLshift => self.inplace_lshift,
-            InplaceRshift => self.inplace_rshift,
-            InplaceAnd => self.inplace_and,
-            InplaceXor => self.inplace_xor,
-            InplaceOr => self.inplace_or,
-            FloorDivide => self.floor_divide,
-            TrueDivide => self.true_divide,
-            InplaceFloorDivide => self.inplace_floor_divide,
-            InplaceTrueDivide => self.inplace_true_divide,
-            MatrixMultiply => self.matrix_multiply,
-            InplaceMatrixMultiply => self.inplace_matrix_multiply,
-        }
+    pub fn not_implemented() -> &'static PyNumberMethods {
+        static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
+        &GLOBAL_NOT_IMPLEMENTED
     }
 }
 
@@ -263,45 +235,212 @@ pub enum PyNumberBinaryOp {
     InplaceMatrixMultiply,
 }
 
-#[derive(Copy, Clone)]
-pub struct PyNumber<'a> {
-    pub obj: &'a PyObject,
-    pub(crate) methods: &'a PyNumberMethods,
+#[derive(Default)]
+pub struct PyNumberSlots {
+    pub add: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub remainder: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub divmod: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub power: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub negative: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub positive: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub absolute: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub boolean: AtomicCell<Option<PyNumberUnaryFunc<bool>>>,
+    pub invert: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub and: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub xor: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub or: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub int: AtomicCell<Option<PyNumberUnaryFunc<PyRef<PyInt>>>>,
+    pub float: AtomicCell<Option<PyNumberUnaryFunc<PyRef<PyFloat>>>>,
+
+    pub right_add: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_remainder: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_divmod: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_power: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_and: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_xor: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_or: AtomicCell<Option<PyNumberBinaryFunc>>,
+
+    pub inplace_add: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_subtract: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_remainder: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_power: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_and: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_xor: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_or: AtomicCell<Option<PyNumberBinaryFunc>>,
+
+    pub floor_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub true_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_floor_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_true_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_floor_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_true_divide: AtomicCell<Option<PyNumberBinaryFunc>>,
+
+    pub index: AtomicCell<Option<PyNumberUnaryFunc<PyRef<PyInt>>>>,
+
+    pub matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub right_matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
+    pub inplace_matrix_multiply: AtomicCell<Option<PyNumberBinaryFunc>>,
 }
 
-impl<'a> From<&'a PyObject> for PyNumber<'a> {
-    fn from(obj: &'a PyObject) -> Self {
-        static GLOBAL_NOT_IMPLEMENTED: PyNumberMethods = PyNumberMethods::NOT_IMPLEMENTED;
+impl From<&PyNumberMethods> for PyNumberSlots {
+    fn from(value: &PyNumberMethods) -> Self {
+        // right_* functions will use the same left function as PyNumberMethods
+        // allows both f(self, other) and f(other, self)
         Self {
-            obj,
-            methods: Self::find_methods(obj)
-                .map_or(&GLOBAL_NOT_IMPLEMENTED, |m| unsafe { m.borrow_static() }),
+            add: AtomicCell::new(value.add),
+            subtract: AtomicCell::new(value.subtract),
+            multiply: AtomicCell::new(value.multiply),
+            remainder: AtomicCell::new(value.remainder),
+            divmod: AtomicCell::new(value.divmod),
+            power: AtomicCell::new(value.power),
+            negative: AtomicCell::new(value.negative),
+            positive: AtomicCell::new(value.positive),
+            absolute: AtomicCell::new(value.absolute),
+            boolean: AtomicCell::new(value.boolean),
+            invert: AtomicCell::new(value.invert),
+            lshift: AtomicCell::new(value.lshift),
+            rshift: AtomicCell::new(value.rshift),
+            and: AtomicCell::new(value.and),
+            xor: AtomicCell::new(value.xor),
+            or: AtomicCell::new(value.or),
+            int: AtomicCell::new(value.int),
+            float: AtomicCell::new(value.float),
+            right_add: AtomicCell::new(value.add),
+            right_subtract: AtomicCell::new(value.subtract),
+            right_multiply: AtomicCell::new(value.multiply),
+            right_remainder: AtomicCell::new(value.remainder),
+            right_divmod: AtomicCell::new(value.divmod),
+            right_power: AtomicCell::new(value.power),
+            right_lshift: AtomicCell::new(value.lshift),
+            right_rshift: AtomicCell::new(value.rshift),
+            right_and: AtomicCell::new(value.and),
+            right_xor: AtomicCell::new(value.xor),
+            right_or: AtomicCell::new(value.or),
+            inplace_add: AtomicCell::new(value.inplace_add),
+            inplace_subtract: AtomicCell::new(value.inplace_subtract),
+            inplace_multiply: AtomicCell::new(value.inplace_multiply),
+            inplace_remainder: AtomicCell::new(value.inplace_remainder),
+            inplace_power: AtomicCell::new(value.inplace_power),
+            inplace_lshift: AtomicCell::new(value.inplace_lshift),
+            inplace_rshift: AtomicCell::new(value.inplace_rshift),
+            inplace_and: AtomicCell::new(value.inplace_and),
+            inplace_xor: AtomicCell::new(value.inplace_xor),
+            inplace_or: AtomicCell::new(value.inplace_or),
+            floor_divide: AtomicCell::new(value.floor_divide),
+            true_divide: AtomicCell::new(value.true_divide),
+            right_floor_divide: AtomicCell::new(value.floor_divide),
+            right_true_divide: AtomicCell::new(value.true_divide),
+            inplace_floor_divide: AtomicCell::new(value.inplace_floor_divide),
+            inplace_true_divide: AtomicCell::new(value.inplace_true_divide),
+            index: AtomicCell::new(value.index),
+            matrix_multiply: AtomicCell::new(value.matrix_multiply),
+            right_matrix_multiply: AtomicCell::new(value.matrix_multiply),
+            inplace_matrix_multiply: AtomicCell::new(value.inplace_matrix_multiply),
         }
     }
 }
 
-impl PyNumber<'_> {
-    fn find_methods(obj: &PyObject) -> Option<PointerSlot<PyNumberMethods>> {
-        obj.class().mro_find_map(|x| x.slots.as_number.load())
+impl PyNumberSlots {
+    pub fn left_binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
+        use PyNumberBinaryOp::*;
+        match op_slot {
+            Add => self.add.load(),
+            Subtract => self.subtract.load(),
+            Multiply => self.multiply.load(),
+            Remainder => self.remainder.load(),
+            Divmod => self.divmod.load(),
+            Power => self.power.load(),
+            Lshift => self.lshift.load(),
+            Rshift => self.rshift.load(),
+            And => self.and.load(),
+            Xor => self.xor.load(),
+            Or => self.or.load(),
+            InplaceAdd => self.inplace_add.load(),
+            InplaceSubtract => self.inplace_subtract.load(),
+            InplaceMultiply => self.inplace_multiply.load(),
+            InplaceRemainder => self.inplace_remainder.load(),
+            InplacePower => self.inplace_power.load(),
+            InplaceLshift => self.inplace_lshift.load(),
+            InplaceRshift => self.inplace_rshift.load(),
+            InplaceAnd => self.inplace_and.load(),
+            InplaceXor => self.inplace_xor.load(),
+            InplaceOr => self.inplace_or.load(),
+            FloorDivide => self.floor_divide.load(),
+            TrueDivide => self.true_divide.load(),
+            InplaceFloorDivide => self.inplace_floor_divide.load(),
+            InplaceTrueDivide => self.inplace_true_divide.load(),
+            MatrixMultiply => self.matrix_multiply.load(),
+            InplaceMatrixMultiply => self.inplace_matrix_multiply.load(),
+        }
+    }
+
+    pub fn right_binary_op(&self, op_slot: PyNumberBinaryOp) -> Option<PyNumberBinaryFunc> {
+        use PyNumberBinaryOp::*;
+        match op_slot {
+            Add => self.right_add.load(),
+            Subtract => self.right_subtract.load(),
+            Multiply => self.right_multiply.load(),
+            Remainder => self.right_remainder.load(),
+            Divmod => self.right_divmod.load(),
+            Power => self.right_power.load(),
+            Lshift => self.right_lshift.load(),
+            Rshift => self.right_rshift.load(),
+            And => self.right_and.load(),
+            Xor => self.right_xor.load(),
+            Or => self.right_or.load(),
+            FloorDivide => self.right_floor_divide.load(),
+            TrueDivide => self.right_true_divide.load(),
+            MatrixMultiply => self.right_matrix_multiply.load(),
+            _ => None,
+        }
+    }
+}
+#[derive(Copy, Clone)]
+pub struct PyNumber<'a>(&'a PyObject);
+
+impl<'a> Deref for PyNumber<'a> {
+    type Target = PyObject;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl<'a> PyNumber<'a> {
+    pub(crate) fn obj(self) -> &'a PyObject {
+        self.0
     }
 
     // PyNumber_Check
     pub fn check(obj: &PyObject) -> bool {
-        let methods = &obj.class().slots.number;
+        let methods = &obj.class().slots.as_number;
         methods.int.load().is_some()
             || methods.index.load().is_some()
             || methods.float.load().is_some()
             || obj.payload_is::<PyComplex>()
     }
+}
 
+impl PyNumber<'_> {
     // PyIndex_Check
-    pub fn is_index(&self) -> bool {
-        self.obj.class().slots.number.index.load().is_some()
+    pub fn is_index(self) -> bool {
+        self.class().slots.as_number.index.load().is_some()
     }
 
     #[inline]
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.obj.class().slots.number.int.load().map(|f| {
+        self.class().slots.as_number.int.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 warnings::warn(
@@ -325,7 +464,7 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
-        self.obj.class().slots.number.index.load().map(|f| {
+        self.class().slots.as_number.index.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 warnings::warn(
@@ -349,7 +488,7 @@ impl PyNumber<'_> {
 
     #[inline]
     pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
-        self.obj.class().slots.number.float.load().map(|f| {
+        self.class().slots.as_number.float.load().map(|f| {
             let ret = f(self, vm)?;
             let value = if !ret.class().is(PyFloat::class(&vm.ctx)) {
                 warnings::warn(

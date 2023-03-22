@@ -615,9 +615,9 @@ impl AsSequence for PyBytes {
 impl AsNumber for PyBytes {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            remainder: Some(|number, other, vm| {
-                if let Some(number) = number.obj.downcast_ref::<PyBytes>() {
-                    number.mod_(other.to_owned(), vm).to_pyresult(vm)
+            remainder: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyBytes>() {
+                    a.mod_(b.to_owned(), vm).to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
                 }

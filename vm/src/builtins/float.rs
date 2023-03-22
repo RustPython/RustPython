@@ -13,7 +13,7 @@ use crate::{
         PyArithmeticValue::{self, *},
         PyComparisonValue,
     },
-    protocol::{PyNumber, PyNumberMethods},
+    protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
@@ -544,12 +544,12 @@ impl Hashable for PyFloat {
 impl AsNumber for PyFloat {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            add: Some(|num, other, vm| PyFloat::number_op(num, other, |a, b, _vm| a + b, vm)),
-            subtract: Some(|num, other, vm| PyFloat::number_op(num, other, |a, b, _vm| a - b, vm)),
-            multiply: Some(|num, other, vm| PyFloat::number_op(num, other, |a, b, _vm| a * b, vm)),
-            remainder: Some(|num, other, vm| PyFloat::number_op(num, other, inner_mod, vm)),
-            divmod: Some(|num, other, vm| PyFloat::number_op(num, other, inner_divmod, vm)),
-            power: Some(|num, other, vm| PyFloat::number_op(num, other, float_pow, vm)),
+            add: Some(|a, b, vm| PyFloat::number_op(a, b, |a, b, _vm| a + b, vm)),
+            subtract: Some(|a, b, vm| PyFloat::number_op(a, b, |a, b, _vm| a - b, vm)),
+            multiply: Some(|a, b, vm| PyFloat::number_op(a, b, |a, b, _vm| a * b, vm)),
+            remainder: Some(|a, b, vm| PyFloat::number_op(a, b, inner_mod, vm)),
+            divmod: Some(|a, b, vm| PyFloat::number_op(a, b, inner_divmod, vm)),
+            power: Some(|a, b, vm| PyFloat::number_op(a, b, float_pow, vm)),
             negative: Some(|num, vm| {
                 let value = PyFloat::number_downcast(num).value;
                 (-value).to_pyresult(vm)
@@ -565,8 +565,8 @@ impl AsNumber for PyFloat {
                 try_to_bigint(value, vm).map(|x| vm.ctx.new_int(x))
             }),
             float: Some(|num, vm| Ok(PyFloat::number_downcast_exact(num, vm))),
-            floor_divide: Some(|num, other, vm| PyFloat::number_op(num, other, inner_floordiv, vm)),
-            true_divide: Some(|num, other, vm| PyFloat::number_op(num, other, inner_div, vm)),
+            floor_divide: Some(|a, b, vm| PyFloat::number_op(a, b, inner_floordiv, vm)),
+            true_divide: Some(|a, b, vm| PyFloat::number_op(a, b, inner_div, vm)),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
@@ -586,12 +586,12 @@ impl Representable for PyFloat {
 }
 
 impl PyFloat {
-    fn number_op<F, R>(number: PyNumber, other: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
+    fn number_op<F, R>(a: &PyObject, b: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(f64, f64, &VirtualMachine) -> R,
         R: ToPyResult,
     {
-        if let (Some(a), Some(b)) = (to_op_float(number.obj, vm)?, to_op_float(other, vm)?) {
+        if let (Some(a), Some(b)) = (to_op_float(a, vm)?, to_op_float(b, vm)?) {
             op(a, b, vm).to_pyresult(vm)
         } else {
             Ok(vm.ctx.not_implemented())

@@ -8,9 +8,9 @@ use crate::{
     common::hash,
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
-    protocol::PyMappingMethods,
+    protocol::{PyMappingMethods, PyNumberMethods},
     types::{
-        AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp,
+        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp,
         Representable,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -64,6 +64,7 @@ impl Constructor for PyGenericAlias {
 
 #[pyclass(
     with(
+        AsNumber,
         AsMapping,
         Callable,
         Comparable,
@@ -339,6 +340,16 @@ impl AsMapping for PyGenericAlias {
             ..PyMappingMethods::NOT_IMPLEMENTED
         });
         &AS_MAPPING
+    }
+}
+
+impl AsNumber for PyGenericAlias {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            or: Some(|a, b, vm| Ok(PyGenericAlias::or(a.to_owned(), b.to_owned(), vm))),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
     }
 }
 
