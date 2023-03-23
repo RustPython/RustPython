@@ -335,10 +335,11 @@ impl FormatSpec {
         let offset = (disp_digit_cnt % (inter + 1) == 0) as i32;
         let disp_digit_cnt = disp_digit_cnt + offset;
         let pad_cnt = disp_digit_cnt - magnitude_len;
-        if pad_cnt > 0 {
+        let sep_cnt = disp_digit_cnt / (inter + 1);
+        let diff = pad_cnt - sep_cnt;
+        if pad_cnt > 0 && diff > 0 {
             // separate with 0 padding
-            let sep_cnt = disp_digit_cnt / (inter + 1);
-            let padding = "0".repeat((pad_cnt - sep_cnt) as usize);
+            let padding = "0".repeat(diff as usize);
             let padded_num = format!("{padding}{magnitude_str}");
             FormatSpec::insert_separator(padded_num, inter, sep, sep_cnt)
         } else {
@@ -1024,6 +1025,16 @@ mod tests {
                 .unwrap()
                 .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
             Ok("00000+0x10".to_owned())
+        );
+    }
+
+    #[test]
+    fn test_format_int_sep() {
+        let spec = FormatSpec::parse(",").expect("");
+        assert_eq!(spec.grouping_option, Some(FormatGrouping::Comma));
+        assert_eq!(
+            spec.format_int(&BigInt::from_str("1234567890123456789012345678").unwrap()),
+            Ok("1,234,567,890,123,456,789,012,345,678".to_owned())
         );
     }
 
