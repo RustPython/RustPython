@@ -2,7 +2,7 @@
 use rustpython_vm::{
     builtins::{PyDictRef, PyStrRef},
     function::ArgIterable,
-    identifier, PyResult, TryFromObject, VirtualMachine,
+    identifier, AsObject, PyResult, TryFromObject, VirtualMachine,
 };
 
 pub struct ShellHelper<'vm> {
@@ -82,19 +82,17 @@ impl<'vm> ShellHelper<'vm> {
                 current = current.get_attr(&attr, self.vm).ok()?;
             }
 
-            let current_iter = str_iter_method(current, identifier!(self.vm, __dir__)).ok()?;
+            let current_iter = str_iter_method(&current, identifier!(self.vm, __dir__)).ok()?;
 
             (last, current_iter, None)
         } else {
             // we need to get a variable based off of globals/builtins
 
             let globals =
-                str_iter_method(self.globals.clone().into(), identifier!(self.vm, keys)).ok()?;
-            let builtins = str_iter_method(
-                self.vm.builtins.clone().into(),
-                identifier!(self.vm, __dir__),
-            )
-            .ok()?;
+                str_iter_method(self.globals.as_object(), identifier!(self.vm, keys)).ok()?;
+            let builtins =
+                str_iter_method(self.vm.builtins.as_object(), identifier!(self.vm, __dir__))
+                    .ok()?;
             (first, globals, Some(builtins))
         };
         Some((word_start, iter1.chain(iter2.into_iter().flatten())))

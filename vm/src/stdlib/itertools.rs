@@ -1181,18 +1181,14 @@ mod decl {
             let n = n.unwrap_or(2);
 
             let copyable = if iterable.class().has_attr(identifier!(vm, __copy__)) {
-                vm.call_special_method(iterable.into(), identifier!(vm, __copy__), ())?
+                vm.call_special_method(iterable.as_object(), identifier!(vm, __copy__), ())?
             } else {
                 PyItertoolsTee::from_iter(iterable, vm)?
             };
 
             let mut tee_vec: Vec<PyObjectRef> = Vec::with_capacity(n);
             for _ in 0..n {
-                tee_vec.push(vm.call_special_method(
-                    copyable.clone(),
-                    identifier!(vm, __copy__),
-                    (),
-                )?);
+                tee_vec.push(vm.call_special_method(&copyable, identifier!(vm, __copy__), ())?);
             }
 
             Ok(PyTuple::new_ref(tee_vec, &vm.ctx).into())
@@ -1204,7 +1200,7 @@ mod decl {
         fn from_iter(iterator: PyIter, vm: &VirtualMachine) -> PyResult {
             let class = PyItertoolsTee::class(&vm.ctx);
             if iterator.class().is(PyItertoolsTee::class(&vm.ctx)) {
-                return vm.call_special_method(iterator.into(), identifier!(vm, __copy__), ());
+                return vm.call_special_method(&iterator, identifier!(vm, __copy__), ());
             }
             Ok(PyItertoolsTee {
                 tee_data: PyItertoolsTeeData::new(iterator, vm)?,

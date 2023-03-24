@@ -429,7 +429,7 @@ mod sys {
     #[pyfunction]
     fn getsizeof(args: GetsizeofArgs, vm: &VirtualMachine) -> PyResult {
         let sizeof = || -> PyResult<usize> {
-            let res = vm.call_special_method(args.obj, identifier!(vm, __sizeof__), ())?;
+            let res = vm.call_special_method(&args.obj, identifier!(vm, __sizeof__), ())?;
             let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
             Ok(res + std::mem::size_of::<PyObject>())
         };

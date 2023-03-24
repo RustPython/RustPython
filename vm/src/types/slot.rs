@@ -173,14 +173,14 @@ pub(crate) type IterNextFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyIter
 pub(crate) type DescrGetFunc =
     fn(PyObjectRef, Option<PyObjectRef>, Option<PyObjectRef>, &VirtualMachine) -> PyResult;
 pub(crate) type DescrSetFunc =
-    fn(PyObjectRef, PyObjectRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
+    fn(&PyObject, PyObjectRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 
 // slot_sq_length
 pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
-    let ret = vm.call_special_method(obj.to_owned(), identifier!(vm, __len__), ())?;
+    let ret = vm.call_special_method(obj, identifier!(vm, __len__), ())?;
     let len = ret.payload::<PyInt>().ok_or_else(|| {
         vm.new_type_error(format!(
             "'{}' object cannot be interpreted as an integer",
@@ -198,21 +198,21 @@ pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize
 }
 
 fn int_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-    let ret = vm.call_special_method(num.deref().to_owned(), identifier!(vm, __int__), ())?;
+    let ret = vm.call_special_method(num.deref(), identifier!(vm, __int__), ())?;
     ret.downcast::<PyInt>().map_err(|obj| {
         vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
     })
 }
 
 fn index_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-    let ret = vm.call_special_method(num.deref().to_owned(), identifier!(vm, __index__), ())?;
+    let ret = vm.call_special_method(num.deref(), identifier!(vm, __index__), ())?;
     ret.downcast::<PyInt>().map_err(|obj| {
         vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
     })
 }
 
 fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-    let ret = vm.call_special_method(num.deref().to_owned(), identifier!(vm, __float__), ())?;
+    let ret = vm.call_special_method(num.deref(), identifier!(vm, __float__), ())?;
     ret.downcast::<PyFloat>().map_err(|obj| {
         vm.new_type_error(format!(
             "__float__ returned non-float (type {})",
@@ -223,17 +223,17 @@ fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>>
 
 macro_rules! number_binary_op_wrapper {
     ($name:ident) => {
-        |a, b, vm| vm.call_special_method(a.to_owned(), identifier!(vm, $name), (b.to_owned(),))
+        |a, b, vm| vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(),))
     };
 }
 macro_rules! number_binary_right_op_wrapper {
     ($name:ident) => {
-        |a, b, vm| vm.call_special_method(b.to_owned(), identifier!(vm, $name), (a.to_owned(),))
+        |a, b, vm| vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(),))
     };
 }
 
 fn getitem_wrapper<K: ToPyObject>(obj: &PyObject, needle: K, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(obj.to_owned(), identifier!(vm, __getitem__), (needle,))
+    vm.call_special_method(obj, identifier!(vm, __getitem__), (needle,))
 }
 
 fn setitem_wrapper<K: ToPyObject>(
@@ -243,18 +243,14 @@ fn setitem_wrapper<K: ToPyObject>(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     match value {
-        Some(value) => vm.call_special_method(
-            obj.to_owned(),
-            identifier!(vm, __setitem__),
-            (needle, value),
-        ),
-        None => vm.call_special_method(obj.to_owned(), identifier!(vm, __delitem__), (needle,)),
+        Some(value) => vm.call_special_method(obj, identifier!(vm, __setitem__), (needle, value)),
+        None => vm.call_special_method(obj, identifier!(vm, __delitem__), (needle,)),
     }
     .map(drop)
 }
 
 fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-    let ret = vm.call_special_method(zelf.to_owned(), identifier!(vm, __repr__), ())?;
+    let ret = vm.call_special_method(zelf, identifier!(vm, __repr__), ())?;
     ret.downcast::<PyStr>().map_err(|obj| {
         vm.new_type_error(format!(
             "__repr__ returned non-string (type {})",
@@ -264,7 +260,7 @@ fn repr_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
 }
 
 fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
-    let hash_obj = vm.call_special_method(zelf.to_owned(), identifier!(vm, __hash__), ())?;
+    let hash_obj = vm.call_special_method(zelf, identifier!(vm, __hash__), ())?;
     let py_int = hash_obj
         .payload_if_subclass::<PyInt>(vm)
         .ok_or_else(|| vm.new_type_error("__hash__ method should return an integer".to_owned()))?;
@@ -277,16 +273,16 @@ pub fn hash_not_implemented(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<Py
 }
 
 fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf.to_owned(), identifier!(vm, __call__), args)
+    vm.call_special_method(zelf, identifier!(vm, __call__), args)
 }
 
 fn getattro_wrapper(zelf: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
     let __getattribute__ = identifier!(vm, __getattribute__);
     let __getattr__ = identifier!(vm, __getattr__);
-    match vm.call_special_method(zelf.to_owned(), __getattribute__, (name.to_owned(),)) {
+    match vm.call_special_method(zelf, __getattribute__, (name.to_owned(),)) {
         Ok(r) => Ok(r),
         Err(_) if zelf.class().has_attr(__getattr__) => {
-            vm.call_special_method(zelf.to_owned(), __getattr__, (name.to_owned(),))
+            vm.call_special_method(zelf, __getattr__, (name.to_owned(),))
         }
         Err(e) => Err(e),
     }
@@ -298,7 +294,6 @@ fn setattro_wrapper(
     value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let zelf = zelf.to_owned();
     let name = name.to_owned();
     match value {
         PySetterValue::Assign(value) => {
@@ -317,21 +312,17 @@ pub(crate) fn richcompare_wrapper(
     op: PyComparisonOp,
     vm: &VirtualMachine,
 ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
-    vm.call_special_method(
-        zelf.to_owned(),
-        op.method_name(&vm.ctx),
-        (other.to_owned(),),
-    )
-    .map(Either::A)
+    vm.call_special_method(zelf, op.method_name(&vm.ctx), (other.to_owned(),))
+        .map(Either::A)
 }
 
 fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf, identifier!(vm, __iter__), ())
+    vm.call_special_method(&zelf, identifier!(vm, __iter__), ())
 }
 
 fn iternext_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
     PyIterReturn::from_pyresult(
-        vm.call_special_method(zelf.to_owned(), identifier!(vm, __next__), ()),
+        vm.call_special_method(zelf, identifier!(vm, __next__), ()),
         vm,
     )
 }
@@ -342,11 +333,11 @@ fn descr_get_wrapper(
     cls: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    vm.call_special_method(zelf, identifier!(vm, __get__), (obj, cls))
+    vm.call_special_method(&zelf, identifier!(vm, __get__), (obj, cls))
 }
 
 fn descr_set_wrapper(
-    zelf: PyObjectRef,
+    zelf: &PyObject,
     obj: PyObjectRef,
     value: PySetterValue,
     vm: &VirtualMachine,
@@ -361,7 +352,7 @@ fn descr_set_wrapper(
 }
 
 fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-    let res = vm.call_special_method(obj, identifier!(vm, __init__), args)?;
+    let res = vm.call_special_method(&obj, identifier!(vm, __init__), args)?;
     if !vm.is_none(&res) {
         return Err(vm.new_type_error("__init__ must return None".to_owned()));
     }
@@ -375,7 +366,7 @@ fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyRes
 }
 
 fn del_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-    vm.call_special_method(zelf.to_owned(), identifier!(vm, __del__), ())?;
+    vm.call_special_method(zelf, identifier!(vm, __del__), ())?;
     Ok(())
 }
 
@@ -874,44 +865,40 @@ pub trait GetDescriptor: PyPayload {
     }
 
     #[inline]
-    fn _zelf(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        zelf.try_into_value(vm)
+    fn _as_pyref<'a>(zelf: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a Py<Self>> {
+        zelf.try_to_value(vm)
     }
 
     #[inline]
-    fn _unwrap(
-        zelf: PyObjectRef,
+    fn _unwrap<'a>(
+        zelf: &'a PyObject,
         obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyRef<Self>, PyObjectRef)> {
-        let zelf = Self::_zelf(zelf, vm)?;
+    ) -> PyResult<(&'a Py<Self>, PyObjectRef)> {
+        let zelf = Self::_as_pyref(zelf, vm)?;
         let obj = vm.unwrap_or_none(obj);
         Ok((zelf, obj))
     }
 
     #[inline]
-    fn _check(
-        zelf: PyObjectRef,
+    fn _check<'a>(
+        zelf: &'a PyObject,
         obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> Result<(PyRef<Self>, PyObjectRef), PyResult> {
+    ) -> Option<(&'a Py<Self>, PyObjectRef)> {
         // CPython descr_check
-        if let Some(obj) = obj {
-            // if (!PyObject_TypeCheck(obj, descr->d_type)) {
-            //     PyErr_Format(PyExc_TypeError,
-            //                  "descriptor '%V' for '%.100s' objects "
-            //                  "doesn't apply to a '%.100s' object",
-            //                  descr_name((PyDescrObject *)descr), "?",
-            //                  descr->d_type->slot_name,
-            //                  obj->ob_type->slot_name);
-            //     *pres = NULL;
-            //     return 1;
-            // } else {
-            Ok((Self::_zelf(zelf, vm).unwrap(), obj))
-        // }
-        } else {
-            Err(Ok(zelf))
-        }
+        let obj = obj?;
+        // if (!PyObject_TypeCheck(obj, descr->d_type)) {
+        //     PyErr_Format(PyExc_TypeError,
+        //                  "descriptor '%V' for '%.100s' objects "
+        //                  "doesn't apply to a '%.100s' object",
+        //                  descr_name((PyDescrObject *)descr), "?",
+        //                  descr->d_type->slot_name,
+        //                  obj->ob_type->slot_name);
+        //     *pres = NULL;
+        //     return 1;
+        // } else {
+        Some((Self::_as_pyref(zelf, vm).unwrap(), obj))
     }
 
     #[inline]

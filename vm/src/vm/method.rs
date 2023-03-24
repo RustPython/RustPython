@@ -5,7 +5,7 @@ use super::VirtualMachine;
 use crate::{
     builtins::{PyBaseObject, PyStr, PyStrInterned},
     function::IntoFuncArgs,
-    object::{AsObject, Py, PyObjectRef, PyResult},
+    object::{AsObject, Py, PyObject, PyObjectRef, PyResult},
     types::PyTypeFlags,
 };
 
@@ -86,15 +86,15 @@ impl PyMethod {
     }
 
     pub(crate) fn get_special(
-        obj: PyObjectRef,
+        obj: &PyObject,
         name: &'static PyStrInterned,
         vm: &VirtualMachine,
-    ) -> PyResult<Result<Self, PyObjectRef>> {
+    ) -> PyResult<Option<Self>> {
         let obj_cls = obj.class();
         let func = match obj_cls.get_attr(name) {
             Some(f) => f,
             None => {
-                return Ok(Err(obj));
+                return Ok(None);
             }
         };
         let meth = if func
@@ -103,15 +103,18 @@ impl PyMethod {
             .flags
             .has_feature(PyTypeFlags::METHOD_DESCR)
         {
-            Self::Function { target: obj, func }
+            Self::Function {
+                target: obj.to_owned(),
+                func,
+            }
         } else {
             let obj_cls = obj_cls.to_owned().into();
             let attr = vm
-                .call_get_descriptor_specific(func, Some(obj), Some(obj_cls))
-                .unwrap_or_else(Ok)?;
+                .call_get_descriptor_specific(&func, Some(obj.to_owned()), Some(obj_cls))
+                .unwrap_or(Ok(func))?;
             Self::Attribute(attr)
         };
-        Ok(Ok(meth))
+        Ok(Some(meth))
     }
 
     pub fn invoke(self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {

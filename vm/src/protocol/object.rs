@@ -62,19 +62,19 @@ impl PyObjectRef {
     }
 
     // PyObject *PyObject_Dir(PyObject *o)
-
-    /// Takes an object and returns an iterator for it.
-    /// This is typically a new iterator but if the argument is an iterator, this
-    /// returns itself.
-    pub fn get_iter(self, vm: &VirtualMachine) -> PyResult<PyIter> {
-        // PyObject_GetIter
-        PyIter::try_from_object(vm, self)
-    }
-
-    // PyObject *PyObject_GetAIter(PyObject *o)
 }
 
 impl PyObject {
+    /// Takes an object and returns an iterator for it.
+    /// This is typically a new iterator but if the argument is an iterator, this
+    /// returns itself.
+    pub fn get_iter(&self, vm: &VirtualMachine) -> PyResult<PyIter> {
+        // PyObject_GetIter
+        PyIter::try_from_object(vm, self.to_owned())
+    }
+
+    // PyObject *PyObject_GetAIter(PyObject *o)
+
     pub fn has_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult<bool> {
         self.get_attr(attr_name, vm).map(|o| !vm.is_none(&o))
     }
@@ -152,7 +152,7 @@ impl PyObject {
         {
             let descr_set = attr.class().mro_find_map(|cls| cls.slots.descr_set.load());
             if let Some(descriptor) = descr_set {
-                return descriptor(attr, self.to_owned(), value, vm);
+                return descriptor(&attr, self.to_owned(), value, vm);
             }
         }
 
@@ -319,7 +319,7 @@ impl PyObject {
             match self.class().slots.repr.load() {
                 Some(slot) => slot(self, vm),
                 None => vm
-                    .call_special_method(self.to_owned(), identifier!(vm, __repr__), ())?
+                    .call_special_method(self, identifier!(vm, __repr__), ())?
                     .try_into_value(vm), // TODO: remove magic method call once __repr__ is fully ported to slot
             }
         })
@@ -338,9 +338,9 @@ impl PyObject {
             Err(obj) => obj,
         };
         // TODO: replace to obj.class().slots.str
-        let str_method = match vm.get_special_method(obj, identifier!(vm, __str__))? {
-            Ok(str_method) => str_method,
-            Err(obj) => return obj.repr(vm),
+        let str_method = match vm.get_special_method(&obj, identifier!(vm, __str__))? {
+            Some(str_method) => str_method,
+            None => return obj.repr(vm),
         };
         let s = str_method.invoke((), vm)?;
         s.downcast::<PyStr>().map_err(|obj| {
@@ -447,9 +447,7 @@ impl PyObject {
             return Ok(false);
         }
 
-        if let Ok(meth) =
-            vm.get_special_method(cls.to_owned(), identifier!(vm, __subclasscheck__))?
-        {
+        if let Some(meth) = vm.get_special_method(cls, identifier!(vm, __subclasscheck__))? {
             let ret = vm.with_recursion("in __subclasscheck__", || {
                 meth.invoke((self.to_owned(),), vm)
             })?;
@@ -514,9 +512,7 @@ impl PyObject {
             return Ok(false);
         }
 
-        if let Ok(meth) =
-            vm.get_special_method(cls.to_owned(), identifier!(vm, __instancecheck__))?
-        {
+        if let Some(meth) = vm.get_special_method(cls, identifier!(vm, __instancecheck__))? {
             let ret = vm.with_recursion("in __instancecheck__", || {
                 meth.invoke((self.to_owned(),), vm)
             })?;

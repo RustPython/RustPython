@@ -333,26 +333,26 @@ impl VirtualMachine {
     }
 
     pub fn _abs(&self, a: &PyObject) -> PyResult<PyObjectRef> {
-        self.get_special_method(a.to_owned(), identifier!(self, __abs__))?
-            .map_err(|_| self.new_unsupported_unary_error(a, "abs()"))?
+        self.get_special_method(a, identifier!(self, __abs__))?
+            .ok_or_else(|| self.new_unsupported_unary_error(a, "abs()"))?
             .invoke((), self)
     }
 
     pub fn _pos(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a.to_owned(), identifier!(self, __pos__))?
-            .map_err(|_| self.new_unsupported_unary_error(a, "unary +"))?
+        self.get_special_method(a, identifier!(self, __pos__))?
+            .ok_or_else(|| self.new_unsupported_unary_error(a, "unary +"))?
             .invoke((), self)
     }
 
     pub fn _neg(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a.to_owned(), identifier!(self, __neg__))?
-            .map_err(|_| self.new_unsupported_unary_error(a, "unary -"))?
+        self.get_special_method(a, identifier!(self, __neg__))?
+            .ok_or_else(|| self.new_unsupported_unary_error(a, "unary -"))?
             .invoke((), self)
     }
 
     pub fn _invert(&self, a: &PyObject) -> PyResult {
-        self.get_special_method(a.to_owned(), identifier!(self, __invert__))?
-            .map_err(|_| self.new_unsupported_unary_error(a, "unary ~"))?
+        self.get_special_method(a, identifier!(self, __invert__))?
+            .ok_or_else(|| self.new_unsupported_unary_error(a, "unary ~"))?
             .invoke((), self)
     }
 
@@ -368,8 +368,8 @@ impl VirtualMachine {
             }
         }
         let bound_format = self
-            .get_special_method(obj.to_owned(), identifier!(self, __format__))?
-            .map_err(|_| {
+            .get_special_method(obj, identifier!(self, __format__))?
+            .ok_or_else(|| {
                 self.new_type_error(format!(
                     "Type {} doesn't define __format__",
                     obj.class().name()
@@ -387,7 +387,7 @@ impl VirtualMachine {
     // https://docs.python.org/3/reference/expressions.html#membership-test-operations
     fn _membership_iter_search(
         &self,
-        haystack: PyObjectRef,
+        haystack: &PyObject,
         needle: PyObjectRef,
     ) -> PyResult<PyIntRef> {
         let iter = haystack.get_iter(self)?;
@@ -404,10 +404,10 @@ impl VirtualMachine {
         }
     }
 
-    pub fn _contains(&self, haystack: PyObjectRef, needle: PyObjectRef) -> PyResult {
+    pub fn _contains(&self, haystack: &PyObject, needle: PyObjectRef) -> PyResult {
         match PyMethod::get_special(haystack, identifier!(self, __contains__), self)? {
-            Ok(method) => method.invoke((needle,), self),
-            Err(haystack) => self
+            Some(method) => method.invoke((needle,), self),
+            None => self
                 ._membership_iter_search(haystack, needle)
                 .map(Into::into),
         }

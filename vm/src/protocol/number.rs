@@ -60,8 +60,7 @@ impl PyObject {
             Ok(i.to_owned())
         } else if let Some(i) = self.to_number().int(vm).or_else(|| self.try_index_opt(vm)) {
             i
-        } else if let Ok(Ok(f)) = vm.get_special_method(self.to_owned(), identifier!(vm, __trunc__))
-        {
+        } else if let Ok(Some(f)) = vm.get_special_method(self, identifier!(vm, __trunc__)) {
             // TODO: Deprecate in 3.11
             // warnings::warn(
             //     vm.ctx.exceptions.deprecation_warning.clone(),

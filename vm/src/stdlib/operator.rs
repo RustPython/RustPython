@@ -173,7 +173,7 @@ mod _operator {
 
     #[pyfunction]
     fn contains(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._contains(a, b)
+        vm._contains(&a, b)
     }
 
     #[pyfunction(name = "countOf")]

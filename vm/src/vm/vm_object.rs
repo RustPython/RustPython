@@ -73,28 +73,24 @@ impl VirtualMachine {
 
     pub fn call_get_descriptor_specific(
         &self,
-        descr: PyObjectRef,
+        descr: &PyObject,
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
-    ) -> Result<PyResult, PyObjectRef> {
-        let descr_get = descr.class().mro_find_map(|cls| cls.slots.descr_get.load());
-        match descr_get {
-            Some(descr_get) => Ok(descr_get(descr, obj, cls, self)),
-            None => Err(descr),
-        }
+    ) -> Option<PyResult> {
+        let descr_get = descr
+            .class()
+            .mro_find_map(|cls| cls.slots.descr_get.load())?;
+        Some(descr_get(descr.to_owned(), obj, cls, self))
     }
 
-    pub fn call_get_descriptor(
-        &self,
-        descr: PyObjectRef,
-        obj: PyObjectRef,
-    ) -> Result<PyResult, PyObjectRef> {
+    pub fn call_get_descriptor(&self, descr: &PyObject, obj: PyObjectRef) -> Option<PyResult> {
         let cls = obj.class().to_owned().into();
         self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 
-    pub fn call_if_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
-        self.call_get_descriptor(attr, obj).unwrap_or_else(Ok)
+    pub fn call_if_get_descriptor(&self, attr: &PyObject, obj: PyObjectRef) -> PyResult {
+        self.call_get_descriptor(attr, obj)
+            .unwrap_or_else(|| Ok(attr.to_owned()))
     }
 
     #[inline]
@@ -118,8 +114,8 @@ impl VirtualMachine {
     pub fn dir(&self, obj: Option<PyObjectRef>) -> PyResult<PyList> {
         let seq = match obj {
             Some(obj) => self
-                .get_special_method(obj, identifier!(self, __dir__))?
-                .map_err(|_obj| self.new_type_error("object does not provide __dir__".to_owned()))?
+                .get_special_method(&obj, identifier!(self, __dir__))?
+                .ok_or_else(|| self.new_type_error("object does not provide __dir__".to_owned()))?
                 .invoke((), self)?,
             None => self.call_method(
                 self.current_locals()?.as_object(),
@@ -136,9 +132,9 @@ impl VirtualMachine {
     #[inline]
     pub(crate) fn get_special_method(
         &self,
-        obj: PyObjectRef,
+        obj: &PyObject,
         method: &'static PyStrInterned,
-    ) -> PyResult<Result<PyMethod, PyObjectRef>> {
+    ) -> PyResult<Option<PyMethod>> {
         PyMethod::get_special(obj, method, self)
     }
 
@@ -146,12 +142,12 @@ impl VirtualMachine {
     #[doc(hidden)]
     pub fn call_special_method(
         &self,
-        obj: PyObjectRef,
+        obj: &PyObject,
         method: &'static PyStrInterned,
         args: impl IntoFuncArgs,
     ) -> PyResult {
         self.get_special_method(obj, method)?
-            .map_err(|_obj| self.new_attribute_error(method.as_str().to_owned()))?
+            .ok_or_else(|| self.new_attribute_error(method.as_str().to_owned()))?
             .invoke(args, self)
     }
 

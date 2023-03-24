@@ -178,7 +178,7 @@ impl PyMapping<'_> {
             return Ok(meth_output);
         }
 
-        let iter = meth_output.clone().get_iter(vm).map_err(|_| {
+        let iter = meth_output.get_iter(vm).map_err(|_| {
             vm.new_type_error(format!(
                 "{}.{}() returned a non-iterable (type {})",
                 self.obj.class(),

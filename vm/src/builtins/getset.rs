@@ -6,7 +6,7 @@ use crate::{
     class::PyClassImpl,
     function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
     types::{Constructor, GetDescriptor, Unconstructible},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "getset_descriptor")]
@@ -51,9 +51,9 @@ impl GetDescriptor for PyGetSet {
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = match Self::_check(zelf, obj, vm) {
-            Ok(obj) => obj,
-            Err(result) => return result,
+        let (zelf, obj) = match Self::_check(&zelf, obj, vm) {
+            Some(obj) => obj,
+            None => return Ok(zelf),
         };
         if let Some(ref f) = zelf.getter {
             f(vm, obj)
@@ -100,12 +100,12 @@ impl PyGetSet {
 
     #[pyslot]
     fn descr_set(
-        zelf: PyObjectRef,
+        zelf: &PyObject,
         obj: PyObjectRef,
         value: PySetterValue<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let zelf = PyRef::<Self>::try_from_object(vm, zelf)?;
+        let zelf = zelf.try_to_ref::<Self>(vm)?;
         if let Some(ref f) = zelf.setter {
             f(vm, obj, value)
         } else {
@@ -123,11 +123,11 @@ impl PyGetSet {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        Self::descr_set(zelf, obj, PySetterValue::Assign(value), vm)
+        Self::descr_set(&zelf, obj, PySetterValue::Assign(value), vm)
     }
     #[pymethod]
     fn __delete__(zelf: PyObjectRef, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Self::descr_set(zelf, obj, PySetterValue::Delete, vm)
+        Self::descr_set(&zelf, obj, PySetterValue::Delete, vm)
     }
 
     #[pygetset(magic)]

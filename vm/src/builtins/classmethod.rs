@@ -53,7 +53,7 @@ impl GetDescriptor for PyClassMethod {
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, _obj) = Self::_unwrap(zelf, obj, vm)?;
+        let (zelf, _obj) = Self::_unwrap(&zelf, obj, vm)?;
         let cls = cls.unwrap_or_else(|| _obj.class().to_owned().into());
         let call_descr_get: PyResult<PyObjectRef> = zelf.callable.lock().get_attr("__get__", vm);
         match call_descr_get {
