@@ -992,58 +992,35 @@ pub trait Comparable: PyPayload {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue>;
 
+    #[inline]
     #[pymethod(magic)]
-    fn eq(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &other, PyComparisonOp::Eq, vm)
+    fn eq(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Eq, vm)
     }
     #[inline]
     #[pymethod(magic)]
-    fn ne(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &other, PyComparisonOp::Ne, vm)
+    fn ne(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Ne, vm)
     }
     #[inline]
     #[pymethod(magic)]
-    fn lt(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &other, PyComparisonOp::Lt, vm)
+    fn lt(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Lt, vm)
     }
     #[inline]
     #[pymethod(magic)]
-    fn le(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &other, PyComparisonOp::Le, vm)
+    fn le(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Le, vm)
     }
     #[inline]
     #[pymethod(magic)]
-    fn ge(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &other, PyComparisonOp::Ge, vm)
+    fn ge(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Ge, vm)
     }
     #[inline]
     #[pymethod(magic)]
-    fn gt(
-        zelf: PyRef<Self>,
-        other: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        Self::cmp(&zelf, &other, PyComparisonOp::Gt, vm)
+    fn gt(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyComparisonValue> {
+        Self::cmp(zelf, &other, PyComparisonOp::Gt, vm)
     }
 }
 
