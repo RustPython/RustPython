@@ -2932,8 +2932,7 @@ class Win32NtTests(unittest.TestCase):
 
         self.assertEqual(0, handle_delta)
 
-    # TODO: RUSTPYTHON os.stat (PermissionError: [Errno 5] Access is denied. (os error 5))
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.stat (PermissionError: [Errno 5] Access is denied.)")
     def test_stat_unlink_race(self):
         # bpo-46785: the implementation of os.stat() falls back to reading
         # the parent directory if CreateFileW() fails with a permission
