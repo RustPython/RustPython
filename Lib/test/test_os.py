@@ -2223,12 +2223,12 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.truncate, 0)
         self.check(os.ftruncate, 0)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.)")
     @unittest.skipUnless(hasattr(os, 'lseek'), 'test needs os.lseek()')
     def test_lseek(self):
         self.check(os.lseek, 0, 0)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.)")
     @unittest.skipUnless(hasattr(os, 'read'), 'test needs os.read()')
     def test_read(self):
         self.check(os.read, 1)
@@ -2242,7 +2242,7 @@ class TestInvalidFD(unittest.TestCase):
     def test_tcsetpgrpt(self):
         self.check(os.tcsetpgrp, 0)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.)")
     @unittest.skipUnless(hasattr(os, 'write'), 'test needs os.write()')
     def test_write(self):
         self.check(os.write, b" ")
@@ -2496,8 +2496,7 @@ class Win32KillTests(unittest.TestCase):
         os.kill(proc.pid, sig)
         self.assertEqual(proc.wait(), sig)
 
-    # TODO: RUSTPYTHON (ModuleNotFoundError: No module named '_ctypes')
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (ModuleNotFoundError: No module named '_ctypes')")
     def test_kill_sigterm(self):
         # SIGTERM doesn't mean anything special, but make sure it works
         self._kill(signal.SIGTERM)
