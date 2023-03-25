@@ -799,8 +799,7 @@ class UtimeTests(unittest.TestCase):
         self.assertEqual(st.st_atime_ns, atime_ns)
         self.assertEqual(st.st_mtime_ns, mtime_ns)
 
-    # TODO: RUSTPYTHON (AssertionError: 2.002003 != 1.002003 within 1e-06 delta (1.0000000000000002 difference))
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: 2.002003 != 1.002003 within 1e-06 delta (1.0000000000000002 difference))")
     def test_utime(self):
         def set_time(filename, ns):
             # test the ns keyword parameter
