@@ -2501,8 +2501,7 @@ class Win32KillTests(unittest.TestCase):
         # SIGTERM doesn't mean anything special, but make sure it works
         self._kill(signal.SIGTERM)
 
-    # TODO: RUSTPYTHON (ModuleNotFoundError: No module named '_ctypes')
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (ModuleNotFoundError: No module named '_ctypes')")
     def test_kill_int(self):
         # os.kill on Windows can take an int which gets set as the exit code
         self._kill(100)
