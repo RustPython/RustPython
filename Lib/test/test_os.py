@@ -1641,7 +1641,7 @@ class MakedirTests(unittest.TestCase):
         # Issue #25583: A drive root could raise PermissionError on Windows
         os.makedirs(os.path.abspath('/'), exist_ok=True)
 
-    @requires_os_func('umask')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.umask not implemented")
     def test_exist_ok_s_isgid_directory(self):
         path = os.path.join(os_helper.TESTFN, 'dir1')
         S_ISGID = stat.S_ISGID
