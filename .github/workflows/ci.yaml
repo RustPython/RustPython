@@ -336,7 +336,7 @@ jobs:
           set file compiler/parser/python.lalrpop; ((Get-Content $file) -join "`n") + "`n" | Set-Content -NoNewline $file
       - name: Install lalrpop
         if: steps.generated_parser.outputs.files_exists == 'false'
-        uses: baptiste0928/cargo-install@v1
+        uses: baptiste0928/cargo-install@v2
         with:
           crate: lalrpop
           version: "0.19.8"
