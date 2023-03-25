@@ -199,7 +199,7 @@ jobs:
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - name: Check if cached generated parser exists
         id: generated_parser
-        uses: andstor/file-existence-action@v1
+        uses: andstor/file-existence-action@v2
         with:
           files: "compiler/parser/python.rs"
       - if: runner.os == 'Windows'
