@@ -2251,7 +2251,7 @@ class TestInvalidFD(unittest.TestCase):
     def test_writev(self):
         self.check(os.writev, [b'abc'])
 
-    @requires_os_func('get_inheritable')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented")
     def test_inheritable(self):
         self.check(os.get_inheritable)
         self.check(os.set_inheritable, True)
