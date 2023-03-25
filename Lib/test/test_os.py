@@ -2149,13 +2149,8 @@ class Win32ErrorTests(unittest.TestCase):
 
 
 class TestInvalidFD(unittest.TestCase):
-    singles = ["fchdir", "dup", "fdatasync", 
-               # TODO: RUSTPYTHON fstat test (OSError: [Errno 18] There are no more files. (os error 18))
-               # "fstat",
-               "fstatvfs", 
-               # TODO: RUSTPYTHON fsync test (OSError: [Errno 18] There are no more files. (os error 18))
-               # "fsync", 
-               "tcgetpgrp", "ttyname"]
+    singles = ["fchdir", "dup", "fdatasync", "fstat",
+               "fstatvfs", "fsync", "tcgetpgrp", "ttyname"]
     #singles.append("close")
     #We omit close because it doesn't raise an exception on some platforms
     def get_single(f):
@@ -2164,7 +2159,10 @@ class TestInvalidFD(unittest.TestCase):
                 self.check(getattr(os, f))
         return helper
     for f in singles:
-        locals()["test_"+f] = get_single(f)
+        if f in ("fstat", "fsync"):
+            locals()["test_"+f] = unittest.expectedFailureIfWindows("TODO: RUSTPYTHON fstat test (OSError: [Errno 18] There are no more files.")(get_single(f))
+        else:
+            locals()["test_"+f] = get_single(f)
 
     def check(self, f, *args, **kwargs):
         try:
