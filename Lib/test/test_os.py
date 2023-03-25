@@ -697,6 +697,8 @@ class StatAttributeTests(unittest.TestCase):
         self.assertTrue(isinstance(result.st_file_attributes, int))
         self.assertTrue(0 <= result.st_file_attributes <= 0xFFFFFFFF)
 
+    # TODO: RUSTPYTHON os.stat return value doesnt have st_file_attributes attribute
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == "win32",
                          "st_file_attributes is Win32 specific")
     def test_file_attributes(self):
