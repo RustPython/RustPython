@@ -2080,6 +2080,7 @@ class ExecTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             os.execve(args[0], args, newenv)
 
+    @requires_os_func('execve')
     @unittest.skipUnless(sys.platform == "win32", "Win32-specific test")
     def test_execve_with_empty_path(self):
         # bpo-32890: Check GetLastError() misuse
