@@ -2223,8 +2223,7 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.truncate, 0)
         self.check(os.ftruncate, 0)
 
-    # TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files. (os error 18))
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.")
     @unittest.skipUnless(hasattr(os, 'lseek'), 'test needs os.lseek()')
     def test_lseek(self):
         self.check(os.lseek, 0, 0)
