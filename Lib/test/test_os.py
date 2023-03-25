@@ -4067,7 +4067,7 @@ class FDInheritanceTests(unittest.TestCase):
         self.addCleanup(os.close, fd)
         self.assertGreater(fd, 0)
 
-    @requires_os_func('dup')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.dup not implemented")
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_dup_nul(self):
         # os.dup() was creating inheritable fds for character files.
