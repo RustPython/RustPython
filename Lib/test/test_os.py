@@ -934,8 +934,7 @@ class UtimeTests(unittest.TestCase):
         os.utime(self.fname, (large, large))
         self.assertEqual(os.stat(self.fname).st_mtime, large)
 
-    # TODO: RUSTPYTHON (AssertionError: NotImplementedError not raised)
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: NotImplementedError not raised)")
     def test_utime_invalid_arguments(self):
         # seconds and nanoseconds parameters are mutually exclusive
         with self.assertRaises(ValueError):
