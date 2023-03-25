@@ -186,7 +186,7 @@ class FileTests(unittest.TestCase):
         os.close(f)
         self.assertTrue(os.access(os_helper.TESTFN, os.W_OK))
 
-    @requires_os_func('dup')
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, BrokenPipeError: (32, 'The process cannot access the file because it is being used by another process. (os error 32)')")
     def test_closerange(self):
         first = os.open(os_helper.TESTFN, os.O_CREAT|os.O_RDWR)
         # We must allocate two consecutive file descriptors, otherwise
