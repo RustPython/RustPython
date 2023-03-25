@@ -704,8 +704,6 @@ class BaseBytesTest:
         self.assertEqual(b.rindex(i, 3, 9), 7)
         self.assertRaises(ValueError, b.rindex, w, 1, 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mod(self):
         b = self.type2test(b'hello, %b!')
         orig = b
