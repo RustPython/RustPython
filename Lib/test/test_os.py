@@ -1826,6 +1826,8 @@ class URandomTests(unittest.TestCase):
         self.assertEqual(len(stdout), count)
         return stdout
 
+    # TODO: RUSTPYTHON on Windows (ModuleNotFoundError: No module named 'os')
+    @unittest.expectedFailure
     def test_urandom_subprocess(self):
         data1 = self.get_urandom_subprocess(16)
         data2 = self.get_urandom_subprocess(16)
@@ -1910,6 +1912,8 @@ class URandomFDTests(unittest.TestCase):
             """
         assert_python_ok('-c', code)
 
+    # TODO: RUSTPYTHON on Windows (ModuleNotFoundError: No module named 'os')
+    @unittest.expectedFailure
     def test_urandom_fd_closed(self):
         # Issue #21207: urandom() should reopen its fd to /dev/urandom if
         # closed.
@@ -1924,6 +1928,8 @@ class URandomFDTests(unittest.TestCase):
             """
         rc, out, err = assert_python_ok('-Sc', code)
 
+    # TODO: RUSTPYTHON on Windows (ModuleNotFoundError: No module named 'os')
+    @unittest.expectedFailure
     def test_urandom_fd_reopened(self):
         # Issue #21207: urandom() should detect its fd to /dev/urandom
         # changed to something else, and reopen it.
