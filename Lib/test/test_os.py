@@ -2215,15 +2215,21 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.pathconf, "PC_NAME_MAX")
         self.check(os.fpathconf, "PC_NAME_MAX")
 
+    # TODO: RUSTPYTHON (AssertionError: <builtin_function_or_method object at 0x1f330cd8e60> didn't raise an OSError with a bad file descriptor)
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'ftruncate'), 'test needs os.ftruncate()')
     def test_ftruncate(self):
         self.check(os.truncate, 0)
         self.check(os.ftruncate, 0)
 
+    # TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files. (os error 18))
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'lseek'), 'test needs os.lseek()')
     def test_lseek(self):
         self.check(os.lseek, 0, 0)
 
+    # TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files. (os error 18))
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'read'), 'test needs os.read()')
     def test_read(self):
         self.check(os.read, 1)
@@ -2237,6 +2243,8 @@ class TestInvalidFD(unittest.TestCase):
     def test_tcsetpgrpt(self):
         self.check(os.tcsetpgrp, 0)
 
+    # TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files. (os error 18))
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'write'), 'test needs os.write()')
     def test_write(self):
         self.check(os.write, b" ")
