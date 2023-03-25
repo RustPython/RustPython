@@ -3990,6 +3990,7 @@ class FDInheritanceTests(unittest.TestCase):
         os.set_inheritable(fd, False)
         self.assertEqual(os.get_inheritable(fd), False)
 
+    @requires_os_func('get_inheritable')
     def test_get_set_inheritable_badf(self):
         fd = os_helper.make_bad_fd()
 
