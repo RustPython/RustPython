@@ -310,15 +310,10 @@ class ComplexTest(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_constructor(self):
-        class OS:
+        class NS:
             def __init__(self, value): self.value = value
             def __complex__(self): return self.value
-        class NS(object):
-            def __init__(self, value): self.value = value
-            def __complex__(self): return self.value
-        self.assertEqual(complex(OS(1+10j)), 1+10j)
         self.assertEqual(complex(NS(1+10j)), 1+10j)
-        self.assertRaises(TypeError, complex, OS(None))
         self.assertRaises(TypeError, complex, NS(None))
         self.assertRaises(TypeError, complex, {})
         self.assertRaises(TypeError, complex, NS(1.5))
@@ -502,6 +497,18 @@ class ComplexTest(unittest.TestCase):
         with self.assertWarns(DeprecationWarning):
             self.assertEqual(complex(complex1(1j)), 2j)
         self.assertRaises(TypeError, complex, complex2(1j))
+
+    def test___complex__(self):
+        z = 3 + 4j
+        self.assertEqual(z.__complex__(), z)
+        self.assertEqual(type(z.__complex__()), complex)
+
+        class complex_subclass(complex):
+            pass
+
+        z = complex_subclass(3 + 4j)
+        self.assertEqual(z.__complex__(), 3 + 4j)
+        self.assertEqual(type(z.__complex__()), complex)
 
     @support.requires_IEEE_754
     def test_constructor_special_numbers(self):
