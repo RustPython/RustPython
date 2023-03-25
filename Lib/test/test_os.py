@@ -1134,8 +1134,7 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
                                   stdout=subprocess.PIPE, text=True)
             self.assertEqual(proc.stdout.rstrip(), repr(None))
 
-    # TODO: RUSTPYTHON (AssertionError: ValueError not raised by putenv)
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: ValueError not raised by putenv)")
     # On OS X < 10.6, unsetenv() doesn't return a value (bpo-13415).
     @support.requires_mac_ver(10, 6)
     def test_putenv_unsetenv_error(self):
