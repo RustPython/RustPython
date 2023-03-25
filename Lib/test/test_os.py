@@ -4399,8 +4399,7 @@ class TestScandir(unittest.TestCase):
             self.assertRaises(FileNotFoundError, entry.stat)
             self.assertRaises(FileNotFoundError, entry.stat, follow_symlinks=False)
 
-    # TODO: RYSTPYTHON entry.is_file() is False
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON entry.is_file() is False")
     def test_removed_file(self):
         entry = self.create_file_entry()
         os.unlink(entry.path)
