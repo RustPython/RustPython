@@ -1615,7 +1615,7 @@ class BuiltinTest(unittest.TestCase):
             self.assertEqual(type(round(x, None)), type(round(x)))
 
     # TODO: RUSTPYTHON
-    # @unittest.expectedFailure
+    @unittest.expectedFailure
     def test_setattr(self):
         setattr(sys, 'spam', 1)
         self.assertEqual(sys.spam, 1)
