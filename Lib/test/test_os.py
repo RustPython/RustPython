@@ -903,8 +903,7 @@ class UtimeTests(unittest.TestCase):
             os.utime(self.fname)
         self._test_utime_current(set_time)
 
-    # TODO: RUSTPYTHON (AssertionError: 3359485824.5186944 != 1679742912.5186892 within 0.05 delta (1679742912.0000052 difference) : st_time=3359485824.5186944, current=1679742912.5186892, dt=1679742912.0000052)
-    @unittest.expectedFailure    
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: 3359485824.5186944 != 1679742912.5186892 within 0.05 delta (1679742912.0000052 difference) : st_time=3359485824.5186944, current=1679742912.5186892, dt=1679742912.0000052)")
     def test_utime_current_old(self):
         def set_time(filename):
             # Set to the current time in the old explicit way.
