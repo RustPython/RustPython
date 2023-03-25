@@ -2176,8 +2176,7 @@ class TestInvalidFD(unittest.TestCase):
             self.fail("%r didn't raise an OSError with a bad file descriptor"
                       % f)
 
-    # TODO: RUSTPYTHON (AssertionError: <function fdopen at 0x1caa19ae6c0> didn't raise an OSError with a bad file descriptor)
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: <function fdopen at 0x1caa19ae6c0> didn't raise an OSError with a bad file descriptor)")
     def test_fdopen(self):
         self.check(os.fdopen, encoding="utf-8")
 
