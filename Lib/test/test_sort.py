@@ -383,8 +383,6 @@ class TestOptimizedCompares(unittest.TestCase):
         self.assertRaises(TypeError, [('a', 1), (1, 'a')].sort)
         self.assertRaises(TypeError, [(1, 'a'), ('a', 1)].sort)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_none_in_tuples(self):
         expected = [(None, 1), (None, 2)]
         actual = sorted([(None, 2), (None, 1)])

@@ -34,6 +34,9 @@ pub trait PyExactSizeIterator<'a>: ExactSizeIterator<Item = &'a PyObjectRef> + S
         let lhs_len = lhs.len();
         let rhs_len = rhs.len();
         for (a, b) in lhs.zip(rhs) {
+            if vm.bool_eq(a, b)? {
+                continue;
+            }
             let ret = if less {
                 vm.bool_seq_lt(a, b)?
             } else {
