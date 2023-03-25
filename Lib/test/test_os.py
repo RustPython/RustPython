@@ -1987,7 +1987,7 @@ def _execvpe_mockup(defpath=None):
 
     try:
         orig_execv = os.execv
-        # os.execve not implemented yet for all platforms
+        # NOTE: os.execve not implemented yet for all platforms
         orig_execve = getattr(os, "execve", None)
         orig_defpath = os.defpath
         os.execv = mock_execv
