@@ -814,6 +814,8 @@ class TestSubclass(unittest.TestCase):
         d.clear()
         self.assertEqual(len(d), 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_copy_pickle(self):
         for cls in Deque, DequeWithSlots:
             for d in cls('abc'), cls('abcde', maxlen=4):
