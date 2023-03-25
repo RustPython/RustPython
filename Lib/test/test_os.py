@@ -4498,8 +4498,7 @@ class TestScandir(unittest.TestCase):
                     st = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
                     self.assertEqual(entry.stat(follow_symlinks=False), st)
 
-    # TODO: RUSTPYTHON (AssertionError: FileNotFoundError not raised by scandir)
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: FileNotFoundError not raised by scandir)")
     def test_empty_path(self):
         self.assertRaises(FileNotFoundError, os.scandir, '')
 
