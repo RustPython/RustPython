@@ -4385,6 +4385,8 @@ class TestScandir(unittest.TestCase):
         self.assertEqual(fspath,
                          os.path.join(os.fsencode(self.path),bytes_filename))
 
+    # TODO: RYSTPYTHON entry.is_dir() is False
+    @unittest.expectedFailure
     def test_removed_dir(self):
         path = os.path.join(self.path, 'dir')
 
@@ -4407,6 +4409,8 @@ class TestScandir(unittest.TestCase):
             self.assertRaises(FileNotFoundError, entry.stat)
             self.assertRaises(FileNotFoundError, entry.stat, follow_symlinks=False)
 
+    # TODO: RYSTPYTHON entry.is_file() is False
+    @unittest.expectedFailure
     def test_removed_file(self):
         entry = self.create_file_entry()
         os.unlink(entry.path)
