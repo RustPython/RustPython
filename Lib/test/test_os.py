@@ -2019,8 +2019,7 @@ class ExecTests(unittest.TestCase):
         self.assertRaises(ValueError, os.execv, 'notepad', ('',))
         self.assertRaises(ValueError, os.execv, 'notepad', [''])
 
-    # NOTE: os.execvpe but calls os.execve inside
-    @requires_os_func('execve')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented")
     def test_execvpe_with_bad_arglist(self):
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], None)
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], {})
