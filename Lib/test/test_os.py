@@ -1626,7 +1626,7 @@ class MakedirTests(unittest.TestCase):
                 self.assertEqual(os.stat(path).st_mode & 0o777, 0o555)
                 self.assertEqual(os.stat(parent).st_mode & 0o777, 0o775)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.umask not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.umask not implemented yet for all platforms")
     def test_exist_ok_existing_directory(self):
         path = os.path.join(os_helper.TESTFN, 'dir1')
         mode = 0o777
@@ -1641,7 +1641,7 @@ class MakedirTests(unittest.TestCase):
         # Issue #25583: A drive root could raise PermissionError on Windows
         os.makedirs(os.path.abspath('/'), exist_ok=True)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.umask not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.umask not implemented yet for all platforms")
     def test_exist_ok_s_isgid_directory(self):
         path = os.path.join(os_helper.TESTFN, 'dir1')
         S_ISGID = stat.S_ISGID
@@ -1987,7 +1987,7 @@ def _execvpe_mockup(defpath=None):
 
     try:
         orig_execv = os.execv
-        # NOTE: os.execve not implemented yet for all platforms
+        # NOTE: RUSTPYTHON os.execve not implemented yet for all platforms
         orig_execve = getattr(os, "execve", None)
         orig_defpath = os.defpath
         os.execv = mock_execv
@@ -2018,7 +2018,7 @@ class ExecTests(unittest.TestCase):
         self.assertRaises(ValueError, os.execv, 'notepad', ('',))
         self.assertRaises(ValueError, os.execv, 'notepad', [''])
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented yet for all platforms")
     def test_execvpe_with_bad_arglist(self):
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], None)
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], {})
@@ -2078,7 +2078,7 @@ class ExecTests(unittest.TestCase):
         if os.name != "nt":
             self._test_internal_execvpe(bytes)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented yet for all platforms")
     def test_execve_invalid_env(self):
         args = [sys.executable, '-c', 'pass']
 
@@ -2100,7 +2100,7 @@ class ExecTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             os.execve(args[0], args, newenv)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented yet for all platforms")
     @unittest.skipUnless(sys.platform == "win32", "Win32-specific test")
     def test_execve_with_empty_path(self):
         # bpo-32890: Check GetLastError() misuse
@@ -2248,7 +2248,7 @@ class TestInvalidFD(unittest.TestCase):
     def test_writev(self):
         self.check(os.writev, [b'abc'])
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented yet for all platforms")
     def test_inheritable(self):
         self.check(os.get_inheritable)
         self.check(os.set_inheritable, True)
@@ -3078,7 +3078,7 @@ class PidTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             os.waitstatus_to_exitcode(0.0)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.spawnv not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.spawnv not implemented yet for all platforms")
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_waitpid_windows(self):
         # bpo-40138: test os.waitpid() and os.waitstatus_to_exitcode()
@@ -3975,7 +3975,7 @@ class CPUCountTests(unittest.TestCase):
 
 
 class FDInheritanceTests(unittest.TestCase):
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented yet for all platforms")
     def test_get_set_inheritable(self):
         fd = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd)
@@ -4020,7 +4020,7 @@ class FDInheritanceTests(unittest.TestCase):
         os.set_inheritable(fd, False)
         self.assertEqual(os.get_inheritable(fd), False)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented yet for all platforms")
     def test_get_set_inheritable_badf(self):
         fd = os_helper.make_bad_fd()
 
@@ -4036,7 +4036,7 @@ class FDInheritanceTests(unittest.TestCase):
             os.set_inheritable(fd, False)
         self.assertEqual(ctx.exception.errno, errno.EBADF)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented yet for all platforms")
     def test_open(self):
         fd = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd)
@@ -4065,7 +4065,7 @@ class FDInheritanceTests(unittest.TestCase):
         self.addCleanup(os.close, fd)
         self.assertGreater(fd, 0)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.dup not implemented")
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.dup not implemented yet for all platforms")
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_dup_nul(self):
         # os.dup() was creating inheritable fds for character files.
