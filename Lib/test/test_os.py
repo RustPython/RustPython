@@ -741,8 +741,7 @@ class StatAttributeTests(unittest.TestCase):
         result = os.stat(fname)
         self.assertNotEqual(result.st_size, 0)
 
-    # TODO: RUSTPYTHON os.stat (PermissionError: [Errno 1] Incorrect function. (os error 1))
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.stat (PermissionError: [Errno 1] Incorrect function.)")
     @unittest.skipUnless(sys.platform == "win32", "Win32 specific tests")
     def test_stat_block_device(self):
         # bpo-38030: os.stat fails for block devices
