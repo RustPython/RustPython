@@ -2079,7 +2079,7 @@ class ExecTests(unittest.TestCase):
         if os.name != "nt":
             self._test_internal_execvpe(bytes)
 
-    @requires_os_func('execve')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented")
     def test_execve_invalid_env(self):
         args = [sys.executable, '-c', 'pass']
 
