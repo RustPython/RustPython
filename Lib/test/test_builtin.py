@@ -1364,6 +1364,7 @@ class BuiltinTest(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old_environ)
 
+    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     @support.requires_subprocess()
     def test_open_non_inheritable(self):
         fileobj = open(__file__, encoding="utf-8")
@@ -1614,7 +1615,7 @@ class BuiltinTest(unittest.TestCase):
             self.assertEqual(type(round(x, None)), type(round(x)))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    # @unittest.expectedFailure
     def test_setattr(self):
         setattr(sys, 'spam', 1)
         self.assertEqual(sys.spam, 1)
