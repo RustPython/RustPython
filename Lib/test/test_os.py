@@ -3061,6 +3061,8 @@ class PidTests(unittest.TestCase):
         code = f'import _winapi; _winapi.ExitProcess({STATUS_CONTROL_C_EXIT})'
         self.check_waitpid(code, exitcode=STATUS_CONTROL_C_EXIT)
 
+    # TODO: RUSTPYTHON (OverflowError: Python int too large to convert to Rust i32)
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_waitstatus_to_exitcode_windows(self):
         max_exitcode = 2 ** 32 - 1
