@@ -339,7 +339,7 @@ jobs:
         uses: baptiste0928/cargo-install@v2
         with:
           crate: lalrpop
-          version: "0.19.8"
+          version: "0.19.9"
       - name: Run lalrpop
         if: steps.generated_parser.outputs.files_exists == 'false'
         run: lalrpop compiler/parser/python.lalrpop
