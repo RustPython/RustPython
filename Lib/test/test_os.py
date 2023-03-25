@@ -2217,8 +2217,7 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.pathconf, "PC_NAME_MAX")
         self.check(os.fpathconf, "PC_NAME_MAX")
 
-    # TODO: RUSTPYTHON (AssertionError: <builtin_function_or_method object at 0x1f330cd8e60> didn't raise an OSError with a bad file descriptor)
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: <builtin_function_or_method object at 0x1f330cd8e60> didn't raise an OSError with a bad file descriptor)")
     @unittest.skipUnless(hasattr(os, 'ftruncate'), 'test needs os.ftruncate()')
     def test_ftruncate(self):
         self.check(os.truncate, 0)
