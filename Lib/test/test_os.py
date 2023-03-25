@@ -3070,7 +3070,8 @@ class PidTests(unittest.TestCase):
     def test_waitpid(self):
         self.check_waitpid(code='pass', exitcode=0)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.spawnv not implemented")
+    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
+    @unittest.expectedFailure
     def test_waitstatus_to_exitcode(self):
         exitcode = 23
         code = f'import sys; sys.exit({exitcode})'
