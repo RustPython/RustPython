@@ -76,6 +76,7 @@ env:
     test_math
     test_operator
     test_ordered_dict
+    test_os
     test_pow
     test_raise
     test_richcmp
@@ -293,7 +294,6 @@ jobs:
             test_importlib
             test_io
             test_iter
-            test_os
             test_pathlib
             test_posixpath
             test_shutil
