@@ -4376,8 +4376,7 @@ class TestScandir(unittest.TestCase):
         self.assertEqual(fspath,
                          os.path.join(os.fsencode(self.path),bytes_filename))
 
-    # TODO: RYSTPYTHON entry.is_dir() is False
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON entry.is_dir() is False")
     def test_removed_dir(self):
         path = os.path.join(self.path, 'dir')
 
