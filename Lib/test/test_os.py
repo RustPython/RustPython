@@ -920,6 +920,8 @@ class UtimeTests(unittest.TestCase):
                 return buf.value
         # return None if the filesystem is unknown
 
+    # TODO: RUSTPYTHON (ModuleNotFoundError: No module named '_ctypes')
+    @unittest.expectedFailure
     def test_large_time(self):
         # Many filesystems are limited to the year 2038. At least, the test
         # pass with NTFS filesystem.
