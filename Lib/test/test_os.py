@@ -2242,8 +2242,7 @@ class TestInvalidFD(unittest.TestCase):
     def test_tcsetpgrpt(self):
         self.check(os.tcsetpgrp, 0)
 
-    # TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files. (os error 18))
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.")
     @unittest.skipUnless(hasattr(os, 'write'), 'test needs os.write()')
     def test_write(self):
         self.check(os.write, b" ")
