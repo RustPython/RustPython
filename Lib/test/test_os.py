@@ -2840,6 +2840,8 @@ class Win32JunctionTests(unittest.TestCase):
         if os.path.lexists(self.junction):
             os.unlink(self.junction)
 
+    # TODO: RUSTPYTHON (AttributeError: module '_winapi' has no attribute 'CreateJunction')
+    @unittest.expectedFailure
     def test_create_junction(self):
         _winapi.CreateJunction(self.junction_target, self.junction)
         self.assertTrue(os.path.lexists(self.junction))
@@ -2853,6 +2855,8 @@ class Win32JunctionTests(unittest.TestCase):
         self.assertEqual(os.path.normcase("\\\\?\\" + self.junction_target),
                          os.path.normcase(os.readlink(self.junction)))
 
+    # TODO: RUSTPYTHON (AttributeError: module '_winapi' has no attribute 'CreateJunction')
+    @unittest.expectedFailure
     def test_unlink_removes_junction(self):
         _winapi.CreateJunction(self.junction_target, self.junction)
         self.assertTrue(os.path.exists(self.junction))
