@@ -754,6 +754,12 @@ impl CFormatString {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum CFormatAlign {
+    Left,
+    Right,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
