@@ -1626,7 +1626,7 @@ class MakedirTests(unittest.TestCase):
                 self.assertEqual(os.stat(path).st_mode & 0o777, 0o555)
                 self.assertEqual(os.stat(parent).st_mode & 0o777, 0o775)
 
-    @requires_os_func('umask')
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.umask not implemented")
     def test_exist_ok_existing_directory(self):
         path = os.path.join(os_helper.TESTFN, 'dir1')
         mode = 0o777
