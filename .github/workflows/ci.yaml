@@ -256,7 +256,7 @@ jobs:
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
 
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
       - name: Set up the Windows environment
@@ -272,7 +272,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
       - name: run snippets
@@ -362,7 +362,7 @@ jobs:
         run: cargo fmt --all -- --check
       - name: run clippy on wasm
         run: cargo clippy --manifest-path=wasm/lib/Cargo.toml -- -Dwarnings
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
       - name: install flake8
@@ -422,7 +422,7 @@ jobs:
           wget https://github.com/mozilla/geckodriver/releases/download/v0.30.0/geckodriver-v0.30.0-linux64.tar.gz
           mkdir geckodriver
           tar -xzf geckodriver-v0.30.0-linux64.tar.gz -C geckodriver
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
       - run: python -m pip install -r requirements.txt

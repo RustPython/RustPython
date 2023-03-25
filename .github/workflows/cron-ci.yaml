@@ -27,7 +27,7 @@ jobs:
       - run: cargo build --release --verbose ${{ env.CARGO_ARGS }}
         env:
           RUSTC_WRAPPER: './scripts/codecoverage-rustc-wrapper.sh'
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
       - run: python -m pip install pytest
@@ -145,7 +145,7 @@ jobs:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: 3.9
       - run: cargo install cargo-criterion
