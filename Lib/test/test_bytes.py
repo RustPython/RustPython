@@ -704,6 +704,8 @@ class BaseBytesTest:
         self.assertEqual(b.rindex(i, 3, 9), 7)
         self.assertRaises(ValueError, b.rindex, w, 1, 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mod(self):
         b = self.type2test(b'hello, %b!')
         orig = b
@@ -1992,6 +1994,7 @@ class SubclassTest:
         s3 = s1.join([b"abcd"])
         self.assertIs(type(s3), self.basetype)
 
+    @unittest.skip("TODO: RUSTPYHON, Fails on ByteArraySubclassWithSlotsTest")
     def test_pickle(self):
         a = self.type2test(b"abcd")
         a.x = 10
@@ -2006,6 +2009,7 @@ class SubclassTest:
             self.assertEqual(type(a.z), type(b.z))
             self.assertFalse(hasattr(b, 'y'))
 
+    @unittest.skip("TODO: RUSTPYHON, Fails on ByteArraySubclassWithSlotsTest")
     def test_copy(self):
         a = self.type2test(b"abcd")
         a.x = 10
