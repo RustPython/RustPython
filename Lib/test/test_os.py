@@ -3019,6 +3019,7 @@ class PidTests(unittest.TestCase):
         # We are the parent of our subprocess
         self.assertEqual(int(stdout), os.getpid())
 
+    @requires_os_func('spawnv')
     def check_waitpid(self, code, exitcode, callback=None):
         if sys.platform == 'win32':
             # On Windows, os.spawnv() simply joins arguments with spaces:
