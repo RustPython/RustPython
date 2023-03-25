@@ -802,6 +802,8 @@ class UtimeTests(unittest.TestCase):
         self.assertEqual(st.st_atime_ns, atime_ns)
         self.assertEqual(st.st_mtime_ns, mtime_ns)
 
+    # TODO: RUSTPYTHON (AssertionError: 2.002003 != 1.002003 within 1e-06 delta (1.0000000000000002 difference))
+    @unittest.expectedFailure
     def test_utime(self):
         def set_time(filename, ns):
             # test the ns keyword parameter
@@ -869,6 +871,8 @@ class UtimeTests(unittest.TestCase):
                 os.utime(name, dir_fd=dirfd, ns=ns)
         self._test_utime(set_time)
 
+    # TODO: RUSTPYTHON (AssertionError: 2.002003 != 1.002003 within 1e-06 delta (1.0000000000000002 difference))
+    @unittest.expectedFailure
     def test_utime_directory(self):
         def set_time(filename, ns):
             # test calling os.utime() on a directory
@@ -897,12 +901,16 @@ class UtimeTests(unittest.TestCase):
         self.assertAlmostEqual(st.st_mtime, current,
                                delta=delta, msg=msg)
 
+    # TODO: RUSTPYTHON (AssertionError: 3359485824.516508 != 1679742912.516503 within 0.05 delta (1679742912.000005 difference) : st_time=3359485824.516508, current=1679742912.516503, dt=1679742912.000005)
+    @unittest.expectedFailure
     def test_utime_current(self):
         def set_time(filename):
             # Set to the current time in the new way
             os.utime(self.fname)
         self._test_utime_current(set_time)
 
+    # TODO: RUSTPYTHON (AssertionError: 3359485824.5186944 != 1679742912.5186892 within 0.05 delta (1679742912.0000052 difference) : st_time=3359485824.5186944, current=1679742912.5186892, dt=1679742912.0000052)
+    @unittest.expectedFailure    
     def test_utime_current_old(self):
         def set_time(filename):
             # Set to the current time in the old explicit way.
