@@ -896,8 +896,7 @@ class UtimeTests(unittest.TestCase):
         self.assertAlmostEqual(st.st_mtime, current,
                                delta=delta, msg=msg)
 
-    # TODO: RUSTPYTHON (AssertionError: 3359485824.516508 != 1679742912.516503 within 0.05 delta (1679742912.000005 difference) : st_time=3359485824.516508, current=1679742912.516503, dt=1679742912.000005)
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: 3359485824.516508 != 1679742912.516503 within 0.05 delta (1679742912.000005 difference) : st_time=3359485824.516508, current=1679742912.516503, dt=1679742912.000005)")
     def test_utime_current(self):
         def set_time(filename):
             # Set to the current time in the new way
