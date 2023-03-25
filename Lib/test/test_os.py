@@ -3945,6 +3945,7 @@ class CPUCountTests(unittest.TestCase):
 
 
 class FDInheritanceTests(unittest.TestCase):
+    @requires_os_func('get_inheritable')
     def test_get_set_inheritable(self):
         fd = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd)
