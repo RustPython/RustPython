@@ -1972,7 +1972,8 @@ def _execvpe_mockup(defpath=None):
 
     try:
         orig_execv = os.execv
-        orig_execve = os.execve
+        # os.execve not implemented yet for all platforms
+        orig_execve = getattr(os, "execve", None)
         orig_defpath = os.defpath
         os.execv = mock_execv
         os.execve = mock_execve
@@ -1981,7 +1982,10 @@ def _execvpe_mockup(defpath=None):
         yield calls
     finally:
         os.execv = orig_execv
-        os.execve = orig_execve
+        if orig_execve:
+            os.execve = orig_execve
+        else:
+            del os.execve
         os.defpath = orig_defpath
 
 @unittest.skipUnless(hasattr(os, 'execv'),
