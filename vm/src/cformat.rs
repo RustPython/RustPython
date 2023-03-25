@@ -293,7 +293,10 @@ pub(crate) fn cformat_bytes(
                     CFormatPart::Literal(literal) => result.append(literal),
                     CFormatPart::Spec(spec) => {
                         let value = match &spec.mapping_key {
-                            Some(key) => values_obj.get_item(key.as_str(), vm)?,
+                            Some(key) => {
+                                let k = vm.ctx.new_bytes(key.as_str().as_bytes().to_vec());
+                                values_obj.get_item(k.as_object(), vm)?
+                            }
                             None => unreachable!(),
                         };
                         let mut part_result = spec_format_bytes(vm, spec, value)?;
