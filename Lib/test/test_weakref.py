@@ -432,8 +432,6 @@ class ReferencesTestCase(TestBase):
             # can be killed in the middle of the call
             "blech" in p
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_proxy_next(self):
         arr = [4, 5, 6]
         def iterator_func():
