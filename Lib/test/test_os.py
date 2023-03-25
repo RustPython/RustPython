@@ -4006,6 +4006,7 @@ class FDInheritanceTests(unittest.TestCase):
             os.set_inheritable(fd, False)
         self.assertEqual(ctx.exception.errno, errno.EBADF)
 
+    @requires_os_func('get_inheritable')
     def test_open(self):
         fd = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd)
