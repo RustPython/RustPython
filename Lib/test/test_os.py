@@ -719,8 +719,7 @@ class StatAttributeTests(unittest.TestCase):
             result.st_file_attributes & stat.FILE_ATTRIBUTE_DIRECTORY,
             stat.FILE_ATTRIBUTE_DIRECTORY)
 
-    # TODO: RUSTPYTHON os.stat (PermissionError: [Errno 5] Access is denied. (os error 5))
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.stat (PermissionError: [Errno 5] Access is denied.)")
     @unittest.skipUnless(sys.platform == "win32", "Win32 specific tests")
     def test_access_denied(self):
         # Default to FindFirstFile WIN32_FIND_DATA when access is
