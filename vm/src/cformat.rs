@@ -209,12 +209,11 @@ fn try_update_quantity_from_element(
         Some(width_obj) => {
             if let Some(i) = width_obj.payload::<PyInt>() {
                 let i = i.try_to_primitive::<i32>(vm)?;
-                let align: CFormatAlign;
-                if i < 0 {
-                    align = CFormatAlign::Left;
+                let align = if i < 0 {
+                    CFormatAlign::Left
                 } else {
-                    align = CFormatAlign::Right;
-                }
+                    CFormatAlign::Right
+                };
                 let i = i.unsigned_abs();
                 Ok((CFormatQuantity::Amount(i as usize), align))
             } else {
@@ -333,7 +332,12 @@ pub(crate) fn cformat_bytes(
         match part {
             CFormatPart::Literal(literal) => result.append(literal),
             CFormatPart::Spec(spec) => {
-                try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width, &mut spec.flags)?;
+                try_update_quantity_from_tuple(
+                    vm,
+                    &mut value_iter,
+                    &mut spec.min_field_width,
+                    &mut spec.flags,
+                )?;
                 try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
                 let value = match value_iter.next() {
@@ -427,7 +431,12 @@ pub(crate) fn cformat_string(
         match part {
             CFormatPart::Literal(literal) => result.push_str(literal),
             CFormatPart::Spec(spec) => {
-                try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width, &mut spec.flags)?;
+                try_update_quantity_from_tuple(
+                    vm,
+                    &mut value_iter,
+                    &mut spec.min_field_width,
+                    &mut spec.flags,
+                )?;
                 try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
                 let value = match value_iter.next() {
