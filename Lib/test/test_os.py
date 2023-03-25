@@ -2159,6 +2159,9 @@ class TestInvalidFD(unittest.TestCase):
                 self.check(getattr(os, f))
         return helper
     for f in singles:
+        # TODO: RUSTPYTHON: 'fstat' and 'fsync' currently fail on windows, so we've added the if
+        # statement here to wrap them. When completed remove the if clause and just leave a call to:
+        # locals()["test_"+f] = get_single(f)
         if f in ("fstat", "fsync"):
             locals()["test_"+f] = unittest.expectedFailureIfWindows("TODO: RUSTPYTHON fstat test (OSError: [Errno 18] There are no more files.")(get_single(f))
         else:
