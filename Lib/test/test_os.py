@@ -867,8 +867,7 @@ class UtimeTests(unittest.TestCase):
                 os.utime(name, dir_fd=dirfd, ns=ns)
         self._test_utime(set_time)
 
-    # TODO: RUSTPYTHON (AssertionError: 2.002003 != 1.002003 within 1e-06 delta (1.0000000000000002 difference))
-    @unittest.expectedFailure
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: 2.002003 != 1.002003 within 1e-06 delta (1.0000000000000002 difference))")
     def test_utime_directory(self):
         def set_time(filename, ns):
             # test calling os.utime() on a directory
