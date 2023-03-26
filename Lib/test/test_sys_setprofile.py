@@ -72,7 +72,7 @@ class ProfileSimulator(HookWatcher):
         # TODO: RUSTPYTHON
         # it seems pop from empty list is also related to those failed tests
         # if those tests(all the tests in `ProfileHookTestCase``) can pass in RustPython, 
-        # then we can remove this `if``
+        # then we can remove this `if`
         # and just use `self.stack.pop()` here
         if len(self.stack)!=0:
             self.stack.pop()

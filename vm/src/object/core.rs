@@ -30,7 +30,6 @@ use crate::{
     },
     vm::VirtualMachine,
 };
-
 use itertools::Itertools;
 use std::{
     any::TypeId,
@@ -44,11 +43,9 @@ use std::{
 };
 
 #[cfg(debug_assertions)]
-use once_cell::sync::Lazy;
-
-#[cfg(debug_assertions)]
-pub static ID2TYPE: Lazy<std::sync::Mutex<std::collections::HashMap<TypeId, String>>> =
-    Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+pub static ID2TYPE: once_cell::sync::Lazy<
+    std::sync::Mutex<std::collections::HashMap<TypeId, String>>,
+> = once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 // so, PyObjectRef is basically equivalent to `PyRc<PyInner<dyn PyObjectPayload>>`, except it's
 // only one pointer in width rather than 2. We do that by manually creating a vtable, and putting
@@ -101,15 +98,18 @@ struct PyObjVTable {
     debug: unsafe fn(&PyObject, &mut fmt::Formatter) -> fmt::Result,
 }
 
+#[cfg(feature = "gc_bacon")]
 unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
-    #[cfg(feature = "gc_bacon")]
     if (*x).header().buffered() {
         error!("Try to drop&dealloc a buffered object! Drop only for now!");
         drop_only_obj::<T>(x);
     } else {
         drop(Box::from_raw(x as *mut PyInner<T>));
     }
-    #[cfg(not(feature = "gc_bacon"))]
+}
+
+#[cfg(not(feature = "gc_bacon"))]
+unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
     drop(Box::from_raw(x as *mut PyInner<T>));
 }
 

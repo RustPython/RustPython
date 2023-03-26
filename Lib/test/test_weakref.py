@@ -1912,12 +1912,7 @@ class MappingTestCase(TestBase):
     def test_threaded_weak_valued_pop(self):
         d = weakref.WeakValueDictionary()
         with collect_in_thread():
-            print("")
             for i in range(100000):
-                if i%1000==0:
-                    print("\rLoop:"+str(i)+"/100000     ", end="")
-                    # TODO: RUSTPYTHON: so in log file the progress can be update in time
-                    sys.stdout.flush()
                 d[10] = RefCycle()
                 x = d.pop(10, 10)
                 self.assertIsNot(x, None)  # we never put None in there!
@@ -1927,12 +1922,7 @@ class MappingTestCase(TestBase):
         # WeakValueDictionary when collecting from another thread.
         d = weakref.WeakValueDictionary()
         with collect_in_thread():
-            print("")
             for i in range(200000):
-                if i%1000==0:
-                    print("\rLoop:"+str(i)+"/200000     ", end="")
-                    # TODO: RUSTPYTHON: so in log file the progress can be update in time
-                    sys.stdout.flush()
                 o = RefCycle()
                 d[10] = o
                 # o is still alive, so the dict can't be empty

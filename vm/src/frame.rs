@@ -349,15 +349,16 @@ impl ExecutingFrame<'_> {
         // Execute until return or exception:
         let instrs = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
+        #[allow(dead_code)]
         let mut gc_count = 0;
         loop {
-            gc_count += 1;
-            if gc_count > 1000 {
-                #[cfg(feature = "gc_bacon")]
-                {
+            #[cfg(feature = "gc_bacon")]
+            {
+                gc_count += 1;
+                if gc_count > 1000 {
                     crate::object::try_gc();
+                    gc_count = 0;
                 }
-                gc_count = 0;
             }
             let idx = self.lasti() as usize;
             self.update_lasti(|i| *i += 1);
