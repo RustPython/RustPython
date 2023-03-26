@@ -766,11 +766,11 @@ mod builtins {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let attr = PyStrRef::try_from_object(vm, attr.clone()).map_err(|_e| {
-                        vm.new_type_error(format!(
-                            "attribute name must be string, not '{}'",
-                            attr.class().name()
-                        ))
-                })?;
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
         obj.set_attr(&attr, value, vm)?;
         Ok(())
     }
