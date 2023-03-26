@@ -826,9 +826,11 @@ impl PyStr {
         let s = self.as_str();
         match count {
             OptionalArg::Present(max_count) if max_count >= 0 => {
-                if max_count == 0 || s.is_empty() {
+                if max_count == 0 || (s.is_empty() && !old.is_empty()) {
                     // nothing to do; return the original bytes
-                    s.into()
+                    s.to_owned()
+                } else if s.is_empty() && old.is_empty() {
+                    new.as_str().to_owned()
                 } else {
                     s.replacen(old.as_str(), new.as_str(), max_count as usize)
                 }

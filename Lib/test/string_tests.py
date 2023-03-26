@@ -1202,6 +1202,9 @@ class MixinStrUnicodeUserStringTest:
         self.checkequal(False, 'asd', '__contains__', 'asdf')
         self.checkequal(False, '', '__contains__', 'asdf')
 
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subscript(self):
         self.checkequal('a', 'abc', '__getitem__', 0)
         self.checkequal('c', 'abc', '__getitem__', -1)

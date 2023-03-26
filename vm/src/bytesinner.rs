@@ -847,9 +847,11 @@ impl PyBytesInner {
         // stringlib_replace in CPython
         let maxcount = match maxcount {
             OptionalArg::Present(maxcount) if maxcount >= 0 => {
-                if maxcount == 0 || self.elements.is_empty() {
+                if maxcount == 0 || (self.elements.is_empty() && !from.is_empty()) {
                     // nothing to do; return the original bytes
                     return Ok(self.elements.clone());
+                } else if self.elements.is_empty() && from.is_empty() {
+                    return Ok(to.elements);
                 }
                 Some(maxcount as usize)
             }
