@@ -391,8 +391,6 @@ class FileInputTests(BaseTests, unittest.TestCase):
             retval2 = fi[1]
             self.assertEqual(retval2, "line2\n")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test__getitem___deprecation(self):
         t = self.writeTmp("line1\nline2\n")
         with self.assertWarnsRegex(DeprecationWarning,
@@ -914,8 +912,6 @@ class Test_hook_compressed(unittest.TestCase):
     def test_no_ext(self):
         self.do_test_use_builtin_open("abcd", 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(gzip, "Requires gzip and zlib")
     def test_gz_ext_fake(self):
         original_open = gzip.open

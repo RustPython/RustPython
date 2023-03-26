@@ -2193,10 +2193,14 @@ mod _io {
             *data = None;
 
             let encoding = match args.encoding {
-                Some(enc) => enc,
-                None => {
-                    // TODO: try os.device_encoding(fileno) and then locale.getpreferredencoding()
-                    PyStr::from(crate::codecs::DEFAULT_ENCODING).into_ref(&vm.ctx)
+                None if vm.state.settings.utf8_mode > 0 => PyStr::from("utf-8").into_ref(&vm.ctx),
+                Some(enc) if enc.as_str() != "locale" => enc,
+                _ => {
+                    // None without utf8_mode or "locale" encoding
+                    vm.import("locale", None, 0)?
+                        .get_attr("getencoding", vm)?
+                        .call((), vm)?
+                        .try_into_value(vm)?
                 }
             };
 
