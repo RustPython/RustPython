@@ -125,7 +125,7 @@ pub struct PyNumberMethods {
     pub negative: Option<PyNumberUnaryFunc>,
     pub positive: Option<PyNumberUnaryFunc>,
     pub absolute: Option<PyNumberUnaryFunc>,
-    pub boolean: Option<PyNumberUnaryFunc<bool>>,
+    pub boolean: Option<PyNumberUnaryFunc<bool>>, // __bool__
     pub invert: Option<PyNumberUnaryFunc>,
     pub lshift: Option<PyNumberBinaryFunc>,
     pub rshift: Option<PyNumberBinaryFunc>,

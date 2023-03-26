@@ -4,11 +4,17 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
+<<<<<<< HEAD
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
         AsMapping, AsSequence, Comparable, Constructor, GetAttr, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SetAttr,
     },
+=======
+    protocol::{PyMappingMethods, PySequenceMethods},
+    stdlib::builtins::reversed,
+    types::{AsMapping, AsSequence, Comparable, Constructor, GetAttr, PyComparisonOp, SetAttr},
+>>>>>>> 00adb4f5d (reversed fixed)
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use once_cell::sync::Lazy;
@@ -99,6 +105,19 @@ impl PyWeakProxy {
     }
 
     #[pymethod(magic)]
+<<<<<<< HEAD
+=======
+    fn repr(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        self.try_upgrade(vm)?.repr(vm)
+    }
+
+    #[pymethod(magic)]
+    fn reversed(&self, vm: &VirtualMachine) -> PyResult {
+        let obj = self.try_upgrade(vm)?;
+        reversed(obj, vm)
+    }
+    #[pymethod(magic)]
+>>>>>>> 00adb4f5d (reversed fixed)
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_upgrade(vm)?.to_sequence(vm).contains(&needle, vm)
     }

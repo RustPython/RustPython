@@ -464,8 +464,6 @@ class ReferencesTestCase(TestBase):
         with self.assertRaisesRegex(TypeError, msg):
             list(a)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_proxy_reversed(self):
         class MyObj:
             def __len__(self):
