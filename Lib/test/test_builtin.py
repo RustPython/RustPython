@@ -523,8 +523,6 @@ class BuiltinTest(unittest.TestCase):
         exec(co, glob)
         self.assertEqual(type(glob['ticker']()), AsyncGeneratorType)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_delattr(self):
         sys.spam = 1
         delattr(sys, 'spam')
@@ -947,8 +945,6 @@ class BuiltinTest(unittest.TestCase):
             f2 = filter(filter_char, "abcdeabcde")
             self.check_iter_pickle(f1, list(f2), proto)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getattr(self):
         self.assertTrue(getattr(sys, 'stdout') is sys.stdout)
         self.assertRaises(TypeError, getattr)
@@ -960,8 +956,6 @@ class BuiltinTest(unittest.TestCase):
         # unicode surrogates are not encodable to the default encoding (utf8)
         self.assertRaises(AttributeError, getattr, 1, "\uDAD1\uD51E")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hasattr(self):
         self.assertTrue(hasattr(sys, 'stdout'))
         self.assertRaises(TypeError, hasattr)
@@ -1614,8 +1608,6 @@ class BuiltinTest(unittest.TestCase):
             self.assertEqual(round(x, None), round(x))
             self.assertEqual(type(round(x, None)), type(round(x)))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setattr(self):
         setattr(sys, 'spam', 1)
         self.assertEqual(sys.spam, 1)

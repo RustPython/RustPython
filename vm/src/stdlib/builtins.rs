@@ -186,7 +186,13 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn delattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let attr = PyStrRef::try_from_object(vm, attr.clone()).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
         obj.del_attr(&attr, vm)
     }
 
@@ -321,10 +327,17 @@ mod builtins {
     #[pyfunction]
     fn getattr(
         obj: PyObjectRef,
-        attr: PyStrRef,
+        attr: PyObjectRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let attr = PyStrRef::try_from_object(vm, attr.clone()).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
+
         if let OptionalArg::Present(default) = default {
             Ok(vm.get_attribute_opt(obj, &attr)?.unwrap_or(default))
         } else {
@@ -338,7 +351,13 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn hasattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn hasattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let attr = PyStrRef::try_from_object(vm, attr.clone()).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
         Ok(vm.get_attribute_opt(obj, &attr)?.is_some())
     }
 
@@ -742,10 +761,16 @@ mod builtins {
     #[pyfunction]
     fn setattr(
         obj: PyObjectRef,
-        attr: PyStrRef,
+        attr: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let attr = PyStrRef::try_from_object(vm, attr.clone()).map_err(|_e| {
+                        vm.new_type_error(format!(
+                            "attribute name must be string, not '{}'",
+                            attr.class().name()
+                        ))
+                })?;
         obj.set_attr(&attr, value, vm)?;
         Ok(())
     }
