@@ -614,7 +614,7 @@ impl PyInt {
     #[pymethod]
     fn to_bytes(&self, args: IntToByteArgs, vm: &VirtualMachine) -> PyResult<PyBytes> {
         let signed = args.signed.map_or(false, Into::into);
-        let byte_len = args.length.try_to_primitive(vm)?;
+        let byte_len = args.length;
 
         let value = self.as_bigint();
         match value.sign() {
@@ -802,7 +802,9 @@ struct IntFromByteArgs {
 
 #[derive(FromArgs)]
 struct IntToByteArgs {
-    length: PyIntRef,
+    #[pyarg(any, default = "1")]
+    length: usize,
+    #[pyarg(any, default = "ArgByteOrder::Big")]
     byteorder: ArgByteOrder,
     #[pyarg(named, optional)]
     signed: OptionalArg<ArgIntoBool>,
