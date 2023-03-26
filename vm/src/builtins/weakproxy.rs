@@ -1,19 +1,19 @@
-use once_cell::sync::Lazy;
-
 use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     atomic_func,
     class::PyClassImpl,
+    common::hash::PyHash,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
-    protocol::{PyMappingMethods, PySequenceMethods},
+    protocol::{PyIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, GetAttr, PyComparisonOp, Representable,
-        SetAttr,
+        AsMapping, AsSequence, Comparable, Constructor, GetAttr, Hashable, IterNext, Iterable,
+        PyComparisonOp, Representable, SetAttr,
     },
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
+use once_cell::sync::Lazy;
 
-#[pyclass(module = false, name = "weakproxy")]
+#[pyclass(module = false, name = "weakproxy", unhashable = true)]
 #[derive(Debug)]
 pub struct PyWeakProxy {
     weak: PyRef<PyWeak>,
@@ -71,7 +71,8 @@ crate::common::static_cell! {
     Comparable,
     AsSequence,
     AsMapping,
-    Representable
+    Representable,
+    IterNext
 ))]
 impl PyWeakProxy {
     fn try_upgrade(&self, vm: &VirtualMachine) -> PyResult {
@@ -120,6 +121,20 @@ impl PyWeakProxy {
     fn delitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let obj = self.try_upgrade(vm)?;
         obj.del_item(&*needle, vm)
+    }
+}
+
+impl Iterable for PyWeakProxy {
+    fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let obj = zelf.try_upgrade(vm)?;
+        Ok(obj.get_iter(vm)?.into())
+    }
+}
+
+impl IterNext for PyWeakProxy {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+        let obj = zelf.try_upgrade(vm)?;
+        PyIter::new(obj).next(vm)
     }
 }
 
@@ -211,4 +226,10 @@ impl Representable for PyWeakProxy {
 
 pub fn init(context: &Context) {
     PyWeakProxy::extend_class(context, context.types.weakproxy_type);
+}
+
+impl Hashable for PyWeakProxy {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        zelf.try_upgrade(vm)?.hash(vm)
+    }
 }
