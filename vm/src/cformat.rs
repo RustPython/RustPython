@@ -218,19 +218,20 @@ fn try_update_quantity_from_element(
     }
 }
 
-fn try_update_adjust_from_tuple(
+fn try_conversion_flag_from_tuple(
     vm: &VirtualMachine,
     element: Option<&PyObjectRef>,
-    f: &mut CConversionFlags,
-) -> PyResult<()> {
+) -> PyResult<CConversionFlags> {
     match element {
         Some(width_obj) => {
             if let Some(i) = width_obj.payload::<PyInt>() {
                 let i = i.try_to_primitive::<i32>(vm)?;
-                if i < 0 {
-                    f.insert(CConversionFlags::LEFT_ADJUST)
-                }
-                Ok(())
+                let flags = if i < 0 {
+                    CConversionFlags::LEFT_ADJUST
+                } else {
+                    CConversionFlags::from_bits(0).unwrap()
+                };
+                Ok(flags)
             } else {
                 Err(vm.new_type_error("* wants int".to_owned()))
             }
@@ -249,7 +250,7 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
         return Ok(());
     };
     let element = elements.next();
-    try_update_adjust_from_tuple(vm, element, f)?;
+    f.insert(try_conversion_flag_from_tuple(vm, element)?);
     let quantity = try_update_quantity_from_element(vm, element)?;
     *q = Some(quantity);
     Ok(())
