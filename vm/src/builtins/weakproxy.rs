@@ -1,6 +1,7 @@
 use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     atomic_func,
+    stdlib::builtins::reversed,
     class::PyClassImpl,
     common::hash::PyHash,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
@@ -98,6 +99,11 @@ impl PyWeakProxy {
         self.try_upgrade(vm)?.bytes(vm)
     }
 
+    #[pymethod(magic)]
+    fn reversed(&self, vm: &VirtualMachine) -> PyResult {
+        let obj = self.try_upgrade(vm)?;
+        reversed(obj, vm)
+    }
     #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_upgrade(vm)?.to_sequence(vm).contains(&needle, vm)
