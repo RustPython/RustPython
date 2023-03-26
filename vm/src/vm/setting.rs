@@ -74,6 +74,8 @@ pub struct Settings {
     /// false for wasm. Not a command-line option
     pub allow_external_library: bool,
 
+    pub utf8_mode: u8,
+
     #[cfg(feature = "flame-it")]
     pub profile_output: Option<OsString>,
     #[cfg(feature = "flame-it")]
@@ -107,6 +109,7 @@ impl Default for Settings {
             stdio_unbuffered: false,
             check_hash_based_pycs: "default".to_owned(),
             allow_external_library: cfg!(feature = "importlib"),
+            utf8_mode: 1,
             #[cfg(feature = "flame-it")]
             profile_output: None,
             #[cfg(feature = "flame-it")]
