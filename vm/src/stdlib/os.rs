@@ -378,13 +378,8 @@ pub(super) struct FollowSymlinks(
     #[pyarg(named, name = "follow_symlinks", default = "true")] pub bool,
 );
 
-#[cfg(unix)]
-use platform::bytes_as_osstr;
-
-#[cfg(not(unix))]
 fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsStr> {
-    std::str::from_utf8(b)
-        .map(|s| s.as_ref())
+    rustpython_common::os::bytes_as_osstr(b)
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8".to_owned()))
 }
 

@@ -1,4 +1,4 @@
-use crate::{PyObjectRef, PyResult, VirtualMachine};
+use crate::{PyObjectRef, VirtualMachine};
 use std::os::unix::io::RawFd;
 
 pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
@@ -10,14 +10,6 @@ pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
         fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFD(new_flags))?;
     }
     Ok(())
-}
-
-pub(super) fn bytes_as_osstr<'a>(
-    b: &'a [u8],
-    _vm: &VirtualMachine,
-) -> PyResult<&'a std::ffi::OsStr> {
-    use std::os::unix::ffi::OsStrExt;
-    Ok(std::ffi::OsStr::from_bytes(b))
 }
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
