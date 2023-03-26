@@ -218,15 +218,40 @@ fn try_update_quantity_from_element(
     }
 }
 
+fn try_conversion_flag_from_tuple(
+    vm: &VirtualMachine,
+    element: Option<&PyObjectRef>,
+) -> PyResult<CConversionFlags> {
+    match element {
+        Some(width_obj) => {
+            if let Some(i) = width_obj.payload::<PyInt>() {
+                let i = i.try_to_primitive::<i32>(vm)?;
+                let flags = if i < 0 {
+                    CConversionFlags::LEFT_ADJUST
+                } else {
+                    CConversionFlags::from_bits(0).unwrap()
+                };
+                Ok(flags)
+            } else {
+                Err(vm.new_type_error("* wants int".to_owned()))
+            }
+        }
+        None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
+    }
+}
+
 fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     vm: &VirtualMachine,
     elements: &mut I,
     q: &mut Option<CFormatQuantity>,
+    f: &mut CConversionFlags,
 ) -> PyResult<()> {
     let Some(CFormatQuantity::FromValuesTuple) = q else {
         return Ok(());
     };
-    let quantity = try_update_quantity_from_element(vm, elements.next())?;
+    let element = elements.next();
+    f.insert(try_conversion_flag_from_tuple(vm, element)?);
+    let quantity = try_update_quantity_from_element(vm, element)?;
     *q = Some(quantity);
     Ok(())
 }
@@ -322,7 +347,12 @@ pub(crate) fn cformat_bytes(
         match part {
             CFormatPart::Literal(literal) => result.append(literal),
             CFormatPart::Spec(spec) => {
-                try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width)?;
+                try_update_quantity_from_tuple(
+                    vm,
+                    &mut value_iter,
+                    &mut spec.min_field_width,
+                    &mut spec.flags,
+                )?;
                 try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
                 let value = match value_iter.next() {
@@ -416,7 +446,12 @@ pub(crate) fn cformat_string(
         match part {
             CFormatPart::Literal(literal) => result.push_str(literal),
             CFormatPart::Spec(spec) => {
-                try_update_quantity_from_tuple(vm, &mut value_iter, &mut spec.min_field_width)?;
+                try_update_quantity_from_tuple(
+                    vm,
+                    &mut value_iter,
+                    &mut spec.min_field_width,
+                    &mut spec.flags,
+                )?;
                 try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
                 let value = match value_iter.next() {
