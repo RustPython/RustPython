@@ -476,8 +476,6 @@ class ReferencesTestCase(TestBase):
         obj = MyObj()
         self.assertEqual("".join(reversed(weakref.proxy(obj))), "cba")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_proxy_hash(self):
         class MyObj:
             def __hash__(self):
