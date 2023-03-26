@@ -204,18 +204,33 @@ fn spec_format_string(
 fn try_update_quantity_from_element(
     vm: &VirtualMachine,
     element: Option<&PyObjectRef>,
-) -> PyResult<(CFormatQuantity, CFormatAlign)> {
+) -> PyResult<CFormatQuantity> {
+    match element {
+        Some(width_obj) => {
+            if let Some(i) = width_obj.payload::<PyInt>() {
+                let i = i.try_to_primitive::<i32>(vm)?.unsigned_abs();
+                Ok(CFormatQuantity::Amount(i as usize))
+            } else {
+                Err(vm.new_type_error("* wants int".to_owned()))
+            }
+        }
+        None => Err(vm.new_type_error("not enough arguments for format string".to_owned())),
+    }
+}
+
+fn try_update_adjust_from_tuple(
+    vm: &VirtualMachine,
+    element: Option<&PyObjectRef>,
+    f: &mut CConversionFlags,
+) -> PyResult<()> {
     match element {
         Some(width_obj) => {
             if let Some(i) = width_obj.payload::<PyInt>() {
                 let i = i.try_to_primitive::<i32>(vm)?;
-                let align = if i < 0 {
-                    CFormatAlign::Left
-                } else {
-                    CFormatAlign::Right
-                };
-                let i = i.unsigned_abs();
-                Ok((CFormatQuantity::Amount(i as usize), align))
+                if i < 0 {
+                    f.insert(CConversionFlags::LEFT_ADJUST)
+                }
+                Ok(())
             } else {
                 Err(vm.new_type_error("* wants int".to_owned()))
             }
@@ -233,11 +248,10 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     let Some(CFormatQuantity::FromValuesTuple) = q else {
         return Ok(());
     };
-    let (quantity, align) = try_update_quantity_from_element(vm, elements.next())?;
+    let element = elements.next();
+    try_update_adjust_from_tuple(vm, element, f)?;
+    let quantity = try_update_quantity_from_element(vm, element)?;
     *q = Some(quantity);
-    if let CFormatAlign::Left = align {
-        f.insert(CConversionFlags::LEFT_ADJUST);
-    }
     Ok(())
 }
 
@@ -249,7 +263,7 @@ fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     let Some(CFormatPrecision::Quantity(CFormatQuantity::FromValuesTuple)) = p else {
         return Ok(());
     };
-    let (quantity, _) = try_update_quantity_from_element(vm, elements.next())?;
+    let quantity = try_update_quantity_from_element(vm, elements.next())?;
     *p = Some(CFormatPrecision::Quantity(quantity));
     Ok(())
 }
