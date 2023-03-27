@@ -10,11 +10,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[cfg(unix)]
-use std::os::unix::ffi as ffi_ext;
-#[cfg(target_os = "wasi")]
-use std::os::wasi::ffi as ffi_ext;
-
 #[derive(Debug, Copy, Clone)]
 pub(super) enum OutputMode {
     String,
@@ -36,7 +31,7 @@ impl OutputMode {
                 OutputMode::Bytes => {
                     #[cfg(any(unix, target_os = "wasi"))]
                     {
-                        use ffi_ext::OsStringExt;
+                        use rustpython_common::os::ffi::OsStringExt;
                         Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()).into())
                     }
                     #[cfg(windows)]
@@ -66,7 +61,7 @@ impl PyPathLike {
 
     #[cfg(any(unix, target_os = "wasi"))]
     pub fn into_bytes(self) -> Vec<u8> {
-        use ffi_ext::OsStringExt;
+        use rustpython_common::os::ffi::OsStringExt;
         self.path.into_os_string().into_vec()
     }
 
@@ -524,7 +519,7 @@ pub(super) mod _os {
                 }
                 #[cfg(all(unix, not(target_os = "redox")))]
                 {
-                    use super::ffi_ext::OsStrExt;
+                    use rustpython_common::os::ffi::OsStrExt;
                     let new_fd = nix::unistd::dup(fno).map_err(|e| e.into_pyexception(vm))?;
                     let mut dir =
                         nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
@@ -1060,7 +1055,7 @@ pub(super) mod _os {
         let mut stat = std::mem::MaybeUninit::uninit();
         let ret = match file {
             PathOrFd::Path(path) => {
-                use super::ffi_ext::OsStrExt;
+                use rustpython_common::os::ffi::OsStrExt;
                 let path = path.as_ref().as_os_str().as_bytes();
                 let path = match ffi::CString::new(path) {
                     Ok(x) => x,

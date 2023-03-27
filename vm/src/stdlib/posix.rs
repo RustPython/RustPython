@@ -41,7 +41,7 @@ pub mod module {
         env,
         ffi::{CStr, CString},
         fs, io,
-        os::unix::{ffi as ffi_ext, io::RawFd},
+        os::unix::io::RawFd,
     };
     use strum_macros::{EnumIter, EnumString};
 
@@ -285,7 +285,7 @@ pub mod module {
 
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
-        use ffi_ext::OsStringExt;
+        use rustpython_common::os::ffi::OsStringExt;
 
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {
