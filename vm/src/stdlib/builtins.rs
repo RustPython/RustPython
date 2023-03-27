@@ -186,8 +186,14 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn delattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        obj.del_attr(&attr, vm)
+    fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
+        obj.del_attr(attr, vm)
     }
 
     #[pyfunction]
@@ -321,14 +327,21 @@ mod builtins {
     #[pyfunction]
     fn getattr(
         obj: PyObjectRef,
-        attr: PyStrRef,
+        attr: PyObjectRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
+
         if let OptionalArg::Present(default) = default {
-            Ok(vm.get_attribute_opt(obj, &attr)?.unwrap_or(default))
+            Ok(vm.get_attribute_opt(obj, attr)?.unwrap_or(default))
         } else {
-            obj.get_attr(&attr, vm)
+            obj.get_attr(attr, vm)
         }
     }
 
@@ -338,8 +351,14 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn hasattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        Ok(vm.get_attribute_opt(obj, &attr)?.is_some())
+    fn hasattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
+        Ok(vm.get_attribute_opt(obj, attr)?.is_some())
     }
 
     #[pyfunction]
@@ -742,11 +761,17 @@ mod builtins {
     #[pyfunction]
     fn setattr(
         obj: PyObjectRef,
-        attr: PyStrRef,
+        attr: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        obj.set_attr(&attr, value, vm)?;
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
+        obj.set_attr(attr, value, vm)?;
         Ok(())
     }
 
