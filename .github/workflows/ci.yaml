@@ -433,6 +433,8 @@ jobs:
           export PATH=$PATH:`pwd`/../../geckodriver
           npm install
           npm run test
+        env:
+          NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/demo
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
@@ -440,6 +442,8 @@ jobs:
           npm install
           npm run dist
           mv dist ../demo/dist/notebook
+        env:
+          NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/notebook
       - name: Deploy demo to Github Pages
         if: success() && github.ref == 'refs/heads/release'
