@@ -1,12 +1,9 @@
 use crate::{
-    builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyInt, PySet, PyStr, PyStrRef},
+    builtins::{PyBaseExceptionRef, PyInt, PySet},
     common::crt_fd::Fd,
-    convert::{IntoPyException, ToPyObject},
-    function::{ArgumentError, FromArgs, FuncArgs},
-    identifier,
-    protocol::PyBuffer,
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, TryFromObject,
-    VirtualMachine,
+    convert::IntoPyException,
+    function::{ArgumentError, FromArgs, FsPath, FuncArgs},
+    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{
     ffi, fs, io,
@@ -110,65 +107,8 @@ impl AsRef<Path> for PyPathLike {
     }
 }
 
-pub enum FsPath {
-    Str(PyStrRef),
-    Bytes(PyBytesRef),
-}
-
 impl FsPath {
-    pub fn try_from(obj: PyObjectRef, check_for_nul: bool, vm: &VirtualMachine) -> PyResult<Self> {
-        // PyOS_FSPath in CPython
-        let check_nul = |b: &[u8]| {
-            if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
-                Ok(())
-            } else {
-                Err(crate::exceptions::cstring_error(vm))
-            }
-        };
-        let match1 = |obj: PyObjectRef| {
-            let pathlike = match_class!(match obj {
-                s @ PyStr => {
-                    check_nul(s.as_str().as_bytes())?;
-                    FsPath::Str(s)
-                }
-                b @ PyBytes => {
-                    check_nul(&b)?;
-                    FsPath::Bytes(b)
-                }
-                obj => return Ok(Err(obj)),
-            });
-            Ok(Ok(pathlike))
-        };
-        let obj = match match1(obj)? {
-            Ok(pathlike) => return Ok(pathlike),
-            Err(obj) => obj,
-        };
-        let method =
-            vm.get_method_or_type_error(obj.clone(), identifier!(vm, __fspath__), || {
-                format!(
-                    "should be string, bytes, os.PathLike or integer, not {}",
-                    obj.class().name()
-                )
-            })?;
-        let result = method.call((), vm)?;
-        match1(result)?.map_err(|result| {
-            vm.new_type_error(format!(
-                "expected {}.__fspath__() to return str or bytes, not {}",
-                obj.class().name(),
-                result.class().name(),
-            ))
-        })
-    }
-
-    pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<&ffi::OsStr> {
-        // TODO: FS encodings
-        match self {
-            FsPath::Str(s) => Ok(s.as_str().as_ref()),
-            FsPath::Bytes(b) => bytes_as_osstr(b.as_bytes(), vm),
-        }
-    }
-
-    fn to_pathlike(&self, vm: &VirtualMachine) -> PyResult<PyPathLike> {
+    pub(crate) fn to_pathlike(&self, vm: &VirtualMachine) -> PyResult<PyPathLike> {
         let path = self.as_os_str(vm)?.to_owned().into();
         let mode = match self {
             Self::Str(_) => OutputMode::String,
@@ -176,36 +116,11 @@ impl FsPath {
         };
         Ok(PyPathLike { path, mode })
     }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        // TODO: FS encodings
-        match self {
-            FsPath::Str(s) => s.as_str().as_bytes(),
-            FsPath::Bytes(b) => b.as_bytes(),
-        }
-    }
-}
-
-impl ToPyObject for FsPath {
-    fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
-        match self {
-            Self::Str(s) => s.into(),
-            Self::Bytes(b) => b.into(),
-        }
-    }
 }
 
 impl TryFromObject for PyPathLike {
+    // TODO: path_converter in CPython
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // path_converter in CPython
-        let obj = match PyBuffer::try_from_borrowed_object(vm, &obj) {
-            Ok(buffer) => {
-                let mut bytes = vec![];
-                buffer.append_to(&mut bytes);
-                PyBytes::from(bytes).to_pyobject(vm)
-            }
-            Err(_) => obj,
-        };
         let fs_path = FsPath::try_from(obj, true, vm)?;
         fs_path.to_pathlike(vm)
     }
@@ -386,7 +301,7 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
 #[pymodule(name = "_os")]
 pub(super) mod _os {
     use super::{
-        errno_err, DirFd, FollowSymlinks, FsPath, IOErrorBuilder, OutputMode, PathOrFd, PyPathLike,
+        errno_err, DirFd, FollowSymlinks, IOErrorBuilder, OutputMode, PathOrFd, PyPathLike,
         SupportFunc,
     };
     use crate::common::lock::{OnceCell, PyRwLock};
@@ -394,11 +309,12 @@ pub(super) mod _os {
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
-        common::crt_fd::{Fd, Offset},
-        common::suppress_iph,
+        common::{
+            crt_fd::{Fd, Offset},
+            suppress_iph,
+        },
         convert::{IntoPyException, ToPyObject},
-        function::Either,
-        function::{ArgBytesLike, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, Either, FsPath, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, IterNextIterable, PyStructSequence},
@@ -1224,7 +1140,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn fspath(path: PyObjectRef, vm: &VirtualMachine) -> PyResult<FsPath> {
-        super::FsPath::try_from(path, false, vm)
+        FsPath::try_from(path, false, vm)
     }
 
     #[pyfunction]

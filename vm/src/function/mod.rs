@@ -3,6 +3,7 @@ mod arithmetic;
 mod buffer;
 mod builtin;
 mod either;
+mod fspath;
 mod getset;
 mod number;
 mod protocol;
@@ -16,6 +17,7 @@ pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLik
 pub(self) use builtin::{BorrowedParam, OwnedParam, RefParam};
 pub use builtin::{IntoPyNativeFunc, PyNativeFunc};
 pub use either::Either;
+pub use fspath::FsPath;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
 pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize};

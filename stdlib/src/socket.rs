@@ -14,7 +14,7 @@ mod _socket {
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
-        function::{ArgBytesLike, ArgMemoryBuffer, Either, OptionalArg, OptionalOption},
+        function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, OptionalArg, OptionalOption},
         types::{DefaultConstructor, Initializer},
         utils::ToCString,
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -1977,12 +1977,10 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn if_nametoindex(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<IfIndex> {
-        let name = crate::vm::stdlib::os::FsPath::try_from(name, true, vm)?;
-        let name = ffi::CString::new(name.as_bytes()).map_err(|err| err.into_pyexception(vm))?;
+    fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
+        let name = name.to_cstring(vm)?;
 
         let ret = unsafe { c::if_nametoindex(name.as_ptr()) };
-
         if ret == 0 {
             Err(vm.new_os_error("no interface with this name".to_owned()))
         } else {

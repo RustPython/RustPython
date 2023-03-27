@@ -3703,7 +3703,7 @@ mod fileio {
         builtins::{PyStr, PyStrRef},
         common::crt_fd::Fd,
         convert::ToPyException,
-        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
+        function::{ArgBytesLike, ArgMemoryBuffer, FsPath, OptionalArg, OptionalOption},
         stdlib::os,
         types::{DefaultConstructor, Initializer},
         AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
@@ -3870,13 +3870,19 @@ mod fileio {
             } else if let Some(i) = name.payload::<crate::builtins::PyInt>() {
                 i.try_to_primitive(vm)?
             } else {
-                let path = os::PyPathLike::try_from_object(vm, name.clone())?;
+                let path = FsPath::try_from_object(vm, name.clone())?;
                 if !args.closefd {
                     return Err(
                         vm.new_value_error("Cannot use closefd=False with file name".to_owned())
                     );
                 }
-                os::open(path, flags as _, None, Default::default(), vm)?
+                os::open(
+                    path.to_pathlike(vm)?,
+                    flags as _,
+                    None,
+                    Default::default(),
+                    vm,
+                )?
             };
 
             if mode.contains(Mode::APPENDING) {

@@ -32,3 +32,8 @@ pub fn bytes_as_osstr(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
 pub fn bytes_as_osstr(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
     Ok(std::str::from_utf8(b)?.as_ref())
 }
+
+#[cfg(unix)]
+pub use std::os::unix::ffi;
+#[cfg(target_os = "wasi")]
+pub use std::os::wasi::ffi;
