@@ -1848,7 +1848,8 @@ order (MRO) for bases """
         object.__init__(A(3))
         self.assertRaises(TypeError, object.__init__, A(3), 5)
 
-    # RUSTPYTHON: this is added from cpython3.11.2. below test case is success in rustpython
+    # TODO: RUSTPYTHON, CPython 3.5 and above expect this test case to fail, but in RustPython this currently passes.
+    # See https://github.com/python/cpython/issues/49572 for more details.
     # @unittest.expectedFailure 
     def test_restored_object_new(self):
         class A(object):
