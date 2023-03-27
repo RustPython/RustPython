@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -27,7 +27,7 @@ jobs:
       - run: cargo build --release --verbose ${{ env.CARGO_ARGS }}
         env:
           RUSTC_WRAPPER: './scripts/codecoverage-rustc-wrapper.sh'
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
       - run: python -m pip install pytest
@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -102,7 +102,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
@@ -140,12 +140,12 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: 3.9
       - run: cargo install cargo-criterion
@@ -193,13 +193,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Cache generated parser
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: compiler/parser/python.rs
           key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - name: Check if cached generated parser exists
         id: generated_parser
-        uses: andstor/file-existence-action@v1
+        uses: andstor/file-existence-action@v2
         with:
           files: "compiler/parser/python.rs"
       - if: runner.os == 'Windows'
@@ -208,10 +208,10 @@ jobs:
           set file compiler/parser/python.lalrpop; ((Get-Content $file) -join "`n") + "`n" | Set-Content -NoNewline $file
       - name: Install lalrpop
         if: steps.generated_parser.outputs.files_exists == 'false'
-        uses: baptiste0928/cargo-install@v1
+        uses: baptiste0928/cargo-install@v2
         with:
           crate: lalrpop
-          version: "0.19.8"
+          version: "0.19.9"
       - name: Run lalrpop
         if: steps.generated_parser.outputs.files_exists == 'false'
         run: lalrpop compiler/parser/python.lalrpop
