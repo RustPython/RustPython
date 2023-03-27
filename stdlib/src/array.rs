@@ -44,10 +44,10 @@ mod array {
             atomic_func,
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt,
-                PyIntRef, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+                PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
             },
             class_or_notimplemented,
-            convert::{ToPyObject, ToPyResult, TryFromObject},
+            convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
             function::{
                 ArgBytesLike, ArgIntoFloat, ArgIterable, KwArgs, OptionalArg, PyComparisonValue,
             },
@@ -828,7 +828,7 @@ mod array {
 
         #[pymethod]
         fn fromunicode(zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let utf8 = PyStrRef::try_from_object(vm, obj.clone()).map_err(|_| {
+            let utf8: &str = obj.try_to_value(vm).map_err(|_| {
                 vm.new_type_error(format!(
                     "fromunicode() argument must be str, not {}",
                     obj.class().name()
@@ -840,7 +840,7 @@ mod array {
                 ));
             }
             let mut w = zelf.try_resizable(vm)?;
-            let bytes = Self::_unicode_to_wchar_bytes(utf8.as_str(), w.itemsize());
+            let bytes = Self::_unicode_to_wchar_bytes(utf8, w.itemsize());
             w.frombytes_move(bytes);
             Ok(())
         }
@@ -1489,9 +1489,9 @@ mod array {
         }
     }
 
-    impl TryFromObject for MachineFormatCode {
-        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            PyIntRef::try_from_object(vm, obj.clone())
+    impl<'a> TryFromBorrowedObject<'a> for MachineFormatCode {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+            obj.try_to_ref::<PyInt>(vm)
                 .map_err(|_| {
                     vm.new_type_error(format!(
                         "an integer is required (got type {})",

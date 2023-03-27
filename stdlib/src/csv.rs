@@ -4,7 +4,7 @@ pub(crate) use _csv::make_module;
 mod _csv {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        builtins::{PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyStr, PyTypeRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
         match_class,
         protocol::{PyIter, PyIterReturn},
@@ -97,8 +97,8 @@ mod _csv {
     impl FromArgs for FormatOptions {
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let delimiter = if let Some(delimiter) = args.kwargs.remove("delimiter") {
-                PyStrRef::try_from_object(vm, delimiter)?
-                    .as_str()
+                delimiter
+                    .try_to_value::<&str>(vm)?
                     .bytes()
                     .exactly_one()
                     .map_err(|_| {
@@ -110,8 +110,8 @@ mod _csv {
             };
 
             let quotechar = if let Some(quotechar) = args.kwargs.remove("quotechar") {
-                PyStrRef::try_from_object(vm, quotechar)?
-                    .as_str()
+                quotechar
+                    .try_to_value::<&str>(vm)?
                     .bytes()
                     .exactly_one()
                     .map_err(|_| {

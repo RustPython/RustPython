@@ -4,7 +4,7 @@
 use crate::{
     builtins::{
         pystr::AsPyStr, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStr, PyStrRef,
-        PyTupleRef, PyTypeRef,
+        PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
@@ -357,16 +357,14 @@ impl PyObject {
     where
         F: Fn() -> String,
     {
-        cls.to_owned()
-            .get_attr(identifier!(vm, __bases__), vm)
-            .map_err(|e| {
-                // Only mask AttributeErrors.
-                if e.class().is(vm.ctx.exceptions.attribute_error) {
-                    vm.new_type_error(msg())
-                } else {
-                    e
-                }
-            })
+        cls.get_attr(identifier!(vm, __bases__), vm).map_err(|e| {
+            // Only mask AttributeErrors.
+            if e.class().is(vm.ctx.exceptions.attribute_error) {
+                vm.new_type_error(msg())
+            } else {
+                e
+            }
+        })
     }
 
     fn abstract_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
@@ -377,9 +375,7 @@ impl PyObject {
                 return Ok(true);
             }
 
-            let bases = derived
-                .to_owned()
-                .get_attr(identifier!(vm, __bases__), vm)?;
+            let bases = derived.get_attr(identifier!(vm, __bases__), vm)?;
             let tuple = PyTupleRef::try_from_object(vm, bases)?;
 
             let n = tuple.len();
@@ -409,11 +405,8 @@ impl PyObject {
     }
 
     fn recursive_issubclass(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        if let (Ok(obj), Ok(cls)) = (
-            PyTypeRef::try_from_object(vm, self.to_owned()),
-            PyTypeRef::try_from_object(vm, cls.to_owned()),
-        ) {
-            Ok(obj.fast_issubclass(&cls))
+        if let (Ok(obj), Ok(cls)) = (self.try_to_ref::<PyType>(vm), cls.try_to_ref::<PyType>(vm)) {
+            Ok(obj.fast_issubclass(cls))
         } else {
             self.check_cls(self, vm, || {
                 format!("issubclass() arg 1 must be a class, not {}", self.class())
@@ -438,8 +431,8 @@ impl PyObject {
             return self.recursive_issubclass(cls, vm);
         }
 
-        if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.to_owned()) {
-            for typ in &tuple {
+        if let Ok(tuple) = cls.try_to_value::<&Py<PyTuple>>(vm) {
+            for typ in tuple {
                 if vm.with_recursion("in __subclasscheck__", || self.is_subclass(typ, vm))? {
                     return Ok(true);
                 }
@@ -458,17 +451,16 @@ impl PyObject {
     }
 
     fn abstract_isinstance(&self, cls: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        let r = if let Ok(typ) = PyTypeRef::try_from_object(vm, cls.to_owned()) {
-            if self.class().fast_issubclass(&typ) {
+        let r = if let Ok(typ) = cls.try_to_ref::<PyType>(vm) {
+            if self.class().fast_issubclass(typ) {
                 true
-            } else if let Ok(icls) = PyTypeRef::try_from_object(
-                vm,
-                self.to_owned().get_attr(identifier!(vm, __class__), vm)?,
-            ) {
+            } else if let Ok(icls) =
+                PyTypeRef::try_from_object(vm, self.get_attr(identifier!(vm, __class__), vm)?)
+            {
                 if icls.is(self.class()) {
                     false
                 } else {
-                    icls.fast_issubclass(&typ)
+                    icls.fast_issubclass(typ)
                 }
             } else {
                 false
@@ -480,7 +472,7 @@ impl PyObject {
                     cls.class()
                 )
             })?;
-            let icls: PyObjectRef = self.to_owned().get_attr(identifier!(vm, __class__), vm)?;
+            let icls: PyObjectRef = self.get_attr(identifier!(vm, __class__), vm)?;
             if vm.is_none(&icls) {
                 false
             } else {
@@ -503,8 +495,8 @@ impl PyObject {
             return self.abstract_isinstance(cls, vm);
         }
 
-        if let Ok(tuple) = PyTupleRef::try_from_object(vm, cls.to_owned()) {
-            for typ in &tuple {
+        if let Ok(tuple) = cls.try_to_ref::<PyTuple>(vm) {
+            for typ in tuple {
                 if vm.with_recursion("in __instancecheck__", || self.is_instance(typ, vm))? {
                     return Ok(true);
                 }

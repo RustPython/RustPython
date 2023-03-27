@@ -77,8 +77,8 @@ impl Constructor for PyGenericAlias {
 )]
 impl PyGenericAlias {
     pub fn new(origin: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> Self {
-        let args: PyTupleRef = if let Ok(tuple) = PyTupleRef::try_from_object(vm, args.clone()) {
-            tuple
+        let args = if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
+            tuple.to_owned()
         } else {
             PyTuple::new_ref(vec![args], &vm.ctx)
         };
@@ -224,21 +224,19 @@ pub(crate) fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
             .unwrap_or(false)
 }
 
-fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
+pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
     for arg in args {
         if is_typevar(arg, vm) {
             if !parameters.iter().any(|param| param.is(arg)) {
                 parameters.push(arg.clone());
             }
-        } else if let Ok(subparams) = arg
-            .clone()
-            .get_attr(identifier!(vm, __parameters__), vm)
-            .and_then(|obj| PyTupleRef::try_from_object(vm, obj))
-        {
-            for sub_param in &subparams {
-                if !parameters.iter().any(|param| param.is(sub_param)) {
-                    parameters.push(sub_param.clone());
+        } else if let Ok(obj) = arg.get_attr(identifier!(vm, __parameters__), vm) {
+            if let Ok(sub_params) = obj.try_to_ref::<PyTuple>(vm) {
+                for sub_param in sub_params {
+                    if !parameters.iter().any(|param| param.is(sub_param)) {
+                        parameters.push(sub_param.clone());
+                    }
                 }
             }
         }
@@ -259,13 +257,12 @@ fn subs_tvars(
     argitems: &[PyObjectRef],
     vm: &VirtualMachine,
 ) -> PyResult {
-    obj.clone()
-        .get_attr(identifier!(vm, __parameters__), vm)
+    obj.get_attr(identifier!(vm, __parameters__), vm)
         .ok()
         .and_then(|sub_params| {
             PyTupleRef::try_from_object(vm, sub_params)
                 .ok()
-                .map(|sub_params| {
+                .and_then(|sub_params| {
                     if sub_params.len() > 0 {
                         let sub_args = sub_params
                             .iter()
@@ -284,7 +281,6 @@ fn subs_tvars(
                     }
                 })
         })
-        .flatten()
         .unwrap_or(Ok(obj))
 }
 
@@ -300,9 +296,9 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
         return Err(vm.new_type_error(format!("There are no type variables left in {}", repr(vm)?)));
     }
 
-    let items = PyTupleRef::try_from_object(vm, needle.clone());
+    let items = needle.try_to_ref::<PyTuple>(vm);
     let arg_items = match items {
-        Ok(ref tuple) => tuple.as_slice(),
+        Ok(tuple) => tuple.as_slice(),
         Err(_) => std::slice::from_ref(&needle),
     };
 

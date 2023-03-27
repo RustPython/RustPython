@@ -509,7 +509,6 @@ impl VirtualMachine {
             None => {
                 let import_func = self
                     .builtins
-                    .clone()
                     .get_attr(identifier!(self, __import__), self)
                     .map_err(|_| {
                         self.new_import_error("__import__ not found".to_owned(), module.to_owned())

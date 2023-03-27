@@ -1,8 +1,9 @@
 use crate::{
-    builtins::{PyIntRef, PyTupleRef},
+    builtins::{PyIntRef, PyTuple},
     cformat::cformat_string,
+    convert::TryFromBorrowedObject,
     function::OptionalOption,
-    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
@@ -213,21 +214,21 @@ pub trait AnyStr {
         F: Fn(&Self) -> PyObjectRef;
 
     #[inline]
-    fn py_startsendswith<T, F>(
+    fn py_startsendswith<'a, T, F>(
         &self,
-        affix: PyObjectRef,
+        affix: &'a PyObject,
         func_name: &str,
         py_type_name: &str,
         func: F,
         vm: &VirtualMachine,
     ) -> PyResult<bool>
     where
-        T: TryFromObject,
-        F: Fn(&Self, &T) -> bool,
+        T: TryFromBorrowedObject<'a>,
+        F: Fn(&Self, T) -> bool,
     {
         single_or_tuple_any(
             affix,
-            &|s: &T| Ok(func(self, s)),
+            &|s: T| Ok(func(self, s)),
             &|o| {
                 format!(
                     "{} first arg must be {} or a tuple of {}, not {}",
@@ -448,24 +449,25 @@ pub trait AnyStr {
 /// test that any of the values contained within the tuples satisfies the predicate. Type parameter
 /// T specifies the type that is expected, if the input value is not of that type or a tuple of
 /// values of that type, then a TypeError is raised.
-pub fn single_or_tuple_any<T, F, M>(
-    obj: PyObjectRef,
+pub fn single_or_tuple_any<'a, T, F, M>(
+    obj: &'a PyObject,
     predicate: &F,
     message: &M,
     vm: &VirtualMachine,
 ) -> PyResult<bool>
 where
-    T: TryFromObject,
-    F: Fn(&T) -> PyResult<bool>,
+    T: TryFromBorrowedObject<'a>,
+    F: Fn(T) -> PyResult<bool>,
     M: Fn(&PyObject) -> String,
 {
-    match T::try_from_object(vm, obj.clone()) {
-        Ok(single) => (predicate)(&single),
+    match obj.try_to_value::<T>(vm) {
+        Ok(single) => (predicate)(single),
         Err(_) => {
-            let tuple = PyTupleRef::try_from_object(vm, obj.clone())
-                .map_err(|_| vm.new_type_error((message)(&obj)))?;
-            for obj in &tuple {
-                if single_or_tuple_any(obj.clone(), predicate, message, vm)? {
+            let tuple: &Py<PyTuple> = obj
+                .try_to_value(vm)
+                .map_err(|_| vm.new_type_error((message)(obj)))?;
+            for obj in tuple {
+                if single_or_tuple_any(obj, predicate, message, vm)? {
                     return Ok(true);
                 }
             }

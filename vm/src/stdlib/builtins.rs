@@ -870,7 +870,7 @@ mod builtins {
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
-                for base in &bases {
+                for base in bases.iter() {
                     let base_class = base.class();
                     if base_class.fast_issubclass(&metaclass) {
                         metaclass = base.class().to_owned();

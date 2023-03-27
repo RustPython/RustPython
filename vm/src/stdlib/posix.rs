@@ -29,7 +29,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule(name = "posix")]
 pub mod module {
     use crate::{
-        builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{Either, OptionalArg},
         stdlib::os::{
@@ -1004,7 +1004,8 @@ pub mod module {
 
     fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<Option<u32>> {
         use std::cmp::Ordering;
-        let i = PyIntRef::try_from_object(vm, obj.clone())
+        let i = obj
+            .try_to_ref::<PyInt>(vm)
             .map_err(|_| {
                 vm.new_type_error(format!(
                     "an integer is required (got type {})",

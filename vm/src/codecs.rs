@@ -359,9 +359,9 @@ fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
 
 // TODO: exceptions with custom payloads
 fn extract_unicode_error_range(err: &PyObject, vm: &VirtualMachine) -> PyResult<Range<usize>> {
-    let start = err.to_owned().get_attr("start", vm)?;
+    let start = err.get_attr("start", vm)?;
     let start = start.try_into_value(vm)?;
-    let end = err.to_owned().get_attr("end", vm)?;
+    let end = err.get_attr("end", vm)?;
     let end = end.try_into_value(vm)?;
     Ok(Range { start, end })
 }

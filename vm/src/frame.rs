@@ -1155,11 +1155,7 @@ impl ExecutingFrame<'_> {
             .map_err(|_| err())?;
         let mod_name = mod_name.downcast::<PyStr>().map_err(|_| err())?;
         let full_mod_name = format!("{mod_name}.{name}");
-        let sys_modules = vm
-            .sys_module
-            .clone()
-            .get_attr("modules", vm)
-            .map_err(|_| err())?;
+        let sys_modules = vm.sys_module.get_attr("modules", vm).map_err(|_| err())?;
         sys_modules.get_item(&full_mod_name, vm).map_err(|_| err())
     }
 
@@ -1459,7 +1455,7 @@ impl ExecutingFrame<'_> {
             // FIXME: turn return type to PyResult<PyIterReturn> then ExecutionResult will be simplified
             None if vm.is_none(&val) => PyIter::new(gen).next(vm),
             None => {
-                let meth = gen.to_owned().get_attr("send", vm)?;
+                let meth = gen.get_attr("send", vm)?;
                 PyIterReturn::from_pyresult(meth.call((val,), vm), vm)
             }
         }
@@ -1744,7 +1740,6 @@ impl ExecutingFrame<'_> {
 
         let displayhook = vm
             .sys_module
-            .clone()
             .get_attr("displayhook", vm)
             .map_err(|_| vm.new_runtime_error("lost sys.displayhook".to_owned()))?;
         displayhook.call((expr,), vm)?;

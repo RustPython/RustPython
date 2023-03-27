@@ -108,17 +108,11 @@ fn get_filter(
     for i in 0..filters.borrow_vec().len() {
         let tmp_item = if let Some(tmp_item) = filters.borrow_vec().get(i).cloned() {
             let tmp_item = PyTupleRef::try_from_object(vm, tmp_item)?;
-            if tmp_item.len() == 5 {
-                Some(tmp_item)
-            } else {
-                None
-            }
+            (tmp_item.len() == 5).then_some(tmp_item)
         } else {
             None
-        };
-        let tmp_item = tmp_item.ok_or_else(|| {
-            vm.new_value_error(format!("_warnings.filters item {i} isn't a 5-tuple"))
-        })?;
+        }
+        .ok_or_else(|| vm.new_value_error(format!("_warnings.filters item {i} isn't a 5-tuple")))?;
 
         /* Python code: action, msg, cat, mod, ln = item */
         let action = if let Some(action) = tmp_item.get(0) {

@@ -647,10 +647,10 @@ impl PyStr {
                 None => return Ok(false),
             };
         substr.py_startsendswith(
-            affix,
+            &affix,
             "endswith",
             "str",
-            |s, x: &PyStrRef| s.ends_with(x.as_str()),
+            |s, x: &Py<PyStr>| s.ends_with(x.as_str()),
             vm,
         )
     }
@@ -667,10 +667,10 @@ impl PyStr {
                 None => return Ok(false),
             };
         substr.py_startsendswith(
-            affix,
+            &affix,
             "startswith",
             "str",
-            |s, x: &PyStrRef| s.starts_with(x.as_str()),
+            |s, x: &Py<PyStr>| s.starts_with(x.as_str()),
             vm,
         )
     }

@@ -106,7 +106,6 @@ fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
         .expect("Failed to initialize __main__.__annotations__");
 
     vm.sys_module
-        .clone()
         .get_attr("modules", vm)?
         .set_item("__main__", main_module, vm)?;
 

@@ -139,7 +139,7 @@ impl<'a> std::iter::IntoIterator for &'a PyTuple {
     }
 }
 
-impl<'a> std::iter::IntoIterator for &'a PyTupleRef {
+impl<'a> std::iter::IntoIterator for &'a Py<PyTuple> {
     type Item = &'a PyObjectRef;
     type IntoIter = std::slice::Iter<'a, PyObjectRef>;
 
@@ -482,7 +482,7 @@ pub struct PyTupleTyped<T: TransmuteFromObject> {
 impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let tuple = PyTupleRef::try_from_object(vm, obj)?;
-        for elem in &tuple {
+        for elem in &*tuple {
             T::check(vm, elem)?
         }
         // SAFETY: the contract of TransmuteFromObject upholds the variant on `tuple`
