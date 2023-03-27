@@ -187,13 +187,13 @@ mod builtins {
 
     #[pyfunction]
     fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let attr = PyStrRef::try_from_object(vm, attr.clone()).map_err(|_e| {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
                 attr.class().name()
             ))
         })?;
-        obj.del_attr(&attr, vm)
+        obj.del_attr(attr, vm)
     }
 
     #[pyfunction]
@@ -331,7 +331,7 @@ mod builtins {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let attr = PyStrRef::try_from_object(vm, attr.clone()).map_err(|_e| {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
                 attr.class().name()
@@ -339,9 +339,9 @@ mod builtins {
         })?;
 
         if let OptionalArg::Present(default) = default {
-            Ok(vm.get_attribute_opt(obj, &attr)?.unwrap_or(default))
+            Ok(vm.get_attribute_opt(obj, attr)?.unwrap_or(default))
         } else {
-            obj.get_attr(&attr, vm)
+            obj.get_attr(attr, vm)
         }
     }
 
@@ -352,13 +352,13 @@ mod builtins {
 
     #[pyfunction]
     fn hasattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let attr = PyStrRef::try_from_object(vm, attr.clone()).map_err(|_e| {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
                 attr.class().name()
             ))
         })?;
-        Ok(vm.get_attribute_opt(obj, &attr)?.is_some())
+        Ok(vm.get_attribute_opt(obj, attr)?.is_some())
     }
 
     #[pyfunction]
@@ -765,13 +765,13 @@ mod builtins {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let attr = PyStrRef::try_from_object(vm, attr.clone()).map_err(|_e| {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
                 attr.class().name()
             ))
         })?;
-        obj.set_attr(&attr, value, vm)?;
+        obj.set_attr(attr, value, vm)?;
         Ok(())
     }
 
