@@ -940,16 +940,32 @@ impl PyObject {
     }
 
     /// Can only be called when ref_count has dropped to zero. `ptr` must be valid, it run __del__ then drop&dealloc
-    pub(in crate::object) unsafe fn drop_slow(ptr: NonNull<PyObject>) -> bool {
+    pub(in crate::object) unsafe fn drop_slow(ptr: NonNull<PyObject>) {
         if let Err(()) = ptr.as_ref().drop_slow_inner() {
             // abort drop for whatever reason
-            return false;
+            return;
         }
 
         #[cfg(feature = "gc_bacon")]
-        if !ptr.as_ref().header().check_set_drop_dealloc() {
-            return false;
+        {
+            let zelf = ptr.as_ref();
+            // if is buffered by run `drop_slow_inner`, then drop only here and early return
+            if zelf.header().buffered() {
+                if zelf.header().check_set_drop_only() {
+                    Self::drop_only(ptr);
+                } else {
+                    panic!("Should be able to drop only for {:?}", zelf.header())
+                }
+                return;
+            }
+            if !ptr.as_ref().header().check_set_drop_dealloc() {
+                unreachable!(
+                    "Should be able to drop_dealloc for {:?}",
+                    ptr.as_ref().header()
+                )
+            }
         }
+
         #[cfg(debug_assertions)]
         {
             *ptr.as_ref().0.is_drop.lock() = true;
@@ -957,7 +973,6 @@ impl PyObject {
         let drop_dealloc = ptr.as_ref().0.vtable.drop_dealloc;
         // call drop only when there are no references in scope - stacked borrows stuff
         drop_dealloc(ptr.as_ptr());
-        true
     }
 
     /// # Safety

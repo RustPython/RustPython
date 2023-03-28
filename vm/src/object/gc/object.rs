@@ -175,7 +175,14 @@ impl PyObject {
 
         Self::drop_clr_wr(ptr)
     }
+    /// call `drop_only` in vtable
+    pub(in crate::object) unsafe fn drop_only(ptr: NonNull<PyObject>) {
+        let zelf = ptr.as_ref();
+        // not set PyInner's is_drop because still havn't dealloc
+        let drop_only = zelf.0.vtable.drop_only;
 
+        drop_only(ptr.as_ptr());
+    }
     pub(in crate::object) unsafe fn dealloc_only(ptr: NonNull<PyObject>) -> bool {
         // can't check for if is a alive PyWeak here because already dropped payload
         #[cfg(feature = "gc_bacon")]
