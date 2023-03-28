@@ -212,6 +212,20 @@ macro_rules! number_binary_right_op_wrapper {
         |a, b, vm| vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(),))
     };
 }
+macro_rules! number_ternary_op_wrapper {
+    ($name:ident) => {
+        |a, b, c, vm| {
+            vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(), c.to_owned()))
+        }
+    };
+}
+macro_rules! number_ternary_right_op_wrapper {
+    ($name:ident) => {
+        |a, b, c, vm| {
+            vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(), c.to_owned()))
+        }
+    };
+}
 
 fn getitem_wrapper<K: ToPyObject>(obj: &PyObject, needle: K, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(obj, identifier!(vm, __getitem__), (needle,))
@@ -569,20 +583,20 @@ impl PyType {
                 );
             }
             _ if name == identifier!(ctx, __pow__) => {
-                toggle_subslot!(as_number, power, number_binary_op_wrapper!(__pow__));
+                toggle_subslot!(as_number, power, number_ternary_op_wrapper!(__pow__));
             }
             _ if name == identifier!(ctx, __rpow__) => {
                 toggle_subslot!(
                     as_number,
                     right_power,
-                    number_binary_right_op_wrapper!(__rpow__)
+                    number_ternary_right_op_wrapper!(__rpow__)
                 );
             }
             _ if name == identifier!(ctx, __ipow__) => {
                 toggle_subslot!(
                     as_number,
                     inplace_power,
-                    number_binary_op_wrapper!(__ipow__)
+                    number_ternary_op_wrapper!(__ipow__)
                 );
             }
             _ if name == identifier!(ctx, __lshift__) => {
