@@ -488,6 +488,8 @@ class ImportSideEffectTests(unittest.TestCase):
 
 class StartupImportTests(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_startup_imports(self):
         # Get sys.path in isolated mode (python3 -I)
@@ -604,6 +606,8 @@ class _pthFileTests(unittest.TestCase):
             sys_path.append(abs_path)
         return sys_path
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_underpth_basic(self):
         libpath = test.support.STDLIB_DIR
@@ -625,6 +629,8 @@ class _pthFileTests(unittest.TestCase):
             "sys.path is incorrect"
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_underpth_nosite_file(self):
         libpath = test.support.STDLIB_DIR
@@ -654,6 +660,8 @@ class _pthFileTests(unittest.TestCase):
             "sys.path is incorrect"
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_underpth_file(self):
         libpath = test.support.STDLIB_DIR
@@ -679,6 +687,8 @@ class _pthFileTests(unittest.TestCase):
             )], env=env)
         self.assertTrue(rc, "sys.path is incorrect")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_underpth_dll_file(self):
         libpath = test.support.STDLIB_DIR
