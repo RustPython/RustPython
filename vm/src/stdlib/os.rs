@@ -130,9 +130,9 @@ pub(crate) enum OsPathOrFd {
 
 impl TryFromObject for OsPathOrFd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let r = match obj.downcast::<PyInt>() {
-            Ok(int) => Self::Fd(int.try_to_primitive(vm)?),
-            Err(obj) => Self::Path(obj.try_into_value(vm)?),
+        let r = match obj.try_index_opt(vm) {
+            Some(int) => Self::Fd(int?.try_to_primitive(vm)?),
+            None => Self::Path(obj.try_into_value(vm)?),
         };
         Ok(r)
     }
