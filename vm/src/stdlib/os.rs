@@ -45,13 +45,14 @@ impl OutputMode {
     }
 }
 
+// path_ without allow_fd in CPython
 #[derive(Clone)]
-pub struct PyPathLike {
+pub struct OsPath {
     pub path: PathBuf,
     pub(super) mode: OutputMode,
 }
 
-impl PyPathLike {
+impl OsPath {
     pub fn new_str(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
@@ -70,7 +71,6 @@ impl PyPathLike {
         self.path.to_string_lossy().to_string().into_bytes()
     }
 
-    // #[cfg(any(unix, target_os = "wasi"))]
     pub fn into_cstring(self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
         ffi::CString::new(self.into_bytes()).map_err(|err| err.into_pyexception(vm))
     }
@@ -96,24 +96,24 @@ pub(super) fn fs_metadata<P: AsRef<Path>>(
     }
 }
 
-impl AsRef<Path> for PyPathLike {
+impl AsRef<Path> for OsPath {
     fn as_ref(&self) -> &Path {
         &self.path
     }
 }
 
 impl FsPath {
-    pub(crate) fn to_pathlike(&self, vm: &VirtualMachine) -> PyResult<PyPathLike> {
+    pub(crate) fn to_pathlike(&self, vm: &VirtualMachine) -> PyResult<OsPath> {
         let path = self.as_os_str(vm)?.to_owned().into();
         let mode = match self {
             Self::Str(_) => OutputMode::String,
             Self::Bytes(_) => OutputMode::Bytes,
         };
-        Ok(PyPathLike { path, mode })
+        Ok(OsPath { path, mode })
     }
 }
 
-impl TryFromObject for PyPathLike {
+impl TryFromObject for OsPath {
     // TODO: path_converter in CPython
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let fs_path = FsPath::try_from(obj, true, vm)?;
@@ -121,13 +121,14 @@ impl TryFromObject for PyPathLike {
     }
 }
 
+// path_t with allow_fd in CPython
 #[derive(Clone)]
-pub(crate) enum PathOrFd {
-    Path(PyPathLike),
+pub(crate) enum OsPathOrFd {
+    Path(OsPath),
     Fd(i32),
 }
 
-impl TryFromObject for PathOrFd {
+impl TryFromObject for OsPathOrFd {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let r = match obj.downcast::<PyInt>() {
             Ok(int) => Self::Fd(int.try_to_primitive(vm)?),
@@ -137,17 +138,17 @@ impl TryFromObject for PathOrFd {
     }
 }
 
-impl From<PyPathLike> for PathOrFd {
-    fn from(path: PyPathLike) -> Self {
+impl From<OsPath> for OsPathOrFd {
+    fn from(path: OsPath) -> Self {
         Self::Path(path)
     }
 }
 
-impl PathOrFd {
+impl OsPathOrFd {
     pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            PathOrFd::Path(path) => path.filename(vm).unwrap_or_else(|_| vm.ctx.none()),
-            PathOrFd::Fd(fd) => vm.ctx.new_int(*fd).into(),
+            OsPathOrFd::Path(path) => path.filename(vm).unwrap_or_else(|_| vm.ctx.none()),
+            OsPathOrFd::Fd(fd) => vm.ctx.new_int(*fd).into(),
         }
     }
 }
@@ -162,8 +163,8 @@ impl IntoPyException for nix::Error {
 // TODO: preserve the input `PyObjectRef` of filename and filename2 (Failing check `self.assertIs(err.filename, name, str(func)`)
 pub struct IOErrorBuilder {
     error: io::Error,
-    filename: Option<PathOrFd>,
-    filename2: Option<PathOrFd>,
+    filename: Option<OsPathOrFd>,
+    filename2: Option<OsPathOrFd>,
 }
 
 impl IOErrorBuilder {
@@ -174,11 +175,11 @@ impl IOErrorBuilder {
             filename2: None,
         }
     }
-    pub(crate) fn filename(mut self, filename: impl Into<PathOrFd>) -> Self {
+    pub(crate) fn filename(mut self, filename: impl Into<OsPathOrFd>) -> Self {
         self.filename.replace(filename.into());
         self
     }
-    pub(crate) fn filename2(mut self, filename: impl Into<PathOrFd>) -> Self {
+    pub(crate) fn filename2(mut self, filename: impl Into<OsPathOrFd>) -> Self {
         self.filename2.replace(filename.into());
         self
     }
@@ -296,7 +297,7 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
 #[pymodule(name = "_os")]
 pub(super) mod _os {
     use super::{
-        errno_err, DirFd, FollowSymlinks, IOErrorBuilder, OutputMode, PathOrFd, PyPathLike,
+        errno_err, DirFd, FollowSymlinks, IOErrorBuilder, OsPath, OsPathOrFd, OutputMode,
         SupportFunc,
     };
     use crate::common::lock::{OnceCell, PyRwLock};
@@ -362,7 +363,7 @@ pub(super) mod _os {
     #[cfg(any(unix, windows, target_os = "wasi"))]
     #[derive(FromArgs)]
     struct OpenArgs {
-        path: PyPathLike,
+        path: OsPath,
         flags: i32,
         #[pyarg(any, default)]
         mode: Option<i32>,
@@ -377,7 +378,7 @@ pub(super) mod _os {
 
     #[cfg(any(unix, windows, target_os = "wasi"))]
     pub(crate) fn os_open(
-        name: PyPathLike,
+        name: OsPath,
         flags: i32,
         mode: Option<i32>,
         dir_fd: DirFd<{ OPEN_DIR_FD as usize }>,
@@ -441,7 +442,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     #[pyfunction(name = "unlink")]
-    fn remove(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
+    fn remove(path: OsPath, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
         let is_junction = cfg!(windows)
             && fs::metadata(&path).map_or(false, |meta| meta.file_type().is_dir())
@@ -457,7 +458,7 @@ pub(super) mod _os {
     #[cfg(not(windows))]
     #[pyfunction]
     fn mkdir(
-        path: PyPathLike,
+        path: OsPath,
         mode: OptionalArg<i32>,
         dir_fd: DirFd<{ MKDIR_DIR_FD as usize }>,
         vm: &VirtualMachine,
@@ -486,7 +487,7 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn rmdir(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
+    fn rmdir(path: OsPath, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
         fs::remove_dir(&path)
             .map_err(|e| IOErrorBuilder::new(e).filename(path).into_pyexception(vm))
@@ -495,10 +496,10 @@ pub(super) mod _os {
     const LISTDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
     #[pyfunction]
-    fn listdir(path: OptionalArg<PathOrFd>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let path = path.unwrap_or_else(|| PathOrFd::Path(PyPathLike::new_str(".")));
+    fn listdir(path: OptionalArg<OsPathOrFd>, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let path = path.unwrap_or_else(|| OsPathOrFd::Path(OsPath::new_str(".")));
         let list = match path {
-            PathOrFd::Path(path) => {
+            OsPathOrFd::Path(path) => {
                 let dir_iter = fs::read_dir(&path).map_err(|err| err.into_pyexception(vm))?;
                 dir_iter
                     .map(|entry| match entry {
@@ -509,7 +510,7 @@ pub(super) mod _os {
                     })
                     .collect::<PyResult<_>>()?
             }
-            PathOrFd::Fd(fno) => {
+            OsPathOrFd::Fd(fno) => {
                 #[cfg(not(all(unix, not(target_os = "redox"))))]
                 {
                     let _ = fno;
@@ -592,7 +593,7 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn readlink(path: PyPathLike, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult {
+    fn readlink(path: OsPath, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult {
         let mode = path.mode;
         let [] = dir_fd.0;
         let path = fs::read_link(&path)
@@ -683,7 +684,7 @@ pub(super) mod _os {
         ) -> PyResult {
             let do_stat = |follow_symlinks| {
                 stat(
-                    PathOrFd::Path(PyPathLike {
+                    OsPathOrFd::Path(OsPath {
                         path: self.pathval.clone(),
                         mode: OutputMode::String,
                     }),
@@ -715,7 +716,7 @@ pub(super) mod _os {
                 Some(ino) => Ok(ino),
                 None => {
                     let stat = stat_inner(
-                        PathOrFd::Path(PyPathLike {
+                        OsPathOrFd::Path(OsPath {
                             path: self.pathval.clone(),
                             mode: OutputMode::String,
                         }),
@@ -845,8 +846,8 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn scandir(path: OptionalArg<PyPathLike>, vm: &VirtualMachine) -> PyResult {
-        let path = path.unwrap_or_else(|| PyPathLike::new_str("."));
+    fn scandir(path: OptionalArg<OsPath>, vm: &VirtualMachine) -> PyResult {
+        let path = path.unwrap_or_else(|| OsPath::new_str("."));
         let entries = fs::read_dir(path.path).map_err(|err| err.into_pyexception(vm))?;
         Ok(ScandirIterator {
             entries: PyRwLock::new(Some(entries)),
@@ -1027,15 +1028,15 @@ pub(super) mod _os {
 
     #[cfg(windows)]
     fn stat_inner(
-        file: PathOrFd,
+        file: OsPathOrFd,
         dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
         // TODO: replicate CPython's win32_xstat
         let [] = dir_fd.0;
         let meta = match file {
-            PathOrFd::Path(path) => super::fs_metadata(path, follow_symlinks.0)?,
-            PathOrFd::Fd(fno) => {
+            OsPathOrFd::Path(path) => super::fs_metadata(path, follow_symlinks.0)?,
+            OsPathOrFd::Fd(fno) => {
                 use std::os::windows::io::FromRawHandle;
                 let handle = Fd(fno).to_raw_handle()?;
                 let file =
@@ -1048,13 +1049,13 @@ pub(super) mod _os {
 
     #[cfg(not(windows))]
     fn stat_inner(
-        file: PathOrFd,
+        file: OsPathOrFd,
         dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
         let mut stat = std::mem::MaybeUninit::uninit();
         let ret = match file {
-            PathOrFd::Path(path) => {
+            OsPathOrFd::Path(path) => {
                 use rustpython_common::os::ffi::OsStrExt;
                 let path = path.as_ref().as_os_str().as_bytes();
                 let path = match ffi::CString::new(path) {
@@ -1082,7 +1083,7 @@ pub(super) mod _os {
                     }
                 })
             }
-            PathOrFd::Fd(fd) => unsafe { libc::fstat(fd, stat.as_mut_ptr()) },
+            OsPathOrFd::Fd(fd) => unsafe { libc::fstat(fd, stat.as_mut_ptr()) },
         };
         if ret < 0 {
             return Err(io::Error::last_os_error());
@@ -1093,7 +1094,7 @@ pub(super) mod _os {
     #[pyfunction]
     #[pyfunction(name = "fstat")]
     fn stat(
-        file: PathOrFd,
+        file: OsPathOrFd,
         dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
@@ -1106,7 +1107,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn lstat(
-        file: PathOrFd,
+        file: OsPathOrFd,
         dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
         vm: &VirtualMachine,
     ) -> PyResult {
@@ -1128,7 +1129,7 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn chdir(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn chdir(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         env::set_current_dir(&path.path)
             .map_err(|err| IOErrorBuilder::new(err).filename(path).into_pyexception(vm))
     }
@@ -1140,7 +1141,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     #[pyfunction(name = "replace")]
-    fn rename(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn rename(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         fs::rename(&src.path, &dst.path).map_err(|err| {
             IOErrorBuilder::new(err)
                 .filename(src)
@@ -1223,7 +1224,7 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn link(src: PyPathLike, dst: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn link(src: OsPath, dst: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         fs::hard_link(&src.path, &dst.path).map_err(|err| {
             IOErrorBuilder::new(err)
                 .filename(src)
@@ -1234,7 +1235,7 @@ pub(super) mod _os {
 
     #[derive(FromArgs)]
     struct UtimeArgs {
-        path: PyPathLike,
+        path: OsPath,
         #[pyarg(any, default)]
         times: Option<PyTupleRef>,
         #[pyarg(named, default)]
@@ -1303,7 +1304,7 @@ pub(super) mod _os {
     }
 
     fn utime_impl(
-        path: PyPathLike,
+        path: OsPath,
         acc: Duration,
         modif: Duration,
         dir_fd: DirFd<{ UTIME_DIR_FD as usize }>,
@@ -1531,7 +1532,7 @@ pub(super) mod _os {
         if let Ok(fd) = path.try_to_value(vm) {
             return ftruncate(fd, length, vm);
         }
-        let path = PyPathLike::try_from_object(vm, path)?;
+        let path = OsPath::try_from_object(vm, path)?;
         // TODO: just call libc::truncate() on POSIX
         let f = OpenOptions::new()
             .write(true)

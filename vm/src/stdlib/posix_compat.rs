@@ -12,7 +12,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 pub(crate) mod module {
     use crate::{
         builtins::PyStrRef,
-        stdlib::os::{DirFd, PyPathLike, SupportFunc, TargetIsDirectory, _os},
+        stdlib::os::{DirFd, OsPath, SupportFunc, TargetIsDirectory, _os},
         PyObjectRef, PyResult, VirtualMachine,
     };
     use std::env;
@@ -25,8 +25,8 @@ pub(crate) mod module {
     #[derive(FromArgs)]
     #[allow(unused)]
     pub(super) struct SymlinkArgs {
-        src: PyPathLike,
-        dst: PyPathLike,
+        src: OsPath,
+        dst: OsPath,
         #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]

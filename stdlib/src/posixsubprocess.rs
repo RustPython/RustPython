@@ -1,7 +1,7 @@
 use crate::vm::{
     builtins::PyListRef,
     function::ArgSequence,
-    stdlib::{os::PyPathLike, posix},
+    stdlib::{os::OsPath, posix},
     {PyObjectRef, PyResult, TryFromObject, VirtualMachine},
 };
 use nix::{errno::Errno, unistd};
@@ -60,7 +60,7 @@ struct CStrPathLike {
 }
 impl TryFromObject for CStrPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let s = PyPathLike::try_from_object(vm, obj)?.into_cstring(vm)?;
+        let s = OsPath::try_from_object(vm, obj)?.into_cstring(vm)?;
         Ok(CStrPathLike { s })
     }
 }
