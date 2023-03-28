@@ -60,7 +60,7 @@ pub(crate) mod module {
         let dir = args.target_is_directory.target_is_directory
             || args
                 .dst
-                .path
+                .as_path()
                 .parent()
                 .and_then(|dst_parent| dst_parent.join(&args.src).symlink_metadata().ok())
                 .map_or(false, |meta| meta.is_dir());
@@ -297,7 +297,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _path_splitroot(path: OsPath, vm: &VirtualMachine) -> PyResult<(String, String)> {
-        let orig: Vec<_> = path.path.into_os_string().encode_wide().collect();
+        let orig: Vec<_> = path.path.encode_wide().collect();
         if orig.is_empty() {
             return Ok(("".to_owned(), "".to_owned()));
         }

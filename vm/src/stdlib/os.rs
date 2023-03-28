@@ -1,5 +1,5 @@
 use crate::{
-    builtins::{PyBaseExceptionRef, PyInt, PySet},
+    builtins::{PyBaseExceptionRef, PySet},
     common::crt_fd::Fd,
     convert::IntoPyException,
     function::{ArgumentError, FromArgs, FsPath, FuncArgs},
@@ -48,22 +48,35 @@ impl OutputMode {
 // path_ without allow_fd in CPython
 #[derive(Clone)]
 pub struct OsPath {
-    pub path: PathBuf,
+    pub path: ffi::OsString,
     pub(super) mode: OutputMode,
 }
 
 impl OsPath {
-    pub fn new_str(path: impl Into<PathBuf>) -> Self {
+    pub fn new_str(path: impl Into<ffi::OsString>) -> Self {
         Self {
             path: path.into(),
             mode: OutputMode::String,
         }
     }
 
+    pub(crate) fn from_fspath(fspath: FsPath, vm: &VirtualMachine) -> PyResult<OsPath> {
+        let path = fspath.as_os_str(vm)?.to_owned();
+        let mode = match fspath {
+            FsPath::Str(_) => OutputMode::String,
+            FsPath::Bytes(_) => OutputMode::Bytes,
+        };
+        Ok(OsPath { path, mode })
+    }
+
+    pub fn as_path(&self) -> &Path {
+        Path::new(&self.path)
+    }
+
     #[cfg(any(unix, target_os = "wasi"))]
     pub fn into_bytes(self) -> Vec<u8> {
-        use rustpython_common::os::ffi::OsStringExt;
-        self.path.into_os_string().into_vec()
+        use rustpython_common::os::ffi::OsStrExt;
+        self.path.as_bytes().to_vec()
     }
 
     #[cfg(windows)]
@@ -98,26 +111,15 @@ pub(super) fn fs_metadata<P: AsRef<Path>>(
 
 impl AsRef<Path> for OsPath {
     fn as_ref(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl FsPath {
-    pub(crate) fn to_pathlike(&self, vm: &VirtualMachine) -> PyResult<OsPath> {
-        let path = self.as_os_str(vm)?.to_owned().into();
-        let mode = match self {
-            Self::Str(_) => OutputMode::String,
-            Self::Bytes(_) => OutputMode::Bytes,
-        };
-        Ok(OsPath { path, mode })
+        self.as_path()
     }
 }
 
 impl TryFromObject for OsPath {
-    // TODO: path_converter in CPython
+    // TODO: path_converter with allow_fd=0 in CPython
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let fs_path = FsPath::try_from(obj, true, vm)?;
-        fs_path.to_pathlike(vm)
+        let fspath = FsPath::try_from(obj, true, vm)?;
+        Self::from_fspath(fspath, vm)
     }
 }
 
@@ -684,10 +686,11 @@ pub(super) mod _os {
         ) -> PyResult {
             let do_stat = |follow_symlinks| {
                 stat(
-                    OsPathOrFd::Path(OsPath {
-                        path: self.pathval.clone(),
+                    OsPath {
+                        path: self.pathval.as_os_str().to_owned(),
                         mode: OutputMode::String,
-                    }),
+                    }
+                    .into(),
                     dir_fd,
                     FollowSymlinks(follow_symlinks),
                     vm,
@@ -716,10 +719,11 @@ pub(super) mod _os {
                 Some(ino) => Ok(ino),
                 None => {
                     let stat = stat_inner(
-                        OsPathOrFd::Path(OsPath {
-                            path: self.pathval.clone(),
+                        OsPath {
+                            path: self.pathval.as_os_str().to_owned(),
                             mode: OutputMode::String,
-                        }),
+                        }
+                        .into(),
                         DirFd::default(),
                         FollowSymlinks(false),
                     )
