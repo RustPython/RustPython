@@ -728,7 +728,7 @@ mod sys {
                 hash_randomization: settings.hash_seed.is_none() as u8,
                 isolated: settings.isolated as u8,
                 dev_mode: settings.dev_mode,
-                utf8_mode: 1,
+                utf8_mode: settings.utf8_mode,
                 int_max_str_digits: -1,
                 safe_path: false,
                 warn_default_encoding: settings.warn_default_encoding as u8,
