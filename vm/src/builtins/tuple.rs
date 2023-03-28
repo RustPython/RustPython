@@ -482,11 +482,11 @@ pub struct PyTupleTyped<T: TransmuteFromObject> {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<T> crate::object::Trace for PyTupleTyped<T>
+unsafe impl<T> crate::object::gc::Trace for PyTupleTyped<T>
 where
-    T: TransmuteFromObject + crate::object::Trace,
+    T: TransmuteFromObject + crate::object::gc::Trace,
 {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.tuple.trace(tracer_fn);
     }
 }

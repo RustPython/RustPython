@@ -32,8 +32,8 @@ pub struct Dict<T = PyObjectRef> {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<T: crate::object::Trace> crate::object::Trace for Dict<T> {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl<T: crate::object::gc::Trace> crate::object::gc::Trace for Dict<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.inner.trace(tracer_fn);
     }
 }
@@ -77,8 +77,8 @@ struct DictInner<T> {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<T: crate::object::Trace> crate::object::Trace for DictInner<T> {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl<T: crate::object::gc::Trace> crate::object::gc::Trace for DictInner<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.entries
             .iter()
             .map(|v| {

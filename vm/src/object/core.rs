@@ -18,7 +18,7 @@ use super::{
 };
 
 #[cfg(feature = "gc_bacon")]
-use super::{GcHeader, GcStatus, Trace, TracerFn};
+use super::gc::{object::*, GcHeader, GcStatus};
 #[cfg(not(feature = "gc_bacon"))]
 use crate::common::refcount::RefCount;
 use crate::{
@@ -82,30 +82,11 @@ pub static ID2TYPE: once_cell::sync::Lazy<
 
 /// A type to just represent "we've erased the type of this object, cast it before you use it"
 #[derive(Debug)]
-struct Erased;
-#[cfg(feature = "gc_bacon")]
-struct PyObjVTable {
-    drop_dealloc: unsafe fn(*mut PyObject),
-    drop_only: unsafe fn(*mut PyObject),
-    dealloc_only: unsafe fn(*mut PyObject),
-    debug: unsafe fn(&PyObject, &mut fmt::Formatter) -> fmt::Result,
-    trace: Option<unsafe fn(&PyObject, &mut TracerFn)>,
-}
-
+pub(super) struct Erased;
 #[cfg(not(feature = "gc_bacon"))]
-struct PyObjVTable {
-    drop_dealloc: unsafe fn(*mut PyObject),
-    debug: unsafe fn(&PyObject, &mut fmt::Formatter) -> fmt::Result,
-}
-
-#[cfg(feature = "gc_bacon")]
-unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
-    if (*x).header().buffered() {
-        error!("Try to drop&dealloc a buffered object! Drop only for now!");
-        drop_only_obj::<T>(x);
-    } else {
-        drop(Box::from_raw(x as *mut PyInner<T>));
-    }
+pub(super) struct PyObjVTable {
+    pub(super) drop_dealloc: unsafe fn(*mut PyObject),
+    pub(super) debug: unsafe fn(&PyObject, &mut fmt::Formatter) -> fmt::Result,
 }
 
 #[cfg(not(feature = "gc_bacon"))]
@@ -113,62 +94,15 @@ unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
     drop(Box::from_raw(x as *mut PyInner<T>));
 }
 
-#[cfg(feature = "gc_bacon")]
-macro_rules! partially_drop {
-    ($OBJ: ident. $($(#[$attr:meta])? $FIELD: ident),*) => {
-        $(
-            $(#[$attr])?
-            NonNull::from(&$OBJ.$FIELD).as_ptr().drop_in_place();
-        )*
-    };
-}
-
-/// drop only(doesn't deallocate)
-/// NOTE: `header` is not drop to prevent UB
-#[cfg(feature = "gc_bacon")]
-unsafe fn drop_only_obj<T: PyObjectPayload>(x: *mut PyObject) {
-    let obj = &*x.cast::<PyInner<T>>();
-    partially_drop!(
-        obj.
-        #[cfg(debug_assertions)]
-        is_drop,
-        typeid,
-        typ,
-        dict,
-        slots,
-        payload
-    );
-}
-
-/// deallocate memory with type info(cast as PyInner<T>) in heap only, DOES NOT run destructor
-/// # Safety
-/// - should only be called after its' destructor is done(i.e. called `drop_value`(which called drop_in_place))
-/// - panic on a null pointer
-/// move drop `header` here to prevent UB
-#[cfg(feature = "gc_bacon")]
-unsafe fn dealloc_only_obj<T: PyObjectPayload>(x: *mut PyObject) {
-    {
-        let obj = &*x.cast::<PyInner<T>>();
-        partially_drop!(obj.header, vtable, weak_list);
-    } // don't want keep a ref to a to be deallocated object
-    std::alloc::dealloc(
-        x.cast(),
-        std::alloc::Layout::for_value(&*x.cast::<PyInner<T>>()),
-    );
-}
-
-unsafe fn debug_obj<T: PyObjectPayload>(x: &PyObject, f: &mut fmt::Formatter) -> fmt::Result {
+pub(super) unsafe fn debug_obj<T: PyObjectPayload>(
+    x: &PyObject,
+    f: &mut fmt::Formatter,
+) -> fmt::Result {
     let x = &*(x as *const PyObject as *const PyInner<T>);
     fmt::Debug::fmt(x, f)
 }
 
-#[cfg(feature = "gc_bacon")]
-unsafe fn try_trace_obj<T: PyObjectPayload>(x: &PyObject, tracer_fn: &mut TracerFn) {
-    let x = &*(x as *const PyObject as *const PyInner<T>);
-    let payload = &x.payload;
-    payload.try_trace(tracer_fn)
-}
-
+#[cfg(not(feature = "gc_bacon"))]
 impl PyObjVTable {
     pub fn of<T: PyObjectPayload>() -> &'static Self {
         struct Helper<T: PyObjectPayload>(PhantomData<T>);
@@ -178,19 +112,7 @@ impl PyObjVTable {
         impl<T: PyObjectPayload> VtableHelper for Helper<T> {
             const VTABLE: PyObjVTable = PyObjVTable {
                 drop_dealloc: drop_dealloc_obj::<T>,
-                #[cfg(feature = "gc_bacon")]
-                drop_only: drop_only_obj::<T>,
-                #[cfg(feature = "gc_bacon")]
-                dealloc_only: dealloc_only_obj::<T>,
                 debug: debug_obj::<T>,
-                #[cfg(feature = "gc_bacon")]
-                trace: {
-                    if T::IS_TRACE {
-                        Some(try_trace_obj::<T>)
-                    } else {
-                        None
-                    }
-                },
             };
         }
         &Helper::<T>::VTABLE
@@ -201,56 +123,24 @@ impl PyObjVTable {
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
 #[repr(C)]
-struct PyInner<T> {
+pub(super) struct PyInner<T> {
     #[cfg(not(feature = "gc_bacon"))]
-    ref_count: RefCount,
+    pub(super) ref_count: RefCount,
     #[cfg(feature = "gc_bacon")]
-    header: GcHeader,
+    pub(super) header: GcHeader,
     /// flag to prevent double drop(might not always work, and might lead to seg fault if double drop really happened)
     #[cfg(debug_assertions)]
-    is_drop: PyMutex<bool>,
+    pub(super) is_drop: PyMutex<bool>,
     // TODO: move typeid into vtable once TypeId::of is const
-    typeid: TypeId,
-    vtable: &'static PyObjVTable,
+    pub(super) typeid: TypeId,
+    pub(super) vtable: &'static PyObjVTable,
 
-    typ: PyAtomicRef<PyType>, // __class__ member
-    dict: Option<InstanceDict>,
-    weak_list: WeakRefList,
-    slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
+    pub(super) typ: PyAtomicRef<PyType>, // __class__ member
+    pub(super) dict: Option<InstanceDict>,
+    pub(super) weak_list: WeakRefList,
+    pub(super) slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
 
-    payload: T,
-}
-
-#[cfg(feature = "gc_bacon")]
-unsafe impl Trace for PyInner<Erased> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        // trace PyInner's other field(that is except payload)
-        // self.typ.trace(tracer_fn);
-        self.dict.trace(tracer_fn);
-        // weak_list keeps a *pointer* to a struct for maintaince weak ref, so no ownership, no trace
-        self.slots.trace(tracer_fn);
-
-        if let Some(f) = self.vtable.trace {
-            unsafe {
-                let zelf = &*(self as *const PyInner<Erased> as *const PyObject);
-                f(zelf, tracer_fn)
-            }
-        };
-    }
-}
-
-#[cfg(feature = "gc_bacon")]
-unsafe impl<T: PyObjectPayload> Trace for Py<T> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.as_object().0.trace(tracer_fn)
-    }
-}
-
-#[cfg(feature = "gc_bacon")]
-unsafe impl Trace for PyObject {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.0.trace(tracer_fn)
-    }
+    pub(super) payload: T,
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
@@ -259,7 +149,7 @@ impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
     }
 }
 
-struct WeakRefList {
+pub(super) struct WeakRefList {
     inner: OncePtr<PyMutex<WeakListInner>>,
 }
 
@@ -604,15 +494,8 @@ impl Py<PyWeak> {
 }
 
 #[derive(Debug)]
-struct InstanceDict {
-    d: PyRwLock<PyDictRef>,
-}
-
-#[cfg(feature = "gc_bacon")]
-unsafe impl Trace for InstanceDict {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.d.trace(tracer_fn)
-    }
+pub(super) struct InstanceDict {
+    pub(super) d: PyRwLock<PyDictRef>,
 }
 
 impl From<PyDictRef> for InstanceDict {
@@ -676,7 +559,7 @@ impl<T: PyObjectPayload> PyInner<T> {
 /// to the python object by 1.
 #[repr(transparent)]
 pub struct PyObjectRef {
-    ptr: NonNull<PyObject>,
+    pub(super) ptr: NonNull<PyObject>,
 }
 
 impl Clone for PyObjectRef {
@@ -695,24 +578,7 @@ cfg_if::cfg_if! {
 
 #[derive(Debug)]
 #[repr(transparent)]
-pub struct PyObject(PyInner<Erased>);
-
-#[cfg(feature = "gc_bacon")]
-impl PyObject {
-    pub(in crate::object) fn header(&self) -> &GcHeader {
-        &self.0.header
-    }
-
-    pub(in crate::object) fn is_traceable(&self) -> bool {
-        self.0.vtable.trace.is_some()
-    }
-    fn increment(&self) {
-        self.0.header.gc().increment(self)
-    }
-    fn decrement(&self) -> GcStatus {
-        self.0.header.gc().decrement(self)
-    }
-}
+pub struct PyObject(pub(super) PyInner<Erased>);
 
 impl Deref for PyObjectRef {
     type Target = PyObject;
@@ -740,14 +606,7 @@ impl ToOwned for PyObject {
 
     #[inline(always)]
     fn to_owned(&self) -> Self::Owned {
-        #[cfg(feature = "gc_bacon")]
-        {
-            self.increment();
-        }
-        #[cfg(not(feature = "gc_bacon"))]
-        {
-            self.0.ref_count.inc();
-        }
+        self.increment();
         PyObjectRef {
             ptr: NonNull::from(self),
         }
@@ -1020,15 +879,9 @@ impl PyObject {
             slot_del: fn(&PyObject, &VirtualMachine) -> PyResult<()>,
         ) -> Result<(), ()> {
             let ret = crate::vm::thread::with_vm(zelf, |vm| {
-                #[cfg(feature = "gc_bacon")]
-                {
-                    // FIXME: confirm this is necessary
-                    zelf.increment();
-                }
-                #[cfg(not(feature = "gc_bacon"))]
-                {
-                    zelf.0.ref_count.inc();
-                }
+                // FIXME: confirm this is necessary for gc_bacon
+                zelf.increment();
+
                 if let Err(e) = slot_del(zelf, vm) {
                     let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                     vm.run_unraisable(e, None, del_method);
@@ -1043,7 +896,7 @@ impl PyObject {
                 }
                 #[cfg(not(feature = "gc_bacon"))]
                 {
-                    zelf.0.ref_count.dec()
+                    zelf.decrement()
                 }
             });
             match ret {
@@ -1107,57 +960,6 @@ impl PyObject {
         true
     }
 
-    #[cfg(feature = "gc_bacon")]
-    /// only clear weakref and then run rust RAII destructor, no `__del__` neither dealloc
-    pub(in crate::object) unsafe fn drop_clr_wr(ptr: NonNull<PyObject>) -> bool {
-        #[cfg(feature = "gc_bacon")]
-        if !ptr.as_ref().header().check_set_drop_only() {
-            return false;
-        }
-        let zelf = ptr.as_ref();
-        zelf.clear_weakref();
-
-        // not set PyInner's is_drop because still havn't dealloc
-        let drop_only = zelf.0.vtable.drop_only;
-
-        drop_only(ptr.as_ptr());
-        // Safety: after drop_only, header should still remain undropped
-        #[cfg(feature = "gc_bacon")]
-        ptr.as_ref().header().set_done_drop(true);
-        true
-    }
-
-    #[cfg(feature = "gc_bacon")]
-    /// run object's __del__ and then rust's destructor but doesn't dealloc
-    pub(in crate::object) unsafe fn del_drop(ptr: NonNull<PyObject>) -> bool {
-        if let Err(()) = ptr.as_ref().try_del() {
-            // abort drop for whatever reason
-            return false;
-        }
-
-        Self::drop_clr_wr(ptr)
-    }
-
-    #[cfg(feature = "gc_bacon")]
-    pub(in crate::object) unsafe fn dealloc_only(ptr: NonNull<PyObject>) -> bool {
-        // can't check for if is a alive PyWeak here because already dropped payload
-        #[cfg(feature = "gc_bacon")]
-        {
-            if !ptr.as_ref().header().check_set_dealloc_only() {
-                return false;
-            }
-        }
-
-        #[cfg(debug_assertions)]
-        {
-            *ptr.as_ref().0.is_drop.lock() = true;
-        }
-        let dealloc_only = ptr.as_ref().0.vtable.dealloc_only;
-
-        dealloc_only(ptr.as_ptr());
-        true
-    }
-
     /// # Safety
     /// This call will make the object live forever.
     pub(crate) unsafe fn mark_intern(&self) {
@@ -1188,6 +990,16 @@ impl PyObject {
 
     pub(crate) fn set_slot(&self, offset: usize, value: Option<PyObjectRef>) {
         *self.0.slots[offset].write() = value;
+    }
+}
+
+#[cfg(not(feature = "gc_bacon"))]
+impl PyObject {
+    fn increment(&self) {
+        self.0.ref_count.inc();
+    }
+    fn decrement(&self) -> bool {
+        self.0.ref_count.dec()
     }
 }
 
@@ -1294,7 +1106,7 @@ impl fmt::Debug for PyObjectRef {
 }
 
 #[repr(transparent)]
-pub struct Py<T: PyObjectPayload>(PyInner<T>);
+pub struct Py<T: PyObjectPayload>(pub(super) PyInner<T>);
 
 impl<T: PyObjectPayload> Py<T> {
     pub fn downgrade(
@@ -1371,7 +1183,7 @@ impl<T: PyObjectPayload> fmt::Debug for Py<T> {
 /// where a reference to the same object must be returned.
 #[repr(transparent)]
 pub struct PyRef<T: PyObjectPayload> {
-    ptr: NonNull<Py<T>>,
+    pub(super) ptr: NonNull<Py<T>>,
 }
 
 cfg_if::cfg_if! {
@@ -1417,44 +1229,6 @@ impl<T: PyObjectPayload> Drop for PyRef<T> {
 
         if self.0.ref_count.dec() {
             unsafe { PyObject::drop_slow(self.ptr.cast::<PyObject>()) };
-        }
-    }
-}
-
-#[cfg(feature = "gc_bacon")]
-impl<T: PyObjectPayload> Drop for PyRef<T> {
-    #[inline]
-    fn drop(&mut self) {
-        let _no_gc = self.0.header.try_pausing();
-        #[cfg(debug_assertions)]
-        {
-            if *self.0.is_drop.lock() {
-                error!(
-                    "Double drop on PyRef<{}>",
-                    std::any::type_name::<T>().to_string()
-                );
-                return;
-            }
-            let tid = TypeId::of::<T>();
-            ID2TYPE
-                .lock()
-                .expect("can't insert into ID2TYPE")
-                .entry(tid)
-                .or_insert_with(|| std::any::type_name::<T>().to_string());
-        }
-        let stat = self.as_object().decrement();
-        let ptr = self.ptr.cast::<PyObject>();
-        match stat {
-            GcStatus::ShouldDrop => unsafe {
-                PyObject::drop_slow(ptr);
-            },
-            GcStatus::BufferedDrop => unsafe {
-                PyObject::del_drop(ptr);
-            },
-            GcStatus::GarbageCycle => unsafe {
-                PyObject::del_only(ptr);
-            },
-            GcStatus::ShouldKeep | GcStatus::DoNothing => (),
         }
     }
 }

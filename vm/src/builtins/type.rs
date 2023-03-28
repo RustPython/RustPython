@@ -41,8 +41,8 @@ pub struct PyType {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl crate::object::Trace for PyType {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl crate::object::gc::Trace for PyType {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.base.trace(tracer_fn);
         self.bases.trace(tracer_fn);
         self.mro.trace(tracer_fn);

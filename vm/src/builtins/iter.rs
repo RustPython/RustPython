@@ -25,8 +25,8 @@ pub enum IterStatus<T> {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<T: crate::object::Trace> crate::object::Trace for IterStatus<T> {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl<T: crate::object::gc::Trace> crate::object::gc::Trace for IterStatus<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         match self {
             IterStatus::Active(ref r) => r.trace(tracer_fn),
             IterStatus::Exhausted => (),
@@ -41,8 +41,8 @@ pub struct PositionIterInternal<T> {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<T: crate::object::Trace> crate::object::Trace for PositionIterInternal<T> {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl<T: crate::object::gc::Trace> crate::object::gc::Trace for PositionIterInternal<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.status.trace(tracer_fn)
     }
 }

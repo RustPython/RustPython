@@ -38,6 +38,7 @@
 
 mod collector;
 mod header;
+pub(crate) mod object;
 mod trace;
 
 pub use collector::{Collector, GLOBAL_COLLECTOR};

@@ -349,14 +349,15 @@ impl ExecutingFrame<'_> {
         // Execute until return or exception:
         let instrs = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
-        #[allow(dead_code)]
+        #[allow(unused_variables)]
+        #[allow(unused_mut)]
         let mut gc_count = 0;
         loop {
             #[cfg(feature = "gc_bacon")]
             {
                 gc_count += 1;
                 if gc_count > 1000 {
-                    crate::object::try_gc();
+                    crate::object::gc::try_gc();
                     gc_count = 0;
                 }
             }

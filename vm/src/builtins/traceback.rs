@@ -13,8 +13,8 @@ pub struct PyTraceback {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl crate::object::Trace for PyTraceback {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl crate::object::gc::Trace for PyTraceback {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.next.trace(tracer_fn);
     }
 }

@@ -153,8 +153,8 @@ pub(super) struct PySetInner {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl crate::object::Trace for PySetInner {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl crate::object::gc::Trace for PySetInner {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         // FIXME(discord9): Rc means shared ref, so should it be traced?
         self.content.trace(tracer_fn)
     }

@@ -65,8 +65,8 @@ pub struct FuncArgs {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl crate::object::Trace for FuncArgs {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl crate::object::gc::Trace for FuncArgs {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.args.trace(tracer_fn);
         self.kwargs.iter().map(|(_, v)| v.trace(tracer_fn)).count();
     }
@@ -329,11 +329,11 @@ impl<T: TryFromObject> FromArgOptional for T {
 pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<T> crate::object::Trace for KwArgs<T>
+unsafe impl<T> crate::object::gc::Trace for KwArgs<T>
 where
-    T: crate::object::Trace,
+    T: crate::object::gc::Trace,
 {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.0.iter().map(|(_, v)| v.trace(tracer_fn)).count();
     }
 }
@@ -396,11 +396,11 @@ impl<T> IntoIterator for KwArgs<T> {
 pub struct PosArgs<T = PyObjectRef>(Vec<T>);
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<T> crate::object::Trace for PosArgs<T>
+unsafe impl<T> crate::object::gc::Trace for PosArgs<T>
 where
-    T: crate::object::Trace,
+    T: crate::object::gc::Trace,
 {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.0.trace(tracer_fn)
     }
 }
@@ -490,11 +490,11 @@ pub enum OptionalArg<T = PyObjectRef> {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<T> crate::object::Trace for OptionalArg<T>
+unsafe impl<T> crate::object::gc::Trace for OptionalArg<T>
 where
-    T: crate::object::Trace,
+    T: crate::object::gc::Trace,
 {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         match self {
             OptionalArg::Present(ref o) => o.trace(tracer_fn),
             OptionalArg::Missing => (),

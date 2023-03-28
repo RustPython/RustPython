@@ -16,7 +16,7 @@ pub trait PyThreadingConstraint {}
 impl<T> PyThreadingConstraint for T {}
 
 #[cfg(feature = "gc_bacon")]
-use crate::object::MaybeTrace;
+use crate::object::gc::MaybeTrace;
 #[cfg(feature = "gc_bacon")]
 pub trait PyPayload:
     std::fmt::Debug + PyThreadingConstraint + Sized + MaybeTrace + 'static

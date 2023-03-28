@@ -293,8 +293,8 @@ pub struct PyNumberSlots {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<'a> crate::object::Trace for PyNumber<'a> {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl<'a> crate::object::gc::Trace for PyNumber<'a> {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.0.trace(tracer_fn)
     }
 }

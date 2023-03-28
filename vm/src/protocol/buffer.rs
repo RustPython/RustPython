@@ -40,8 +40,8 @@ pub struct PyBuffer {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl crate::object::Trace for PyBuffer {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl crate::object::gc::Trace for PyBuffer {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.obj.trace(tracer_fn)
     }
 }

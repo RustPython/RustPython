@@ -15,8 +15,8 @@ where
     O: Borrow<PyObject>;
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<O: Borrow<PyObject>> crate::object::Trace for PyIter<O> {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl<O: Borrow<PyObject>> crate::object::gc::Trace for PyIter<O> {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.0.borrow().trace(tracer_fn);
     }
 }
@@ -157,8 +157,8 @@ pub enum PyIterReturn<T = PyObjectRef> {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<T: crate::object::Trace> crate::object::Trace for PyIterReturn<T> {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl<T: crate::object::gc::Trace> crate::object::gc::Trace for PyIterReturn<T> {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         match self {
             PyIterReturn::Return(r) => r.trace(tracer_fn),
             PyIterReturn::StopIteration(Some(obj)) => obj.trace(tracer_fn),
@@ -231,11 +231,11 @@ where
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl<'a, T, O> crate::object::Trace for PyIterIter<'a, T, O>
+unsafe impl<'a, T, O> crate::object::gc::Trace for PyIterIter<'a, T, O>
 where
-    O: crate::object::Trace + Borrow<PyObject>,
+    O: crate::object::gc::Trace + Borrow<PyObject>,
 {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.obj.trace(tracer_fn)
     }
 }

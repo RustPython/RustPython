@@ -39,8 +39,8 @@ pub struct PyFunction {
 }
 
 #[cfg(feature = "gc_bacon")]
-unsafe impl crate::object::Trace for PyFunction {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl crate::object::gc::Trace for PyFunction {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.globals.trace(tracer_fn);
         self.closure.trace(tracer_fn);
         self.defaults_and_kwdefaults.trace(tracer_fn);

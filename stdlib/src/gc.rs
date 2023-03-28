@@ -8,7 +8,7 @@ mod gc {
     fn collect(_args: FuncArgs, _vm: &VirtualMachine) -> i32 {
         #[cfg(feature = "gc_bacon")]
         {
-            usize::from(rustpython_vm::object::collect()) as i32
+            usize::from(rustpython_vm::object::gc::collect()) as i32
         }
         #[cfg(not(feature = "gc_bacon"))]
         {
@@ -20,7 +20,7 @@ mod gc {
     fn isenabled(_args: FuncArgs, _vm: &VirtualMachine) -> bool {
         #[cfg(feature = "gc_bacon")]
         {
-            rustpython_vm::object::isenabled()
+            rustpython_vm::object::gc::isenabled()
         }
         #[cfg(not(feature = "gc_bacon"))]
         {
@@ -32,7 +32,7 @@ mod gc {
     fn enable(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         #[cfg(feature = "gc_bacon")]
         {
-            rustpython_vm::object::enable();
+            rustpython_vm::object::gc::enable();
             Ok(vm.new_pyobj(true))
         }
         #[cfg(not(feature = "gc_bacon"))]
@@ -45,7 +45,7 @@ mod gc {
     fn disable(_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         #[cfg(feature = "gc_bacon")]
         {
-            rustpython_vm::object::disable();
+            rustpython_vm::object::gc::disable();
             Ok(vm.new_pyobj(true))
         }
         #[cfg(not(feature = "gc_bacon"))]

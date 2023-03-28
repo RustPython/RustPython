@@ -28,7 +28,7 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
                         });
                         if do_trace {
                             quote!(
-                                ::rustpython_vm::object::Trace::trace(&self.#name, tracer_fn);
+                                ::rustpython_vm::object::gc::Trace::trace(&self.#name, tracer_fn);
                             )
                         } else {
                             quote!()
@@ -60,8 +60,8 @@ pub(crate) fn impl_pytrace(attr: AttributeArgs, mut item: DeriveInput) -> Result
     let ret = quote! {
         #item
         #[cfg(feature = "gc_bacon")]
-        unsafe impl ::rustpython_vm::object::Trace for #ty {
-            fn trace(&self, tracer_fn: &mut ::rustpython_vm::object::TracerFn) {
+        unsafe impl ::rustpython_vm::object::gc::Trace for #ty {
+            fn trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
                 #trace_code
             }
         }

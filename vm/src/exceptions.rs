@@ -21,8 +21,8 @@ use std::{
     io::{self, BufRead, BufReader},
 };
 #[cfg(feature = "gc_bacon")]
-unsafe impl crate::object::Trace for PyBaseException {
-    fn trace(&self, tracer_fn: &mut crate::object::TracerFn) {
+unsafe impl crate::object::gc::Trace for PyBaseException {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
         self.traceback.trace(tracer_fn);
         self.cause.trace(tracer_fn);
         self.context.trace(tracer_fn);
