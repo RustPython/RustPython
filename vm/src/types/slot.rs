@@ -197,30 +197,11 @@ pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize
     Ok(len as usize)
 }
 
-fn int_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-    let ret = vm.call_special_method(num.deref(), identifier!(vm, __int__), ())?;
-    ret.downcast::<PyInt>().map_err(|obj| {
-        vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
-    })
+macro_rules! number_unary_op_wrapper {
+    ($name:ident) => {
+        |a, vm| vm.call_special_method(a, identifier!(vm, $name), ())
+    };
 }
-
-fn index_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-    let ret = vm.call_special_method(num.deref(), identifier!(vm, __index__), ())?;
-    ret.downcast::<PyInt>().map_err(|obj| {
-        vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
-    })
-}
-
-fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-    let ret = vm.call_special_method(num.deref(), identifier!(vm, __float__), ())?;
-    ret.downcast::<PyFloat>().map_err(|obj| {
-        vm.new_type_error(format!(
-            "__float__ returned non-float (type {})",
-            obj.class()
-        ))
-    })
-}
-
 macro_rules! number_binary_op_wrapper {
     ($name:ident) => {
         |a, b, vm| vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(),))
@@ -505,13 +486,13 @@ impl PyType {
                 toggle_slot!(del, del_wrapper);
             }
             _ if name == identifier!(ctx, __int__) => {
-                toggle_subslot!(as_number, int, int_wrapper);
+                toggle_subslot!(as_number, int, number_unary_op_wrapper!(__int__));
             }
             _ if name == identifier!(ctx, __index__) => {
-                toggle_subslot!(as_number, index, index_wrapper);
+                toggle_subslot!(as_number, index, number_unary_op_wrapper!(__index__));
             }
             _ if name == identifier!(ctx, __float__) => {
-                toggle_subslot!(as_number, float, float_wrapper);
+                toggle_subslot!(as_number, float, number_unary_op_wrapper!(__float__));
             }
             _ if name == identifier!(ctx, __add__) => {
                 toggle_subslot!(as_number, add, number_binary_op_wrapper!(__add__));
