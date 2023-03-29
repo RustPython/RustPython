@@ -623,37 +623,8 @@ mod builtins {
             modulus,
         } = args;
         match modulus {
-            None => vm.binary_op(&x, &y, PyNumberBinaryOp::Power, "pow"),
-            Some(z) => {
-                let try_pow_value = |obj: &PyObject,
-                                     args: (PyObjectRef, PyObjectRef, PyObjectRef)|
-                 -> Option<PyResult> {
-                    let method = obj.get_class_attr(identifier!(vm, __pow__))?;
-                    let result = match method.call(args, vm) {
-                        Ok(x) => x,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    Some(Ok(PyArithmeticValue::from_object(vm, result).into_option()?))
-                };
-
-                if let Some(val) = try_pow_value(&x, (x.clone(), y.clone(), z.clone())) {
-                    return val;
-                }
-
-                if !x.class().is(y.class()) {
-                    if let Some(val) = try_pow_value(&y, (x.clone(), y.clone(), z.clone())) {
-                        return val;
-                    }
-                }
-
-                if !x.class().is(z.class()) && !y.class().is(z.class()) {
-                    if let Some(val) = try_pow_value(&z, (x.clone(), y.clone(), z.clone())) {
-                        return val;
-                    }
-                }
-
-                Err(vm.new_unsupported_ternop_error(&x, &y, &z, "pow"))
-            }
+            None => vm._pow(&x, &y, &vm.ctx.none()),
+            Some(z) => vm._pow(&x, &y, &z),
         }
     }
 

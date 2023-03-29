@@ -1654,7 +1654,7 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::Add => vm._add(a_ref, b_ref),
             bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
             bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
-            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref),
+            bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, &vm.ctx.none()),
             bytecode::BinaryOperator::Divide => vm._truediv(a_ref, b_ref),
             bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
             bytecode::BinaryOperator::Modulo => vm._mod(a_ref, b_ref),
