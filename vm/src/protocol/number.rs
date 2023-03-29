@@ -11,7 +11,7 @@ use crate::{
     VirtualMachine,
 };
 
-pub type PyNumberUnaryFunc = fn(&PyObject, &VirtualMachine) -> PyResult;
+pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber, &VirtualMachine) -> PyResult<R>;
 pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
 pub type PyNumberTernaryFunc = fn(&PyObject, &PyObject, &PyObject, &VirtualMachine) -> PyResult;
 
@@ -458,7 +458,7 @@ impl PyNumber<'_> {
     #[inline]
     pub fn int(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
         self.class().slots.as_number.int.load().map(|f| {
-            let ret = f(self.obj(), vm)?;
+            let ret = f(self, vm)?;
             let value: PyRef<PyInt> = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 if !ret.class().fast_issubclass(vm.ctx.types.int_type) {
                     return Err(vm.new_type_error(format!(
@@ -492,7 +492,7 @@ impl PyNumber<'_> {
     #[inline]
     pub fn index(self, vm: &VirtualMachine) -> Option<PyResult<PyIntRef>> {
         self.class().slots.as_number.index.load().map(|f| {
-            let ret = f(self.obj(), vm)?;
+            let ret = f(self, vm)?;
             let value: PyRef<PyInt> = if !ret.class().is(PyInt::class(&vm.ctx)) {
                 if !ret.class().fast_issubclass(vm.ctx.types.int_type) {
                     return Err(vm.new_type_error(format!(
@@ -526,7 +526,7 @@ impl PyNumber<'_> {
     #[inline]
     pub fn float(self, vm: &VirtualMachine) -> Option<PyResult<PyRef<PyFloat>>> {
         self.class().slots.as_number.float.load().map(|f| {
-            let ret = f(self.obj(), vm)?;
+            let ret = f(self, vm)?;
             let value: PyRef<PyFloat> = if !ret.class().is(PyFloat::class(&vm.ctx)) {
                 if !ret.class().fast_issubclass(vm.ctx.types.float_type) {
                     return Err(vm.new_type_error(format!(

@@ -199,7 +199,7 @@ pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize
 
 macro_rules! number_unary_op_wrapper {
     ($name:ident) => {
-        |a, vm| vm.call_special_method(a, identifier!(vm, $name), ())
+        |a, vm| vm.call_special_method(a.deref(), identifier!(vm, $name), ())
     };
 }
 macro_rules! number_binary_op_wrapper {
