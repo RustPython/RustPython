@@ -11,6 +11,7 @@ use crate::{
     VirtualMachine,
 };
 
+pub type PyNumberInquiryFunc = fn(PyNumber, &VirtualMachine) -> PyResult<bool>;
 pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber, &VirtualMachine) -> PyResult<R>;
 pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
 pub type PyNumberTernaryFunc = fn(&PyObject, &PyObject, &PyObject, &VirtualMachine) -> PyResult;
@@ -126,7 +127,7 @@ pub struct PyNumberMethods {
     pub negative: Option<PyNumberUnaryFunc>,
     pub positive: Option<PyNumberUnaryFunc>,
     pub absolute: Option<PyNumberUnaryFunc>,
-    pub boolean: Option<PyNumberUnaryFunc>,
+    pub boolean: Option<PyNumberInquiryFunc>,
     pub invert: Option<PyNumberUnaryFunc>,
     pub lshift: Option<PyNumberBinaryFunc>,
     pub rshift: Option<PyNumberBinaryFunc>,
@@ -250,7 +251,7 @@ pub struct PyNumberSlots {
     pub negative: AtomicCell<Option<PyNumberUnaryFunc>>,
     pub positive: AtomicCell<Option<PyNumberUnaryFunc>>,
     pub absolute: AtomicCell<Option<PyNumberUnaryFunc>>,
-    pub boolean: AtomicCell<Option<PyNumberUnaryFunc>>,
+    pub boolean: AtomicCell<Option<PyNumberInquiryFunc>>,
     pub invert: AtomicCell<Option<PyNumberUnaryFunc>>,
     pub lshift: AtomicCell<Option<PyNumberBinaryFunc>>,
     pub rshift: AtomicCell<Option<PyNumberBinaryFunc>>,
