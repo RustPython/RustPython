@@ -745,7 +745,7 @@ impl PyInt {
         multiply: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a * b, vm)),
         remainder: Some(|a, b, vm| PyInt::number_op(a, b, inner_mod, vm)),
         divmod: Some(|a, b, vm| PyInt::number_op(a, b, inner_divmod, vm)),
-        power: Some(|a, b, vm| PyInt::number_op(a, b, inner_pow, vm)),
+        power: Some(|a, b, _c, vm| PyInt::number_op(a, b, inner_pow, vm)), // TODO(snowapril) : use modulo
         negative: Some(|num, vm| (&PyInt::number_downcast(num).value).neg().to_pyresult(vm)),
         positive: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
         absolute: Some(|num, vm| PyInt::number_downcast(num).value.abs().to_pyresult(vm)),
@@ -756,14 +756,14 @@ impl PyInt {
         and: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a & b, vm)),
         xor: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a ^ b, vm)),
         or: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a | b, vm)),
-        int: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm))),
+        int: Some(|num, vm| PyInt::number_downcast_exact(num, vm).to_pyresult(vm)),
         float: Some(|num, vm| {
             let zelf = PyInt::number_downcast(num);
-            try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x))
+            try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x).into_pyobject(vm))
         }),
         floor_divide: Some(|a, b, vm| PyInt::number_op(a, b, inner_floordiv, vm)),
         true_divide: Some(|a, b, vm| PyInt::number_op(a, b, inner_truediv, vm)),
-        index: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm))),
+        index: Some(|num, vm| PyInt::number_downcast_exact(num, vm).to_pyresult(vm)),
         ..PyNumberMethods::NOT_IMPLEMENTED
     };
 
