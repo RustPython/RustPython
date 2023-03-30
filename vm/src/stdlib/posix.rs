@@ -1,4 +1,4 @@
-use crate::{PyObjectRef, PyResult, VirtualMachine};
+use crate::{PyObjectRef, VirtualMachine};
 use std::os::unix::io::RawFd;
 
 pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
@@ -10,14 +10,6 @@ pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
         fcntl::fcntl(fd, fcntl::FcntlArg::F_SETFD(new_flags))?;
     }
     Ok(())
-}
-
-pub(super) fn bytes_as_osstr<'a>(
-    b: &'a [u8],
-    _vm: &VirtualMachine,
-) -> PyResult<&'a std::ffi::OsStr> {
-    use std::os::unix::ffi::OsStrExt;
-    Ok(std::ffi::OsStr::from_bytes(b))
 }
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
@@ -33,7 +25,7 @@ pub mod module {
         convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{Either, OptionalArg},
         stdlib::os::{
-            errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
+            errno_err, DirFd, FollowSymlinks, OsPath, OsPathOrFd, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
         },
         types::Constructor,
@@ -49,7 +41,7 @@ pub mod module {
         env,
         ffi::{CStr, CString},
         fs, io,
-        os::unix::{ffi as ffi_ext, io::RawFd},
+        os::unix::io::RawFd,
     };
     use strum_macros::{EnumIter, EnumString};
 
@@ -258,7 +250,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    pub(super) fn access(path: PyPathLike, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         use std::os::unix::fs::MetadataExt;
 
         let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
@@ -293,7 +285,7 @@ pub mod module {
 
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
-        use ffi_ext::OsStringExt;
+        use rustpython_common::os::ffi::OsStringExt;
 
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {
@@ -307,8 +299,8 @@ pub mod module {
 
     #[derive(FromArgs)]
     pub(super) struct SymlinkArgs {
-        src: PyPathLike,
-        dst: PyPathLike,
+        src: OsPath,
+        dst: OsPath,
         #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]
@@ -344,7 +336,7 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn chroot(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         use crate::stdlib::os::IOErrorBuilder;
 
         nix::unistd::chroot(&*path.path).map_err(|err| {
@@ -359,7 +351,7 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chown(
-        path: PathOrFd,
+        path: OsPathOrFd,
         uid: isize,
         gid: isize,
         dir_fd: DirFd<1>,
@@ -390,10 +382,10 @@ pub mod module {
 
         let dir_fd = dir_fd.get_opt();
         match path {
-            PathOrFd::Path(ref p) => {
+            OsPathOrFd::Path(ref p) => {
                 nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
             }
-            PathOrFd::Fd(fd) => nix::unistd::fchown(fd, uid, gid),
+            OsPathOrFd::Fd(fd) => nix::unistd::fchown(fd, uid, gid),
         }
         .map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
@@ -405,9 +397,9 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn lchown(path: PyPathLike, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn lchown(path: OsPath, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
         chown(
-            PathOrFd::Path(path),
+            OsPathOrFd::Path(path),
             uid,
             gid,
             DirFd::default(),
@@ -420,7 +412,7 @@ pub mod module {
     #[pyfunction]
     fn fchown(fd: i32, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
         chown(
-            PathOrFd::Fd(fd),
+            OsPathOrFd::Fd(fd),
             uid,
             gid,
             DirFd::default(),
@@ -436,7 +428,7 @@ pub mod module {
     #[derive(FromArgs)]
     struct MknodArgs {
         #[pyarg(any)]
-        path: PyPathLike,
+        path: OsPath,
         #[pyarg(any)]
         mode: libc::mode_t,
         #[pyarg(any)]
@@ -778,7 +770,7 @@ pub mod module {
     }
 
     fn _chmod(
-        path: PyPathLike,
+        path: OsPath,
         dir_fd: DirFd<0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
@@ -812,22 +804,22 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chmod(
-        path: PathOrFd,
+        path: OsPathOrFd,
         dir_fd: DirFd<0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match path {
-            PathOrFd::Path(path) => _chmod(path, dir_fd, mode, follow_symlinks, vm),
-            PathOrFd::Fd(fd) => _fchmod(fd, mode, vm),
+            OsPathOrFd::Path(path) => _chmod(path, dir_fd, mode, follow_symlinks, vm),
+            OsPathOrFd::Fd(fd) => _fchmod(fd, mode, vm),
         }
     }
 
     #[cfg(target_os = "redox")]
     #[pyfunction]
     fn chmod(
-        path: PyPathLike,
+        path: OsPath,
         dir_fd: DirFd<0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
@@ -844,13 +836,13 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn lchmod(path: PyPathLike, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn lchmod(path: OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         _chmod(path, DirFd::default(), mode, FollowSymlinks(false), vm)
     }
 
     #[pyfunction]
     fn execv(
-        path: PyPathLike,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -877,7 +869,7 @@ pub mod module {
 
     #[pyfunction]
     fn execve(
-        path: PyPathLike,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         env: PyDictRef,
         vm: &VirtualMachine,
@@ -903,8 +895,8 @@ pub mod module {
             .into_iter()
             .map(|(k, v)| -> PyResult<_> {
                 let (key, value) = (
-                    PyPathLike::try_from_object(vm, k)?.into_bytes(),
-                    PyPathLike::try_from_object(vm, v)?.into_bytes(),
+                    OsPath::try_from_object(vm, k)?.into_bytes(),
+                    OsPath::try_from_object(vm, v)?.into_bytes(),
                 );
 
                 if memchr::memchr(b'=', &key).is_some() {
@@ -1237,8 +1229,8 @@ pub mod module {
         keys.into_iter()
             .zip(values.into_iter())
             .map(|(k, v)| {
-                let k = PyPathLike::try_from_object(vm, k)?.into_bytes();
-                let v = PyPathLike::try_from_object(vm, v)?.into_bytes();
+                let k = OsPath::try_from_object(vm, k)?.into_bytes();
+                let v = OsPath::try_from_object(vm, v)?.into_bytes();
                 if k.contains(&0) {
                     return Err(
                         vm.new_value_error("envp dict key cannot contain a nul byte".to_owned())
@@ -1266,9 +1258,9 @@ pub mod module {
     #[derive(FromArgs)]
     pub(super) struct PosixSpawnArgs {
         #[pyarg(positional)]
-        path: PyPathLike,
+        path: OsPath,
         #[pyarg(positional)]
-        args: crate::function::ArgIterable<PyPathLike>,
+        args: crate::function::ArgIterable<OsPath>,
         #[pyarg(positional)]
         env: crate::function::ArgMapping,
         #[pyarg(named, default)]
@@ -1317,7 +1309,7 @@ pub mod module {
                     let args: crate::function::FuncArgs = args.to_vec().into();
                     let ret = match id {
                         PosixSpawnFileActionIdentifier::Open => {
-                            let (fd, path, oflag, mode): (_, PyPathLike, _, _) = args.bind(vm)?;
+                            let (fd, path, oflag, mode): (_, OsPath, _, _) = args.bind(vm)?;
                             let path = CString::new(path.into_bytes()).map_err(|_| {
                                 vm.new_value_error(
                                     "POSIX_SPAWN_OPEN path should not have nul bytes".to_owned(),
@@ -1854,7 +1846,7 @@ pub mod module {
     #[cfg(unix)]
     #[pyfunction]
     fn pathconf(
-        path: PathOrFd,
+        path: OsPathOrFd,
         ConfName(name): ConfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
@@ -1863,12 +1855,12 @@ pub mod module {
         Errno::clear();
         debug_assert_eq!(errno::errno(), 0);
         let raw = match path {
-            PathOrFd::Path(path) => {
+            OsPathOrFd::Path(path) => {
                 let path = CString::new(path.into_bytes())
                     .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
                 unsafe { libc::pathconf(path.as_ptr(), name) }
             }
-            PathOrFd::Fd(fd) => unsafe { libc::fpathconf(fd, name) },
+            OsPathOrFd::Fd(fd) => unsafe { libc::fpathconf(fd, name) },
         };
 
         if raw == -1 {
@@ -1884,7 +1876,7 @@ pub mod module {
 
     #[pyfunction]
     fn fpathconf(fd: i32, name: ConfName, vm: &VirtualMachine) -> PyResult<Option<libc::c_long>> {
-        pathconf(PathOrFd::Fd(fd), name, vm)
+        pathconf(OsPathOrFd::Fd(fd), name, vm)
     }
 
     #[pyattr]

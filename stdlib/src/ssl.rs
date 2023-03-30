@@ -36,9 +36,9 @@ mod _ssl {
             convert::{ToPyException, ToPyObject},
             exceptions,
             function::{
-                ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg,
+                ArgBytesLike, ArgCallable, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
+                OptionalArg,
             },
-            stdlib::os::PyPathLike,
             types::Constructor,
             utils::ToCString,
             PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -726,10 +726,12 @@ mod _ssl {
                 );
             }
             let mut ctx = self.builder();
-            ctx.set_certificate_chain_file(&certfile)
+            let key_path = keyfile.map(|path| path.to_path_buf(vm)).transpose()?;
+            let cert_path = certfile.to_path_buf(vm)?;
+            ctx.set_certificate_chain_file(&cert_path)
                 .and_then(|()| {
                     ctx.set_private_key_file(
-                        keyfile.as_ref().unwrap_or(&certfile),
+                        key_path.as_ref().unwrap_or(&cert_path),
                         ssl::SslFiletype::PEM,
                     )
                 })
@@ -819,9 +821,9 @@ mod _ssl {
 
     #[derive(FromArgs)]
     struct LoadCertChainArgs {
-        certfile: PyPathLike,
+        certfile: FsPath,
         #[pyarg(any, optional)]
-        keyfile: Option<PyPathLike>,
+        keyfile: Option<FsPath>,
         #[pyarg(any, optional)]
         password: Option<Either<PyStrRef, ArgCallable>>,
     }
@@ -1308,7 +1310,8 @@ mod _ssl {
     }
 
     #[pyfunction]
-    fn _test_decode_cert(path: PyPathLike, vm: &VirtualMachine) -> PyResult {
+    fn _test_decode_cert(path: FsPath, vm: &VirtualMachine) -> PyResult {
+        let path = path.to_path_buf(vm)?;
         let pem = std::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
         let x509 = X509::from_pem(&pem).map_err(|e| convert_openssl_error(vm, e))?;
         cert_to_py(vm, &x509, false)

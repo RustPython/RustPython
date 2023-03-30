@@ -58,10 +58,9 @@ mod _sqlite {
             PyInt, PyIntRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
-        function::{ArgCallable, ArgIterable, FuncArgs, OptionalArg, PyComparisonValue},
+        function::{ArgCallable, ArgIterable, FsPath, FuncArgs, OptionalArg, PyComparisonValue},
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
-        stdlib::os::PyPathLike,
         types::{
             AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
             IterNextIterable, Iterable, PyComparisonOp,
@@ -293,7 +292,7 @@ mod _sqlite {
     #[derive(FromArgs)]
     struct ConnectArgs {
         #[pyarg(any)]
-        database: PyPathLike,
+        database: FsPath,
         #[pyarg(any, default = "5.0")]
         timeout: f64,
         #[pyarg(any, default = "0")]
@@ -828,7 +827,7 @@ mod _sqlite {
     #[pyclass(with(Constructor, Callable), flags(BASETYPE))]
     impl Connection {
         fn new(args: ConnectArgs, vm: &VirtualMachine) -> PyResult<Self> {
-            let path = args.database.into_cstring(vm)?;
+            let path = args.database.to_cstring(vm)?;
             let db = Sqlite::from(SqliteRaw::open(path.as_ptr(), args.uri, vm)?);
             let timeout = (args.timeout * 1000.0) as c_int;
             db.busy_timeout(timeout);
