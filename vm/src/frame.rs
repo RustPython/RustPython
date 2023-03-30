@@ -1680,7 +1680,7 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::Add => vm._iadd(a_ref, b_ref),
             bytecode::BinaryOperator::Multiply => vm._imul(a_ref, b_ref),
             bytecode::BinaryOperator::MatrixMultiply => vm._imatmul(a_ref, b_ref),
-            bytecode::BinaryOperator::Power => vm._ipow(a_ref, b_ref),
+            bytecode::BinaryOperator::Power => vm._ipow(a_ref, b_ref, &vm.ctx.none()),
             bytecode::BinaryOperator::Divide => vm._itruediv(a_ref, b_ref),
             bytecode::BinaryOperator::FloorDivide => vm._ifloordiv(a_ref, b_ref),
             bytecode::BinaryOperator::Modulo => vm._imod(a_ref, b_ref),
