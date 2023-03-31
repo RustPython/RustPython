@@ -757,8 +757,6 @@ if 1:
         self.assertTrue(f1(0))
         self.assertTrue(f2(0.0))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path_like_objects(self):
         # An implicit test for PyUnicode_FSDecoder().
         compile("42", FakePath("test_compile_pathlike"), "single")

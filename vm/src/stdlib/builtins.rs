@@ -8,6 +8,7 @@ pub use builtins::{ascii, print, reversed};
 #[pymodule]
 mod builtins {
     use crate::{
+        stdlib::os::FsPath,
         builtins::{
             asyncgenerator::PyAsyncGen,
             enumerate::PyReverseSequenceIterator,
@@ -97,7 +98,7 @@ mod builtins {
     #[allow(dead_code)]
     struct CompileArgs {
         source: PyObjectRef,
-        filename: PyStrRef,
+        filename: FsPath,
         mode: PyStrRef,
         #[pyarg(any, optional)]
         flags: OptionalArg<PyIntRef>,
