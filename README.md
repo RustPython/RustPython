@@ -75,6 +75,7 @@ Once you've installed rustpython with SSL support, you can install pip by
 running:
 
 ```bash
+cargo install --git https://github.com/RustPython/RustPython --features ssl
 rustpython --install-pip
 ```
 
