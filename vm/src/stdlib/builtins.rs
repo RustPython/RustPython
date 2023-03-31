@@ -8,7 +8,6 @@ pub use builtins::{ascii, print, reversed};
 #[pymodule]
 mod builtins {
     use crate::{
-        stdlib::os::FsPath,
         builtins::{
             asyncgenerator::PyAsyncGen,
             enumerate::PyReverseSequenceIterator,
@@ -23,6 +22,7 @@ mod builtins {
         function::{
             ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
             ArgStrOrBytesLike, Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
+            FsPath,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
