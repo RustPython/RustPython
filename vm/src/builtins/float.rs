@@ -30,7 +30,7 @@ pub struct PyFloat {
 }
 
 impl PyFloat {
-    pub fn to_f64(self) -> f64 {
+    pub fn to_f64(&self) -> f64 {
         self.value
     }
 }

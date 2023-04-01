@@ -745,7 +745,24 @@ impl PyInt {
         multiply: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a * b, vm)),
         remainder: Some(|a, b, vm| PyInt::number_op(a, b, inner_mod, vm)),
         divmod: Some(|a, b, vm| PyInt::number_op(a, b, inner_divmod, vm)),
-        power: Some(|a, b, _c, vm| PyInt::number_op(a, b, inner_pow, vm)), // TODO(snowapril) : use modulo
+        power: Some(|a, b, c, vm| {
+            if let (Some(a), Some(b)) = (
+                a.payload::<Self>(),
+                if b.payload_is::<Self>() {
+                    Some(b)
+                } else {
+                    None
+                },
+            ) {
+                if vm.is_none(c) {
+                    a.general_op(b.to_owned(), |a, b| inner_pow(a, b, vm), vm)
+                } else {
+                    a.modpow(b.to_owned(), c.to_owned(), vm)
+                }
+            } else {
+                Ok(vm.ctx.not_implemented())
+            }
+        }),
         negative: Some(|num, vm| (&PyInt::number_downcast(num).value).neg().to_pyresult(vm)),
         positive: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
         absolute: Some(|num, vm| PyInt::number_downcast(num).value.abs().to_pyresult(vm)),
@@ -756,14 +773,14 @@ impl PyInt {
         and: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a & b, vm)),
         xor: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a ^ b, vm)),
         or: Some(|a, b, vm| PyInt::number_op(a, b, |a, b, _vm| a | b, vm)),
-        int: Some(|num, vm| PyInt::number_downcast_exact(num, vm).to_pyresult(vm)),
+        int: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
         float: Some(|num, vm| {
             let zelf = PyInt::number_downcast(num);
-            try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x).into_pyobject(vm))
+            try_to_float(&zelf.value, vm).map(|x| vm.ctx.new_float(x).into())
         }),
         floor_divide: Some(|a, b, vm| PyInt::number_op(a, b, inner_floordiv, vm)),
         true_divide: Some(|a, b, vm| PyInt::number_op(a, b, inner_truediv, vm)),
-        index: Some(|num, vm| PyInt::number_downcast_exact(num, vm).to_pyresult(vm)),
+        index: Some(|num, vm| Ok(PyInt::number_downcast_exact(num, vm).into())),
         ..PyNumberMethods::NOT_IMPLEMENTED
     };
 
