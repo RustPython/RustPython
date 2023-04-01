@@ -70,6 +70,7 @@ def pseudo_op(name, op, real_ops):
             assert all(res)
             oplist.append(op)
 
+ENABLE_SPECIALIZATION = True
 
 # Instruction opcodes for compiled code
 # Blank lines correspond to available opcodes

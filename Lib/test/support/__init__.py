@@ -15,6 +15,7 @@ import time
 import types
 import unittest
 import warnings
+import opcode
 
 from .testresult import get_test_runner
 
@@ -59,6 +60,7 @@ __all__ = [
     "run_with_tz", "PGO", "missing_compiler_executable",
     "ALWAYS_EQ", "NEVER_EQ", "LARGEST", "SMALLEST",
     "LOOPBACK_TIMEOUT", "INTERNET_TIMEOUT", "SHORT_TIMEOUT", "LONG_TIMEOUT",
+    "requires_specialization"
     ]
 
 
@@ -2239,3 +2241,7 @@ def adjust_int_max_str_digits(max_digits):
         yield
     finally:
         sys.set_int_max_str_digits(current)
+
+def requires_specialization(test):
+    return unittest.skipUnless(
+        opcode.ENABLE_SPECIALIZATION, "requires specialization")(test)
