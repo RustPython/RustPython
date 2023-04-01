@@ -210,21 +210,6 @@ macro_rules! number_binary_right_op_wrapper {
         |a, b, vm| vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(),))
     };
 }
-macro_rules! number_ternary_op_wrapper {
-    ($name:ident) => {
-        |a, b, c, vm| {
-            vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(), c.to_owned()))
-        }
-    };
-}
-macro_rules! number_ternary_right_op_wrapper {
-    ($name:ident) => {
-        |a, b, c, vm| {
-            vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(), c.to_owned()))
-        }
-    };
-}
-
 fn getitem_wrapper<K: ToPyObject>(obj: &PyObject, needle: K, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(obj, identifier!(vm, __getitem__), (needle,))
 }
@@ -581,21 +566,35 @@ impl PyType {
                 );
             }
             _ if name == identifier!(ctx, __pow__) => {
-                toggle_subslot!(as_number, power, number_ternary_op_wrapper!(__pow__));
+                toggle_subslot!(as_number, power, |a, b, c, vm| {
+                    if vm.is_none(c) {
+                        vm.call_special_method(a, identifier!(vm, __pow__), (b.to_owned(),))
+                    } else {
+                        vm.call_special_method(
+                            a,
+                            identifier!(vm, __pow__),
+                            (b.to_owned(), c.to_owned()),
+                        )
+                    }
+                });
             }
             _ if name == identifier!(ctx, __rpow__) => {
-                toggle_subslot!(
-                    as_number,
-                    right_power,
-                    number_ternary_right_op_wrapper!(__rpow__)
-                );
+                toggle_subslot!(as_number, right_power, |a, b, c, vm| {
+                    if vm.is_none(c) {
+                        vm.call_special_method(b, identifier!(vm, __rpow__), (a.to_owned(),))
+                    } else {
+                        vm.call_special_method(
+                            b,
+                            identifier!(vm, __rpow__),
+                            (a.to_owned(), c.to_owned()),
+                        )
+                    }
+                });
             }
             _ if name == identifier!(ctx, __ipow__) => {
-                toggle_subslot!(
-                    as_number,
-                    inplace_power,
-                    number_ternary_op_wrapper!(__ipow__)
-                );
+                toggle_subslot!(as_number, inplace_power, |a, b, _, vm| {
+                    vm.call_special_method(a, identifier!(vm, __ipow__), (b.to_owned(),))
+                });
             }
             _ if name == identifier!(ctx, __lshift__) => {
                 toggle_subslot!(as_number, lshift, number_binary_op_wrapper!(__lshift__));
