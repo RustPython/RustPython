@@ -776,7 +776,7 @@ class CmdLineTest(unittest.TestCase):
     @unittest.skipIf(sys.platform.startswith("freebsd") and
                      os.stat("/dev").st_dev == os.stat("/dev/fd").st_dev,
                      "Requires fdescfs mounted on /dev/fd on FreeBSD")
-    @unittest.skipIf(sys.platform.startswith("darwin"), "Problems with Mac os descriptor")
+    @unittest.skipIf(sys.platform.startswith("darwin"), "TODO: RUSTPYTHON Problems with Mac os descriptor")
     def test_script_as_dev_fd(self):
         # GH-87235: On macOS passing a non-trivial script to /dev/fd/N can cause
         # problems because all open /dev/fd/N file descriptors share the same
