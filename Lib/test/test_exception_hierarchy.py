@@ -5,7 +5,6 @@ import socket
 import unittest
 import errno
 from errno import EEXIST
-import sys
 
 
 class SubOSError(OSError):
@@ -41,10 +40,10 @@ class HierarchyTest(unittest.TestCase):
         self.assertIs(EnvironmentError, OSError)
 
     def test_socket_errors(self):
-        self.assertIs(socket.error, IOError)
+        self.assertIs(socket.error, OSError)
         self.assertIs(socket.gaierror.__base__, OSError)
         self.assertIs(socket.herror.__base__, OSError)
-        self.assertIs(socket.timeout.__base__, OSError)
+        self.assertIs(socket.timeout, TimeoutError)
 
     def test_select_error(self):
         self.assertIs(select.error, OSError)
@@ -64,7 +63,7 @@ class HierarchyTest(unittest.TestCase):
         +-- InterruptedError                                            EINTR
         +-- IsADirectoryError                                          EISDIR
         +-- NotADirectoryError                                        ENOTDIR
-        +-- PermissionError                                     EACCES, EPERM
+        +-- PermissionError                        EACCES, EPERM, ENOTCAPABLE
         +-- ProcessLookupError                                          ESRCH
         +-- TimeoutError                                            ETIMEDOUT
     """
@@ -76,6 +75,8 @@ class HierarchyTest(unittest.TestCase):
                 continue
             excname, _, errnames = line.partition(' ')
             for errname in filter(None, errnames.strip().split(', ')):
+                if errname == "ENOTCAPABLE" and not hasattr(errno, errname):
+                    continue
                 _map[getattr(errno, errname)] = getattr(builtins, excname)
         return _map
     _map = _make_map(_pep_map)
@@ -93,7 +94,7 @@ class HierarchyTest(unittest.TestCase):
         othercodes = set(errno.errorcode) - set(self._map)
         for errcode in othercodes:
             e = OSError(errcode, "Some message")
-            self.assertIs(type(e), OSError)
+            self.assertIs(type(e), OSError, repr(e))
 
     def test_try_except(self):
         filename = "some_hopefully_non_existing_file"
@@ -128,7 +129,6 @@ class AttributesTest(unittest.TestCase):
             self.assertNotIn('winerror', dir(OSError))
 
     @unittest.skip("TODO: RUSTPYTHON")
-    @unittest.skipIf(sys.platform == 'win32', 'winerror not filled yet')
     def test_posix_error(self):
         e = OSError(EEXIST, "File already exists", "foo.txt")
         self.assertEqual(e.errno, EEXIST)
