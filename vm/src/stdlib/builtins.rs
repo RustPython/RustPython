@@ -622,7 +622,7 @@ mod builtins {
             modulus,
         } = args;
         match modulus {
-            None => vm._pow(&x, &y, &vm.ctx.none()),
+            None => vm._pow(&x, &y, vm.ctx.none.as_object()),
             Some(z) => vm._pow(&x, &y, &z),
         }
     }
