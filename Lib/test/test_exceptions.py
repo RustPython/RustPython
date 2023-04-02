@@ -258,6 +258,8 @@ class ExceptionTests(unittest.TestCase):
         check('def f():\n  continue', 2, 3)
         check('def f():\n  break', 2, 3)
         check('try:\n  pass\nexcept:\n  pass\nexcept ValueError:\n  pass', 3, 1)
+        check('try:\n  pass\nexcept*:\n  pass', 3, 8)
+        check('try:\n  pass\nexcept*:\n  pass\nexcept* ValueError:\n  pass', 3, 8)
 
         # Errors thrown by tokenizer.c
         check('(0x+1)', 1, 3)
@@ -554,6 +556,35 @@ class ExceptionTests(unittest.TestCase):
                             self.assertEqual(got, want,
                                              'pickled "%r", attribute "%s' %
                                              (e, checkArgName))
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_notes(self):
+        for e in [BaseException(1), Exception(2), ValueError(3)]:
+            with self.subTest(e=e):
+                self.assertFalse(hasattr(e, '__notes__'))
+                e.add_note("My Note")
+                self.assertEqual(e.__notes__, ["My Note"])
+
+                with self.assertRaises(TypeError):
+                    e.add_note(42)
+                self.assertEqual(e.__notes__, ["My Note"])
+
+                e.add_note("Your Note")
+                self.assertEqual(e.__notes__, ["My Note", "Your Note"])
+
+                del e.__notes__
+                self.assertFalse(hasattr(e, '__notes__'))
+
+                e.add_note("Our Note")
+                self.assertEqual(e.__notes__, ["Our Note"])
+
+                e.__notes__ = 42
+                self.assertEqual(e.__notes__, 42)
+
+                with self.assertRaises(TypeError):
+                    e.add_note("will not work")
+                self.assertEqual(e.__notes__, 42)
 
     def testWithTraceback(self):
         try:
@@ -1010,20 +1041,20 @@ class ExceptionTests(unittest.TestCase):
                 self.fail("should have raised StopIteration")
         self._check_generator_cleanup_exc_state(do_send)
 
-    # def test_3114(self):
-    #     # Bug #3114: in its destructor, MyObject retrieves a pointer to
-    #     # obsolete and/or deallocated objects.
-    #     class MyObject:
-    #         def __del__(self):
-    #             nonlocal e
-    #             e = sys.exc_info()
-    #     e = ()
-    #     try:
-    #         raise Exception(MyObject())
-    #     except:
-    #         pass
-    #     gc_collect()  # For PyPy or other GCs.
-    #     self.assertEqual(e, (None, None, None))
+    def test_3114(self):
+        # Bug #3114: in its destructor, MyObject retrieves a pointer to
+        # obsolete and/or deallocated objects.
+        class MyObject:
+            def __del__(self):
+                nonlocal e
+                e = sys.exc_info()
+        e = ()
+        try:
+            raise Exception(MyObject())
+        except:
+            pass
+        gc_collect()  # For PyPy or other GCs.
+        self.assertEqual(e, (None, None, None))
 
     def test_raise_does_not_create_context_chain_cycle(self):
         class A(Exception):
@@ -1172,6 +1203,56 @@ class ExceptionTests(unittest.TestCase):
         self.assertIs(c.__context__, b)
         self.assertIs(b.__context__, a)
         self.assertIs(a.__context__, c)
+
+    def test_context_of_exception_in_try_and_finally(self):
+        try:
+            try:
+                te = TypeError(1)
+                raise te
+            finally:
+                ve = ValueError(2)
+                raise ve
+        except Exception as e:
+            exc = e
+
+        self.assertIs(exc, ve)
+        self.assertIs(exc.__context__, te)
+
+    def test_context_of_exception_in_except_and_finally(self):
+        try:
+            try:
+                te = TypeError(1)
+                raise te
+            except:
+                ve = ValueError(2)
+                raise ve
+            finally:
+                oe = OSError(3)
+                raise oe
+        except Exception as e:
+            exc = e
+
+        self.assertIs(exc, oe)
+        self.assertIs(exc.__context__, ve)
+        self.assertIs(exc.__context__.__context__, te)
+
+    def test_context_of_exception_in_else_and_finally(self):
+        try:
+            try:
+                pass
+            except:
+                pass
+            else:
+                ve = ValueError(1)
+                raise ve
+            finally:
+                oe = OSError(2)
+                raise oe
+        except Exception as e:
+            exc = e
+
+        self.assertIs(exc, oe)
+        self.assertIs(exc.__context__, ve)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -1410,9 +1491,7 @@ class ExceptionTests(unittest.TestCase):
         """
         with SuppressCrashReport():
             rc, out, err = script_helper.assert_python_failure("-c", code)
-            self.assertIn(b'Fatal Python error: _PyErr_NormalizeException: '
-                          b'Cannot recover from MemoryErrors while '
-                          b'normalizing exceptions.', err)
+            self.assertIn(b'MemoryError', err)
 
     @cpython_only
     def test_MemoryError(self):
@@ -2008,6 +2087,8 @@ class AttributeErrorTests(unittest.TestCase):
         self.assertEqual(exc.name, 'carry')
         self.assertIs(exc.obj, sentinel)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getattr_has_name_and_obj(self):
         class A:
             blech = None
@@ -2015,6 +2096,11 @@ class AttributeErrorTests(unittest.TestCase):
         obj = A()
         try:
             obj.bluch
+        except AttributeError as exc:
+            self.assertEqual("bluch", exc.name)
+            self.assertEqual(obj, exc.obj)
+        try:
+            object.__getattribute__(obj, "bluch")
         except AttributeError as exc:
             self.assertEqual("bluch", exc.name)
             self.assertEqual(obj, exc.obj)
@@ -2526,6 +2612,23 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertRaises(TypeError, SyntaxError, "bad bad", args)
 
 
+class TestInvalidExceptionMatcher(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_except_star_invalid_exception_type(self):
+        with self.assertRaises(TypeError):
+            try:
+                raise ValueError
+            except 42:
+                pass
+
+        with self.assertRaises(TypeError):
+            try:
+                raise ValueError
+            except (ValueError, 42):
+                pass
+
+
 class PEP626Tests(unittest.TestCase):
 
     def lineno_after_raise(self, f, *expected):
@@ -2628,7 +2731,7 @@ class PEP626Tests(unittest.TestCase):
         def f():
             1/0
         self.lineno_after_raise(f, 1)
-        f.__code__ = f.__code__.replace(co_linetable=b'\x04\x80\xff\x80')
+        f.__code__ = f.__code__.replace(co_linetable=b'\xf8\xf8\xf8\xf9\xf8\xf8\xf8')
         self.lineno_after_raise(f, None)
 
     def test_lineno_after_raise_in_with_exit(self):
