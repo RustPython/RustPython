@@ -20,8 +20,6 @@ def codec_search_function(encoding):
         return tuple(testcodec.getregentry())
     return None
 
-codecs.register(codec_search_function)
-
 # test codec's name (see test/testcodec.py)
 codecname = 'testcodec'
 
