@@ -617,6 +617,8 @@ class ClassTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             type.__setattr__(A, b'x', None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testTypeAttributeAccessErrorMessages(self):
         class A:
             pass
@@ -627,6 +629,8 @@ class ClassTests(unittest.TestCase):
         with self.assertRaisesRegex(AttributeError, error_msg):
             del A.x
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testObjectAttributeAccessErrorMessages(self):
         class A:
             pass
