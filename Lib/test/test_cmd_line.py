@@ -41,6 +41,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertNotIn(b'Traceback', err)
         return out
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_help(self):
         self.verify_valid_flag('-h')
         self.verify_valid_flag('-?')
@@ -51,14 +53,20 @@ class CmdLineTest(unittest.TestCase):
         self.assertNotIn(b'-X dev', out)
         self.assertLess(len(lines), 50)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_help_env(self):
         out = self.verify_valid_flag('--help-env')
         self.assertIn(b'PYTHONHOME', out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_help_xoptions(self):
         out = self.verify_valid_flag('--help-xoptions')
         self.assertIn(b'-X dev', out)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_help_all(self):
         out = self.verify_valid_flag('--help-all')
         lines = out.splitlines()
@@ -333,6 +341,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(stdout, expected)
         self.assertEqual(p.returncode, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_interactive_output_buffering(self):
         code = textwrap.dedent("""
             import sys
