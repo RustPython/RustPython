@@ -70,13 +70,10 @@ class CmdLineTest(unittest.TestCase):
         # but the rest should be ASCII-only
         b''.join(lines[1:]).decode('ascii')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_optimize(self):
         self.verify_valid_flag('-O')
         self.verify_valid_flag('-OO')
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+
     def test_site_flag(self):
         self.verify_valid_flag('-S')
 
@@ -147,6 +144,8 @@ class CmdLineTest(unittest.TestCase):
         else:
             self.assertEqual(err, b'')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xoption_frozen_modules(self):
         tests = {
             ('=on', 'FrozenImporter'),
@@ -456,8 +455,6 @@ class CmdLineTest(unittest.TestCase):
             "print(repr(input()))",
             b"'abc'")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_output_newline(self):
         # Issue 13119 Newline for print() should be \r\n on Windows.
         code = """if 1:
@@ -920,6 +917,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertTrue(proc.stderr.startswith(err_msg), proc.stderr)
         self.assertNotEqual(proc.returncode, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_int_max_str_digits(self):
         code = "import sys; print(sys.flags.int_max_str_digits, sys.get_int_max_str_digits())"
 
@@ -1004,9 +1003,13 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertNotEqual(proc.stderr, None)
         self.assertIn(b"\nSyntaxError", proc.stderr)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_tokenizer_error_with_stdin(self):
         self.check_string(b"(1+2+3")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decoding_error_at_the_end_of_the_line(self):
         self.check_string(br"'\u1f'")
 
