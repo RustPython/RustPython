@@ -461,30 +461,30 @@ impl PyNumber<'_> {
             let ret = f(self, vm)?;
 
             if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
-                Ok(vm.ctx.new_pyref(ret.as_bigint().to_owned()))
-            } else {
-                let ret_class = ret.clone().class().to_owned();
-                if let Some(ret) = ret.payload_if_subclass::<PyInt>(vm) {
-                    warnings::warn(
-                        vm.ctx.exceptions.deprecation_warning,
-                        format!(
-                            "__int__ returned non-int (type {}).  \
+                return Ok(ret.to_owned());
+            }
+
+            let ret_class = ret.class().to_owned();
+            if let Some(ret) = ret.downcast_ref::<PyInt>() {
+                warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!(
+                        "__int__ returned non-int (type {}).  \
                     The ability to return an instance of a strict subclass of int \
                     is deprecated, and may be removed in a future version of Python.",
-                            ret_class
-                        ),
-                        1,
-                        vm,
-                    )?;
-
-                    Ok(vm.ctx.new_pyref(ret.as_bigint().to_owned()))
-                } else {
-                    Err(vm.new_type_error(format!(
-                        "{}.__int__ returned non-int(type {})",
-                        self.class(),
                         ret_class
-                    )))
-                }
+                    ),
+                    1,
+                    vm,
+                )?;
+
+                Ok(ret.to_owned())
+            } else {
+                Err(vm.new_type_error(format!(
+                    "{}.__int__ returned non-int(type {})",
+                    self.class(),
+                    ret_class
+                )))
             }
         })
     }
@@ -495,30 +495,30 @@ impl PyNumber<'_> {
             let ret = f(self, vm)?;
 
             if let Some(ret) = ret.downcast_ref_if_exact::<PyInt>(vm) {
-                Ok(vm.ctx.new_pyref(ret.as_bigint().to_owned()))
-            } else {
-                let ret_class = ret.clone().class().to_owned();
-                if let Some(ret) = ret.payload_if_subclass::<PyInt>(vm) {
-                    warnings::warn(
-                        vm.ctx.exceptions.deprecation_warning,
-                        format!(
-                            "__index__ returned non-int (type {}).  \
+                return Ok(ret.to_owned());
+            }
+
+            let ret_class = ret.class().to_owned();
+            if let Some(ret) = ret.downcast_ref::<PyInt>() {
+                warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!(
+                        "__index__ returned non-int (type {}).  \
                     The ability to return an instance of a strict subclass of int \
                     is deprecated, and may be removed in a future version of Python.",
-                            ret_class
-                        ),
-                        1,
-                        vm,
-                    )?;
-
-                    Ok(vm.ctx.new_pyref(ret.as_bigint().to_owned()))
-                } else {
-                    Err(vm.new_type_error(format!(
-                        "{}.__index__ returned non-int(type {})",
-                        self.class(),
                         ret_class
-                    )))
-                }
+                    ),
+                    1,
+                    vm,
+                )?;
+
+                Ok(ret.to_owned())
+            } else {
+                Err(vm.new_type_error(format!(
+                    "{}.__index__ returned non-int(type {})",
+                    self.class(),
+                    ret_class
+                )))
             }
         })
     }
@@ -529,30 +529,30 @@ impl PyNumber<'_> {
             let ret = f(self, vm)?;
 
             if let Some(ret) = ret.downcast_ref_if_exact::<PyFloat>(vm) {
-                Ok(vm.ctx.new_pyref(ret.to_f64()))
-            } else {
-                let ret_class = ret.clone().class().to_owned();
-                if let Some(ret) = ret.payload_if_subclass::<PyFloat>(vm) {
-                    warnings::warn(
-                        vm.ctx.exceptions.deprecation_warning,
-                        format!(
-                            "__float__ returned non-float (type {}).  \
+                return Ok(ret.to_owned());
+            }
+
+            let ret_class = ret.class().to_owned();
+            if let Some(ret) = ret.downcast_ref::<PyFloat>() {
+                warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!(
+                        "__float__ returned non-float (type {}).  \
                     The ability to return an instance of a strict subclass of float \
                     is deprecated, and may be removed in a future version of Python.",
-                            ret_class
-                        ),
-                        1,
-                        vm,
-                    )?;
-
-                    Ok(vm.ctx.new_pyref(ret.to_f64()))
-                } else {
-                    Err(vm.new_type_error(format!(
-                        "{}.__float__ returned non-float(type {})",
-                        self.class(),
                         ret_class
-                    )))
-                }
+                    ),
+                    1,
+                    vm,
+                )?;
+
+                Ok(ret.to_owned())
+            } else {
+                Err(vm.new_type_error(format!(
+                    "{}.__float__ returned non-float(type {})",
+                    self.class(),
+                    ret_class
+                )))
             }
         })
     }
