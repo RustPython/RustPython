@@ -116,7 +116,9 @@ class CmdLineTest(unittest.TestCase):
         self.assertIn(printed_file.encode('utf-8'), data)
         self.assertIn(printed_package.encode('utf-8'), data)
         self.assertIn(printed_argv0.encode('utf-8'), data)
-        self.assertIn(printed_path0.encode('utf-8'), data)
+        # PYTHONSAFEPATH=1 changes the default sys.path[0]
+        if not sys.flags.safe_path:
+            self.assertIn(printed_path0.encode('utf-8'), data)
         self.assertIn(printed_cwd.encode('utf-8'), data)
 
     def _check_script(self, script_exec_args, expected_file,
@@ -492,7 +494,6 @@ class CmdLineTest(unittest.TestCase):
                 br'ModuleNotFoundError'),
             ('builtins.x.y', br'Error while finding module specification.*'
                 br'ModuleNotFoundError.*No module named.*not a package'),
-            ('os.path', br'loader.*cannot handle'),
             ('importlib', br'No module named.*'
                 br'is a package and cannot be directly executed'),
             ('importlib.nonexistent', br'No module named'),
@@ -577,8 +578,9 @@ class CmdLineTest(unittest.TestCase):
         # Mac OS X denies the creation of a file with an invalid UTF-8 name.
         # Windows allows creating a name with an arbitrary bytes name, but
         # Python cannot a undecodable bytes argument to a subprocess.
+        # WASI does not permit invalid UTF-8 names.
         if (os_helper.TESTFN_UNDECODABLE
-        and sys.platform not in ('win32', 'darwin')):
+        and sys.platform not in ('win32', 'darwin', 'emscripten', 'wasi')):
             name = os.fsdecode(os_helper.TESTFN_UNDECODABLE)
         elif os_helper.TESTFN_NONASCII:
             name = os_helper.TESTFN_NONASCII
@@ -770,14 +772,27 @@ class CmdLineTest(unittest.TestCase):
         self.assertIn(": can't open file ", err)
         self.assertNotEqual(proc.returncode, 0)
 
-# TODO: RUSTPYTHON
-# def tearDownModule():
-def test_main():
-    support.run_unittest(CmdLineTest)
+    @unittest.skipUnless(os.path.exists('/dev/fd/0'), 'requires /dev/fd platform')
+    @unittest.skipIf(sys.platform.startswith("freebsd") and
+                     os.stat("/dev").st_dev == os.stat("/dev/fd").st_dev,
+                     "Requires fdescfs mounted on /dev/fd on FreeBSD")
+    def test_script_as_dev_fd(self):
+        # GH-87235: On macOS passing a non-trivial script to /dev/fd/N can cause
+        # problems because all open /dev/fd/N file descriptors share the same
+        # offset.
+        script = 'print("12345678912345678912345")'
+        with os_helper.temp_dir() as work_dir:
+            script_name = _make_test_script(work_dir, 'script.py', script)
+            with open(script_name, "r") as fp:
+                p = spawn_python(f"/dev/fd/{fp.fileno()}", close_fds=False, pass_fds=(0,1,2,fp.fileno()))
+                out, err = p.communicate()
+                self.assertEqual(out, b"12345678912345678912345\n")
+
+
+
+def tearDownModule():
     support.reap_children()
 
 
 if __name__ == '__main__':
-    # TODO: RUSTPYTHON
-    # unittest.main()
-    test_main()
+    unittest.main()
