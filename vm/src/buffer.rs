@@ -1,13 +1,12 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
-    common::{static_cell, str::wchar_t},
+    common::{static_cell, str::wchar_t, int::BigInt},
     convert::ToPyObject,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use half::f16;
 use itertools::Itertools;
-use num_bigint::BigInt;
 use num_traits::{PrimInt, ToPrimitive};
 use std::{fmt, iter::Peekable, mem, os::raw};
 

@@ -1,6 +1,6 @@
 use super::argument::OptionalArg;
 use crate::{builtins::PyIntRef, AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
-use num_bigint::BigInt;
+use rustpython_common::int::BigInt;
 use num_complex::Complex64;
 use num_traits::PrimInt;
 use std::ops::Deref;

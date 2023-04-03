@@ -23,6 +23,7 @@ num-traits = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true, optional = true }
 rand = { workspace = true }
+malachite = { workspace = true }
 
 hexf-parse = "0.2.1"
 lexical-parse-float = { version = "0.8.0", features = ["format"] }
@@ -31,6 +32,7 @@ radium = "0.7"
 siphasher = "0.3"
 unic-ucd-category = "0.9"
 volatile = "0.3"
+derive_more = "0.99"
 
 [target.'cfg(windows)'.dependencies]
 widestring = { workspace = true }

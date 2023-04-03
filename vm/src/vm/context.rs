@@ -15,7 +15,7 @@ use crate::{
         PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
-    common::rc::PyRc,
+    common::{lock::PyRwLock, rc::PyRc, int::BigInt},
     exceptions,
     function::{IntoPyGetterFunc, IntoPyNativeFunc, IntoPySetterFunc},
     intern::{InternableString, MaybeInternedString, StringPool},
@@ -23,10 +23,8 @@ use crate::{
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     PyResult, VirtualMachine,
 };
-use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
-use rustpython_common::lock::PyRwLock;
 
 #[derive(Debug)]
 pub struct Context {

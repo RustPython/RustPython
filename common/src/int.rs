@@ -1,18 +1,164 @@
 use bstr::ByteSlice;
-use num_bigint::{BigInt, BigUint, Sign};
+use derive_more::{
+    Add, AddAssign, Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign,
+    Display, Div, DivAssign, From, LowerHex, Mul, MulAssign, Neg, Not, Octal, Product, Rem,
+    RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign, Sum, UpperHex,
+};
+use malachite::{
+    num::conversion::traits::{FromStringBase, OverflowingInto, RoundingInto},
+    Integer, Natural, rounding_modes::RoundingMode,
+};
 use num_traits::{ToPrimitive, Zero};
 
-pub fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
+#[repr(transparent)]
+#[derive(
+    Debug,
+    PartialEq,
+    PartialOrd,
+    Clone,
+    Display,
+    Binary,
+    Octal,
+    LowerHex,
+    UpperHex,
+    From,
+    Not,
+    Neg,
+    Add,
+    Sub,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Mul,
+    Div,
+    Rem,
+    Shr,
+    Shl,
+    Sum,
+    Product,
+    AddAssign,
+    SubAssign,
+    BitAndAssign,
+    BitOrAssign,
+    BitXorAssign,
+    MulAssign,
+    DivAssign,
+    RemAssign,
+    ShlAssign,
+    ShrAssign,
+)]
+#[from(forward)]
+#[mul(forward)]
+#[div(forward)]
+#[rem(forward)]
+#[mul_assign(forward)]
+#[div_assign(forward)]
+#[rem_assign(forward)]
+pub struct BigInt(Integer);
+
+macro_rules! to_primitive_int {
+    ($fn:ident, $ret:ty) => {
+        fn $fn(&self) -> Option<$ret> {
+            match (&self.0).overflowing_into() {
+                (val, false) => Some(val),
+                _ => None,
+            }
+        }
+    };
+}
+
+macro_rules! to_primitive_float {
+    ($fn:ident, $ret:ty) => {
+        fn $fn(&self) -> Option<$ret> {
+            let val: $ret = (&self.0).rounding_into(RoundingMode::Floor);
+            val.is_finite().then_some(val)
+        }
+    };
+}
+
+impl ToPrimitive for BigInt {
+    to_primitive_int!(to_isize, isize);
+    to_primitive_int!(to_i8, i8);
+    to_primitive_int!(to_i16, i16);
+    to_primitive_int!(to_i32, i32);
+    to_primitive_int!(to_i64, i64);
+    #[cfg(has_i128)]
+    to_primitive_int!(to_i128, i128);
+    to_primitive_int!(to_usize, usize);
+    to_primitive_int!(to_u8, u8);
+    to_primitive_int!(to_u16, u16);
+    to_primitive_int!(to_u32, u32);
+    to_primitive_int!(to_u64, u64);
+    #[cfg(has_u128)]
+    to_primitive_int!(to_u128, u128);
+
+    to_primitive_float!(to_f32, f32);
+    to_primitive_float!(to_f64, f64);
+}
+
+// impl TryFrom<f32> for BigInt {
+//     type Error = ();
+
+//     fn try_from(value: f32) -> Result<Self, Self::Error> {
+//         Ok(value.into())
+//     }
+// }
+impl TryFrom<&BigInt> for i8 {
+    type Error = ();
+
+    fn try_from(value: &BigInt) -> Result<Self, Self::Error> {
+        value.to_i8().ok_or(())
+    }
+}
+
+macro_rules! try_to_primitive {
+    ($fn:ident, $ret:ty) => {
+        impl TryFrom<&BigInt> for $ret {
+            type Error = ();
+
+            fn try_from(value: &BigInt) -> Result<Self, Self::Error> {
+                value.$fn().ok_or(())
+            }
+        }
+    };
+}
+
+try_to_primitive!(to_isize, isize);
+try_to_primitive!(to_i16, i16);
+try_to_primitive!(to_i32, i32);
+try_to_primitive!(to_i64, i64);
+try_to_primitive!(to_i128, i128);
+try_to_primitive!(to_usize, usize);
+try_to_primitive!(to_u8, u8);
+try_to_primitive!(to_u16, u16);
+try_to_primitive!(to_u32, u32);
+try_to_primitive!(to_u64, u64);
+try_to_primitive!(to_u128, u128);
+
+impl Zero for BigInt {
+    fn zero() -> Self {
+        Self(<Integer as malachite::num::basic::traits::Zero>::ZERO)
+    }
+
+    fn is_zero(&self) -> bool {
+        self.eq(&Self::zero())
+    }
+}
+
+pub fn bytes_to_int(lit: &[u8], mut base: u8) -> Option<BigInt> {
     // split sign
     let mut lit = lit.trim();
     let sign = match lit.first()? {
-        b'+' => Some(Sign::Plus),
-        b'-' => Some(Sign::Minus),
-        _ => None,
+        b'+' => {
+            lit = &lit[1..];
+            true
+        }
+        b'-' => {
+            lit = &lit[1..];
+            false
+        }
+        _ => true,
     };
-    if sign.is_some() {
-        lit = &lit[1..];
-    }
 
     // split radix
     let first = *lit.first()?;
@@ -94,14 +240,15 @@ pub fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
     let number = if lit.is_empty() {
         BigInt::zero()
     } else {
-        let uint = BigUint::parse_bytes(lit, base)?;
-        BigInt::from_biguint(sign.unwrap_or(Sign::Plus), uint)
+        let s = unsafe { std::str::from_utf8_unchecked(lit) };
+        let uint = Natural::from_string_base(base, s)?;
+        BigInt(Integer::from_sign_and_abs(sign, uint))
     };
     Some(number)
 }
 
 #[inline]
-pub fn detect_base(c: &u8) -> Option<u32> {
+pub fn detect_base(c: &u8) -> Option<u8> {
     let base = match c {
         b'x' | b'X' => 16,
         b'b' | b'B' => 2,
@@ -109,12 +256,6 @@ pub fn detect_base(c: &u8) -> Option<u32> {
         _ => return None,
     };
     Some(base)
-}
-
-// num-bigint now returns Some(inf) for to_f64() in some cases, so just keep that the same for now
-#[inline(always)]
-pub fn bigint_to_finite_float(int: &BigInt) -> Option<f64> {
-    int.to_f64().filter(|f| f.is_finite())
 }
 
 #[test]

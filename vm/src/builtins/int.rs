@@ -6,7 +6,7 @@ use crate::{
     common::{
         format::FormatSpec,
         hash,
-        int::{bigint_to_finite_float, bytes_to_int},
+        int::{bytes_to_int, BigInt},
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
@@ -18,8 +18,6 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
-use num_bigint::{BigInt, Sign};
-use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use std::ops::{Div, Neg};
@@ -218,7 +216,7 @@ impl Constructor for PyInt {
                 let base = base
                     .try_index(vm)?
                     .as_bigint()
-                    .to_u32()
+                    .to_u8()
                     .filter(|&v| v == 0 || (2..=36).contains(&v))
                     .ok_or_else(|| {
                         vm.new_value_error("int() base must be >= 2 and <= 36, or 0".to_owned())
@@ -824,7 +822,7 @@ struct IntToByteArgs {
     signed: OptionalArg<ArgIntoBool>,
 }
 
-fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
+fn try_int_radix(obj: &PyObject, base: u8, vm: &VirtualMachine) -> PyResult<BigInt> {
     debug_assert!(base == 0 || (2..=36).contains(&base));
 
     let opt = match_class!(match obj.to_owned() {
@@ -862,7 +860,7 @@ pub(crate) fn get_value(obj: &PyObject) -> &BigInt {
 }
 
 pub fn try_to_float(int: &BigInt, vm: &VirtualMachine) -> PyResult<f64> {
-    bigint_to_finite_float(int)
+    int.to_f64()
         .ok_or_else(|| vm.new_overflow_error("int too large to convert to float".to_owned()))
 }
 
