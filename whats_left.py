@@ -34,8 +34,9 @@ GENERATED_FILE = "extra_tests/not_impl.py"
 
 implementation = platform.python_implementation()
 if implementation != "CPython":
-    sys.exit("whats_left.py must be run under CPython, got {implementation} instead")
-
+    sys.exit(f"whats_left.py must be run under CPython, got {implementation} instead")
+if sys.version_info[:2] < (3, 11):
+    sys.exit(f"whats_left.py must be run under CPython 3.11 or newer, got {implementation} {sys.version} instead")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Process some integers.")
@@ -483,11 +484,17 @@ for modname, missing in result["missing_items"].items():
 if args.signature:
     print("\n# mismatching signatures (warnings)")
     for modname, mismatched in result["mismatched_items"].items():
-        for (item, rustpy_value, cpython_value) in mismatched:
-            if cpython_value == "ValueError('no signature found')":
-                continue # these items will never match
-
-            print(f"{item} {rustpy_value} != {cpython_value}")
+        for i, (item, rustpy_value, cpython_value) in enumerate(mismatched):
+            if cpython_value and cpython_value.startswith("ValueError("):
+                continue  # these items will never match
+            if rustpy_value is None or rustpy_value.startswith("ValueError("):
+                rustpy_value = f" {rustpy_value}"
+            print(f"{item}{rustpy_value}")
+            if cpython_value is None or cpython_value.startswith("ValueError("):
+                cpython_value = f" {cpython_value}"
+            print(f"{' ' * len(item)}{cpython_value}")
+            if i < len(mismatched) - 1:
+                print()
 
 if args.doc:
     print("\n# mismatching `__doc__`s (warnings)")
