@@ -21,7 +21,7 @@ class ListTest(list_tests.CommonTest):
                          [1, 3, 5, 7, 9])
 
         # XXX RUSTPYTHON TODO: catch ooms
-        if sys.maxsize == 0x7fffffff and False:
+        if sys.maxsize == 0x7fffffff:
             # This test can currently only work on 32-bit machines.
             # XXX If/when PySequence_Length() returns a ssize_t, it should be
             # XXX re-enabled.
@@ -47,6 +47,36 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
             list(sequence=[])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_keywords_in_subclass(self):
+        class subclass(list):
+            pass
+        u = subclass([1, 2])
+        self.assertIs(type(u), subclass)
+        self.assertEqual(list(u), [1, 2])
+        with self.assertRaises(TypeError):
+            subclass(sequence=())
+
+        class subclass_with_init(list):
+            def __init__(self, seq, newarg=None):
+                super().__init__(seq)
+                self.newarg = newarg
+        u = subclass_with_init([1, 2], newarg=3)
+        self.assertIs(type(u), subclass_with_init)
+        self.assertEqual(list(u), [1, 2])
+        self.assertEqual(u.newarg, 3)
+
+        class subclass_with_new(list):
+            def __new__(cls, seq, newarg=None):
+                self = super().__new__(cls, seq)
+                self.newarg = newarg
+                return self
+        u = subclass_with_new([1, 2], newarg=3)
+        self.assertIs(type(u), subclass_with_new)
+        self.assertEqual(list(u), [1, 2])
+        self.assertEqual(u.newarg, 3)
+
     def test_truth(self):
         super().test_truth()
         self.assertTrue(not [])
@@ -68,6 +98,21 @@ class ListTest(list_tests.CommonTest):
         def imul(a, b): a *= b
         self.assertRaises((MemoryError, OverflowError), mul, lst, n)
         self.assertRaises((MemoryError, OverflowError), imul, lst, n)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_list_resize_overflow(self):
+        # gh-97616: test new_allocated * sizeof(PyObject*) overflow
+        # check in list_resize()
+        lst = [0] * 65
+        del lst[1:]
+        self.assertEqual(len(lst), 1)
+
+        size = ((2 ** (tuple.__itemsize__ * 8) - 1) // 2)
+        with self.assertRaises((MemoryError, OverflowError)):
+            lst * size
+        with self.assertRaises((MemoryError, OverflowError)):
+            lst *= size
 
     def test_repr_large(self):
         # Check the repr of large list objects
@@ -229,6 +274,7 @@ class ListTest(list_tests.CommonTest):
         3 in lst
         lst = [X(), X()]
         X() in lst
+
 
 if __name__ == "__main__":
     unittest.main()
