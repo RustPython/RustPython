@@ -230,7 +230,7 @@ impl Representable for PyCode {
     }
 }
 
-#[pyclass(with(Py))]
+#[pyclass(with(Py, Representable))]
 impl PyCode {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -418,18 +418,26 @@ impl PyCode {
     }
 }
 
-#[pyclass]
-impl Py<PyCode> {
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        let code = &self.code;
-        format!(
+#[pyclass(with(Representable))]
+impl Py<PyCode> {}
+
+impl PyPayload for Py<PyCode> {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.code_type
+    }
+}
+
+impl Representable for Py<PyCode> {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let code = &zelf.code;
+        Ok(format!(
             "<code object {} at {:#x} file {:?}, line {}>",
             code.obj_name,
-            self.get_id(),
+            zelf.get_id(),
             code.source_path.as_str(),
             code.first_line_number
-        )
+        ))
     }
 }
 

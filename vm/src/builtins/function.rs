@@ -549,25 +549,11 @@ impl PyBoundMethod {
     }
 }
 
-#[pyclass(with(Callable, Comparable, GetAttr, Constructor), flags(HAS_DICT))]
+#[pyclass(
+    with(Callable, Comparable, GetAttr, Constructor, Representable),
+    flags(HAS_DICT)
+)]
 impl PyBoundMethod {
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        #[allow(clippy::needless_match)] // False positive on nightly
-        let funcname =
-            if let Some(qname) = vm.get_attribute_opt(self.function.clone(), "__qualname__")? {
-                Some(qname)
-            } else {
-                vm.get_attribute_opt(self.function.clone(), "__name__")?
-            };
-        let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
-        Ok(format!(
-            "<bound method {} of {}>",
-            funcname.as_ref().map_or("?", |s| s.as_str()),
-            &self.object.repr(vm)?.as_str(),
-        ))
-    }
-
     #[pymethod(magic)]
     fn reduce(
         &self,
@@ -625,6 +611,25 @@ impl PyBoundMethod {
 impl PyPayload for PyBoundMethod {
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.bound_method_type
+    }
+}
+
+impl Representable for PyBoundMethod {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        #[allow(clippy::needless_match)] // False positive on nightly
+        let funcname =
+            if let Some(qname) = vm.get_attribute_opt(zelf.function.clone(), "__qualname__")? {
+                Some(qname)
+            } else {
+                vm.get_attribute_opt(zelf.function.clone(), "__name__")?
+            };
+        let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
+        Ok(format!(
+            "<bound method {} of {}>",
+            funcname.as_ref().map_or("?", |s| s.as_str()),
+            &zelf.object.repr(vm)?.as_str(),
+        ))
     }
 }
 

@@ -28,9 +28,9 @@ pub mod module {
             errno_err, DirFd, FollowSymlinks, OsPath, OsPathOrFd, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
         },
-        types::Constructor,
+        types::{Constructor, Representable},
         utils::ToCString,
-        AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use bitflags::bitflags;
     use nix::{
@@ -540,20 +540,11 @@ pub mod module {
         }
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor, Representable))]
     impl SchedParam {
         #[pygetset]
         fn sched_priority(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.sched_priority.clone().to_pyobject(vm)
-        }
-
-        #[pymethod(magic)]
-        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let sched_priority_repr = self.sched_priority.repr(vm)?;
-            Ok(format!(
-                "posix.sched_param(sched_priority = {})",
-                sched_priority_repr.as_str()
-            ))
         }
 
         #[cfg(any(
@@ -588,6 +579,17 @@ pub mod module {
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
+        }
+    }
+
+    impl Representable for SchedParam {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let sched_priority_repr = zelf.sched_priority.repr(vm)?;
+            Ok(format!(
+                "posix.sched_param(sched_priority = {})",
+                sched_priority_repr.as_str()
+            ))
         }
     }
 

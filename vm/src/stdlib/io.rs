@@ -12,6 +12,7 @@ cfg_if::cfg_if! {
 use crate::{
     builtins::PyBaseExceptionRef,
     convert::{IntoPyException, ToPyException, ToPyObject},
+    types::Representable,
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 pub use _io::io_open as open;
@@ -1525,19 +1526,6 @@ mod _io {
             vm.call_method(self.lock(vm)?.check_init(vm)?, "isatty", ())
         }
 
-        #[pymethod(magic)]
-        fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            let name_repr = repr_fileobj_name(&zelf, vm)?;
-            let cls = zelf.class();
-            let slot_name = cls.slot_name();
-            let repr = if let Some(name_repr) = name_repr {
-                format!("<{slot_name} name={name_repr}>")
-            } else {
-                format!("<{slot_name}>")
-            };
-            Ok(repr)
-        }
-
         fn close_strict(&self, vm: &VirtualMachine) -> PyResult {
             let mut data = self.lock(vm)?;
             let raw = data.check_init(vm)?;
@@ -1684,12 +1672,27 @@ mod _io {
     }
 
     #[pyclass(
-        with(DefaultConstructor, BufferedMixin, BufferedReadable),
+        with(DefaultConstructor, BufferedMixin, BufferedReadable, Representable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedReader {}
 
     impl DefaultConstructor for BufferedReader {}
+
+    impl Representable for BufferedReader {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
+            let cls = zelf.class();
+            let slot_name = cls.slot_name();
+            let repr = if let Some(name_repr) = name_repr {
+                format!("<{slot_name} name={name_repr}>")
+            } else {
+                format!("<{slot_name}>")
+            };
+            Ok(repr)
+        }
+    }
 
     #[pyclass]
     trait BufferedWritable: PyPayload {
@@ -1734,12 +1737,27 @@ mod _io {
     }
 
     #[pyclass(
-        with(DefaultConstructor, BufferedMixin, BufferedWritable),
+        with(DefaultConstructor, BufferedMixin, BufferedWritable, Representable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedWriter {}
 
     impl DefaultConstructor for BufferedWriter {}
+
+    impl Representable for BufferedWriter {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
+            let cls = zelf.class();
+            let slot_name = cls.slot_name();
+            let repr = if let Some(name_repr) = name_repr {
+                format!("<{slot_name} name={name_repr}>")
+            } else {
+                format!("<{slot_name}>")
+            };
+            Ok(repr)
+        }
+    }
 
     #[pyattr]
     #[pyclass(name = "BufferedRandom", base = "_BufferedIOBase")]
@@ -1770,12 +1788,33 @@ mod _io {
     }
 
     #[pyclass(
-        with(DefaultConstructor, BufferedMixin, BufferedReadable, BufferedWritable),
+        with(
+            DefaultConstructor,
+            BufferedMixin,
+            BufferedReadable,
+            BufferedWritable,
+            Representable
+        ),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedRandom {}
 
     impl DefaultConstructor for BufferedRandom {}
+
+    impl Representable for BufferedRandom {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
+            let cls = zelf.class();
+            let slot_name = cls.slot_name();
+            let repr = if let Some(name_repr) = name_repr {
+                format!("<{slot_name} name={name_repr}>")
+            } else {
+                format!("<{slot_name}>")
+            };
+            Ok(repr)
+        }
+    }
 
     #[pyattr]
     #[pyclass(name = "BufferedRWPair", base = "_BufferedIOBase")]
@@ -3709,8 +3748,8 @@ mod fileio {
         convert::ToPyException,
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
         stdlib::os,
-        types::{DefaultConstructor, Initializer},
-        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        types::{DefaultConstructor, Initializer, Representable},
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
@@ -3896,7 +3935,29 @@ mod fileio {
         }
     }
 
-    #[pyclass(with(DefaultConstructor, Initializer), flags(BASETYPE, HAS_DICT))]
+    impl Representable for FileIO {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let fd = zelf.fd.load();
+            if fd < 0 {
+                return Ok("<_io.FileIO [closed]>".to_owned());
+            }
+            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
+            let mode = zelf.mode();
+            let closefd = if zelf.closefd.load() { "True" } else { "False" };
+            let repr = if let Some(name_repr) = name_repr {
+                format!("<_io.FileIO name={name_repr} mode='{mode}' closefd={closefd}>")
+            } else {
+                format!("<_io.FileIO fd={fd} mode='{mode}' closefd={closefd}>")
+            };
+            Ok(repr)
+        }
+    }
+
+    #[pyclass(
+        with(DefaultConstructor, Initializer, Representable),
+        flags(BASETYPE, HAS_DICT)
+    )]
     impl FileIO {
         #[pygetset]
         fn closed(&self) -> bool {
@@ -3954,23 +4015,6 @@ mod fileio {
             } else {
                 "wb"
             }
-        }
-
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let fd = zelf.fd.load();
-            if fd < 0 {
-                return Ok("<_io.FileIO [closed]>".to_owned());
-            }
-            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
-            let mode = zelf.mode();
-            let closefd = if zelf.closefd.load() { "True" } else { "False" };
-            let repr = if let Some(name_repr) = name_repr {
-                format!("<_io.FileIO name={name_repr} mode='{mode}' closefd={closefd}>")
-            } else {
-                format!("<_io.FileIO fd={fd} mode='{mode}' closefd={closefd}>")
-            };
-            Ok(repr)
         }
 
         #[pymethod]

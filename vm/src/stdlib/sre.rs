@@ -13,9 +13,9 @@ mod _sre {
         function::{ArgCallable, OptionalArg, PosArgs, PyComparisonValue},
         protocol::{PyBuffer, PyMappingMethods},
         stdlib::sys,
-        types::{AsMapping, Comparable, Hashable},
-        PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, TryFromObject,
-        VirtualMachine,
+        types::{AsMapping, Comparable, Hashable, Representable},
+        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+        TryFromObject, VirtualMachine,
     };
     use core::str;
     use crossbeam_utils::atomic::AtomicCell;
@@ -151,7 +151,7 @@ mod _sre {
         };
     }
 
-    #[pyclass(with(Hashable, Comparable))]
+    #[pyclass(with(Hashable, Comparable, Representable))]
     impl Pattern {
         fn with_str<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
         where
@@ -336,51 +336,6 @@ mod _sre {
             })
         }
 
-        #[pymethod(magic)]
-        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let flag_names = [
-                ("re.TEMPLATE", SreFlag::TEMPLATE),
-                ("re.IGNORECASE", SreFlag::IGNORECASE),
-                ("re.LOCALE", SreFlag::LOCALE),
-                ("re.MULTILINE", SreFlag::MULTILINE),
-                ("re.DOTALL", SreFlag::DOTALL),
-                ("re.UNICODE", SreFlag::UNICODE),
-                ("re.VERBOSE", SreFlag::VERBOSE),
-                ("re.DEBUG", SreFlag::DEBUG),
-                ("re.ASCII", SreFlag::ASCII),
-            ];
-
-            /* Omit re.UNICODE for valid string patterns. */
-            let mut flags = self.flags;
-            if !self.isbytes
-                && (flags & (SreFlag::LOCALE | SreFlag::UNICODE | SreFlag::ASCII))
-                    == SreFlag::UNICODE
-            {
-                flags &= !SreFlag::UNICODE;
-            }
-
-            let flags = flag_names
-                .iter()
-                .filter(|(_, flag)| flags.contains(*flag))
-                .map(|(name, _)| name)
-                .join("|");
-
-            let pattern = self.pattern.repr(vm)?;
-            let truncated: String;
-            let s = if pattern.char_len() > 200 {
-                truncated = pattern.as_str().chars().take(200).collect();
-                &truncated
-            } else {
-                pattern.as_str()
-            };
-
-            if flags.is_empty() {
-                Ok(format!("re.compile({s})"))
-            } else {
-                Ok(format!("re.compile({s}, {flags})"))
-            }
-        }
-
         #[pygetset]
         fn flags(&self) -> u16 {
             self.flags.bits()
@@ -512,6 +467,53 @@ mod _sre {
         }
     }
 
+    impl Representable for Pattern {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let flag_names = [
+                ("re.TEMPLATE", SreFlag::TEMPLATE),
+                ("re.IGNORECASE", SreFlag::IGNORECASE),
+                ("re.LOCALE", SreFlag::LOCALE),
+                ("re.MULTILINE", SreFlag::MULTILINE),
+                ("re.DOTALL", SreFlag::DOTALL),
+                ("re.UNICODE", SreFlag::UNICODE),
+                ("re.VERBOSE", SreFlag::VERBOSE),
+                ("re.DEBUG", SreFlag::DEBUG),
+                ("re.ASCII", SreFlag::ASCII),
+            ];
+
+            /* Omit re.UNICODE for valid string patterns. */
+            let mut flags = zelf.flags;
+            if !zelf.isbytes
+                && (flags & (SreFlag::LOCALE | SreFlag::UNICODE | SreFlag::ASCII))
+                    == SreFlag::UNICODE
+            {
+                flags &= !SreFlag::UNICODE;
+            }
+
+            let flags = flag_names
+                .iter()
+                .filter(|(_, flag)| flags.contains(*flag))
+                .map(|(name, _)| name)
+                .join("|");
+
+            let pattern = zelf.pattern.repr(vm)?;
+            let truncated: String;
+            let s = if pattern.char_len() > 200 {
+                truncated = pattern.as_str().chars().take(200).collect();
+                &truncated
+            } else {
+                pattern.as_str()
+            };
+
+            if flags.is_empty() {
+                Ok(format!("re.compile({s})"))
+            } else {
+                Ok(format!("re.compile({s}, {flags})"))
+            }
+        }
+    }
+
     #[pyattr]
     #[pyclass(name = "Match")]
     #[derive(Debug, PyPayload)]
@@ -524,7 +526,7 @@ mod _sre {
         regs: Vec<(isize, isize)>,
     }
 
-    #[pyclass(with(AsMapping))]
+    #[pyclass(with(AsMapping, Representable))]
     impl Match {
         pub(crate) fn new<S: StrDrive>(
             state: &State<S>,
@@ -703,18 +705,6 @@ mod _sre {
             })
         }
 
-        #[pymethod(magic)]
-        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            with_sre_str!(self.pattern, &self.string, vm, |str_drive| {
-                Ok(format!(
-                    "<re.Match object; span=({}, {}), match={}>",
-                    self.regs[0].0,
-                    self.regs[0].1,
-                    self.get_slice(0, str_drive, vm).unwrap().repr(vm)?
-                ))
-            })
-        }
-
         fn get_index(&self, group: PyObjectRef, vm: &VirtualMachine) -> Option<usize> {
             let i = if let Ok(i) = group.try_index(vm) {
                 i
@@ -765,6 +755,20 @@ mod _sre {
                     ..PyMappingMethods::NOT_IMPLEMENTED
                 });
             &AS_MAPPING
+        }
+    }
+
+    impl Representable for Match {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            with_sre_str!(zelf.pattern, &zelf.string, vm, |str_drive| {
+                Ok(format!(
+                    "<re.Match object; span=({}, {}), match={}>",
+                    zelf.regs[0].0,
+                    zelf.regs[0].1,
+                    zelf.get_slice(0, str_drive, vm).unwrap().repr(vm)?
+                ))
+            })
         }
     }
 

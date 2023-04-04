@@ -244,6 +244,7 @@ impl Comparable for PySlice {
         Ok(PyComparisonValue::Implemented(ret))
     }
 }
+
 impl Representable for PySlice {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
