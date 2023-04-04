@@ -2171,6 +2171,7 @@ dependencies = [
  "malachite",
  "num-bigint",
  "num-complex",
+ "num-integer",
  "num-traits",
  "once_cell",
  "parking_lot",

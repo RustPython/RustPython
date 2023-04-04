@@ -20,6 +20,7 @@ use crate::{
 };
 use num_rational::Ratio;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
+use num_integer::Integer;
 use std::ops::{Div, Neg};
 use std::{fmt, ops::Not};
 
@@ -150,7 +151,7 @@ fn inner_lshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
     inner_shift(
         base,
         bits,
-        |base, bits| base << bits,
+        |base, bits| base.clone() << bits,
         |bits, vm| {
             bits.to_usize().ok_or_else(|| {
                 vm.new_overflow_error("the number is too large to convert to int".to_owned())
@@ -164,7 +165,7 @@ fn inner_rshift(base: &BigInt, bits: &BigInt, vm: &VirtualMachine) -> PyResult {
     inner_shift(
         base,
         bits,
-        |base, bits| base >> bits,
+        |base, bits| base.clone() >> bits,
         |bits, _vm| Ok(bits.to_usize().unwrap_or(usize::MAX)),
         vm,
     )

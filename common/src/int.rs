@@ -1,19 +1,31 @@
+use std::{
+    cmp::Ordering,
+    ops::{
+        Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Div,
+        DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Sub, SubAssign,
+    },
+};
+
 use bstr::ByteSlice;
 use derive_more::{
-    Add, AddAssign, Binary, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign,
-    Display, Div, DivAssign, From, LowerHex, Mul, MulAssign, Neg, Not, Octal, Product, Rem,
-    RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub, SubAssign, Sum, UpperHex,
+    Binary, Display, From, LowerHex, Octal, Product, Shl, ShlAssign, Shr, ShrAssign, Sum, UpperHex,
 };
 use malachite::{
-    num::conversion::traits::{FromStringBase, OverflowingInto, RoundingInto},
-    Integer, Natural, rounding_modes::RoundingMode,
+    num::{
+        arithmetic::traits::{Abs, Sign, Parity, Mod},
+        conversion::traits::{FromStringBase, OverflowingInto, RoundingInto},
+    },
+    rounding_modes::RoundingMode,
+    Integer, Natural,
 };
-use num_traits::{ToPrimitive, Zero};
+use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
 #[repr(transparent)]
 #[derive(
     Debug,
+    Eq,
     PartialEq,
+    Ord,
     PartialOrd,
     Clone,
     Display,
@@ -22,44 +34,20 @@ use num_traits::{ToPrimitive, Zero};
     LowerHex,
     UpperHex,
     From,
-    Not,
-    Neg,
-    Add,
-    Sub,
-    BitAnd,
-    BitOr,
-    BitXor,
-    Mul,
-    Div,
-    Rem,
     Shr,
     Shl,
     Sum,
     Product,
-    AddAssign,
-    SubAssign,
-    BitAndAssign,
-    BitOrAssign,
-    BitXorAssign,
-    MulAssign,
-    DivAssign,
-    RemAssign,
     ShlAssign,
     ShrAssign,
 )]
 #[from(forward)]
-#[mul(forward)]
-#[div(forward)]
-#[rem(forward)]
-#[mul_assign(forward)]
-#[div_assign(forward)]
-#[rem_assign(forward)]
 pub struct BigInt(Integer);
 
 macro_rules! to_primitive_int {
     ($fn:ident, $ret:ty) => {
         fn $fn(&self) -> Option<$ret> {
-            match (&self.0).overflowing_into() {
+            match self.inner().overflowing_into() {
                 (val, false) => Some(val),
                 _ => None,
             }
@@ -70,7 +58,7 @@ macro_rules! to_primitive_int {
 macro_rules! to_primitive_float {
     ($fn:ident, $ret:ty) => {
         fn $fn(&self) -> Option<$ret> {
-            let val: $ret = (&self.0).rounding_into(RoundingMode::Floor);
+            let val: $ret = self.inner().rounding_into(RoundingMode::Floor);
             val.is_finite().then_some(val)
         }
     };
@@ -82,33 +70,16 @@ impl ToPrimitive for BigInt {
     to_primitive_int!(to_i16, i16);
     to_primitive_int!(to_i32, i32);
     to_primitive_int!(to_i64, i64);
-    #[cfg(has_i128)]
     to_primitive_int!(to_i128, i128);
     to_primitive_int!(to_usize, usize);
     to_primitive_int!(to_u8, u8);
     to_primitive_int!(to_u16, u16);
     to_primitive_int!(to_u32, u32);
     to_primitive_int!(to_u64, u64);
-    #[cfg(has_u128)]
     to_primitive_int!(to_u128, u128);
 
     to_primitive_float!(to_f32, f32);
     to_primitive_float!(to_f64, f64);
-}
-
-// impl TryFrom<f32> for BigInt {
-//     type Error = ();
-
-//     fn try_from(value: f32) -> Result<Self, Self::Error> {
-//         Ok(value.into())
-//     }
-// }
-impl TryFrom<&BigInt> for i8 {
-    type Error = ();
-
-    fn try_from(value: &BigInt) -> Result<Self, Self::Error> {
-        value.to_i8().ok_or(())
-    }
 }
 
 macro_rules! try_to_primitive {
@@ -124,6 +95,7 @@ macro_rules! try_to_primitive {
 }
 
 try_to_primitive!(to_isize, isize);
+try_to_primitive!(to_i8, i8);
 try_to_primitive!(to_i16, i16);
 try_to_primitive!(to_i32, i32);
 try_to_primitive!(to_i64, i64);
@@ -135,14 +107,300 @@ try_to_primitive!(to_u32, u32);
 try_to_primitive!(to_u64, u64);
 try_to_primitive!(to_u128, u128);
 
+macro_rules! impl_unary_op {
+    ($trait:tt, $fn:ident) => {
+        impl $trait for BigInt {
+            type Output = BigInt;
+            #[inline(always)]
+            fn $fn(self) -> BigInt {
+                BigInt(self.0.$fn())
+            }
+        }
+        impl $trait for &BigInt {
+            type Output = BigInt;
+            #[inline(always)]
+            fn $fn(self) -> BigInt {
+                BigInt(self.inner().$fn())
+            }
+        }
+    };
+}
+
+impl_unary_op!(Neg, neg);
+impl_unary_op!(Not, not);
+
+macro_rules! impl_binary_op {
+    ($trait:tt, $fn:ident) => {
+        impl_binary_op!($trait, $fn, $trait::$fn);
+    };
+    ($trait:tt, $fn:ident, $innerfn:path) => {
+        impl $trait<BigInt> for BigInt {
+            type Output = BigInt;
+            #[inline(always)]
+            fn $fn(self, rhs: BigInt) -> BigInt {
+                BigInt($innerfn(self.0, rhs.0))
+            }
+        }
+        impl $trait<&BigInt> for BigInt {
+            type Output = BigInt;
+            #[inline(always)]
+            fn $fn(self, rhs: &BigInt) -> BigInt {
+                BigInt($innerfn(self.0, rhs.inner()))
+            }
+        }
+        impl $trait<BigInt> for &BigInt {
+            type Output = BigInt;
+            #[inline(always)]
+            fn $fn(self, rhs: BigInt) -> BigInt {
+                BigInt($innerfn(self.inner(), rhs.0))
+            }
+        }
+        impl $trait<&BigInt> for &BigInt {
+            type Output = BigInt;
+            #[inline(always)]
+            fn $fn(self, rhs: &BigInt) -> BigInt {
+                BigInt($innerfn(self.inner(), rhs.inner()))
+            }
+        }
+    };
+}
+
+impl_binary_op!(Add, add);
+impl_binary_op!(Sub, sub);
+impl_binary_op!(BitAnd, bitand);
+impl_binary_op!(BitOr, bitor);
+impl_binary_op!(BitXor, bitxor);
+impl_binary_op!(Mul, mul);
+impl_binary_op!(Div, div);
+impl_binary_op!(Rem, rem);
+
+macro_rules! impl_assign_op {
+    ($trait:tt, $fn:ident) => {
+        impl $trait for BigInt {
+            fn $fn(&mut self, rhs: BigInt) {
+                self.0.$fn(rhs.0)
+            }
+        }
+        impl $trait<&BigInt> for BigInt {
+            fn $fn(&mut self, rhs: &BigInt) {
+                self.0.$fn(rhs.inner())
+            }
+        }
+    };
+}
+
+impl_assign_op!(AddAssign, add_assign);
+impl_assign_op!(SubAssign, sub_assign);
+impl_assign_op!(BitAndAssign, bitand_assign);
+impl_assign_op!(BitOrAssign, bitor_assign);
+impl_assign_op!(BitXorAssign, bitxor_assign);
+impl_assign_op!(MulAssign, mul_assign);
+impl_assign_op!(DivAssign, div_assign);
+impl_assign_op!(RemAssign, rem_assign);
+
 impl Zero for BigInt {
     fn zero() -> Self {
         Self(<Integer as malachite::num::basic::traits::Zero>::ZERO)
     }
 
     fn is_zero(&self) -> bool {
-        self.eq(&Self::zero())
+        *self == Self::zero()
     }
+}
+
+impl One for BigInt {
+    fn one() -> Self {
+        Self(<Integer as malachite::num::basic::traits::One>::ONE)
+    }
+}
+
+impl Num for BigInt {
+    type FromStrRadixErr = ();
+
+    fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
+        debug_assert!(radix <= 16);
+        Integer::from_string_base(radix as u8, str)
+            .map(|x| Self(x))
+            .ok_or(())
+    }
+}
+
+impl Signed for BigInt {
+    fn abs(&self) -> Self {
+        Self(self.inner().abs())
+    }
+
+    fn abs_sub(&self, other: &Self) -> Self {
+        if self <= other {
+            Self::zero()
+        } else {
+            self - other
+        }
+    }
+
+    fn signum(&self) -> Self {
+        match self.0.sign() {
+            Ordering::Less => {
+                Self(<Integer as malachite::num::basic::traits::NegativeOne>::NEGATIVE_ONE)
+            }
+            Ordering::Equal => Self::zero(),
+            Ordering::Greater => Self::one(),
+        }
+    }
+
+    fn is_positive(&self) -> bool {
+        self.0.sign() == Ordering::Greater
+    }
+
+    fn is_negative(&self) -> bool {
+        self.0.sign() == Ordering::Less
+    }
+}
+
+impl Pow<u64> for BigInt {
+    type Output = BigInt;
+
+    fn pow(self, rhs: u64) -> Self::Output {
+        BigInt(<Integer as malachite::num::arithmetic::traits::Pow<u64>>::pow(self.0, rhs))
+    }
+}
+impl Pow<u64> for &BigInt {
+    type Output = BigInt;
+
+    fn pow(self, rhs: u64) -> Self::Output {
+        BigInt(<&Integer as malachite::num::arithmetic::traits::Pow<u64>>::pow(self.inner(), rhs))
+    }
+}
+
+impl num_integer::Integer for BigInt {
+    fn div_floor(&self, other: &Self) -> Self {
+        Self(self.inner().div(other.inner()))
+    }
+
+    fn mod_floor(&self, other: &Self) -> Self {
+        Self(self.inner().mod_op(other.inner()))
+    }
+
+    fn gcd(&self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn lcm(&self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn divides(&self, other: &Self) -> bool {
+        todo!()
+    }
+
+    fn is_multiple_of(&self, other: &Self) -> bool {
+        todo!()
+    }
+
+    fn is_even(&self) -> bool {
+        self.0.even()
+    }
+
+    fn is_odd(&self) -> bool {
+        self.0.odd()
+    }
+
+    fn div_rem(&self, other: &Self) -> (Self, Self) {
+        todo!()
+    }
+
+    fn div_ceil(&self, other: &Self) -> Self {
+        let (q, r) = self.div_mod_floor(other);
+        if r.is_zero() {
+            q
+        } else {
+            q + Self::one()
+        }
+    }
+
+    fn gcd_lcm(&self, other: &Self) -> (Self, Self) {
+        (self.gcd(other), self.lcm(other))
+    }
+
+    fn extended_gcd(&self, other: &Self) -> num_integer::ExtendedGcd<Self>
+    where
+        Self: Clone,
+    {
+        let mut s = (Self::zero(), Self::one());
+        let mut t = (Self::one(), Self::zero());
+        let mut r = (other.clone(), self.clone());
+
+        while !r.0.is_zero() {
+            let q = r.1.clone() / r.0.clone();
+            let f = |mut r: (Self, Self)| {
+                std::mem::swap(&mut r.0, &mut r.1);
+                r.0 = r.0 - q.clone() * r.1.clone();
+                r
+            };
+            r = f(r);
+            s = f(s);
+            t = f(t);
+        }
+
+        if r.1 >= Self::zero() {
+            num_integer::ExtendedGcd {
+                gcd: r.1,
+                x: s.1,
+                y: t.1,
+            }
+        } else {
+            num_integer::ExtendedGcd {
+                gcd: Self::zero() - r.1,
+                x: Self::zero() - s.1,
+                y: Self::zero() - t.1,
+            }
+        }
+    }
+
+    fn extended_gcd_lcm(&self, other: &Self) -> (num_integer::ExtendedGcd<Self>, Self)
+    where
+        Self: Clone + Signed,
+    {
+        (self.extended_gcd(other), self.lcm(other))
+    }
+
+    fn div_mod_floor(&self, other: &Self) -> (Self, Self) {
+        (self.div_floor(other), self.mod_floor(other))
+    }
+
+    fn next_multiple_of(&self, other: &Self) -> Self
+    where
+        Self: Clone,
+    {
+        let m = self.mod_floor(other);
+        self.clone()
+            + if m.is_zero() {
+                Self::zero()
+            } else {
+                other.clone() - m
+            }
+    }
+
+    fn prev_multiple_of(&self, other: &Self) -> Self
+    where
+        Self: Clone,
+    {
+        self.clone() - self.mod_floor(other)
+    }
+}
+
+impl BigInt {
+    fn inner(&self) -> &Integer {
+        &self.0
+    }
+
+    // pub fn is_odd(&self) -> bool {
+    //     self.0.odd()
+    // }
+
+    // pub fn is_even(&self) -> bool {
+    //     self.0.even()
+    // }
 }
 
 pub fn bytes_to_int(lit: &[u8], mut base: u8) -> Option<BigInt> {
