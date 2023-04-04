@@ -2328,7 +2328,6 @@ class SubclassWithKwargsTest(unittest.TestCase):
                 with self.assertRaises(TypeError):
                     subclass(*args, newarg=3)
 
-
         for cls, args, result in testcases:
             # Constructors of repeat, zip, compress accept keyword arguments.
             # Their subclasses need overriding __new__ to support new
