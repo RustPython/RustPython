@@ -459,6 +459,8 @@ class CmdLineTest(unittest.TestCase):
             "import sys; print(repr(sys.stdin.readline()))",
             b"'abc\\n'")
 
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform.startswith('win'), "TODO: RUSTPYTHON windows has \n troubles")
     def test_builtin_input(self):
         # Issue #11272: check that input() strips newlines ('\n' or '\r\n')
         self.check_input(
