@@ -753,7 +753,7 @@ impl ExceptionZoo {
         extend_exception!(PyLookupError, ctx, excs.lookup_error);
         extend_exception!(PyIndexError, ctx, excs.index_error);
         extend_exception!(PyKeyError, ctx, excs.key_error, {
-            "__str__" => ctx.new_method("__str__", excs.key_error, key_error_str),
+            "__str__" => ctx.new_method(identifier!(ctx, __str__), excs.key_error, key_error_str),
         });
 
         extend_exception!(PyMemoryError, ctx, excs.memory_error);
@@ -786,8 +786,8 @@ impl ExceptionZoo {
             "filename" => ctx.none(),
             // second exception filename
             "filename2" => ctx.none(),
-            "__str__" => ctx.new_method("__str__", excs.os_error, os_error_str),
-            "__reduce__" => ctx.new_method("__reduce__", excs.os_error, os_error_reduce),
+            "__str__" => ctx.new_method(identifier!(ctx, __str__), excs.os_error, os_error_str),
+            "__reduce__" => ctx.new_method(identifier!(ctx, __reduce__), excs.os_error, os_error_reduce),
         });
         // TODO: this isn't really accurate
         #[cfg(windows)]

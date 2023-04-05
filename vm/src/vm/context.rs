@@ -288,8 +288,7 @@ impl Context {
         let names = unsafe { ConstName::new(&string_pool, &types.str_type.to_owned()) };
 
         let slot_new_wrapper = create_object(
-            PyNativeFuncDef::new(PyType::__new__.into_func(), names.__new__.to_owned())
-                .into_function(),
+            PyNativeFuncDef::new(PyType::__new__.into_func(), names.__new__).into_function(),
             types.builtin_function_or_method_type,
         )
         .into();
@@ -491,11 +490,11 @@ impl Context {
     }
 
     #[inline]
-    pub fn make_func_def<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyNativeFuncDef
+    pub fn make_func_def<F, FKind>(&self, name: &'static PyStrInterned, f: F) -> PyNativeFuncDef
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        PyNativeFuncDef::new(f.into_func(), PyStr::new_ref(name, self))
+        PyNativeFuncDef::new(f.into_func(), name)
     }
 
     #[inline]
@@ -531,16 +530,17 @@ impl Context {
     }
 
     // #[deprecated]
-    pub fn new_function<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyRef<PyBuiltinFunction>
+    pub fn new_function<F, FKind>(&self, name: &str, f: F) -> PyRef<PyBuiltinFunction>
     where
         F: IntoPyNativeFunc<FKind>,
     {
-        self.make_func_def(name, f).build_function(self)
+        self.make_func_def(self.intern_str(name), f)
+            .build_function(self)
     }
 
     pub fn new_method<F, FKind>(
         &self,
-        name: impl Into<PyStr>,
+        name: &'static PyStrInterned,
         class: &'static Py<PyType>,
         f: F,
     ) -> PyRef<PyBuiltinMethod>

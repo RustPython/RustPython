@@ -30,13 +30,13 @@ pub fn make_stdout_object(
         {}
     ));
     let write_method = ctx.new_method(
-        "write",
+        ctx.intern_str("write"),
         cls,
         move |_self: PyObjectRef, data: PyStrRef, vm: &VirtualMachine| -> PyResult<()> {
             write_f(data.as_str(), vm)
         },
     );
-    let flush_method = ctx.new_method("flush", cls, |_self: PyObjectRef| {});
+    let flush_method = ctx.new_method(ctx.intern_str("flush"), cls, |_self: PyObjectRef| {});
     extend_class!(ctx, cls, {
         "write" => write_method,
         "flush" => flush_method,

@@ -1,4 +1,4 @@
-use super::{PyStr, PyType, PyTypeRef};
+use super::{PyStr, PyStrInterned, PyType, PyTypeRef};
 use crate::{
     builtins::builtin_func::PyBuiltinMethod,
     class::PyClassImpl,
@@ -75,7 +75,7 @@ impl PyStaticMethod {
 
 impl PyStaticMethod {
     pub fn new_builtin_ref<F, FKind>(
-        name: impl Into<PyStr>,
+        name: &'static PyStrInterned,
         class: &'static Py<PyType>,
         f: F,
         ctx: &Context,

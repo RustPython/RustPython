@@ -629,7 +629,7 @@ where
                 quote_spanned! { ident.span() =>
                     class.set_attr(
                         ctx.names.#name_ident,
-                        ctx.make_func_def(#py_name, Self::#ident)
+                        ctx.make_func_def(ctx.intern_str(#py_name), Self::#ident)
                             #doc
                             #build_func
                         .into(),
@@ -639,7 +639,7 @@ where
                 quote_spanned! { ident.span() =>
                     class.set_str_attr(
                         #py_name,
-                        ctx.make_func_def(#py_name, Self::#ident)
+                        ctx.make_func_def(ctx.intern_str(#py_name), Self::#ident)
                             #doc
                             #build_func,
                         ctx,
