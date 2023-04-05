@@ -567,28 +567,22 @@ impl PyType {
             }
             _ if name == identifier!(ctx, __pow__) => {
                 toggle_subslot!(as_number, power, |a, b, c, vm| {
-                    if vm.is_none(c) {
-                        vm.call_special_method(a, identifier!(vm, __pow__), (b.to_owned(),))
+                    let args = if vm.is_none(c) {
+                        vec![b.to_owned()]
                     } else {
-                        vm.call_special_method(
-                            a,
-                            identifier!(vm, __pow__),
-                            (b.to_owned(), c.to_owned()),
-                        )
-                    }
+                        vec![b.to_owned(), c.to_owned()]
+                    };
+                    vm.call_special_method(a, identifier!(vm, __pow__), args)
                 });
             }
             _ if name == identifier!(ctx, __rpow__) => {
                 toggle_subslot!(as_number, right_power, |a, b, c, vm| {
-                    if vm.is_none(c) {
-                        vm.call_special_method(b, identifier!(vm, __rpow__), (a.to_owned(),))
+                    let args = if vm.is_none(c) {
+                        vec![a.to_owned()]
                     } else {
-                        vm.call_special_method(
-                            b,
-                            identifier!(vm, __rpow__),
-                            (a.to_owned(), c.to_owned()),
-                        )
-                    }
+                        vec![a.to_owned(), c.to_owned()]
+                    };
+                    vm.call_special_method(b, identifier!(vm, __rpow__), args)
                 });
             }
             _ if name == identifier!(ctx, __ipow__) => {

@@ -554,8 +554,7 @@ impl AsNumber for PyFloat {
                     PyFloat::number_op(a, b, float_pow, vm)
                 } else {
                     Err(vm.new_type_error(String::from(
-                        "pow() 3rd argument not \\
-                    allowed unless all arguments are integers",
+                        "pow() 3rd argument not allowed unless all arguments are integers",
                     )))
                 }
             }),

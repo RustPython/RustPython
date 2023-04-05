@@ -621,10 +621,8 @@ mod builtins {
             exp: y,
             modulus,
         } = args;
-        match modulus {
-            None => vm._pow(&x, &y, vm.ctx.none.as_object()),
-            Some(z) => vm._pow(&x, &y, &z),
-        }
+        let modulus = modulus.as_ref().map_or(vm.ctx.none.as_object(), |m| m);
+        vm._pow(&x, &y, modulus)
     }
 
     #[pyfunction]
