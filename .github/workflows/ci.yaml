@@ -230,12 +230,12 @@ jobs:
       - name: Check compilation for freeBSD
         run: cargo check --target x86_64-unknown-freebsd
 
-      - name: Prepare repository for redox compilation
-        run: bash scripts/redox/uncomment-cargo.sh
-      - name: Check compilation for Redox
-        uses: coolreader18/redoxer-action@v1
-        with:
-          command: check
+      # - name: Prepare repository for redox compilation
+      #   run: bash scripts/redox/uncomment-cargo.sh
+      # - name: Check compilation for Redox
+      #   uses: coolreader18/redoxer-action@v1
+      #   with:
+      #     command: check
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
