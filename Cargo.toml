@@ -130,5 +130,4 @@ lto = "thin"
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # nix = { git = "https://github.com/coolreader18/nix", branch = "0.26.2-redox" }
 # errno = { git = "https://github.com/coolreader18/rust-errno", branch = "0.2.8-redox" }
-# libc = { git = "https://github.com/rust-lang/libc" }
 # REDOX END
