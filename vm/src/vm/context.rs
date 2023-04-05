@@ -45,7 +45,7 @@ pub struct Context {
     pub int_cache_pool: Vec<PyIntRef>,
     // there should only be exact objects of str in here, no non-str objects and no subclasses
     pub(crate) string_pool: StringPool,
-    pub(crate) slot_new_wrapper: PyObjectRef,
+    pub(crate) slot_new_wrapper: PyRef<PyBuiltinFunction>,
     pub names: ConstName,
 }
 
@@ -290,8 +290,7 @@ impl Context {
         let slot_new_wrapper = create_object(
             PyNativeFuncDef::new(PyType::__new__.into_func(), names.__new__).into_function(),
             types.builtin_function_or_method_type,
-        )
-        .into();
+        );
 
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) }.to_owned();
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
