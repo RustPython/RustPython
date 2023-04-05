@@ -12,7 +12,7 @@ use derive_more::{
 };
 use malachite::{
     num::{
-        arithmetic::traits::{Abs, Sign, Parity, Mod},
+        arithmetic::traits::{Abs, Mod, Parity, Sign, ModPow},
         conversion::traits::{FromStringBase, OverflowingInto, RoundingInto},
     },
     rounding_modes::RoundingMode,
@@ -394,13 +394,30 @@ impl BigInt {
         &self.0
     }
 
-    // pub fn is_odd(&self) -> bool {
-    //     self.0.odd()
-    // }
+    pub fn modpow(&self, exponent: &Self, modulus: &Self) -> Self {
+        assert!(
+            !exponent.is_negative(),
+            "negative exponentiation is not supported!"
+        );
+        assert!(
+            !modulus.is_zero(),
+            "attempt to calculate with zero modulus!"
+        );
 
-    // pub fn is_even(&self) -> bool {
-    //     self.0.even()
-    // }
+        let mut abs = self.inner().unsigned_abs_ref().mod_pow(exponent.inner().unsigned_abs_ref(), modulus.inner().unsigned_abs_ref());
+
+        if abs == <Natural as malachite::num::basic::traits::Zero>::ZERO {
+            return Self::zero();
+        }
+
+        let sign = modulus.is_positive();
+
+        if self.is_negative() && exponent.inner().odd() != !sign {
+            abs = modulus.inner().unsigned_abs_ref() - abs;
+        }
+
+        Self(Integer::from_sign_and_abs(sign, abs))
+    }
 }
 
 pub fn bytes_to_int(lit: &[u8], mut base: u8) -> Option<BigInt> {

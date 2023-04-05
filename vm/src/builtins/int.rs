@@ -271,14 +271,16 @@ impl PyInt {
         v.to_u32()
             .or_else(|| v.to_i32().map(|i| i as u32))
             .unwrap_or_else(|| {
-                let mut out = 0u32;
-                for digit in v.iter_u32_digits() {
-                    out = out.wrapping_shl(32) | digit;
-                }
-                match v.sign() {
-                    num_bigint::Sign::Minus => out * -1i32 as u32,
-                    _ => out,
-                }
+                let out = v % BigInt::from((u32::MAX as u64) + 1);
+                out.to_u32().unwrap()
+                // let mut out = 0u32;
+                // for digit in v.iter_u32_digits() {
+                //     out = out.wrapping_shl(32) | digit;
+                // }
+                // match v.sign() {
+                //     num_bigint::Sign::Minus => out * -1i32 as u32,
+                //     _ => out,
+                // }
             })
     }
 
