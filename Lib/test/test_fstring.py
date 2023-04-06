@@ -663,16 +663,27 @@ x = (
                             ["f'{}'",
                              "f'{ }'"
                              "f' {} '",
-                             "f'{!r}'",
-                             "f'{ !r}'",
                              "f'{10:{ }}'",
                              "f' { } '",
 
                              # The Python parser ignores also the following
                              # whitespace characters in additional to a space.
                              "f'''{\t\f\r\n}'''",
+                             ])
 
-                             # Catch the empty expression before the
+        # Different error messeges are raised when a specfier ('!', ':' or '=') is used after an empty expression
+        self.assertAllRaise(SyntaxError, "f-string: expression required before '!'",
+                            ["f'{!r}'",
+                             "f'{ !r}'",
+                             "f'{!}'",
+                             "f'''{\t\f\r\n!a}'''",
+
+                             # Catch empty expression before the
+                             #  missing closing brace.
+                             "f'{!'",
+                             "f'{!s:'",
+
+                             # Catch empty expression before the
                              #  invalid conversion.
                              "f'{!x}'",
                              "f'{ !xr}'",
@@ -680,16 +691,23 @@ x = (
                              "f'{!x:a}'",
                              "f'{ !xr:}'",
                              "f'{ !xr:a}'",
+                             ])
 
-                             "f'{!}'",
-                             "f'{:}'",
-
-                             # We find the empty expression before the
-                             #  missing closing brace.
-                             "f'{!'",
-                             "f'{!s:'",
+        self.assertAllRaise(SyntaxError, "f-string: expression required before ':'",
+                            ["f'{:}'",
+                             "f'{ :!}'",
+                             "f'{:2}'",
+                             "f'''{\t\f\r\n:a}'''",
                              "f'{:'",
-                             "f'{:x'",
+                             ])
+
+        self.assertAllRaise(SyntaxError, "f-string: expression required before '='",
+                            ["f'{=}'",
+                             "f'{ =}'",
+                             "f'{ =:}'",
+                             "f'{   =!}'",
+                             "f'''{\t\f\r\n=}'''",
+                             "f'{='",
                              ])
 
         # Different error message is raised for other whitespace characters.
@@ -820,10 +838,10 @@ x = (
         Only literal curly braces begin an expression.
         """
         # \x7b is '{'.
-        # TODO: RUSTPYTHON self.assertEqual(f'\x7b1+1}}', '{1+1}')
-        # TODO: RUSTPYTHON self.assertEqual(f'\x7b1+1', '{1+1')
-        # TODO: RUSTPYTHON self.assertEqual(f'\u007b1+1', '{1+1')
-        # TODO: RUSTPYTHON self.assertEqual(f'\N{LEFT CURLY BRACKET}1+1\N{RIGHT CURLY BRACKET}', '{1+1}')
+        self.assertEqual(f'\x7b1+1}}', '{1+1}')
+        self.assertEqual(f'\x7b1+1', '{1+1')
+        self.assertEqual(f'\u007b1+1', '{1+1')
+        self.assertEqual(f'\N{LEFT CURLY BRACKET}1+1\N{RIGHT CURLY BRACKET}', '{1+1}')
 
     def test_newlines_in_expressions(self):
         self.assertEqual(f'{0}', '0')
