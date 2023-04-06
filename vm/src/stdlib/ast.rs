@@ -332,7 +332,7 @@ pub(crate) fn compile(
 pub(crate) use _ast::AstNode;
 // Used by builtins::compile()
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
-pub const PyCF_ALLOW_TOP_LEVEL_AWAIT: i32 = 0x2000;
+pub const PY_COMPILE_FLAG_ALLOW_TOP_LEVEL_AWAIT: i32 = 0x2000;
 
 pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
     let module = _ast::make_module(vm);
