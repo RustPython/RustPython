@@ -594,7 +594,7 @@ mod sys {
             writeln!(
                 stderr,
                 "{}",
-                e.as_object().repr(vm).unwrap_or_else(|_| default).as_str()
+                e.as_object().repr(vm).unwrap_or(default).as_str()
             );
         }
     }
