@@ -235,6 +235,29 @@ pub fn format_general(
     }
 }
 
+pub fn format_number(magnitude: f64, precision: usize) -> String {
+    let magnitude_as_string = magnitude.to_string();
+    let separator_index = magnitude_as_string.chars().position(|c| c == '.').unwrap();
+    if separator_index == precision { return String::from(&magnitude_as_string[..separator_index]) }
+    if separator_index < precision
+    {
+        let prefix = &magnitude_as_string[0..separator_index];
+        let suffix_distance = (precision - prefix.len() + 1) + separator_index;
+        let suffix =  &magnitude_as_string[separator_index..suffix_distance];
+
+        return format!("{}{}", prefix, suffix)
+    }
+    format!("{}e+0{}", &magnitude_as_string[..1], get_num_of_char(&magnitude_as_string, '0'))
+}
+
+fn get_num_of_char(text: &String, value: char) -> i32 {
+    let mut total = 0;
+    for char in text.chars() {
+        if char == value { total += 1 }
+    }
+    total
+}
+
 pub fn to_string(value: f64) -> String {
     let lit = format!("{value:e}");
     if let Some(position) = lit.find('e') {

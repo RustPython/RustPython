@@ -126,7 +126,7 @@ pub enum FormatType {
     Character,
     Decimal,
     Octal,
-    Number,
+    Number(Case),
     Hex(Case),
     Exponent(Case),
     GeneralFormat(Case),
@@ -142,7 +142,8 @@ impl From<&FormatType> for char {
             FormatType::Character => 'c',
             FormatType::Decimal => 'd',
             FormatType::Octal => 'o',
-            FormatType::Number => 'n',
+            FormatType::Number(Case::Lower) => 'n',
+            FormatType::Number(Case::Upper) => 'N',
             FormatType::Hex(Case::Lower) => 'x',
             FormatType::Hex(Case::Upper) => 'X',
             FormatType::Exponent(Case::Lower) => 'e',
@@ -165,7 +166,8 @@ impl FormatParse for FormatType {
             Some('c') => (Some(Self::Character), chars.as_str()),
             Some('d') => (Some(Self::Decimal), chars.as_str()),
             Some('o') => (Some(Self::Octal), chars.as_str()),
-            Some('n') => (Some(Self::Number), chars.as_str()),
+            Some('n') => (Some(Self::Number(Case::Lower)), chars.as_str()),
+            Some('N') => (Some(Self::Number(Case::Upper)), chars.as_str()),
             Some('x') => (Some(Self::Hex(Case::Lower)), chars.as_str()),
             Some('X') => (Some(Self::Hex(Case::Upper)), chars.as_str()),
             Some('e') => (Some(Self::Exponent(Case::Lower)), chars.as_str()),
@@ -367,14 +369,14 @@ impl FormatSpec {
                 | FormatType::Binary
                 | FormatType::Octal
                 | FormatType::Hex(_)
-                | FormatType::Number,
+                | FormatType::Number(_),
             ) => {
                 let ch = char::from(format_type);
                 Err(FormatSpecError::UnspecifiedFormat(',', ch))
             }
             (
                 Some(FormatGrouping::Underscore),
-                FormatType::String | FormatType::Character | FormatType::Number,
+                FormatType::String | FormatType::Character | FormatType::Number(_),
             ) => {
                 let ch = char::from(format_type);
                 Err(FormatSpecError::UnspecifiedFormat('_', ch))
@@ -386,7 +388,7 @@ impl FormatSpec {
     fn get_separator_interval(&self) -> usize {
         match self.format_type {
             Some(FormatType::Binary | FormatType::Octal | FormatType::Hex(_)) => 4,
-            Some(FormatType::Decimal | FormatType::Number | FormatType::FixedPoint(_)) => 3,
+            Some(FormatType::Decimal | FormatType::Number(_) | FormatType::FixedPoint(_)) => 3,
             None => 3,
             _ => panic!("Separators only valid for numbers!"),
         }
@@ -434,7 +436,10 @@ impl FormatSpec {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "float"))
             }
-            Some(FormatType::Number) => Err(FormatSpecError::NotImplemented('n', "float")),
+            Some(FormatType::Number(_)) => {
+                let precision = if precision == 0 { 6 } else { precision };
+                Ok(float_ops::format_number(magnitude, precision))
+            },
             Some(FormatType::GeneralFormat(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
                 Ok(float_ops::format_general(
@@ -531,7 +536,7 @@ impl FormatSpec {
                     Ok(result)
                 }
             },
-            Some(FormatType::Number) => self.format_int_radix(magnitude, 10),
+            Some(FormatType::Number(_)) => self.format_int_radix(magnitude, 10),
             Some(FormatType::String) => Err(FormatSpecError::UnknownFormatCode('s', "int")),
             Some(FormatType::Character) => match (self.sign, self.alternate_form) {
                 (Some(_), _) => Err(FormatSpecError::NotAllowed("Sign")),
