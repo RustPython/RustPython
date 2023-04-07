@@ -334,7 +334,7 @@ impl ModuleItem for FunctionItem {
             };
             let doc = quote!(.with_doc(#doc.to_owned(), &vm.ctx));
             let new_func = quote_spanned!(ident.span()=>
-                vm.ctx.make_func_def(#py_name, #ident)
+                vm.ctx.make_func_def(vm.ctx.intern_str(#py_name), #ident)
                     #doc
                     .into_function()
                     .with_module(vm.new_pyobj(#module.to_owned()))

@@ -219,7 +219,7 @@ macro_rules! named_function {
         let ctx: &$crate::Context = &$ctx;
         $crate::__exports::paste::expr! {
             ctx.make_func_def(
-                stringify!($func),
+                ctx.intern_str(stringify!($func)),
                 [<$module _ $func>],
             )
             .into_function()

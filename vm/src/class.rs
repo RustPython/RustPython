@@ -3,7 +3,7 @@
 use crate::{
     builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
     identifier,
-    object::{Py, PyObjectRef},
+    object::Py,
     types::{hash_not_implemented, PyTypeFlags, PyTypeSlots},
     vm::Context,
 };
@@ -99,10 +99,12 @@ pub trait PyClassImpl: PyClassDef {
             );
         }
         if class.slots.new.load().is_some() {
-            let bound: PyObjectRef =
-                PyBoundMethod::new_ref(class.to_owned().into(), ctx.slot_new_wrapper.clone(), ctx)
-                    .into();
-            class.set_attr(identifier!(ctx, __new__), bound);
+            let bound = PyBoundMethod::new_ref(
+                class.to_owned().into(),
+                ctx.slot_new_wrapper.clone().into(),
+                ctx,
+            );
+            class.set_attr(identifier!(ctx, __new__), bound.into());
         }
 
         if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {

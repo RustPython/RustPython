@@ -1,4 +1,4 @@
-use super::{type_, PyClassMethod, PyStaticMethod, PyStr, PyStrRef, PyType};
+use super::{type_, PyClassMethod, PyStaticMethod, PyStr, PyStrInterned, PyStrRef, PyType};
 use crate::{
     builtins::PyBoundMethod,
     class::PyClassImpl,
@@ -10,12 +10,12 @@ use std::fmt;
 
 pub struct PyNativeFuncDef {
     pub func: PyNativeFunc,
-    pub name: PyStrRef,
+    pub name: &'static PyStrInterned,
     pub doc: Option<PyStrRef>,
 }
 
 impl PyNativeFuncDef {
-    pub fn new(func: PyNativeFunc, name: PyStrRef) -> Self {
+    pub fn new(func: PyNativeFunc, name: &'static PyStrInterned) -> Self {
         Self {
             func,
             name,
@@ -122,7 +122,7 @@ impl PyBuiltinFunction {
     }
     #[pygetset(magic)]
     fn name(&self) -> PyStrRef {
-        self.value.name.clone()
+        self.value.name.to_owned()
     }
     #[pygetset(magic)]
     fn qualname(&self) -> PyStrRef {
@@ -217,7 +217,7 @@ impl Callable for PyBuiltinMethod {
 
 impl PyBuiltinMethod {
     pub fn new_ref<F, FKind>(
-        name: impl Into<PyStr>,
+        name: &'static PyStrInterned,
         class: &'static Py<PyType>,
         f: F,
         ctx: &Context,
@@ -236,7 +236,7 @@ impl PyBuiltinMethod {
 impl PyBuiltinMethod {
     #[pygetset(magic)]
     fn name(&self) -> PyStrRef {
-        self.value.name.clone()
+        self.value.name.to_owned()
     }
     #[pygetset(magic)]
     fn qualname(&self) -> String {
@@ -260,7 +260,7 @@ impl PyBuiltinMethod {
     ) -> (Option<PyObjectRef>, (Option<PyObjectRef>, PyStrRef)) {
         let builtins_getattr = vm.builtins.get_attr("getattr", vm).ok();
         let classname = vm.builtins.get_attr(&self.class.__name__(vm), vm).ok();
-        (builtins_getattr, (classname, self.value.name.clone()))
+        (builtins_getattr, (classname, self.value.name.to_owned()))
     }
 }
 
