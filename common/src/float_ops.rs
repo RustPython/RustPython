@@ -250,7 +250,7 @@ pub fn format_number(magnitude: f64, precision: usize) -> String {
     format!("{}e+0{}", &magnitude_as_string[..1], get_num_of_char(&magnitude_as_string, '0'))
 }
 
-fn get_num_of_char(text: &String, value: char) -> i32 {
+fn get_num_of_char(text: &str, value: char) -> i32 {
     let mut total = 0;
     for char in text.chars() {
         if char == value { total += 1 }
