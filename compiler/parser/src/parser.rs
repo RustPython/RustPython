@@ -23,6 +23,7 @@ use itertools::Itertools;
 use std::iter;
 
 pub(super) use lalrpop_util::ParseError as LalrpopError;
+use ruff_text_size::TextSize;
 
 /// Parse a full Python program usually consisting of multiple lines.
 ///  
@@ -69,7 +70,7 @@ pub fn parse_program(source: &str, source_path: &str) -> Result<ast::Suite, Pars
 ///
 /// ```
 pub fn parse_expression(source: &str, path: &str) -> Result<ast::Expr, ParseError> {
-    parse_expression_located(source, path, Location::new(1, 0))
+    parse_expression_located(source, path, Location::default())
 }
 
 /// Parses a Python expression from a given location.
@@ -85,7 +86,7 @@ pub fn parse_expression(source: &str, path: &str) -> Result<ast::Expr, ParseErro
 /// ```
 /// use rustpython_parser::{ast::Location, parse_expression_located};
 ///
-/// let expr = parse_expression_located("1 + 2", "<embedded>", Location::new(5, 20));
+/// let expr = parse_expression_located("1 + 2", "<embedded>", Location::from(400));
 /// assert!(expr.is_ok());
 /// ```
 pub fn parse_expression_located(
@@ -131,7 +132,7 @@ pub fn parse_expression_located(
 /// assert!(program.is_ok());
 /// ```
 pub fn parse(source: &str, mode: Mode, source_path: &str) -> Result<ast::Mod, ParseError> {
-    parse_located(source, mode, source_path, Location::new(1, 0))
+    parse_located(source, mode, source_path, Location::default())
 }
 
 /// Parse the given Python source code using the specified [`Mode`] and [`Location`].
@@ -153,7 +154,7 @@ pub fn parse(source: &str, mode: Mode, source_path: &str) -> Result<ast::Mod, Pa
 ///
 /// print(fib(42))
 /// "#;
-/// let program = parse_located(source, Mode::Module, "<embedded>", Location::new(1, 0));
+/// let program = parse_located(source, Mode::Module, "<embedded>", Location::from(0));
 /// assert!(program.is_ok());
 /// ```
 pub fn parse_located(
@@ -246,7 +247,7 @@ fn parse_error_from_lalrpop(
             let expected = (expected.len() == 1).then(|| expected[0].clone());
             ParseError {
                 error: ParseErrorType::UnrecognizedToken(token.1, expected),
-                location: token.0.with_col_offset(1),
+                location: token.0 + TextSize::from(1),
                 source_path,
             }
         }

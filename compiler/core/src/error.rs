@@ -1,11 +1,11 @@
-use crate::Location;
+use ruff_text_size::TextSize;
 use std::error::Error as StdError;
 use std::fmt::Display;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BaseError<T> {
     pub error: T,
-    pub location: Location,
+    pub location: TextSize,
     pub source_path: String,
 }
 
@@ -31,7 +31,12 @@ where
     T: std::fmt::Display,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        self.location.fmt_with(f, &self.error)
+        write!(
+            f,
+            "{} at byte offset {}",
+            &self.error,
+            u32::from(self.location)
+        )
     }
 }
 
@@ -57,60 +62,4 @@ impl<T> BaseError<T> {
     {
         BaseError::from(self)
     }
-}
-
-#[derive(Debug)]
-pub struct CompileError<T> {
-    pub body: BaseError<T>,
-    pub statement: Option<String>,
-}
-
-impl<T: StdError + 'static> StdError for CompileError<T> {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        self.body.source()
-    }
-}
-
-impl<T> std::ops::Deref for CompileError<T> {
-    type Target = BaseError<T>;
-    fn deref(&self) -> &Self::Target {
-        &self.body
-    }
-}
-
-impl<T> std::fmt::Display for CompileError<T>
-where
-    T: std::fmt::Display,
-{
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let loc = self.location;
-        if let Some(ref stmt) = self.statement {
-            // visualize the error when location and statement are provided
-            loc.fmt_with(f, &self.error)?;
-            write!(f, "\n{stmt}{arrow:>pad$}", pad = loc.column(), arrow = "^")
-        } else {
-            loc.fmt_with(f, &self.error)
-        }
-    }
-}
-
-impl<T> CompileError<T> {
-    pub fn from<U>(error: BaseError<U>, source: &str) -> Self
-    where
-        T: From<U>,
-    {
-        let statement = get_statement(source, error.location);
-        CompileError {
-            body: error.into(),
-            statement,
-        }
-    }
-}
-
-fn get_statement(source: &str, loc: Location) -> Option<String> {
-    if loc.column() == 0 || loc.row() == 0 {
-        return None;
-    }
-    let line = source.split('\n').nth(loc.row() - 1)?.to_owned();
-    Some(line + "\n")
 }

@@ -7,7 +7,7 @@
 //! The primary function in this module is [`lex`], which takes a string slice
 //! and returns an iterator over the tokens in the source code. The tokens are currently returned
 //! as a `Result<Spanned, LexicalError>`, where [`Spanned`] is a tuple containing the
-//! start and end [`Location`] and a [`Tok`] denoting the token.
+//! start and end [`TextSize`] and a [`Tok`] denoting the token.
 //!
 //! # Example
 //!
@@ -21,18 +21,13 @@
 //!
 //! for (start, token, end) in tokens {
 //!     println!(
-//!         "{0},{1}-{2},{3:<5} {token:?}",
-//!         start.row(),
-//!         start.column(),
-//!         end.row(),
-//!         end.column(),
+//!         "{start:?}-{end:?} {token:?}",
 //!     );
 //! }
 //! ```
 //!
 //! [Lexical analysis]: https://docs.python.org/3/reference/lexical_analysis.html
 use crate::{
-    ast::Location,
     mode::Mode,
     soft_keywords::SoftKeywordTransformer,
     string::FStringErrorType,
@@ -41,6 +36,7 @@ use crate::{
 use log::trace;
 use num_bigint::BigInt;
 use num_traits::{Num, Zero};
+use ruff_text_size::{TextLen, TextSize};
 use std::{char, cmp::Ordering, ops::Index, slice::SliceIndex, str::FromStr};
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -57,7 +53,7 @@ impl IndentationLevel {
     fn compare_strict(
         &self,
         other: &IndentationLevel,
-        location: Location,
+        location: TextSize,
     ) -> Result<Ordering, LexicalError> {
         // We only know for sure that we're smaller or bigger if tabs
         // and spaces both differ in the same direction. Otherwise we're
@@ -178,7 +174,7 @@ pub struct Lexer<T: Iterator<Item = char>> {
     // Pending list of tokens to be returned.
     pending: Vec<Spanned>,
     // The current location.
-    location: Location,
+    location: TextSize,
 }
 
 // generated in build.rs, in gen_phf()
@@ -187,7 +183,7 @@ pub static KEYWORDS: phf::Map<&'static str, Tok> =
     include!(concat!(env!("OUT_DIR"), "/keywords.rs"));
 
 /// Contains a Token along with its start and end location.
-pub type Spanned = (Location, Tok, Location);
+pub type Spanned = (TextSize, Tok, TextSize);
 /// The result of lexing a token.
 pub type LexResult = Result<Spanned, LexicalError>;
 
@@ -207,7 +203,7 @@ pub type LexResult = Result<Spanned, LexicalError>;
 /// ```
 #[inline]
 pub fn lex(source: &str, mode: Mode) -> impl Iterator<Item = LexResult> + '_ {
-    lex_located(source, mode, Location::default())
+    lex_located(source, mode, TextSize::default())
 }
 
 /// Create a new lexer from a source string, starting at a given location.
@@ -215,7 +211,7 @@ pub fn lex(source: &str, mode: Mode) -> impl Iterator<Item = LexResult> + '_ {
 pub fn lex_located(
     source: &str,
     mode: Mode,
-    start_location: Location,
+    start_location: TextSize,
 ) -> impl Iterator<Item = LexResult> + '_ {
     SoftKeywordTransformer::new(Lexer::new(source.chars(), start_location), mode)
 }
@@ -226,7 +222,7 @@ where
 {
     /// Create a new lexer from T and a starting location. You probably want to use
     /// [`lex`] instead.
-    pub fn new(input: T, start: Location) -> Self {
+    pub fn new(input: T, start: TextSize) -> Self {
         let mut lxr = Lexer {
             at_begin_of_line: true,
             nesting: 0,
@@ -306,7 +302,7 @@ where
     }
 
     /// Lex a hex/octal/decimal/binary number without a decimal point.
-    fn lex_number_radix(&mut self, start_pos: Location, radix: u32) -> LexResult {
+    fn lex_number_radix(&mut self, start_pos: TextSize, radix: u32) -> LexResult {
         let value_text = self.radix_run(radix);
         let end_pos = self.get_pos();
         let value = BigInt::from_str_radix(&value_text, radix).map_err(|e| LexicalError {
@@ -469,7 +465,7 @@ where
     /// Lex a string literal.
     fn lex_string(&mut self, kind: StringKind) -> LexResult {
         let start_pos = self.get_pos();
-        for _ in 0..kind.prefix_len() {
+        for _ in 0..u32::from(kind.prefix_len()) {
             self.next_char();
         }
         let quote_char = self.next_char().unwrap();
@@ -1155,25 +1151,26 @@ where
         let mut c = self.window[0];
         self.window.slide();
         match c {
-            Some('\n') => {
-                self.location.newline();
-            }
             Some('\r') => {
                 if self.window[0] == Some('\n') {
+                    self.location += TextSize::from(1);
                     self.window.slide();
                 }
-                self.location.newline();
+
+                self.location += TextSize::from(1);
                 c = Some('\n');
             }
-            _ => {
-                self.location.go_right();
+            #[allow(unused_variables)]
+            Some(c) => {
+                self.location += c.text_len();
             }
+            _ => {}
         }
         c
     }
 
     // Helper function to retrieve the current position.
-    fn get_pos(&self) -> Location {
+    fn get_pos(&self) -> TextSize {
         self.location
     }
 
@@ -1218,12 +1215,12 @@ pub struct LexicalError {
     /// The type of error that occurred.
     pub error: LexicalErrorType,
     /// The location of the error.
-    pub location: Location,
+    pub location: TextSize,
 }
 
 impl LexicalError {
     /// Creates a new `LexicalError` with the given error type and location.
-    pub fn new(error: LexicalErrorType, location: Location) -> Self {
+    pub fn new(error: LexicalErrorType, location: TextSize) -> Self {
         Self { error, location }
     }
 }

@@ -113,6 +113,7 @@
 #![doc(html_root_url = "https://docs.rs/rustpython-parser/")]
 
 pub use rustpython_ast as ast;
+pub use rustpython_compiler_core::ConversionFlag;
 
 mod function;
 // Skip flattening lexer to distinguish from full parser
