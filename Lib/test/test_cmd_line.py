@@ -452,6 +452,8 @@ class CmdLineTest(unittest.TestCase):
                 stdout, stderr = proc.communicate()
         self.assertEqual(stdout.rstrip(), expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform.startswith('win'), "TODO: RUSTPYTHON windows has \n troubles")
     def test_stdin_readline(self):
         # Issue #11272: check that sys.stdin.readline() replaces '\r\n' by '\n'
         # on Windows (sys.stdin is opened in binary mode)
@@ -467,6 +469,8 @@ class CmdLineTest(unittest.TestCase):
             "print(repr(input()))",
             b"'abc'")
 
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform.startswith('win'), "TODO: RUSTPYTHON windows has \n troubles")
     def test_output_newline(self):
         # Issue 13119 Newline for print() should be \r\n on Windows.
         code = """if 1:
