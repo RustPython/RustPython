@@ -44,8 +44,8 @@ impl TextRange {
     /// assert_eq!(range.len(), end - start);
     /// ```
     #[inline]
-    pub fn new(start: TextSize, end: TextSize) -> TextRange {
-        assert!(start <= end);
+    pub const fn new(start: TextSize, end: TextSize) -> TextRange {
+        assert!(start.raw <= end.raw);
         TextRange { start, end }
     }
 

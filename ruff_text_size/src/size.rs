@@ -33,6 +33,10 @@ impl fmt::Debug for TextSize {
 }
 
 impl TextSize {
+    pub const fn from_u32(offset: u32) -> Self {
+        Self { raw: offset}
+    }
+
     /// The text size of some primitive text-like object.
     ///
     /// Accepts `char`, `&str`, and `&String`.
@@ -72,7 +76,7 @@ impl TextSize {
 impl From<u32> for TextSize {
     #[inline]
     fn from(raw: u32) -> Self {
-        TextSize { raw }
+        TextSize::from_u32(raw)
     }
 }
 
