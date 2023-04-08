@@ -439,7 +439,7 @@ impl FormatSpec {
             Some(FormatType::Number(_)) => {
                 let precision = if precision == 0 { 6 } else { precision };
                 Ok(float_ops::format_number(magnitude, precision))
-            },
+            }
             Some(FormatType::GeneralFormat(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
                 Ok(float_ops::format_general(
