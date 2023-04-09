@@ -24,9 +24,10 @@ use crate::{
         lock::{PyMutex, PyMutexGuard, PyRwLock},
         refcount::RefCount,
     },
-    vm::VirtualMachine,
+    vm::{VirtualMachine, thread::BrcImpl},
 };
 use itertools::Itertools;
+use rustpython_common::brc::Brc;
 use std::{
     any::TypeId,
     borrow::Borrow,
@@ -108,7 +109,8 @@ impl PyObjVTable {
 /// payload can be a rust float or rust int in case of float and int objects.
 #[repr(C)]
 struct PyInner<T> {
-    ref_count: RefCount,
+    // ref_count: RefCount,
+    ref_count: Brc<BrcImpl>,
     // TODO: move typeid into vtable once TypeId::of is const
     typeid: TypeId,
     vtable: &'static PyObjVTable,
@@ -432,7 +434,7 @@ impl<T: PyObjectPayload> PyInner<T> {
     fn new(payload: T, typ: PyTypeRef, dict: Option<PyDictRef>) -> Box<Self> {
         let member_count = typ.slots.member_count;
         Box::new(PyInner {
-            ref_count: RefCount::new(),
+            ref_count: Default::default(),
             typeid: TypeId::of::<T>(),
             vtable: PyObjVTable::of::<T>(),
             typ: PyAtomicRef::from(typ),
@@ -754,24 +756,31 @@ impl PyObject {
             zelf: &PyObject,
             slot_del: fn(&PyObject, &VirtualMachine) -> PyResult<()>,
         ) -> Result<(), ()> {
-            let ret = crate::vm::thread::with_vm(zelf, |vm| {
-                zelf.0.ref_count.inc();
+            crate::vm::thread::with_vm(zelf, |vm| {
+                // zelf.0.ref_count.inc();
+                unsafe { zelf.0.ref_count.enter_state_deleting() };
                 if let Err(e) = slot_del(zelf, vm) {
                     let del_method = zelf.get_class_attr(identifier!(vm, __del__)).unwrap();
                     vm.run_unraisable(e, None, del_method);
                 }
-                zelf.0.ref_count.dec()
+                // zelf.0.ref_count.dec();
+                unsafe { zelf.0.ref_count.leave_state_deleting() };
             });
-            match ret {
-                // the decref right above set ref_count back to 0
-                Some(true) => Ok(()),
-                // we've been resurrected by __del__
-                Some(false) => Err(()),
-                None => {
-                    warn!("couldn't run __del__ method for object");
-                    Ok(())
-                }
+            if zelf.0.ref_count.get() == 0 {
+                Ok(())
+            } else {
+                Err(())
             }
+            // match ret {
+            //     // the decref right above set ref_count back to 0
+            //     Some(true) => Ok(()),
+            //     // we've been resurrected by __del__
+            //     Some(false) => Err(()),
+            //     None => {
+            //         warn!("couldn't run __del__ method for object");
+            //         Ok(())
+            //     }
+            // }
         }
 
         // CPython-compatible drop implementation
@@ -788,7 +797,7 @@ impl PyObject {
 
     /// Can only be called when ref_count has dropped to zero. `ptr` must be valid
     #[inline(never)]
-    unsafe fn drop_slow(ptr: NonNull<PyObject>) {
+    pub(crate) unsafe fn drop_slow(ptr: NonNull<PyObject>) {
         if let Err(()) = ptr.as_ref().drop_slow_inner() {
             // abort drop for whatever reason
             return;
@@ -848,9 +857,7 @@ impl<'a, T: PyObjectPayload> From<&'a Py<T>> for &'a PyObject {
 impl Drop for PyObjectRef {
     #[inline]
     fn drop(&mut self) {
-        if self.0.ref_count.dec() {
-            unsafe { PyObject::drop_slow(self.ptr) }
-        }
+        self.0.ref_count.dec();
     }
 }
 
@@ -952,9 +959,7 @@ impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
 impl<T: PyObjectPayload> Drop for PyRef<T> {
     #[inline]
     fn drop(&mut self) {
-        if self.0.ref_count.dec() {
-            unsafe { PyObject::drop_slow(self.ptr.cast::<PyObject>()) }
-        }
+        self.0.ref_count.dec();
     }
 }
 
@@ -1134,7 +1139,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         };
         let type_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
-                ref_count: RefCount::new(),
+                ref_count: Default::default(),
                 typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
@@ -1146,7 +1151,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         )));
         let object_type_ptr = Box::into_raw(Box::new(partially_init!(
             PyInner::<PyType> {
-                ref_count: RefCount::new(),
+                ref_count: Default::default(),
                 typeid: TypeId::of::<PyType>(),
                 vtable: PyObjVTable::of::<PyType>(),
                 dict: None,
