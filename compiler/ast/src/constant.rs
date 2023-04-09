@@ -1,5 +1,5 @@
-use num_bigint::BigInt;
 pub use rustpython_compiler_core::ConversionFlag;
+use rustpython_common::int::BigInt;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Constant {

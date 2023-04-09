@@ -11,7 +11,7 @@ use crate::{
     string::parse_strings,
     token::{self, StringKind},
 };
-use num_bigint::BigInt;
+use rustpython_common::int::BigInt;
 
 grammar;
 

@@ -25,6 +25,7 @@ use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 #[repr(transparent)]
 #[derive(
     Debug,
+    Hash,
     Eq,
     PartialEq,
     Ord,

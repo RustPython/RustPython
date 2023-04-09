@@ -2132,7 +2132,6 @@ dependencies = [
 name = "rustpython-ast"
 version = "0.2.0"
 dependencies = [
- "num-bigint",
  "rustpython-common",
  "rustpython-compiler-core",
 ]
@@ -2188,6 +2187,7 @@ name = "rustpython-compiler"
 version = "0.2.0"
 dependencies = [
  "rustpython-codegen",
+ "rustpython-common",
  "rustpython-compiler-core",
  "rustpython-parser",
 ]
@@ -2271,6 +2271,7 @@ dependencies = [
  "phf_codegen",
  "rustc-hash",
  "rustpython-ast",
+ "rustpython-common",
  "rustpython-compiler-core",
  "serde",
  "tiny-keccak",

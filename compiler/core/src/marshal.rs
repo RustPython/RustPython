@@ -1,8 +1,8 @@
 use core::fmt;
-use std::convert::Infallible;
+use std::{convert::Infallible, cmp::Ordering};
 
-use num_bigint::{BigInt, Sign};
 use num_complex::Complex64;
+use rustpython_common::int::BigInt;
 
 use crate::{bytecode::*, Location};
 
@@ -350,7 +350,7 @@ pub fn deserialize_value<R: Read, Bag: MarshalBag>(rdr: &mut R, bag: Bag) -> Res
         Type::Ellipsis => bag.make_ellipsis(),
         Type::Int => {
             let len = rdr.read_u32()? as i32;
-            let sign = if len < 0 { Sign::Minus } else { Sign::Plus };
+            let sign = len >= 0;
             let bytes = rdr.read_slice(len.unsigned_abs())?;
             let int = BigInt::from_bytes_le(sign, bytes);
             bag.make_int(int)
@@ -501,7 +501,7 @@ pub fn serialize_value<W: Write, D: Dumpable>(
             buf.write_u8(Type::Int as u8);
             let (sign, bytes) = int.to_bytes_le();
             let len: i32 = bytes.len().try_into().expect("too long to serialize");
-            let len = if sign == Sign::Minus { -len } else { len };
+            let len = if sign == Ordering::Less { -len } else { len };
             buf.write_u32(len as u32);
             buf.write_slice(&bytes);
         }
