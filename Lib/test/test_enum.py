@@ -529,8 +529,6 @@ class TestEnum(unittest.TestCase):
         self.assertFormatIsValue('{:%Y %m}', Holiday.IDES_OF_MARCH)
         self.assertFormatIsValue('{:%Y %m %M:00}', Holiday.IDES_OF_MARCH)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_enum_float(self):
         Konstants = self.Konstants
         self.assertFormatIsValue('{}', Konstants.TAU)

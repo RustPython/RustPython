@@ -438,7 +438,9 @@ impl FormatSpec {
                 Err(FormatSpecError::UnknownFormatCode(ch, "float"))
             }
             Some(FormatType::Number(Case::Lower)) => {
-                let precision = if precision == 0 { 6 } else { precision };
+                let size = magnitude.to_string().replace(".", "").len();
+                // If we get a precision larger than the magnitude (without the decimal), use the size.
+                let precision = if precision > size { size } else { precision };                
                 Ok(float_ops::format_number(magnitude, precision))
             }
             Some(FormatType::GeneralFormat(case)) => {
