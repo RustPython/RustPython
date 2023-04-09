@@ -1,7 +1,6 @@
-use crate::{float_ops, str::BorrowedStr};
+use crate::{float_ops, int::BigInt, str::BorrowedStr};
 use float_ops::Case;
 use itertools::{Itertools, PeekingNext};
-use num_bigint::{BigInt, Sign};
 use num_traits::{cast::ToPrimitive, Signed};
 use std::{cmp, str::FromStr};
 
@@ -556,13 +555,14 @@ impl FormatSpec {
             None => self.format_int_radix(magnitude, 10),
         }?;
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
-        let sign_str = match num.sign() {
-            Sign::Minus => "-",
-            _ => match format_sign {
+        let sign_str = if num.is_negative() {
+            "-"
+        } else {
+            match format_sign {
                 FormatSign::Plus => "+",
                 FormatSign::Minus => "",
                 FormatSign::MinusOrSpace => " ",
-            },
+            }
         };
         let sign_prefix = format!("{sign_str}{prefix}");
         let magnitude_str = self.add_magnitude_separators(raw_magnitude_str, &sign_prefix);
@@ -992,43 +992,43 @@ mod tests {
         assert_eq!(
             FormatSpec::parse("d")
                 .unwrap()
-                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+                .format_int(&BigInt::from_bytes_be(true, b"\x10")),
             Ok("16".to_owned())
         );
         assert_eq!(
             FormatSpec::parse("x")
                 .unwrap()
-                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+                .format_int(&BigInt::from_bytes_be(true, b"\x10")),
             Ok("10".to_owned())
         );
         assert_eq!(
             FormatSpec::parse("b")
                 .unwrap()
-                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+                .format_int(&BigInt::from_bytes_be(true, b"\x10")),
             Ok("10000".to_owned())
         );
         assert_eq!(
             FormatSpec::parse("o")
                 .unwrap()
-                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+                .format_int(&BigInt::from_bytes_be(true, b"\x10")),
             Ok("20".to_owned())
         );
         assert_eq!(
             FormatSpec::parse("+d")
                 .unwrap()
-                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+                .format_int(&BigInt::from_bytes_be(true, b"\x10")),
             Ok("+16".to_owned())
         );
         assert_eq!(
             FormatSpec::parse("^ 5d")
                 .unwrap()
-                .format_int(&BigInt::from_bytes_be(Sign::Minus, b"\x10")),
+                .format_int(&BigInt::from_bytes_be(false, b"\x10")),
             Ok(" -16 ".to_owned())
         );
         assert_eq!(
             FormatSpec::parse("0>+#10x")
                 .unwrap()
-                .format_int(&BigInt::from_bytes_be(Sign::Plus, b"\x10")),
+                .format_int(&BigInt::from_bytes_be(true, b"\x10")),
             Ok("00000+0x10".to_owned())
         );
     }

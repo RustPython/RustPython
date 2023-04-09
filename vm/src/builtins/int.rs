@@ -21,7 +21,7 @@ use crate::{
 use num_rational::Ratio;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use num_integer::Integer;
-use std::ops::{Div, Neg};
+use std::{ops::{Div, Neg}, cmp::Ordering};
 use std::{fmt, ops::Not};
 
 #[pyclass(module = false, name = "int")]
@@ -598,10 +598,10 @@ impl PyInt {
         let signed = args.signed.map_or(false, Into::into);
         let value = match (args.byteorder, signed) {
             (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(args.bytes.as_bytes()),
-            (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, args.bytes.as_bytes()),
+            (ArgByteOrder::Big, false) => BigInt::from_bytes_be(true, args.bytes.as_bytes()),
             (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(args.bytes.as_bytes()),
             (ArgByteOrder::Little, false) => {
-                BigInt::from_bytes_le(Sign::Plus, args.bytes.as_bytes())
+                BigInt::from_bytes_le(true, args.bytes.as_bytes())
             }
         };
         Self::with_value(cls, value, vm)
@@ -614,12 +614,12 @@ impl PyInt {
 
         let value = self.as_bigint();
         match value.sign() {
-            Sign::Minus if !signed => {
+            Ordering::Less if !signed => {
                 return Err(
                     vm.new_overflow_error("can't convert negative int to unsigned".to_owned())
                 )
             }
-            Sign::NoSign => return Ok(vec![0u8; byte_len].into()),
+            Ordering::Equal => return Ok(vec![0u8; byte_len].into()),
             _ => {}
         }
 
@@ -635,9 +635,10 @@ impl PyInt {
             return Err(vm.new_overflow_error("int too big to convert".to_owned()));
         }
 
-        let mut append_bytes = match value.sign() {
-            Sign::Minus => vec![255u8; byte_len - origin_len],
-            _ => vec![0u8; byte_len - origin_len],
+        let mut append_bytes = if value.is_negative() {
+            vec![255u8; byte_len - origin_len]
+        } else {
+            vec![0u8; byte_len - origin_len]
         };
 
         let bytes = match args.byteorder {
@@ -678,8 +679,8 @@ impl PyInt {
     #[pymethod]
     /// Returns the number of ones 1 an int. When the number is < 0,
     /// then it returns the number of ones of the absolute value.
-    fn bit_count(&self) -> u32 {
-        self.value.iter_u32_digits().map(|n| n.count_ones()).sum()
+    fn bit_count(&self) -> u64 {
+        self.value.count_ones()
     }
 
     #[pymethod(magic)]

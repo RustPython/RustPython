@@ -1,7 +1,7 @@
-use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use siphasher::sip::SipHasher24;
 use std::hash::{BuildHasher, Hash, Hasher};
+use crate::int::BigInt;
 
 pub type PyHash = i64;
 pub type PyUHash = u64;
@@ -149,7 +149,7 @@ where
 pub fn hash_bigint(value: &BigInt) -> PyHash {
     let ret = match value.to_i64() {
         Some(i) => mod_int(i),
-        None => (value % MODULUS).to_i64().unwrap_or_else(|| unsafe {
+        None => (value % BigInt::from(MODULUS)).to_i64().unwrap_or_else(|| unsafe {
             // SAFETY: MODULUS < i64::MAX, so value % MODULUS is guaranteed to be in the range of i64
             std::hint::unreachable_unchecked()
         }),

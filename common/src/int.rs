@@ -8,12 +8,14 @@ use std::{
 
 use bstr::ByteSlice;
 use derive_more::{
-    Binary, Display, From, LowerHex, Octal, Product, Shl, ShlAssign, Shr, ShrAssign, Sum, UpperHex,
+    Binary, Display, From, FromStr, LowerHex, Octal, Product, Shl, ShlAssign, Shr, ShrAssign, Sum,
+    UpperHex,
 };
 use malachite::{
     num::{
-        arithmetic::traits::{Abs, Mod, Parity, Sign, ModPow},
-        conversion::traits::{FromStringBase, OverflowingInto, RoundingInto},
+        arithmetic::traits::{Abs, Mod, ModPow, Parity, Sign},
+        conversion::traits::{Digits, FromStringBase, OverflowingInto, RoundingInto},
+        logic::traits::{CountOnes, SignificantBits},
     },
     rounding_modes::RoundingMode,
     Integer, Natural,
@@ -28,6 +30,7 @@ use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
     Ord,
     PartialOrd,
     Clone,
+    FromStr,
     Display,
     Binary,
     Octal,
@@ -404,7 +407,10 @@ impl BigInt {
             "attempt to calculate with zero modulus!"
         );
 
-        let mut abs = self.inner().unsigned_abs_ref().mod_pow(exponent.inner().unsigned_abs_ref(), modulus.inner().unsigned_abs_ref());
+        let mut abs = self.inner().unsigned_abs_ref().mod_pow(
+            exponent.inner().unsigned_abs_ref(),
+            modulus.inner().unsigned_abs_ref(),
+        );
 
         if abs == <Natural as malachite::num::basic::traits::Zero>::ZERO {
             return Self::zero();
@@ -417,6 +423,60 @@ impl BigInt {
         }
 
         Self(Integer::from_sign_and_abs(sign, abs))
+    }
+
+    pub fn bits(&self) -> u64 {
+        self.inner().significant_bits()
+    }
+
+    pub fn count_ones(&self) -> u64 {
+        self.inner().unsigned_abs_ref().count_ones()
+    }
+
+    pub fn sign(&self) -> Ordering {
+        self.inner().sign()
+    }
+
+    pub fn to_bytes_be(&self) -> (Ordering, Vec<u8>) {
+        (
+            self.sign(),
+            self.inner().unsigned_abs_ref().to_digits_desc(&u8::MAX),
+        )
+    }
+
+    pub fn to_bytes_le(&self) -> (Ordering, Vec<u8>) {
+        (
+            self.sign(),
+            self.inner().unsigned_abs_ref().to_digits_asc(&u8::MAX),
+        )
+    }
+
+    pub fn to_signed_bytes_be(&self) -> Vec<u8> {
+        todo!()
+    }
+
+    pub fn to_signed_bytes_le(&self) -> Vec<u8> {
+        todo!()
+    }
+
+    pub fn from_signed_bytes_be(digits: &[u8]) -> Self {
+        todo!()
+    }
+
+    pub fn from_signed_bytes_le(digits: &[u8]) -> Self {
+        todo!()
+    }
+
+    pub fn from_bytes_be(sign: bool, digits: &[u8]) -> Self {
+        todo!()
+    }
+
+    pub fn from_bytes_le(sign: bool, digits: &[u8]) -> Self {
+        todo!()
+    }
+
+    pub fn to_str_radix(&self, radix: u32) -> String {
+        todo!()
     }
 }
 

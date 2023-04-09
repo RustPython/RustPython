@@ -9,8 +9,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
-use num_bigint::Sign;
-use num_traits::Zero;
+use num_traits::{Zero, Signed};
 use std::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {
@@ -64,7 +63,7 @@ impl PyObjectRef {
                     })?;
 
                     let len_val = int_obj.as_bigint();
-                    if len_val.sign() == Sign::Minus {
+                    if len_val.is_negative() {
                         return Err(vm.new_value_error("__len__() should return >= 0".to_owned()));
                     }
                     !len_val.is_zero()

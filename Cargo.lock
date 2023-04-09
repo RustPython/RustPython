@@ -2200,8 +2200,8 @@ dependencies = [
  "bstr",
  "itertools 0.10.5",
  "lz4_flex",
- "num-bigint",
  "num-complex",
+ "rustpython-common",
  "serde",
 ]
 
