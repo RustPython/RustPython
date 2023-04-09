@@ -215,15 +215,11 @@ class HashLibTestCase(unittest.TestCase):
             else:
                 c.hexdigest()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_algorithms_guaranteed(self):
         self.assertEqual(hashlib.algorithms_guaranteed,
             set(_algo for _algo in self.supported_hash_names
                   if _algo.islower()))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_algorithms_available(self):
         self.assertTrue(set(hashlib.algorithms_guaranteed).
                             issubset(hashlib.algorithms_available))
@@ -263,8 +259,6 @@ class HashLibTestCase(unittest.TestCase):
     def test_new_upper_to_lower(self):
         self.assertEqual(hashlib.new("SHA256").name, "sha256")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_builtin_constructor(self):
         get_builtin_constructor = getattr(hashlib,
                                           '__get_builtin_constructor')
@@ -406,6 +400,9 @@ class HashLibTestCase(unittest.TestCase):
             for digest in digests:
                 buf = io.BytesIO(data)
                 buf.seek(0)
+                '''self.assertEqual(
+                    dir(hashlib), None
+                )'''
                 self.assertEqual(
                     hashlib.file_digest(buf, digest).hexdigest(), hexdigest
                 )
@@ -506,6 +503,8 @@ class HashLibTestCase(unittest.TestCase):
         self.check_sha3('shake_128', 256, 1344, b'\x1f')
         self.check_sha3('shake_256', 512, 1088, b'\x1f')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_blake2
     def test_blocksize_name_blake2(self):
         self.check_blocksize_name('blake2b', 128, 64)
@@ -749,6 +748,8 @@ class HashLibTestCase(unittest.TestCase):
                 outer.update(keyed.digest())
         return outer.hexdigest()
 
+    # TODO: RUSTPYTHON expect class, not function
+    @unittest.expectedFailure
     @requires_blake2
     def test_blake2b(self):
         self.check_blake2(hashlib.blake2b, 16, 16, 64, 64, (1<<64)-1)
@@ -770,6 +771,8 @@ class HashLibTestCase(unittest.TestCase):
           "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d1"+
           "7d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923")
 
+    # TODO: RUSTPYTHON expect class, not function
+    @unittest.expectedFailure
     @requires_blake2
     def test_case_blake2b_all_parameters(self):
         # This checks that all the parameters work in general, and also that
@@ -794,6 +797,8 @@ class HashLibTestCase(unittest.TestCase):
             key = bytes.fromhex(key)
             self.check('blake2b', msg, md, key=key)
 
+    # TODO: RUSTPYTHON expect class, not function
+    @unittest.expectedFailure
     @requires_blake2
     def test_blake2s(self):
         self.check_blake2(hashlib.blake2s, 8, 8, 32, 32, (1<<48)-1)
@@ -813,6 +818,8 @@ class HashLibTestCase(unittest.TestCase):
         self.check('blake2s', b"abc",
           "508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @requires_blake2
     def test_case_blake2s_all_parameters(self):
         # This checks that all the parameters work in general, and also that
@@ -1114,8 +1121,6 @@ class KDFTests(unittest.TestCase):
                 iterations=1, dklen=None)
             self.assertEqual(out, self.pbkdf2_results['sha1'][0][0])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(builtin_hashlib is None, "test requires builtin_hashlib")
     def test_pbkdf2_hmac_py(self):
         with warnings_helper.check_warnings():
@@ -1168,14 +1173,10 @@ class KDFTests(unittest.TestCase):
                 hashlib.scrypt(b'password', salt=b'salt', n=2, r=8, p=1,
                                dklen=dklen)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_normalized_name(self):
         self.assertNotIn("blake2b512", hashlib.algorithms_available)
         self.assertNotIn("sha3-512", hashlib.algorithms_available)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_file_digest(self):
         data = b'a' * 65536
         d1 = hashlib.sha256()

@@ -1,9 +1,9 @@
 // spell-checker:ignore usedforsecurity HASHXOF
 
-pub(crate) use hashlib::make_module;
+pub(crate) use _hashlib::make_module;
 
 #[pymodule]
-mod hashlib {
+pub mod _hashlib {
     use crate::common::lock::PyRwLock;
     use crate::vm::{
         builtins::{PyBytes, PyStrRef, PyTypeRef},
@@ -31,12 +31,11 @@ mod hashlib {
         usedforsecurity: bool,
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     #[allow(unused)]
-    struct BlakeHashArgs {
+    pub struct BlakeHashArgs {
         #[pyarg(positional, optional)]
-        data: OptionalArg<ArgBytesLike>,
-        #[pytraverse(skip)]
+        pub data: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = "true")]
         usedforsecurity: bool,
     }
@@ -50,12 +49,11 @@ mod hashlib {
         }
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     #[allow(unused)]
-    struct HashArgs {
+    pub struct HashArgs {
         #[pyarg(any, optional)]
-        string: OptionalArg<ArgBytesLike>,
-        #[pytraverse(skip)]
+        pub string: OptionalArg<ArgBytesLike>,
         #[pyarg(named, default = "true")]
         usedforsecurity: bool,
     }
@@ -84,11 +82,11 @@ mod hashlib {
     }
 
     #[pyattr]
-    #[pyclass(module = "hashlib", name = "HASH")]
+    #[pyclass(module = "_hashlib", name = "HASH")]
     #[derive(PyPayload)]
-    struct PyHasher {
-        name: String,
-        ctx: PyRwLock<HashWrapper>,
+    pub struct PyHasher {
+        pub name: String,
+        pub ctx: PyRwLock<HashWrapper>,
     }
 
     impl std::fmt::Debug for PyHasher {
@@ -99,7 +97,7 @@ mod hashlib {
 
     #[pyclass]
     impl PyHasher {
-        fn new(name: &str, d: HashWrapper) -> Self {
+        pub fn new(name: &str, d: HashWrapper) -> Self {
             PyHasher {
                 name: name.to_owned(),
                 ctx: PyRwLock::new(d),
@@ -108,7 +106,7 @@ mod hashlib {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create 'hashlib.HASH' instances".into()))
+            Err(vm.new_type_error("cannot create '_hashlib.HASH' instances".into()))
         }
 
         #[pygetset]
@@ -148,9 +146,9 @@ mod hashlib {
     }
 
     #[pyattr]
-    #[pyclass(module = "hashlib", name = "HASHXOF")]
+    #[pyclass(module = "_hashlib", name = "HASHXOF")]
     #[derive(PyPayload)]
-    struct PyHasherXof {
+    pub struct PyHasherXof {
         name: String,
         ctx: PyRwLock<HashXofWrapper>,
     }
@@ -163,7 +161,7 @@ mod hashlib {
 
     #[pyclass]
     impl PyHasherXof {
-        fn new(name: &str, d: HashXofWrapper) -> Self {
+        pub fn new(name: &str, d: HashXofWrapper) -> Self {
             PyHasherXof {
                 name: name.to_owned(),
                 ctx: PyRwLock::new(d),
@@ -172,7 +170,7 @@ mod hashlib {
 
         #[pyslot]
         fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Err(vm.new_type_error("cannot create 'hashlib.HASHXOF' instances".into()))
+            Err(vm.new_type_error("cannot create '_hashlib.HASHXOF' instances".into()))
         }
 
         #[pygetset]
@@ -232,90 +230,90 @@ mod hashlib {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_md5")]
     fn md5(args: HashArgs) -> PyHasher {
         PyHasher::new("md5", HashWrapper::new::<Md5>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_sha1")]
     fn sha1(args: HashArgs) -> PyHasher {
         PyHasher::new("sha1", HashWrapper::new::<Sha1>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_sha224")]
     fn sha224(args: HashArgs) -> PyHasher {
         PyHasher::new("sha224", HashWrapper::new::<Sha224>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_sha256")]
     fn sha256(args: HashArgs) -> PyHasher {
         PyHasher::new("sha256", HashWrapper::new::<Sha256>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_sha384")]
     fn sha384(args: HashArgs) -> PyHasher {
         PyHasher::new("sha384", HashWrapper::new::<Sha384>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_sha512")]
     fn sha512(args: HashArgs) -> PyHasher {
         PyHasher::new("sha512", HashWrapper::new::<Sha512>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_sha3_224")]
     fn sha3_224(args: HashArgs) -> PyHasher {
         PyHasher::new("sha3_224", HashWrapper::new::<Sha3_224>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_sha3_256")]
     fn sha3_256(args: HashArgs) -> PyHasher {
         PyHasher::new("sha3_256", HashWrapper::new::<Sha3_256>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_sha3_384")]
     fn sha3_384(args: HashArgs) -> PyHasher {
         PyHasher::new("sha3_384", HashWrapper::new::<Sha3_384>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_sha3_512")]
     fn sha3_512(args: HashArgs) -> PyHasher {
         PyHasher::new("sha3_512", HashWrapper::new::<Sha3_512>(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_shake_128")]
     fn shake_128(args: HashArgs) -> PyHasherXof {
         PyHasherXof::new("shake_128", HashXofWrapper::new_shake_128(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_shake_256")]
     fn shake_256(args: HashArgs) -> PyHasherXof {
         PyHasherXof::new("shake_256", HashXofWrapper::new_shake_256(args.string))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_blake2b")]
     fn blake2b(args: BlakeHashArgs) -> PyHasher {
         PyHasher::new("blake2b", HashWrapper::new::<Blake2b512>(args.data))
     }
 
-    #[pyfunction]
+    #[pyfunction(name = "openssl_blake2s")]
     fn blake2s(args: BlakeHashArgs) -> PyHasher {
         PyHasher::new("blake2s", HashWrapper::new::<Blake2s256>(args.data))
     }
 
-    trait ThreadSafeDynDigest: DynClone + DynDigest + Sync + Send {}
+    pub trait ThreadSafeDynDigest: DynClone + DynDigest + Sync + Send {}
     impl<T> ThreadSafeDynDigest for T where T: DynClone + DynDigest + Sync + Send {}
 
     clone_trait_object!(ThreadSafeDynDigest);
 
     /// Generic wrapper patching around the hashing libraries.
     #[derive(Clone)]
-    struct HashWrapper {
+    pub struct HashWrapper {
         block_size: usize,
         inner: Box<dyn ThreadSafeDynDigest>,
     }
 
     impl HashWrapper {
-        fn new<D>(data: OptionalArg<ArgBytesLike>) -> Self
+        pub fn new<D>(data: OptionalArg<ArgBytesLike>) -> Self
         where
             D: ThreadSafeDynDigest + BlockSizeUser + Default + 'static,
         {
@@ -348,13 +346,13 @@ mod hashlib {
     }
 
     #[derive(Clone)]
-    enum HashXofWrapper {
+    pub enum HashXofWrapper {
         Shake128(Shake128),
         Shake256(Shake256),
     }
 
     impl HashXofWrapper {
-        fn new_shake_128(data: OptionalArg<ArgBytesLike>) -> Self {
+        pub fn new_shake_128(data: OptionalArg<ArgBytesLike>) -> Self {
             let mut h = HashXofWrapper::Shake128(Shake128::default());
             if let OptionalArg::Present(d) = data {
                 d.with_ref(|bytes| h.update(bytes));
@@ -362,7 +360,7 @@ mod hashlib {
             h
         }
 
-        fn new_shake_256(data: OptionalArg<ArgBytesLike>) -> Self {
+        pub fn new_shake_256(data: OptionalArg<ArgBytesLike>) -> Self {
             let mut h = HashXofWrapper::Shake256(Shake256::default());
             if let OptionalArg::Present(d) = data {
                 d.with_ref(|bytes| h.update(bytes));
