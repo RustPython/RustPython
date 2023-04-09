@@ -432,11 +432,12 @@ impl FormatSpec {
             | Some(FormatType::Octal)
             | Some(FormatType::Hex(_))
             | Some(FormatType::String)
-            | Some(FormatType::Character) => {
+            | Some(FormatType::Character)
+            | Some(FormatType::Number(Case::Upper)) => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
                 Err(FormatSpecError::UnknownFormatCode(ch, "float"))
             }
-            Some(FormatType::Number(_)) => {
+            Some(FormatType::Number(Case::Lower)) => {
                 let precision = if precision == 0 { 6 } else { precision };
                 Ok(float_ops::format_number(magnitude, precision))
             }
