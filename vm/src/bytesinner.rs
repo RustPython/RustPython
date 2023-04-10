@@ -15,9 +15,8 @@ use crate::{
 };
 use bstr::ByteSlice;
 use itertools::Itertools;
-use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use rustpython_common::hash;
+use rustpython_common::{hash, int::BigInt};
 
 #[derive(Debug, Default, Clone)]
 pub struct PyBytesInner {

@@ -100,7 +100,6 @@ mod tests {
         builtins::{int, PyStr},
         PyObjectRef,
     };
-    use num_bigint::ToBigInt;
 
     #[test]
     fn test_add_py_integers() {
@@ -109,7 +108,7 @@ mod tests {
             let b: PyObjectRef = vm.ctx.new_int(12_i32).into();
             let res = vm._add(&a, &b).unwrap();
             let value = int::get_value(&res);
-            assert_eq!(*value, 45_i32.to_bigint().unwrap());
+            assert_eq!(*value, 45_i32.into());
         })
     }
 
