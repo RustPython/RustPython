@@ -398,6 +398,14 @@ impl BigInt {
         &self.0
     }
 
+    pub fn negative_one() -> Self {
+        Self(<Integer as malachite::num::basic::traits::NegativeOne>::NEGATIVE_ONE)
+    }
+
+    pub fn true_div(&self, other: &Self) -> f64 {
+
+    }
+
     pub fn modpow(&self, exponent: &Self, modulus: &Self) -> Self {
         assert!(
             !exponent.is_negative(),

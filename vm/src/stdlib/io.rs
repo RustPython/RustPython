@@ -105,9 +105,12 @@ mod _io {
             PyStrRef, PyType, PyTypeRef,
         },
         class::StaticType,
-        common::lock::{
-            PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
-            PyThreadMutex, PyThreadMutexGuard,
+        common::{
+            lock::{
+                PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
+                PyThreadMutex, PyThreadMutexGuard,
+            },
+            int::BigInt,
         },
         convert::ToPyObject,
         function::{
@@ -2115,7 +2118,7 @@ mod _io {
         const NEED_EOF_OFF: usize = Self::CHARS_TO_SKIP_OFF + 4;
         const BYTES_TO_SKIP_OFF: usize = Self::NEED_EOF_OFF + 1;
         const BYTE_LEN: usize = Self::BYTES_TO_SKIP_OFF + 4;
-        fn parse(cookie: &num_bigint::BigInt) -> Option<Self> {
+        fn parse(cookie: &BigInt) -> Option<Self> {
             let (_, mut buf) = cookie.to_bytes_le();
             if buf.len() > Self::BYTE_LEN {
                 return None;
@@ -2140,7 +2143,7 @@ mod _io {
                 bytes_to_skip: get_field!(i32, BYTES_TO_SKIP_OFF),
             })
         }
-        fn build(&self) -> num_bigint::BigInt {
+        fn build(&self) -> BigInt {
             let mut buf = [0; Self::BYTE_LEN];
             macro_rules! set_field {
                 ($field:expr, $off:ident) => {{
@@ -2155,7 +2158,7 @@ mod _io {
             set_field!(self.chars_to_skip, CHARS_TO_SKIP_OFF);
             set_field!(self.need_eof as u8, NEED_EOF_OFF);
             set_field!(self.bytes_to_skip, BYTES_TO_SKIP_OFF);
-            num_bigint::BigUint::from_bytes_le(&buf).into()
+            BigInt::from_bytes_le(true, &buf)
         }
         fn set_decoder_state(&self, decoder: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             if self.start_pos == 0 && self.dec_flags == 0 {

@@ -35,7 +35,6 @@ impl From<BigInt> for Constant {
     }
 }
 
-#[cfg(feature = "rustpython-common")]
 impl std::fmt::Display for Constant {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

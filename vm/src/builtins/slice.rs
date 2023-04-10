@@ -9,8 +9,8 @@ use crate::{
     types::{Comparable, Constructor, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
-use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
+use rustpython_common::int::BigInt;
 
 #[pyclass(module = false, name = "slice", unhashable = true)]
 #[derive(Debug)]
@@ -114,7 +114,7 @@ impl PySlice {
 
         // Each end of the array
         let lower = if backwards {
-            (-1_i8).to_bigint().unwrap()
+            BigInt::negative_one()
         } else {
             Zero::zero()
         };

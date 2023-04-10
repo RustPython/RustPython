@@ -4,7 +4,7 @@ use super::{
 use crate::{
     atomic_func,
     class::PyClassImpl,
-    common::hash::PyHash,
+    common::{hash::PyHash, int::BigInt},
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
@@ -15,11 +15,10 @@ use crate::{
     VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use once_cell::sync::Lazy;
-use std::cmp::max;
+use std::cmp::{max, Ordering};
 
 // Search flag passed to iter_search
 enum SearchType {
@@ -82,8 +81,10 @@ impl PyRange {
         let stop = self.stop.as_bigint();
         let step = self.step.as_bigint();
         match step.sign() {
-            Sign::Plus if value >= start && value < stop => Some(value - start),
-            Sign::Minus if value <= self.start.as_bigint() && value > stop => Some(start - value),
+            Ordering::Greater if value >= start && value < stop => Some(value - start),
+            Ordering::Less if value <= self.start.as_bigint() && value > stop => {
+                Some(start - value)
+            }
             _ => None,
         }
     }
@@ -150,16 +151,17 @@ impl PyRange {
         let step = self.step.as_bigint();
 
         match step.sign() {
-            Sign::Plus if start < stop => {
+            Ordering::Greater if start < stop => {
                 if step.is_one() {
                     stop - start
                 } else {
-                    (stop - start - 1usize) / step + 1
+                    (stop - start - BigInt::one()) / step + BigInt::one()
                 }
             }
-            Sign::Minus if start > stop => (start - stop - 1usize) / (-step) + 1,
-            Sign::Plus | Sign::Minus => BigInt::zero(),
-            Sign::NoSign => unreachable!(),
+            Ordering::Less if start > stop => {
+                (start - stop - BigInt::one()) / (-step) + BigInt::one()
+            }
+            _ => BigInt::zero(),
         }
     }
 }
@@ -305,7 +307,7 @@ impl PyRange {
         } else {
             // Fallback to iteration.
             Ok(BigInt::from_bytes_be(
-                Sign::Plus,
+                true,
                 &iter_search(
                     self.clone().into_pyobject(vm),
                     needle,

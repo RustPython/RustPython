@@ -13,6 +13,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
+use rustpython_common::int::BigInt;
 use std::{borrow::Borrow, fmt, ops::Deref};
 
 #[derive(FromArgs)]
@@ -149,7 +150,7 @@ impl ConstantBag for PyObjBag<'_> {
         self.0.intern_str(name)
     }
 
-    fn make_int(&self, value: num_bigint::BigInt) -> Self::Constant {
+    fn make_int(&self, value: BigInt) -> Self::Constant {
         Literal(self.0.new_int(value).into())
     }
 

@@ -1317,7 +1317,6 @@ impl std::fmt::Display for LexicalErrorType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use num_bigint::BigInt;
 
     const WINDOWS_EOL: &str = "\r\n";
     const MAC_EOL: &str = "\r";
