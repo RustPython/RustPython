@@ -539,7 +539,8 @@ impl FormatSpec {
                     Ok(result)
                 }
             },
-            Some(FormatType::Number(_)) => self.format_int_radix(magnitude, 10),
+            Some(FormatType::Number(Case::Lower)) => self.format_int_radix(magnitude, 10),
+            Some(FormatType::Number(Case::Upper)) => Err(FormatSpecError::UnknownFormatCode('N', "int")),
             Some(FormatType::String) => Err(FormatSpecError::UnknownFormatCode('s', "int")),
             Some(FormatType::Character) => match (self.sign, self.alternate_form) {
                 (Some(_), _) => Err(FormatSpecError::NotAllowed("Sign")),
