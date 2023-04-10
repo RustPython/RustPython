@@ -8,8 +8,8 @@ index=1
 
 while :
 do
-    token=$(cat clib_list.txt | cut -d ' ' -f $index)
-    if [ -z $token ]; then
+    token=$(cat clib_list.txt | tr '\n' ' ' | tr '  ' ' ' | tr '  ' ' ' | cut -d ' ' -f $index)
+    if [ -z $token ] || [ $token == "#" ]; then
         break
     fi
 
@@ -36,8 +36,8 @@ index=1
 
 while :
 do
-    token=$(cat clib_list.txt | cut -d ' ' -f $index)
-    if [ -z $token ]; then
+    token=$(cat clib_list.txt | tr '\n' ' ' | tr '  ' ' ' | tr '  ' ' ' | cut -d ' ' -f $index)
+    if [ -z $token ] || [ $token == "#" ]; then
         break
     fi
 
