@@ -506,7 +506,7 @@ impl Comparable for PyFloat {
             match op {
                 PyComparisonOp::Lt => float_ops::lt_int(a, b),
                 PyComparisonOp::Le => {
-                    if let (Some(a_int), Some(b_float)) = (a.to_bigint(), b.to_f64()) {
+                    if let (Some(a_int), Some(b_float)) = (BigInt::rounding_from(a), b.to_f64()) {
                         a <= b_float && a_int <= *b
                     } else {
                         float_ops::lt_int(a, b)
@@ -515,7 +515,7 @@ impl Comparable for PyFloat {
                 PyComparisonOp::Eq => float_ops::eq_int(a, b),
                 PyComparisonOp::Ne => !float_ops::eq_int(a, b),
                 PyComparisonOp::Ge => {
-                    if let (Some(a_int), Some(b_float)) = (a.to_bigint(), b.to_f64()) {
+                    if let (Some(a_int), Some(b_float)) = (BigInt::rounding_from(a), b.to_f64()) {
                         a >= b_float && a_int >= *b
                     } else {
                         float_ops::gt_int(a, b)

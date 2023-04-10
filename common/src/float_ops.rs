@@ -1,4 +1,4 @@
-use num_bigint::{BigInt, ToBigInt};
+use crate::int::BigInt;
 use num_traits::{Float, Signed, ToPrimitive, Zero};
 use std::f64;
 
@@ -30,7 +30,7 @@ pub fn ufrexp(value: f64) -> (f64, i32) {
 /// ```
 ///
 pub fn eq_int(value: f64, other: &BigInt) -> bool {
-    if let (Some(self_int), Some(other_float)) = (value.to_bigint(), other.to_f64()) {
+    if let (Some(self_int), Some(other_float)) = (BigInt::rounding_from(value), other.to_f64()) {
         value == other_float && self_int == *other
     } else {
         false
@@ -38,7 +38,7 @@ pub fn eq_int(value: f64, other: &BigInt) -> bool {
 }
 
 pub fn lt_int(value: f64, other_int: &BigInt) -> bool {
-    match (value.to_bigint(), other_int.to_f64()) {
+    match (BigInt::rounding_from(value), other_int.to_f64()) {
         (Some(self_int), Some(other_float)) => value < other_float || self_int < *other_int,
         // finite float, other_int too big for float,
         // the result depends only on other_int’s sign
@@ -51,7 +51,7 @@ pub fn lt_int(value: f64, other_int: &BigInt) -> bool {
 }
 
 pub fn gt_int(value: f64, other_int: &BigInt) -> bool {
-    match (value.to_bigint(), other_int.to_f64()) {
+    match (BigInt::rounding_from(value), other_int.to_f64()) {
         (Some(self_int), Some(other_float)) => value > other_float || self_int > *other_int,
         // finite float, other_int too big for float,
         // the result depends only on other_int’s sign
