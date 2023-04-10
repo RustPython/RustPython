@@ -457,20 +457,17 @@ impl PyFloat {
     #[pymethod]
     fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult<(PyIntRef, PyIntRef)> {
         let value = self.value;
-        if !value.is_finite() {
-            return Err(if value.is_infinite() {
+
+        let (numer, denom) = BigInt::rational_of(value).ok_or_else(|| {
+            if value.is_infinite() {
                 vm.new_overflow_error("cannot convert Infinity to integer ratio".to_owned())
             } else if value.is_nan() {
                 vm.new_value_error("cannot convert NaN to integer ratio".to_owned())
             } else {
                 unreachable!("it must be finite")
-            });
-        }
-
-        let ratio = Ratio::from_float(value).unwrap();
-        let numer = vm.ctx.new_bigint(ratio.numer());
-        let denom = vm.ctx.new_bigint(ratio.denom());
-        Ok((numer, denom))
+            }
+        })?;
+        Ok((vm.ctx.new_bigint(&numer), vm.ctx.new_bigint(&denom)))
     }
 
     #[pyclassmethod]

@@ -420,6 +420,12 @@ impl BigInt {
             .then(|| Self(value.rounding_into(RoundingMode::Down)))
     }
 
+    pub fn rational_of(value: f64) -> Option<(Self, Self)> {
+        let rational = malachite::Rational::try_from(value).ok()?;
+        let (numerator, denominator) = rational.into_numerator_and_denominator();
+        Some((Self(numerator.into()), Self(denominator.into())))
+    }
+
     pub fn modpow(&self, exponent: &Self, modulus: &Self) -> Self {
         assert!(
             !exponent.is_negative(),
