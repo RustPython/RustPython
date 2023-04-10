@@ -793,8 +793,8 @@ impl PyType {
                 let member_descriptor: PyRef<MemberDescrObject> =
                     vm.ctx.new_pyref(MemberDescrObject {
                         common: DescrObject {
-                            typ: typ.to_owned(),
-                            name: member.to_string(),
+                            typ: typ.clone(),
+                            name: vm.ctx.intern_str(member.as_str()),
                             qualname: PyRwLock::new(None),
                         },
                         member: member_def,

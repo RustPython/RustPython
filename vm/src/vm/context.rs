@@ -515,7 +515,7 @@ impl Context {
         let member_descriptor = MemberDescrObject {
             common: DescrObject {
                 typ: class.to_owned(),
-                name: name.to_owned(),
+                name: self.intern_str(name),
                 qualname: PyRwLock::new(None),
             },
             member: member_def,

@@ -1,4 +1,4 @@
-use super::{PyStr, PyType, PyTypeRef};
+use super::{PyStr, PyStrInterned, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     function::PySetterValue,
@@ -10,7 +10,7 @@ use rustpython_common::lock::PyRwLock;
 #[derive(Debug)]
 pub struct DescrObject {
     pub typ: PyTypeRef,
-    pub name: String,
+    pub name: &'static PyStrInterned,
     pub qualname: PyRwLock<Option<String>>,
 }
 
