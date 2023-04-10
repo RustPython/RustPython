@@ -95,6 +95,13 @@ macro_rules! try_to_primitive {
                 value.$fn().ok_or(())
             }
         }
+        impl TryFrom<BigInt> for $ret {
+            type Error = ();
+
+            fn try_from(value: BigInt) -> Result<Self, Self::Error> {
+                value.$fn().ok_or(())
+            }
+        }
     };
 }
 
@@ -406,6 +413,11 @@ impl BigInt {
         assert!(!other.is_zero());
         let rational = malachite::Rational::from_integers_ref(self.inner(), other.inner());
         rational.rounding_into(RoundingMode::Floor)
+    }
+
+    pub fn rounding_from(value: f64) -> Option<Self> {
+        (value.is_finite() && !value.is_nan())
+            .then(|| Self(value.rounding_into(RoundingMode::Down)))
     }
 
     pub fn modpow(&self, exponent: &Self, modulus: &Self) -> Self {

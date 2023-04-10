@@ -6,7 +6,7 @@ use super::{
 use crate::{
     class::PyClassImpl,
     common::format::FormatSpec,
-    common::{float_ops, hash},
+    common::{float_ops, hash, int::BigInt},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         ArgBytesLike, OptionalArg, OptionalOption,
@@ -18,7 +18,6 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
-use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_rational::Ratio;
 use num_traits::{Signed, ToPrimitive, Zero};
@@ -92,7 +91,7 @@ fn inner_mod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<f64> {
 }
 
 pub fn try_to_bigint(value: f64, vm: &VirtualMachine) -> PyResult<BigInt> {
-    match value.to_bigint() {
+    match BigInt::rounding_from(value) {
         Some(int) => Ok(int),
         None => {
             if value.is_infinite() {

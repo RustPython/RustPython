@@ -15,7 +15,7 @@ mod decl {
         protocol::PyBuffer,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
-    use num_bigint::BigInt;
+    use rustpython_common::int::BigInt;
     use num_complex::Complex64;
     use num_traits::Zero;
     use rustpython_compiler_core::marshal;

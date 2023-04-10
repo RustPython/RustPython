@@ -1,8 +1,8 @@
 //! Implementation of Printf-Style string formatting
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
 use crate::float_ops;
+use crate::int::BigInt;
 use bitflags::bitflags;
-use num_bigint::{BigInt, Sign};
 use num_traits::Signed;
 use std::{
     cmp, fmt,
@@ -309,9 +309,10 @@ impl CFormatSpec {
             _ => unreachable!(), // Should not happen because caller has to make sure that this is a number
         };
 
-        let sign_string = match num.sign() {
-            Sign::Minus => "-",
-            _ => self.flags.sign_string(),
+        let sign_string = if num.is_negative() {
+            "-"
+        } else {
+            self.flags.sign_string()
         };
 
         let padded_magnitude_string = self.fill_string_with_precision(magnitude_string, '0');

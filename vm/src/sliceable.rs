@@ -3,9 +3,9 @@ use crate::{
     builtins::{int::PyInt, slice::PySlice},
     PyObject, PyResult, VirtualMachine,
 };
-use num_bigint::BigInt;
-use num_traits::{Signed, ToPrimitive};
+use num_traits::{Signed, ToPrimitive, Zero};
 use std::ops::Range;
+use rustpython_common::int::BigInt;
 
 pub trait SliceableSequenceMutOp
 where

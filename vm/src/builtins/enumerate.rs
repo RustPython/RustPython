@@ -1,7 +1,10 @@
 use super::{
     IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef,
 };
-use crate::common::lock::{PyMutex, PyRwLock};
+use crate::common::{
+    int::BigInt,
+    lock::{PyMutex, PyRwLock},
+};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
@@ -10,8 +13,7 @@ use crate::{
     types::{Constructor, IterNext, IterNextIterable},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
-use num_bigint::BigInt;
-use num_traits::Zero;
+use num_traits::{Zero, One};
 
 #[pyclass(module = false, name = "enumerate")]
 #[derive(Debug)]
@@ -79,7 +81,7 @@ impl IterNext for PyEnumerate {
         };
         let mut counter = zelf.counter.write();
         let position = counter.clone();
-        *counter += 1;
+        *counter += BigInt::one();
         Ok(PyIterReturn::Return((position, next_obj).to_pyobject(vm)))
     }
 }
