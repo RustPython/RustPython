@@ -196,7 +196,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_zero_division_error("division by zero".to_owned()));
     }
 
-    let float = Ratio::from(i1.clone()).div(i2).to_f64().unwrap();
+    let float = i1.true_div(i2);
 
     if float.is_infinite() {
         Err(vm.new_exception_msg(

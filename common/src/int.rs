@@ -403,7 +403,9 @@ impl BigInt {
     }
 
     pub fn true_div(&self, other: &Self) -> f64 {
-
+        assert!(!other.is_zero());
+        let rational = malachite::Rational::from_integers_ref(self.inner(), other.inner());
+        rational.rounding_into(RoundingMode::Floor)
     }
 
     pub fn modpow(&self, exponent: &Self, modulus: &Self) -> Self {
