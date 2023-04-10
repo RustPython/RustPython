@@ -1,8 +1,9 @@
 #!/bin/bash
 
 CPYTHONPATH=$(cat clib_path.txt)
+RPYTHONPATH="../.."
 
-cp -r "Lib" "LibTmp"
+cp -r "${RPYTHONPATH}/Lib" "${RPYTHONPATH}/LibTmp"
 
 index=1
 
@@ -14,11 +15,11 @@ do
     fi
 
     if [ -f "${CPYTHONPATH}/Lib/${token}.py" ]; then
-        cp "${CPYTHONPATH}/Lib/${token}.py" "Lib/${token}.py"
+        cp "${CPYTHONPATH}/Lib/${token}.py" "${RPYTHONPATH}/Lib/${token}.py"
     fi
     
     if [ -f "${CPYTHONPATH}/Lib/test/test_${token}.py" ]; then
-        cp "${CPYTHONPATH}/Lib/test/test_${token}.py" "Lib/test/test_${token}.py"
+        cp "${CPYTHONPATH}/Lib/test/test_${token}.py" "${RPYTHONPATH}/Lib/test/test_${token}.py"
     fi
 
     ((index++))
@@ -43,8 +44,8 @@ do
 
     message="${token}:"
 
-    if [ -f "Lib/test/test_${token}.py" ]; then
-        test=$(cargo run -q -r "Lib/test/test_${token}.py" -q 2>&1 >/dev/null | grep "OK")
+    if [ -f "${RPYTHONPATH}/Lib/test/test_${token}.py" ]; then
+        test=$(cargo run -q -r "${RPYTHONPATH}/Lib/test/test_${token}.py" -q 2>&1 >/dev/null | grep "OK")
 
         if [ ! -z "${test}" ] ; then
             message="${message}  OK"
@@ -53,7 +54,7 @@ do
             message="${message}  FAILED"
         fi
     fi
-    if [ ! -f "Lib/test/test_${token}.py" ]; then
+    if [ ! -f "${RPYTHONPATH}/Lib/test/test_${token}.py" ]; then
         message="${message}  NOTEST"
     fi
 
@@ -62,5 +63,5 @@ do
     ((index++))
 done
 
-rm -r "Lib"
-mv -r "LibTmp" "Lib"
+rm -r "${RPYTHONPATH}/Lib"
+mv -r "${RPYTHONPATH}/LibTmp" "${RPYTHONPATH}/Lib"

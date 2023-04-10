@@ -1,6 +1,7 @@
 #!/bin/bash
 
 CPYTHONPATH=$(cat clib_path.txt)
+RPYTHONPATH="../.."
 
 if [ -f "clib_out.txt" ]; then
     rm "clib_out.txt"
@@ -22,17 +23,17 @@ do
     test_do=true
     message="${token}:"
 
-    if [ -f "Lib/${token}.py" ]; then
+    if [ -f "${RPYTHONPATH}/Lib/${token}.py" ]; then
         lib_exist=true
-        cp "Lib/${token}.py" "Lib/${token}_tmp_cp.py"
+        cp "${RPYTHONPATH}/Lib/${token}.py" "${RPYTHONPATH}/Lib/${token}_tmp_cp.py"
     fi
-    if [ -f "Lib/test/test_${token}.py" ]; then
+    if [ -f "${RPYTHONPATH}/Lib/test/test_${token}.py" ]; then
         test_exist=true
-        cp "Lib/test/test_${token}.py" "Lib/test/test_${token}_tmp_cp.py"
+        cp "${RPYTHONPATH}/Lib/test/test_${token}.py" "${RPYTHONPATH}/Lib/test/test_${token}_tmp_cp.py"
     fi
 
     if [ -f "${CPYTHONPATH}/Lib/${token}.py" ]; then
-        cp "${CPYTHONPATH}/Lib/${token}.py" "Lib/${token}.py"
+        cp "${CPYTHONPATH}/Lib/${token}.py" "${RPYTHONPATH}/Lib/${token}.py"
     fi
     if [ ! -f "${CPYTHONPATH}/Lib/${token}.py" ]; then
         test_do=false
@@ -40,7 +41,7 @@ do
     fi
     
     if [ -f "${CPYTHONPATH}/Lib/test/test_${token}.py" ]; then
-        cp "${CPYTHONPATH}/Lib/test/test_${token}.py" "Lib/test/test_${token}.py"
+        cp "${CPYTHONPATH}/Lib/test/test_${token}.py" "${RPYTHONPATH}/Lib/test/test_${token}.py"
     fi
     if [ ! -f "${CPYTHONPATH}/Lib/test/test_${token}.py" ]; then
         test_do=false
@@ -48,7 +49,7 @@ do
     fi
 
     if $test_do ; then
-        test=$(cargo run -q "Lib/test/test_${token}.py" -q 2>&1 >/dev/null | grep "OK")
+        test=$(cargo run -q "${RPYTHONPATH}/Lib/test/test_${token}.py" -q 2>&1 >/dev/null | grep "OK")
 
         if [ ! -z "${test}" ] ; then
             message="${message}  OK"
@@ -59,17 +60,17 @@ do
     fi
 
     if $lib_exist ; then
-        mv "Lib/${token}_tmp_cp.py" "Lib/${token}.py"
+        mv "${RPYTHONPATH}/Lib/${token}_tmp_cp.py" "${RPYTHONPATH}/Lib/${token}.py"
     fi
-    if ! $lib_exist && [ -f "Lib/${token}.py" ] ; then
-        rm "Lib/${token}.py"
+    if ! $lib_exist && [ -f "${RPYTHONPATH}/Lib/${token}.py" ] ; then
+        rm "${RPYTHONPATH}/Lib/${token}.py"
     fi 
 
      if $test_exist ; then
-        mv "Lib/test/test_${token}_tmp_cp.py" "Lib/test/test_${token}.py"
+        mv "${RPYTHONPATH}/Lib/test/test_${token}_tmp_cp.py" "${RPYTHONPATH}/Lib/test/test_${token}.py"
     fi
-    if ! $test_exist && [ -f "Lib/test/test_${token}.py" ] ; then
-        rm "Lib/test/test_${token}.py"
+    if ! $test_exist && [ -f "${RPYTHONPATH}/Lib/test/test_${token}.py" ] ; then
+        rm "${RPYTHONPATH}/Lib/test/test_${token}.py"
     fi 
 
     echo $message >> "clib_out.txt"
