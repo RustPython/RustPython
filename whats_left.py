@@ -490,7 +490,7 @@ if args.signature:
             if rustpy_value is None or rustpy_value.startswith("ValueError("):
                 rustpy_value = f" {rustpy_value}"
             print(f"{item}{rustpy_value}")
-            if cpython_value is None or cpython_value.startswith("ValueError("):
+            if cpython_value is None:
                 cpython_value = f" {cpython_value}"
             print(f"{' ' * len(item)}{cpython_value}")
             if i < len(mismatched) - 1:
