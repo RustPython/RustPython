@@ -413,8 +413,37 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
         attrs,
     )?;
 
+    // try to know if it have a `#[pyclass(trace)]` exist on this struct
+    // TODO(discord9): rethink on auto detect `#[Derive(PyTrace)]`
+    let is_trace = { class_meta.inner()._bool("trace")? };
+    let maybe_trace = {
+        if is_trace {
+            quote! {
+                #[cfg(feature = "gc_bacon")]
+                impl ::rustpython_vm::object::gc::MaybeTrace for #ident {
+                    const IS_TRACE: bool = true;
+                    fn try_trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
+                        ::rustpython_vm::object::gc::Trace::trace(self, tracer_fn);
+                    }
+                }
+            }
+        } else {
+            // a dummy impl, which do nothing
+            // #attrs
+            quote! {
+                #[cfg(feature = "gc_bacon")]
+                impl ::rustpython_vm::object::gc::MaybeTrace for #ident {
+                    fn try_trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
+                        // do nothing
+                    }
+                }
+            }
+        }
+    };
+
     let ret = quote! {
         #item
+        #maybe_trace
         #class_def
     };
     Ok(ret)
