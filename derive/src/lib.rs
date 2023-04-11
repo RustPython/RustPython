@@ -99,7 +99,7 @@ pub fn pypayload(input: TokenStream) -> TokenStream {
 /// add `trace` attr to `#[pyclass]` to make it
 /// traceable(Even from type-erased PyObject)(i.e. write `#[pyclass(trace)]`)
 /// better to place after `#[pyclass]` so pyclass know `pytrace`'s existance and impl a MaybeTrace calling Trace
-#[proc_macro_derive(PyTrace)]
+#[proc_macro_derive(PyTrace, attributes(notrace))]
 pub fn pytrace(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = parse_macro_input!(item);
     derive_impl::pytrace(item).into()

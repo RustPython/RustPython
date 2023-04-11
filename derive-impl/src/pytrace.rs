@@ -56,7 +56,6 @@ pub(crate) fn impl_pytrace(mut item: DeriveInput) -> Result<TokenStream> {
     let ty = &item.ident;
 
     let ret = quote! {
-        #item
         #[cfg(feature = "gc_bacon")]
         unsafe impl ::rustpython_vm::object::gc::Trace for #ty {
             fn trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
