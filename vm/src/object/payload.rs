@@ -1,4 +1,4 @@
-use super::{Py, PyObjectRef, PyRef, PyResult};
+use super::{gc::MaybeTrace, Py, PyObjectRef, PyRef, PyResult};
 use crate::{
     builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
     types::PyTypeFlags,
@@ -16,7 +16,24 @@ cfg_if::cfg_if! {
     }
 }
 
-pub trait PyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {
+/// This is a proxy trait for the convienience of implementing PyPayload with cfg feature. Specifically,
+/// `gc_bacon` feature which requires `MaybeTrace` trait.
+#[cfg(feature = "gc_bacon")]
+pub trait ProxyPayload:
+    std::fmt::Debug + MaybeTrace + PyThreadingConstraint + Sized + 'static
+{
+}
+#[cfg(feature = "gc_bacon")]
+impl<T: std::fmt::Debug + MaybeTrace + PyThreadingConstraint + Sized + 'static> ProxyPayload for T {}
+
+/// This is a proxy trait for the convienience of implementing PyPayload with cfg feature. Specifically,
+/// `gc_bacon` feature which requires `MaybeTrace` trait.
+#[cfg(not(feature = "gc_bacon"))]
+pub trait ProxyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {}
+#[cfg(not(feature = "gc_bacon"))]
+impl<T: std::fmt::Debug + PyThreadingConstraint + Sized + 'static> ProxyPayload for T {}
+
+pub trait PyPayload: ProxyPayload {
     fn class(ctx: &Context) -> &'static Py<PyType>;
 
     #[inline]
@@ -72,6 +89,13 @@ pub trait PyPayload: std::fmt::Debug + PyThreadingConstraint + Sized + 'static {
     }
 }
 
+#[cfg(feature = "gc_bacon")]
+pub trait PyObjectPayload:
+    std::any::Any + std::fmt::Debug + MaybeTrace + PyThreadingConstraint + 'static
+{
+}
+
+#[cfg(not(feature = "gc_bacon"))]
 pub trait PyObjectPayload:
     std::any::Any + std::fmt::Debug + PyThreadingConstraint + 'static
 {

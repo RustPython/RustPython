@@ -1,3 +1,3 @@
 mod trace;
 
-pub use trace::{MaybeTrace, Trace};
+pub use trace::{MaybeTrace, Trace, TracerFn};
