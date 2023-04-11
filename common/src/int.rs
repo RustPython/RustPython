@@ -13,12 +13,12 @@ use derive_more::{
 };
 use malachite::{
     num::{
-        arithmetic::traits::{Abs, Mod, ModPow, Parity, Sign},
+        arithmetic::traits::{Abs, FloorSqrt, Mod, ModPow, Parity, Sign},
         conversion::traits::{Digits, FromStringBase, OverflowingInto, RoundingInto},
         logic::traits::{CountOnes, SignificantBits},
     },
     rounding_modes::RoundingMode,
-    Integer, Natural,
+    Integer, Natural, Rational,
 };
 use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
@@ -251,9 +251,7 @@ impl Signed for BigInt {
 
     fn signum(&self) -> Self {
         match self.0.sign() {
-            Ordering::Less => {
-                Self(<Integer as malachite::num::basic::traits::NegativeOne>::NEGATIVE_ONE)
-            }
+            Ordering::Less => Self::negative_one(),
             Ordering::Equal => Self::zero(),
             Ordering::Greater => Self::one(),
         }
@@ -412,7 +410,22 @@ impl BigInt {
     pub fn true_div(&self, other: &Self) -> f64 {
         assert!(!other.is_zero());
         let rational = malachite::Rational::from_integers_ref(self.inner(), other.inner());
-        rational.rounding_into(RoundingMode::Floor)
+        rational.rounding_into(RoundingMode::Down)
+    }
+
+    /// Generates the base-2 logarithm of a BigInt `x`
+    pub fn int_log2(&self) -> f64 {
+        // log2(x) = log2(2^n * 2^-n * x) = n + log2(x/2^n)
+        // If we set 2^n to be the greatest power of 2 below x, then x/2^n is in [1, 2), and can
+        // thus be converted into a float.
+        let n = self.bits() as u32 - 1;
+        let frac = Rational::from_integers_ref(self.inner(), Self::from(2).pow(n.into()).inner());
+        let float: f64 = frac.rounding_into(RoundingMode::Down);
+        f64::from(n) + float.log2()
+    }
+
+    pub fn sqrt(self) -> Self {
+        Self(self.0.floor_sqrt())
     }
 
     pub fn rounding_from(value: f64) -> Option<Self> {

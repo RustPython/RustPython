@@ -465,9 +465,9 @@ mod _sqlite {
                 };
 
                 let val = match val?.as_bigint().sign() {
-                    num_bigint::Sign::Plus => 1,
-                    num_bigint::Sign::Minus => -1,
-                    num_bigint::Sign::NoSign => 0,
+                    std::cmp::Ordering::Less => -1,
+                    std::cmp::Ordering::Equal => 0,
+                    std::cmp::Ordering::Greater => 1,
                 };
 
                 Ok(val)

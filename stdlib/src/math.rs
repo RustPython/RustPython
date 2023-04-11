@@ -8,10 +8,8 @@ mod math {
         identifier, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use itertools::Itertools;
-    use num_bigint::BigInt;
-    use num_rational::Ratio;
-    use num_traits::{One, Signed, ToPrimitive, Zero};
-    use rustpython_common::float_ops;
+    use num_traits::{One, Signed, ToPrimitive, Zero, Pow};
+    use rustpython_common::{float_ops, int::BigInt};
     use std::cmp::Ordering;
 
     // Constants
@@ -150,12 +148,7 @@ mod math {
 
     /// Generates the base-2 logarithm of a BigInt `x`
     fn int_log2(x: &BigInt) -> f64 {
-        // log2(x) = log2(2^n * 2^-n * x) = n + log2(x/2^n)
-        // If we set 2^n to be the greatest power of 2 below x, then x/2^n is in [1, 2), and can
-        // thus be converted into a float.
-        let n = x.bits() as u32 - 1;
-        let frac = Ratio::new(x.clone(), BigInt::from(2).pow(n));
-        f64::from(n) + frac.to_f64().unwrap().log2()
+        x.int_log2()
     }
 
     #[pyfunction]
@@ -724,10 +717,10 @@ mod math {
             return Ok(one);
         }
         // start from 2, since we know that value > 1 and 1*2=2
-        let mut current = one + 1;
+        let mut current = one + BigInt::one();
         let mut product = BigInt::from(2u8);
         while current < *value {
-            current += 1;
+            current += BigInt::one();
             product *= &current;
         }
         Ok(product)
@@ -760,7 +753,7 @@ mod math {
         let tmp = n - v;
         while current > tmp {
             result *= &current;
-            current -= 1;
+            current -= BigInt::one();
         }
         Ok(result)
     }
@@ -793,8 +786,8 @@ mod math {
         let mut factor = n.clone();
         let mut current = one;
         while current < *k {
-            factor -= 1;
-            current += 1;
+            factor -= BigInt::one();
+            current += BigInt::one();
 
             result *= &factor;
             result /= &current;
