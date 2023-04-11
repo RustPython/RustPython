@@ -109,6 +109,7 @@ selectors
 shelve
 shlex
 shutil
+#signal
 site
 smtpd
 smtplib
@@ -152,5 +153,5 @@ zipapp
 zipfile
 zipimport
 
-# Components listed below are excluded from being tested
-signal
+# EOF marks the end of file
+EOF

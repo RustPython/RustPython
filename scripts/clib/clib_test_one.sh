@@ -13,9 +13,12 @@ index=1
 
 while :
 do
-    token=$(cat clib_list.txt)
-    token=$(echo $token | cut -d ' ' -f $index)
-    if [ -z $token ] || [ $token == "#" ]; then
+    token=$(sed -n ${index}p clib_list.txt | xargs)
+    if [ -z $token ] || [ ${token::1} == "#" ]; then
+        ((index++))
+        continue
+    fi
+    if [ $token == "EOF" ]; then
         break
     fi
 
