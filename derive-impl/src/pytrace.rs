@@ -8,14 +8,16 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
         syn::Data::Struct(s) => {
             let fields = &mut s.fields;
             if let syn::Fields::Named(ref mut fields) = fields {
-                let res: TokenStream = fields
+                let res: Vec<TokenStream> = fields
                     .named
                     .iter_mut()
-                    .map(|f| {
-                        let name = f
-                            .ident
-                            .as_ref()
-                            .expect("Field should have a name in non-tuple struct");
+                    .map(|f| -> Result<TokenStream> {
+                        let name = f.ident.as_ref().ok_or_else(|| {
+                            syn::Error::new_spanned(
+                                f.clone(),
+                                "Field should have a name in non-tuple struct",
+                            )
+                        })?;
                         let mut do_trace = true;
                         f.attrs.retain(|attr| {
                             // remove #[notrace] and not trace this specifed field
@@ -27,21 +29,24 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
                             }
                         });
                         if do_trace {
-                            quote!(
+                            Ok(quote!(
                                 ::rustpython_vm::object::gc::Trace::trace(&self.#name, tracer_fn);
-                            )
+                            ))
                         } else {
-                            quote!()
+                            Ok(quote!())
                         }
                     })
-                    .collect();
+                    .collect::<Result<_>>()?;
+                let res = res.into_iter().collect::<TokenStream>();
                 Ok(res)
             } else {
-                panic!("Expect only Named fields")
+                Err(syn::Error::new_spanned(
+                    fields,
+                    "Only named fields are supported",
+                ))
             }
         }
-        syn::Data::Enum(_) => todo!(),
-        syn::Data::Union(_) => todo!(),
+        _ => Err(syn::Error::new_spanned(item, "Only structs are supported")),
     }
 }
 
