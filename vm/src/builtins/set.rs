@@ -28,8 +28,8 @@ use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
-#[pyclass(module = false, name = "set", unhashable = true)]
-#[derive(Default)]
+#[pyclass(module = false, name = "set", unhashable = true, trace)]
+#[derive(Default, PyTrace)]
 pub struct PySet {
     pub(super) inner: PySetInner,
 }
@@ -149,6 +149,13 @@ impl PyPayload for PyFrozenSet {
 #[derive(Default, Clone)]
 pub(super) struct PySetInner {
     content: PyRc<SetContentType>,
+}
+
+unsafe impl crate::object::gc::Trace for PySetInner {
+    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
+        // FIXME(discord9): Rc means shared ref, so should it be traced?
+        self.content.trace(tracer_fn)
+    }
 }
 
 impl PySetInner {

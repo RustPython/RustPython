@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use rustpython_common::lock::{PyMutex, PyRwLock};
 
-use crate::{object::PyObjectPayload, AsObject, PyObject, PyObjectRef, PyRef};
+use crate::{function::Either, object::PyObjectPayload, AsObject, PyObject, PyObjectRef, PyRef};
 
 pub type TracerFn<'a> = dyn FnMut(&PyObject) + 'a;
 
@@ -143,6 +143,16 @@ macro_rules! trace_tuple {
         }
 
     };
+}
+
+unsafe impl<A: Trace, B: Trace> Trace for Either<A, B> {
+    #[inline]
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        match self {
+            Either::A(a) => a.trace(tracer_fn),
+            Either::B(b) => b.trace(tracer_fn),
+        }
+    }
 }
 
 // only tuple with 12 elements or less is supported,

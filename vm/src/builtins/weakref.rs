@@ -12,7 +12,7 @@ use crate::{
 
 pub use crate::object::PyWeak;
 
-#[derive(FromArgs)]
+#[derive(FromArgs, PyTrace)]
 pub struct WeakNewArgs {
     #[pyarg(positional)]
     referent: PyObjectRef,

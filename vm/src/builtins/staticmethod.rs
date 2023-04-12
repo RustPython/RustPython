@@ -8,8 +8,8 @@ use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "staticmethod")]
-#[derive(Debug)]
+#[pyclass(module = false, name = "staticmethod", trace)]
+#[derive(Debug, PyTrace)]
 pub struct PyStaticMethod {
     pub callable: PyMutex<PyObjectRef>,
 }

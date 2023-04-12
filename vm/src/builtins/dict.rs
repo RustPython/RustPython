@@ -32,8 +32,8 @@ use std::fmt;
 
 pub type DictContentType = dictdatatype::Dict;
 
-#[pyclass(module = false, name = "dict", unhashable = true)]
-#[derive(Default)]
+#[pyclass(module = false, name = "dict", unhashable = true, trace)]
+#[derive(Default, PyTrace)]
 pub struct PyDict {
     entries: DictContentType,
 }

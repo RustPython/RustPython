@@ -6,8 +6,8 @@ use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "filter")]
-#[derive(Debug)]
+#[pyclass(module = false, name = "filter", trace)]
+#[derive(Debug, PyTrace)]
 pub struct PyFilter {
     predicate: PyObjectRef,
     iterator: PyIter,

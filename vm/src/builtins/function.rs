@@ -10,6 +10,7 @@ use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
 use crate::convert::ToPyObject;
 use crate::function::ArgMapping;
+use crate::object::gc::{Trace, TracerFn};
 use crate::{
     bytecode,
     class::PyClassImpl,
@@ -25,7 +26,7 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
-#[pyclass(module = false, name = "function")]
+#[pyclass(module = false, name = "function", trace)]
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyRef<PyCode>,
@@ -36,6 +37,14 @@ pub struct PyFunction {
     qualname: PyMutex<PyStrRef>,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
+}
+
+unsafe impl Trace for PyFunction {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.globals.trace(tracer_fn);
+        self.closure.trace(tracer_fn);
+        self.defaults_and_kwdefaults.trace(tracer_fn);
+    }
 }
 
 impl PyFunction {
@@ -468,8 +477,8 @@ impl Representable for PyFunction {
     }
 }
 
-#[pyclass(module = false, name = "method")]
-#[derive(Debug)]
+#[pyclass(module = false, name = "method", trace)]
+#[derive(Debug, PyTrace)]
 pub struct PyBoundMethod {
     object: PyObjectRef,
     function: PyObjectRef,
@@ -633,8 +642,8 @@ impl Representable for PyBoundMethod {
     }
 }
 
-#[pyclass(module = false, name = "cell")]
-#[derive(Debug, Default)]
+#[pyclass(module = false, name = "cell", trace)]
+#[derive(Debug, Default, PyTrace)]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
 }

@@ -6,6 +6,7 @@ use super::{PyInt, PyTupleRef, PyType};
 use crate::{
     class::PyClassImpl,
     function::ArgCallable,
+    object::gc::{Trace, TracerFn},
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
     types::{IterNext, IterNextIterable},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -24,10 +25,25 @@ pub enum IterStatus<T> {
     Exhausted,
 }
 
+unsafe impl<T: Trace> Trace for IterStatus<T> {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        match self {
+            IterStatus::Active(ref r) => r.trace(tracer_fn),
+            IterStatus::Exhausted => (),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct PositionIterInternal<T> {
     pub status: IterStatus<T>,
     pub position: usize,
+}
+
+unsafe impl<T: Trace> Trace for PositionIterInternal<T> {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.status.trace(tracer_fn)
+    }
 }
 
 impl<T> PositionIterInternal<T> {
@@ -158,10 +174,11 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
     INSTANCE.get_or_init(|| vm.builtins.get_attr("reversed", vm).unwrap())
 }
 
-#[pyclass(module = false, name = "iterator")]
-#[derive(Debug)]
+#[pyclass(module = false, name = "iterator", trace)]
+#[derive(Debug, PyTrace)]
 pub struct PySequenceIterator {
     // cached sequence methods
+    #[notrace]
     seq_methods: &'static PySequenceMethods,
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
@@ -222,8 +239,8 @@ impl IterNext for PySequenceIterator {
     }
 }
 
-#[pyclass(module = false, name = "callable_iterator")]
-#[derive(Debug)]
+#[pyclass(module = false, name = "callable_iterator", trace)]
+#[derive(Debug, PyTrace)]
 pub struct PyCallableIterator {
     sentinel: PyObjectRef,
     status: PyRwLock<IterStatus<ArgCallable>>,

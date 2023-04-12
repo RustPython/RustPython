@@ -12,8 +12,8 @@ use crate::{
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass(module = false, name = "slice", unhashable = true)]
-#[derive(Debug)]
+#[pyclass(module = false, name = "slice", unhashable = true, trace)]
+#[derive(Debug, PyTrace)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
     pub stop: PyObjectRef,

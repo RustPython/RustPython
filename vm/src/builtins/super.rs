@@ -11,8 +11,8 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "super")]
-#[derive(Debug)]
+#[pyclass(module = false, name = "super", trace)]
+#[derive(Debug, PyTrace)]
 pub struct PySuper {
     typ: PyTypeRef,
     obj: Option<(PyObjectRef, PyTypeRef)>,
@@ -24,7 +24,7 @@ impl PyPayload for PySuper {
     }
 }
 
-#[derive(FromArgs)]
+#[derive(FromArgs, PyTrace)]
 pub struct PySuperNewArgs {
     #[pyarg(positional, optional)]
     py_type: OptionalArg<PyTypeRef>,

@@ -11,8 +11,8 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "property")]
-#[derive(Debug)]
+#[pyclass(module = false, name = "property", trace)]
+#[derive(Debug, PyTrace)]
 pub struct PyProperty {
     getter: PyRwLock<Option<PyObjectRef>>,
     setter: PyRwLock<Option<PyObjectRef>>,

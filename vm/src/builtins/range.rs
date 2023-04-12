@@ -61,8 +61,8 @@ fn iter_search(
     }
 }
 
-#[pyclass(module = false, name = "range")]
-#[derive(Debug, Clone)]
+#[pyclass(module = false, name = "range", trace)]
+#[derive(Debug, Clone, PyTrace)]
 pub struct PyRange {
     pub start: PyIntRef,
     pub stop: PyIntRef,
