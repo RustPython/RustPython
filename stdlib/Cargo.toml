@@ -28,7 +28,6 @@ libc = { workspace = true }
 nix = { workspace = true }
 num-complex = { workspace = true }
 num-integer = { workspace = true }
-num-rational = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 once_cell = { workspace = true }
