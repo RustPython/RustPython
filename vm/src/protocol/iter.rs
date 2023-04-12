@@ -1,6 +1,7 @@
 use crate::{
     builtins::iter::PySequenceIterator,
     convert::{ToPyObject, ToPyResult},
+    object::gc::{Trace, TracerFn},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::borrow::Borrow;
@@ -13,6 +14,12 @@ use std::ops::Deref;
 pub struct PyIter<O = PyObjectRef>(O)
 where
     O: Borrow<PyObject>;
+
+unsafe impl<O: Borrow<PyObject>> Trace for PyIter<O> {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.0.borrow().trace(tracer_fn);
+    }
+}
 
 impl PyIter<PyObjectRef> {
     pub fn check(obj: &PyObject) -> bool {
@@ -149,6 +156,16 @@ pub enum PyIterReturn<T = PyObjectRef> {
     StopIteration(Option<PyObjectRef>),
 }
 
+unsafe impl<T: Trace> Trace for PyIterReturn<T> {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        match self {
+            PyIterReturn::Return(r) => r.trace(tracer_fn),
+            PyIterReturn::StopIteration(Some(obj)) => obj.trace(tracer_fn),
+            _ => (),
+        }
+    }
+}
+
 impl PyIterReturn {
     pub fn from_pyresult(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
@@ -210,6 +227,15 @@ where
     obj: O, // creating PyIter<O> is zero-cost
     length_hint: Option<usize>,
     _phantom: std::marker::PhantomData<T>,
+}
+
+unsafe impl<'a, T, O> Trace for PyIterIter<'a, T, O>
+where
+    O: Trace + Borrow<PyObject>,
+{
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.obj.trace(tracer_fn)
+    }
 }
 
 impl<'a, T, O> PyIterIter<'a, T, O>

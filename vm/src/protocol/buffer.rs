@@ -32,10 +32,12 @@ impl Debug for BufferMethods {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PyTrace)]
 pub struct PyBuffer {
     pub obj: PyObjectRef,
+    #[notrace]
     pub desc: BufferDescriptor,
+    #[notrace]
     methods: &'static BufferMethods,
 }
 
