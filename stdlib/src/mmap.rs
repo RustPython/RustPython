@@ -244,8 +244,9 @@ mod mmap {
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[derive(FromArgs)]
+    #[derive(FromArgs, PyTrace)]
     pub struct AdviseOptions {
+        #[notrace]
         #[pyarg(positional)]
         option: libc::c_int,
         #[pyarg(positional, default)]

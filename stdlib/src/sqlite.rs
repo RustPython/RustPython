@@ -69,6 +69,7 @@ mod _sqlite {
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine,
         __exports::paste,
+        object::gc::{Trace, TracerFn},
     };
     use std::{
         ffi::{c_int, c_longlong, c_uint, c_void, CStr},
@@ -311,6 +312,13 @@ mod _sqlite {
         uri: bool,
     }
 
+    unsafe impl Trace for ConnectArgs {
+        fn trace(&self, tracer_fn: &mut TracerFn) {
+            self.isolation_level.trace(tracer_fn);
+            self.factory.trace(tracer_fn);
+        }
+    }
+
     #[derive(FromArgs)]
     struct BackupArgs {
         #[pyarg(any)]
@@ -325,36 +333,48 @@ mod _sqlite {
         sleep: f64,
     }
 
-    #[derive(FromArgs)]
+    unsafe impl Trace for BackupArgs {
+        fn trace(&self, tracer_fn: &mut TracerFn) {
+            self.progress.trace(tracer_fn);
+            self.name.trace(tracer_fn);
+        }
+    }
+
+    #[derive(FromArgs, PyTrace)]
     struct CreateFunctionArgs {
         #[pyarg(any)]
         name: PyStrRef,
+        #[notrace]
         #[pyarg(any)]
         narg: c_int,
         #[pyarg(any)]
         func: PyObjectRef,
+        #[notrace]
         #[pyarg(named, default)]
         deterministic: bool,
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, PyTrace)]
     struct CreateAggregateArgs {
         #[pyarg(any)]
         name: PyStrRef,
+        #[notrace]
         #[pyarg(positional)]
         narg: c_int,
         #[pyarg(positional)]
         aggregate_class: PyObjectRef,
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, PyTrace)]
     struct BlobOpenArgs {
         #[pyarg(positional)]
         table: PyStrRef,
         #[pyarg(positional)]
         column: PyStrRef,
+        #[notrace]
         #[pyarg(positional)]
         row: i64,
+        #[notrace]
         #[pyarg(named, default)]
         readonly: bool,
         #[pyarg(named, default = "vm.ctx.new_str(stringify!(main))")]
@@ -1340,20 +1360,24 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name)]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(name, trace)]
+    #[derive(Debug, PyPayload, PyTrace)]
     struct Cursor {
         connection: PyRef<Connection>,
+        #[notrace]
         arraysize: PyAtomic<c_int>,
+        #[notrace]
         row_factory: PyAtomicRef<Option<PyObject>>,
         inner: PyMutex<Option<CursorInner>>,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, PyTrace)]
     struct CursorInner {
         description: Option<PyTupleRef>,
         row_cast_map: Vec<Option<PyObjectRef>>,
+        #[notrace]
         lastrowid: i64,
+        #[notrace]
         rowcount: i64,
         statement: Option<PyRef<Statement>>,
     }
@@ -1793,8 +1817,8 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name)]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(name, trace)]
+    #[derive(Debug, PyPayload, PyTrace)]
     struct Row {
         data: PyTupleRef,
         description: PyTupleRef,
@@ -1922,10 +1946,11 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name)]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(name, trace)]
+    #[derive(Debug, PyPayload, PyTrace)]
     struct Blob {
         connection: PyRef<Connection>,
+        #[notrace]
         inner: PyMutex<Option<BlobInner>>,
     }
 

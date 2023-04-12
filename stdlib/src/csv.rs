@@ -152,10 +152,11 @@ mod _csv {
         reader: csv_core::Reader,
     }
 
-    #[pyclass(no_attr, module = "_csv", name = "reader")]
-    #[derive(PyPayload)]
+    #[pyclass(no_attr, module = "_csv", name = "reader", trace)]
+    #[derive(PyPayload, PyTrace)]
     pub(super) struct Reader {
         iter: PyIter,
+        #[notrace]
         state: PyMutex<ReadState>,
     }
 
@@ -242,10 +243,11 @@ mod _csv {
         writer: csv_core::Writer,
     }
 
-    #[pyclass(no_attr, module = "_csv", name = "writer")]
-    #[derive(PyPayload)]
+    #[pyclass(no_attr, module = "_csv", name = "writer", trace)]
+    #[derive(PyPayload, PyTrace)]
     pub(super) struct Writer {
         write: PyObjectRef,
+        #[notrace]
         state: PyMutex<WriteState>,
     }
 

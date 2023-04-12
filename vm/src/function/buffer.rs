@@ -9,7 +9,7 @@ use crate::{
 // Python/getargs.c
 
 /// any bytes-like object. Like the `y*` format code for `PyArg_Parse` in CPython.
-#[derive(Debug)]
+#[derive(Debug, PyTrace)]
 pub struct ArgBytesLike(PyBuffer);
 
 impl PyObject {
@@ -82,7 +82,7 @@ impl<'a> TryFromBorrowedObject<'a> for ArgBytesLike {
 }
 
 /// A memory buffer, read-write access. Like the `w*` format code for `PyArg_Parse` in CPython.
-#[derive(Debug)]
+#[derive(Debug, PyTrace)]
 pub struct ArgMemoryBuffer(PyBuffer);
 
 impl ArgMemoryBuffer {

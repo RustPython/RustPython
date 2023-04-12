@@ -16,9 +16,10 @@ mod _json {
     use std::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
-    #[pyclass(name = "Scanner")]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(name = "Scanner", trace)]
+    #[derive(Debug, PyPayload, PyTrace)]
     struct JsonScanner {
+        #[notrace]
         strict: bool,
         object_hook: Option<PyObjectRef>,
         object_pairs_hook: Option<PyObjectRef>,

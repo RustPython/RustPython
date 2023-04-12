@@ -39,6 +39,17 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
                     .collect::<Result<_>>()?;
                 let res = res.into_iter().collect::<TokenStream>();
                 Ok(res)
+            } else if let syn::Fields::Unnamed(fields) = fields {
+                let res: TokenStream = (0..fields.unnamed.len())
+                    .into_iter()
+                    .map(|i| {
+                        let i = syn::Index::from(i);
+                        quote!(
+                            ::rustpython_vm::object::gc::Trace::trace(&self.#i, tracer_fn);
+                        )
+                    })
+                    .collect();
+                Ok(res)
             } else {
                 Err(syn::Error::new_spanned(
                     fields,

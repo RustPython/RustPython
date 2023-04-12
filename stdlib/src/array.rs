@@ -1399,8 +1399,8 @@ mod array {
     }
 
     #[pyattr]
-    #[pyclass(name = "arrayiterator")]
-    #[derive(Debug, PyPayload)]
+    #[pyclass(name = "arrayiterator", trace)]
+    #[derive(Debug, PyPayload, PyTrace)]
     pub struct PyArrayIter {
         internal: PyMutex<PositionIterInternal<PyArrayRef>>,
     }
@@ -1434,12 +1434,13 @@ mod array {
         }
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, PyTrace)]
     struct ReconstructorArgs {
         #[pyarg(positional)]
         arraytype: PyTypeRef,
         #[pyarg(positional)]
         typecode: PyStrRef,
+        #[notrace]
         #[pyarg(positional)]
         mformat_code: MachineFormatCode,
         #[pyarg(positional)]

@@ -76,10 +76,11 @@ mod re {
 
     /// Inner data for a match object.
     #[pyattr]
-    #[pyclass(module = "re", name = "Match")]
-    #[derive(PyPayload)]
+    #[pyclass(module = "re", name = "Match", trace)]
+    #[derive(PyPayload, PyTrace)]
     struct PyMatch {
         haystack: PyStrRef,
+        #[notrace]
         captures: Vec<Option<Range<usize>>>,
     }
 
