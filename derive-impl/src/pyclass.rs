@@ -419,7 +419,6 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
     let maybe_trace = {
         if is_trace {
             quote! {
-                #[cfg(feature = "gc_bacon")]
                 impl ::rustpython_vm::object::gc::MaybeTrace for #ident {
                     const IS_TRACE: bool = true;
                     fn try_trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
@@ -431,7 +430,6 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
             // a dummy impl, which do nothing
             // #attrs
             quote! {
-                #[cfg(feature = "gc_bacon")]
                 impl ::rustpython_vm::object::gc::MaybeTrace for #ident {
                     fn try_trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
                         // do nothing

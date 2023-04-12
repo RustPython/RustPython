@@ -92,13 +92,24 @@ pub fn pypayload(input: TokenStream) -> TokenStream {
     derive_impl::pypayload(input).into()
 }
 
-/// use on struct with named fields like `struct A{x:i32, y:i32}` to impl `Trace` for datatype
+/// use on struct with named fields like `struct A{x:PyRef<B>, y:PyRef<C>}` to impl `Trace` for datatype.
 ///
 /// use `#[notrace]` on fields you wish not to trace
 ///
-/// add `trace` attr to `#[pyclass]` to make it
-/// traceable(Even from type-erased PyObject)(i.e. write `#[pyclass(trace)]`)
-/// better to place after `#[pyclass]` so pyclass know `pytrace`'s existance and impl a MaybeTrace calling Trace
+/// add `trace` attr to `#[pyclass]` to make it impl `MaybeTrace` that will call `Trace`'s `trace` method so make it
+/// traceable(Even from type-erased PyObject)(i.e. write `#[pyclass(trace)]`).
+/// # Example
+/// ```rust
+/// #[pyclass(module = false, trace)]
+/// #[derive(Default, PyTrace)]
+/// pub struct PyList {
+///     elements: PyRwLock<Vec<PyObjectRef>>,
+///     #[notrace]
+///     len: AtomicCell<usize>,
+/// }
+/// ```
+/// This create both `MaybeTrace` that call `Trace`'s `trace` method and `PyTrace` that impl `Trace`
+/// for `PyList` which call elements' `trace` method and ignore `len` field.
 #[proc_macro_derive(PyTrace, attributes(notrace))]
 pub fn pytrace(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = parse_macro_input!(item);
