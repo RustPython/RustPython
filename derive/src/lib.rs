@@ -99,7 +99,7 @@ pub fn pypayload(input: TokenStream) -> TokenStream {
 /// add `trace` attr to `#[pyclass]` to make it impl `MaybeTrace` that will call `Trace`'s `trace` method so make it
 /// traceable(Even from type-erased PyObject)(i.e. write `#[pyclass(trace)]`).
 /// # Example
-/// ```rust
+/// ```rust, ignore
 /// #[pyclass(module = false, trace)]
 /// #[derive(Default, PyTrace)]
 /// pub struct PyList {

@@ -13,7 +13,7 @@
 
 use super::{
     ext::{AsObject, PyRefExact, PyResult},
-    gc::{Trace, TracerFn},
+    gc::{PyObjVTable, Trace, TracerFn},
     payload::PyObjectPayload,
     PyAtomicRef,
 };
@@ -74,46 +74,21 @@ use std::{
 
 /// A type to just represent "we've erased the type of this object, cast it before you use it"
 #[derive(Debug)]
-struct Erased;
+pub(super) struct Erased;
 
-struct PyObjVTable {
-    drop_dealloc: unsafe fn(*mut PyObject),
-    debug: unsafe fn(&PyObject, &mut fmt::Formatter) -> fmt::Result,
-    trace: Option<unsafe fn(&PyObject, &mut TracerFn)>,
-}
-unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
+pub(super) unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
     drop(Box::from_raw(x as *mut PyInner<T>));
 }
-unsafe fn debug_obj<T: PyObjectPayload>(x: &PyObject, f: &mut fmt::Formatter) -> fmt::Result {
+pub(super) unsafe fn debug_obj<T: PyObjectPayload>(
+    x: &PyObject,
+    f: &mut fmt::Formatter,
+) -> fmt::Result {
     let x = &*(x as *const PyObject as *const PyInner<T>);
     fmt::Debug::fmt(x, f)
 }
 
-impl PyObjVTable {
-    pub fn of<T: PyObjectPayload>() -> &'static Self {
-        struct Helper<T: PyObjectPayload>(PhantomData<T>);
-        trait VtableHelper {
-            const VTABLE: PyObjVTable;
-        }
-        impl<T: PyObjectPayload> VtableHelper for Helper<T> {
-            const VTABLE: PyObjVTable = PyObjVTable {
-                drop_dealloc: drop_dealloc_obj::<T>,
-                debug: debug_obj::<T>,
-                trace: {
-                    if T::IS_TRACE {
-                        Some(try_trace_obj::<T>)
-                    } else {
-                        None
-                    }
-                },
-            };
-        }
-        &Helper::<T>::VTABLE
-    }
-}
-
 /// Call `try_trace` on payload
-unsafe fn try_trace_obj<T: PyObjectPayload>(x: &PyObject, tracer_fn: &mut TracerFn) {
+pub(super) unsafe fn try_trace_obj<T: PyObjectPayload>(x: &PyObject, tracer_fn: &mut TracerFn) {
     let x = &*(x as *const PyObject as *const PyInner<T>);
     let payload = &x.payload;
     payload.try_trace(tracer_fn)
@@ -123,57 +98,18 @@ unsafe fn try_trace_obj<T: PyObjectPayload>(x: &PyObject, tracer_fn: &mut Tracer
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
 #[repr(C)]
-struct PyInner<T> {
-    ref_count: RefCount,
+pub(super) struct PyInner<T> {
+    pub(super) ref_count: RefCount,
     // TODO: move typeid into vtable once TypeId::of is const
-    typeid: TypeId,
-    vtable: &'static PyObjVTable,
+    pub(super) typeid: TypeId,
+    pub(super) vtable: &'static PyObjVTable,
 
-    typ: PyAtomicRef<PyType>, // __class__ member
-    dict: Option<InstanceDict>,
-    weak_list: WeakRefList,
-    slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
+    pub(super) typ: PyAtomicRef<PyType>, // __class__ member
+    pub(super) dict: Option<InstanceDict>,
+    pub(super) weak_list: WeakRefList,
+    pub(super) slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
 
-    payload: T,
-}
-
-unsafe impl Trace for InstanceDict {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.d.trace(tracer_fn)
-    }
-}
-
-unsafe impl Trace for PyInner<Erased> {
-    /// Because PyObject hold a `PyInner<Erased>`, so we need to trace it
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        // 1. trace `dict` and `slots` field(`typ` can't trace for it's a AtomicRef while is leaked by design)
-        // 2. call vtable's trace function to trace payload
-        // self.typ.trace(tracer_fn);
-        self.dict.trace(tracer_fn);
-        // weak_list keeps a *pointer* to a struct for maintaince weak ref, so no ownership, no trace
-        self.slots.trace(tracer_fn);
-
-        if let Some(f) = self.vtable.trace {
-            unsafe {
-                let zelf = &*(self as *const PyInner<Erased> as *const PyObject);
-                f(zelf, tracer_fn)
-            }
-        };
-    }
-}
-
-unsafe impl<T: PyObjectPayload> Trace for PyInner<T> {
-    /// Type is known, so we can call `try_trace` directly instead of using erased type vtable
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        // 1. trace `dict` and `slots` field(`typ` can't trace for it's a AtomicRef while is leaked by design)
-        // 2. call corrsponding `try_trace` function to trace payload
-        // (No need to call vtable's trace function because we already know the type)
-        // self.typ.trace(tracer_fn);
-        self.dict.trace(tracer_fn);
-        // weak_list keeps a *pointer* to a struct for maintaince weak ref, so no ownership, no trace
-        self.slots.trace(tracer_fn);
-        T::try_trace(&self.payload, tracer_fn);
-    }
+    pub(super) payload: T,
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
@@ -198,7 +134,7 @@ unsafe impl Trace for PyObject {
     }
 }
 
-struct WeakRefList {
+pub(super) struct WeakRefList {
     inner: OncePtr<PyMutex<WeakListInner>>,
 }
 
@@ -464,8 +400,8 @@ impl Py<PyWeak> {
 }
 
 #[derive(Debug)]
-struct InstanceDict {
-    d: PyRwLock<PyDictRef>,
+pub(super) struct InstanceDict {
+    pub(super) d: PyRwLock<PyDictRef>,
 }
 
 impl From<PyDictRef> for InstanceDict {
