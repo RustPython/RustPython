@@ -1,7 +1,7 @@
 mod core;
 mod ext;
 mod payload;
-#[cfg(feature = "gc_bacon")]
+
 #[macro_use]
 pub mod gc;
 

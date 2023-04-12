@@ -3,15 +3,17 @@ use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
     convert::ToPyObject,
     identifier,
+    object::gc::{Trace, TracerFn},
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
     types::{AsMapping, GenericMethod},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
-#[derive(Clone)]
+#[derive(Clone, PyTrace)]
 pub struct ArgCallable {
     obj: PyObjectRef,
+    #[notrace]
     call: GenericMethod,
 }
 
@@ -75,6 +77,12 @@ pub struct ArgIterable<T = PyObjectRef> {
     _item: PhantomData<T>,
 }
 
+unsafe impl<T: Trace> Trace for ArgIterable<T> {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.iterable.trace(tracer_fn)
+    }
+}
+
 impl<T> ArgIterable<T> {
     /// Returns an iterator over this sequence of objects.
     ///
@@ -110,9 +118,10 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PyTrace)]
 pub struct ArgMapping {
     obj: PyObjectRef,
+    #[notrace]
     methods: &'static PyMappingMethods,
 }
 
@@ -186,6 +195,12 @@ impl TryFromObject for ArgMapping {
 // this is not strictly related to PySequence protocol.
 #[derive(Clone)]
 pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
+
+unsafe impl<T: Trace> Trace for ArgSequence<T> {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.0.trace(tracer_fn);
+    }
+}
 
 impl<T> ArgSequence<T> {
     #[inline(always)]

@@ -3,14 +3,17 @@
 //! And: https://www.youtube.com/watch?v=p33CVV29OG8
 //! And: http://code.activestate.com/recipes/578375/
 
-use crate::common::{
-    hash,
-    lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
-};
 use crate::{
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef},
     convert::ToPyObject,
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
+};
+use crate::{
+    common::{
+        hash,
+        lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
+    },
+    object::gc::{Trace, TracerFn},
 };
 use num_traits::ToPrimitive;
 use std::{fmt, mem::size_of, ops::ControlFlow};
@@ -29,6 +32,12 @@ type EntryIndex = usize;
 
 pub struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
+}
+
+unsafe impl<T: Trace> Trace for Dict<T> {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.inner.trace(tracer_fn);
+    }
 }
 
 impl<T> fmt::Debug for Dict<T> {
@@ -67,6 +76,20 @@ struct DictInner<T> {
     filled: usize,
     indices: Vec<IndexEntry>,
     entries: Vec<Option<DictEntry<T>>>,
+}
+
+unsafe impl<T: Trace> Trace for DictInner<T> {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.entries
+            .iter()
+            .map(|v| {
+                if let Some(v) = v {
+                    v.key.trace(tracer_fn);
+                    v.value.trace(tracer_fn);
+                }
+            })
+            .count();
+    }
 }
 
 impl<T: Clone> Clone for Dict<T> {

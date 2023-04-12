@@ -6,6 +6,8 @@ use crate::{object::PyObjectPayload, AsObject, PyObject, PyObjectRef, PyRef};
 
 pub type TracerFn<'a> = dyn FnMut(&PyObject) + 'a;
 
+/// This trait is used as a "Optional Trait"(I 'd like to use `Trace?` but it's not allowed yet) for PyObjectPayload type
+///
 /// impl for PyObjectPayload, `pyclass` proc macro will handle the actual dispatch if type impl `Trace`
 /// Every PyObjectPayload impl `MaybeTrace`, which may or may not be traceable
 pub trait MaybeTrace {
@@ -15,6 +17,7 @@ pub trait MaybeTrace {
     fn try_trace(&self, tracer_fn: &mut TracerFn);
 }
 
+/// Type that need trace it's children should impl `Trace`(Not `MaybeTrace`)
 /// # Safety
 /// impl `trace()` with caution! Following those guideline so trace doesn't cause memory error!:
 /// - Make sure that every owned object(Every PyObjectRef/PyRef) is called with tracer_fn **at most once**.

@@ -1,6 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     convert::ToPyObject,
+    object::gc::{Trace, TracerFn},
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
@@ -62,6 +63,13 @@ pub struct FuncArgs {
     pub args: Vec<PyObjectRef>,
     // sorted map, according to https://www.python.org/dev/peps/pep-0468/
     pub kwargs: IndexMap<String, PyObjectRef>,
+}
+
+unsafe impl Trace for FuncArgs {
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.args.trace(tracer_fn);
+        self.kwargs.iter().map(|(_, v)| v.trace(tracer_fn)).count();
+    }
 }
 
 /// Conversion from vector of python objects to function arguments.
@@ -320,6 +328,15 @@ impl<T: TryFromObject> FromArgOptional for T {
 #[derive(Clone)]
 pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
 
+unsafe impl<T> Trace for KwArgs<T>
+where
+    T: Trace,
+{
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.0.iter().map(|(_, v)| v.trace(tracer_fn)).count();
+    }
+}
+
 impl<T> KwArgs<T> {
     pub fn new(map: IndexMap<String, T>) -> Self {
         KwArgs(map)
@@ -376,6 +393,15 @@ impl<T> IntoIterator for KwArgs<T> {
 /// or conversions of each argument.
 #[derive(Clone)]
 pub struct PosArgs<T = PyObjectRef>(Vec<T>);
+
+unsafe impl<T> Trace for PosArgs<T>
+where
+    T: Trace,
+{
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        self.0.trace(tracer_fn)
+    }
+}
 
 impl<T> PosArgs<T> {
     pub fn new(args: Vec<T>) -> Self {
@@ -459,6 +485,18 @@ where
 pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
+}
+
+unsafe impl<T> Trace for OptionalArg<T>
+where
+    T: Trace,
+{
+    fn trace(&self, tracer_fn: &mut TracerFn) {
+        match self {
+            OptionalArg::Present(ref o) => o.trace(tracer_fn),
+            OptionalArg::Missing => (),
+        }
+    }
 }
 
 impl OptionalArg<PyObjectRef> {
