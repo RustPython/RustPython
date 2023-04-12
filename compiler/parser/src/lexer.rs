@@ -40,10 +40,10 @@ use crate::{
 };
 use log::trace;
 use num_traits::{Num, Zero};
+use rustpython_common::int::BigInt;
 use std::{char, cmp::Ordering, ops::Index, slice::SliceIndex, str::FromStr};
 use unic_emoji_char::is_emoji_presentation;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
-use rustpython_common::int::BigInt;
 
 // Indentations are tracked by a stack of indentation levels. IndentationLevel keeps
 // track of the number of tabs and spaces at the current level.

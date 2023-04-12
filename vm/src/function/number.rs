@@ -1,8 +1,8 @@
 use super::argument::OptionalArg;
 use crate::{builtins::PyIntRef, AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
-use rustpython_common::int::BigInt;
 use num_complex::Complex64;
 use num_traits::PrimInt;
+use rustpython_common::int::BigInt;
 use std::ops::Deref;
 
 /// A Python complex-like object.

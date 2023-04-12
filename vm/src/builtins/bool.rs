@@ -9,7 +9,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
-use num_traits::{Zero, Signed};
+use num_traits::{Signed, Zero};
 use std::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {

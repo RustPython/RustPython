@@ -12,8 +12,8 @@ mod _json {
         types::{Callable, Constructor},
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
-    use std::str::FromStr;
     use rustpython_common::int::BigInt;
+    use std::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner")]

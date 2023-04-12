@@ -19,7 +19,6 @@ use crate::{
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use num_complex::Complex64;
-use num_rational::Ratio;
 use num_traits::{Signed, ToPrimitive, Zero};
 
 #[pyclass(module = false, name = "float")]

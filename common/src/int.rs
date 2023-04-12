@@ -439,7 +439,7 @@ impl BigInt {
                 word
             })
             .collect::<Vec<_>>();
-    
+
         let abs = Natural::from_owned_limbs_asc(wordarray);
         Integer::from_sign_and_abs(true, abs).into()
     }

@@ -1,6 +1,6 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
-    common::{static_cell, str::wchar_t, int::BigInt},
+    common::{int::BigInt, static_cell, str::wchar_t},
     convert::ToPyObject,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,

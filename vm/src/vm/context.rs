@@ -15,7 +15,7 @@ use crate::{
         PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
-    common::{lock::PyRwLock, rc::PyRc, int::BigInt},
+    common::{int::BigInt, lock::PyRwLock, rc::PyRc},
     exceptions,
     function::{IntoPyGetterFunc, IntoPyNativeFunc, IntoPySetterFunc},
     intern::{InternableString, MaybeInternedString, StringPool},

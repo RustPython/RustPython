@@ -8,7 +8,7 @@ mod math {
         identifier, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use itertools::Itertools;
-    use num_traits::{One, Signed, ToPrimitive, Zero, Pow};
+    use num_traits::{One, Signed, Zero};
     use rustpython_common::{float_ops, int::BigInt};
     use std::cmp::Ordering;
 

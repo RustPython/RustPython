@@ -5,9 +5,9 @@ use crate::{marshal, Location};
 use bitflags::bitflags;
 use itertools::Itertools;
 use num_complex::Complex64;
+use rustpython_common::int::BigInt;
 use std::marker::PhantomData;
 use std::{collections::BTreeSet, fmt, hash, mem};
-use rustpython_common::int::BigInt;
 
 pub trait Constant: Sized {
     type Name: AsRef<str>;

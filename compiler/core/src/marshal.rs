@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{convert::Infallible, cmp::Ordering};
+use std::{cmp::Ordering, convert::Infallible};
 
 use num_complex::Complex64;
 use rustpython_common::int::BigInt;

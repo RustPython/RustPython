@@ -13,7 +13,7 @@ use crate::{
     types::{Constructor, IterNext, IterNextIterable},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
-use num_traits::{Zero, One};
+use num_traits::{One, Zero};
 
 #[pyclass(module = false, name = "enumerate")]
 #[derive(Debug)]

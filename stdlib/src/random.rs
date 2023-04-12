@@ -11,7 +11,7 @@ mod _random {
         types::Constructor,
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
-    use num_traits::{Signed, Zero};
+    use num_traits::Signed;
     use rand::{rngs::StdRng, RngCore, SeedableRng};
 
     #[derive(Debug)]
@@ -99,7 +99,7 @@ mod _random {
                     if cfg!(target_endian = "big") {
                         key.reverse();
                     }
-                    let key : &[u32] = if key.is_empty() {
+                    let key: &[u32] = if key.is_empty() {
                         &[0]
                     } else {
                         // TODO: mt19937 with 64 bits support

@@ -18,10 +18,9 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
-use num_rational::Ratio;
-use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use num_integer::Integer;
-use std::{ops::{Div, Neg}, cmp::Ordering};
+use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
+use std::{cmp::Ordering, ops::Neg};
 use std::{fmt, ops::Not};
 
 #[pyclass(module = false, name = "int")]
@@ -600,9 +599,7 @@ impl PyInt {
             (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(args.bytes.as_bytes()),
             (ArgByteOrder::Big, false) => BigInt::from_bytes_be(true, args.bytes.as_bytes()),
             (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(args.bytes.as_bytes()),
-            (ArgByteOrder::Little, false) => {
-                BigInt::from_bytes_le(true, args.bytes.as_bytes())
-            }
+            (ArgByteOrder::Little, false) => BigInt::from_bytes_le(true, args.bytes.as_bytes()),
         };
         Self::with_value(cls, value, vm)
     }

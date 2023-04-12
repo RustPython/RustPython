@@ -106,11 +106,11 @@ mod _io {
         },
         class::StaticType,
         common::{
+            int::BigInt,
             lock::{
                 PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
                 PyThreadMutex, PyThreadMutexGuard,
             },
-            int::BigInt,
         },
         convert::ToPyObject,
         function::{
