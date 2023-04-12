@@ -149,7 +149,7 @@ mod resource {
 
     #[pyfunction]
     fn getrlimit(resource: i32, vm: &VirtualMachine) -> PyResult<Limits> {
-        if resource < 0 || resource >= RLIM_NLIMITS as _ {
+        if resource < 0 || resource >= RLIM_NLIMITS as i32 {
             return Err(vm.new_value_error("invalid resource specified".to_owned()));
         }
         let rlimit = unsafe {
@@ -164,7 +164,7 @@ mod resource {
 
     #[pyfunction]
     fn setrlimit(resource: i32, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
-        if resource < 0 || resource >= RLIM_NLIMITS as _ {
+        if resource < 0 || resource >= RLIM_NLIMITS as i32 {
             return Err(vm.new_value_error("invalid resource specified".to_owned()));
         }
         let res = unsafe {

@@ -220,7 +220,8 @@ mod math {
         if value.is_negative() {
             return Err(vm.new_value_error("isqrt() argument must be nonnegative".to_owned()));
         }
-        Ok(value.sqrt())
+        // TODO: take ownership from value
+        Ok(value.clone().sqrt())
     }
 
     // Trigonometric functions:

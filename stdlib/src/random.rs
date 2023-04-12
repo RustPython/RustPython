@@ -91,15 +91,20 @@ mod _random {
                 .flatten()
                 .map(|n| {
                     // Fallback to using hash if object isn't Int-like.
-                    let (_, mut key) = match n.downcast::<PyInt>() {
+                    let mut key = match n.downcast::<PyInt>() {
                         Ok(n) => n.as_bigint().abs(),
                         Err(obj) => BigInt::from(obj.hash(vm)?).abs(),
                     }
-                    .to_u32_digits();
+                    .into_limbs_asc();
                     if cfg!(target_endian = "big") {
                         key.reverse();
                     }
-                    let key = if key.is_empty() { &[0] } else { key.as_slice() };
+                    let key : &[u32] = if key.is_empty() {
+                        &[0]
+                    } else {
+                        // TODO: mt19937 with 64 bits support
+                        unsafe { std::mem::transmute(key.as_slice()) }
+                    };
                     Ok(PyRng::MT(Box::new(mt19937::MT19937::new_with_slice_seed(
                         key,
                     ))))
@@ -113,42 +118,11 @@ mod _random {
 
         #[pymethod]
         fn getrandbits(&self, k: isize, vm: &VirtualMachine) -> PyResult<BigInt> {
-            match k {
-                k if k < 0 => {
-                    Err(vm.new_value_error("number of bits must be non-negative".to_owned()))
-                }
-                0 => Ok(BigInt::zero()),
-                _ => {
-                    let mut rng = self.rng.lock();
-                    let mut k = k;
-                    let mut gen_u32 = |k| {
-                        let r = rng.next_u32();
-                        if k < 32 {
-                            r >> (32 - k)
-                        } else {
-                            r
-                        }
-                    };
-
-                    let words = (k - 1) / 32 + 1;
-                    let wordarray = (0..words)
-                        .map(|_| {
-                            let word = gen_u32(k);
-                            k = k.wrapping_sub(32);
-                            word
-                        })
-                        .collect::<Vec<_>>();
-
-                    let uint = num_bigint::BigUint::new(wordarray);
-                    // very unlikely but might as well check
-                    let sign = if uint.is_zero() {
-                        Sign::NoSign
-                    } else {
-                        Sign::Plus
-                    };
-                    Ok(BigInt::from_biguint(sign, uint))
-                }
+            if k < 0 {
+                return Err(vm.new_value_error("number of bits must be non-negative".to_owned()));
             }
+            let mut rng = self.rng.lock();
+            Ok(BigInt::getrandbits(k as usize, || rng.next_u64()))
         }
     }
 }

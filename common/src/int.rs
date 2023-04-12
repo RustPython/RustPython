@@ -424,6 +424,30 @@ impl BigInt {
         f64::from(n) + float.log2()
     }
 
+    pub fn getrandbits<F>(mut k: usize, mut f: F) -> Self
+    where
+        F: FnMut() -> u64,
+    {
+        let words = (k - 1) / 32 + 1;
+        let wordarray = (0..words)
+            .map(|_| {
+                let mut word = f();
+                if k < 64 {
+                    word >>= 64 - k;
+                }
+                k = k.wrapping_sub(64);
+                word
+            })
+            .collect::<Vec<_>>();
+    
+        let abs = Natural::from_owned_limbs_asc(wordarray);
+        Integer::from_sign_and_abs(true, abs).into()
+    }
+
+    pub fn into_limbs_asc(self) -> Vec<u64> {
+        self.0.into_twos_complement_limbs_asc()
+    }
+
     pub fn sqrt(self) -> Self {
         Self(self.0.floor_sqrt())
     }
