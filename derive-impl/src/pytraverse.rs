@@ -41,7 +41,6 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
                 Ok(res)
             } else if let syn::Fields::Unnamed(fields) = fields {
                 let res: TokenStream = (0..fields.unnamed.len())
-                    .into_iter()
                     .map(|i| {
                         let i = syn::Index::from(i);
                         quote!(
