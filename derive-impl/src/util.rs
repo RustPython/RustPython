@@ -284,8 +284,14 @@ impl ItemMeta for AttrItemMeta {
 pub(crate) struct ClassItemMeta(ItemMetaInner);
 
 impl ItemMeta for ClassItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] =
-        &["module", "name", "base", "metaclass", "unhashable", "traverse"];
+    const ALLOWED_NAMES: &'static [&'static str] = &[
+        "module",
+        "name",
+        "base",
+        "metaclass",
+        "unhashable",
+        "traverse",
+    ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
