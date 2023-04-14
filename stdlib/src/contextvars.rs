@@ -162,7 +162,7 @@ mod _contextvars {
     #[derive(Debug, PyPayload)]
     struct ContextToken {}
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     struct ContextTokenOptions {
         #[pyarg(positional)]
         #[allow(dead_code)] // TODO: RUSTPYTHON

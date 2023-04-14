@@ -1,6 +1,6 @@
 use self::types::{PyBaseException, PyBaseExceptionRef};
 use crate::common::{lock::PyRwLock, str::ReprOverflowError};
-use crate::object::gc::{Trace, TracerFn};
+use crate::object::gc::{Traverse, TraverseFn};
 use crate::{
     builtins::{
         traceback::PyTracebackRef, tuple::IntoPyTuple, PyNone, PyStr, PyStrRef, PyTuple,
@@ -22,12 +22,12 @@ use std::{
     io::{self, BufRead, BufReader},
 };
 
-unsafe impl Trace for PyBaseException {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.traceback.trace(tracer_fn);
-        self.cause.trace(tracer_fn);
-        self.context.trace(tracer_fn);
-        self.args.trace(tracer_fn);
+unsafe impl Traverse for PyBaseException {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.traceback.traverse(tracer_fn);
+        self.cause.traverse(tracer_fn);
+        self.context.traverse(tracer_fn);
+        self.args.traverse(tracer_fn);
     }
 }
 

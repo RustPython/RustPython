@@ -13,7 +13,7 @@ use crate::{
         hash,
         lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
     },
-    object::gc::{Trace, TracerFn},
+    object::gc::{Traverse, TraverseFn},
 };
 use num_traits::ToPrimitive;
 use std::{fmt, mem::size_of, ops::ControlFlow};
@@ -34,9 +34,9 @@ pub struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
 }
 
-unsafe impl<T: Trace> Trace for Dict<T> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.inner.trace(tracer_fn);
+unsafe impl<T: Traverse> Traverse for Dict<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.inner.traverse(tracer_fn);
     }
 }
 
@@ -78,14 +78,14 @@ struct DictInner<T> {
     entries: Vec<Option<DictEntry<T>>>,
 }
 
-unsafe impl<T: Trace> Trace for DictInner<T> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
+unsafe impl<T: Traverse> Traverse for DictInner<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
         self.entries
             .iter()
             .map(|v| {
                 if let Some(v) = v {
-                    v.key.trace(tracer_fn);
-                    v.value.trace(tracer_fn);
+                    v.key.traverse(tracer_fn);
+                    v.value.traverse(tracer_fn);
                 }
             })
             .count();

@@ -6,7 +6,7 @@ use super::{PyInt, PyTupleRef, PyType};
 use crate::{
     class::PyClassImpl,
     function::ArgCallable,
-    object::gc::{Trace, TracerFn},
+    object::gc::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
     types::{IterNext, IterNextIterable},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -25,10 +25,10 @@ pub enum IterStatus<T> {
     Exhausted,
 }
 
-unsafe impl<T: Trace> Trace for IterStatus<T> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
+unsafe impl<T: Traverse> Traverse for IterStatus<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
         match self {
-            IterStatus::Active(ref r) => r.trace(tracer_fn),
+            IterStatus::Active(ref r) => r.traverse(tracer_fn),
             IterStatus::Exhausted => (),
         }
     }
@@ -40,9 +40,9 @@ pub struct PositionIterInternal<T> {
     pub position: usize,
 }
 
-unsafe impl<T: Trace> Trace for PositionIterInternal<T> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.status.trace(tracer_fn)
+unsafe impl<T: Traverse> Traverse for PositionIterInternal<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.status.traverse(tracer_fn)
     }
 }
 

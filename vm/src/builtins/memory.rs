@@ -33,7 +33,7 @@ use once_cell::sync::Lazy;
 use rustpython_common::lock::PyMutex;
 use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
-#[derive(FromArgs, PyTrace)]
+#[derive(FromArgs, PyTraverse)]
 pub struct PyMemoryViewNewArgs {
     object: PyObjectRef,
 }
@@ -896,7 +896,7 @@ impl Py<PyMemoryView> {
     }
 }
 
-#[derive(FromArgs, PyTrace)]
+#[derive(FromArgs, PyTraverse)]
 struct CastArgs {
     #[pyarg(any)]
     format: PyStrRef,
@@ -1126,7 +1126,7 @@ impl Iterable for PyMemoryView {
 }
 
 #[pyclass(module = false, name = "memory_iterator")]
-#[derive(Debug, PyTrace)]
+#[derive(Debug, PyTraverse)]
 pub struct PyMemoryViewIterator {
     internal: PyMutex<PositionIterInternal<PyRef<PyMemoryView>>>,
 }

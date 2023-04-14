@@ -6,7 +6,7 @@ use crate::{
     builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
     common::int::bytes_to_int,
     function::ArgBytesLike,
-    object::gc::{Trace, TracerFn},
+    object::gc::{Traverse, TraverseFn},
     stdlib::warnings,
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
@@ -427,9 +427,9 @@ impl PyNumberSlots {
 #[derive(Copy, Clone)]
 pub struct PyNumber<'a>(&'a PyObject);
 
-unsafe impl Trace for PyNumber<'_> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.0.trace(tracer_fn)
+unsafe impl Traverse for PyNumber<'_> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn)
     }
 }
 

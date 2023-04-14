@@ -19,7 +19,7 @@ mod hashlib {
     use sha2::{Sha224, Sha256, Sha384, Sha512};
     use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512, Shake128, Shake256};
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     #[allow(unused)]
     struct NewHashArgs {
         #[pyarg(positional)]
@@ -31,7 +31,7 @@ mod hashlib {
         usedforsecurity: bool,
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     #[allow(unused)]
     struct BlakeHashArgs {
         #[pyarg(positional, optional)]
@@ -50,7 +50,7 @@ mod hashlib {
         }
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     #[allow(unused)]
     struct HashArgs {
         #[pyarg(any, optional)]

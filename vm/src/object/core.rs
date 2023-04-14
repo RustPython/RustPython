@@ -13,7 +13,7 @@
 
 use super::{
     ext::{AsObject, PyRefExact, PyResult},
-    gc::{PyObjVTable, Trace, TracerFn},
+    gc::{PyObjVTable, Traverse, TraverseFn},
     payload::PyObjectPayload,
     PyAtomicRef,
 };
@@ -88,10 +88,10 @@ pub(super) unsafe fn debug_obj<T: PyObjectPayload>(
 }
 
 /// Call `try_trace` on payload
-pub(super) unsafe fn try_trace_obj<T: PyObjectPayload>(x: &PyObject, tracer_fn: &mut TracerFn) {
+pub(super) unsafe fn try_trace_obj<T: PyObjectPayload>(x: &PyObject, tracer_fn: &mut TraverseFn) {
     let x = &*(x as *const PyObject as *const PyInner<T>);
     let payload = &x.payload;
-    payload.try_trace(tracer_fn)
+    payload.try_traverse(tracer_fn)
 }
 
 /// This is an actual python object. It consists of a `typ` which is the
@@ -118,19 +118,19 @@ impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
     }
 }
 
-unsafe impl<T: PyObjectPayload> Trace for Py<T> {
+unsafe impl<T: PyObjectPayload> Traverse for Py<T> {
     /// DO notice that call `trace` on `Py<T>` means apply `tracer_fn` on `Py<T>`'s children,
     /// not like call `trace` on `PyRef<T>` which apply `tracer_fn` on `PyRef<T>` itself
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.0.trace(tracer_fn)
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn)
     }
 }
 
-unsafe impl Trace for PyObject {
+unsafe impl Traverse for PyObject {
     /// DO notice that call `trace` on `PyObject` means apply `tracer_fn` on `PyObject`'s children,
     /// not like call `trace` on `PyObjectRef` which apply `tracer_fn` on `PyObjectRef` itself
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.0.trace(tracer_fn)
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn)
     }
 }
 

@@ -797,7 +797,7 @@ mod _ssl {
         }
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     struct WrapSocketArgs {
         sock: PyRef<PySocket>,
         #[notrace]
@@ -820,7 +820,7 @@ mod _ssl {
         cadata: Option<Either<PyStrRef, ArgBytesLike>>,
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     struct LoadCertChainArgs {
         #[notrace]
         certfile: FsPath,

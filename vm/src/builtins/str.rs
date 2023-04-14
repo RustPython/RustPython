@@ -15,7 +15,7 @@ use crate::{
     format::{format, format_map},
     function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
-    object::gc::{Trace, TracerFn},
+    object::gc::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -193,10 +193,10 @@ pub struct PyStrIterator {
     internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
 }
 
-unsafe impl Trace for PyStrIterator {
-    fn trace(&self, tracer: &mut TracerFn) {
+unsafe impl Traverse for PyStrIterator {
+    fn traverse(&self, tracer: &mut TraverseFn) {
         // No need to worry about deadlock, for inner is a PyStr and can't make ref cycle
-        self.internal.lock().0.trace(tracer);
+        self.internal.lock().0.traverse(tracer);
     }
 }
 
@@ -259,7 +259,7 @@ impl IterNext for PyStrIterator {
     }
 }
 
-#[derive(FromArgs, PyTrace)]
+#[derive(FromArgs, PyTraverse)]
 pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
@@ -1400,7 +1400,7 @@ impl AsSequence for PyStr {
     }
 }
 
-#[derive(FromArgs, PyTrace)]
+#[derive(FromArgs, PyTraverse)]
 struct EncodeArgs {
     #[pyarg(any, default)]
     encoding: Option<PyStrRef>,
@@ -1464,7 +1464,7 @@ impl ToPyObject for AsciiString {
 
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
-#[derive(FromArgs, PyTrace)]
+#[derive(FromArgs, PyTraverse)]
 pub struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,

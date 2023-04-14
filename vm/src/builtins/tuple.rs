@@ -1,6 +1,6 @@
 use super::{PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
-use crate::object::gc::{Trace, TracerFn};
+use crate::object::gc::{Traverse, TraverseFn};
 use crate::{
     atomic_func,
     class::PyClassImpl,
@@ -480,12 +480,12 @@ pub struct PyTupleTyped<T: TransmuteFromObject> {
     _marker: PhantomData<Vec<T>>,
 }
 
-unsafe impl<T> Trace for PyTupleTyped<T>
+unsafe impl<T> Traverse for PyTupleTyped<T>
 where
-    T: TransmuteFromObject + Trace,
+    T: TransmuteFromObject + Traverse,
 {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.tuple.trace(tracer_fn);
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.tuple.traverse(tracer_fn);
     }
 }
 

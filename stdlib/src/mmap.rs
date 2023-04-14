@@ -244,7 +244,7 @@ mod mmap {
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     pub struct AdviseOptions {
         #[notrace]
         #[pyarg(positional)]

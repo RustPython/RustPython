@@ -69,7 +69,7 @@ mod _sqlite {
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine,
         __exports::paste,
-        object::gc::{Trace, TracerFn},
+        object::gc::{Traverse, TraverseFn},
     };
     use std::{
         ffi::{c_int, c_longlong, c_uint, c_void, CStr},
@@ -312,10 +312,10 @@ mod _sqlite {
         uri: bool,
     }
 
-    unsafe impl Trace for ConnectArgs {
-        fn trace(&self, tracer_fn: &mut TracerFn) {
-            self.isolation_level.trace(tracer_fn);
-            self.factory.trace(tracer_fn);
+    unsafe impl Traverse for ConnectArgs {
+        fn traverse(&self, tracer_fn: &mut TraverseFn) {
+            self.isolation_level.traverse(tracer_fn);
+            self.factory.traverse(tracer_fn);
         }
     }
 
@@ -333,14 +333,14 @@ mod _sqlite {
         sleep: f64,
     }
 
-    unsafe impl Trace for BackupArgs {
-        fn trace(&self, tracer_fn: &mut TracerFn) {
-            self.progress.trace(tracer_fn);
-            self.name.trace(tracer_fn);
+    unsafe impl Traverse for BackupArgs {
+        fn traverse(&self, tracer_fn: &mut TraverseFn) {
+            self.progress.traverse(tracer_fn);
+            self.name.traverse(tracer_fn);
         }
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     struct CreateFunctionArgs {
         #[pyarg(any)]
         name: PyStrRef,
@@ -354,7 +354,7 @@ mod _sqlite {
         deterministic: bool,
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     struct CreateAggregateArgs {
         #[pyarg(any)]
         name: PyStrRef,
@@ -365,7 +365,7 @@ mod _sqlite {
         aggregate_class: PyObjectRef,
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     struct BlobOpenArgs {
         #[pyarg(positional)]
         table: PyStrRef,
@@ -1371,7 +1371,7 @@ mod _sqlite {
         inner: PyMutex<Option<CursorInner>>,
     }
 
-    #[derive(Debug, PyTrace)]
+    #[derive(Debug, PyTraverse)]
     struct CursorInner {
         description: Option<PyTupleRef>,
         row_cast_map: Vec<Option<PyObjectRef>>,

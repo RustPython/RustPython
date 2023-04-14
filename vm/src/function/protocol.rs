@@ -3,14 +3,14 @@ use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
     convert::ToPyObject,
     identifier,
-    object::gc::{Trace, TracerFn},
+    object::gc::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
     types::{AsMapping, GenericMethod},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
-#[derive(Clone, PyTrace)]
+#[derive(Clone, PyTraverse)]
 pub struct ArgCallable {
     obj: PyObjectRef,
     #[notrace]
@@ -77,9 +77,9 @@ pub struct ArgIterable<T = PyObjectRef> {
     _item: PhantomData<T>,
 }
 
-unsafe impl<T: Trace> Trace for ArgIterable<T> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.iterable.trace(tracer_fn)
+unsafe impl<T: Traverse> Traverse for ArgIterable<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.iterable.traverse(tracer_fn)
     }
 }
 
@@ -118,7 +118,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, PyTrace)]
+#[derive(Debug, Clone, PyTraverse)]
 pub struct ArgMapping {
     obj: PyObjectRef,
     #[notrace]
@@ -196,9 +196,9 @@ impl TryFromObject for ArgMapping {
 #[derive(Clone)]
 pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
 
-unsafe impl<T: Trace> Trace for ArgSequence<T> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.0.trace(tracer_fn);
+unsafe impl<T: Traverse> Traverse for ArgSequence<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn);
     }
 }
 

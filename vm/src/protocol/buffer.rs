@@ -32,7 +32,7 @@ impl Debug for BufferMethods {
     }
 }
 
-#[derive(Debug, Clone, PyTrace)]
+#[derive(Debug, Clone, PyTraverse)]
 pub struct PyBuffer {
     pub obj: PyObjectRef,
     #[notrace]

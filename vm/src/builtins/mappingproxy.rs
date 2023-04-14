@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
-    object::gc::{Trace, TracerFn},
+    object::gc::{Traverse, TraverseFn},
     protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
@@ -26,11 +26,11 @@ enum MappingProxyInner {
     Mapping(ArgMapping),
 }
 
-unsafe impl Trace for MappingProxyInner {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
+unsafe impl Traverse for MappingProxyInner {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
         match self {
-            MappingProxyInner::Class(ref r) => r.trace(tracer_fn),
-            MappingProxyInner::Mapping(ref arg) => arg.trace(tracer_fn),
+            MappingProxyInner::Class(ref r) => r.traverse(tracer_fn),
+            MappingProxyInner::Mapping(ref arg) => arg.traverse(tracer_fn),
         }
     }
 }

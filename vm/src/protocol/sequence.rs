@@ -2,7 +2,7 @@ use crate::{
     builtins::{type_::PointerSlot, PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     convert::ToPyObject,
     function::PyArithmeticValue,
-    object::gc::{Trace, TracerFn},
+    object::gc::{Traverse, TraverseFn},
     protocol::{PyMapping, PyNumberBinaryOp},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
@@ -66,9 +66,9 @@ pub struct PySequence<'a> {
     pub methods: &'static PySequenceMethods,
 }
 
-unsafe impl Trace for PySequence<'_> {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.obj.trace(tracer_fn)
+unsafe impl Traverse for PySequence<'_> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.obj.traverse(tracer_fn)
     }
 }
 

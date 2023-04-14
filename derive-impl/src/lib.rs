@@ -18,7 +18,7 @@ mod pyclass;
 mod pymodule;
 mod pypayload;
 mod pystructseq;
-mod pytrace;
+mod pytraverse;
 
 use error::{extract_spans, Diagnostic};
 use proc_macro2::TokenStream;
@@ -79,6 +79,6 @@ pub fn pypayload(input: DeriveInput) -> TokenStream {
     result_to_tokens(pypayload::impl_pypayload(input))
 }
 
-pub fn pytrace(item: DeriveInput) -> TokenStream {
-    result_to_tokens(pytrace::impl_pytrace(item))
+pub fn pytraverse(item: DeriveInput) -> TokenStream {
+    result_to_tokens(pytraverse::impl_pytraverse(item))
 }

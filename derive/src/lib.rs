@@ -101,7 +101,7 @@ pub fn pypayload(input: TokenStream) -> TokenStream {
 /// # Example
 /// ```rust, ignore
 /// #[pyclass(module = false, trace)]
-/// #[derive(Default, PyTrace)]
+/// #[derive(Default, PyTraverse)]
 /// pub struct PyList {
 ///     elements: PyRwLock<Vec<PyObjectRef>>,
 ///     #[notrace]
@@ -110,8 +110,8 @@ pub fn pypayload(input: TokenStream) -> TokenStream {
 /// ```
 /// This create both `MaybeTrace` that call `Trace`'s `trace` method and `PyTrace` that impl `Trace`
 /// for `PyList` which call elements' `trace` method and ignore `len` field.
-#[proc_macro_derive(PyTrace, attributes(notrace))]
-pub fn pytrace(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+#[proc_macro_derive(PyTraverse, attributes(notrace))]
+pub fn pytraverse(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = parse_macro_input!(item);
-    derive_impl::pytrace(item).into()
+    derive_impl::pytraverse(item).into()
 }

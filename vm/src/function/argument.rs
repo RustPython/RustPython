@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     convert::ToPyObject,
-    object::gc::{Trace, TracerFn},
+    object::gc::{Traverse, TraverseFn},
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
@@ -65,10 +65,13 @@ pub struct FuncArgs {
     pub kwargs: IndexMap<String, PyObjectRef>,
 }
 
-unsafe impl Trace for FuncArgs {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.args.trace(tracer_fn);
-        self.kwargs.iter().map(|(_, v)| v.trace(tracer_fn)).count();
+unsafe impl Traverse for FuncArgs {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.args.traverse(tracer_fn);
+        self.kwargs
+            .iter()
+            .map(|(_, v)| v.traverse(tracer_fn))
+            .count();
     }
 }
 
@@ -328,12 +331,12 @@ impl<T: TryFromObject> FromArgOptional for T {
 #[derive(Clone)]
 pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
 
-unsafe impl<T> Trace for KwArgs<T>
+unsafe impl<T> Traverse for KwArgs<T>
 where
-    T: Trace,
+    T: Traverse,
 {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.0.iter().map(|(_, v)| v.trace(tracer_fn)).count();
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.iter().map(|(_, v)| v.traverse(tracer_fn)).count();
     }
 }
 
@@ -394,12 +397,12 @@ impl<T> IntoIterator for KwArgs<T> {
 #[derive(Clone)]
 pub struct PosArgs<T = PyObjectRef>(Vec<T>);
 
-unsafe impl<T> Trace for PosArgs<T>
+unsafe impl<T> Traverse for PosArgs<T>
 where
-    T: Trace,
+    T: Traverse,
 {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.0.trace(tracer_fn)
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn)
     }
 }
 
@@ -487,13 +490,13 @@ pub enum OptionalArg<T = PyObjectRef> {
     Missing,
 }
 
-unsafe impl<T> Trace for OptionalArg<T>
+unsafe impl<T> Traverse for OptionalArg<T>
 where
-    T: Trace,
+    T: Traverse,
 {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
         match self {
-            OptionalArg::Present(ref o) => o.trace(tracer_fn),
+            OptionalArg::Present(ref o) => o.traverse(tracer_fn),
             OptionalArg::Missing => (),
         }
     }

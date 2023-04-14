@@ -30,7 +30,7 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
                         });
                         if do_trace {
                             Ok(quote!(
-                                ::rustpython_vm::object::gc::Trace::trace(&self.#name, tracer_fn);
+                                ::rustpython_vm::object::gc::Traverse::traverse(&self.#name, tracer_fn);
                             ))
                         } else {
                             Ok(quote!())
@@ -45,7 +45,7 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
                     .map(|i| {
                         let i = syn::Index::from(i);
                         quote!(
-                            ::rustpython_vm::object::gc::Trace::trace(&self.#i, tracer_fn);
+                            ::rustpython_vm::object::gc::Traverse::traverse(&self.#i, tracer_fn);
                         )
                     })
                     .collect();
@@ -61,14 +61,14 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
     }
 }
 
-pub(crate) fn impl_pytrace(mut item: DeriveInput) -> Result<TokenStream> {
+pub(crate) fn impl_pytraverse(mut item: DeriveInput) -> Result<TokenStream> {
     let trace_code = gen_trace_code(&mut item)?;
 
     let ty = &item.ident;
 
     let ret = quote! {
-        unsafe impl ::rustpython_vm::object::gc::Trace for #ty {
-            fn trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
+        unsafe impl ::rustpython_vm::object::gc::Traverse for #ty {
+            fn traverse(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TraverseFn) {
                 #trace_code
             }
         }

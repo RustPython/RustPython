@@ -20,7 +20,7 @@ pub(crate) mod _struct {
     };
     use crossbeam_utils::atomic::AtomicCell;
 
-    #[derive(PyTrace)]
+    #[derive(PyTraverse)]
     struct IntoStructFormatBytes(PyStrRef);
 
     impl TryFromObject for IntoStructFormatBytes {
@@ -134,7 +134,7 @@ pub(crate) mod _struct {
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     struct UpdateFromArgs {
         buffer: ArgBytesLike,
         #[notrace]

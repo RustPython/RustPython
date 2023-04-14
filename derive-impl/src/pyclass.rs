@@ -431,10 +431,10 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
             }
             (
                 quote! {
-                    impl ::rustpython_vm::object::gc::MaybeTrace for #ident {
+                    impl ::rustpython_vm::object::gc::MaybeTraverse for #ident {
                         const IS_TRACE: bool = true;
-                        fn try_trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
-                            ::rustpython_vm::object::gc::Trace::trace(self, tracer_fn);
+                        fn try_traverse(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TraverseFn) {
+                            ::rustpython_vm::object::gc::Traverse::traverse(self, tracer_fn);
                         }
                     }
                 },
@@ -443,22 +443,22 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
         }
         Some(None) => (
             quote! {
-                impl ::rustpython_vm::object::gc::MaybeTrace for #ident {
+                impl ::rustpython_vm::object::gc::MaybeTraverse for #ident {
                     const IS_TRACE: bool = true;
-                    fn try_trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
-                        ::rustpython_vm::object::gc::Trace::trace(self, tracer_fn);
+                    fn try_traverse(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TraverseFn) {
+                        ::rustpython_vm::object::gc::Traverse::traverse(self, tracer_fn);
                     }
                 }
             },
-            quote! {#[derive(PyTrace)]},
+            quote! {#[derive(PyTraverse)]},
         ),
         None => {
             (
                 // a dummy impl, which do nothing
                 // #attrs
                 quote! {
-                    impl ::rustpython_vm::object::gc::MaybeTrace for #ident {
-                        fn try_trace(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TracerFn) {
+                    impl ::rustpython_vm::object::gc::MaybeTraverse for #ident {
+                        fn try_traverse(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TraverseFn) {
                             // do nothing
                         }
                     }

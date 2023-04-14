@@ -885,7 +885,7 @@ mod math {
         }
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     struct ProdArgs {
         #[pyarg(positional)]
         iterable: ArgIterable<PyObjectRef>,

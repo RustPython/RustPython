@@ -40,16 +40,16 @@ pub struct PyType {
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
 }
 
-unsafe impl crate::object::gc::Trace for PyType {
-    fn trace(&self, tracer_fn: &mut crate::object::gc::TracerFn) {
-        self.base.trace(tracer_fn);
-        self.bases.trace(tracer_fn);
-        self.mro.trace(tracer_fn);
-        self.subclasses.trace(tracer_fn);
+unsafe impl crate::object::gc::Traverse for PyType {
+    fn traverse(&self, tracer_fn: &mut crate::object::gc::TraverseFn) {
+        self.base.traverse(tracer_fn);
+        self.bases.traverse(tracer_fn);
+        self.mro.traverse(tracer_fn);
+        self.subclasses.traverse(tracer_fn);
         self.attributes
             .read_recursive()
             .iter()
-            .map(|(_, v)| v.trace(tracer_fn))
+            .map(|(_, v)| v.traverse(tracer_fn))
             .count();
     }
 }

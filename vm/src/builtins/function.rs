@@ -10,7 +10,7 @@ use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
 use crate::convert::ToPyObject;
 use crate::function::ArgMapping;
-use crate::object::gc::{Trace, TracerFn};
+use crate::object::gc::{Traverse, TraverseFn};
 use crate::{
     bytecode,
     class::PyClassImpl,
@@ -39,11 +39,11 @@ pub struct PyFunction {
     jitted_code: OnceCell<CompiledCode>,
 }
 
-unsafe impl Trace for PyFunction {
-    fn trace(&self, tracer_fn: &mut TracerFn) {
-        self.globals.trace(tracer_fn);
-        self.closure.trace(tracer_fn);
-        self.defaults_and_kwdefaults.trace(tracer_fn);
+unsafe impl Traverse for PyFunction {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.globals.traverse(tracer_fn);
+        self.closure.traverse(tracer_fn);
+        self.defaults_and_kwdefaults.traverse(tracer_fn);
     }
 }
 
@@ -522,7 +522,7 @@ impl GetAttr for PyBoundMethod {
     }
 }
 
-#[derive(FromArgs, PyTrace)]
+#[derive(FromArgs, PyTraverse)]
 pub struct PyBoundMethodNewArgs {
     #[pyarg(positional)]
     function: PyObjectRef,

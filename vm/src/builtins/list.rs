@@ -86,7 +86,7 @@ impl PyList {
     }
 }
 
-#[derive(FromArgs, Default, PyTrace)]
+#[derive(FromArgs, Default, PyTraverse)]
 pub(crate) struct SortOptions {
     #[pyarg(named, default)]
     key: Option<PyObjectRef>,

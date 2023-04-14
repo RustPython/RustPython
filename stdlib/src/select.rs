@@ -67,7 +67,7 @@ mod platform {
 pub use platform::timeval;
 use platform::RawFd;
 
-#[derive(PyTrace)]
+#[derive(PyTraverse)]
 struct Selectable {
     obj: PyObjectRef,
     #[notrace]

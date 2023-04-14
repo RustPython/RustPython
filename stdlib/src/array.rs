@@ -1434,7 +1434,7 @@ mod array {
         }
     }
 
-    #[derive(FromArgs, PyTrace)]
+    #[derive(FromArgs, PyTraverse)]
     struct ReconstructorArgs {
         #[pyarg(positional)]
         arraytype: PyTypeRef,

@@ -1,4 +1,4 @@
-use super::{gc::MaybeTrace, Py, PyObjectRef, PyRef, PyResult};
+use super::{gc::MaybeTraverse, Py, PyObjectRef, PyRef, PyResult};
 use crate::{
     builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
     types::PyTypeFlags,
@@ -17,7 +17,7 @@ cfg_if::cfg_if! {
 }
 
 pub trait PyPayload:
-    std::fmt::Debug + MaybeTrace + PyThreadingConstraint + Sized + 'static
+    std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + Sized + 'static
 {
     fn class(ctx: &Context) -> &'static Py<PyType>;
 
@@ -75,7 +75,7 @@ pub trait PyPayload:
 }
 
 pub trait PyObjectPayload:
-    std::any::Any + std::fmt::Debug + MaybeTrace + PyThreadingConstraint + 'static
+    std::any::Any + std::fmt::Debug + MaybeTraverse + PyThreadingConstraint + 'static
 {
 }
 
