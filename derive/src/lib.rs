@@ -92,11 +92,11 @@ pub fn pypayload(input: TokenStream) -> TokenStream {
     derive_impl::pypayload(input).into()
 }
 
-/// use on struct with named fields like `struct A{x:PyRef<B>, y:PyRef<C>}` to impl `Trace` for datatype.
+/// use on struct with named fields like `struct A{x:PyRef<B>, y:PyRef<C>}` to impl `Traverse` for datatype.
 ///
 /// use `#[notrace]` on fields you wish not to trace
 ///
-/// add `trace` attr to `#[pyclass]` to make it impl `MaybeTrace` that will call `Trace`'s `trace` method so make it
+/// add `trace` attr to `#[pyclass]` to make it impl `MaybeTraverse` that will call `Traverse`'s `traverse` method so make it
 /// traceable(Even from type-erased PyObject)(i.e. write `#[pyclass(trace)]`).
 /// # Example
 /// ```rust, ignore
@@ -108,8 +108,8 @@ pub fn pypayload(input: TokenStream) -> TokenStream {
 ///     len: AtomicCell<usize>,
 /// }
 /// ```
-/// This create both `MaybeTrace` that call `Trace`'s `trace` method and `PyTrace` that impl `Trace`
-/// for `PyList` which call elements' `trace` method and ignore `len` field.
+/// This create both `MaybeTraverse` that call `Traverse`'s `traverse` method and `PyTraverse` that impl `Traverse`
+/// for `PyList` which call elements' `traverse` method and ignore `len` field.
 #[proc_macro_derive(PyTraverse, attributes(notrace))]
 pub fn pytraverse(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = parse_macro_input!(item);

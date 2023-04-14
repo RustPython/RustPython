@@ -1,5 +1,5 @@
 mod object;
-mod trace;
+mod traverse;
 
 pub(in crate::object) use object::PyObjVTable;
-pub use trace::{MaybeTraverse, Traverse, TraverseFn};
+pub use traverse::{MaybeTraverse, Traverse, TraverseFn};
