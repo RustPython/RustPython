@@ -797,9 +797,10 @@ mod _ssl {
         }
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, PyTrace)]
     struct WrapSocketArgs {
         sock: PyRef<PySocket>,
+        #[notrace]
         server_side: bool,
         #[pyarg(any, default)]
         server_hostname: Option<PyStrRef>,
@@ -819,9 +820,11 @@ mod _ssl {
         cadata: Option<Either<PyStrRef, ArgBytesLike>>,
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, PyTrace)]
     struct LoadCertChainArgs {
+        #[notrace]
         certfile: FsPath,
+        #[notrace]
         #[pyarg(any, optional)]
         keyfile: Option<FsPath>,
         #[pyarg(any, optional)]
@@ -902,11 +905,13 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "_SSLSocket")]
-    #[derive(PyPayload)]
+    #[pyclass(module = "ssl", name = "_SSLSocket", trace)]
+    #[derive(PyPayload, PyTrace)]
     struct PySslSocket {
         ctx: PyRef<PySslContext>,
+        #[notrace]
         stream: PyRwLock<ssl::SslStream<SocketStream>>,
+        #[notrace]
         socket_type: SslServerOrClient,
         server_hostname: Option<PyStrRef>,
         owner: PyRwLock<Option<PyRef<PyWeak>>>,
