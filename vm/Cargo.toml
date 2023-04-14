@@ -23,6 +23,8 @@ ast = ["rustpython-ast"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 serde = ["dep:serde"]
+wasmbind = ["chrono/wasmbind", "getrandom/js"]
+
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
