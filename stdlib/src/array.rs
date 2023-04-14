@@ -1400,7 +1400,7 @@ mod array {
 
     #[pyattr]
     #[pyclass(name = "arrayiterator", trace)]
-    #[derive(Debug, PyPayload, PyTrace)]
+    #[derive(Debug, PyPayload)]
     pub struct PyArrayIter {
         internal: PyMutex<PositionIterInternal<PyArrayRef>>,
     }

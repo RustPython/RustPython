@@ -175,7 +175,7 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
 }
 
 #[pyclass(module = false, name = "iterator", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PySequenceIterator {
     // cached sequence methods
     #[notrace]
@@ -240,7 +240,7 @@ impl IterNext for PySequenceIterator {
 }
 
 #[pyclass(module = false, name = "callable_iterator", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PyCallableIterator {
     sentinel: PyObjectRef,
     status: PyRwLock<IterStatus<ArgCallable>>,

@@ -17,7 +17,7 @@ mod _json {
 
     #[pyattr(name = "make_scanner")]
     #[pyclass(name = "Scanner", trace)]
-    #[derive(Debug, PyPayload, PyTrace)]
+    #[derive(Debug, PyPayload)]
     struct JsonScanner {
         #[notrace]
         strict: bool,

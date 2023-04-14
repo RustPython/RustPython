@@ -44,7 +44,7 @@ mod _pyexpat {
 
     #[pyattr]
     #[pyclass(name = "xmlparser", module = false, trace)]
-    #[derive(Debug, PyPayload, PyTrace)]
+    #[derive(Debug, PyPayload)]
     pub struct PyExpatLikeXmlParser {
         start_element: MutableObject,
         end_element: MutableObject,

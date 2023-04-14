@@ -906,7 +906,7 @@ mod _ssl {
 
     #[pyattr]
     #[pyclass(module = "ssl", name = "_SSLSocket", trace)]
-    #[derive(PyPayload, PyTrace)]
+    #[derive(PyPayload)]
     struct PySslSocket {
         ctx: PyRef<PySslContext>,
         #[notrace]

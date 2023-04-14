@@ -15,7 +15,7 @@ use crate::{
 use once_cell::sync::Lazy;
 
 #[pyclass(module = false, name = "mappingproxy", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PyMappingProxy {
     mapping: MappingProxyInner,
 }

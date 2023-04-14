@@ -153,7 +153,7 @@ mod _csv {
     }
 
     #[pyclass(no_attr, module = "_csv", name = "reader", trace)]
-    #[derive(PyPayload, PyTrace)]
+    #[derive(PyPayload)]
     pub(super) struct Reader {
         iter: PyIter,
         #[notrace]
@@ -244,7 +244,7 @@ mod _csv {
     }
 
     #[pyclass(no_attr, module = "_csv", name = "writer", trace)]
-    #[derive(PyPayload, PyTrace)]
+    #[derive(PyPayload)]
     pub(super) struct Writer {
         write: PyObjectRef,
         #[notrace]

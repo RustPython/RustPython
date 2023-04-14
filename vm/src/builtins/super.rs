@@ -12,7 +12,7 @@ use crate::{
 };
 
 #[pyclass(module = false, name = "super", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PySuper {
     typ: PyTypeRef,
     obj: Option<(PyObjectRef, PyTypeRef)>,

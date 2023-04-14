@@ -4,7 +4,7 @@ use super::PyType;
 use crate::{class::PyClassImpl, frame::FrameRef, Context, Py, PyPayload, PyRef};
 
 #[pyclass(module = false, name = "traceback", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PyTraceback {
     pub next: PyMutex<Option<PyTracebackRef>>,
     pub frame: FrameRef,

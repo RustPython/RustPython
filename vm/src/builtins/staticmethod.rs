@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[pyclass(module = false, name = "staticmethod", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PyStaticMethod {
     pub callable: PyMutex<PyObjectRef>,
 }

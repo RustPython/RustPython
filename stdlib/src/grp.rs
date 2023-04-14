@@ -14,7 +14,7 @@ mod grp {
 
     #[pyattr]
     #[pyclass(module = "grp", name = "struct_group", trace)]
-    #[derive(PyStructSequence, PyTrace)]
+    #[derive(PyStructSequence)]
     struct Group {
         #[notrace]
         gr_name: String,

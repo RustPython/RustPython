@@ -23,7 +23,7 @@ use crate::{
 use std::{fmt, ops::DerefMut};
 
 #[pyclass(module = false, name = "list", unhashable = true, trace)]
-#[derive(Default, PyTrace)]
+#[derive(Default)]
 pub struct PyList {
     elements: PyRwLock<Vec<PyObjectRef>>,
 }
@@ -532,7 +532,7 @@ fn do_sort(
 }
 
 #[pyclass(module = false, name = "list_iterator", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PyListIterator {
     internal: PyMutex<PositionIterInternal<PyListRef>>,
 }
@@ -577,7 +577,7 @@ impl IterNext for PyListIterator {
 }
 
 #[pyclass(module = false, name = "list_reverseiterator", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PyListReverseIterator {
     internal: PyMutex<PositionIterInternal<PyListRef>>,
 }

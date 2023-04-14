@@ -178,6 +178,27 @@ impl ItemMetaInner {
         Ok(value)
     }
 
+    /// key exist, no str value -> Ok(Some(None))
+    ///
+    /// key exist, have str value -> Ok(Some(Some(str)))
+    ///
+    /// key doesn't exist -> Ok(None)
+    pub fn _optional_key_with_optional_str(&self, key: &str) -> Result<Option<Option<String>>> {
+        if let Some((_, meta)) = self.meta_map.get(key) {
+            let inner = match meta {
+                Meta::NameValue(syn::MetaNameValue {
+                    lit: syn::Lit::Str(lit),
+                    ..
+                }) => Some(lit.value()),
+                Meta::Path(_) => None,
+                _ => bail_span!(meta, r#"Expect `trace` or `trace = "manual""#),
+            };
+            Ok(Some(inner))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn _bool(&self, key: &str) -> Result<bool> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             match meta {

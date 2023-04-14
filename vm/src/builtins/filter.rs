@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[pyclass(module = false, name = "filter", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PyFilter {
     predicate: PyObjectRef,
     iterator: PyIter,

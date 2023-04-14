@@ -81,7 +81,7 @@ mod _contextvars {
 
     #[pyattr]
     #[pyclass(name, trace)]
-    #[derive(Debug, PyPayload, PyTrace)]
+    #[derive(Debug, PyPayload)]
     struct ContextVar {
         #[notrace]
         #[allow(dead_code)] // TODO: RUSTPYTHON

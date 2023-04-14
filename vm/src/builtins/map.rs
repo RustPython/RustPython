@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[pyclass(module = false, name = "map", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,
     iterators: Vec<PyIter>,

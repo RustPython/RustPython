@@ -29,7 +29,7 @@ use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
-#[pyclass(module = false, name = "type", trace)]
+#[pyclass(module = false, name = "type", trace = "manual")]
 pub struct PyType {
     pub base: Option<PyTypeRef>,
     pub bases: Vec<PyTypeRef>,

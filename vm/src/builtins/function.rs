@@ -26,7 +26,7 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
-#[pyclass(module = false, name = "function", trace)]
+#[pyclass(module = false, name = "function", trace = "manual")]
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyRef<PyCode>,
@@ -478,7 +478,7 @@ impl Representable for PyFunction {
 }
 
 #[pyclass(module = false, name = "method", trace)]
-#[derive(Debug, PyTrace)]
+#[derive(Debug)]
 pub struct PyBoundMethod {
     object: PyObjectRef,
     function: PyObjectRef,
@@ -522,7 +522,7 @@ impl GetAttr for PyBoundMethod {
     }
 }
 
-#[derive(FromArgs)]
+#[derive(FromArgs, PyTrace)]
 pub struct PyBoundMethodNewArgs {
     #[pyarg(positional)]
     function: PyObjectRef,
@@ -643,7 +643,7 @@ impl Representable for PyBoundMethod {
 }
 
 #[pyclass(module = false, name = "cell", trace)]
-#[derive(Debug, Default, PyTrace)]
+#[derive(Debug, Default)]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
 }
