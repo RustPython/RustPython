@@ -590,7 +590,6 @@ mod sys {
     fn unraisablehook(unraisable: UnraisableHookArgs, vm: &VirtualMachine) {
         if let Err(e) = _unraisablehook(unraisable, vm) {
             let stderr = super::PyStderr(vm);
-            let default = vm.ctx.intern_str("").to_owned();
             writeln!(
                 stderr,
                 "{}",
