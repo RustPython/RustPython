@@ -13,7 +13,7 @@ mod grp {
     use std::ptr::NonNull;
 
     #[pyattr]
-    #[pyclass(module = "grp", name = "struct_group", trace)]
+    #[pyclass(module = "grp", name = "struct_group", traverse)]
     #[derive(PyStructSequence)]
     struct Group {
         #[notrace]

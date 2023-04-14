@@ -22,7 +22,7 @@ use crate::{
 use once_cell::sync::Lazy;
 use std::{fmt, marker::PhantomData};
 
-#[pyclass(module = false, name = "tuple", trace)]
+#[pyclass(module = false, name = "tuple", traverse)]
 pub struct PyTuple {
     elements: Box<[PyObjectRef]>,
 }
@@ -422,7 +422,7 @@ impl Representable for PyTuple {
     }
 }
 
-#[pyclass(module = false, name = "tuple_iterator", trace)]
+#[pyclass(module = false, name = "tuple_iterator", traverse)]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
     internal: PyMutex<PositionIterInternal<PyTupleRef>>,

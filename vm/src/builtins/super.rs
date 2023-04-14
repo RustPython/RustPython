@@ -11,7 +11,7 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "super", trace)]
+#[pyclass(module = false, name = "super", traverse)]
 #[derive(Debug)]
 pub struct PySuper {
     typ: PyTypeRef,

@@ -1153,7 +1153,7 @@ pub(super) mod types {
 
     // Sorted By Hierarchy then alphabetized.
 
-    #[pyclass(module = false, name = "BaseException", trace = "manual")]
+    #[pyclass(module = false, name = "BaseException", traverse = "manual")]
     pub struct PyBaseException {
         pub(super) traceback: PyRwLock<Option<PyTracebackRef>>,
         pub(super) cause: PyRwLock<Option<PyRef<Self>>>,

@@ -419,7 +419,7 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
     let trace_opt = {
         class_meta
             .inner()
-            ._optional_key_with_optional_str("trace")?
+            ._optional_key_with_optional_str("traverse")?
     };
     let (maybe_trace_code, derive_trace) = match trace_opt {
         Some(Some(s)) => {

@@ -8,7 +8,7 @@ use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "map", trace)]
+#[pyclass(module = false, name = "map", traverse)]
 #[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,

@@ -76,7 +76,7 @@ mod re {
 
     /// Inner data for a match object.
     #[pyattr]
-    #[pyclass(module = "re", name = "Match", trace)]
+    #[pyclass(module = "re", name = "Match", traverse)]
     #[derive(PyPayload, PyTraverse)]
     struct PyMatch {
         haystack: PyStrRef,

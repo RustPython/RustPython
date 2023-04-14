@@ -187,7 +187,7 @@ impl<'a> AsPyStr<'a> for &'a PyStrInterned {
     }
 }
 
-#[pyclass(module = false, name = "str_iterator", trace = "manual")]
+#[pyclass(module = false, name = "str_iterator", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyStrIterator {
     internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,

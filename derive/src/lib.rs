@@ -100,7 +100,7 @@ pub fn pypayload(input: TokenStream) -> TokenStream {
 /// traceable(Even from type-erased PyObject)(i.e. write `#[pyclass(trace)]`).
 /// # Example
 /// ```rust, ignore
-/// #[pyclass(module = false, trace)]
+/// #[pyclass(module = false, traverse)]
 /// #[derive(Default, PyTraverse)]
 /// pub struct PyList {
 ///     elements: PyRwLock<Vec<PyObjectRef>>,

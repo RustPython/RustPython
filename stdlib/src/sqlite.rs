@@ -1360,7 +1360,7 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name, trace)]
+    #[pyclass(name, traverse)]
     #[derive(Debug, PyPayload)]
     struct Cursor {
         connection: PyRef<Connection>,
@@ -1817,7 +1817,7 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name, trace)]
+    #[pyclass(name, traverse)]
     #[derive(Debug, PyPayload)]
     struct Row {
         data: PyTupleRef,
@@ -1946,7 +1946,7 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name, trace)]
+    #[pyclass(name, traverse)]
     #[derive(Debug, PyPayload)]
     struct Blob {
         connection: PyRef<Connection>,

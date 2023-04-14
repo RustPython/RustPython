@@ -9,7 +9,7 @@ use crate::{
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 
-#[pyclass(module = false, name = "zip", trace)]
+#[pyclass(module = false, name = "zip", traverse)]
 #[derive(Debug)]
 pub struct PyZip {
     iterators: Vec<PyIter>,

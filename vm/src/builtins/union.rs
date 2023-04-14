@@ -15,7 +15,7 @@ use std::fmt;
 
 const CLS_ATTRS: &[&str] = &["__module__"];
 
-#[pyclass(module = "types", name = "UnionType", trace)]
+#[pyclass(module = "types", name = "UnionType", traverse)]
 pub struct PyUnion {
     args: PyTupleRef,
     parameters: PyTupleRef,

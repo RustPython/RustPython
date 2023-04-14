@@ -174,7 +174,7 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
     INSTANCE.get_or_init(|| vm.builtins.get_attr("reversed", vm).unwrap())
 }
 
-#[pyclass(module = false, name = "iterator", trace)]
+#[pyclass(module = false, name = "iterator", traverse)]
 #[derive(Debug)]
 pub struct PySequenceIterator {
     // cached sequence methods
@@ -239,7 +239,7 @@ impl IterNext for PySequenceIterator {
     }
 }
 
-#[pyclass(module = false, name = "callable_iterator", trace)]
+#[pyclass(module = false, name = "callable_iterator", traverse)]
 #[derive(Debug)]
 pub struct PyCallableIterator {
     sentinel: PyObjectRef,

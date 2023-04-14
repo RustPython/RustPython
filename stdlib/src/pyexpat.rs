@@ -43,7 +43,7 @@ mod _pyexpat {
     type MutableObject = PyRwLock<PyObjectRef>;
 
     #[pyattr]
-    #[pyclass(name = "xmlparser", module = false, trace)]
+    #[pyclass(name = "xmlparser", module = false, traverse)]
     #[derive(Debug, PyPayload)]
     pub struct PyExpatLikeXmlParser {
         start_element: MutableObject,

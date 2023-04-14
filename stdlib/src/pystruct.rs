@@ -156,7 +156,7 @@ pub(crate) mod _struct {
     }
 
     #[pyattr]
-    #[pyclass(name = "unpack_iterator", trace)]
+    #[pyclass(name = "unpack_iterator", traverse)]
     #[derive(Debug, PyPayload)]
     struct UnpackIterator {
         #[notrace]
@@ -235,7 +235,7 @@ pub(crate) mod _struct {
     }
 
     #[pyattr]
-    #[pyclass(name = "Struct", trace)]
+    #[pyclass(name = "Struct", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyStruct {
         #[notrace]

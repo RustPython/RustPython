@@ -80,7 +80,7 @@ mod _contextvars {
     }
 
     #[pyattr]
-    #[pyclass(name, trace)]
+    #[pyclass(name, traverse)]
     #[derive(Debug, PyPayload)]
     struct ContextVar {
         #[notrace]

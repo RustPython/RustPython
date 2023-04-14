@@ -28,7 +28,7 @@ use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
-#[pyclass(module = false, name = "set", unhashable = true, trace)]
+#[pyclass(module = false, name = "set", unhashable = true, traverse)]
 #[derive(Default)]
 pub struct PySet {
     pub(super) inner: PySetInner,
