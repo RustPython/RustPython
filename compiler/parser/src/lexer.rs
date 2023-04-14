@@ -240,6 +240,7 @@ where
         // spell-checker:ignore feff
         if let Some('\u{feff}') = lxr.window[0] {
             lxr.window.slide();
+            lxr.location += '\u{feff}'.text_len();
         }
         lxr
     }

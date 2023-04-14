@@ -33,7 +33,15 @@ impl fmt::Debug for TextSize {
 }
 
 impl TextSize {
-    pub const fn from_u32(offset: u32) -> Self {
+    /// Creates a new `TextSize` at the given `offset`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use ruff_text_size::*;
+    /// assert_eq!(TextSize::from(4), TextSize::new(4));
+    /// ```
+    pub const fn new(offset: u32) -> Self {
         Self { raw: offset}
     }
 
@@ -76,7 +84,7 @@ impl TextSize {
 impl From<u32> for TextSize {
     #[inline]
     fn from(raw: u32) -> Self {
-        TextSize::from_u32(raw)
+        TextSize::new(raw)
     }
 }
 
