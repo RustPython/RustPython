@@ -593,7 +593,10 @@ mod sys {
             writeln!(
                 stderr,
                 "{}",
-                e.as_object().repr(vm).unwrap_or_else(|_| vm.ctx.empty_str.to_owned()).as_str()
+                e.as_object()
+                    .repr(vm)
+                    .unwrap_or_else(|_| vm.ctx.empty_str.to_owned())
+                    .as_str()
             );
         }
     }
