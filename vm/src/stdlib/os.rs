@@ -1128,6 +1128,11 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
+    fn fork(vm: &VirtualMachine) -> PyObjectRef {
+        unsafe { vm.ctx.new_int(libc::fork()).into() }
+    }
+
+    #[pyfunction]
     fn getcwdb(vm: &VirtualMachine) -> PyResult {
         OutputMode::Bytes.process_path(curdir_inner(vm)?, vm)
     }
