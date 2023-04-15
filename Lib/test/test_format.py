@@ -420,8 +420,6 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(format(1+2j, "\u2007^8"), "\u2007(1+2j)\u2007")
         self.assertEqual(format(0j, "\u2007^4"), "\u20070j\u2007")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_locale(self):
         try:
             oldloc = locale.setlocale(locale.LC_ALL)
