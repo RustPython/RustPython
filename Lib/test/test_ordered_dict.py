@@ -983,8 +983,6 @@ class SimpleLRUCacheTests:
         self.assertEqual(c.popitem(last=True), (3, 3))
         self.assertEqual(c.counts, {'get': 0, 'set': 3, 'del': 0})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pop(self):
         c = self.type2test(3)
         for i in range(1, 4):
