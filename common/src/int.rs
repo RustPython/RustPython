@@ -13,9 +13,12 @@ use derive_more::{
 };
 use malachite::{
     num::{
-        arithmetic::traits::{Abs, DivisibleBy, FloorSqrt, Gcd, Lcm, Mod, ModPow, Parity, Sign, DivRem, DivMod, ExtendedGcd},
+        arithmetic::traits::{
+            Abs, DivMod, DivRem, DivisibleBy, ExtendedGcd, FloorSqrt, Gcd, Lcm, Mod, ModPow,
+            Parity, Sign,
+        },
         conversion::traits::{
-            Digits, FromStringBase, OverflowingInto, PowerOf2Digits, RoundingInto, ToStringBase,
+            FromStringBase, OverflowingInto, PowerOf2Digits, RoundingInto, ToStringBase,
         },
         logic::traits::{CountOnes, SignificantBits},
     },
@@ -332,11 +335,13 @@ impl num_integer::Integer for BigInt {
     where
         Self: Clone,
     {
-        let (gcd, x, y) = self.inner().extended_gcd(
-            other.inner()
-        );
+        let (gcd, x, y) = self.inner().extended_gcd(other.inner());
         let gcd = Integer::from_sign_and_abs(true, gcd).into();
-        num_integer::ExtendedGcd { gcd , x: x.into(), y: y.into() }
+        num_integer::ExtendedGcd {
+            gcd,
+            x: x.into(),
+            y: y.into(),
+        }
     }
 
     fn div_mod_floor(&self, other: &Self) -> (Self, Self) {
