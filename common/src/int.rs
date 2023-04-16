@@ -14,7 +14,9 @@ use derive_more::{
 use malachite::{
     num::{
         arithmetic::traits::{Abs, FloorSqrt, Mod, ModPow, Parity, Sign},
-        conversion::traits::{Digits, FromStringBase, OverflowingInto, RoundingInto},
+        conversion::traits::{
+            Digits, FromStringBase, OverflowingInto, PowerOf2Digits, RoundingInto, ToStringBase,
+        },
         logic::traits::{CountOnes, SignificantBits},
     },
     rounding_modes::RoundingMode,
@@ -408,7 +410,7 @@ impl BigInt {
     }
 
     pub fn true_div(&self, other: &Self) -> f64 {
-        assert!(!other.is_zero());
+        debug_assert!(!other.is_zero());
         let rational = malachite::Rational::from_integers_ref(self.inner(), other.inner());
         rational.rounding_into(RoundingMode::Down)
     }
@@ -506,43 +508,65 @@ impl BigInt {
     pub fn to_bytes_be(&self) -> (Ordering, Vec<u8>) {
         (
             self.sign(),
-            self.inner().unsigned_abs_ref().to_digits_desc(&u8::MAX),
+            self.inner().unsigned_abs_ref().to_power_of_2_digits_desc(8),
         )
     }
 
     pub fn to_bytes_le(&self) -> (Ordering, Vec<u8>) {
         (
             self.sign(),
-            self.inner().unsigned_abs_ref().to_digits_asc(&u8::MAX),
+            self.inner().unsigned_abs_ref().to_power_of_2_digits_asc(8),
         )
     }
 
-    pub fn to_signed_bytes_be(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    pub fn to_signed_bytes_le(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    pub fn from_signed_bytes_be(digits: &[u8]) -> Self {
-        todo!()
-    }
-
-    pub fn from_signed_bytes_le(digits: &[u8]) -> Self {
-        todo!()
-    }
-
     pub fn from_bytes_be(sign: bool, digits: &[u8]) -> Self {
-        todo!()
+        // SAFETY: &[u8] cannot have any digit greater than 2^8
+        let abs = unsafe {
+            Natural::from_power_of_2_digits_desc(8, digits.iter().cloned()).unwrap_unchecked()
+        };
+        Integer::from_sign_and_abs(sign, abs).into()
     }
 
     pub fn from_bytes_le(sign: bool, digits: &[u8]) -> Self {
-        todo!()
+        // SAFETY: &[u8] cannot have any digit greater than 2^8
+        let abs = unsafe {
+            Natural::from_power_of_2_digits_asc(8, digits.iter().cloned()).unwrap_unchecked()
+        };
+        Integer::from_sign_and_abs(sign, abs).into()
+    }
+
+    pub fn to_signed_bytes_be(&self) -> Vec<u8> {
+        let limbs = self.inner().to_twos_complement_limbs_asc();
+        let uint = Natural::from_owned_limbs_asc(limbs);
+        uint.to_power_of_2_digits_desc(8)
+    }
+
+    pub fn to_signed_bytes_le(&self) -> Vec<u8> {
+        let limbs = self.inner().to_twos_complement_limbs_asc();
+        let uint = Natural::from_owned_limbs_asc(limbs);
+        uint.to_power_of_2_digits_asc(8)
+    }
+
+    pub fn from_signed_bytes_be(digits: &[u8]) -> Self {
+        // SAFETY: &[u8] cannot have any digit greater than 2^8
+        let uint = unsafe {
+            Natural::from_power_of_2_digits_desc(8, digits.iter().cloned()).unwrap_unchecked()
+        };
+        let limbs = uint.into_limbs_asc();
+        Integer::from_owned_twos_complement_limbs_asc(limbs).into()
+    }
+
+    pub fn from_signed_bytes_le(digits: &[u8]) -> Self {
+        // SAFETY: &[u8] cannot have any digit greater than 2^8
+        let uint = unsafe {
+            Natural::from_power_of_2_digits_asc(8, digits.iter().cloned()).unwrap_unchecked()
+        };
+        let limbs = uint.into_limbs_asc();
+        Integer::from_owned_twos_complement_limbs_asc(limbs).into()
     }
 
     pub fn to_str_radix(&self, radix: u32) -> String {
-        todo!()
+        self.inner().to_string_base(radix as u8)
     }
 }
 
@@ -670,4 +694,13 @@ fn test_bytes_to_int() {
     assert_eq!(bytes_to_int(&b"000"[..], 0).unwrap(), BigInt::from(0));
     assert_eq!(bytes_to_int(&b"0_"[..], 0), None);
     assert_eq!(bytes_to_int(&b"0_100"[..], 10).unwrap(), BigInt::from(100));
+}
+
+#[test]
+fn test_bytes_convertions() {
+    let uint = Natural::from(258u32);
+    let bytes: Vec<u8> = uint.to_power_of_2_digits_asc(8);
+    assert_eq!(bytes, vec![2, 1]);
+    let bytes: Vec<u8> = uint.to_power_of_2_digits_desc(8);
+    assert_eq!(bytes, vec![1, 2]);
 }
