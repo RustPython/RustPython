@@ -380,7 +380,7 @@ impl BigInt {
     where
         F: FnMut() -> u64,
     {
-        let words = (k - 1) / 32 + 1;
+        let words = (k - 1) / 64 + 1;
         let wordarray = (0..words)
             .map(|_| {
                 let mut word = f();

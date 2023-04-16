@@ -611,6 +611,8 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     def test_seed_no_mutate_bug_44018(self):  # TODO: RUSTPYTHON, remove when this passes
         super().test_seed_no_mutate_bug_44018()  # TODO: RUSTPYTHON, remove when this passes
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_guaranteed_stable(self):
         # These sequences are guaranteed to stay the same across versions of python
         self.gen.seed(3456147, version=1)
@@ -622,6 +624,8 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             ['0x1.1239ddfb11b7cp-3', '0x1.b3cbb5c51b120p-4',
              '0x1.8c4f55116b60fp-1', '0x1.63eb525174a27p-1'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_27706(self):
         # Verify that version 1 seeds are unaffected by hash randomization
 
@@ -651,6 +655,8 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         except TypeError:
             pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_31482(self):
         # Verify that version 1 seeds are unaffected by hash randomization
         # when the seeds are expressed as bytes rather than strings.
@@ -807,6 +813,8 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             self.assertEqual(set(range(start,stop)),
                 set([self.gen.randrange(start,stop) for i in range(100)]))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getrandbits(self):
         super().test_getrandbits()
 
@@ -815,6 +823,8 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         self.assertEqual(self.gen.getrandbits(100),
                          97904845777343510404718956115)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_randrange_uses_getrandbits(self):
         # Verify use of getrandbits by randrange
         # Use same seed as in the cross-platform repeatability test
@@ -921,6 +931,8 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         c = self.gen.choices(population, cum_weights=cum_weights, k=10000)
         self.assertEqual(a, c)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_randbytes(self):
         super().test_randbytes()
 

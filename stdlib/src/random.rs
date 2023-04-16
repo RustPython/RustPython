@@ -4,6 +4,8 @@ pub(crate) use _random::make_module;
 
 #[pymodule]
 mod _random {
+    use std::cmp::Ordering;
+
     use crate::common::{int::BigInt, lock::PyMutex};
     use crate::vm::{
         builtins::{PyInt, PyTypeRef},
@@ -11,7 +13,7 @@ mod _random {
         types::Constructor,
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
-    use num_traits::Signed;
+    use num_traits::{Signed, Zero};
     use rand::{rngs::StdRng, RngCore, SeedableRng};
 
     #[derive(Debug)]
@@ -103,7 +105,8 @@ mod _random {
                         &[0]
                     } else {
                         // TODO: mt19937 with 64 bits support
-                        unsafe { std::mem::transmute(key.as_slice()) }
+                        let (_, slice, _) = unsafe { key.align_to::<u32>() };
+                        slice
                     };
                     Ok(PyRng::MT(Box::new(mt19937::MT19937::new_with_slice_seed(
                         key,
@@ -118,11 +121,16 @@ mod _random {
 
         #[pymethod]
         fn getrandbits(&self, k: isize, vm: &VirtualMachine) -> PyResult<BigInt> {
-            if k < 0 {
-                return Err(vm.new_value_error("number of bits must be non-negative".to_owned()));
+            match k.cmp(&0) {
+                Ordering::Less => {
+                    Err(vm.new_value_error("number of bits must be non-negative".to_owned()))
+                }
+                Ordering::Equal => Ok(BigInt::zero()),
+                Ordering::Greater => {
+                    let mut rng = self.rng.lock();
+                    Ok(BigInt::getrandbits(k as usize, || rng.next_u64()))
+                }
             }
-            let mut rng = self.rng.lock();
-            Ok(BigInt::getrandbits(k as usize, || rng.next_u64()))
         }
     }
 }
