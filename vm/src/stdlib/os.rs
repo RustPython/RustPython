@@ -1128,65 +1128,75 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn register_at_fork(
-        before: PyObjectRef,
-        after_in_parent: PyObjectRef,
-        after_in_child: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        vm.state.before_forkers.lock().push(before);
+    fn register_at_fork(kwargs: crate::function::KwArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let mut match_found = false; // better way to handle this?
+        for (key, value) in kwargs.into_iter() {
+            if key == "before" {
+                match_found = true;
+                vm.state.before_forkers.lock().push(value.clone());
+            }
+            if key == "after_in_parent" {
+                match_found = true;
+                vm.state.after_forkers_parent.lock().push(value.clone());
+            }
+            if key == "after_in_child" {
+                match_found = true;
+                vm.state.after_forkers_child.lock().push(value.clone());
+            }
+        }
 
-        vm.state.after_forkers_parent.lock().push(after_in_parent);
-
-        vm.state.after_forkers_child.lock().push(after_in_child);
+        if !match_found {
+            return Err(vm.new_value_error("At least one argument is required.".to_owned()));
+        }
 
         Ok(())
     }
     fn run_at_forkers(funcs: Vec<PyObjectRef>, vm: &VirtualMachine) {
-        for (func) in funcs.into_iter().rev() {
-            if let Err(e) = func.call((), vm) {
-                let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
-                vm.run_unraisable(e, Some("Error in atexit._run_exitfuncs".to_owned()), func);
-                if exit {
-                    break;
+        if funcs.len() > 0 {
+            for func in funcs.into_iter().rev() {
+                if let Err(e) = func.call((), vm) {
+                    let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
+                    vm.run_unraisable(e, Some("Error in atexit._run_exitfuncs".to_owned()), func);
+                    if exit {
+                        // Do nothing!
+                    }
                 }
             }
         }
     }
     fn py_os_before_fork(vm: &VirtualMachine) -> PyResult<()> {
-        let mut before_forkers: Vec<PyObjectRef> =
-            std::mem::take(&mut *vm.state.before_forkers.lock());
+        let before_forkers: Vec<PyObjectRef> = std::mem::take(&mut *vm.state.before_forkers.lock());
         run_at_forkers(before_forkers, vm);
 
         Ok(())
     }
     fn py_os_after_fork_child(vm: &VirtualMachine) -> PyResult<()> {
-        let mut after_forkers_child: Vec<PyObjectRef> =
+        let after_forkers_child: Vec<PyObjectRef> =
             std::mem::take(&mut *vm.state.after_forkers_child.lock());
         run_at_forkers(after_forkers_child, vm);
         Ok(())
     }
 
     fn py_os_after_fork_parent(vm: &VirtualMachine) -> PyResult<()> {
-        let mut after_forkers_parent: Vec<PyObjectRef> =
+        let after_forkers_parent: Vec<PyObjectRef> =
             std::mem::take(&mut *vm.state.after_forkers_parent.lock());
         run_at_forkers(after_forkers_parent, vm);
         Ok(())
     }
 
     #[pyfunction]
-    fn fork(vm: &VirtualMachine) -> PyObjectRef {
+    fn fork(vm: &VirtualMachine) -> PyResult {
         let mut pid: i32 = 0;
-        py_os_before_fork(vm);
+        py_os_before_fork(vm)?;
         unsafe {
             pid = libc::fork();
         }
-        if (pid == 0) {
-            py_os_after_fork_child(vm);
+        if pid == 0 {
+            py_os_after_fork_child(vm)?;
         } else {
-            py_os_after_fork_parent(vm);
+            py_os_after_fork_parent(vm)?;
         }
-        vm.ctx.new_int(pid).into()
+        Ok(vm.ctx.new_int(pid).into())
     }
 
     #[pyfunction]
