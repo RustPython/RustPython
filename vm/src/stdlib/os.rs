@@ -1128,8 +1128,40 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
+    fn register_at_fork(
+        func: PyObjectRef,
+        before: OptionalArg<PyObjectRef>,
+        after_in_parent: OptionalArg<PyObjectRef>,
+        after_in_child: OptionalArg<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        Ok(())
+    }
+    fn run_at_forkers() {}
+    fn py_os_before_fork(vm: &VirtualMachine) -> PyResult<()> {
+        Ok(())
+    }
+    fn py_os_after_fork_child(vm: &VirtualMachine) -> PyResult<()> {
+        Ok(())
+    }
+
+    fn py_os_after_fork_parent(vm: &VirtualMachine) -> PyResult<()> {
+        Ok(())
+    }
+
+    #[pyfunction]
     fn fork(vm: &VirtualMachine) -> PyObjectRef {
-        unsafe { vm.ctx.new_int(libc::fork()).into() }
+        let mut pid: i32 = 0;
+        //PyOS_BeforeFork();
+        unsafe {
+            pid = libc::fork();
+        }
+        if (pid == 0) {
+            // PyOS_AfterFork_Child();
+        } else {
+            // PyOS_AfterFork_Parent();
+        }
+        vm.ctx.new_int(pid).into()
     }
 
     #[pyfunction]
