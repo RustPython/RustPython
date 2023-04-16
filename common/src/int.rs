@@ -13,7 +13,7 @@ use derive_more::{
 };
 use malachite::{
     num::{
-        arithmetic::traits::{Abs, FloorSqrt, Mod, ModPow, Parity, Sign},
+        arithmetic::traits::{Abs, DivisibleBy, FloorSqrt, Gcd, Lcm, Mod, ModPow, Parity, Sign, DivRem, DivMod, ExtendedGcd},
         conversion::traits::{
             Digits, FromStringBase, OverflowingInto, PowerOf2Digits, RoundingInto, ToStringBase,
         },
@@ -231,9 +231,8 @@ impl Num for BigInt {
     type FromStrRadixErr = ();
 
     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
-        debug_assert!(radix <= 16);
         Integer::from_string_base(radix as u8, str)
-            .map(|x| Self(x))
+            .map(Self)
             .ok_or(())
     }
 }
@@ -293,19 +292,27 @@ impl num_integer::Integer for BigInt {
     }
 
     fn gcd(&self, other: &Self) -> Self {
-        todo!()
+        let abs = self
+            .inner()
+            .unsigned_abs_ref()
+            .gcd(other.inner().unsigned_abs_ref());
+        Integer::from_sign_and_abs(true, abs).into()
     }
 
     fn lcm(&self, other: &Self) -> Self {
-        todo!()
+        let abs = self
+            .inner()
+            .unsigned_abs_ref()
+            .lcm(other.inner().unsigned_abs_ref());
+        Integer::from_sign_and_abs(true, abs).into()
     }
 
     fn divides(&self, other: &Self) -> bool {
-        todo!()
+        self.is_multiple_of(other)
     }
 
     fn is_multiple_of(&self, other: &Self) -> bool {
-        todo!()
+        self.inner().divisible_by(other.inner())
     }
 
     fn is_even(&self) -> bool {
@@ -317,86 +324,24 @@ impl num_integer::Integer for BigInt {
     }
 
     fn div_rem(&self, other: &Self) -> (Self, Self) {
-        todo!()
-    }
-
-    fn div_ceil(&self, other: &Self) -> Self {
-        let (q, r) = self.div_mod_floor(other);
-        if r.is_zero() {
-            q
-        } else {
-            q + Self::one()
-        }
-    }
-
-    fn gcd_lcm(&self, other: &Self) -> (Self, Self) {
-        (self.gcd(other), self.lcm(other))
+        let (div, rem) = self.inner().div_rem(other.inner());
+        (div.into(), rem.into())
     }
 
     fn extended_gcd(&self, other: &Self) -> num_integer::ExtendedGcd<Self>
     where
         Self: Clone,
     {
-        let mut s = (Self::zero(), Self::one());
-        let mut t = (Self::one(), Self::zero());
-        let mut r = (other.clone(), self.clone());
-
-        while !r.0.is_zero() {
-            let q = r.1.clone() / r.0.clone();
-            let f = |mut r: (Self, Self)| {
-                std::mem::swap(&mut r.0, &mut r.1);
-                r.0 = r.0 - q.clone() * r.1.clone();
-                r
-            };
-            r = f(r);
-            s = f(s);
-            t = f(t);
-        }
-
-        if r.1 >= Self::zero() {
-            num_integer::ExtendedGcd {
-                gcd: r.1,
-                x: s.1,
-                y: t.1,
-            }
-        } else {
-            num_integer::ExtendedGcd {
-                gcd: Self::zero() - r.1,
-                x: Self::zero() - s.1,
-                y: Self::zero() - t.1,
-            }
-        }
-    }
-
-    fn extended_gcd_lcm(&self, other: &Self) -> (num_integer::ExtendedGcd<Self>, Self)
-    where
-        Self: Clone + Signed,
-    {
-        (self.extended_gcd(other), self.lcm(other))
+        let (gcd, x, y) = self.inner().extended_gcd(
+            other.inner()
+        );
+        let gcd = Integer::from_sign_and_abs(true, gcd).into();
+        num_integer::ExtendedGcd { gcd , x: x.into(), y: y.into() }
     }
 
     fn div_mod_floor(&self, other: &Self) -> (Self, Self) {
-        (self.div_floor(other), self.mod_floor(other))
-    }
-
-    fn next_multiple_of(&self, other: &Self) -> Self
-    where
-        Self: Clone,
-    {
-        let m = self.mod_floor(other);
-        self.clone()
-            + if m.is_zero() {
-                Self::zero()
-            } else {
-                other.clone() - m
-            }
-    }
-
-    fn prev_multiple_of(&self, other: &Self) -> Self
-    where
-        Self: Clone,
-    {
-        self.clone() - self.mod_floor(other)
+        let (div, m) = self.inner().div_mod(other.inner());
+        (div.into(), m.into())
     }
 }
 
