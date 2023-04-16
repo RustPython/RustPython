@@ -28,7 +28,7 @@ use crate::{
     convert::ToPyObject,
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
-    function::{ArgCallable, ArgMapping, FuncArgs, PySetterValue},
+    function::{ArgMapping, FuncArgs, PySetterValue},
     import,
     protocol::PyIterIter,
     scope::Scope,

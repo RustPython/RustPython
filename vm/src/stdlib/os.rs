@@ -1156,7 +1156,11 @@ pub(super) mod _os {
             for func in funcs.into_iter().rev() {
                 if let Err(e) = func.call((), vm) {
                     let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
-                    vm.run_unraisable(e, Some("Error in atexit._run_exitfuncs".to_owned()), func);
+                    vm.run_unraisable(
+                        e,
+                        Some("Exception ignored in".to_owned()),
+                        func,
+                    );
                     if exit {
                         // Do nothing!
                     }
