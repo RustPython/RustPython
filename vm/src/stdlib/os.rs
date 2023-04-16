@@ -1129,23 +1129,46 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn register_at_fork(
-        func: PyObjectRef,
         before: OptionalArg<PyObjectRef>,
         after_in_parent: OptionalArg<PyObjectRef>,
         after_in_child: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        match before {
+            OptionalArg::Present(before) => vm.state.before_forkers.lock().push(before),
+            _ => {}
+        }
+        match after_in_parent {
+            OptionalArg::Present(after_in_parent) => {
+                vm.state.after_forkers_parent.lock().push(after_in_parent)
+            }
+            _ => {}
+        }
+
+        match after_in_child {
+            OptionalArg::Present(after_in_child) => {
+                vm.state.after_forkers_child.lock().push(after_in_child)
+            }
+            _ => {}
+        }
+
         Ok(())
     }
     fn run_at_forkers() {}
     fn py_os_before_fork(vm: &VirtualMachine) -> PyResult<()> {
+        let mut before_forkers: Vec<PyObjectRef> =
+            std::mem::take(&mut *vm.state.before_forkers.lock());
         Ok(())
     }
     fn py_os_after_fork_child(vm: &VirtualMachine) -> PyResult<()> {
+        let mut after_forkers_child: Vec<PyObjectRef> =
+            std::mem::take(&mut *vm.state.after_forkers_child.lock());
         Ok(())
     }
 
     fn py_os_after_fork_parent(vm: &VirtualMachine) -> PyResult<()> {
+        let mut after_forkers_parent: Vec<PyObjectRef> =
+            std::mem::take(&mut *vm.state.after_forkers_parent.lock());
         Ok(())
     }
 

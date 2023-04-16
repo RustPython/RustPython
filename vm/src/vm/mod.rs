@@ -98,6 +98,9 @@ pub struct PyGlobalState {
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
     pub override_frozen_modules: AtomicCell<isize>,
+    pub before_forkers: PyMutex<Vec<(PyObjectRef)>>,
+    pub after_forkers_child: PyMutex<Vec<(PyObjectRef)>>,
+    pub after_forkers_parent: PyMutex<Vec<(PyObjectRef)>>,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -175,6 +178,9 @@ impl VirtualMachine {
                 finalizing: AtomicBool::new(false),
                 warnings,
                 override_frozen_modules: AtomicCell::new(0),
+                before_forkers: PyMutex::default(),
+                after_forkers_child: PyMutex::default(),
+                after_forkers_parent: PyMutex::default(),
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
