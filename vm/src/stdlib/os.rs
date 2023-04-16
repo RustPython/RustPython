@@ -1129,60 +1129,62 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn register_at_fork(
-        before: OptionalArg<PyObjectRef>,
-        after_in_parent: OptionalArg<PyObjectRef>,
-        after_in_child: OptionalArg<PyObjectRef>,
+        before: PyObjectRef,
+        after_in_parent: PyObjectRef,
+        after_in_child: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        match before {
-            OptionalArg::Present(before) => vm.state.before_forkers.lock().push(before),
-            _ => {}
-        }
-        match after_in_parent {
-            OptionalArg::Present(after_in_parent) => {
-                vm.state.after_forkers_parent.lock().push(after_in_parent)
-            }
-            _ => {}
-        }
+        vm.state.before_forkers.lock().push(before);
 
-        match after_in_child {
-            OptionalArg::Present(after_in_child) => {
-                vm.state.after_forkers_child.lock().push(after_in_child)
-            }
-            _ => {}
-        }
+        vm.state.after_forkers_parent.lock().push(after_in_parent);
+
+        vm.state.after_forkers_child.lock().push(after_in_child);
 
         Ok(())
     }
-    fn run_at_forkers() {}
+    fn run_at_forkers(funcs: Vec<PyObjectRef>, vm: &VirtualMachine) {
+        for (func) in funcs.into_iter().rev() {
+            if let Err(e) = func.call((), vm) {
+                let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
+                vm.run_unraisable(e, Some("Error in atexit._run_exitfuncs".to_owned()), func);
+                if exit {
+                    break;
+                }
+            }
+        }
+    }
     fn py_os_before_fork(vm: &VirtualMachine) -> PyResult<()> {
         let mut before_forkers: Vec<PyObjectRef> =
             std::mem::take(&mut *vm.state.before_forkers.lock());
+        run_at_forkers(before_forkers, vm);
+
         Ok(())
     }
     fn py_os_after_fork_child(vm: &VirtualMachine) -> PyResult<()> {
         let mut after_forkers_child: Vec<PyObjectRef> =
             std::mem::take(&mut *vm.state.after_forkers_child.lock());
+        run_at_forkers(after_forkers_child, vm);
         Ok(())
     }
 
     fn py_os_after_fork_parent(vm: &VirtualMachine) -> PyResult<()> {
         let mut after_forkers_parent: Vec<PyObjectRef> =
             std::mem::take(&mut *vm.state.after_forkers_parent.lock());
+        run_at_forkers(after_forkers_parent, vm);
         Ok(())
     }
 
     #[pyfunction]
     fn fork(vm: &VirtualMachine) -> PyObjectRef {
         let mut pid: i32 = 0;
-        //PyOS_BeforeFork();
+        py_os_before_fork(vm);
         unsafe {
             pid = libc::fork();
         }
         if (pid == 0) {
-            // PyOS_AfterFork_Child();
+            py_os_after_fork_child(vm);
         } else {
-            // PyOS_AfterFork_Parent();
+            py_os_after_fork_parent(vm);
         }
         vm.ctx.new_int(pid).into()
     }

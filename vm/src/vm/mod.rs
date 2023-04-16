@@ -28,7 +28,7 @@ use crate::{
     convert::ToPyObject,
     frame::{ExecutionResult, Frame, FrameRef},
     frozen,
-    function::{ArgMapping, FuncArgs, PySetterValue},
+    function::{ArgCallable, ArgMapping, FuncArgs, PySetterValue},
     import,
     protocol::PyIterIter,
     scope::Scope,
@@ -98,9 +98,9 @@ pub struct PyGlobalState {
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
     pub override_frozen_modules: AtomicCell<isize>,
-    pub before_forkers: PyMutex<Vec<(PyObjectRef)>>,
-    pub after_forkers_child: PyMutex<Vec<(PyObjectRef)>>,
-    pub after_forkers_parent: PyMutex<Vec<(PyObjectRef)>>,
+    pub before_forkers: PyMutex<Vec<PyObjectRef>>,
+    pub after_forkers_child: PyMutex<Vec<PyObjectRef>>,
+    pub after_forkers_parent: PyMutex<Vec<PyObjectRef>>,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
