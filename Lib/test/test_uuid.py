@@ -641,8 +641,7 @@ class BaseTestUUID:
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    @unittest.skipUnless(hasattr(os, 'fork'), "test needs os.fork()")
-    @unittest.skipUnless(os.name == 'posix', 'requires Posix')
+    @support.requires_fork()
     def testIssue8621(self):
         # On at least some versions of OSX self.uuid.uuid4 generates
         # the same sequence of UUIDs in the parent and any
