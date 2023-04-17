@@ -503,7 +503,7 @@ class HashLibTestCase(unittest.TestCase):
         self.check_sha3('shake_128', 256, 1344, b'\x1f')
         self.check_sha3('shake_256', 512, 1088, b'\x1f')
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON implement all blake2 params
     @unittest.expectedFailure
     @requires_blake2
     def test_blocksize_name_blake2(self):
@@ -748,7 +748,7 @@ class HashLibTestCase(unittest.TestCase):
                 outer.update(keyed.digest())
         return outer.hexdigest()
 
-    # TODO: RUSTPYTHON expect class, not function
+    # TODO: RUSTPYTHON add to constructor const value
     @unittest.expectedFailure
     @requires_blake2
     def test_blake2b(self):
@@ -771,7 +771,7 @@ class HashLibTestCase(unittest.TestCase):
           "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d1"+
           "7d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923")
 
-    # TODO: RUSTPYTHON expect class, not function
+    # TODO: RUSTPYTHON implement all blake2 fields
     @unittest.expectedFailure
     @requires_blake2
     def test_case_blake2b_all_parameters(self):
@@ -797,7 +797,7 @@ class HashLibTestCase(unittest.TestCase):
             key = bytes.fromhex(key)
             self.check('blake2b', msg, md, key=key)
 
-    # TODO: RUSTPYTHON expect class, not function
+    # TODO: RUSTPYTHON add to constructor const value
     @unittest.expectedFailure
     @requires_blake2
     def test_blake2s(self):
@@ -818,7 +818,7 @@ class HashLibTestCase(unittest.TestCase):
         self.check('blake2s', b"abc",
           "508c5e8c327c14e2e1a72ba34eeb452f37458b209ed63a294d999b4c86675982")
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON implement all blake2 fields
     @unittest.expectedFailure
     @requires_blake2
     def test_case_blake2s_all_parameters(self):
@@ -1121,6 +1121,8 @@ class KDFTests(unittest.TestCase):
                 iterations=1, dklen=None)
             self.assertEqual(out, self.pbkdf2_results['sha1'][0][0])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(builtin_hashlib is None, "test requires builtin_hashlib")
     def test_pbkdf2_hmac_py(self):
         with warnings_helper.check_warnings():

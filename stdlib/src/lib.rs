@@ -20,7 +20,6 @@ mod md5;
 mod sha1;
 mod sha256;
 mod sha3;
-mod sha512;
 
 mod json;
 #[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
@@ -112,7 +111,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_sha1" => sha1::make_module,
             "_sha3" => sha3::make_module,
             "_sha256" => sha256::make_module,
-            "_sha512" => sha512::make_module,
+            // "_sha512" => sha512::make_module, // TODO: RUSPYTHON fix strange fail on vm: 'static type has not been initialized'
             "_md5" => md5::make_module,
             "_blake2" => blake2::make_module,
             "_json" => json::make_module,

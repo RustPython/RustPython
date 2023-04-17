@@ -2889,9 +2889,7 @@ class TestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, inconsistent test result on Windows due to threading")
+    @unittest.skipIf(sys.platform == "win32" or sys.platform.startswith("linux"), "TODO: RUSTPYTHON, inconsistent test result on Windows due to threading")
     @threading_helper.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only

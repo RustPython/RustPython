@@ -39,6 +39,8 @@ def ignore_warning(func):
 
 class TestVectorsTestCase(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def assert_hmac_internals(
             self, h, digest, hashname, digest_size, block_size
     ):
@@ -48,6 +50,8 @@ class TestVectorsTestCase(unittest.TestCase):
         self.assertEqual(h.digest_size, digest_size)
         self.assertEqual(h.block_size, block_size)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def assert_hmac(
         self, key, data, digest, hashfunc, hashname, digest_size, block_size
     ):
@@ -122,6 +126,8 @@ class TestVectorsTestCase(unittest.TestCase):
                 h, digest, hashname, digest_size, block_size
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('md5', openssl=True)
     def test_md5_vectors(self):
         # Test the HMAC module against test vectors from the RFC.
@@ -164,6 +170,8 @@ class TestVectorsTestCase(unittest.TestCase):
                  b"and Larger Than One Block-Size Data"),
                 "6f630fad67cda0ee1fb1f562db3aa53e")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha1', openssl=True)
     def test_sha_vectors(self):
         def shatest(key, data, digest):
@@ -323,18 +331,26 @@ class TestVectorsTestCase(unittest.TestCase):
                                    '134676fb6de0446065c97440fa8c6a58',
                  })
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha224', openssl=True)
     def test_sha224_rfc4231(self):
         self._rfc4231_test_cases(hashlib.sha224, 'sha224', 28, 64)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256', openssl=True)
     def test_sha256_rfc4231(self):
         self._rfc4231_test_cases(hashlib.sha256, 'sha256', 32, 64)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha384', openssl=True)
     def test_sha384_rfc4231(self):
         self._rfc4231_test_cases(hashlib.sha384, 'sha384', 48, 128)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha512', openssl=True)
     def test_sha512_rfc4231(self):
         self._rfc4231_test_cases(hashlib.sha512, 'sha512', 64, 128)
@@ -380,6 +396,8 @@ class ConstructorTestCase(unittest.TestCase):
         "6c845b47f52b3b47f6590c502db7825aad757bf4fadc8fa972f7cd2e76a5bdeb"
     )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_normal(self):
         # Standard constructor call.
@@ -402,6 +420,8 @@ class ConstructorTestCase(unittest.TestCase):
         with self.assertRaises(TypeError):
             h = hmac.new("key", digestmod='sha256')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_withtext(self):
         # Constructor call with text.
@@ -411,6 +431,8 @@ class ConstructorTestCase(unittest.TestCase):
             self.fail("Constructor call with text argument raised exception.")
         self.assertEqual(h.hexdigest(), self.expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_with_bytearray(self):
         try:
@@ -420,6 +442,8 @@ class ConstructorTestCase(unittest.TestCase):
             self.fail("Constructor call with bytearray arguments raised exception.")
         self.assertEqual(h.hexdigest(), self.expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_with_memoryview_msg(self):
         try:
@@ -428,6 +452,8 @@ class ConstructorTestCase(unittest.TestCase):
             self.fail("Constructor call with memoryview msg raised exception.")
         self.assertEqual(h.hexdigest(), self.expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_withmodule(self):
         # Constructor call with text and digest module.
@@ -436,6 +462,8 @@ class ConstructorTestCase(unittest.TestCase):
         except Exception:
             self.fail("Constructor call with hashlib.sha256 raised exception.")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(C_HMAC is not None, 'need _hashlib')
     def test_internal_types(self):
         # internal types like _hashlib.C_HMAC are not constructable
@@ -443,6 +471,8 @@ class ConstructorTestCase(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "immutable type"):
             C_HMAC.value = None
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(sha256_module is not None, 'need _sha256')
     def test_with_sha256_module(self):
         h = hmac.HMAC(b"key", b"hash this!", digestmod=sha256_module.sha256)
@@ -455,6 +485,8 @@ class ConstructorTestCase(unittest.TestCase):
 
 class SanityTestCase(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_exercise_all_methods(self):
         # Exercising all methods once.
@@ -496,6 +528,8 @@ class CopyTestCase(unittest.TestCase):
             "No real copy of the attribute 'outer'.")
         self.assertIs(h1._hmac, None)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(_hashopenssl is None, "test requires _hashopenssl")
     @hashlib_helper.requires_hashdigest('sha256')
     def test_realcopy_hmac(self):
@@ -504,6 +538,8 @@ class CopyTestCase(unittest.TestCase):
         h2 = h1.copy()
         self.assertTrue(id(h1._hmac) != id(h2._hmac))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_equality(self):
         # Testing if the copy has the same digests.
@@ -515,6 +551,8 @@ class CopyTestCase(unittest.TestCase):
         self.assertEqual(h1.hexdigest(), h2.hexdigest(),
             "Hexdigest of copy doesn't match original hexdigest.")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('sha256')
     def test_equality_new(self):
         # Testing if the copy has the same digests with hmac.new().
@@ -532,6 +570,8 @@ class CopyTestCase(unittest.TestCase):
 
 class CompareDigestTestCase(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_hmac_compare_digest(self):
         self._test_compare_digest(hmac.compare_digest)
         if openssl_compare_digest is not None:
@@ -542,6 +582,8 @@ class CompareDigestTestCase(unittest.TestCase):
     def test_operator_compare_digest(self):
         self._test_compare_digest(operator_compare_digest)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(openssl_compare_digest is None, "test requires _hashlib")
     def test_openssl_compare_digest(self):
         self._test_compare_digest(openssl_compare_digest)

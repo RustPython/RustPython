@@ -7,7 +7,9 @@ pub mod _hashlib {
     use crate::common::lock::PyRwLock;
     use crate::vm::{
         builtins::{PyBytes, PyStrRef, PyTypeRef},
-        function::{ArgBytesLike, FuncArgs, OptionalArg},
+        convert::ToPyObject,
+        function::{ArgBytesLike, ArgStrOrBytesLike, FuncArgs, OptionalArg},
+        protocol::PyBuffer,
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use blake2::{Blake2b512, Blake2s256};
@@ -19,14 +21,13 @@ pub mod _hashlib {
     use sha2::{Sha224, Sha256, Sha384, Sha512};
     use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512, Shake128, Shake256};
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs, Debug)]
     #[allow(unused)]
     struct NewHashArgs {
         #[pyarg(positional)]
         name: PyStrRef,
         #[pyarg(any, optional)]
         data: OptionalArg<ArgBytesLike>,
-        #[pytraverse(skip)]
         #[pyarg(named, default = "true")]
         usedforsecurity: bool,
     }
@@ -49,7 +50,7 @@ pub mod _hashlib {
         }
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, Debug)]
     #[allow(unused)]
     pub struct HashArgs {
         #[pyarg(any, optional)]
@@ -97,7 +98,7 @@ pub mod _hashlib {
 
     #[pyclass]
     impl PyHasher {
-        pub fn new(name: &str, d: HashWrapper) -> Self {
+        fn new(name: &str, d: HashWrapper) -> Self {
             PyHasher {
                 name: name.to_owned(),
                 ctx: PyRwLock::new(d),
@@ -161,7 +162,7 @@ pub mod _hashlib {
 
     #[pyclass]
     impl PyHasherXof {
-        pub fn new(name: &str, d: HashXofWrapper) -> Self {
+        fn new(name: &str, d: HashXofWrapper) -> Self {
             PyHasherXof {
                 name: name.to_owned(),
                 ctx: PyRwLock::new(d),
@@ -212,92 +213,131 @@ pub mod _hashlib {
     #[pyfunction(name = "new")]
     fn hashlib_new(args: NewHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         match args.name.as_str().to_lowercase().as_str() {
-            "md5" => Ok(md5(args.into()).into_pyobject(vm)),
-            "sha1" => Ok(sha1(args.into()).into_pyobject(vm)),
-            "sha224" => Ok(sha224(args.into()).into_pyobject(vm)),
-            "sha256" => Ok(sha256(args.into()).into_pyobject(vm)),
-            "sha384" => Ok(sha384(args.into()).into_pyobject(vm)),
-            "sha512" => Ok(sha512(args.into()).into_pyobject(vm)),
-            "sha3_224" => Ok(sha3_224(args.into()).into_pyobject(vm)),
-            "sha3_256" => Ok(sha3_256(args.into()).into_pyobject(vm)),
-            "sha3_384" => Ok(sha3_384(args.into()).into_pyobject(vm)),
-            "sha3_512" => Ok(sha3_512(args.into()).into_pyobject(vm)),
-            "shake_128" => Ok(shake_128(args.into()).into_pyobject(vm)),
-            "shake_256" => Ok(shake_256(args.into()).into_pyobject(vm)),
-            "blake2b" => Ok(blake2b(args.into()).into_pyobject(vm)),
-            "blake2s" => Ok(blake2s(args.into()).into_pyobject(vm)),
+            "md5" => Ok(local_md5(args.into()).into_pyobject(vm)),
+            "sha1" => Ok(local_sha1(args.into()).into_pyobject(vm)),
+            "sha224" => Ok(local_sha224(args.into()).into_pyobject(vm)),
+            "sha256" => Ok(local_sha256(args.into()).into_pyobject(vm)),
+            "sha384" => Ok(local_sha384(args.into()).into_pyobject(vm)),
+            "sha512" => Ok(local_sha512(args.into()).into_pyobject(vm)),
+            "sha3_224" => Ok(local_sha3_224(args.into()).into_pyobject(vm)),
+            "sha3_256" => Ok(local_sha3_256(args.into()).into_pyobject(vm)),
+            "sha3_384" => Ok(local_sha3_384(args.into()).into_pyobject(vm)),
+            "sha3_512" => Ok(local_sha3_512(args.into()).into_pyobject(vm)),
+            "shake_128" => Ok(local_shake_128(args.into()).into_pyobject(vm)),
+            "shake_256" => Ok(local_shake_256(args.into()).into_pyobject(vm)),
+            "blake2b" => Ok(local_blake2b(args.into()).into_pyobject(vm)),
+            "blake2s" => Ok(local_blake2s(args.into()).into_pyobject(vm)),
             other => Err(vm.new_value_error(format!("Unknown hashing algorithm: {other}"))),
         }
     }
 
     #[pyfunction(name = "openssl_md5")]
-    fn md5(args: HashArgs) -> PyHasher {
+    pub fn local_md5(args: HashArgs) -> PyHasher {
         PyHasher::new("md5", HashWrapper::new::<Md5>(args.string))
     }
 
     #[pyfunction(name = "openssl_sha1")]
-    fn sha1(args: HashArgs) -> PyHasher {
+    pub fn local_sha1(args: HashArgs) -> PyHasher {
         PyHasher::new("sha1", HashWrapper::new::<Sha1>(args.string))
     }
 
     #[pyfunction(name = "openssl_sha224")]
-    fn sha224(args: HashArgs) -> PyHasher {
+    pub fn local_sha224(args: HashArgs) -> PyHasher {
         PyHasher::new("sha224", HashWrapper::new::<Sha224>(args.string))
     }
 
     #[pyfunction(name = "openssl_sha256")]
-    fn sha256(args: HashArgs) -> PyHasher {
+    pub fn local_sha256(args: HashArgs) -> PyHasher {
         PyHasher::new("sha256", HashWrapper::new::<Sha256>(args.string))
     }
 
     #[pyfunction(name = "openssl_sha384")]
-    fn sha384(args: HashArgs) -> PyHasher {
+    pub fn local_sha384(args: HashArgs) -> PyHasher {
         PyHasher::new("sha384", HashWrapper::new::<Sha384>(args.string))
     }
 
     #[pyfunction(name = "openssl_sha512")]
-    fn sha512(args: HashArgs) -> PyHasher {
+    pub fn local_sha512(args: HashArgs) -> PyHasher {
         PyHasher::new("sha512", HashWrapper::new::<Sha512>(args.string))
     }
 
     #[pyfunction(name = "openssl_sha3_224")]
-    fn sha3_224(args: HashArgs) -> PyHasher {
+    pub fn local_sha3_224(args: HashArgs) -> PyHasher {
         PyHasher::new("sha3_224", HashWrapper::new::<Sha3_224>(args.string))
     }
 
     #[pyfunction(name = "openssl_sha3_256")]
-    fn sha3_256(args: HashArgs) -> PyHasher {
+    pub fn local_sha3_256(args: HashArgs) -> PyHasher {
         PyHasher::new("sha3_256", HashWrapper::new::<Sha3_256>(args.string))
     }
 
     #[pyfunction(name = "openssl_sha3_384")]
-    fn sha3_384(args: HashArgs) -> PyHasher {
+    pub fn local_sha3_384(args: HashArgs) -> PyHasher {
         PyHasher::new("sha3_384", HashWrapper::new::<Sha3_384>(args.string))
     }
 
     #[pyfunction(name = "openssl_sha3_512")]
-    fn sha3_512(args: HashArgs) -> PyHasher {
+    pub fn local_sha3_512(args: HashArgs) -> PyHasher {
         PyHasher::new("sha3_512", HashWrapper::new::<Sha3_512>(args.string))
     }
 
     #[pyfunction(name = "openssl_shake_128")]
-    fn shake_128(args: HashArgs) -> PyHasherXof {
+    pub fn local_shake_128(args: HashArgs) -> PyHasherXof {
         PyHasherXof::new("shake_128", HashXofWrapper::new_shake_128(args.string))
     }
 
     #[pyfunction(name = "openssl_shake_256")]
-    fn shake_256(args: HashArgs) -> PyHasherXof {
+    pub fn local_shake_256(args: HashArgs) -> PyHasherXof {
         PyHasherXof::new("shake_256", HashXofWrapper::new_shake_256(args.string))
     }
 
     #[pyfunction(name = "openssl_blake2b")]
-    fn blake2b(args: BlakeHashArgs) -> PyHasher {
+    pub fn local_blake2b(args: BlakeHashArgs) -> PyHasher {
         PyHasher::new("blake2b", HashWrapper::new::<Blake2b512>(args.data))
     }
 
     #[pyfunction(name = "openssl_blake2s")]
-    fn blake2s(args: BlakeHashArgs) -> PyHasher {
+    pub fn local_blake2s(args: BlakeHashArgs) -> PyHasher {
         PyHasher::new("blake2s", HashWrapper::new::<Blake2s256>(args.data))
+    }
+
+    #[pyfunction]
+    fn compare_digest(
+        a: ArgStrOrBytesLike,
+        b: ArgStrOrBytesLike,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        fn is_str(arg: &ArgStrOrBytesLike) -> bool {
+            matches!(arg, ArgStrOrBytesLike::Str(_))
+        }
+
+        if is_str(&a) != is_str(&b) {
+            return Err(vm.new_type_error(format!(
+                "a bytes-like object is required, not '{}'",
+                b.as_object().class().name()
+            )));
+        }
+
+        let a_hash = a.borrow_bytes().to_vec();
+        let b_hash = b.borrow_bytes().to_vec();
+
+        Ok((a_hash == b_hash).to_pyobject(vm))
+    }
+
+    #[derive(FromArgs, Debug)]
+    #[allow(unused)]
+    pub struct NewHMACHashArgs {
+        #[pyarg(positional)]
+        name: PyBuffer,
+        #[pyarg(any, optional)]
+        data: OptionalArg<ArgBytesLike>,
+        #[pyarg(named, default = "true")]
+        digestmod: bool, // TODO: RUSTPYTHON support functions & name functions
+    }
+
+    #[pyfunction]
+    fn hmac_new(_args: NewHMACHashArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        Err(vm.new_type_error("cannot create 'hmac' instances".into())) // TODO: RUSTPYTHON support hmac
     }
 
     pub trait ThreadSafeDynDigest: DynClone + DynDigest + Sync + Send {}
