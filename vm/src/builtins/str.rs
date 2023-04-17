@@ -352,7 +352,7 @@ impl PyStr {
         if value == 0 && zelf.class().is(vm.ctx.types.str_type) {
             // Special case: when some `str` is multiplied by `0`,
             // returns the empty `str`.
-            return Ok(vm.ctx.empty_str.clone());
+            return Ok(vm.ctx.empty_str.to_owned());
         }
         if (value == 1 || zelf.is_empty()) && zelf.class().is(vm.ctx.types.str_type) {
             // Special case: when some `str` is multiplied by `1` or is the empty `str`,
