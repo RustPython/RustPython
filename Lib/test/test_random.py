@@ -1338,6 +1338,7 @@ class TestModule(unittest.TestCase):
         # tests validity but not completeness of the __all__ list
         self.assertTrue(set(random.__all__) <= set(dir(random)))
 
+    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @test.support.requires_fork()
     def test_after_fork(self):
         # Test the global Random instance gets reseeded in child

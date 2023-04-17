@@ -640,6 +640,7 @@ class BaseTestUUID:
             equal(str(u), v)
 
     # TODO: RUSTPYTHON
+    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.expectedFailure
     @unittest.skipUnless(os.name == 'posix', 'requires Posix')
     def testIssue8621(self):

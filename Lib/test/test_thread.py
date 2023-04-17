@@ -225,6 +225,7 @@ class TestForkInThread(unittest.TestCase):
     def setUp(self):
         self.read_fd, self.write_fd = os.pipe()
 
+    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipUnless(hasattr(os, 'fork'), 'need os.fork')
     @threading_helper.reap_threads
     def test_forkinthread(self):

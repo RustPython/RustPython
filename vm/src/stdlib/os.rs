@@ -1127,6 +1127,7 @@ pub(super) mod _os {
         OutputMode::String.process_path(curdir_inner(vm)?, vm)
     }
 
+    #[cfg(unix)]
     #[pyfunction]
     fn register_at_fork(kwargs: crate::function::KwArgs, vm: &VirtualMachine) -> PyResult<()> {
         let mut match_found = false; // better way to handle this?
@@ -1156,11 +1157,7 @@ pub(super) mod _os {
             for func in funcs.into_iter().rev() {
                 if let Err(e) = func.call((), vm) {
                     let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
-                    vm.run_unraisable(
-                        e,
-                        Some("Exception ignored in".to_owned()),
-                        func,
-                    );
+                    vm.run_unraisable(e, Some("Exception ignored in".to_owned()), func);
                     if exit {
                         // Do nothing!
                     }
@@ -1188,6 +1185,7 @@ pub(super) mod _os {
         Ok(())
     }
 
+    #[cfg(unix)]
     #[pyfunction]
     fn fork(vm: &VirtualMachine) -> PyResult {
         let mut pid: i32 = 0;
