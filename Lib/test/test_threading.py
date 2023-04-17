@@ -1002,7 +1002,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
             print('end of main')
             """
         self._run_and_join(script)
-        
+
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     def test_2_join_in_forked_process(self):
@@ -1117,7 +1117,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
 
         for t in threads:
             t.join()
-            
+
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_clear_threads_states_after_fork(self):
         # Issue #17094: check that threads states are cleared after fork()
