@@ -1152,6 +1152,8 @@ pub(super) mod _os {
 
         Ok(())
     }
+
+    #[cfg(unix)]
     fn run_at_forkers(funcs: Vec<PyObjectRef>, vm: &VirtualMachine) {
         if !funcs.is_empty() {
             for func in funcs.into_iter().rev() {
@@ -1165,12 +1167,16 @@ pub(super) mod _os {
             }
         }
     }
+
+    #[cfg(unix)]
     fn py_os_before_fork(vm: &VirtualMachine) -> PyResult<()> {
         let before_forkers: Vec<PyObjectRef> = std::mem::take(&mut *vm.state.before_forkers.lock());
         run_at_forkers(before_forkers, vm);
 
         Ok(())
     }
+
+    #[cfg(unix)]
     fn py_os_after_fork_child(vm: &VirtualMachine) -> PyResult<()> {
         let after_forkers_child: Vec<PyObjectRef> =
             std::mem::take(&mut *vm.state.after_forkers_child.lock());
@@ -1178,6 +1184,7 @@ pub(super) mod _os {
         Ok(())
     }
 
+    #[cfg(unix)]
     fn py_os_after_fork_parent(vm: &VirtualMachine) -> PyResult<()> {
         let after_forkers_parent: Vec<PyObjectRef> =
             std::mem::take(&mut *vm.state.after_forkers_parent.lock());
