@@ -410,9 +410,10 @@ impl BigInt {
     }
 
     pub fn rational_of(value: f64) -> Option<(Self, Self)> {
+        let sign = value >= 0.0;
         let rational = malachite::Rational::try_from(value).ok()?;
         let (numerator, denominator) = rational.into_numerator_and_denominator();
-        Some((Self(numerator.into()), Self(denominator.into())))
+        Some((Self(Integer::from_sign_and_abs(sign, numerator)), Self(denominator.into())))
     }
 
     pub fn modpow(&self, exponent: &Self, modulus: &Self) -> Self {
