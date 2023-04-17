@@ -201,7 +201,6 @@ class TestSupport(unittest.TestCase):
                                         f'temporary directory {path!r}: '),
                         warn)
 
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @support.requires_fork()
     def test_temp_dir__forked_child(self):
         """Test that a forked child process does not remove the directory."""

@@ -198,7 +198,6 @@ class TestRandomNameSequence(BaseTestCase):
             if i == 20:
                 break
 
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipUnless(hasattr(os, 'fork'),
         "os.fork is required for this test")
     def test_process_awareness(self):

@@ -509,7 +509,6 @@ class ThreadTests(BaseTestCase):
         t = threading.Thread(daemon=True)
         self.assertTrue(t.daemon)
 
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipUnless(hasattr(os, 'fork'), 'needs os.fork()')
     def test_fork_at_exit(self):
         # bpo-42350: Calling os.fork() after threading._shutdown() must
@@ -565,7 +564,6 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_is_alive_after_fork(self):
         # Try hard to trigger #18418: is_alive() could sometimes be True on
@@ -600,7 +598,6 @@ class ThreadTests(BaseTestCase):
         th.start()
         th.join()
 
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipUnless(hasattr(os, 'fork'), "test needs os.fork()")
     @unittest.skipUnless(hasattr(os, 'waitpid'), "test needs os.waitpid()")
     def test_main_thread_after_fork(self):
@@ -622,7 +619,6 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(err, b"")
         self.assertEqual(data, "MainThread\nTrue\nTrue\n")
 
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     @unittest.skipUnless(hasattr(os, 'fork'), "test needs os.fork()")
     @unittest.skipUnless(hasattr(os, 'waitpid'), "test needs os.waitpid()")
@@ -1007,7 +1003,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
             """
         self._run_and_join(script)
         
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     def test_2_join_in_forked_process(self):
@@ -1029,7 +1024,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
             """
         self._run_and_join(script)
 
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     def test_3_join_in_forked_from_thread(self):
@@ -1100,7 +1094,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
         rc, out, err = assert_python_ok('-c', script)
         self.assertFalse(err)
 
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     def test_reinit_tls_after_fork(self):
@@ -1125,7 +1118,6 @@ class ThreadJoinOnShutdown(BaseTestCase):
         for t in threads:
             t.join()
             
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_clear_threads_states_after_fork(self):
         # Issue #17094: check that threads states are cleared after fork()

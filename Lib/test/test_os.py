@@ -4596,7 +4596,6 @@ class TimesTests(unittest.TestCase):
             self.assertEqual(times.elapsed, 0)
 
 
-@unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
 @requires_os_func('fork')
 class ForkTests(unittest.TestCase):
     def test_fork(self):

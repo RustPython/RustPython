@@ -640,8 +640,8 @@ class BaseTestUUID:
             equal(str(u), v)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailureIfWindows("Fork is for Unix based systems only")
     @unittest.expectedFailure
+    @unittest.skipUnless(hasattr(os, 'fork'), "test needs os.fork()")
     @unittest.skipUnless(os.name == 'posix', 'requires Posix')
     def testIssue8621(self):
         # On at least some versions of OSX self.uuid.uuid4 generates
