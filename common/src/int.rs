@@ -67,8 +67,12 @@ macro_rules! to_primitive_int {
 macro_rules! to_primitive_float {
     ($fn:ident, $ret:ty) => {
         fn $fn(&self) -> Option<$ret> {
-            let val: $ret = self.inner().rounding_into(RoundingMode::Floor);
-            val.is_finite().then_some(val)
+            let val: $ret = self.inner().rounding_into(RoundingMode::Down);
+            if val == <$ret>::MAX || val == <$ret>::MIN {
+                (self.inner() == &val).then_some(val)
+            } else {
+                Some(val)
+            }
         }
     };
 }
@@ -413,7 +417,10 @@ impl BigInt {
         let sign = value >= 0.0;
         let rational = malachite::Rational::try_from(value).ok()?;
         let (numerator, denominator) = rational.into_numerator_and_denominator();
-        Some((Self(Integer::from_sign_and_abs(sign, numerator)), Self(denominator.into())))
+        Some((
+            Self(Integer::from_sign_and_abs(sign, numerator)),
+            Self(denominator.into()),
+        ))
     }
 
     pub fn modpow(&self, exponent: &Self, modulus: &Self) -> Self {
