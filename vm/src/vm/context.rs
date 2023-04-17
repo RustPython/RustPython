@@ -35,7 +35,7 @@ pub struct Context {
     pub none: PyRef<PyNone>,
     pub empty_tuple: PyTupleRef,
     pub empty_frozenset: PyRef<PyFrozenSet>,
-    pub empty_str: PyRef<PyStr>,
+    pub empty_str: &'static PyStrInterned,
     pub empty_bytes: PyRef<PyBytes>,
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyRef<PyNotImplemented>,
@@ -292,7 +292,7 @@ impl Context {
             types.builtin_function_or_method_type,
         );
 
-        let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) }.to_owned();
+        let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
         let context = Context {
             true_value,
