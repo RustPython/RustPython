@@ -1130,7 +1130,7 @@ impl ExecutingFrame<'_> {
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import(&mut self, vm: &VirtualMachine, module: Option<&Py<PyStr>>) -> PyResult<()> {
-        let module = module.unwrap_or(&vm.ctx.empty_str);
+        let module = module.unwrap_or(vm.ctx.empty_str);
         let from_list = <Option<PyTupleTyped<PyStrRef>>>::try_from_object(vm, self.pop_value())?;
         let level = usize::try_from_object(vm, self.pop_value())?;
 
