@@ -611,6 +611,35 @@ assert '{:.7g}'.format(1.020e-13) == '1.02e-13'
 assert '{:g}'.format(1.020e-13) == '1.02e-13'
 assert "{:g}".format(1.020e-4) == '0.000102'
 
+# Test n & N formatting
+assert '{:n}'.format(999999.1234) == '999999'
+assert '{:n}'.format(9999.1234) == '9999.12'
+assert '{:n}'.format(-1000000.1234) == '-1e+06'
+assert '{:n}'.format(1000000.1234) == '1e+06'
+assert '{:.1n}'.format(1000000.1234) == '1e+06'
+assert '{:.2n}'.format(1000000.1234) == '1e+06'
+assert '{:.3n}'.format(1000000.1234) == '1e+06'
+assert '{:.4n}'.format(1000000.1234) == '1e+06'
+assert '{:.5n}'.format(1000000.1234) == '1e+06'
+assert '{:.6n}'.format(1000000.1234) == '1e+06'
+assert '{:.7n}'.format(1000000.1234) == '1000000'
+assert '{:.8n}'.format(1000000.1234) == '1000000.1'
+assert '{:.10n}'.format(1000000.1234) == '1000000.123'
+assert '{:.11n}'.format(1000000.1234) == '1000000.1234'
+assert '{:.11n}'.format(-1000000.1234) == '-1000000.1234'
+assert '{:0n}'.format(-1000000.1234) == '-1e+06'
+assert '{:n}'.format(-1000000.1234) == '-1e+06'
+assert '{:-1n}'.format(-1000000.1234) == '-1e+06'
+
+with AssertRaises(ValueError, msg="Unknown format code 'N' for object of type 'float'"):
+    '{:N}'.format(999999.1234)
+with AssertRaises(ValueError, msg="Unknown format code 'N' for object of type 'float'"):
+    '{:.1N}'.format(1000000.1234)
+with AssertRaises(ValueError, msg="Unknown format code 'N' for object of type 'float'"):
+    '{:0N}'.format(-1000000.1234)
+with AssertRaises(ValueError, msg="Unknown format code 'N' for object of type 'float'"):
+    '{:-1N}'.format(-1000000.1234)
+
 # remove*fix test
 def test_removeprefix():
     s = 'foobarfoo'

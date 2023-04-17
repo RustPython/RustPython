@@ -297,7 +297,7 @@ mod _sqlite {
         timeout: f64,
         #[pyarg(any, default = "0")]
         detect_types: c_int,
-        #[pyarg(any, default = "Some(vm.ctx.empty_str.clone())")]
+        #[pyarg(any, default = "Some(vm.ctx.empty_str.to_owned())")]
         isolation_level: Option<PyStrRef>,
         #[pyarg(any, default = "true")]
         check_same_thread: bool,
