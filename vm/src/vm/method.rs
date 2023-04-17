@@ -85,13 +85,18 @@ impl PyMethod {
         }
     }
 
-    pub(crate) fn get_special(
+    pub(crate) fn get_special<const DIRECT: bool>(
         obj: &PyObject,
         name: &'static PyStrInterned,
         vm: &VirtualMachine,
     ) -> PyResult<Option<Self>> {
         let obj_cls = obj.class();
-        let func = match obj_cls.get_attr(name) {
+        let attr = if DIRECT {
+            obj_cls.get_direct_attr(name)
+        } else {
+            obj_cls.get_attr(name)
+        };
+        let func = match attr {
             Some(f) => f,
             None => {
                 return Ok(None);

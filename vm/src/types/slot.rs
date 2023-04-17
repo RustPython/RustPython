@@ -98,6 +98,13 @@ impl PyTypeSlots {
             ..Default::default()
         }
     }
+
+    pub fn heap_default() -> Self {
+        Self {
+            // init: AtomicCell::new(Some(init_wrapper)),
+            ..Default::default()
+        }
+    }
 }
 
 impl std::fmt::Debug for PyTypeSlots {
@@ -815,10 +822,12 @@ pub trait Callable: PyPayload {
     #[inline]
     #[pyslot]
     fn slot_call(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let zelf = zelf
-            .downcast_ref()
-            .ok_or_else(|| vm.new_type_error("unexpected payload for __call__".to_owned()))?;
-        Self::call(zelf, args.bind(vm)?, vm)
+        let Some(zelf) = zelf.downcast_ref() else {
+            let err = vm.new_downcast_type_error(Self::class(&vm.ctx), zelf);
+            return Err(err);
+        };
+        let args = args.bind(vm)?;
+        Self::call(zelf, args, vm)
     }
 
     #[inline]

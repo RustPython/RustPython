@@ -239,13 +239,13 @@ assert BaseException.__new__.__qualname__ == 'BaseException.__new__'
 assert BaseException.__init__.__qualname__ == 'BaseException.__init__'
 assert BaseException().__dict__ == {}
 
-assert Exception.__new__.__qualname__ == 'Exception.__new__'
-assert Exception.__init__.__qualname__ == 'Exception.__init__'
+assert Exception.__new__.__qualname__ == 'Exception.__new__', Exception.__new__.__qualname__
+assert Exception.__init__.__qualname__ == 'Exception.__init__', Exception.__init__.__qualname__
 assert Exception().__dict__ == {}
 
 
 # Extends `BaseException`, simple:
-assert KeyboardInterrupt.__new__.__qualname__ == 'KeyboardInterrupt.__new__'
+assert KeyboardInterrupt.__new__.__qualname__ == 'KeyboardInterrupt.__new__', KeyboardInterrupt.__new__.__qualname__
 assert KeyboardInterrupt.__init__.__qualname__ == 'KeyboardInterrupt.__init__'
 assert KeyboardInterrupt().__dict__ == {}
 

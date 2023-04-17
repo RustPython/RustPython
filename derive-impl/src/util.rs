@@ -273,6 +273,7 @@ impl ItemMeta for ClassItemMeta {
         "base",
         "metaclass",
         "unhashable",
+        "impl",
         "traverse",
     ];
 
@@ -304,6 +305,10 @@ impl ClassItemMeta {
              #[{attr_name}(name)] to use rust type name.",
             attr_name = inner.meta_name()
         )
+    }
+
+    pub fn ctx_name(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("ctx")
     }
 
     pub fn base(&self) -> Result<Option<String>> {
@@ -349,6 +354,10 @@ impl ClassItemMeta {
         Ok(value)
     }
 
+    pub fn impl_attrs(&self) -> Result<Option<String>> {
+        self.inner()._optional_str("impl")
+    }
+
     // pub fn mandatory_module(&self) -> Result<String> {
     //     let inner = self.inner();
     //     let value = self.module().ok().flatten().
@@ -359,6 +368,64 @@ impl ClassItemMeta {
     //     ))?;
     //     Ok(value)
     // }
+}
+
+pub(crate) struct ExceptionItemMeta(ClassItemMeta);
+
+impl ItemMeta for ExceptionItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "base", "unhashable", "ctx", "impl"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(ClassItemMeta(inner))
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0 .0
+    }
+}
+
+impl ExceptionItemMeta {
+    pub fn class_name(&self) -> Result<String> {
+        const KEY: &str = "name";
+        let inner = self.inner();
+        if let Some((_, meta)) = inner.meta_map.get(KEY) {
+            match meta {
+                Meta::NameValue(syn::MetaNameValue {
+                    lit: syn::Lit::Str(lit),
+                    ..
+                }) => return Ok(lit.value()),
+                Meta::Path(_) => {
+                    return Ok({
+                        let type_name = inner.item_name();
+                        let Some(py_name) = type_name.as_str().strip_prefix("Py") else {
+                        bail_span!(
+                            inner.item_ident,
+                            "#[pyexception] expects its underlying type to be named `Py` prefixed"
+                        )
+                    };
+                        py_name.to_string()
+                    })
+                }
+                _ => {}
+            }
+        }
+        bail_span!(
+            inner.meta_ident,
+            "#[{attr_name}(name = ...)] must exist as a string. Try \
+             #[{attr_name}(name)] to use rust type name.",
+            attr_name = inner.meta_name()
+        )
+    }
+
+    pub fn has_impl(&self) -> Result<bool> {
+        self.inner()._bool("impl")
+    }
+}
+
+impl std::ops::Deref for ExceptionItemMeta {
+    type Target = ClassItemMeta;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 pub(crate) trait AttributeExt: SynAttributeExt {
@@ -464,6 +531,17 @@ pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Att
                 other,
                 "#[pyclass] can only be on a struct, enum or use declaration",
             )
+        }
+    })
+}
+
+pub(crate) fn pyexception_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Attribute])> {
+    use syn::Item::*;
+    Ok(match item {
+        Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
+        Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
+        other => {
+            bail_span!(other, "#[pyexception] can only be on a struct or enum",)
         }
     })
 }

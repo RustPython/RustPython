@@ -19,24 +19,14 @@ pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
     derive_impl::pyclass(attr, item).into()
 }
 
+/// Helper macro to define `Exception` types.
+/// More-or-less is an alias to `pyclass` macro.
+///
 /// This macro serves a goal of generating multiple
 /// `BaseException` / `Exception`
 /// subtypes in a uniform and convenient manner.
 /// It looks like `SimpleExtendsException` in `CPython`.
 /// <https://github.com/python/cpython/blob/main/Objects/exceptions.c>
-///
-/// We need `ctx` to be ready to add
-/// `properties` / `custom` constructors / slots / methods etc.
-/// So, we use `extend_class!` macro as the second
-/// step in exception type definition.
-#[proc_macro]
-pub fn define_exception(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input);
-    derive_impl::define_exception(input).into()
-}
-
-/// Helper macro to define `Exception` types.
-/// More-or-less is an alias to `pyclass` macro.
 #[proc_macro_attribute]
 pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr);
