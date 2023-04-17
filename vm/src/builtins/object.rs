@@ -400,9 +400,17 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    #[pymethod(magic)]
-    fn init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
         Ok(())
+    }
+
+    #[pymethod(magic)]
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let init = zelf
+            .class()
+            .mro_find_map(|cls| cls.slots.init.load())
+            .unwrap();
+        (init)(zelf, args, vm)
     }
 
     #[pygetset(name = "__class__")]
