@@ -1153,7 +1153,7 @@ pub(super) mod _os {
         Ok(())
     }
     fn run_at_forkers(funcs: Vec<PyObjectRef>, vm: &VirtualMachine) {
-        if funcs.len() > 0 {
+        if !funcs.is_empty() {
             for func in funcs.into_iter().rev() {
                 if let Err(e) = func.call((), vm) {
                     let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
@@ -1188,7 +1188,7 @@ pub(super) mod _os {
     #[cfg(unix)]
     #[pyfunction]
     fn fork(vm: &VirtualMachine) -> PyResult {
-        let mut pid: i32 = 0;
+        let pid: i32;
         py_os_before_fork(vm)?;
         unsafe {
             pid = libc::fork();
