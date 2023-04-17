@@ -641,7 +641,7 @@ class BaseTestUUID:
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    @support.requires_fork()
+    @support.requires_fork() # TODO: RUSTPYTHON, os.fork is currently only supported on Unix-based systems
     def testIssue8621(self):
         # On at least some versions of OSX self.uuid.uuid4 generates
         # the same sequence of UUIDs in the parent and any
