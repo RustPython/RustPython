@@ -183,7 +183,7 @@ class PollTests(unittest.TestCase):
         self.assertRaises(OverflowError, pollster.poll, INT_MAX + 1)
         self.assertRaises(OverflowError, pollster.poll, UINT_MAX + 1)
 
-    @unittest.skip("TODO: RUSTPYTHON")
+    @unittest.skip("TODO: RUSTPYTHON fd reallocation")
     @threading_helper.reap_threads
     def test_threaded_poll(self):
         r, w = os.pipe()
@@ -197,7 +197,6 @@ class PollTests(unittest.TestCase):
         pollster = select.poll()
         for fd in rfds:
             pollster.register(fd, select.POLLIN)
-
         t = threading.Thread(target=pollster.poll)
         t.start()
         try:
@@ -212,7 +211,7 @@ class PollTests(unittest.TestCase):
             os.write(w, b'spam')
             t.join()
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON add support for negative timeout
     @unittest.expectedFailure    
     @unittest.skipUnless(threading, 'Threading required for this test.')
     @threading_helper.reap_threads
