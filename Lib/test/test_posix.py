@@ -1513,7 +1513,6 @@ class TestPosixDirFd(unittest.TestCase):
                 self.addCleanup(posix.unlink, fullname)
                 raise
 
-    @unittest.skip("TODO: RUSTPYTHON; no os.mkfifo")
     @unittest.skipUnless(hasattr(os, 'mkfifo') and os.mkfifo in os.supports_dir_fd, "test needs dir_fd support in os.mkfifo()")
     def test_mkfifo_dir_fd(self):
         with self.prepare() as (dir_fd, name, fullname):
