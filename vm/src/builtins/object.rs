@@ -284,6 +284,7 @@ impl PyBaseObject {
     #[pyslot]
     fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let typ = zelf.class();
+        eprintln!("called init of {}", zelf.class().name());
         if typ.slots.init.load().map_or(0, |f| f as usize)
             == vm
                 .ctx
@@ -326,6 +327,7 @@ impl PyBaseObject {
         if zelf.class().is(vm.ctx.types.object_type) {
             return Ok(());
         }
+        eprintln!("{:?}", zelf.class().name());
         let init = zelf
             .class()
             .mro_find_map(|cls| cls.slots.init.load())

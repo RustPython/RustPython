@@ -494,6 +494,7 @@ impl PyType {
                 update_slot!(descr_set, descr_set_wrapper);
             }
             _ if name == identifier!(ctx, __init__) => {
+                eprintln!("init of {:?}", self.name());
                 toggle_slot!(init, init_wrapper);
             }
             _ if name == identifier!(ctx, __new__) => {
