@@ -607,7 +607,8 @@ for k, v in os.environ.items():
 print("</pre>")
 """
 
-
+@unittest.skipIf(not hasattr(os, '_exit'),
+        "run_cgi in http/server.py gets stuck as if os._exit(127) is not defined to kill forked process")
 @unittest.skipIf(hasattr(os, 'geteuid') and os.geteuid() == 0,
         "This test can't be run reliably as root (issue #13308).")
 class CGIHTTPServerTestCase(BaseTestCase):
