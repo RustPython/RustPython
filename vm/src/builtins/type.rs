@@ -280,6 +280,9 @@ impl PyType {
         let mut slot_name_set = std::collections::HashSet::new();
 
         for cls in self.mro.iter() {
+            if !cls.slots.flags.contains(PyTypeFlags::HEAPTYPE) {
+                continue;
+            }
             for &name in cls.attributes.read().keys() {
                 if name == identifier!(ctx, __new__) {
                     continue;
