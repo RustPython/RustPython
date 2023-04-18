@@ -465,7 +465,10 @@ fn descr_set_wrapper(
 fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
     let res = vm.call_special_method(&obj, identifier!(vm, __init__), args)?;
     if !vm.is_none(&res) {
-        return Err(vm.new_type_error("__init__ must return None"));
+        return Err(vm.new_type_error(format!(
+            "__init__ should return None, not '{:.200}'",
+            res.class().name()
+        )));
     }
     Ok(())
 }
@@ -943,7 +946,6 @@ pub trait Initializer: PyPayload {
 
     #[inline]
     #[pyslot]
-    #[pymethod(name = "__init__")]
     fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         #[cfg(debug_assertions)]
         let class_name_for_debug = zelf.class().name().to_string();

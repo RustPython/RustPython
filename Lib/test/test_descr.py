@@ -4941,7 +4941,6 @@ class ClassPropertiesAndMethods(unittest.TestCase, ExtraAssertions):
         for o in gc.get_objects():
             self.assertIsNot(type(o), X)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_object_new_and_init_with_parameters(self):
         # See issue #1683368
         class OverrideNeither:

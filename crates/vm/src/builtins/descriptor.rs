@@ -3,8 +3,11 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
     class::PyClassImpl,
+    common::hash::PyHash,
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
-    types::{Callable, GetDescriptor, Representable},
+    types::{
+        Callable, Comparable, GetDescriptor, Hashable, InitFunc, PyComparisonOp, Representable,
+    },
 };
 use rustpython_common::lock::PyRwLock;
 
@@ -219,7 +222,7 @@ impl std::fmt::Debug for PyMemberDef {
     }
 }
 
-// PyMemberDescrObject in CPython
+// = PyMemberDescrObject
 #[pyclass(name = "member_descriptor", module = false)]
 #[derive(Debug)]
 pub struct PyMemberDescriptor {
@@ -382,4 +385,201 @@ impl GetDescriptor for PyMemberDescriptor {
 pub fn init(ctx: &Context) {
     PyMemberDescriptor::extend_class(ctx, ctx.types.member_descriptor_type);
     PyMethodDescriptor::extend_class(ctx, ctx.types.method_descriptor_type);
+    PySlotWrapper::extend_class(ctx, ctx.types.wrapper_descriptor_type);
+    PyMethodWrapper::extend_class(ctx, ctx.types.method_wrapper_type);
+}
+
+// PySlotWrapper - wrapper_descriptor
+
+/// wrapper_descriptor: wraps a slot function as a Python method
+// = PyWrapperDescrObject
+#[pyclass(name = "wrapper_descriptor", module = false)]
+#[derive(Debug)]
+pub struct PySlotWrapper {
+    pub typ: &'static Py<PyType>,
+    pub name: &'static PyStrInterned,
+    pub wrapped: InitFunc,
+    pub doc: Option<&'static str>,
+}
+
+impl PyPayload for PySlotWrapper {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.wrapper_descriptor_type
+    }
+}
+
+impl GetDescriptor for PySlotWrapper {
+    fn descr_get(
+        zelf: PyObjectRef,
+        obj: Option<PyObjectRef>,
+        _cls: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match obj {
+            None => Ok(zelf),
+            Some(obj) if vm.is_none(&obj) => Ok(zelf),
+            Some(obj) => {
+                let zelf = zelf.downcast::<Self>().unwrap();
+                Ok(PyMethodWrapper { wrapper: zelf, obj }.into_pyobject(vm))
+            }
+        }
+    }
+}
+
+impl Callable for PySlotWrapper {
+    type Args = FuncArgs;
+
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // list.__init__(l, [1,2,3]) form
+        let (obj, rest): (PyObjectRef, FuncArgs) = args.bind(vm)?;
+
+        if !obj.fast_isinstance(zelf.typ) {
+            return Err(vm.new_type_error(format!(
+                "descriptor '{}' requires a '{}' object but received a '{}'",
+                zelf.name.as_str(),
+                zelf.typ.name(),
+                obj.class().name()
+            )));
+        }
+
+        (zelf.wrapped)(obj, rest, vm)?;
+        Ok(vm.ctx.none())
+    }
+}
+
+#[pyclass(
+    with(GetDescriptor, Callable, Representable),
+    flags(DISALLOW_INSTANTIATION)
+)]
+impl PySlotWrapper {
+    #[pygetset]
+    fn __name__(&self) -> &'static PyStrInterned {
+        self.name
+    }
+
+    #[pygetset]
+    fn __qualname__(&self) -> String {
+        format!("{}.{}", self.typ.name(), self.name)
+    }
+
+    #[pygetset]
+    fn __objclass__(&self) -> PyTypeRef {
+        self.typ.to_owned()
+    }
+
+    #[pygetset]
+    fn __doc__(&self) -> Option<&'static str> {
+        self.doc
+    }
+}
+
+impl Representable for PySlotWrapper {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<slot wrapper '{}' of '{}' objects>",
+            zelf.name.as_str(),
+            zelf.typ.name()
+        ))
+    }
+}
+
+// PyMethodWrapper - method-wrapper
+
+/// method-wrapper: a slot wrapper bound to an instance
+/// Returned when accessing l.__init__ on an instance
+#[pyclass(name = "method-wrapper", module = false, traverse)]
+#[derive(Debug)]
+pub struct PyMethodWrapper {
+    pub wrapper: PyRef<PySlotWrapper>,
+    #[pytraverse(skip)]
+    pub obj: PyObjectRef,
+}
+
+impl PyPayload for PyMethodWrapper {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.method_wrapper_type
+    }
+}
+
+impl Callable for PyMethodWrapper {
+    type Args = FuncArgs;
+
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        (zelf.wrapper.wrapped)(zelf.obj.clone(), args, vm)?;
+        Ok(vm.ctx.none())
+    }
+}
+
+#[pyclass(
+    with(Callable, Representable, Hashable, Comparable),
+    flags(DISALLOW_INSTANTIATION)
+)]
+impl PyMethodWrapper {
+    #[pygetset]
+    fn __self__(&self) -> PyObjectRef {
+        self.obj.clone()
+    }
+
+    #[pygetset]
+    fn __name__(&self) -> &'static PyStrInterned {
+        self.wrapper.name
+    }
+
+    #[pygetset]
+    fn __objclass__(&self) -> PyTypeRef {
+        self.wrapper.typ.to_owned()
+    }
+
+    #[pymethod]
+    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        let builtins_getattr = vm.builtins.get_attr("getattr", vm)?;
+        Ok(vm
+            .ctx
+            .new_tuple(vec![
+                builtins_getattr,
+                vm.ctx
+                    .new_tuple(vec![
+                        zelf.obj.clone(),
+                        vm.ctx.new_str(zelf.wrapper.name.as_str()).into(),
+                    ])
+                    .into(),
+            ])
+            .into())
+    }
+}
+
+impl Representable for PyMethodWrapper {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<method-wrapper '{}' of {} object at {:#x}>",
+            zelf.wrapper.name.as_str(),
+            zelf.obj.class().name(),
+            zelf.obj.get_id()
+        ))
+    }
+}
+
+impl Hashable for PyMethodWrapper {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        let obj_hash = zelf.obj.hash(vm)?;
+        let wrapper_hash = zelf.wrapper.as_object().get_id() as PyHash;
+        Ok(obj_hash ^ wrapper_hash)
+    }
+}
+
+impl Comparable for PyMethodWrapper {
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<crate::function::PyComparisonValue> {
+        op.eq_only(|| {
+            let other = class_or_notimplemented!(Self, other);
+            let eq = zelf.wrapper.is(&other.wrapper) && vm.bool_eq(&zelf.obj, &other.obj)?;
+            Ok(eq.into())
+        })
+    }
 }

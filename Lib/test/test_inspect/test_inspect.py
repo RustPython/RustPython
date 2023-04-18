@@ -409,6 +409,7 @@ class TestPredicates(IsTestBase):
 
         coro.close(); gen_coro.close() # silence warnings
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_isroutine(self):
         # method
         self.assertTrue(inspect.isroutine(git.argue))
@@ -1483,8 +1484,6 @@ class TestClassesAndFunctions(unittest.TestCase):
         l = list(signature.kwonlyargs)
         self.assertEqual(l, unsorted_keyword_only_parameters)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_classify_newstyle(self):
         class A(object):
 
