@@ -1167,7 +1167,7 @@ pub(super) mod _os {
     }
 
     #[pyfunction]
-    fn exit(code: i32) {
+    fn _exit(code: i32) {
         std::process::exit(code)
     }
 
