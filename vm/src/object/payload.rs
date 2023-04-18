@@ -1,4 +1,4 @@
-use super::{gc::MaybeTraverse, Py, PyObjectRef, PyRef, PyResult};
+use crate::object::{MaybeTraverse, Py, PyObjectRef, PyRef, PyResult};
 use crate::{
     builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
     types::PyTypeFlags,

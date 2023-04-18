@@ -10,13 +10,13 @@
 //!
 //! PyRef<PyWeak> may looking like to be called as PyObjectWeak by the rule,
 //! but not to do to remember it is a PyRef object.
-
 use super::{
     ext::{AsObject, PyRefExact, PyResult},
-    gc::{PyObjVTable, Traverse, TraverseFn},
     payload::PyObjectPayload,
     PyAtomicRef,
 };
+use crate::object::traverse::{Traverse, TraverseFn};
+use crate::object::traverse_object::PyObjVTable;
 use crate::{
     builtins::{PyDictRef, PyType, PyTypeRef},
     common::{

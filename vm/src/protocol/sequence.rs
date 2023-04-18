@@ -2,7 +2,7 @@ use crate::{
     builtins::{type_::PointerSlot, PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
     convert::ToPyObject,
     function::PyArithmeticValue,
-    object::gc::{Traverse, TraverseFn},
+    object::{Traverse, TraverseFn},
     protocol::{PyMapping, PyNumberBinaryOp},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };

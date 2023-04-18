@@ -86,11 +86,11 @@ impl PyList {
     }
 }
 
-#[derive(FromArgs, Default, PyTraverse)]
+#[derive(FromArgs, Default, Traverse)]
 pub(crate) struct SortOptions {
     #[pyarg(named, default)]
     key: Option<PyObjectRef>,
-    #[notrace]
+    #[pytraverse(skip)]
     #[pyarg(named, default = "false")]
     reverse: bool,
 }

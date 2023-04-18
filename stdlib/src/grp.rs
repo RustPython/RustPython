@@ -16,11 +16,11 @@ mod grp {
     #[pyclass(module = "grp", name = "struct_group", traverse)]
     #[derive(PyStructSequence)]
     struct Group {
-        #[notrace]
+        #[pytraverse(skip)]
         gr_name: String,
-        #[notrace]
+        #[pytraverse(skip)]
         gr_passwd: String,
-        #[notrace]
+        #[pytraverse(skip)]
         gr_gid: u32,
         gr_mem: PyListRef,
     }

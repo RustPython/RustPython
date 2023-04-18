@@ -16,7 +16,7 @@ use num_traits::Zero;
 #[pyclass(module = false, name = "enumerate", traverse)]
 #[derive(Debug)]
 pub struct PyEnumerate {
-    #[notrace]
+    #[pytraverse(skip)]
     counter: PyRwLock<BigInt>,
     iterator: PyIter,
 }

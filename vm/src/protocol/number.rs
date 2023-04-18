@@ -6,7 +6,7 @@ use crate::{
     builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
     common::int::bytes_to_int,
     function::ArgBytesLike,
-    object::gc::{Traverse, TraverseFn},
+    object::{Traverse, TraverseFn},
     stdlib::warnings,
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,

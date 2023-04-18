@@ -1,6 +1,6 @@
 use super::{PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
-use crate::object::gc::{Traverse, TraverseFn};
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     atomic_func,
     class::PyClassImpl,

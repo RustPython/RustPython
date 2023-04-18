@@ -3,17 +3,17 @@ use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
     convert::ToPyObject,
     identifier,
-    object::gc::{Traverse, TraverseFn},
+    object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
     types::{AsMapping, GenericMethod},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
-#[derive(Clone, PyTraverse)]
+#[derive(Clone, Traverse)]
 pub struct ArgCallable {
     obj: PyObjectRef,
-    #[notrace]
+    #[pytraverse(skip)]
     call: GenericMethod,
 }
 
@@ -118,10 +118,10 @@ where
     }
 }
 
-#[derive(Debug, Clone, PyTraverse)]
+#[derive(Debug, Clone, Traverse)]
 pub struct ArgMapping {
     obj: PyObjectRef,
-    #[notrace]
+    #[pytraverse(skip)]
     methods: &'static PyMappingMethods,
 }
 

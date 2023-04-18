@@ -13,7 +13,7 @@ use crate::{
         hash,
         lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
     },
-    object::gc::{Traverse, TraverseFn},
+    object::{Traverse, TraverseFn},
 };
 use num_traits::ToPrimitive;
 use std::{fmt, mem::size_of, ops::ControlFlow};

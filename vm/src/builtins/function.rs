@@ -10,7 +10,7 @@ use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
 use crate::convert::ToPyObject;
 use crate::function::ArgMapping;
-use crate::object::gc::{Traverse, TraverseFn};
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     bytecode,
     class::PyClassImpl,
@@ -522,7 +522,7 @@ impl GetAttr for PyBoundMethod {
     }
 }
 
-#[derive(FromArgs, PyTraverse)]
+#[derive(FromArgs, Traverse)]
 pub struct PyBoundMethodNewArgs {
     #[pyarg(positional)]
     function: PyObjectRef,

@@ -8,7 +8,7 @@ mod _bisect {
         PyObjectRef, PyResult, VirtualMachine,
     };
 
-    #[derive(FromArgs, PyTraverse)]
+    #[derive(FromArgs, Traverse)]
     struct BisectArgs {
         a: PyObjectRef,
         x: PyObjectRef,

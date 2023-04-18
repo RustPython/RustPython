@@ -1,8 +1,79 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{DeriveInput, Result};
+use syn::{Attribute, DeriveInput, Field, Meta, NestedMeta, Result};
 
-/// also remove `#[notrace]` attr, and not trace corresponding field
+struct TraverseAttr {
+    /// set to `true` if the attribute is `#[pytraverse(skip)]`
+    skip: bool,
+}
+
+const ATTR_TRAVERSE: &str = "pytraverse";
+
+fn pytraverse_arg(attr: &Attribute) -> Option<Result<TraverseAttr>> {
+    if !attr.path.is_ident(ATTR_TRAVERSE) {
+        return None;
+    }
+    let ret = || {
+        let parsed = attr.parse_meta()?;
+        let Meta::List(list) = parsed else{
+            bail_span!(attr, "pytraverse must be a list, like #[pytraverse(skip)]")
+        };
+        let len = list.nested.len();
+        if len > 1 {
+            bail_span!(
+                list,
+                "pytraverse must have at most one argument, like #[pytraverse(skip)]"
+            )
+        }
+        let mut iter = list.nested.iter();
+        let first_arg = iter.next().ok_or_else(|| {
+            err_span!(
+                list,
+                "There must be at least one argument to #[pytraverse()]"
+            )
+        })?;
+        let skip = match first_arg {
+            NestedMeta::Meta(Meta::Path(path)) => path.is_ident("skip"),
+            _ => false,
+        };
+        Ok(TraverseAttr { skip })
+    };
+    Some(ret())
+}
+
+fn field_to_traverse_code(field: &Field) -> Result<TokenStream> {
+    let pytraverse_attrs = field
+        .attrs
+        .iter()
+        .filter_map(pytraverse_arg)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let do_trace = if pytraverse_attrs.len() > 1 {
+        bail_span!(
+            field,
+            "pytraverse must have at most one argument, like #[pytraverse(skip)]"
+        )
+    } else if pytraverse_attrs.is_empty() {
+        // default to always traverse every field
+        true
+    } else {
+        !pytraverse_attrs[0].skip
+    };
+    let name = field.ident.as_ref().ok_or_else(|| {
+        syn::Error::new_spanned(
+            field.clone(),
+            "Field should have a name in non-tuple struct",
+        )
+    })?;
+    if do_trace {
+        Ok(quote!(
+            ::rustpython_vm::object::Traverse::traverse(&self.#name, tracer_fn);
+        ))
+    } else {
+        Ok(quote!())
+    }
+}
+
+/// not trace corresponding field
 fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
     match &mut item.data {
         syn::Data::Struct(s) => {
@@ -11,31 +82,7 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
                 let res: Vec<TokenStream> = fields
                     .named
                     .iter_mut()
-                    .map(|f| -> Result<TokenStream> {
-                        let name = f.ident.as_ref().ok_or_else(|| {
-                            syn::Error::new_spanned(
-                                f.clone(),
-                                "Field should have a name in non-tuple struct",
-                            )
-                        })?;
-                        let mut do_trace = true;
-                        f.attrs.retain(|attr| {
-                            // remove #[notrace] and not trace this specifed field
-                            if attr.path.segments.last().unwrap().ident == "notrace" {
-                                do_trace = false;
-                                false
-                            } else {
-                                true
-                            }
-                        });
-                        if do_trace {
-                            Ok(quote!(
-                                ::rustpython_vm::object::gc::Traverse::traverse(&self.#name, tracer_fn);
-                            ))
-                        } else {
-                            Ok(quote!())
-                        }
-                    })
+                    .map(|f| -> Result<TokenStream> { field_to_traverse_code(f) })
                     .collect::<Result<_>>()?;
                 let res = res.into_iter().collect::<TokenStream>();
                 Ok(res)
@@ -44,7 +91,7 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
                     .map(|i| {
                         let i = syn::Index::from(i);
                         quote!(
-                            ::rustpython_vm::object::gc::Traverse::traverse(&self.#i, tracer_fn);
+                            ::rustpython_vm::object::Traverse::traverse(&self.#i, tracer_fn);
                         )
                     })
                     .collect();
@@ -66,8 +113,8 @@ pub(crate) fn impl_pytraverse(mut item: DeriveInput) -> Result<TokenStream> {
     let ty = &item.ident;
 
     let ret = quote! {
-        unsafe impl ::rustpython_vm::object::gc::Traverse for #ty {
-            fn traverse(&self, tracer_fn: &mut ::rustpython_vm::object::gc::TraverseFn) {
+        unsafe impl ::rustpython_vm::object::Traverse for #ty {
+            fn traverse(&self, tracer_fn: &mut ::rustpython_vm::object::TraverseFn) {
                 #trace_code
             }
         }

@@ -24,7 +24,7 @@ impl PyPayload for PySuper {
     }
 }
 
-#[derive(FromArgs, PyTraverse)]
+#[derive(FromArgs, Traverse)]
 pub struct PySuperNewArgs {
     #[pyarg(positional, optional)]
     py_type: OptionalArg<PyTypeRef>,

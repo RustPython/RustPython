@@ -5,7 +5,7 @@ use crate::{
         PyDict, PyStrInterned,
     },
     convert::ToPyResult,
-    object::gc::{Traverse, TraverseFn},
+    object::{Traverse, TraverseFn},
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;

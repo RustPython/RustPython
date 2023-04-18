@@ -8,9 +8,9 @@ use crate::{class::PyClassImpl, frame::FrameRef, Context, Py, PyPayload, PyRef};
 pub struct PyTraceback {
     pub next: PyMutex<Option<PyTracebackRef>>,
     pub frame: FrameRef,
-    #[notrace]
+    #[pytraverse(skip)]
     pub lasti: u32,
-    #[notrace]
+    #[pytraverse(skip)]
     pub lineno: usize,
 }
 

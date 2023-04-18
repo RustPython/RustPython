@@ -156,7 +156,7 @@ mod _csv {
     #[derive(PyPayload)]
     pub(super) struct Reader {
         iter: PyIter,
-        #[notrace]
+        #[pytraverse(skip)]
         state: PyMutex<ReadState>,
     }
 
@@ -247,7 +247,7 @@ mod _csv {
     #[derive(PyPayload)]
     pub(super) struct Writer {
         write: PyObjectRef,
-        #[notrace]
+        #[pytraverse(skip)]
         state: PyMutex<WriteState>,
     }
 

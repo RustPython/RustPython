@@ -77,10 +77,10 @@ mod re {
     /// Inner data for a match object.
     #[pyattr]
     #[pyclass(module = "re", name = "Match", traverse)]
-    #[derive(PyPayload, PyTraverse)]
+    #[derive(PyPayload, Traverse)]
     struct PyMatch {
         haystack: PyStrRef,
-        #[notrace]
+        #[pytraverse(skip)]
         captures: Vec<Option<Range<usize>>>,
     }
 

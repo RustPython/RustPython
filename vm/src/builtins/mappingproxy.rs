@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
-    object::gc::{Traverse, TraverseFn},
+    object::{Traverse, TraverseFn},
     protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,

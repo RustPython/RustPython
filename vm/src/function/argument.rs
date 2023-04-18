@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     convert::ToPyObject,
-    object::gc::{Traverse, TraverseFn},
+    object::{Traverse, TraverseFn},
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;

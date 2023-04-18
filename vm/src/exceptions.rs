@@ -1,6 +1,6 @@
 use self::types::{PyBaseException, PyBaseExceptionRef};
 use crate::common::{lock::PyRwLock, str::ReprOverflowError};
-use crate::object::gc::{Traverse, TraverseFn};
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     builtins::{
         traceback::PyTracebackRef, tuple::IntoPyTuple, PyNone, PyStr, PyStrRef, PyTuple,

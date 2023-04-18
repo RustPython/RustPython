@@ -19,7 +19,7 @@ mod _json {
     #[pyclass(name = "Scanner", traverse)]
     #[derive(Debug, PyPayload)]
     struct JsonScanner {
-        #[notrace]
+        #[pytraverse(skip)]
         strict: bool,
         object_hook: Option<PyObjectRef>,
         object_pairs_hook: Option<PyObjectRef>,

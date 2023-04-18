@@ -40,8 +40,8 @@ pub struct PyType {
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
 }
 
-unsafe impl crate::object::gc::Traverse for PyType {
-    fn traverse(&self, tracer_fn: &mut crate::object::gc::TraverseFn) {
+unsafe impl crate::object::Traverse for PyType {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn) {
         self.base.traverse(tracer_fn);
         self.bases.traverse(tracer_fn);
         self.mro.traverse(tracer_fn);

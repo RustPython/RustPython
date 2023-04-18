@@ -20,7 +20,7 @@ pub(crate) mod _struct {
     };
     use crossbeam_utils::atomic::AtomicCell;
 
-    #[derive(PyTraverse)]
+    #[derive(Traverse)]
     struct IntoStructFormatBytes(PyStrRef);
 
     impl TryFromObject for IntoStructFormatBytes {
@@ -134,10 +134,10 @@ pub(crate) mod _struct {
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
-    #[derive(FromArgs, PyTraverse)]
+    #[derive(FromArgs, Traverse)]
     struct UpdateFromArgs {
         buffer: ArgBytesLike,
-        #[notrace]
+        #[pytraverse(skip)]
         #[pyarg(any, default = "0")]
         offset: isize,
     }
@@ -159,10 +159,10 @@ pub(crate) mod _struct {
     #[pyclass(name = "unpack_iterator", traverse)]
     #[derive(Debug, PyPayload)]
     struct UnpackIterator {
-        #[notrace]
+        #[pytraverse(skip)]
         format_spec: FormatSpec,
         buffer: ArgBytesLike,
-        #[notrace]
+        #[pytraverse(skip)]
         offset: AtomicCell<usize>,
     }
 
@@ -238,7 +238,7 @@ pub(crate) mod _struct {
     #[pyclass(name = "Struct", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyStruct {
-        #[notrace]
+        #[pytraverse(skip)]
         spec: FormatSpec,
         format: PyStrRef,
     }

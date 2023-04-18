@@ -13,7 +13,7 @@ use rustpython_common::atomic::{self, PyAtomic, Radium};
 #[derive(Debug)]
 pub struct PyZip {
     iterators: Vec<PyIter>,
-    #[notrace]
+    #[pytraverse(skip)]
     strict: PyAtomic<bool>,
 }
 

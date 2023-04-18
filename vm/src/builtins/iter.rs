@@ -6,7 +6,7 @@ use super::{PyInt, PyTupleRef, PyType};
 use crate::{
     class::PyClassImpl,
     function::ArgCallable,
-    object::gc::{Traverse, TraverseFn},
+    object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
     types::{IterNext, IterNextIterable},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -178,7 +178,7 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
 #[derive(Debug)]
 pub struct PySequenceIterator {
     // cached sequence methods
-    #[notrace]
+    #[pytraverse(skip)]
     seq_methods: &'static PySequenceMethods,
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }

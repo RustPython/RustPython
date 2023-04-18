@@ -15,7 +15,7 @@ use crate::{
     format::{format, format_map},
     function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
-    object::gc::{Traverse, TraverseFn},
+    object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -259,7 +259,7 @@ impl IterNext for PyStrIterator {
     }
 }
 
-#[derive(FromArgs, PyTraverse)]
+#[derive(FromArgs, Traverse)]
 pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
@@ -1400,7 +1400,7 @@ impl AsSequence for PyStr {
     }
 }
 
-#[derive(FromArgs, PyTraverse)]
+#[derive(FromArgs, Traverse)]
 struct EncodeArgs {
     #[pyarg(any, default)]
     encoding: Option<PyStrRef>,
@@ -1464,7 +1464,7 @@ impl ToPyObject for AsciiString {
 
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
-#[derive(FromArgs, PyTraverse)]
+#[derive(FromArgs, Traverse)]
 pub struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,

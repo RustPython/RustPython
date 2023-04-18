@@ -151,8 +151,8 @@ pub(super) struct PySetInner {
     content: PyRc<SetContentType>,
 }
 
-unsafe impl crate::object::gc::Traverse for PySetInner {
-    fn traverse(&self, tracer_fn: &mut crate::object::gc::TraverseFn) {
+unsafe impl crate::object::Traverse for PySetInner {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn) {
         // FIXME(discord9): Rc means shared ref, so should it be traced?
         self.content.traverse(tracer_fn)
     }
