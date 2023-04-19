@@ -102,21 +102,17 @@ mod decl {
         Ok(duration_since_system_now(vm)?.as_secs_f64())
     }
 
-    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi"), feature = "wasmbind"))]
     fn _time(_vm: &VirtualMachine) -> PyResult<f64> {
-        #[cfg(feature = "wasmbind")]
-        {
-            use wasm_bindgen::prelude::*;
-            #[wasm_bindgen]
-            extern "C" {
-                type Date;
-                #[wasm_bindgen(static_method_of = Date)]
-                fn now() -> f64;
-            }
-            // Date.now returns unix time in milliseconds, we want it in seconds
-            return Ok(Date::now() / 1000.0);
+        use wasm_bindgen::prelude::*;
+        #[wasm_bindgen]
+        extern "C" {
+            type Date;
+            #[wasm_bindgen(static_method_of = Date)]
+            fn now() -> f64;
         }
-        panic!("Date not available")
+        // Date.now returns unix time in milliseconds, we want it in seconds
+        return Ok(Date::now() / 1000.0);
     }
 
     #[pyfunction]
