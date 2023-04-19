@@ -30,7 +30,7 @@ pub struct PyFloat {
 }
 
 impl PyFloat {
-    pub fn to_f64(self) -> f64 {
+    pub fn to_f64(&self) -> f64 {
         self.value
     }
 }
@@ -549,7 +549,15 @@ impl AsNumber for PyFloat {
             multiply: Some(|a, b, vm| PyFloat::number_op(a, b, |a, b, _vm| a * b, vm)),
             remainder: Some(|a, b, vm| PyFloat::number_op(a, b, inner_mod, vm)),
             divmod: Some(|a, b, vm| PyFloat::number_op(a, b, inner_divmod, vm)),
-            power: Some(|a, b, vm| PyFloat::number_op(a, b, float_pow, vm)),
+            power: Some(|a, b, c, vm| {
+                if vm.is_none(c) {
+                    PyFloat::number_op(a, b, float_pow, vm)
+                } else {
+                    Err(vm.new_type_error(String::from(
+                        "pow() 3rd argument not allowed unless all arguments are integers",
+                    )))
+                }
+            }),
             negative: Some(|num, vm| {
                 let value = PyFloat::number_downcast(num).value;
                 (-value).to_pyresult(vm)
@@ -562,9 +570,9 @@ impl AsNumber for PyFloat {
             boolean: Some(|num, _vm| Ok(PyFloat::number_downcast(num).value.is_zero())),
             int: Some(|num, vm| {
                 let value = PyFloat::number_downcast(num).value;
-                try_to_bigint(value, vm).map(|x| vm.ctx.new_int(x))
+                try_to_bigint(value, vm).map(|x| PyInt::from(x).into_pyobject(vm))
             }),
-            float: Some(|num, vm| Ok(PyFloat::number_downcast_exact(num, vm))),
+            float: Some(|num, vm| Ok(PyFloat::number_downcast_exact(num, vm).into())),
             floor_divide: Some(|a, b, vm| PyFloat::number_op(a, b, inner_floordiv, vm)),
             true_divide: Some(|a, b, vm| PyFloat::number_op(a, b, inner_div, vm)),
             ..PyNumberMethods::NOT_IMPLEMENTED

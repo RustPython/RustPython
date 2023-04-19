@@ -20,14 +20,13 @@ mod builtins {
         function::{
             ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
             ArgStrOrBytesLike, Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
-            PyArithmeticValue,
         },
-        protocol::{PyIter, PyIterReturn, PyNumberBinaryOp},
+        protocol::{PyIter, PyIterReturn},
         py_io,
         readline::{Readline, ReadlineResult},
         stdlib::sys,
         types::PyComparisonOp,
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive};
 
@@ -622,39 +621,8 @@ mod builtins {
             exp: y,
             modulus,
         } = args;
-        match modulus {
-            None => vm.binary_op(&x, &y, PyNumberBinaryOp::Power, "pow"),
-            Some(z) => {
-                let try_pow_value = |obj: &PyObject,
-                                     args: (PyObjectRef, PyObjectRef, PyObjectRef)|
-                 -> Option<PyResult> {
-                    let method = obj.get_class_attr(identifier!(vm, __pow__))?;
-                    let result = match method.call(args, vm) {
-                        Ok(x) => x,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    Some(Ok(PyArithmeticValue::from_object(vm, result).into_option()?))
-                };
-
-                if let Some(val) = try_pow_value(&x, (x.clone(), y.clone(), z.clone())) {
-                    return val;
-                }
-
-                if !x.class().is(y.class()) {
-                    if let Some(val) = try_pow_value(&y, (x.clone(), y.clone(), z.clone())) {
-                        return val;
-                    }
-                }
-
-                if !x.class().is(z.class()) && !y.class().is(z.class()) {
-                    if let Some(val) = try_pow_value(&z, (x.clone(), y.clone(), z.clone())) {
-                        return val;
-                    }
-                }
-
-                Err(vm.new_unsupported_ternop_error(&x, &y, &z, "pow"))
-            }
-        }
+        let modulus = modulus.as_ref().map_or(vm.ctx.none.as_object(), |m| m);
+        vm._pow(&x, &y, modulus)
     }
 
     #[pyfunction]

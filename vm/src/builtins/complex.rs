@@ -421,7 +421,13 @@ impl AsNumber for PyComplex {
             add: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a + b, vm)),
             subtract: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a - b, vm)),
             multiply: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)),
-            power: Some(|a, b, vm| PyComplex::number_op(a, b, inner_pow, vm)),
+            power: Some(|a, b, c, vm| {
+                if vm.is_none(c) {
+                    PyComplex::number_op(a, b, inner_pow, vm)
+                } else {
+                    Err(vm.new_value_error(String::from("complex modulo")))
+                }
+            }),
             negative: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
                 (-value).to_pyresult(vm)

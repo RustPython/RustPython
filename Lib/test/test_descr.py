@@ -4025,8 +4025,6 @@ order (MRO) for bases """
         a **= b
         self.assertEqual(a, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ipow_exception_text(self):
         x = None
         with self.assertRaises(TypeError) as cm:
