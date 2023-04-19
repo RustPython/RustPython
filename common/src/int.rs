@@ -548,19 +548,17 @@ pub fn bytes_to_int(lit: &[u8], mut radix: u8) -> Option<BigInt> {
         _ => true,
     };
 
-    let detect = |second| -> Option<u8> {
-        if first != b'0' {
+    let detected = || -> Option<u8> {
+        if first != b'0' || lit.len() < 3 {
             return None;
         }
-        match second {
+        match unsafe { lit.get_unchecked(1) } {
             b'x' | b'X' => Some(16),
             b'b' | b'B' => Some(2),
             b'o' | b'O' => Some(8),
             _ => None,
         }
-    };
-
-    let detected = lit.get(1).cloned().and_then(detect);
+    }();
 
     let mut leading_zero = false;
 
@@ -584,6 +582,7 @@ pub fn bytes_to_int(lit: &[u8], mut radix: u8) -> Option<BigInt> {
 
     let mut v: Vec<u8>;
     lit = if lit.iter().any(|&x| x == b'_') {
+        // erase underscores
         v = Vec::with_capacity(lit.len());
         let mut is_prev_underscore = false;
         for &x in lit {
