@@ -66,7 +66,7 @@ thiserror = { workspace = true }
 thread_local = { workspace = true }
 
 caseless = "0.2.1"
-getrandom = { version = "0.2.6", features = ["js"] }
+getrandom = { version = "0.2.6", features = ["custom"] }
 flamer = { version = "0.4", optional = true }
 half = "1.8.2"
 is-macro = "0.2.0"
