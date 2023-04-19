@@ -29,7 +29,6 @@ use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 
 #[repr(transparent)]
 #[derive(
-    Debug,
     Hash,
     Eq,
     PartialEq,
@@ -52,6 +51,12 @@ use num_traits::{Num, One, Pow, Signed, ToPrimitive, Zero};
 )]
 #[from(forward)]
 pub struct BigInt(Integer);
+
+impl std::fmt::Debug for BigInt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 macro_rules! to_primitive_int {
     ($fn:ident, $ret:ty) => {
