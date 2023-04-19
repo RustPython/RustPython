@@ -97,7 +97,11 @@ mod decl {
         _time(vm)
     }
 
-    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+    #[cfg(any(
+        not(target_arch = "wasm32"),
+        target_os = "wasi",
+        not(feature = "wasmbind")
+    ))]
     fn _time(vm: &VirtualMachine) -> PyResult<f64> {
         Ok(duration_since_system_now(vm)?.as_secs_f64())
     }
