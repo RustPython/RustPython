@@ -581,7 +581,7 @@ pub fn bytes_to_int(lit: &[u8], mut radix: u8) -> Option<BigInt> {
     }
 
     let mut v: Vec<u8>;
-    lit = if lit.iter().any(|&x| x == b'_') {
+    if lit.iter().any(|&x| x == b'_') {
         // erase underscores
         v = Vec::with_capacity(lit.len());
         let mut is_prev_underscore = false;
@@ -599,10 +599,8 @@ pub fn bytes_to_int(lit: &[u8], mut radix: u8) -> Option<BigInt> {
         if is_prev_underscore {
             return None;
         }
-        v.as_slice()
-    } else {
-        lit
-    };
+        lit = v.as_slice();
+    }
 
     let s = std::str::from_utf8(lit).ok()?;
     let abs = Natural::from_string_base(radix, s)?;
