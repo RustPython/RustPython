@@ -73,7 +73,7 @@ thread_local = { workspace = true }
 memchr = { workspace = true }
 
 caseless = "0.2.1"
-getrandom = { version = "0.2.12", features = ["js"] }
+getrandom = { version = "0.2.12", features = ["custom"] }
 flamer = { version = "0.4", optional = true }
 half = "1.8.2"
 memoffset = "0.9.1"
