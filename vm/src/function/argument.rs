@@ -58,20 +58,17 @@ into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
 /// The `FuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional
 /// arguments, as well as keyword arguments passed to the function.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Traverse)]
 pub struct FuncArgs {
     pub args: Vec<PyObjectRef>,
     // sorted map, according to https://www.python.org/dev/peps/pep-0468/
     pub kwargs: IndexMap<String, PyObjectRef>,
 }
 
-unsafe impl Traverse for FuncArgs {
+unsafe impl<K, V: Traverse, S> Traverse for IndexMap<K, V, S> {
+    /// FIXME(discord9): what about `K: Traverse`?
     fn traverse(&self, tracer_fn: &mut TraverseFn) {
-        self.args.traverse(tracer_fn);
-        self.kwargs
-            .iter()
-            .map(|(_, v)| v.traverse(tracer_fn))
-            .count();
+        self.values().for_each(|v| v.traverse(tracer_fn));
     }
 }
 
