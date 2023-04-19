@@ -133,7 +133,7 @@ mod _operator {
 
     #[pyfunction]
     fn pow(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._pow(&a, &b)
+        vm._pow(&a, &b, vm.ctx.none.as_object())
     }
 
     #[pyfunction]
@@ -292,7 +292,7 @@ mod _operator {
 
     #[pyfunction]
     fn ipow(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._ipow(&a, &b)
+        vm._ipow(&a, &b, vm.ctx.none.as_object())
     }
 
     #[pyfunction]

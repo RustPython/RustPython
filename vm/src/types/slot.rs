@@ -1,7 +1,5 @@
 use crate::{
-    builtins::{
-        type_::PointerSlot, PyFloat, PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef,
-    },
+    builtins::{type_::PointerSlot, PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef},
     bytecode::ComparisonOperator,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
@@ -197,30 +195,11 @@ pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize
     Ok(len as usize)
 }
 
-fn int_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-    let ret = vm.call_special_method(num.deref(), identifier!(vm, __int__), ())?;
-    ret.downcast::<PyInt>().map_err(|obj| {
-        vm.new_type_error(format!("__int__ returned non-int (type {})", obj.class()))
-    })
+macro_rules! number_unary_op_wrapper {
+    ($name:ident) => {
+        |a, vm| vm.call_special_method(a.deref(), identifier!(vm, $name), ())
+    };
 }
-
-fn index_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyInt>> {
-    let ret = vm.call_special_method(num.deref(), identifier!(vm, __index__), ())?;
-    ret.downcast::<PyInt>().map_err(|obj| {
-        vm.new_type_error(format!("__index__ returned non-int (type {})", obj.class()))
-    })
-}
-
-fn float_wrapper(num: PyNumber, vm: &VirtualMachine) -> PyResult<PyRef<PyFloat>> {
-    let ret = vm.call_special_method(num.deref(), identifier!(vm, __float__), ())?;
-    ret.downcast::<PyFloat>().map_err(|obj| {
-        vm.new_type_error(format!(
-            "__float__ returned non-float (type {})",
-            obj.class()
-        ))
-    })
-}
-
 macro_rules! number_binary_op_wrapper {
     ($name:ident) => {
         |a, b, vm| vm.call_special_method(a, identifier!(vm, $name), (b.to_owned(),))
@@ -231,7 +210,6 @@ macro_rules! number_binary_right_op_wrapper {
         |a, b, vm| vm.call_special_method(b, identifier!(vm, $name), (a.to_owned(),))
     };
 }
-
 fn getitem_wrapper<K: ToPyObject>(obj: &PyObject, needle: K, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(obj, identifier!(vm, __getitem__), (needle,))
 }
@@ -505,13 +483,13 @@ impl PyType {
                 toggle_slot!(del, del_wrapper);
             }
             _ if name == identifier!(ctx, __int__) => {
-                toggle_subslot!(as_number, int, int_wrapper);
+                toggle_subslot!(as_number, int, number_unary_op_wrapper!(__int__));
             }
             _ if name == identifier!(ctx, __index__) => {
-                toggle_subslot!(as_number, index, index_wrapper);
+                toggle_subslot!(as_number, index, number_unary_op_wrapper!(__index__));
             }
             _ if name == identifier!(ctx, __float__) => {
-                toggle_subslot!(as_number, float, float_wrapper);
+                toggle_subslot!(as_number, float, number_unary_op_wrapper!(__float__));
             }
             _ if name == identifier!(ctx, __add__) => {
                 toggle_subslot!(as_number, add, number_binary_op_wrapper!(__add__));
@@ -588,21 +566,29 @@ impl PyType {
                 );
             }
             _ if name == identifier!(ctx, __pow__) => {
-                toggle_subslot!(as_number, power, number_binary_op_wrapper!(__pow__));
+                toggle_subslot!(as_number, power, |a, b, c, vm| {
+                    let args = if vm.is_none(c) {
+                        vec![b.to_owned()]
+                    } else {
+                        vec![b.to_owned(), c.to_owned()]
+                    };
+                    vm.call_special_method(a, identifier!(vm, __pow__), args)
+                });
             }
             _ if name == identifier!(ctx, __rpow__) => {
-                toggle_subslot!(
-                    as_number,
-                    right_power,
-                    number_binary_right_op_wrapper!(__rpow__)
-                );
+                toggle_subslot!(as_number, right_power, |a, b, c, vm| {
+                    let args = if vm.is_none(c) {
+                        vec![a.to_owned()]
+                    } else {
+                        vec![a.to_owned(), c.to_owned()]
+                    };
+                    vm.call_special_method(b, identifier!(vm, __rpow__), args)
+                });
             }
             _ if name == identifier!(ctx, __ipow__) => {
-                toggle_subslot!(
-                    as_number,
-                    inplace_power,
-                    number_binary_op_wrapper!(__ipow__)
-                );
+                toggle_subslot!(as_number, inplace_power, |a, b, _, vm| {
+                    vm.call_special_method(a, identifier!(vm, __ipow__), (b.to_owned(),))
+                });
             }
             _ if name == identifier!(ctx, __lshift__) => {
                 toggle_subslot!(as_number, lshift, number_binary_op_wrapper!(__lshift__));
