@@ -1029,7 +1029,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
             """
         self._run_and_join(script)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'test needs lock._at_fork_reinit')
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     def test_3_join_in_forked_from_thread(self):
