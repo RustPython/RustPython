@@ -1125,7 +1125,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
         for t in threads:
             t.join()
 
-    @unittest.skipUnless(hasattr(sys, '_current_frames'), "needs sys._current_frames()")
+    @unittest.skipUnless(hasattr(sys, '_current_frames'), "TODO: RUSTPYTHON, needs sys._current_frames()")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_clear_threads_states_after_fork(self):
         # Issue #17094: check that threads states are cleared after fork()
