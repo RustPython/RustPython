@@ -302,22 +302,20 @@ pub(super) mod _os {
         errno_err, DirFd, FollowSymlinks, IOErrorBuilder, OsPath, OsPathOrFd, OutputMode,
         SupportFunc,
     };
-    use crate::common::lock::{OnceCell, PyRwLock};
     use crate::{
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
-        common::{
-            crt_fd::{Fd, Offset},
-            suppress_iph,
-        },
+        common::crt_fd::{Fd, Offset},
+        common::lock::{OnceCell, PyRwLock},
+        common::suppress_iph,
         convert::{IntoPyException, ToPyObject},
         function::{ArgBytesLike, Either, FsPath, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{IterNext, IterNextIterable, PyStructSequence},
+        types::{IterNext, IterNextIterable, PyStructSequence, Representable},
         vm::VirtualMachine,
-        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -619,7 +617,7 @@ pub(super) mod _os {
         ino: AtomicCell<Option<u64>>,
     }
 
-    #[pyclass]
+    #[pyclass(with(Representable))]
     impl DirEntry {
         #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
@@ -747,9 +745,16 @@ pub(super) mod _os {
             self.path(vm)
         }
 
-        #[pymethod(magic)]
-        fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            let name = match zelf.get_attr("name", vm) {
+        #[pyclassmethod(magic)]
+        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+            PyGenericAlias::new(cls, args, vm)
+        }
+    }
+
+    impl Representable for DirEntry {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let name = match zelf.as_object().get_attr("name", vm) {
                 Ok(name) => Some(name),
                 Err(e)
                     if e.fast_isinstance(vm.ctx.exceptions.attribute_error)
@@ -760,7 +765,7 @@ pub(super) mod _os {
                 Err(e) => return Err(e),
             };
             if let Some(name) = name {
-                if let Some(_guard) = ReprGuard::enter(vm, &zelf) {
+                if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                     let repr = name.repr(vm)?;
                     Ok(format!("<{} {}>", zelf.class(), repr))
                 } else {
@@ -772,11 +777,6 @@ pub(super) mod _os {
             } else {
                 Ok(format!("<{}>", zelf.class()))
             }
-        }
-
-        #[pyclassmethod(magic)]
-        fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
-            PyGenericAlias::new(cls, args, vm)
         }
     }
 

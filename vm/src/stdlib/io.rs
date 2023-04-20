@@ -1525,9 +1525,9 @@ mod _io {
             vm.call_method(self.lock(vm)?.check_init(vm)?, "isatty", ())
         }
 
-        #[pymethod(magic)]
-        fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-            let name_repr = repr_fileobj_name(&zelf, vm)?;
+        #[pyslot]
+        fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let name_repr = repr_fileobj_name(zelf, vm)?;
             let cls = zelf.class();
             let slot_name = cls.slot_name();
             let repr = if let Some(name_repr) = name_repr {
@@ -1535,7 +1535,12 @@ mod _io {
             } else {
                 format!("<{slot_name}>")
             };
-            Ok(repr)
+            Ok(vm.ctx.new_str(repr))
+        }
+
+        #[pymethod(magic)]
+        fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Self::slot_repr(&zelf, vm)
         }
 
         fn close_strict(&self, vm: &VirtualMachine) -> PyResult {
@@ -3709,8 +3714,8 @@ mod fileio {
         convert::ToPyException,
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
         stdlib::os,
-        types::{DefaultConstructor, Initializer},
-        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        types::{DefaultConstructor, Initializer, Representable},
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};
@@ -3896,7 +3901,29 @@ mod fileio {
         }
     }
 
-    #[pyclass(with(DefaultConstructor, Initializer), flags(BASETYPE, HAS_DICT))]
+    impl Representable for FileIO {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let fd = zelf.fd.load();
+            if fd < 0 {
+                return Ok("<_io.FileIO [closed]>".to_owned());
+            }
+            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
+            let mode = zelf.mode();
+            let closefd = if zelf.closefd.load() { "True" } else { "False" };
+            let repr = if let Some(name_repr) = name_repr {
+                format!("<_io.FileIO name={name_repr} mode='{mode}' closefd={closefd}>")
+            } else {
+                format!("<_io.FileIO fd={fd} mode='{mode}' closefd={closefd}>")
+            };
+            Ok(repr)
+        }
+    }
+
+    #[pyclass(
+        with(DefaultConstructor, Initializer, Representable),
+        flags(BASETYPE, HAS_DICT)
+    )]
     impl FileIO {
         #[pygetset]
         fn closed(&self) -> bool {
@@ -3954,23 +3981,6 @@ mod fileio {
             } else {
                 "wb"
             }
-        }
-
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let fd = zelf.fd.load();
-            if fd < 0 {
-                return Ok("<_io.FileIO [closed]>".to_owned());
-            }
-            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
-            let mode = zelf.mode();
-            let closefd = if zelf.closefd.load() { "True" } else { "False" };
-            let repr = if let Some(name_repr) = name_repr {
-                format!("<_io.FileIO name={name_repr} mode='{mode}' closefd={closefd}>")
-            } else {
-                format!("<_io.FileIO fd={fd} mode='{mode}' closefd={closefd}>")
-            };
-            Ok(repr)
         }
 
         #[pymethod]
