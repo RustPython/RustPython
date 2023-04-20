@@ -293,7 +293,6 @@ jobs:
             test_glob
             test_importlib
             test_io
-            test_iter
             test_os
             test_pathlib
             test_posixpath
