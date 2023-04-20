@@ -2,11 +2,11 @@
 
 // See also:
 // https://docs.python.org/3/library/time.html
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 
 pub use time::*;
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = time::make_module(vm);
     #[cfg(unix)]
     unix::extend_module(vm, &module);

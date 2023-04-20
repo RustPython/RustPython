@@ -244,7 +244,7 @@ impl VirtualMachine {
         // add the current directory to sys.path
         self.state_mut().settings.path_list.insert(0, "".to_owned());
 
-        stdlib::builtins::make_module(self, self.builtins.clone().into());
+        stdlib::builtins::init_module(self, &self.builtins);
         stdlib::sys::init_module(self, self.sys_module.as_ref(), self.builtins.as_ref());
 
         let mut essential_init = || -> PyResult {
@@ -794,12 +794,12 @@ impl VirtualMachine {
     #[doc(hidden)]
     pub fn __module_set_attr(
         &self,
-        module: &PyObject,
+        module: &Py<PyModule>,
         attr_name: &str,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        module.generic_setattr(
+        module.as_object().generic_setattr(
             self.ctx.intern_str(attr_name),
             PySetterValue::Assign(val),
             self,

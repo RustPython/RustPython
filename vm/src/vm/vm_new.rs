@@ -20,7 +20,7 @@ impl VirtualMachine {
         value.into_pytuple(self)
     }
 
-    pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyObjectRef {
+    pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyRef<PyModule> {
         let module = PyRef::new_ref(
             PyModule {},
             self.ctx.types.module_type.to_owned(),
@@ -32,7 +32,7 @@ impl VirtualMachine {
                 .unwrap_or_else(|| self.ctx.none()),
             self,
         );
-        module.into()
+        module
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {

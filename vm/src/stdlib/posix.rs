@@ -1,4 +1,4 @@
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 use std::os::unix::io::RawFd;
 
 pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
@@ -12,7 +12,7 @@ pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
     Ok(())
 }
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = module::make_module(vm);
     super::os::extend_module(vm, &module);
     module

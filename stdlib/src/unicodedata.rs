@@ -5,11 +5,11 @@
 // spell-checker:ignore nfkc unistr unidata
 
 use crate::vm::{
-    builtins::PyStr, convert::TryFromBorrowedObject, PyObject, PyObjectRef, PyPayload, PyResult,
-    VirtualMachine,
+    builtins::PyModule, builtins::PyStr, convert::TryFromBorrowedObject, PyObject, PyObjectRef,
+    PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = unicodedata::make_module(vm);
 
     let ucd: PyObjectRef = unicodedata::Ucd::new(unic_ucd_age::UNICODE_VERSION)

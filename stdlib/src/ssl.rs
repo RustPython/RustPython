@@ -1,6 +1,6 @@
-use crate::vm::{PyObjectRef, VirtualMachine};
+use crate::vm::{builtins::PyModule, PyRef, VirtualMachine};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     // if openssl is vendored, it doesn't know the locations of system certificates
     #[cfg(feature = "ssl-vendor")]
     if let None | Some("0") = option_env!("OPENSSL_NO_VENDOR") {

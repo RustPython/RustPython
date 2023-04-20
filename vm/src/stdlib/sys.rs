@@ -1,4 +1,4 @@
-use crate::{convert::ToPyObject, PyObject, PyResult, VirtualMachine};
+use crate::{builtins::PyModule, convert::ToPyObject, Py, PyResult, VirtualMachine};
 
 pub(crate) use sys::{UnraisableHookArgs, MAXSIZE, MULTIARCH};
 
@@ -916,13 +916,15 @@ mod sys {
     impl UnraisableHookArgs {}
 }
 
-pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObject, builtins: &PyObject) {
+pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {
     sys::extend_module(vm, module);
 
     let modules = vm.ctx.new_dict();
-    modules.set_item("sys", module.to_owned(), vm).unwrap();
     modules
-        .set_item("builtins", builtins.to_owned(), vm)
+        .set_item("sys", module.to_owned().into(), vm)
+        .unwrap();
+    modules
+        .set_item("builtins", builtins.to_owned().into(), vm)
         .unwrap();
     extend_module!(vm, module, {
         "__doc__" => sys::DOC.to_owned().to_pyobject(vm),

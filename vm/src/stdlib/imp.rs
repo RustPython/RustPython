@@ -1,7 +1,10 @@
 use crate::bytecode::frozen_lib::FrozenModule;
-use crate::{builtins::PyBaseExceptionRef, PyObjectRef, VirtualMachine};
+use crate::{
+    builtins::{PyBaseExceptionRef, PyModule},
+    PyRef, VirtualMachine,
+};
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _imp::make_module(vm);
     lock::extend_module(vm, &module);
     module
@@ -120,7 +123,7 @@ mod _imp {
         if let Ok(module) = sys_modules.get_item(&*name, vm) {
             Ok(module)
         } else if let Some(make_module_func) = vm.state.module_inits.get(name.as_str()) {
-            Ok(make_module_func(vm))
+            Ok(make_module_func(vm).into())
         } else {
             Ok(vm.ctx.none())
         }
