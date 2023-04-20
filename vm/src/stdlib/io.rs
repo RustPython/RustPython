@@ -12,7 +12,6 @@ cfg_if::cfg_if! {
 use crate::{
     builtins::PyBaseExceptionRef,
     convert::{IntoPyException, ToPyException, ToPyObject},
-    types::Representable,
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 pub use _io::io_open as open;
@@ -1526,6 +1525,24 @@ mod _io {
             vm.call_method(self.lock(vm)?.check_init(vm)?, "isatty", ())
         }
 
+        #[pyslot]
+        fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let name_repr = repr_fileobj_name(zelf, vm)?;
+            let cls = zelf.class();
+            let slot_name = cls.slot_name();
+            let repr = if let Some(name_repr) = name_repr {
+                format!("<{slot_name} name={name_repr}>")
+            } else {
+                format!("<{slot_name}>")
+            };
+            Ok(vm.ctx.new_str(repr))
+        }
+
+        #[pymethod(magic)]
+        fn repr(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            Self::slot_repr(&zelf, vm)
+        }
+
         fn close_strict(&self, vm: &VirtualMachine) -> PyResult {
             let mut data = self.lock(vm)?;
             let raw = data.check_init(vm)?;
@@ -1672,27 +1689,12 @@ mod _io {
     }
 
     #[pyclass(
-        with(DefaultConstructor, BufferedMixin, BufferedReadable, Representable),
+        with(DefaultConstructor, BufferedMixin, BufferedReadable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedReader {}
 
     impl DefaultConstructor for BufferedReader {}
-
-    impl Representable for BufferedReader {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
-            let cls = zelf.class();
-            let slot_name = cls.slot_name();
-            let repr = if let Some(name_repr) = name_repr {
-                format!("<{slot_name} name={name_repr}>")
-            } else {
-                format!("<{slot_name}>")
-            };
-            Ok(repr)
-        }
-    }
 
     #[pyclass]
     trait BufferedWritable: PyPayload {
@@ -1737,27 +1739,12 @@ mod _io {
     }
 
     #[pyclass(
-        with(DefaultConstructor, BufferedMixin, BufferedWritable, Representable),
+        with(DefaultConstructor, BufferedMixin, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedWriter {}
 
     impl DefaultConstructor for BufferedWriter {}
-
-    impl Representable for BufferedWriter {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
-            let cls = zelf.class();
-            let slot_name = cls.slot_name();
-            let repr = if let Some(name_repr) = name_repr {
-                format!("<{slot_name} name={name_repr}>")
-            } else {
-                format!("<{slot_name}>")
-            };
-            Ok(repr)
-        }
-    }
 
     #[pyattr]
     #[pyclass(name = "BufferedRandom", base = "_BufferedIOBase")]
@@ -1788,33 +1775,12 @@ mod _io {
     }
 
     #[pyclass(
-        with(
-            DefaultConstructor,
-            BufferedMixin,
-            BufferedReadable,
-            BufferedWritable,
-            Representable
-        ),
+        with(DefaultConstructor, BufferedMixin, BufferedReadable, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedRandom {}
 
     impl DefaultConstructor for BufferedRandom {}
-
-    impl Representable for BufferedRandom {
-        #[inline]
-        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let name_repr = repr_fileobj_name(zelf.as_object(), vm)?;
-            let cls = zelf.class();
-            let slot_name = cls.slot_name();
-            let repr = if let Some(name_repr) = name_repr {
-                format!("<{slot_name} name={name_repr}>")
-            } else {
-                format!("<{slot_name}>")
-            };
-            Ok(repr)
-        }
-    }
 
     #[pyattr]
     #[pyclass(name = "BufferedRWPair", base = "_BufferedIOBase")]
