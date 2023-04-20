@@ -93,21 +93,15 @@ mod _random {
                 .flatten()
                 .map(|n| {
                     // Fallback to using hash if object isn't Int-like.
-                    let mut key = match n.downcast::<PyInt>() {
+                    let (_, mut key) = match n.downcast::<PyInt>() {
                         Ok(n) => n.as_bigint().abs(),
                         Err(obj) => BigInt::from(obj.hash(vm)?).abs(),
                     }
-                    .into_limbs_asc();
+                    .to_u32_digits();
                     if cfg!(target_endian = "big") {
                         key.reverse();
                     }
-                    let key: &[u32] = if key.is_empty() {
-                        &[0]
-                    } else {
-                        // TODO: mt19937 with 64 bits support
-                        let (_, slice, _) = unsafe { key.align_to::<u32>() };
-                        slice
-                    };
+                    let key: &[u32] = if key.is_empty() { &[0] } else { key.as_slice() };
                     Ok(PyRng::MT(Box::new(mt19937::MT19937::new_with_slice_seed(
                         key,
                     ))))

@@ -409,6 +409,12 @@ impl BigInt {
         self.0.into_twos_complement_limbs_asc()
     }
 
+    pub fn to_u32_digits(&self) -> (Ordering, Vec<u32>) {
+        let abs = self.inner().unsigned_abs_ref();
+        let digits: Vec<u32> = abs.to_power_of_2_digits_asc(32);
+        (self.sign(), digits)
+    }
+
     pub fn sqrt(self) -> Self {
         Self(self.0.floor_sqrt())
     }
