@@ -6,7 +6,7 @@
 # randrange, and then Python hangs.
 
 import _imp as imp
-import _multiprocessing
+import _multiprocessing  # TODO: RUSTPYTHON
 import os
 import importlib
 import sys
