@@ -197,6 +197,21 @@ impl ItemMetaInner {
         };
         Ok(value)
     }
+
+    pub fn _optional_list(
+        &self,
+        key: &str,
+    ) -> Result<Option<impl std::iter::Iterator<Item = &'_ NestedMeta>>> {
+        let value = if let Some((_, meta)) = self.meta_map.get(key) {
+            let Meta::List(syn::MetaList { path: _, nested, .. }) = meta else {
+                bail_span!(meta, "#[{}({}(...))] must be a list", self.meta_name(), key)
+            };
+            Some(nested.into_iter())
+        } else {
+            None
+        };
+        Ok(value)
+    }
 }
 
 pub(crate) trait ItemMeta: Sized {
@@ -248,6 +263,38 @@ impl ItemMeta for SimpleItemMeta {
     }
     fn inner(&self) -> &ItemMetaInner {
         &self.0
+    }
+}
+
+pub(crate) struct ModuleItemMeta(pub ItemMetaInner);
+
+impl ItemMeta for ModuleItemMeta {
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "with", "sub"];
+
+    fn from_inner(inner: ItemMetaInner) -> Self {
+        Self(inner)
+    }
+    fn inner(&self) -> &ItemMetaInner {
+        &self.0
+    }
+}
+
+impl ModuleItemMeta {
+    pub fn sub(&self) -> Result<bool> {
+        self.inner()._bool("sub")
+    }
+    pub fn with(&self) -> Result<Vec<&syn::Path>> {
+        let mut withs = Vec::new();
+        let Some(nested) = self.inner()._optional_list("with")? else {
+            return Ok(withs);
+        };
+        for meta in nested {
+            let NestedMeta::Meta(Meta::Path(path)) = meta else {
+                bail_span!(meta, "#[pymodule(with(...))] arguments should be paths")
+            };
+            withs.push(path);
+        }
+        Ok(withs)
     }
 }
 

@@ -118,7 +118,7 @@ impl VirtualMachine {
         // set __spec__, __loader__, etc. attributes
         let new_module = || {
             PyRef::new_ref(
-                PyModule {},
+                PyModule::new(),
                 ctx.types.module_type.to_owned(),
                 Some(ctx.new_dict()),
             )
@@ -200,9 +200,9 @@ impl VirtualMachine {
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
         vm.builtins
-            .init_module_dict(vm.ctx.intern_str("builtins"), vm.ctx.none(), &vm);
+            .init_module_dict(vm.ctx.intern_str("builtins"), None, &vm);
         vm.sys_module
-            .init_module_dict(vm.ctx.intern_str("sys"), vm.ctx.none(), &vm);
+            .init_module_dict(vm.ctx.intern_str("sys"), None, &vm);
 
         vm
     }

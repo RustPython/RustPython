@@ -299,7 +299,7 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8".to_owned()))
 }
 
-#[pymodule(name = "_os")]
+#[pymodule(sub)]
 pub(super) mod _os {
     use super::{
         errno_err, DirFd, FollowSymlinks, IOErrorBuilder, OsPath, OsPathOrFd, OutputMode,
@@ -1710,8 +1710,6 @@ impl SupportFunc {
 }
 
 pub fn extend_module(vm: &VirtualMachine, module: &Py<PyModule>) {
-    _os::extend_module(vm, module);
-
     let support_funcs = _os::support_funcs();
     let supports_fd = PySet::default().into_ref(&vm.ctx);
     let supports_dir_fd = PySet::default().into_ref(&vm.ctx);
