@@ -226,6 +226,23 @@ class PropertyTests(unittest.TestCase):
             ):
                 p.__set_name__(*([0] * i))
 
+    def test_property_setname_on_property_subclass(self):
+        # https://github.com/python/cpython/issues/100942
+        # Copy was setting the name field without first
+        # verifying that the copy was an actual property
+        # instance.  As a result, the code below was
+        # causing a segfault.
+
+        class pro(property):
+            def __new__(typ, *args, **kwargs):
+                return "abcdef"
+
+        class A:
+            pass
+
+        p = property.__new__(pro)
+        p.__set_name__(A, 1)
+        np = p.getter(lambda self: 1)
 
 # Issue 5890: subclasses of property do not preserve method __doc__ strings
 class PropertySub(property):
@@ -341,43 +358,35 @@ class _PropertyUnreachableAttribute:
     def setUpClass(cls):
         cls.obj = cls.cls()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_get_property(self):
-        with self.assertRaisesRegex(AttributeError, self._format_exc_msg("unreadable attribute")):
+        with self.assertRaisesRegex(AttributeError, self._format_exc_msg("has no getter")):
             self.obj.foo
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_set_property(self):
-        with self.assertRaisesRegex(AttributeError, self._format_exc_msg("can't set attribute")):
+        with self.assertRaisesRegex(AttributeError, self._format_exc_msg("has no setter")):
             self.obj.foo = None
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_del_property(self):
-        with self.assertRaisesRegex(AttributeError, self._format_exc_msg("can't delete attribute")):
+        with self.assertRaisesRegex(AttributeError, self._format_exc_msg("has no deleter")):
             del self.obj.foo
 
 
 class PropertyUnreachableAttributeWithName(_PropertyUnreachableAttribute, unittest.TestCase):
-    msg_format = "^{} 'foo'$"
+    msg_format = r"^property 'foo' of 'PropertyUnreachableAttributeWithName\.cls' object {}$"
 
     class cls:
         foo = property()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_get_property(self):  # TODO: RUSTPYTHON; remove this function when the test is fixed
-        super().test_get_property()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_set_property(self):  # TODO: RUSTPYTHON; remove this function when the test is fixed
-        super().test_get_property()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_del_property(self):  # TODO: RUSTPYTHON; remove this function when the test is fixed
-        super().test_get_property()
 
 
 class PropertyUnreachableAttributeNoName(_PropertyUnreachableAttribute, unittest.TestCase):
-    msg_format = "^{}$"
+    msg_format = r"^property of 'PropertyUnreachableAttributeNoName\.cls' object {}$"
 
     class cls:
         pass
