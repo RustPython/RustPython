@@ -538,7 +538,7 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err.rstrip(), b'child process ok')
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'test needs lock._at_fork_reinit')
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @unittest.skipUnless(hasattr(os, 'fork'), 'test needs fork()')
     def test_dummy_thread_after_fork(self):
         # Issue #14308: a dummy thread in the active list doesn't mess up
