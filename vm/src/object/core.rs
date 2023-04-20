@@ -471,7 +471,6 @@ cfg_if::cfg_if! {
     }
 }
 
-#[derive(Debug)]
 #[repr(transparent)]
 pub struct PyObject(PyInner<Erased>);
 
@@ -522,7 +521,7 @@ impl PyObjectRef {
     #[inline(always)]
     pub fn downcast<T: PyObjectPayload>(self) -> Result<PyRef<T>, Self> {
         if self.payload_is::<T>() {
-            Ok(unsafe { PyRef::from_obj_unchecked(self) })
+            Ok(unsafe { self.downcast_unchecked() })
         } else {
             Err(self)
         }
@@ -539,6 +538,8 @@ impl PyObjectRef {
         }
     }
 
+    /// Force to downcast this reference to a subclass.
+    ///
     /// # Safety
     /// T must be the exact payload type
     #[inline(always)]
@@ -637,13 +638,22 @@ impl PyObject {
         self.0.typeid == TypeId::of::<T>()
     }
 
+    /// Force to return payload as T.
+    ///
+    /// # Safety
+    /// The actual payload type must be T.
+    #[inline(always)]
+    pub unsafe fn payload_unchecked<T: PyObjectPayload>(&self) -> &T {
+        // we cast to a PyInner<T> first because we don't know T's exact offset because of
+        // varying alignment, but once we get a PyInner<T> the compiler can get it for us
+        let inner = unsafe { &*(&self.0 as *const PyInner<Erased> as *const PyInner<T>) };
+        &inner.payload
+    }
+
     #[inline(always)]
     pub fn payload<T: PyObjectPayload>(&self) -> Option<&T> {
         if self.payload_is::<T>() {
-            // we cast to a PyInner<T> first because we don't know T's exact offset because of
-            // varying alignment, but once we get a PyInner<T> the compiler can get it for us
-            let inner = unsafe { &*(&self.0 as *const PyInner<Erased> as *const PyInner<T>) };
-            Some(&inner.payload)
+            Some(unsafe { self.payload_unchecked() })
         } else {
             None
         }
@@ -854,11 +864,17 @@ impl Drop for PyObjectRef {
     }
 }
 
-impl fmt::Debug for PyObjectRef {
+impl fmt::Debug for PyObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // SAFETY: the vtable contains functions that accept payload types that always match up
         // with the payload of the object
         unsafe { (self.0.vtable.debug)(self, f) }
+    }
+}
+
+impl fmt::Debug for PyObjectRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_object().fmt(f)
     }
 }
 

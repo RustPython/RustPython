@@ -301,7 +301,8 @@ impl PyType {
         value: V,
         ctx: impl AsRef<Context>,
     ) {
-        let attr_name = ctx.as_ref().intern_str(attr_name);
+        let ctx = ctx.as_ref();
+        let attr_name = ctx.intern_str(attr_name);
         self.set_attr(attr_name, value.into())
     }
 

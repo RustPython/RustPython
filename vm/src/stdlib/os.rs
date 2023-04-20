@@ -54,8 +54,9 @@ pub struct OsPath {
 
 impl OsPath {
     pub fn new_str(path: impl Into<ffi::OsString>) -> Self {
+        let path = path.into();
         Self {
-            path: path.into(),
+            path,
             mode: OutputMode::String,
         }
     }
@@ -178,11 +179,13 @@ impl IOErrorBuilder {
         }
     }
     pub(crate) fn filename(mut self, filename: impl Into<OsPathOrFd>) -> Self {
-        self.filename.replace(filename.into());
+        let filename = filename.into();
+        self.filename.replace(filename);
         self
     }
     pub(crate) fn filename2(mut self, filename: impl Into<OsPathOrFd>) -> Self {
-        self.filename2.replace(filename.into());
+        let filename = filename.into();
+        self.filename2.replace(filename);
         self
     }
 }

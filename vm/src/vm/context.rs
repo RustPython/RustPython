@@ -558,11 +558,9 @@ impl Context {
     where
         F: IntoPyGetterFunc<T>,
     {
-        PyRef::new_ref(
-            PyGetSet::new(name.into(), class).with_get(f),
-            self.types.getset_type.to_owned(),
-            None,
-        )
+        let name = name.into();
+        let getset = PyGetSet::new(name, class).with_get(f);
+        PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
     pub fn new_getset<G, S, T, U>(
@@ -576,11 +574,9 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        PyRef::new_ref(
-            PyGetSet::new(name.into(), class).with_get(g).with_set(s),
-            self.types.getset_type.to_owned(),
-            None,
-        )
+        let name = name.into();
+        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
+        PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
