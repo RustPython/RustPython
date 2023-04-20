@@ -6,6 +6,7 @@
 # randrange, and then Python hangs.
 
 import _imp as imp
+import _multiprocessing
 import os
 import importlib
 import sys
@@ -260,6 +261,7 @@ class ThreadedImportTests(unittest.TestCase):
                           'partial', 'cfimport.py')
         script_helper.assert_python_ok(fn)
 
+    @unittest.skipUnless(hasattr(_multiprocessing, "SemLock"), "TODO: RUSTPYTHON, pool_in_threads.py needs _multiprocessing.SemLock")                                                                                      
     @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_multiprocessing_pool_circular_import(self):
         # Regression test for bpo-41567
