@@ -509,7 +509,7 @@ class ThreadTests(BaseTestCase):
         t = threading.Thread(daemon=True)
         self.assertTrue(t.daemon)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'exit_handler needs lock._at_fork_reinit')
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, exit_handler needs lock._at_fork_reinit')
     @unittest.skipUnless(hasattr(os, 'fork'), 'needs os.fork()')
     def test_fork_at_exit(self):
         # bpo-42350: Calling os.fork() after threading._shutdown() must
