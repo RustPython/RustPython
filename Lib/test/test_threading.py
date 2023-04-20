@@ -566,7 +566,7 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
-    @unittest.skipUnless(hasattr(sys, 'getswitchinterval'), "needs sys.getswitchinterval()")
+    @unittest.skipUnless(hasattr(sys, 'getswitchinterval'), "TODO: RUSTPYTHON, needs sys.getswitchinterval()")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_is_alive_after_fork(self):
         # Try hard to trigger #18418: is_alive() could sometimes be True on
