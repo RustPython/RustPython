@@ -807,8 +807,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
             self.assertEqual(set(range(start,stop)),
                 set([self.gen.randrange(start,stop) for i in range(100)]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_getrandbits(self):
         super().test_getrandbits()
 
@@ -817,8 +815,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         self.assertEqual(self.gen.getrandbits(100),
                          97904845777343510404718956115)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_randrange_uses_getrandbits(self):
         # Verify use of getrandbits by randrange
         # Use same seed as in the cross-platform repeatability test
@@ -925,8 +921,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
         c = self.gen.choices(population, cum_weights=cum_weights, k=10000)
         self.assertEqual(a, c)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_randbytes(self):
         super().test_randbytes()
 

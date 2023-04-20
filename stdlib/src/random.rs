@@ -122,7 +122,7 @@ mod _random {
                 Ordering::Equal => Ok(BigInt::zero()),
                 Ordering::Greater => {
                     let mut rng = self.rng.lock();
-                    Ok(BigInt::getrandbits(k as usize, || rng.next_u64()))
+                    Ok(BigInt::getrandbits(k as usize, || rng.next_u32()))
                 }
             }
         }

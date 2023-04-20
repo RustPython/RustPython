@@ -387,21 +387,31 @@ impl BigInt {
 
     pub fn getrandbits<F>(mut k: usize, mut f: F) -> Self
     where
-        F: FnMut() -> u64,
+        F: FnMut() -> u32,
     {
-        let words = (k - 1) / 64 + 1;
-        let wordarray = (0..words)
+        // fast path
+        if k <= 32 {
+            return Integer::from_sign_and_abs(true, Natural::from(f() >> (32 - k))).into();
+        }
+
+        let words = (k - 1) / 32 + 1;
+        let mut wordarray = (0..words)
             .map(|_| {
                 let mut word = f();
-                if k < 64 {
-                    word >>= 64 - k;
+                if k < 32 {
+                    word >>= 32 - k;
                 }
-                k = k.wrapping_sub(64);
+                k = k.wrapping_sub(32);
                 word
             })
             .collect::<Vec<_>>();
+        // padding
+        if words.odd() {
+            wordarray.push(0);
+        }
+        let (_, slice, _) = unsafe { wordarray.align_to::<u64>() };
 
-        let abs = Natural::from_owned_limbs_asc(wordarray);
+        let abs = Natural::from_limbs_asc(slice);
         Integer::from_sign_and_abs(true, abs).into()
     }
 
