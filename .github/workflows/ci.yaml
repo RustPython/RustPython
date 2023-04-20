@@ -292,6 +292,7 @@ jobs:
             test_glob
             test_importlib
             test_io
+            test_os
             test_pathlib
             test_posixpath
             test_shutil
