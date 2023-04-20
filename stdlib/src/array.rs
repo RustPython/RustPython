@@ -62,7 +62,7 @@ mod array {
             },
             types::{
                 AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext,
-                IterNextIterable, Iterable, PyComparisonOp,
+                IterNextIterable, Iterable, PyComparisonOp, Representable,
             },
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         },
@@ -721,7 +721,15 @@ mod array {
 
     #[pyclass(
         flags(BASETYPE),
-        with(Comparable, AsBuffer, AsMapping, AsSequence, Iterable, Constructor)
+        with(
+            Comparable,
+            AsBuffer,
+            AsMapping,
+            AsSequence,
+            Iterable,
+            Constructor,
+            Representable
+        )
     )]
     impl PyArray {
         fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
@@ -1114,23 +1122,6 @@ mod array {
         }
 
         #[pymethod(magic)]
-        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let class = zelf.class();
-            let class_name = class.name();
-            if zelf.read().typecode() == 'u' {
-                if zelf.len() == 0 {
-                    return Ok(format!("{class_name}('u')"));
-                }
-                return Ok(format!(
-                    "{}('u', {})",
-                    class_name,
-                    crate::common::str::repr(&zelf.tounicode(vm)?)
-                ));
-            }
-            zelf.read().repr(&class_name, vm)
-        }
-
-        #[pymethod(magic)]
         pub(crate) fn len(&self) -> usize {
             self.read().len()
         }
@@ -1289,6 +1280,25 @@ mod array {
                 &BUFFER_METHODS,
             );
             Ok(buf)
+        }
+    }
+
+    impl Representable for PyArray {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let class = zelf.class();
+            let class_name = class.name();
+            if zelf.read().typecode() == 'u' {
+                if zelf.len() == 0 {
+                    return Ok(format!("{class_name}('u')"));
+                }
+                return Ok(format!(
+                    "{}('u', {})",
+                    class_name,
+                    crate::common::str::repr(&zelf.tounicode(vm)?)
+                ));
+            }
+            zelf.read().repr(&class_name, vm)
         }
     }
 
