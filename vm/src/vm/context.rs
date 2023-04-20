@@ -234,8 +234,8 @@ declare_const_name! {
 
 // Basic objects:
 impl Context {
-    pub const INT_CACHE_POOL_MIN: i32 = -5;
-    pub const INT_CACHE_POOL_MAX: i32 = 256;
+    pub const INT_CACHE_POOL_RANGE: std::ops::RangeInclusive<i32> = (-5)..=256;
+    const INT_CACHE_POOL_MIN: i32 = *Self::INT_CACHE_POOL_RANGE.start();
 
     pub fn genesis() -> &'static PyRc<Self> {
         rustpython_common::static_cell! {
@@ -261,7 +261,7 @@ impl Context {
         let ellipsis = create_object(PyEllipsis, PyEllipsis::static_type());
         let not_implemented = create_object(PyNotImplemented, PyNotImplemented::static_type());
 
-        let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
+        let int_cache_pool = Self::INT_CACHE_POOL_RANGE
             .map(|v| {
                 PyRef::new_ref(
                     PyInt::from(BigInt::from(v)),
@@ -358,37 +358,33 @@ impl Context {
     #[inline]
     pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyIntRef {
         if let Some(i) = i.to_i32() {
-            if (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX).contains(&i) {
+            if Self::INT_CACHE_POOL_RANGE.contains(&i) {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
                 return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyRef::new_ref(PyInt::from(i), self.types.int_type.to_owned(), None)
+        PyInt::from(i).into_ref(self)
     }
 
     #[inline]
     pub fn new_bigint(&self, i: &BigInt) -> PyIntRef {
         if let Some(i) = i.to_i32() {
-            if (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX).contains(&i) {
+            if Self::INT_CACHE_POOL_RANGE.contains(&i) {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
                 return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyRef::new_ref(PyInt::from(i.clone()), self.types.int_type.to_owned(), None)
+        PyInt::from(i.clone()).into_ref(self)
     }
 
     #[inline]
     pub fn new_float(&self, value: f64) -> PyRef<PyFloat> {
-        PyRef::new_ref(PyFloat::from(value), self.types.float_type.to_owned(), None)
+        PyFloat::from(value).into_ref(self)
     }
 
     #[inline]
     pub fn new_complex(&self, value: Complex64) -> PyRef<PyComplex> {
-        PyRef::new_ref(
-            PyComplex::from(value),
-            self.types.complex_type.to_owned(),
-            None,
-        )
+        PyComplex::from(value).into_ref(self)
     }
 
     #[inline]
