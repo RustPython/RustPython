@@ -115,7 +115,7 @@ cfg_if::cfg_if! {
 /// faster and only supports strings as keys.
 pub type PyAttributes = IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState>;
 
-unsafe impl Traverse for IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState> {
+unsafe impl Traverse for PyAttributes {
     fn traverse(&self, tracer_fn: &mut TraverseFn) {
         self.values().for_each(|v| v.traverse(tracer_fn));
     }
