@@ -125,7 +125,7 @@ jobs:
         shell: bash
         run: |
           choco install llvm  --no-progress
-          choco install openssl --version OpenSSL 1.1.1.1900
+          choco install openssl --version 1.1.1.1900
           echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
           cd C:\Program Files\OpenSSL-Win64
           ls
