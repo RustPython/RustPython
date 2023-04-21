@@ -309,6 +309,7 @@ mod _socket {
             any(
                 target_arch = "aarch64",
                 target_arch = "i686",
+                target_arch = "loongarch64",
                 target_arch = "mips",
                 target_arch = "powerpc",
                 target_arch = "powerpc64",
@@ -359,6 +360,7 @@ mod _socket {
             any(
                 target_arch = "aarch64",
                 target_arch = "i686",
+                target_arch = "loongarch64",
                 target_arch = "mips",
                 target_arch = "powerpc",
                 target_arch = "powerpc64",
