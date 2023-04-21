@@ -125,9 +125,9 @@ jobs:
         shell: bash
         run: |
           choco install llvm  --no-progress
-          choco install openssl --version 1.1.1.1900
+          choco install openssl --no-progress
           echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
-          cd "C:\Program Files\OpenSSL-Win64"
+          cd "C:\Program Files\OpenSSL"
           ls
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
