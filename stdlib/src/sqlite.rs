@@ -1107,7 +1107,7 @@ mod _sqlite {
         ) -> PyResult<()> {
             let name = name.to_cstring(vm)?;
             let db = self.db_lock(vm)?;
-            let Some(data )= CallbackData::new(callable.to_owned(), vm) else {
+            let Some(data) = CallbackData::new(callable.clone(), vm) else {
                 unsafe {
                     sqlite3_create_collation_v2(db.db, name.as_ptr(), SQLITE_UTF8, null_mut(), None, None);
                 }
