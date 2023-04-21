@@ -473,7 +473,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Setup Wasmer
         uses: wasmerio/setup-wasmer@v2
-        security: strict
+        with:
+          security: strict
       - name: Install clang
         run: sudo apt-get update && sudo apt-get install clang -y
       - name: build rustpython
