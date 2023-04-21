@@ -65,8 +65,7 @@ pub struct FuncArgs {
     pub kwargs: IndexMap<String, PyObjectRef>,
 }
 
-unsafe impl<K, V: Traverse, S> Traverse for IndexMap<K, V, S> {
-    /// FIXME(discord9): what about `K: Traverse`?
+unsafe impl Traverse for IndexMap<String, PyObjectRef> {
     fn traverse(&self, tracer_fn: &mut TraverseFn) {
         self.values().for_each(|v| v.traverse(tracer_fn));
     }

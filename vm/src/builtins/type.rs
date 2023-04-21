@@ -20,6 +20,7 @@ use crate::{
     convert::ToPyResult,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
+    object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{AsNumber, Callable, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -113,6 +114,12 @@ cfg_if::cfg_if! {
 /// that maintains order and is compatible with the standard HashMap  This is probably
 /// faster and only supports strings as keys.
 pub type PyAttributes = IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState>;
+
+unsafe impl Traverse for IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.values().for_each(|v| v.traverse(tracer_fn));
+    }
+}
 
 impl fmt::Display for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
