@@ -16,7 +16,286 @@ concurrency:
 
 env:
   CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
+  NON_WASM_PACKAGES: >-on:
+  push:
+    branches: [main, release]
+  pull_request:
+    types: [unlabeled, opened, synchronize, reopened]
+  merge_group:
+
+name: CI
+
+# Cancel previous workflows if they are the same workflow on same ref (branch/tags)
+# with the same event (push/pull_request) even they are in progress.
+# This setting will help reduce the number of duplicated workflows.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
   NON_WASM_PACKAGES: >-
+    -p rustpython-common
+    -p rustpython-compiler-core
+    -p rustpython-compiler
+    -p rustpython-codegen
+    -p rustpython-parser
+    -p rustpython-vm
+    -p rustpython-stdlib
+    -p rustpython-jit
+    -p rustpython-derive
+    -p rustpython
+  PLATFORM_INDEPENDENT_TESTS: >-
+    test_argparse
+    test_array
+    test_asyncgen
+    test_binop
+    test_bisect
+    test_bool
+    test_bytes
+    test_call
+    test_class
+    test_cmath
+    test_collections
+    test_complex
+    test_contains
+    test_copy
+    test_dataclasses
+    test_decimal
+    test_decorators
+    test_defaultdict
+    test_deque
+    test_dict
+    test_dictcomps
+    test_dictviews
+    test_dis
+    test_enumerate
+    test_exception_variations
+    test_exceptions
+    test_float
+    test_format
+    test_fractions
+    test_genericalias
+    test_genericclass
+    test_grammar
+    test_range
+    test_index
+    test_int
+    test_int_literal
+    test_isinstance
+    test_iter
+    test_iterlen
+    test_itertools
+    test_json
+    test_keyword
+    test_keywordonlyarg
+    test_list
+    test_long
+    test_longexp
+    test_math
+    test_operator
+    test_ordered_dict
+    test_pow
+    test_raise
+    test_richcmp
+    test_scope
+    test_set
+    test_slice
+    test_sort
+    test_string
+    test_string_literals
+    test_strtod
+    test_structseq
+    test_subclassinit
+    test_super
+    test_syntax
+    test_tuple
+    test_types
+    test_unary
+    test_unicode
+    test_unpack
+    test_weakref
+    test_yield_from
+
+jobs:
+  rust_tests:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    env:
+      RUST_BACKTRACE: full
+    name: Run rust tests
+    needs: lalrpop
+    runs-on:  ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v3
+      - name: Cache generated parser
+        uses: actions/cache@v3
+        with:
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Set up the Windows environment
+        shell: bash
+        run: |
+          choco install llvm openssl 
+          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
+          type "C:\ProgramData\chocolatey\logs\chocolatey.log"
+        if: runner.os == 'Windows'
+      - name: List files in directory of logs
+        shell: bash
+        run: |
+          ls C:\ProgramData\chocolatey\logs
+        if: runner.os == 'Windows'
+
+      - name: Set up the Mac environment
+        run: brew install autoconf automake libtool
+        if: runner.os == 'macOS'
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: run clippy
+        run: cargo clippy ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }} -- -Dwarnings
+
+      - name: run rust tests
+        run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
+        if: runner.os != 'macOS'  
+      # temp skip ssl linking for Mac to avoid CI failure
+      - name: run rust tests (MacOS no ssl)
+        run: cargo test --workspace --exclude rustpython_wasm --verbose --no-default-features --features threading,stdlib,zlib,importlib,encodings,jit ${{ env.NON_WASM_PACKAGES }}
+        if: runner.os == 'macOS'
+
+      - name: check compilation without threading
+        run: cargo check ${{ env.CARGO_ARGS }}
+
+      - name: prepare AppleSilicon build
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: aarch64-apple-darwin
+        if: runner.os == 'macOS'
+      - name: Check compilation for Apple Silicon
+        run: cargo check --target aarch64-apple-darwin
+        if: runner.os == 'macOS'
+      - name: prepare iOS build
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: aarch64-apple-ios
+        if: runner.os == 'macOS'
+      - name: Check compilation for iOS
+        run: cargo check --target aarch64-apple-ios
+        if: runner.os == 'macOS'
+
+  snippets_cpython:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    needs: lalrpop
+    env:
+      RUST_BACKTRACE: full
+    name: Run snippets and cpython tests
+    runs-on:  ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [windows-latest]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v3
+      - name: Cache generated parser
+        uses: actions/cache@v3
+        with:
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: Set up the Windows environment
+        shell: bash
+        run: |
+          choco install llvm openssl
+          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
+        if: runner.os == 'Windows'
+      - name: Set up the Mac environment
+        run: brew install autoconf automake libtool openssl@3
+        if: runner.os == 'macOS'
+
+      - uses: Swatinem/rust-cache@v2
+      - name: build rustpython
+        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+      - name: run snippets
+        run: python -m pip install -r requirements.txt && pytest -v
+        working-directory: ./extra_tests
+      - if: runner.os == 'Linux'
+        name: run cpython platform-independent tests
+        run:
+          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+      - if: runner.os != 'Windows'
+        name: run cpython platform-dependent tests
+        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+      - if: runner.os == 'Windows'
+        name: run cpython platform-dependent tests (windows partial - fixme)
+        run:
+          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+            test_glob
+            test_importlib
+            test_io
+            test_os
+            test_pathlib
+            test_posixpath
+            test_shutil
+            test_venv
+      - if: runner.os != 'Windows'
+        name: check that --install-pip succeeds
+        run: |
+          mkdir site-packages
+          target/release/rustpython --install-pip ensurepip --user
+      - if: runner.os != 'Windows'
+        name: Check that ensurepip succeeds.
+        run: |
+          target/release/rustpython -m ensurepip
+          target/release/rustpython -c "import pip"
+      - name: Check whats_left is not broken
+        run: python -I whats_left.py
+
+  lalrpop:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    name: Generate parser with lalrpop
+    strategy:
+      matrix:
+        os: [windows-latest]
+    runs-on:  ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Cache generated parser
+        uses: actions/cache@v3
+        with:
+          path: compiler/parser/python.rs
+          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - name: Check if cached generated parser exists
+        id: generated_parser
+        uses: andstor/file-existence-action@v2
+        with:
+          files: "compiler/parser/python.rs"
+      - if: runner.os == 'Windows'
+        name: Force python.lalrpop to be lf  # actions@checkout ignore .gitattributes
+        run: |
+          set file compiler/parser/python.lalrpop; ((Get-Content $file) -join "`n") + "`n" | Set-Content -NoNewline $file
+      - name: Install lalrpop
+        if: steps.generated_parser.outputs.files_exists == 'false'
+        uses: baptiste0928/cargo-install@v2
+        with:
+          crate: lalrpop
+          version: "0.19.9"
+      - name: Run lalrpop
+        if: steps.generated_parser.outputs.files_exists == 'false'
+        run: lalrpop compiler/parser/python.lalrpop
+
     -p rustpython-common
     -p rustpython-compiler-core
     -p rustpython-compiler
