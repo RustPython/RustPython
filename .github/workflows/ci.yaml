@@ -126,6 +126,7 @@ jobs:
         run: |
           choco install llvm openssl --no-progress
           echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
+          type "C:\ProgramData\chocolatey\logs\chocolatey.log"
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
