@@ -84,22 +84,37 @@ mod time {
         _time(vm)
     }
 
-    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+    #[cfg(any(
+        not(target_arch = "wasm32"),
+        target_os = "wasi",
+        not(any(feature = "wasmbind", feature = "ic"))
+    ))]
     fn _time(vm: &VirtualMachine) -> PyResult<f64> {
         Ok(duration_since_system_now(vm)?.as_secs_f64())
     }
 
-    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    #[cfg(all(
+        target_arch = "wasm32",
+        not(target_os = "wasi"),
+        any(feature = "wasmbind", feature = "ic")
+    ))]
     fn _time(_vm: &VirtualMachine) -> PyResult<f64> {
-        use wasm_bindgen::prelude::*;
-        #[wasm_bindgen]
-        extern "C" {
-            type Date;
-            #[wasm_bindgen(static_method_of = Date)]
-            fn now() -> f64;
+        #[cfg(feature = "wasmbind")]
+        {
+            use wasm_bindgen::prelude::*;
+            #[wasm_bindgen]
+            extern "C" {
+                type Date;
+                #[wasm_bindgen(static_method_of = Date)]
+                fn now() -> f64;
+            }
+            // Date.now returns unix time in milliseconds, we want it in seconds
+            return Ok(Date::now() / 1000.0);
         }
-        // Date.now returns unix time in milliseconds, we want it in seconds
-        Ok(Date::now() / 1000.0)
+        #[cfg(feature = "ic")]
+        {
+            Ok(ic_cdk::api::time() as f64 / 1_000_000_000 as f64)
+        }
     }
 
     #[pyfunction]
@@ -144,14 +159,38 @@ mod time {
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
                 OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
-                OptionalArg::Missing => chrono::offset::Local::now().naive_local(),
+                OptionalArg::Missing => {
+                    #[cfg(feature = "ic")]
+                    {
+                        chrono::NaiveDateTime::from_timestamp(
+                            (ic_cdk::api::time() / 1_000_000_000) as i64,
+                            0,
+                        )
+                    }
+                    #[cfg(not(feature = "ic"))]
+                    {
+                        chrono::offset::Local::now().naive_local()
+                    }
+                }
             })
         }
 
         fn naive_or_utc(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
                 OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
-                OptionalArg::Missing => chrono::offset::Utc::now().naive_utc(),
+                OptionalArg::Missing => {
+                    #[cfg(feature = "ic")]
+                    {
+                        chrono::NaiveDateTime::from_timestamp(
+                            (ic_cdk::api::time() / 1_000_000_000) as i64,
+                            0,
+                        )
+                    }
+                    #[cfg(not(feature = "ic"))]
+                    {
+                        chrono::offset::Local::now().naive_utc()
+                    }
+                }
             })
         }
     }
@@ -160,7 +199,19 @@ mod time {
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
                 OptionalArg::Present(t) => t.to_date_time(vm)?,
-                OptionalArg::Missing => chrono::offset::Local::now().naive_local(),
+                OptionalArg::Missing => {
+                    #[cfg(feature = "ic")]
+                    {
+                        chrono::NaiveDateTime::from_timestamp(
+                            (ic_cdk::api::time() / 1_000_000_000) as i64,
+                            0,
+                        )
+                    }
+                    #[cfg(not(feature = "ic"))]
+                    {
+                        chrono::offset::Local::now().naive_local()
+                    }
+                }
             })
         }
     }

@@ -22,7 +22,7 @@ use std::sync::atomic::Ordering;
 /// });
 /// ```
 pub struct Interpreter {
-    vm: VirtualMachine,
+    pub vm: VirtualMachine,
 }
 
 impl Interpreter {

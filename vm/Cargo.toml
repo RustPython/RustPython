@@ -22,6 +22,9 @@ ast = ["rustpython-ast"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 serde = ["dep:serde"]
+wasmbind = ["chrono/wasmbind", "getrandom/js"]
+ic = ["ic-cdk"]
+
 
 [dependencies]
 rustpython-compiler = { path = "../compiler", optional = true, version = "0.2.0" }
@@ -40,7 +43,7 @@ bitflags = { workspace = true }
 bstr = { workspace = true }
 cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
-chrono = { workspace = true, features = ["wasmbind"] }
+chrono = { workspace = true }
 flame = { workspace = true, optional = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
@@ -64,13 +67,14 @@ thiserror = { workspace = true }
 thread_local = { workspace = true }
 
 caseless = "0.2.1"
-getrandom = { version = "0.2.6", features = ["js"] }
+getrandom = { version = "0.2.6", features = ["custom"] }
 flamer = { version = "0.4", optional = true }
 half = "1.8.2"
 is-macro = "0.2.0"
 memchr = "2.4.1"
 memoffset = "0.6.5"
 optional = "0.5.0"
+ic-cdk = { version = "0.7.4", optional = true }
 result-like = "0.4.5"
 timsort = "0.1.2"
 
