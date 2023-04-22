@@ -308,6 +308,11 @@ jobs:
         run: |
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
+      - if: runner.os != 'Windows'
+        name: Check if pip inside venv is functional
+        run: |
+          target/release/rustpython -m venv testvenv
+          testvenv/bin/rustpython -m pip install wheel
       - name: Check whats_left is not broken
         run: python -I whats_left.py
 
