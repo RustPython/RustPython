@@ -2,7 +2,7 @@ use super::{PyMethod, VirtualMachine};
 use crate::{
     builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
-    protocol::{PyIterReturn, PyNumberBinaryOp, PySequence},
+    protocol::{PyIterReturn, PyNumberBinaryOp, PyNumberTernaryOp, PySequence},
     types::PyComparisonOp,
 };
 use num_traits::ToPrimitive;
@@ -15,6 +15,14 @@ macro_rules! binary_func {
     };
 }
 
+macro_rules! ternary_func {
+    ($fn:ident, $op_slot:ident, $op:expr) => {
+        pub fn $fn(&self, a: &PyObject, b: &PyObject, c: &PyObject) -> PyResult {
+            self.ternary_op(a, b, c, PyNumberTernaryOp::$op_slot, $op)
+        }
+    };
+}
+
 macro_rules! inplace_binary_func {
     ($fn:ident, $iop_slot:ident, $op_slot:ident, $op:expr) => {
         pub fn $fn(&self, a: &PyObject, b: &PyObject) -> PyResult {
@@ -23,6 +31,21 @@ macro_rules! inplace_binary_func {
                 b,
                 PyNumberBinaryOp::$iop_slot,
                 PyNumberBinaryOp::$op_slot,
+                $op,
+            )
+        }
+    };
+}
+
+macro_rules! inplace_ternary_func {
+    ($fn:ident, $iop_slot:ident, $op_slot:ident, $op:expr) => {
+        pub fn $fn(&self, a: &PyObject, b: &PyObject, c: &PyObject) -> PyResult {
+            self.ternary_iop(
+                a,
+                b,
+                c,
+                PyNumberTernaryOp::$iop_slot,
+                PyNumberTernaryOp::$op_slot,
                 $op,
             )
         }
@@ -229,10 +252,103 @@ impl VirtualMachine {
         Err(self.new_unsupported_binop_error(a, b, op))
     }
 
+    fn ternary_op(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        c: &PyObject,
+        op_slot: PyNumberTernaryOp,
+        op_str: &str,
+    ) -> PyResult {
+        let class_a = a.class();
+        let class_b = b.class();
+        let class_c = c.class();
+
+        let slot_a = class_a.slots.as_number.left_ternary_op(op_slot);
+        let mut slot_b = None;
+
+        if !class_a.is(class_b) {
+            let slot_bb = class_b.slots.as_number.right_ternary_op(op_slot);
+            if slot_bb.map(|x| x as usize) != slot_a.map(|x| x as usize) {
+                slot_b = slot_bb;
+            }
+        }
+
+        if let Some(slot_a) = slot_a {
+            if let Some(slot_bb) = slot_b {
+                if class_b.fast_issubclass(class_a) {
+                    let ret = slot_bb(a, b, c, self)?;
+                    if !ret.is(&self.ctx.not_implemented) {
+                        return Ok(ret);
+                    }
+                    slot_b = None;
+                }
+            }
+            let ret = slot_a(a, b, c, self)?;
+            if !ret.is(&self.ctx.not_implemented) {
+                return Ok(ret);
+            }
+        }
+
+        if let Some(slot_b) = slot_b {
+            let ret = slot_b(a, b, c, self)?;
+            if !ret.is(&self.ctx.not_implemented) {
+                return Ok(ret);
+            }
+        }
+
+        if let Some(slot_c) = class_c.slots.as_number.left_ternary_op(op_slot) {
+            if slot_a.map_or(false, |slot_a| (slot_a as usize) != (slot_c as usize))
+                && slot_b.map_or(false, |slot_b| (slot_b as usize) != (slot_c as usize))
+            {
+                let ret = slot_c(a, b, c, self)?;
+                if !ret.is(&self.ctx.not_implemented) {
+                    return Ok(ret);
+                }
+            }
+        }
+
+        Err(if self.is_none(c) {
+            self.new_type_error(format!(
+                "unsupported operand type(s) for {}: \
+                '{}' and '{}'",
+                op_str,
+                a.class(),
+                b.class()
+            ))
+        } else {
+            self.new_type_error(format!(
+                "unsupported operand type(s) for {}: \
+                '{}' and '{}', '{}'",
+                op_str,
+                a.class(),
+                b.class(),
+                c.class()
+            ))
+        })
+    }
+
+    fn ternary_iop(
+        &self,
+        a: &PyObject,
+        b: &PyObject,
+        c: &PyObject,
+        iop_slot: PyNumberTernaryOp,
+        op_slot: PyNumberTernaryOp,
+        op_str: &str,
+    ) -> PyResult {
+        if let Some(slot) = a.class().slots.as_number.left_ternary_op(iop_slot) {
+            let x = slot(a, b, c, self)?;
+            if !x.is(&self.ctx.not_implemented) {
+                return Ok(x);
+            }
+        }
+        self.ternary_op(a, b, c, op_slot, op_str)
+    }
+
     binary_func!(_sub, Subtract, "-");
     binary_func!(_mod, Remainder, "%");
     binary_func!(_divmod, Divmod, "divmod");
-    binary_func!(_pow, Power, "**");
     binary_func!(_lshift, Lshift, "<<");
     binary_func!(_rshift, Rshift, ">>");
     binary_func!(_and, And, "&");
@@ -244,7 +360,6 @@ impl VirtualMachine {
 
     inplace_binary_func!(_isub, InplaceSubtract, Subtract, "-=");
     inplace_binary_func!(_imod, InplaceRemainder, Remainder, "%=");
-    inplace_binary_func!(_ipow, InplacePower, Power, "**=");
     inplace_binary_func!(_ilshift, InplaceLshift, Lshift, "<<=");
     inplace_binary_func!(_irshift, InplaceRshift, Rshift, ">>=");
     inplace_binary_func!(_iand, InplaceAnd, And, "&=");
@@ -253,6 +368,9 @@ impl VirtualMachine {
     inplace_binary_func!(_ifloordiv, InplaceFloorDivide, FloorDivide, "//=");
     inplace_binary_func!(_itruediv, InplaceTrueDivide, TrueDivide, "/=");
     inplace_binary_func!(_imatmul, InplaceMatrixMultiply, MatrixMultiply, "@=");
+
+    ternary_func!(_pow, Power, "** or pow()");
+    inplace_ternary_func!(_ipow, InplacePower, Power, "**=");
 
     pub fn _add(&self, a: &PyObject, b: &PyObject) -> PyResult {
         let result = self.binary_op1(a, b, PyNumberBinaryOp::Add)?;

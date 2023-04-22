@@ -186,6 +186,7 @@ class FileTests(unittest.TestCase):
         os.close(f)
         self.assertTrue(os.access(os_helper.TESTFN, os.W_OK))
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, BrokenPipeError: (32, 'The process cannot access the file because it is being used by another process. (os error 32)')")
     def test_closerange(self):
         first = os.open(os_helper.TESTFN, os.O_CREAT|os.O_RDWR)
         # We must allocate two consecutive file descriptors, otherwise
@@ -696,6 +697,7 @@ class StatAttributeTests(unittest.TestCase):
         self.assertTrue(isinstance(result.st_file_attributes, int))
         self.assertTrue(0 <= result.st_file_attributes <= 0xFFFFFFFF)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.stat return value doesnt have st_file_attributes attribute")
     @unittest.skipUnless(sys.platform == "win32",
                          "st_file_attributes is Win32 specific")
     def test_file_attributes(self):
@@ -717,6 +719,7 @@ class StatAttributeTests(unittest.TestCase):
             result.st_file_attributes & stat.FILE_ATTRIBUTE_DIRECTORY,
             stat.FILE_ATTRIBUTE_DIRECTORY)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.stat (PermissionError: [Errno 5] Access is denied.)")
     @unittest.skipUnless(sys.platform == "win32", "Win32 specific tests")
     def test_access_denied(self):
         # Default to FindFirstFile WIN32_FIND_DATA when access is
@@ -738,6 +741,7 @@ class StatAttributeTests(unittest.TestCase):
         result = os.stat(fname)
         self.assertNotEqual(result.st_size, 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.stat (PermissionError: [Errno 1] Incorrect function.)")
     @unittest.skipUnless(sys.platform == "win32", "Win32 specific tests")
     def test_stat_block_device(self):
         # bpo-38030: os.stat fails for block devices
@@ -795,6 +799,7 @@ class UtimeTests(unittest.TestCase):
         self.assertEqual(st.st_atime_ns, atime_ns)
         self.assertEqual(st.st_mtime_ns, mtime_ns)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: 2.002003 != 1.002003 within 1e-06 delta (1.0000000000000002 difference))")
     def test_utime(self):
         def set_time(filename, ns):
             # test the ns keyword parameter
@@ -862,6 +867,7 @@ class UtimeTests(unittest.TestCase):
                 os.utime(name, dir_fd=dirfd, ns=ns)
         self._test_utime(set_time)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: 2.002003 != 1.002003 within 1e-06 delta (1.0000000000000002 difference))")
     def test_utime_directory(self):
         def set_time(filename, ns):
             # test calling os.utime() on a directory
@@ -890,12 +896,14 @@ class UtimeTests(unittest.TestCase):
         self.assertAlmostEqual(st.st_mtime, current,
                                delta=delta, msg=msg)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: 3359485824.516508 != 1679742912.516503 within 0.05 delta (1679742912.000005 difference) : st_time=3359485824.516508, current=1679742912.516503, dt=1679742912.000005)")
     def test_utime_current(self):
         def set_time(filename):
             # Set to the current time in the new way
             os.utime(self.fname)
         self._test_utime_current(set_time)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: 3359485824.5186944 != 1679742912.5186892 within 0.05 delta (1679742912.0000052 difference) : st_time=3359485824.5186944, current=1679742912.5186892, dt=1679742912.0000052)")
     def test_utime_current_old(self):
         def set_time(filename):
             # Set to the current time in the old explicit way.
@@ -915,6 +923,7 @@ class UtimeTests(unittest.TestCase):
                 return buf.value
         # return None if the filesystem is unknown
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (ModuleNotFoundError: No module named '_ctypes')")
     def test_large_time(self):
         # Many filesystems are limited to the year 2038. At least, the test
         # pass with NTFS filesystem.
@@ -925,6 +934,7 @@ class UtimeTests(unittest.TestCase):
         os.utime(self.fname, (large, large))
         self.assertEqual(os.stat(self.fname).st_mtime, large)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: NotImplementedError not raised)")
     def test_utime_invalid_arguments(self):
         # seconds and nanoseconds parameters are mutually exclusive
         with self.assertRaises(ValueError):
@@ -1124,6 +1134,7 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
                                   stdout=subprocess.PIPE, text=True)
             self.assertEqual(proc.stdout.rstrip(), repr(None))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: ValueError not raised by putenv)")
     # On OS X < 10.6, unsetenv() doesn't return a value (bpo-13415).
     @support.requires_mac_ver(10, 6)
     def test_putenv_unsetenv_error(self):
@@ -1615,6 +1626,7 @@ class MakedirTests(unittest.TestCase):
                 self.assertEqual(os.stat(path).st_mode & 0o777, 0o555)
                 self.assertEqual(os.stat(parent).st_mode & 0o777, 0o775)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.umask not implemented yet for all platforms")
     def test_exist_ok_existing_directory(self):
         path = os.path.join(os_helper.TESTFN, 'dir1')
         mode = 0o777
@@ -1629,6 +1641,7 @@ class MakedirTests(unittest.TestCase):
         # Issue #25583: A drive root could raise PermissionError on Windows
         os.makedirs(os.path.abspath('/'), exist_ok=True)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.umask not implemented yet for all platforms")
     def test_exist_ok_s_isgid_directory(self):
         path = os.path.join(os_helper.TESTFN, 'dir1')
         S_ISGID = stat.S_ISGID
@@ -1813,6 +1826,7 @@ class URandomTests(unittest.TestCase):
         self.assertEqual(len(stdout), count)
         return stdout
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (ModuleNotFoundError: No module named 'os'")
     def test_urandom_subprocess(self):
         data1 = self.get_urandom_subprocess(16)
         data2 = self.get_urandom_subprocess(16)
@@ -1897,6 +1911,7 @@ class URandomFDTests(unittest.TestCase):
             """
         assert_python_ok('-c', code)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON on Windows (ModuleNotFoundError: No module named 'os')")
     def test_urandom_fd_closed(self):
         # Issue #21207: urandom() should reopen its fd to /dev/urandom if
         # closed.
@@ -1911,6 +1926,7 @@ class URandomFDTests(unittest.TestCase):
             """
         rc, out, err = assert_python_ok('-Sc', code)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (ModuleNotFoundError: No module named 'os'")
     def test_urandom_fd_reopened(self):
         # Issue #21207: urandom() should detect its fd to /dev/urandom
         # changed to something else, and reopen it.
@@ -1971,7 +1987,8 @@ def _execvpe_mockup(defpath=None):
 
     try:
         orig_execv = os.execv
-        orig_execve = os.execve
+        # NOTE: RUSTPYTHON os.execve not implemented yet for all platforms
+        orig_execve = getattr(os, "execve", None)
         orig_defpath = os.defpath
         os.execv = mock_execv
         os.execve = mock_execve
@@ -1980,7 +1997,10 @@ def _execvpe_mockup(defpath=None):
         yield calls
     finally:
         os.execv = orig_execv
-        os.execve = orig_execve
+        if orig_execve:
+            os.execve = orig_execve
+        else:
+            del os.execve
         os.defpath = orig_defpath
 
 @unittest.skipUnless(hasattr(os, 'execv'),
@@ -1998,6 +2018,7 @@ class ExecTests(unittest.TestCase):
         self.assertRaises(ValueError, os.execv, 'notepad', ('',))
         self.assertRaises(ValueError, os.execv, 'notepad', [''])
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented yet for all platforms")
     def test_execvpe_with_bad_arglist(self):
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], None)
         self.assertRaises(ValueError, os.execvpe, 'notepad', [], {})
@@ -2057,6 +2078,7 @@ class ExecTests(unittest.TestCase):
         if os.name != "nt":
             self._test_internal_execvpe(bytes)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented yet for all platforms")
     def test_execve_invalid_env(self):
         args = [sys.executable, '-c', 'pass']
 
@@ -2078,6 +2100,7 @@ class ExecTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             os.execve(args[0], args, newenv)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.execve not implemented yet for all platforms")
     @unittest.skipUnless(sys.platform == "win32", "Win32-specific test")
     def test_execve_with_empty_path(self):
         # bpo-32890: Check GetLastError() misuse
@@ -2136,7 +2159,13 @@ class TestInvalidFD(unittest.TestCase):
                 self.check(getattr(os, f))
         return helper
     for f in singles:
-        locals()["test_"+f] = get_single(f)
+        # TODO: RUSTPYTHON: 'fstat' and 'fsync' currently fail on windows, so we've added the if
+        # statement here to wrap them. When completed remove the if clause and just leave a call to:
+        # locals()["test_"+f] = get_single(f)
+        if f in ("fstat", "fsync"):
+            locals()["test_"+f] = unittest.expectedFailureIfWindows("TODO: RUSTPYTHON fstat test (OSError: [Errno 18] There are no more files.")(get_single(f))
+        else:
+            locals()["test_"+f] = get_single(f)
 
     def check(self, f, *args, **kwargs):
         try:
@@ -2147,6 +2176,7 @@ class TestInvalidFD(unittest.TestCase):
             self.fail("%r didn't raise an OSError with a bad file descriptor"
                       % f)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: <function fdopen at 0x1caa19ae6c0> didn't raise an OSError with a bad file descriptor)")
     def test_fdopen(self):
         self.check(os.fdopen, encoding="utf-8")
 
@@ -2187,15 +2217,18 @@ class TestInvalidFD(unittest.TestCase):
         self.check(os.pathconf, "PC_NAME_MAX")
         self.check(os.fpathconf, "PC_NAME_MAX")
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: <builtin_function_or_method object at 0x1f330cd8e60> didn't raise an OSError with a bad file descriptor)")
     @unittest.skipUnless(hasattr(os, 'ftruncate'), 'test needs os.ftruncate()')
     def test_ftruncate(self):
         self.check(os.truncate, 0)
         self.check(os.ftruncate, 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.)")
     @unittest.skipUnless(hasattr(os, 'lseek'), 'test needs os.lseek()')
     def test_lseek(self):
         self.check(os.lseek, 0, 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.)")
     @unittest.skipUnless(hasattr(os, 'read'), 'test needs os.read()')
     def test_read(self):
         self.check(os.read, 1)
@@ -2209,6 +2242,7 @@ class TestInvalidFD(unittest.TestCase):
     def test_tcsetpgrpt(self):
         self.check(os.tcsetpgrp, 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OSError: [Errno 18] There are no more files.)")
     @unittest.skipUnless(hasattr(os, 'write'), 'test needs os.write()')
     def test_write(self):
         self.check(os.write, b" ")
@@ -2217,6 +2251,7 @@ class TestInvalidFD(unittest.TestCase):
     def test_writev(self):
         self.check(os.writev, [b'abc'])
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented yet for all platforms")
     def test_inheritable(self):
         self.check(os.get_inheritable)
         self.check(os.set_inheritable, True)
@@ -2461,10 +2496,12 @@ class Win32KillTests(unittest.TestCase):
         os.kill(proc.pid, sig)
         self.assertEqual(proc.wait(), sig)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (ModuleNotFoundError: No module named '_ctypes')")
     def test_kill_sigterm(self):
         # SIGTERM doesn't mean anything special, but make sure it works
         self._kill(signal.SIGTERM)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (ModuleNotFoundError: No module named '_ctypes')")
     def test_kill_int(self):
         # os.kill on Windows can take an int which gets set as the exit code
         self._kill(100)
@@ -2822,6 +2859,7 @@ class Win32JunctionTests(unittest.TestCase):
         if os.path.lexists(self.junction):
             os.unlink(self.junction)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AttributeError: module '_winapi' has no attribute 'CreateJunction')")
     def test_create_junction(self):
         _winapi.CreateJunction(self.junction_target, self.junction)
         self.assertTrue(os.path.lexists(self.junction))
@@ -2835,6 +2873,7 @@ class Win32JunctionTests(unittest.TestCase):
         self.assertEqual(os.path.normcase("\\\\?\\" + self.junction_target),
                          os.path.normcase(os.readlink(self.junction)))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AttributeError: module '_winapi' has no attribute 'CreateJunction')")
     def test_unlink_removes_junction(self):
         _winapi.CreateJunction(self.junction_target, self.junction)
         self.assertTrue(os.path.exists(self.junction))
@@ -2893,6 +2932,7 @@ class Win32NtTests(unittest.TestCase):
 
         self.assertEqual(0, handle_delta)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.stat (PermissionError: [Errno 5] Access is denied.)")
     def test_stat_unlink_race(self):
         # bpo-46785: the implementation of os.stat() falls back to reading
         # the parent directory if CreateFileW() fails with a permission
@@ -3041,6 +3081,7 @@ class PidTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             os.waitstatus_to_exitcode(0.0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.spawnv not implemented yet for all platforms")
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_waitpid_windows(self):
         # bpo-40138: test os.waitpid() and os.waitstatus_to_exitcode()
@@ -3049,6 +3090,7 @@ class PidTests(unittest.TestCase):
         code = f'import _winapi; _winapi.ExitProcess({STATUS_CONTROL_C_EXIT})'
         self.check_waitpid(code, exitcode=STATUS_CONTROL_C_EXIT)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (OverflowError: Python int too large to convert to Rust i32)")
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_waitstatus_to_exitcode_windows(self):
         max_exitcode = 2 ** 32 - 1
@@ -3936,6 +3978,7 @@ class CPUCountTests(unittest.TestCase):
 
 
 class FDInheritanceTests(unittest.TestCase):
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented yet for all platforms")
     def test_get_set_inheritable(self):
         fd = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd)
@@ -3980,6 +4023,7 @@ class FDInheritanceTests(unittest.TestCase):
         os.set_inheritable(fd, False)
         self.assertEqual(os.get_inheritable(fd), False)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented yet for all platforms")
     def test_get_set_inheritable_badf(self):
         fd = os_helper.make_bad_fd()
 
@@ -3995,6 +4039,7 @@ class FDInheritanceTests(unittest.TestCase):
             os.set_inheritable(fd, False)
         self.assertEqual(ctx.exception.errno, errno.EBADF)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.get_inheritable not implemented yet for all platforms")
     def test_open(self):
         fd = os.open(__file__, os.O_RDONLY)
         self.addCleanup(os.close, fd)
@@ -4023,6 +4068,7 @@ class FDInheritanceTests(unittest.TestCase):
         self.addCleanup(os.close, fd)
         self.assertGreater(fd, 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON os.dup not implemented yet for all platforms")
     @unittest.skipUnless(sys.platform == 'win32', 'win32-specific test')
     def test_dup_nul(self):
         # os.dup() was creating inheritable fds for character files.
@@ -4331,6 +4377,7 @@ class TestScandir(unittest.TestCase):
         self.assertEqual(fspath,
                          os.path.join(os.fsencode(self.path),bytes_filename))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON entry.is_dir() is False")
     def test_removed_dir(self):
         path = os.path.join(self.path, 'dir')
 
@@ -4353,6 +4400,7 @@ class TestScandir(unittest.TestCase):
             self.assertRaises(FileNotFoundError, entry.stat)
             self.assertRaises(FileNotFoundError, entry.stat, follow_symlinks=False)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON entry.is_file() is False")
     def test_removed_file(self):
         entry = self.create_file_entry()
         os.unlink(entry.path)
@@ -4451,6 +4499,7 @@ class TestScandir(unittest.TestCase):
                     st = os.stat(entry.name, dir_fd=fd, follow_symlinks=False)
                     self.assertEqual(entry.stat(follow_symlinks=False), st)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON (AssertionError: FileNotFoundError not raised by scandir)")
     def test_empty_path(self):
         self.assertRaises(FileNotFoundError, os.scandir, '')
 

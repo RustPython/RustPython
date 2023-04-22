@@ -10,7 +10,7 @@ mod _operator {
         identifier,
         protocol::PyIter,
         recursion::ReprGuard,
-        types::{Callable, Constructor, PyComparisonOp},
+        types::{Callable, Constructor, PyComparisonOp, Representable},
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
 
@@ -133,7 +133,7 @@ mod _operator {
 
     #[pyfunction]
     fn pow(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._pow(&a, &b)
+        vm._pow(&a, &b, vm.ctx.none.as_object())
     }
 
     #[pyfunction]
@@ -292,7 +292,7 @@ mod _operator {
 
     #[pyfunction]
     fn ipow(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._ipow(&a, &b)
+        vm._ipow(&a, &b, vm.ctx.none.as_object())
     }
 
     #[pyfunction]
@@ -356,22 +356,8 @@ mod _operator {
         attrs: Vec<PyStrRef>,
     }
 
-    #[pyclass(with(Callable, Constructor))]
+    #[pyclass(with(Callable, Constructor, Representable))]
     impl PyAttrGetter {
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut parts = Vec::with_capacity(zelf.attrs.len());
-                for part in &zelf.attrs {
-                    parts.push(part.as_object().repr(vm)?.as_str().to_owned());
-                }
-                parts.join(", ")
-            } else {
-                "...".to_owned()
-            };
-            Ok(format!("operator.attrgetter({fmt})"))
-        }
-
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
             let attrs = vm
@@ -441,6 +427,22 @@ mod _operator {
         }
     }
 
+    impl Representable for PyAttrGetter {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let mut parts = Vec::with_capacity(zelf.attrs.len());
+                for part in &zelf.attrs {
+                    parts.push(part.as_object().repr(vm)?.as_str().to_owned());
+                }
+                parts.join(", ")
+            } else {
+                "...".to_owned()
+            };
+            Ok(format!("operator.attrgetter({fmt})"))
+        }
+    }
+
     /// itemgetter(item, ...) --> itemgetter object
     ///
     /// Return a callable object that fetches the given item(s) from its operand.
@@ -453,22 +455,8 @@ mod _operator {
         items: Vec<PyObjectRef>,
     }
 
-    #[pyclass(with(Callable, Constructor))]
+    #[pyclass(with(Callable, Constructor, Representable))]
     impl PyItemGetter {
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let mut items = Vec::with_capacity(zelf.items.len());
-                for item in &zelf.items {
-                    items.push(item.repr(vm)?.as_str().to_owned());
-                }
-                items.join(", ")
-            } else {
-                "...".to_owned()
-            };
-            Ok(format!("operator.itemgetter({fmt})"))
-        }
-
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let items = vm.ctx.new_tuple(zelf.items.to_vec());
@@ -508,6 +496,22 @@ mod _operator {
         }
     }
 
+    impl Representable for PyItemGetter {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let mut items = Vec::with_capacity(zelf.items.len());
+                for item in &zelf.items {
+                    items.push(item.repr(vm)?.as_str().to_owned());
+                }
+                items.join(", ")
+            } else {
+                "...".to_owned()
+            };
+            Ok(format!("operator.itemgetter({fmt})"))
+        }
+    }
+
     /// methodcaller(name, ...) --> methodcaller object
     ///
     /// Return a callable object that calls the given method on its operand.
@@ -522,37 +526,8 @@ mod _operator {
         args: FuncArgs,
     }
 
-    #[pyclass(with(Callable, Constructor))]
+    #[pyclass(with(Callable, Constructor, Representable))]
     impl PyMethodCaller {
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                let args = &zelf.args.args;
-                let kwargs = &zelf.args.kwargs;
-                let mut fmt = vec![zelf.name.as_object().repr(vm)?.as_str().to_owned()];
-                if !args.is_empty() {
-                    let mut parts = Vec::with_capacity(args.len());
-                    for v in args {
-                        parts.push(v.repr(vm)?.as_str().to_owned());
-                    }
-                    fmt.push(parts.join(", "));
-                }
-                // build name=value pairs from KwArgs.
-                if !kwargs.is_empty() {
-                    let mut parts = Vec::with_capacity(kwargs.len());
-                    for (key, value) in kwargs {
-                        let value_repr = value.repr(vm)?;
-                        parts.push(format!("{key}={value_repr}"));
-                    }
-                    fmt.push(parts.join(", "));
-                }
-                fmt.join(", ")
-            } else {
-                "...".to_owned()
-            };
-            Ok(format!("operator.methodcaller({fmt})"))
-        }
-
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
             // With no kwargs, return (type(obj), (name, *args)) tuple.
@@ -594,6 +569,37 @@ mod _operator {
         #[inline]
         fn call(zelf: &Py<Self>, obj: Self::Args, vm: &VirtualMachine) -> PyResult {
             vm.call_method(&obj, zelf.name.as_str(), zelf.args.clone())
+        }
+    }
+
+    impl Representable for PyMethodCaller {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let fmt = if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                let args = &zelf.args.args;
+                let kwargs = &zelf.args.kwargs;
+                let mut fmt = vec![zelf.name.as_object().repr(vm)?.as_str().to_owned()];
+                if !args.is_empty() {
+                    let mut parts = Vec::with_capacity(args.len());
+                    for v in args {
+                        parts.push(v.repr(vm)?.as_str().to_owned());
+                    }
+                    fmt.push(parts.join(", "));
+                }
+                // build name=value pairs from KwArgs.
+                if !kwargs.is_empty() {
+                    let mut parts = Vec::with_capacity(kwargs.len());
+                    for (key, value) in kwargs {
+                        let value_repr = value.repr(vm)?;
+                        parts.push(format!("{key}={value_repr}"));
+                    }
+                    fmt.push(parts.join(", "));
+                }
+                fmt.join(", ")
+            } else {
+                "...".to_owned()
+            };
+            Ok(format!("operator.methodcaller({fmt})"))
         }
     }
 }

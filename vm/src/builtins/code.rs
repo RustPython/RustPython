@@ -230,7 +230,7 @@ impl Representable for PyCode {
     }
 }
 
-#[pyclass(with(Py))]
+#[pyclass(with(Representable))]
 impl PyCode {
     #[pyslot]
     fn slot_new(_cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -415,21 +415,6 @@ impl PyCode {
                 cell2arg: self.code.cell2arg.clone(),
             },
         })
-    }
-}
-
-#[pyclass]
-impl Py<PyCode> {
-    #[pymethod(magic)]
-    fn repr(&self) -> String {
-        let code = &self.code;
-        format!(
-            "<code object {} at {:#x} file {:?}, line {}>",
-            code.obj_name,
-            self.get_id(),
-            code.source_path.as_str(),
-            code.first_line_number
-        )
     }
 }
 

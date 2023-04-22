@@ -11,7 +11,7 @@ use crate::{
     py_io::{self, Write},
     stdlib::sys,
     suggestion::offer_suggestions,
-    types::{Callable, Constructor, Initializer},
+    types::{Callable, Constructor, Initializer, Representable},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -430,7 +430,10 @@ impl PyBaseException {
     }
 }
 
-#[pyclass(with(Constructor, Initializer), flags(BASETYPE, HAS_DICT))]
+#[pyclass(
+    with(Constructor, Initializer, Representable),
+    flags(BASETYPE, HAS_DICT)
+)]
 impl PyBaseException {
     #[pygetset]
     pub fn args(&self) -> PyTupleRef {
@@ -503,13 +506,6 @@ impl PyBaseException {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> String {
-        let repr_args = vm.exception_args_as_string(zelf.args(), false);
-        let cls = zelf.class();
-        format!("{}({})", cls.name(), repr_args.iter().format(", "))
-    }
-
-    #[pymethod(magic)]
     fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
         if let Some(dict) = zelf.as_object().dict().filter(|x| !x.is_empty()) {
             vm.new_tuple((zelf.class().to_owned(), zelf.args(), dict))
@@ -535,6 +531,15 @@ impl Initializer for PyBaseException {
     fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         *zelf.args.write() = PyTuple::new_ref(args.args, &vm.ctx);
         Ok(())
+    }
+}
+
+impl Representable for PyBaseException {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let repr_args = vm.exception_args_as_string(zelf.args(), false);
+        let cls = zelf.class();
+        Ok(format!("{}({})", cls.name(), repr_args.iter().format(", ")))
     }
 }
 

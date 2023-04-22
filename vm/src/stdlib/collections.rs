@@ -17,7 +17,7 @@ mod _collections {
         sliceable::SequenceIndexOp,
         types::{
             AsSequence, Comparable, Constructor, Initializer, IterNext, IterNextIterable, Iterable,
-            PyComparisonOp,
+            PyComparisonOp, Representable,
         },
         utils::collection_repr,
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -57,7 +57,14 @@ mod _collections {
 
     #[pyclass(
         flags(BASETYPE),
-        with(Constructor, Initializer, AsSequence, Comparable, Iterable)
+        with(
+            Constructor,
+            Initializer,
+            AsSequence,
+            Comparable,
+            Iterable,
+            Representable
+        )
     )]
     impl PyDeque {
         #[pymethod]
@@ -293,27 +300,6 @@ mod _collections {
             idx.wrapped_at(deque.len())
                 .and_then(|i| deque.remove(i).map(drop))
                 .ok_or_else(|| vm.new_index_error("deque index out of range".to_owned()))
-        }
-
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let deque = zelf.borrow_deque().clone();
-            let class = zelf.class();
-            let class_name = class.name();
-            let closing_part = zelf
-                .maxlen
-                .map(|maxlen| format!("], maxlen={maxlen}"))
-                .unwrap_or_else(|| "]".to_owned());
-
-            let s = if zelf.len() == 0 {
-                format!("{class_name}([{closing_part})")
-            } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-                collection_repr(Some(&class_name), "[", &closing_part, deque.iter(), vm)?
-            } else {
-                "[...]".to_owned()
-            };
-
-            Ok(s)
         }
 
         #[pymethod(magic)]
@@ -577,6 +563,29 @@ mod _collections {
     impl Iterable for PyDeque {
         fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             Ok(PyDequeIterator::new(zelf).into_pyobject(vm))
+        }
+    }
+
+    impl Representable for PyDeque {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let deque = zelf.borrow_deque().clone();
+            let class = zelf.class();
+            let class_name = class.name();
+            let closing_part = zelf
+                .maxlen
+                .map(|maxlen| format!("], maxlen={maxlen}"))
+                .unwrap_or_else(|| "]".to_owned());
+
+            let s = if zelf.len() == 0 {
+                format!("{class_name}([{closing_part})")
+            } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+                collection_repr(Some(&class_name), "[", &closing_part, deque.iter(), vm)?
+            } else {
+                "[...]".to_owned()
+            };
+
+            Ok(s)
         }
     }
 

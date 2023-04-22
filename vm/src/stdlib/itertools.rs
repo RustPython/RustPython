@@ -16,7 +16,7 @@ mod decl {
         identifier,
         protocol::{PyIter, PyIterReturn, PyNumber},
         stdlib::sys,
-        types::{Constructor, IterNext, IterNextIterable},
+        types::{Constructor, IterNext, IterNextIterable, Representable},
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
         VirtualMachine,
     };
@@ -258,7 +258,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Constructor, Representable))]
     impl PyItertoolsCount {
         // TODO: Implement this
         // if (lz->cnt == PY_SSIZE_T_MAX)
@@ -266,16 +266,6 @@ mod decl {
         #[pymethod(magic)]
         fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyObjectRef,)) {
             (zelf.class().to_owned(), (zelf.cur.read().clone(),))
-        }
-
-        #[pymethod(magic)]
-        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let cur = format!("{}", self.cur.read().clone().repr(vm)?);
-            let step = &self.step;
-            if vm.bool_eq(step, vm.ctx.new_int(1).as_object())? {
-                return Ok(format!("count({cur})"));
-            }
-            Ok(format!("count({}, {})", cur, step.repr(vm)?))
         }
     }
     impl IterNextIterable for PyItertoolsCount {}
@@ -286,6 +276,18 @@ mod decl {
             let result = cur.clone();
             *cur = vm._iadd(&cur, step.as_object())?;
             Ok(PyIterReturn::Return(result.to_pyobject(vm)))
+        }
+    }
+
+    impl Representable for PyItertoolsCount {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let cur = format!("{}", zelf.cur.read().clone().repr(vm)?);
+            let step = &zelf.step;
+            if vm.bool_eq(step, vm.ctx.new_int(1).as_object())? {
+                return Ok(format!("count({cur})"));
+            }
+            Ok(format!("count({}, {})", cur, step.repr(vm)?))
         }
     }
 
@@ -376,7 +378,7 @@ mod decl {
         }
     }
 
-    #[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
+    #[pyclass(with(IterNext, Constructor, Representable), flags(BASETYPE))]
     impl PyItertoolsRepeat {
         #[pymethod(magic)]
         fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -396,16 +398,6 @@ mod decl {
                 None => vm.new_tuple((cls, (zelf.object.clone(),))),
             })
         }
-
-        #[pymethod(magic)]
-        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let mut fmt = format!("{}", &self.object.repr(vm)?);
-            if let Some(ref times) = self.times {
-                fmt.push_str(", ");
-                fmt.push_str(&times.read().to_string());
-            }
-            Ok(format!("repeat({fmt})"))
-        }
     }
 
     impl IterNextIterable for PyItertoolsRepeat {}
@@ -419,6 +411,18 @@ mod decl {
                 *times -= 1;
             }
             Ok(PyIterReturn::Return(zelf.object.clone()))
+        }
+    }
+
+    impl Representable for PyItertoolsRepeat {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let mut fmt = format!("{}", &zelf.object.repr(vm)?);
+            if let Some(ref times) = zelf.times {
+                fmt.push_str(", ");
+                fmt.push_str(&times.read().to_string());
+            }
+            Ok(format!("repeat({fmt})"))
         }
     }
 
