@@ -112,8 +112,27 @@ mod mmap {
     #[pyattr]
     use libc::{
         MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_HUGEPAGE, MADV_HWPOISON,
-        MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_SOFT_OFFLINE, MADV_UNMERGEABLE,
+        MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_UNMERGEABLE,
     };
+
+    #[cfg(any(
+        target_os = "android",
+        all(
+            target_os = "linux",
+            any(
+                target_arch = "aarch64",
+                target_arch = "arm",
+                target_arch = "powerpc",
+                target_arch = "powerpc64",
+                target_arch = "s390x",
+                target_arch = "x86",
+                target_arch = "x86_64",
+                target_arch = "sparc64"
+            )
+        )
+    ))]
+    #[pyattr]
+    use libc::MADV_SOFT_OFFLINE;
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
     #[pyattr]
