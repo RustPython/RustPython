@@ -310,7 +310,7 @@ pub(super) mod _os {
         common::lock::{OnceCell, PyRwLock},
         common::suppress_iph,
         convert::{IntoPyException, ToPyObject},
-        function::{ArgBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg},
+        function::{ArgBytesLike, Either, FsPath, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, IterNextIterable, PyStructSequence, Representable},
@@ -326,6 +326,9 @@ pub(super) mod _os {
         path::PathBuf,
         time::{Duration, SystemTime},
     };
+
+    #[cfg(unix)]
+    use crate::function::KwArgs;
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -1127,6 +1130,7 @@ pub(super) mod _os {
         OutputMode::String.process_path(curdir_inner(vm)?, vm)
     }
 
+    #[cfg(unix)]
     #[derive(FromArgs)]
     struct RegisterAtForkArgs {
         #[pyarg(named, optional)]
