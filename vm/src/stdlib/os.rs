@@ -310,7 +310,7 @@ pub(super) mod _os {
         common::lock::{OnceCell, PyRwLock},
         common::suppress_iph,
         convert::{IntoPyException, ToPyObject},
-        function::{ArgBytesLike, Either, FsPath, FuncArgs, OptionalArg},
+        function::{ArgBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg},
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, IterNextIterable, PyStructSequence, Representable},
@@ -1141,7 +1141,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn register_at_fork(
         args: RegisterAtForkArgs,
-        _ignored: Kwargs,
+        _ignored: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let mut found_arg: bool = false; // hack to find atleas one arg
