@@ -2199,7 +2199,7 @@ class PtyTests(unittest.TestCase):
             child_output = bytearray()
             while True:
                 try:
-                    chunk = os.read(fd, 3000)
+                    chunk = os.read(fd, 30000)
                 except OSError:  # Assume EIO
                     break
                 if not chunk:
