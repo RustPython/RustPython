@@ -115,7 +115,6 @@ mod mmap {
         MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_UNMERGEABLE,
     };
 
-    #[allow(unused_imports)]
     #[cfg(any(
         target_os = "android",
         all(
@@ -132,6 +131,7 @@ mod mmap {
             )
         )
     ))]
+    #[allow(unused_imports)]
     use libc::MADV_SOFT_OFFLINE;
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
