@@ -1,3 +1,4 @@
+import threading
 from test.support import verbose, reap_children
 from test.support.import_helper import import_module
 
@@ -211,6 +212,7 @@ class PtyTest(unittest.TestCase):
         self.assertEqual(b'For my pet fish, Eric.\n', normalize_output(s2))
 
     # TODO: RUSTPYTHON
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @unittest.expectedFailure
     def test_fork(self):
         debug("calling pty.fork()")
@@ -314,6 +316,7 @@ class PtyTest(unittest.TestCase):
         self.assertEqual(data, b"")
 
     # TODO: RUSTPYTHON; no os.fork
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @unittest.expectedFailure
     def test_spawn_doesnt_hang(self):
         pty.spawn([sys.executable, '-c', 'print("hi there")'])
