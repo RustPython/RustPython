@@ -285,7 +285,7 @@ jobs:
           target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os != 'Windows'
         name: run cpython platform-dependent tests
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v test_builtin
+        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -vv test_builtin
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
