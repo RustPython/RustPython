@@ -2176,8 +2176,6 @@ class PtyTests(unittest.TestCase):
                 traceback.print_exc()
             finally:
                 # We don't want to return to unittest...
-                from time import sleep
-                sleep(60)
                 os._exit(0)
 
         # Parent
