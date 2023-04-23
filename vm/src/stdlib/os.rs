@@ -1160,10 +1160,7 @@ pub(super) mod _os {
                 if !after_in_parent.is_callable() {
                     return Err(vm.new_type_error("Args must be callable".to_owned()));
                 }
-                vm.state
-                    .after_forkers_parent
-                    .lock()
-                    .push(after_in_parent);
+                vm.state.after_forkers_parent.lock().push(after_in_parent);
                 found_arg = true
             }
 
@@ -1174,10 +1171,7 @@ pub(super) mod _os {
                 if !after_in_child.is_callable() {
                     return Err(vm.new_type_error("Args must be callable".to_owned()));
                 }
-                vm.state
-                    .after_forkers_child
-                    .lock()
-                    .push(after_in_child);
+                vm.state.after_forkers_child.lock().push(after_in_child);
                 found_arg = true
             }
             OptionalArg::Missing => (),
