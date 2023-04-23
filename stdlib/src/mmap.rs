@@ -244,9 +244,8 @@ mod mmap {
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     pub struct AdviseOptions {
-        #[pytraverse(skip)]
         #[pyarg(positional)]
         option: libc::c_int,
         #[pyarg(positional, default)]

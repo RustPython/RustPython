@@ -134,10 +134,9 @@ pub(crate) mod _struct {
         buffer.with_ref(|buf| format_spec.unpack(buf, vm))
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     struct UpdateFromArgs {
         buffer: ArgBytesLike,
-        #[pytraverse(skip)]
         #[pyarg(any, default = "0")]
         offset: isize,
     }

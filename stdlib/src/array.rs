@@ -1434,13 +1434,12 @@ mod array {
         }
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     struct ReconstructorArgs {
         #[pyarg(positional)]
         arraytype: PyTypeRef,
         #[pyarg(positional)]
         typecode: PyStrRef,
-        #[pytraverse(skip)]
         #[pyarg(positional)]
         mformat_code: MachineFormatCode,
         #[pyarg(positional)]

@@ -788,10 +788,9 @@ mod _ssl {
         }
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     struct WrapSocketArgs {
         sock: PyRef<PySocket>,
-        #[pytraverse(skip)]
         server_side: bool,
         #[pyarg(any, default)]
         server_hostname: Option<PyStrRef>,
@@ -811,11 +810,9 @@ mod _ssl {
         cadata: Option<Either<PyStrRef, ArgBytesLike>>,
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     struct LoadCertChainArgs {
-        #[pytraverse(skip)]
         certfile: FsPath,
-        #[pytraverse(skip)]
         #[pyarg(any, optional)]
         keyfile: Option<FsPath>,
         #[pyarg(any, optional)]
