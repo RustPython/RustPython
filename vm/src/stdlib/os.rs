@@ -1139,14 +1139,18 @@ pub(super) mod _os {
 
     #[cfg(unix)]
     #[pyfunction]
-    fn register_at_fork(args: RegisterAtForkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    fn register_at_fork(
+        args: RegisterAtForkArgs,
+        _ignored: Kwargs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let mut found_arg: bool = false; // hack to find atleas one arg
         match args.before {
             OptionalArg::Present(before) => {
                 if !before.is_callable() {
                     return Err(vm.new_type_error("Args must be callable".to_owned()));
                 }
-                vm.state.before_forkers.lock().push(before.clone());
+                vm.state.before_forkers.lock().push(before);
                 found_arg = true
             }
             OptionalArg::Missing => (),
@@ -1159,7 +1163,7 @@ pub(super) mod _os {
                 vm.state
                     .after_forkers_parent
                     .lock()
-                    .push(after_in_parent.clone());
+                    .push(after_in_parent);
                 found_arg = true
             }
 
@@ -1173,7 +1177,7 @@ pub(super) mod _os {
                 vm.state
                     .after_forkers_child
                     .lock()
-                    .push(after_in_child.clone());
+                    .push(after_in_child);
                 found_arg = true
             }
             OptionalArg::Missing => (),
