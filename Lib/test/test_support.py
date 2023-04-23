@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-import threading
+import threading  # XXX: RUSTPYTHON
 import time
 import unittest
 import warnings
