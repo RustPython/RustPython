@@ -791,6 +791,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         res.read()
         self.assertEqual(res.status, HTTPStatus.NOT_FOUND)
 
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     def test_authorization(self):
         headers = {b'Authorization' : b'Basic ' +
                    base64.b64encode(b'username:pass')}
