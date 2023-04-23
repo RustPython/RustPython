@@ -115,6 +115,7 @@ mod mmap {
         MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_UNMERGEABLE,
     };
 
+    #[allow(unused_imports)]
     #[cfg(any(
         target_os = "android",
         all(
