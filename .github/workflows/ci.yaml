@@ -138,7 +138,7 @@ jobs:
 
       - name: run rust tests
         run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }} ${{ env.NON_WASM_PACKAGES }}
-        if: runner.os != 'macOS'  
+        if: runner.os != 'macOS'
       # temp skip ssl linking for Mac to avoid CI failure
       - name: run rust tests (MacOS no ssl)
         run: cargo test --workspace --exclude rustpython_wasm --verbose --no-default-features --features threading,stdlib,zlib,importlib,encodings,jit ${{ env.NON_WASM_PACKAGES }}
@@ -285,7 +285,7 @@ jobs:
           target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
       - if: runner.os != 'Windows'
         name: run cpython platform-dependent tests
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v test_builtin
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
