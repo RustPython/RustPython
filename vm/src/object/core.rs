@@ -10,12 +10,13 @@
 //!
 //! PyRef<PyWeak> may looking like to be called as PyObjectWeak by the rule,
 //! but not to do to remember it is a PyRef object.
-
 use super::{
     ext::{AsObject, PyRefExact, PyResult},
     payload::PyObjectPayload,
     PyAtomicRef,
 };
+use crate::object::traverse::{Traverse, TraverseFn};
+use crate::object::traverse_object::PyObjVTable;
 use crate::{
     builtins::{PyDictRef, PyType, PyTypeRef},
     common::{
@@ -73,52 +74,42 @@ use std::{
 
 /// A type to just represent "we've erased the type of this object, cast it before you use it"
 #[derive(Debug)]
-struct Erased;
+pub(super) struct Erased;
 
-struct PyObjVTable {
-    drop_dealloc: unsafe fn(*mut PyObject),
-    debug: unsafe fn(&PyObject, &mut fmt::Formatter) -> fmt::Result,
-}
-unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
+pub(super) unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
     drop(Box::from_raw(x as *mut PyInner<T>));
 }
-unsafe fn debug_obj<T: PyObjectPayload>(x: &PyObject, f: &mut fmt::Formatter) -> fmt::Result {
+pub(super) unsafe fn debug_obj<T: PyObjectPayload>(
+    x: &PyObject,
+    f: &mut fmt::Formatter,
+) -> fmt::Result {
     let x = &*(x as *const PyObject as *const PyInner<T>);
     fmt::Debug::fmt(x, f)
 }
 
-impl PyObjVTable {
-    pub fn of<T: PyObjectPayload>() -> &'static Self {
-        struct Helper<T: PyObjectPayload>(PhantomData<T>);
-        trait VtableHelper {
-            const VTABLE: PyObjVTable;
-        }
-        impl<T: PyObjectPayload> VtableHelper for Helper<T> {
-            const VTABLE: PyObjVTable = PyObjVTable {
-                drop_dealloc: drop_dealloc_obj::<T>,
-                debug: debug_obj::<T>,
-            };
-        }
-        &Helper::<T>::VTABLE
-    }
+/// Call `try_trace` on payload
+pub(super) unsafe fn try_trace_obj<T: PyObjectPayload>(x: &PyObject, tracer_fn: &mut TraverseFn) {
+    let x = &*(x as *const PyObject as *const PyInner<T>);
+    let payload = &x.payload;
+    payload.try_traverse(tracer_fn)
 }
 
 /// This is an actual python object. It consists of a `typ` which is the
 /// python class, and carries some rust payload optionally. This rust
 /// payload can be a rust float or rust int in case of float and int objects.
 #[repr(C)]
-struct PyInner<T> {
-    ref_count: RefCount,
+pub(super) struct PyInner<T> {
+    pub(super) ref_count: RefCount,
     // TODO: move typeid into vtable once TypeId::of is const
-    typeid: TypeId,
-    vtable: &'static PyObjVTable,
+    pub(super) typeid: TypeId,
+    pub(super) vtable: &'static PyObjVTable,
 
-    typ: PyAtomicRef<PyType>, // __class__ member
-    dict: Option<InstanceDict>,
-    weak_list: WeakRefList,
-    slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
+    pub(super) typ: PyAtomicRef<PyType>, // __class__ member
+    pub(super) dict: Option<InstanceDict>,
+    pub(super) weak_list: WeakRefList,
+    pub(super) slots: Box<[PyRwLock<Option<PyObjectRef>>]>,
 
-    payload: T,
+    pub(super) payload: T,
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
@@ -127,7 +118,23 @@ impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
     }
 }
 
-struct WeakRefList {
+unsafe impl<T: PyObjectPayload> Traverse for Py<T> {
+    /// DO notice that call `trace` on `Py<T>` means apply `tracer_fn` on `Py<T>`'s children,
+    /// not like call `trace` on `PyRef<T>` which apply `tracer_fn` on `PyRef<T>` itself
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn)
+    }
+}
+
+unsafe impl Traverse for PyObject {
+    /// DO notice that call `trace` on `PyObject` means apply `tracer_fn` on `PyObject`'s children,
+    /// not like call `trace` on `PyObjectRef` which apply `tracer_fn` on `PyObjectRef` itself
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn)
+    }
+}
+
+pub(super) struct WeakRefList {
     inner: OncePtr<PyMutex<WeakListInner>>,
 }
 
@@ -393,8 +400,8 @@ impl Py<PyWeak> {
 }
 
 #[derive(Debug)]
-struct InstanceDict {
-    d: PyRwLock<PyDictRef>,
+pub(super) struct InstanceDict {
+    pub(super) d: PyRwLock<PyDictRef>,
 }
 
 impl From<PyDictRef> for InstanceDict {

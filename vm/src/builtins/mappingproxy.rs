@@ -4,6 +4,7 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
+    object::{Traverse, TraverseFn},
     protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
@@ -13,7 +14,7 @@ use crate::{
 };
 use once_cell::sync::Lazy;
 
-#[pyclass(module = false, name = "mappingproxy")]
+#[pyclass(module = false, name = "mappingproxy", traverse)]
 #[derive(Debug)]
 pub struct PyMappingProxy {
     mapping: MappingProxyInner,
@@ -23,6 +24,15 @@ pub struct PyMappingProxy {
 enum MappingProxyInner {
     Class(PyTypeRef),
     Mapping(ArgMapping),
+}
+
+unsafe impl Traverse for MappingProxyInner {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        match self {
+            MappingProxyInner::Class(ref r) => r.traverse(tracer_fn),
+            MappingProxyInner::Mapping(ref arg) => arg.traverse(tracer_fn),
+        }
+    }
 }
 
 impl PyPayload for PyMappingProxy {

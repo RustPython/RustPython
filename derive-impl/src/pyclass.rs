@@ -413,8 +413,59 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
         attrs,
     )?;
 
+    const ALLOWED_TRAVERSE_OPTS: &[&str] = &["manual"];
+    // try to know if it have a `#[pyclass(trace)]` exist on this struct
+    // TODO(discord9): rethink on auto detect `#[Derive(PyTrace)]`
+
+    // 1. no `traverse` at all: generate a dummy try_traverse
+    // 2. `traverse = "manual"`: generate a try_traverse, but not #[derive(Traverse)]
+    // 3. `traverse`: generate a try_traverse, and #[derive(Traverse)]
+    let (maybe_trace_code, derive_trace) = {
+        if class_meta.inner()._has_key("traverse")? {
+            let maybe_trace_code = quote! {
+                impl ::rustpython_vm::object::MaybeTraverse for #ident {
+                    const IS_TRACE: bool = true;
+                    fn try_traverse(&self, tracer_fn: &mut ::rustpython_vm::object::TraverseFn) {
+                        ::rustpython_vm::object::Traverse::traverse(self, tracer_fn);
+                    }
+                }
+            };
+            // if the key `traverse` exist but not as key-value, _optional_str return Err(...)
+            // so we need to check if it is Ok(Some(...))
+            let value = class_meta.inner()._optional_str("traverse");
+            let derive_trace = if let Ok(Some(s)) = value {
+                if !ALLOWED_TRAVERSE_OPTS.contains(&s.as_str()) {
+                    bail_span!(
+                        item,
+                        "traverse attribute only accept {ALLOWED_TRAVERSE_OPTS:?} as value or no value at all",
+                    );
+                }
+                assert_eq!(s, "manual");
+                quote! {}
+            } else {
+                quote! {#[derive(Traverse)]}
+            };
+            (maybe_trace_code, derive_trace)
+        } else {
+            (
+                // a dummy impl, which do nothing
+                // #attrs
+                quote! {
+                    impl ::rustpython_vm::object::MaybeTraverse for #ident {
+                        fn try_traverse(&self, tracer_fn: &mut ::rustpython_vm::object::TraverseFn) {
+                            // do nothing
+                        }
+                    }
+                },
+                quote! {},
+            )
+        }
+    };
+
     let ret = quote! {
+        #derive_trace
         #item
+        #maybe_trace_code
         #class_def
     };
     Ok(ret)

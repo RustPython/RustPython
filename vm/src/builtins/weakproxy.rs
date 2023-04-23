@@ -13,7 +13,7 @@ use crate::{
 };
 use once_cell::sync::Lazy;
 
-#[pyclass(module = false, name = "weakproxy", unhashable = true)]
+#[pyclass(module = false, name = "weakproxy", unhashable = true, traverse)]
 #[derive(Debug)]
 pub struct PyWeakProxy {
     weak: PyRef<PyWeak>,

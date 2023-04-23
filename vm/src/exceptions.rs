@@ -1,5 +1,6 @@
 use self::types::{PyBaseException, PyBaseExceptionRef};
 use crate::common::{lock::PyRwLock, str::ReprOverflowError};
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     builtins::{
         traceback::PyTracebackRef, tuple::IntoPyTuple, PyNone, PyStr, PyStrRef, PyTuple,
@@ -20,6 +21,15 @@ use std::{
     collections::HashSet,
     io::{self, BufRead, BufReader},
 };
+
+unsafe impl Traverse for PyBaseException {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.traceback.traverse(tracer_fn);
+        self.cause.traverse(tracer_fn);
+        self.context.traverse(tracer_fn);
+        self.args.traverse(tracer_fn);
+    }
+}
 
 impl std::fmt::Debug for PyBaseException {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
@@ -1143,7 +1153,7 @@ pub(super) mod types {
 
     // Sorted By Hierarchy then alphabetized.
 
-    #[pyclass(module = false, name = "BaseException")]
+    #[pyclass(module = false, name = "BaseException", traverse = "manual")]
     pub struct PyBaseException {
         pub(super) traceback: PyRwLock<Option<PyTracebackRef>>,
         pub(super) cause: PyRwLock<Option<PyRef<Self>>>,

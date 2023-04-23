@@ -67,8 +67,10 @@ mod platform {
 pub use platform::timeval;
 use platform::RawFd;
 
+#[derive(Traverse)]
 struct Selectable {
     obj: PyObjectRef,
+    #[pytraverse(skip)]
     fno: RawFd,
 }
 

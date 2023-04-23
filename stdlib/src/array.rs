@@ -1399,7 +1399,7 @@ mod array {
     }
 
     #[pyattr]
-    #[pyclass(name = "arrayiterator")]
+    #[pyclass(name = "arrayiterator", traverse)]
     #[derive(Debug, PyPayload)]
     pub struct PyArrayIter {
         internal: PyMutex<PositionIterInternal<PyArrayRef>>,
@@ -1434,12 +1434,13 @@ mod array {
         }
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, Traverse)]
     struct ReconstructorArgs {
         #[pyarg(positional)]
         arraytype: PyTypeRef,
         #[pyarg(positional)]
         typecode: PyStrRef,
+        #[pytraverse(skip)]
         #[pyarg(positional)]
         mformat_code: MachineFormatCode,
         #[pyarg(positional)]

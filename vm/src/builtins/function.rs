@@ -10,6 +10,7 @@ use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
 use crate::convert::ToPyObject;
 use crate::function::ArgMapping;
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     bytecode,
     class::PyClassImpl,
@@ -25,7 +26,7 @@ use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
-#[pyclass(module = false, name = "function")]
+#[pyclass(module = false, name = "function", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyRef<PyCode>,
@@ -36,6 +37,14 @@ pub struct PyFunction {
     qualname: PyMutex<PyStrRef>,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
+}
+
+unsafe impl Traverse for PyFunction {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.globals.traverse(tracer_fn);
+        self.closure.traverse(tracer_fn);
+        self.defaults_and_kwdefaults.traverse(tracer_fn);
+    }
 }
 
 impl PyFunction {
@@ -468,7 +477,7 @@ impl Representable for PyFunction {
     }
 }
 
-#[pyclass(module = false, name = "method")]
+#[pyclass(module = false, name = "method", traverse)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
     object: PyObjectRef,
@@ -513,7 +522,7 @@ impl GetAttr for PyBoundMethod {
     }
 }
 
-#[derive(FromArgs)]
+#[derive(FromArgs, Traverse)]
 pub struct PyBoundMethodNewArgs {
     #[pyarg(positional)]
     function: PyObjectRef,
@@ -633,7 +642,7 @@ impl Representable for PyBoundMethod {
     }
 }
 
-#[pyclass(module = false, name = "cell")]
+#[pyclass(module = false, name = "cell", traverse)]
 #[derive(Debug, Default)]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,

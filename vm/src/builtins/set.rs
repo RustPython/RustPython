@@ -28,7 +28,7 @@ use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
-#[pyclass(module = false, name = "set", unhashable = true)]
+#[pyclass(module = false, name = "set", unhashable = true, traverse)]
 #[derive(Default)]
 pub struct PySet {
     pub(super) inner: PySetInner,
@@ -149,6 +149,13 @@ impl PyPayload for PyFrozenSet {
 #[derive(Default, Clone)]
 pub(super) struct PySetInner {
     content: PyRc<SetContentType>,
+}
+
+unsafe impl crate::object::Traverse for PySetInner {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn) {
+        // FIXME(discord9): Rc means shared ref, so should it be traced?
+        self.content.traverse(tracer_fn)
+    }
 }
 
 impl PySetInner {

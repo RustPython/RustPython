@@ -178,6 +178,10 @@ impl ItemMetaInner {
         Ok(value)
     }
 
+    pub fn _has_key(&self, key: &str) -> Result<bool> {
+        Ok(matches!(self.meta_map.get(key), Some((_, _))))
+    }
+
     pub fn _bool(&self, key: &str) -> Result<bool> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             match meta {
@@ -263,8 +267,14 @@ impl ItemMeta for AttrItemMeta {
 pub(crate) struct ClassItemMeta(ItemMetaInner);
 
 impl ItemMeta for ClassItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] =
-        &["module", "name", "base", "metaclass", "unhashable"];
+    const ALLOWED_NAMES: &'static [&'static str] = &[
+        "module",
+        "name",
+        "base",
+        "metaclass",
+        "unhashable",
+        "traverse",
+    ];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)

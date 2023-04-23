@@ -5,6 +5,7 @@ use crate::{
         PyDict, PyStrInterned,
     },
     convert::ToPyResult,
+    object::{Traverse, TraverseFn},
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -60,6 +61,12 @@ impl<'a> From<&'a PyObject> for PyMapping<'a> {
 pub struct PyMapping<'a> {
     pub obj: &'a PyObject,
     pub methods: &'static PyMappingMethods,
+}
+
+unsafe impl Traverse for PyMapping<'_> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.obj.traverse(tracer_fn)
+    }
 }
 
 impl AsRef<PyObject> for PyMapping<'_> {

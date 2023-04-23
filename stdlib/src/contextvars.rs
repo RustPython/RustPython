@@ -80,9 +80,10 @@ mod _contextvars {
     }
 
     #[pyattr]
-    #[pyclass(name)]
+    #[pyclass(name, traverse)]
     #[derive(Debug, PyPayload)]
     struct ContextVar {
+        #[pytraverse(skip)]
         #[allow(dead_code)] // TODO: RUSTPYTHON
         name: String,
         #[allow(dead_code)] // TODO: RUSTPYTHON
@@ -161,7 +162,7 @@ mod _contextvars {
     #[derive(Debug, PyPayload)]
     struct ContextToken {}
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, Traverse)]
     struct ContextTokenOptions {
         #[pyarg(positional)]
         #[allow(dead_code)] // TODO: RUSTPYTHON
