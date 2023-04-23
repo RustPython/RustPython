@@ -1127,30 +1127,59 @@ pub(super) mod _os {
         OutputMode::String.process_path(curdir_inner(vm)?, vm)
     }
 
+    #[derive(FromArgs)]
+    struct RegisterAtForkArgs {
+        #[pyarg(named, optional)]
+        before: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_parent: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_child: OptionalArg<PyObjectRef>,
+    }
+
     #[cfg(unix)]
     #[pyfunction]
-    fn register_at_fork(kwargs: crate::function::KwArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let mut match_found = false; // better way to handle this?
-        for (key, value) in kwargs.into_iter() {
-            if !value.is_callable() {
-                return Err(vm.new_type_error("Args must be callable".to_owned()));
+    fn register_at_fork(args: RegisterAtForkArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let mut found_arg: bool = false; // hack to find atleas one arg
+        match args.before {
+            OptionalArg::Present(before) => {
+                if !before.is_callable() {
+                    return Err(vm.new_type_error("Args must be callable".to_owned()));
+                }
+                vm.state.before_forkers.lock().push(before.clone());
+                found_arg = true
             }
-            if key == "before" {
-                match_found = true;
-                vm.state.before_forkers.lock().push(value.clone());
+            OptionalArg::Missing => (),
+        };
+        match args.after_in_parent {
+            OptionalArg::Present(after_in_parent) => {
+                if !after_in_parent.is_callable() {
+                    return Err(vm.new_type_error("Args must be callable".to_owned()));
+                }
+                vm.state
+                    .after_forkers_parent
+                    .lock()
+                    .push(after_in_parent.clone());
+                found_arg = true
             }
-            if key == "after_in_parent" {
-                match_found = true;
-                vm.state.after_forkers_parent.lock().push(value.clone());
-            }
-            if key == "after_in_child" {
-                match_found = true;
-                vm.state.after_forkers_child.lock().push(value.clone());
-            }
-        }
 
-        if !match_found {
-            return Err(vm.new_value_error("At least one argument is required.".to_owned()));
+            OptionalArg::Missing => (),
+        };
+        match args.after_in_child {
+            OptionalArg::Present(after_in_child) => {
+                if !after_in_child.is_callable() {
+                    return Err(vm.new_type_error("Args must be callable".to_owned()));
+                }
+                vm.state
+                    .after_forkers_child
+                    .lock()
+                    .push(after_in_child.clone());
+                found_arg = true
+            }
+            OptionalArg::Missing => (),
+        };
+        if !found_arg {
+            return Err(vm.new_type_error("At least one argument is required.".to_owned()));
         }
 
         Ok(())
