@@ -18,6 +18,7 @@ mod pyclass;
 mod pymodule;
 mod pypayload;
 mod pystructseq;
+mod pytraverse;
 
 use error::{extract_spans, Diagnostic};
 use proc_macro2::TokenStream;
@@ -76,4 +77,8 @@ pub fn py_freeze(input: TokenStream, compiler: &dyn Compiler) -> TokenStream {
 
 pub fn pypayload(input: DeriveInput) -> TokenStream {
     result_to_tokens(pypayload::impl_pypayload(input))
+}
+
+pub fn pytraverse(item: DeriveInput) -> TokenStream {
+    result_to_tokens(pytraverse::impl_pytraverse(item))
 }

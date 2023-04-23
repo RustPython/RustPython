@@ -1,5 +1,6 @@
 use super::{PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     atomic_func,
     class::PyClassImpl,
@@ -21,7 +22,7 @@ use crate::{
 use once_cell::sync::Lazy;
 use std::{fmt, marker::PhantomData};
 
-#[pyclass(module = false, name = "tuple")]
+#[pyclass(module = false, name = "tuple", traverse)]
 pub struct PyTuple {
     elements: Box<[PyObjectRef]>,
 }
@@ -421,7 +422,7 @@ impl Representable for PyTuple {
     }
 }
 
-#[pyclass(module = false, name = "tuple_iterator")]
+#[pyclass(module = false, name = "tuple_iterator", traverse)]
 #[derive(Debug)]
 pub(crate) struct PyTupleIterator {
     internal: PyMutex<PositionIterInternal<PyTupleRef>>,
@@ -477,6 +478,15 @@ pub struct PyTupleTyped<T: TransmuteFromObject> {
     //                   elements must be logically valid when transmuted to T
     tuple: PyTupleRef,
     _marker: PhantomData<Vec<T>>,
+}
+
+unsafe impl<T> Traverse for PyTupleTyped<T>
+where
+    T: TransmuteFromObject + Traverse,
+{
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.tuple.traverse(tracer_fn);
+    }
 }
 
 impl<T: TransmuteFromObject> TryFromObject for PyTupleTyped<T> {

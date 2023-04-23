@@ -6,6 +6,7 @@ use crate::{
     builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
     common::int::bytes_to_int,
     function::ArgBytesLike,
+    object::{Traverse, TraverseFn},
     stdlib::warnings,
     AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
@@ -425,6 +426,12 @@ impl PyNumberSlots {
 }
 #[derive(Copy, Clone)]
 pub struct PyNumber<'a>(&'a PyObject);
+
+unsafe impl Traverse for PyNumber<'_> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn)
+    }
+}
 
 impl<'a> Deref for PyNumber<'a> {
     type Target = PyObject;

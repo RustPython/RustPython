@@ -1,6 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     convert::ToPyObject,
+    object::{Traverse, TraverseFn},
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
@@ -57,11 +58,17 @@ into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
 /// The `FuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional
 /// arguments, as well as keyword arguments passed to the function.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Traverse)]
 pub struct FuncArgs {
     pub args: Vec<PyObjectRef>,
     // sorted map, according to https://www.python.org/dev/peps/pep-0468/
     pub kwargs: IndexMap<String, PyObjectRef>,
+}
+
+unsafe impl Traverse for IndexMap<String, PyObjectRef> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.values().for_each(|v| v.traverse(tracer_fn));
+    }
 }
 
 /// Conversion from vector of python objects to function arguments.
@@ -320,6 +327,15 @@ impl<T: TryFromObject> FromArgOptional for T {
 #[derive(Clone)]
 pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
 
+unsafe impl<T> Traverse for KwArgs<T>
+where
+    T: Traverse,
+{
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.iter().map(|(_, v)| v.traverse(tracer_fn)).count();
+    }
+}
+
 impl<T> KwArgs<T> {
     pub fn new(map: IndexMap<String, T>) -> Self {
         KwArgs(map)
@@ -376,6 +392,15 @@ impl<T> IntoIterator for KwArgs<T> {
 /// or conversions of each argument.
 #[derive(Clone)]
 pub struct PosArgs<T = PyObjectRef>(Vec<T>);
+
+unsafe impl<T> Traverse for PosArgs<T>
+where
+    T: Traverse,
+{
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn)
+    }
+}
 
 impl<T> PosArgs<T> {
     pub fn new(args: Vec<T>) -> Self {
@@ -459,6 +484,18 @@ where
 pub enum OptionalArg<T = PyObjectRef> {
     Present(T),
     Missing,
+}
+
+unsafe impl<T> Traverse for OptionalArg<T>
+where
+    T: Traverse,
+{
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        match self {
+            OptionalArg::Present(ref o) => o.traverse(tracer_fn),
+            OptionalArg::Missing => (),
+        }
+    }
 }
 
 impl OptionalArg<PyObjectRef> {

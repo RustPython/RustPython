@@ -6,7 +6,7 @@ use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "filter")]
+#[pyclass(module = false, name = "filter", traverse)]
 #[derive(Debug)]
 pub struct PyFilter {
     predicate: PyObjectRef,

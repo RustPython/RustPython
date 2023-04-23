@@ -124,8 +124,8 @@ jobs:
       - name: Set up the Windows environment
         shell: bash
         run: |
-          choco install llvm openssl
-          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
+          choco install llvm openssl --no-progress
+          echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >>$GITHUB_ENV
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
@@ -263,8 +263,8 @@ jobs:
       - name: Set up the Windows environment
         shell: bash
         run: |
-          choco install llvm openssl
-          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
+          choco install llvm openssl --no-progress
+          echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >>$GITHUB_ENV
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
@@ -308,6 +308,11 @@ jobs:
         run: |
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
+      - if: runner.os != 'Windows'
+        name: Check if pip inside venv is functional
+        run: |
+          target/release/rustpython -m venv testvenv
+          testvenv/bin/rustpython -m pip install wheel
       - name: Check whats_left is not broken
         run: python -I whats_left.py
 

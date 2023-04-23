@@ -20,6 +20,7 @@ use crate::{
     convert::ToPyResult,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
+    object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{AsNumber, Callable, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -29,7 +30,7 @@ use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
-#[pyclass(module = false, name = "type")]
+#[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
     pub base: Option<PyTypeRef>,
     pub bases: Vec<PyTypeRef>,
@@ -38,6 +39,20 @@ pub struct PyType {
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
+}
+
+unsafe impl crate::object::Traverse for PyType {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn) {
+        self.base.traverse(tracer_fn);
+        self.bases.traverse(tracer_fn);
+        self.mro.traverse(tracer_fn);
+        self.subclasses.traverse(tracer_fn);
+        self.attributes
+            .read_recursive()
+            .iter()
+            .map(|(_, v)| v.traverse(tracer_fn))
+            .count();
+    }
 }
 
 pub struct HeapTypeExt {
@@ -99,6 +114,12 @@ cfg_if::cfg_if! {
 /// that maintains order and is compatible with the standard HashMap  This is probably
 /// faster and only supports strings as keys.
 pub type PyAttributes = IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState>;
+
+unsafe impl Traverse for PyAttributes {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.values().for_each(|v| v.traverse(tracer_fn));
+    }
+}
 
 impl fmt::Display for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

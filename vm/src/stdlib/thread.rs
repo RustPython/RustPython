@@ -8,7 +8,7 @@ pub(crate) mod _thread {
         builtins::{PyDictRef, PyStr, PyTupleRef, PyTypeRef},
         convert::ToPyException,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
-        types::{Constructor, GetAttr, SetAttr},
+        types::{Constructor, GetAttr, Representable, SetAttr},
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use parking_lot::{
@@ -97,12 +97,12 @@ pub(crate) mod _thread {
             } else {
                 "unlocked"
             };
-            format!(
+            Ok(format!(
                 "<{} {} object at {:#x}>",
                 status,
                 $zelf.class().name(),
                 $zelf.get_id()
-            )
+            ))
         }};
     }
 
@@ -119,7 +119,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor, Representable))]
     impl Lock {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
@@ -146,17 +146,19 @@ pub(crate) mod _thread {
         fn locked(&self) -> bool {
             self.mu.is_locked()
         }
-
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>) -> String {
-            repr_lock_impl!(zelf)
-        }
     }
 
     impl Constructor for Lock {
         type Args = FuncArgs;
         fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create '_thread.lock' instances".to_owned()))
+        }
+    }
+
+    impl Representable for Lock {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            repr_lock_impl!(zelf)
         }
     }
 
@@ -174,7 +176,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass]
+    #[pyclass(with(Representable))]
     impl RLock {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -210,9 +212,11 @@ pub(crate) mod _thread {
         fn exit(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             self.release(vm)
         }
+    }
 
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>) -> String {
+    impl Representable for RLock {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             repr_lock_impl!(zelf)
         }
     }

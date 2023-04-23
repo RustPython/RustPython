@@ -1,3 +1,5 @@
+# XXX: RUSTPYTHON; Trick to make sysconfig work as RustPython
+exec(r'''
 """Access to Python's configuration information."""
 
 import os
@@ -851,10 +853,6 @@ def _main():
     print()
     _print_dict('Variables', get_config_vars())
 
-# XXX RUSTPYTHON: replace python with rustpython in all these paths
-for group in _INSTALL_SCHEMES.values():
-    for key in group.keys():
-        group[key] = group[key].replace("Python", "RustPython").replace("python", "rustpython")
-
 if __name__ == '__main__':
     _main()
+'''.replace("Python", "RustPython").replace("/python", "/rustpython"))

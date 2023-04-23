@@ -13,9 +13,10 @@ use crate::{
 use num_bigint::BigInt;
 use num_traits::Zero;
 
-#[pyclass(module = false, name = "enumerate")]
+#[pyclass(module = false, name = "enumerate", traverse)]
 #[derive(Debug)]
 pub struct PyEnumerate {
+    #[pytraverse(skip)]
     counter: PyRwLock<BigInt>,
     iterator: PyIter,
 }
@@ -84,7 +85,7 @@ impl IterNext for PyEnumerate {
     }
 }
 
-#[pyclass(module = false, name = "reversed")]
+#[pyclass(module = false, name = "reversed", traverse)]
 #[derive(Debug)]
 pub struct PyReverseSequenceIterator {
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
