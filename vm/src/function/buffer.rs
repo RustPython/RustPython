@@ -2,7 +2,8 @@ use crate::{
     builtins::{PyStr, PyStrRef},
     common::borrow::{BorrowedValue, BorrowedValueMut},
     protocol::PyBuffer,
-    PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    VirtualMachine,
 };
 
 // Python/getargs.c
@@ -56,6 +57,10 @@ impl ArgBytesLike {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    pub fn as_object(&self) -> &PyObject {
+        &self.0.obj
     }
 }
 
@@ -124,6 +129,15 @@ impl<'a> TryFromBorrowedObject<'a> for ArgMemoryBuffer {
 pub enum ArgStrOrBytesLike {
     Buf(ArgBytesLike),
     Str(PyStrRef),
+}
+
+impl ArgStrOrBytesLike {
+    pub fn as_object(&self) -> &PyObject {
+        match self {
+            Self::Buf(b) => b.as_object(),
+            Self::Str(s) => s.as_object(),
+        }
+    }
 }
 
 impl TryFromObject for ArgStrOrBytesLike {
