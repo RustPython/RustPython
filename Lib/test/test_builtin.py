@@ -2173,8 +2173,8 @@ class PtyTests(unittest.TestCase):
                 with open(w, "w") as wpipe:
                     child(wpipe)
             except:
-                print(traceback.format_exc())
                 traceback.print_exc()
+                self.fail(traceback.format_exc())
             finally:
                 # We don't want to return to unittest...
                 os._exit(0)
@@ -2278,7 +2278,6 @@ class PtyTests(unittest.TestCase):
             sys.stdout = io.StringIO()  # Does not support fileno()
             input("prompt")
             print("captured:", ascii(sys.stdout.getvalue()), file=wpipe)
-        child(b"quux\r")
         lines = self.run_child(child, b"quux\r")
         expected = (
             "stdin.isatty(): True",
