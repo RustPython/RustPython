@@ -2176,7 +2176,8 @@ class PtyTests(unittest.TestCase):
                 traceback.print_exc()
             finally:
                 # We don't want to return to unittest...
-                os._exit(0)
+                #os._exit(0)
+                ...
 
         # Parent
         os.close(w)
@@ -2207,8 +2208,8 @@ class PtyTests(unittest.TestCase):
                 child_output.extend(chunk)
             os.close(fd)
             child_output = child_output.decode("ascii", "ignore")
-            # self.fail("got %d lines in pipe but expected 2, child output was:\n%s"
-            #           % (len(lines), child_output))
+            self.fail("got %d lines in pipe but expected 2, child output was:\n%s"
+                      % (len(lines), child_output))
 
         # bpo-40155: Close the PTY before waiting for the child process
         # completion, otherwise the child process hangs on AIX.
