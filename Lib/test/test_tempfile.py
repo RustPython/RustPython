@@ -6,7 +6,7 @@ import os
 import pathlib
 import sys
 import re
-import threading
+import threading  # XXX: RUSTPYTHON; to check `_at_fork_reinit`
 import warnings
 import contextlib
 import stat
