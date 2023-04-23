@@ -2278,6 +2278,7 @@ class PtyTests(unittest.TestCase):
             sys.stdout = io.StringIO()  # Does not support fileno()
             input("prompt")
             print("captured:", ascii(sys.stdout.getvalue()), file=wpipe)
+        child(b"quux\r")
         lines = self.run_child(child, b"quux\r")
         expected = (
             "stdin.isatty(): True",
