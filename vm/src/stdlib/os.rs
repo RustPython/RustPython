@@ -1159,9 +1159,14 @@ pub(super) mod _os {
     }
 
     #[cfg(unix)]
-    fn run_at_forkers(funcs: Vec<PyObjectRef>, vm: &VirtualMachine) {
+    fn run_at_forkers(mut funcs: Vec<PyObjectRef>, reversed: bool, vm: &VirtualMachine) {
+
         if !funcs.is_empty() {
-            for func in funcs.into_iter().rev() {
+
+            if reversed {
+                funcs.reverse();
+            }
+            for func in funcs.into_iter() {
                 if let Err(e) = func.call((), vm) {
                     let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
                     vm.run_unraisable(e, Some("Exception ignored in".to_owned()), func);
@@ -1176,8 +1181,10 @@ pub(super) mod _os {
     #[cfg(unix)]
     fn py_os_before_fork(vm: &VirtualMachine) -> PyResult<()> {
         let before_forkers: Vec<PyObjectRef> = std::mem::take(&mut *vm.state.before_forkers.lock());
-        run_at_forkers(before_forkers, vm);
+        // functions must be executed in reversed order as they are registered
+        // only for before_forkers, refer: test_register_at_fork in test_posix
 
+        run_at_forkers(before_forkers, true, vm);
         Ok(())
     }
 
@@ -1185,7 +1192,7 @@ pub(super) mod _os {
     fn py_os_after_fork_child(vm: &VirtualMachine) -> PyResult<()> {
         let after_forkers_child: Vec<PyObjectRef> =
             std::mem::take(&mut *vm.state.after_forkers_child.lock());
-        run_at_forkers(after_forkers_child, vm);
+        run_at_forkers(after_forkers_child, false, vm);
         Ok(())
     }
 
@@ -1193,7 +1200,7 @@ pub(super) mod _os {
     fn py_os_after_fork_parent(vm: &VirtualMachine) -> PyResult<()> {
         let after_forkers_parent: Vec<PyObjectRef> =
             std::mem::take(&mut *vm.state.after_forkers_parent.lock());
-        run_at_forkers(after_forkers_parent, vm);
+        run_at_forkers(after_forkers_parent, false, vm);
         Ok(())
     }
 
