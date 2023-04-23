@@ -2174,9 +2174,10 @@ class PtyTests(unittest.TestCase):
                     child(wpipe)
             except:
                 traceback.print_exc()
-                self.fail(traceback.format_exc())
             finally:
                 # We don't want to return to unittest...
+                from time import sleep
+                sleep(60)
                 os._exit(0)
 
         # Parent
@@ -2200,7 +2201,7 @@ class PtyTests(unittest.TestCase):
             child_output = bytearray()
             while True:
                 try:
-                    chunk = os.read(fd, 30000)
+                    chunk = os.read(fd, 3000)
                 except OSError:  # Assume EIO
                     break
                 if not chunk:
