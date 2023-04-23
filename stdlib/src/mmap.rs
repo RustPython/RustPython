@@ -131,7 +131,7 @@ mod mmap {
             )
         )
     ))]
-    #[allow(unused_imports)]
+    #[pyattr]
     use libc::MADV_SOFT_OFFLINE;
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
