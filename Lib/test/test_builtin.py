@@ -2173,11 +2173,11 @@ class PtyTests(unittest.TestCase):
                 with open(w, "w") as wpipe:
                     child(wpipe)
             except:
+                print(traceback.format_exc())
                 traceback.print_exc()
             finally:
                 # We don't want to return to unittest...
-                #os._exit(0)
-                ...
+                os._exit(0)
 
         # Parent
         os.close(w)
