@@ -156,6 +156,7 @@ class TestFcntl(unittest.TestCase):
         self.assertRaises(ValueError, fcntl.flock, -1, fcntl.LOCK_SH)
         self.assertRaises(TypeError, fcntl.flock, 'spam', fcntl.LOCK_SH)
 
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
@@ -168,7 +169,7 @@ class TestFcntl(unittest.TestCase):
         p.join()
         fcntl.lockf(self.f, fcntl.LOCK_UN)
         self.assertEqual(p.exitcode, 0)
-
+    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
