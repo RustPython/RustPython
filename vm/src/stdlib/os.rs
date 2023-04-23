@@ -1132,6 +1132,11 @@ pub(super) mod _os {
     fn register_at_fork(kwargs: crate::function::KwArgs, vm: &VirtualMachine) -> PyResult<()> {
         let mut match_found = false; // better way to handle this?
         for (key, value) in kwargs.into_iter() {
+            if !value.is_callable() {
+                return Err(vm.new_type_error(
+                    "Args must be callable".to_owned()
+                ));
+            }
             if key == "before" {
                 match_found = true;
                 vm.state.before_forkers.lock().push(value.clone());
