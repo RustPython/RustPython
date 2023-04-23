@@ -18,7 +18,7 @@ pub struct PyProperty {
     setter: PyRwLock<Option<PyObjectRef>>,
     deleter: PyRwLock<Option<PyObjectRef>>,
     doc: PyRwLock<Option<PyObjectRef>>,
-    name: PyRwLock<Option<PyObjectRef>>
+    name: PyRwLock<Option<PyStrRef>>
 }
 
 impl PyPayload for PyProperty {
@@ -38,7 +38,7 @@ pub struct PropertyArgs {
     #[pyarg(any, default)]
     doc: Option<PyObjectRef>,
     #[pyarg(any, default)]
-    name: Option<PyObjectRef>,
+    name: Option<PyStrRef>,
 }
 
 impl GetDescriptor for PyProperty {
@@ -141,7 +141,9 @@ impl PyProperty {
             ))
         }
 
-        *self.name.write() = Some(args_ref[1].clone());
+        let obj = args_ref[1].clone().payload::<PyStr>(vm)?;
+
+        *self.name.write() = Some();
 
         Ok(())
 
@@ -248,6 +250,7 @@ impl Initializer for PyProperty {
         *zelf.setter.write() = args.fset;
         *zelf.deleter.write() = args.fdel;
         *zelf.doc.write() = args.doc;
+        *zelf.name.write() = args.name;
         Ok(())
     }
 }
