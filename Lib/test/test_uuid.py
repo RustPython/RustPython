@@ -1,4 +1,4 @@
-import threading
+import threading  # XXX: RUSTPYTHON; to check `_at_fork_reinit`
 import unittest
 from test import support
 from test.support import import_helper
