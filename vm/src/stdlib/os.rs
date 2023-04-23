@@ -1133,9 +1133,7 @@ pub(super) mod _os {
         let mut match_found = false; // better way to handle this?
         for (key, value) in kwargs.into_iter() {
             if !value.is_callable() {
-                return Err(vm.new_type_error(
-                    "Args must be callable".to_owned()
-                ));
+                return Err(vm.new_type_error("Args must be callable".to_owned()));
             }
             if key == "before" {
                 match_found = true;
@@ -1160,9 +1158,7 @@ pub(super) mod _os {
 
     #[cfg(unix)]
     fn run_at_forkers(mut funcs: Vec<PyObjectRef>, reversed: bool, vm: &VirtualMachine) {
-
         if !funcs.is_empty() {
-
             if reversed {
                 funcs.reverse();
             }
