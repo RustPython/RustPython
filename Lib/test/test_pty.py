@@ -1,4 +1,4 @@
-import threading
+import threading  # XXX: RUSTPYTHON
 from test.support import verbose, reap_children
 from test.support.import_helper import import_module
 
