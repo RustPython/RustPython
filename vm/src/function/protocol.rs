@@ -20,7 +20,8 @@ pub struct ArgCallable {
 impl ArgCallable {
     #[inline(always)]
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
-        (self.call)(&self.obj, args.into_args(vm), vm)
+        let args = args.into_args(vm);
+        (self.call)(&self.obj, args, vm)
     }
 }
 

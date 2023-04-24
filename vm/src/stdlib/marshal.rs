@@ -149,7 +149,8 @@ mod decl {
             self.0.ctx.new_int(value).into()
         }
         fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value {
-            self.0.ctx.new_tuple(elements.collect()).into()
+            let elements = elements.collect();
+            self.0.ctx.new_tuple(elements).into()
         }
         fn make_code(&self, code: CodeObject) -> Self::Value {
             self.0.ctx.new_code(code).into()

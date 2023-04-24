@@ -80,7 +80,8 @@ impl Py<PyModule> {
     }
 
     pub fn get_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult {
-        self.getattr_inner(attr_name.as_pystr(&vm.ctx), vm)
+        let attr_name = attr_name.as_pystr(&vm.ctx);
+        self.getattr_inner(attr_name, vm)
     }
 
     pub fn set_attr<'a>(
