@@ -4,7 +4,7 @@ import platform
 import os
 import struct
 import sys
-import threading
+import threading  # XXX: RUSTPYTHON
 import unittest
 from multiprocessing import Process
 from test.support import verbose, cpython_only
