@@ -5,7 +5,7 @@ use super::{
 use crate::{
     builtins::{
         descriptor::{
-            DescrObject, MemberDescrObject, MemberGetter, MemberKind, MemberSetter, PyMemberDef,
+            DescrObject, MemberGetter, MemberKind, MemberSetter, PyMemberDef, PyMemberDescriptor,
         },
         function::PyCellRef,
         tuple::{IntoPyTuple, PyTupleTyped},
@@ -811,8 +811,8 @@ impl PyType {
                     setter: MemberSetter::Offset(offset),
                     doc: None,
                 };
-                let member_descriptor: PyRef<MemberDescrObject> =
-                    vm.ctx.new_pyref(MemberDescrObject {
+                let member_descriptor: PyRef<PyMemberDescriptor> =
+                    vm.ctx.new_pyref(PyMemberDescriptor {
                         common: DescrObject {
                             typ: typ.clone(),
                             name: vm.ctx.intern_str(member.as_str()),

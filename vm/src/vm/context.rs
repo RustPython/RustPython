@@ -4,8 +4,8 @@ use crate::{
         bytes,
         code::{self, PyCode},
         descriptor::{
-            DescrObject, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
-            MemberSetterFunc, PyMemberDef,
+            DescrObject, MemberGetter, MemberKind, MemberSetter, MemberSetterFunc, PyMemberDef,
+            PyMemberDescriptor,
         },
         getset::PyGetSet,
         object, pystr,
@@ -500,7 +500,7 @@ impl Context {
         getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
         setter: MemberSetterFunc,
         class: &'static Py<PyType>,
-    ) -> PyRef<MemberDescrObject> {
+    ) -> PyRef<PyMemberDescriptor> {
         let member_def = PyMemberDef {
             name: name.to_owned(),
             kind: member_kind,
@@ -508,7 +508,7 @@ impl Context {
             setter: MemberSetter::Setter(setter),
             doc: None,
         };
-        let member_descriptor = MemberDescrObject {
+        let member_descriptor = PyMemberDescriptor {
             common: DescrObject {
                 typ: class.to_owned(),
                 name: self.intern_str(name),

@@ -74,14 +74,15 @@ impl std::fmt::Debug for PyMemberDef {
     }
 }
 
+// PyMemberDescrObject in CPython
 #[pyclass(name = "member_descriptor", module = false)]
 #[derive(Debug)]
-pub struct MemberDescrObject {
+pub struct PyMemberDescriptor {
     pub common: DescrObject,
     pub member: PyMemberDef,
 }
 
-impl PyPayload for MemberDescrObject {
+impl PyPayload for PyMemberDescriptor {
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.member_descriptor_type
     }
@@ -101,7 +102,7 @@ fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Opti
 }
 
 #[pyclass(with(GetDescriptor, Constructor, Representable), flags(BASETYPE))]
-impl MemberDescrObject {
+impl PyMemberDescriptor {
     #[pygetset(magic)]
     fn doc(&self) -> Option<String> {
         self.member.doc.to_owned()
@@ -186,9 +187,9 @@ fn set_slot_at_object(
     Ok(())
 }
 
-impl Unconstructible for MemberDescrObject {}
+impl Unconstructible for PyMemberDescriptor {}
 
-impl Representable for MemberDescrObject {
+impl Representable for PyMemberDescriptor {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
@@ -199,7 +200,7 @@ impl Representable for MemberDescrObject {
     }
 }
 
-impl GetDescriptor for MemberDescrObject {
+impl GetDescriptor for PyMemberDescriptor {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -218,5 +219,5 @@ impl GetDescriptor for MemberDescrObject {
 
 pub fn init(context: &Context) {
     let member_descriptor_type = &context.types.member_descriptor_type;
-    MemberDescrObject::extend_class(context, member_descriptor_type);
+    PyMemberDescriptor::extend_class(context, member_descriptor_type);
 }
