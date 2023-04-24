@@ -774,12 +774,11 @@ impl PyType {
             base.slots.member_count + heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
 
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
-        let (slots, heaptype_ext) = unsafe {
-            // # Safety
-            // `slots.name` live long enough because `heaptype_ext` is alive.
+        let (slots, heaptype_ext) = {
             let slots = PyTypeSlots {
                 member_count,
-                ..PyTypeSlots::new(&*(name.as_str() as *const _), flags)
+                flags,
+                ..PyTypeSlots::heap_default()
             };
             let heaptype_ext = HeapTypeExt {
                 name: PyRwLock::new(name),

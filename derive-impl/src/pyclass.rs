@@ -1,18 +1,15 @@
 use super::Diagnostic;
 use crate::util::{
-    format_doc, pyclass_ident_and_attrs, text_signature, ClassItemMeta, ContentItem,
-    ContentItemInner, ErrorVec, ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta,
-    ALL_ALLOWED_NAMES,
+    format_doc, pyclass_ident_and_attrs, pyexception_ident_and_attrs, text_signature,
+    ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta, ItemMeta,
+    ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
 use std::collections::HashMap;
 use std::str::FromStr;
 use syn::{
-    parse::{Parse, ParseStream, Result as ParsingResult},
-    parse_quote,
-    spanned::Spanned,
-    Attribute, AttributeArgs, Ident, Item, LitStr, Meta, NestedMeta, Result, Token,
+    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta, Result,
 };
 use syn_ext::ext::*;
 
@@ -99,7 +96,7 @@ fn extract_items_into_context<'a, Item>(
     context.errors.ok_or_push(context.member_items.validate());
 }
 
-pub(crate) fn impl_pyimpl(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pyclass_impl(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
     let mut context = ImplContext::default();
     let mut tokens = match item {
         Item::Impl(mut imp) => {
@@ -340,8 +337,8 @@ fn generate_class_def(
     let base_class = if is_pystruct {
         Some(quote! { rustpython_vm::builtins::PyTuple })
     } else {
-        base.map(|typ| {
-            let typ = Ident::new(&typ, ident.span());
+        base.as_ref().map(|typ| {
+            let typ = Ident::new(typ, ident.span());
             quote_spanned! { ident.span() => #typ }
         })
     }
@@ -364,6 +361,13 @@ fn generate_class_def(
         }
     });
 
+    let base_or_object = if let Some(base) = base {
+        let base = Ident::new(&base, ident.span());
+        quote! { #base }
+    } else {
+        quote! { ::rustpython_vm::builtins::PyBaseObject }
+    };
+
     let tokens = quote! {
         impl ::rustpython_vm::class::PyClassDef for #ident {
             const NAME: &'static str = #name;
@@ -372,6 +376,8 @@ fn generate_class_def(
             const DOC: Option<&'static str> = #doc;
             const BASICSIZE: usize = #basicsize;
             const UNHASHABLE: bool = #unhashable;
+
+            type Base = #base_or_object;
         }
 
         impl ::rustpython_vm::class::StaticType for #ident {
@@ -462,11 +468,38 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
         }
     };
 
+    let impl_payload = if let Some(ctx_type_name) = class_meta.ctx_name()? {
+        let ctx_type_ident = Ident::new(&ctx_type_name, ident.span()); // FIXME span
+
+        // We need this to make extend mechanism work:
+        quote! {
+            impl ::rustpython_vm::PyPayload for #ident {
+                fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+                    ctx.types.#ctx_type_ident
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let empty_impl = if let Some(attrs) = class_meta.impl_attrs()? {
+        let attrs: Meta = parse_quote! (#attrs);
+        quote! {
+            #[pyclass(#attrs)]
+            impl #ident {}
+        }
+    } else {
+        quote! {}
+    };
+
     let ret = quote! {
         #derive_trace
         #item
         #maybe_trace_code
         #class_def
+        #impl_payload
+        #empty_impl
     };
     Ok(ret)
 }
@@ -480,87 +513,125 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
 /// to add non-literal attributes to `pyclass`.
 /// That's why we have to use this proxy.
 pub(crate) fn impl_pyexception(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
-    let class_name = parse_vec_ident(&attr, &item, 0, "first 'class_name'")?;
-    let base_class_name = parse_vec_ident(&attr, &item, 1, "second 'base_class_name'")?;
+    let (ident, _attrs) = pyexception_ident_and_attrs(&item)?;
+    let fake_ident = Ident::new("pyclass", item.span());
+    let class_meta = ExceptionItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
+    let class_name = class_meta.class_name()?;
 
-    // We also need to strip `Py` prefix from `class_name`,
-    // due to implementation and Python naming conventions mismatch:
-    // `PyKeyboardInterrupt` -> `KeyboardInterrupt`
-    let class_name = class_name
-        .strip_prefix("Py")
-        .ok_or_else(|| err_span!(item, "We require 'class_name' to have 'Py' prefix"))?;
+    let base_class_name = class_meta.base()?;
+    let impl_payload = if let Some(ctx_type_name) = class_meta.ctx_name()? {
+        let ctx_type_ident = Ident::new(&ctx_type_name, ident.span()); // FIXME span
 
-    // We just "proxy" it into `pyclass` macro, because, exception is a class.
+        // We need this to make extend mechanism work:
+        quote! {
+            impl ::rustpython_vm::PyPayload for #ident {
+                fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
+                    ctx.exceptions.#ctx_type_ident
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+    let impl_pyclass = if class_meta.has_impl()? {
+        quote! {
+            #[pyexception]
+            impl #ident {}
+        }
+    } else {
+        quote! {}
+    };
+
     let ret = quote! {
         #[pyclass(module = false, name = #class_name, base = #base_class_name)]
         #item
+        #impl_payload
+        #impl_pyclass
     };
     Ok(ret)
 }
 
-pub(crate) fn impl_define_exception(exc_def: PyExceptionDef) -> Result<TokenStream> {
-    let PyExceptionDef {
-        class_name,
-        base_class,
-        ctx_name,
-        docs,
-        slot_new,
-        init,
-    } = exc_def;
-
-    // We need this method, because of how `CPython` copies `__new__`
-    // from `BaseException` in `SimpleExtendsException` macro.
-    // See: `BaseException_new`
-    let slot_new_impl = match slot_new {
-        Some(slot_call) => quote! { #slot_call(cls, args, vm) },
-        None => quote! { #base_class::slot_new(cls, args, vm) },
+pub(crate) fn impl_pyexception_impl(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
+    let Item::Impl(imp) = item else {
+        return Ok(item.into_token_stream());
     };
 
-    // We need this method, because of how `CPython` copies `__init__`
-    // from `BaseException` in `SimpleExtendsException` macro.
-    // See: `(initproc)BaseException_init`
-    // spell-checker:ignore initproc
-    let init_method = match init {
-        Some(init_def) => quote! { #init_def(zelf, args, vm) },
-        None => quote! { #base_class::slot_init(zelf, args, vm) },
-    };
+    if !attr.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &attr[0],
+            "#[pyexception] impl doesn't allow attrs. Use #[pyclass] instead.",
+        ));
+    }
 
-    let ret = quote! {
-        #[pyexception(#class_name, #base_class)]
-        #[derive(Debug)]
-        #[doc = #docs]
-        pub struct #class_name {}
-
-        // We need this to make extend mechanism work:
-        impl ::rustpython_vm::PyPayload for #class_name {
-            fn class(ctx: &::rustpython_vm::vm::Context) -> &'static ::rustpython_vm::Py<::rustpython_vm::builtins::PyType> {
-                ctx.exceptions.#ctx_name
+    let mut has_slot_new = false;
+    let mut has_slot_init = false;
+    let syn::ItemImpl {
+        generics,
+        self_ty,
+        items,
+        ..
+    } = &imp;
+    for item in items {
+        // FIXME: better detection or correct wrapper implementation
+        let Some(ident) = item.get_ident() else {
+            continue;
+        };
+        let item_name = ident.to_string();
+        match item_name.as_str() {
+            "slot_new" => {
+                has_slot_new = true;
             }
+            "slot_init" => {
+                has_slot_init = true;
+            }
+            _ => continue,
         }
+    }
 
-        #[pyclass(flags(BASETYPE, HAS_DICT))]
-        impl #class_name {
+    let slot_new = if has_slot_new {
+        quote!()
+    } else {
+        quote! {
             #[pyslot]
             pub(crate) fn slot_new(
                 cls: ::rustpython_vm::builtins::PyTypeRef,
                 args: ::rustpython_vm::function::FuncArgs,
                 vm: &::rustpython_vm::VirtualMachine,
             ) -> ::rustpython_vm::PyResult {
-                #slot_new_impl
-            }
-
-            #[pyslot]
-            #[pymethod(name="__init__")]
-            pub(crate) fn slot_init(
-                zelf: PyObjectRef,
-                args: ::rustpython_vm::function::FuncArgs,
-                vm: &::rustpython_vm::VirtualMachine,
-            ) -> ::rustpython_vm::PyResult<()> {
-                #init_method
+                <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_new(cls, args, vm)
             }
         }
     };
-    Ok(ret)
+
+    // We need this method, because of how `CPython` copies `__init__`
+    // from `BaseException` in `SimpleExtendsException` macro.
+    // See: `(initproc)BaseException_init`
+    // spell-checker:ignore initproc
+    let slot_init = if has_slot_init {
+        quote!()
+    } else {
+        // FIXME: this is a generic logic for types not only for exceptions
+        quote! {
+            #[pyslot]
+            #[pymethod(name="__init__")]
+            pub(crate) fn slot_init(
+                zelf: ::rustpython_vm::PyObjectRef,
+                args: ::rustpython_vm::function::FuncArgs,
+                vm: &::rustpython_vm::VirtualMachine,
+            ) -> ::rustpython_vm::PyResult<()> {
+                <Self as ::rustpython_vm::class::PyClassDef>::Base::slot_init(zelf, args, vm)
+            }
+        }
+    };
+    Ok(quote! {
+        #[pyclass(flags(BASETYPE, HAS_DICT))]
+        impl #generics #self_ty {
+            #(#items)*
+
+            #slot_new
+            #slot_init
+        }
+    })
 }
 
 /// #[pymethod] and #[pyclassmethod]
@@ -1476,50 +1547,7 @@ where
     Ok((result, cfgs))
 }
 
-#[derive(Debug)]
-pub struct PyExceptionDef {
-    pub class_name: Ident,
-    pub base_class: Ident,
-    pub ctx_name: Ident,
-    pub docs: LitStr,
-
-    /// Holds optional `slot_new` slot to be used instead of a default one:
-    pub slot_new: Option<Ident>,
-    /// We also store `__init__` magic method, that can
-    pub init: Option<Ident>,
-}
-
-impl Parse for PyExceptionDef {
-    fn parse(input: ParseStream) -> ParsingResult<Self> {
-        let class_name: Ident = input.parse()?;
-        input.parse::<Token![,]>()?;
-
-        let base_class: Ident = input.parse()?;
-        input.parse::<Token![,]>()?;
-
-        let ctx_name: Ident = input.parse()?;
-        input.parse::<Token![,]>()?;
-
-        let docs: LitStr = input.parse()?;
-        input.parse::<Option<Token![,]>>()?;
-
-        let slot_new: Option<Ident> = input.parse()?;
-        input.parse::<Option<Token![,]>>()?;
-
-        let init: Option<Ident> = input.parse()?;
-        input.parse::<Option<Token![,]>>()?; // leading `,`
-
-        Ok(PyExceptionDef {
-            class_name,
-            base_class,
-            ctx_name,
-            docs,
-            slot_new,
-            init,
-        })
-    }
-}
-
+#[allow(dead_code)]
 fn parse_vec_ident(
     attr: &[NestedMeta],
     item: &Item,

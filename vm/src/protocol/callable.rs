@@ -17,7 +17,8 @@ impl PyObject {
 
     /// PyObject_Call*Arg* series
     pub fn call(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
-        self.call_with_args(args.into_args(vm), vm)
+        let args = args.into_args(vm);
+        self.call_with_args(args, vm)
     }
 
     /// PyObject_Call
@@ -45,8 +46,9 @@ impl<'a> PyCallable<'a> {
     }
 
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
+        let args = args.into_args(vm);
         vm.trace_event(TraceEvent::Call)?;
-        let result = (self.call)(self.obj, args.into_args(vm), vm);
+        let result = (self.call)(self.obj, args, vm);
         vm.trace_event(TraceEvent::Return)?;
         result
     }

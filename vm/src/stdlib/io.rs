@@ -379,7 +379,7 @@ mod _io {
     #[pyattr]
     #[pyclass(name = "_IOBase")]
     #[derive(Debug, PyPayload)]
-    struct _IOBase;
+    pub struct _IOBase;
 
     #[pyclass(with(IterNext, Destructor), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
@@ -3637,6 +3637,7 @@ mod _io {
     }
 
     pub(super) fn make_unsupportedop(ctx: &Context) -> PyTypeRef {
+        use crate::types::PyTypeSlots;
         PyType::new_heap(
             "UnsupportedOperation",
             vec![
@@ -3644,7 +3645,7 @@ mod _io {
                 ctx.exceptions.value_error.to_owned(),
             ],
             Default::default(),
-            Default::default(),
+            PyTypeSlots::heap_default(),
             ctx.types.type_type.to_owned(),
             ctx,
         )
