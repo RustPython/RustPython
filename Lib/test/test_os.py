@@ -4679,7 +4679,7 @@ class ForkTests(unittest.TestCase):
         assert_python_ok("-c", code)
         assert_python_ok("-c", code, PYTHONMALLOC="malloc_debug")
 
-    @unittest.skipIf(_testcapi is None, 'needs _testcapi')
+    @unittest.skipIf(_testcapi is None, 'TODO: RUSTPYTHON; needs _testcapi')
     @unittest.skipUnless(sys.platform in ("linux", "darwin"),
                          "Only Linux and macOS detect this today.")
     def test_fork_warns_when_non_python_thread_exists(self):
