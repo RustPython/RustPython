@@ -1140,6 +1140,29 @@ pub(super) mod _os {
         #[pyarg(named, optional)]
         after_in_child: OptionalArg<PyObjectRef>,
     }
+    
+    impl RegisterAtForkArgs {
+        fn into_validated(self, vm: &VirtualMachine) -> PyResult<(Option<PyObjectRef>, Option<PyObjectRef>, Option<PyObjectRef>)> {
+            fn into_option(arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+                match arg {
+                    OptionalArg::Present(obj) => {
+                        if !obj.is_callable() {
+                            return Err(vm.new_type_error("Args must be callable".to_owned()));
+                        }
+                        Ok(Some(obj))
+                    }
+                    OptionalArg::Missing => Ok(None),
+                }
+            }
+            let before = into_option(self.before, vm)?;
+            let after_in_parent = into_option(self.after_in_parent, vm)?;
+            let after_in_child = into_option(self.after_in_child, vm)?;
+            if before.is_none() && after_in_parent.is_none() && after_in_child.is_none() {
+                return Err(vm.new_type_error("At least one arg must be present".to_owned()));
+            }
+            Ok((before, after_in_parent, after_in_child))
+        }
+    }
 
     #[cfg(unix)]
     #[pyfunction]
