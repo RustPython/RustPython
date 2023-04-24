@@ -1,8 +1,8 @@
 //! `posix` compatible module for `not(any(unix, windows))`
 
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyObjectRef, PyRef, VirtualMachine};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = module::make_module(vm);
     super::os::extend_module(vm, &module);
     module

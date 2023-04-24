@@ -8,13 +8,13 @@
 // spell-checker:ignore cantlock commithook foreignkey notnull primarykey gettemppath autoindex convpath
 // spell-checker:ignore dbmoved vnode nbytes
 
-use rustpython_vm::{PyObjectRef, VirtualMachine};
+use rustpython_vm::{builtins::PyModule, AsObject, PyRef, VirtualMachine};
 
 // pub(crate) use _sqlite::make_module;
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     // TODO: sqlite version check
     let module = _sqlite::make_module(vm);
-    _sqlite::setup_module(&module, vm);
+    _sqlite::setup_module(module.as_object(), vm);
     module
 }
 

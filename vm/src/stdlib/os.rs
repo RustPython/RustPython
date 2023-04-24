@@ -1,9 +1,9 @@
 use crate::{
-    builtins::{PyBaseExceptionRef, PySet},
+    builtins::{PyBaseExceptionRef, PyModule, PySet},
     common::crt_fd::Fd,
     convert::IntoPyException,
     function::{ArgumentError, FromArgs, FsPath, FuncArgs},
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{
     ffi, fs, io,
@@ -1709,7 +1709,7 @@ impl SupportFunc {
     }
 }
 
-pub fn extend_module(vm: &VirtualMachine, module: &PyObject) {
+pub fn extend_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     _os::extend_module(vm, module);
 
     let support_funcs = _os::support_funcs();

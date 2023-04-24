@@ -6,11 +6,11 @@
 mod gen;
 
 use crate::{
-    builtins::{self, PyStrRef, PyType},
+    builtins::{self, PyModule, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
     compiler::CompileError,
     convert::ToPyException,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
 use num_complex::Complex64;
@@ -331,7 +331,7 @@ pub(crate) use _ast::AstNode;
 // Used by builtins::compile()
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _ast::make_module(vm);
     gen::extend_module_nodes(vm, &module);
     module

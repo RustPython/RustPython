@@ -1,6 +1,6 @@
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _signal::make_module(vm);
 
     _signal::init_signal_handlers(&module, vm);
@@ -11,8 +11,9 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule]
 pub(crate) mod _signal {
     use crate::{
+        builtins::PyModule,
         convert::{IntoPyException, TryFromBorrowedObject},
-        signal, PyObjectRef, PyResult, VirtualMachine,
+        signal, Py, PyObjectRef, PyResult, VirtualMachine,
     };
     use std::sync::atomic::{self, Ordering};
 
@@ -80,7 +81,7 @@ pub(crate) mod _signal {
     #[pyattr]
     use libc::{SIGPWR, SIGSTKFLT};
 
-    pub(super) fn init_signal_handlers(module: &PyObjectRef, vm: &VirtualMachine) {
+    pub(super) fn init_signal_handlers(module: &Py<PyModule>, vm: &VirtualMachine) {
         let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
         let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 

@@ -114,7 +114,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
         parse_quote! {
             pub(crate) fn extend_module(
                 vm: &::rustpython_vm::VirtualMachine,
-                module: &::rustpython_vm::PyObject,
+                module: &::rustpython_vm::Py<::rustpython_vm::builtins::PyModule>,
             ) {
                 #module_extend_items
             }
@@ -123,7 +123,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
             #[allow(dead_code)]
             pub(crate) fn make_module(
                 vm: &::rustpython_vm::VirtualMachine
-            ) -> ::rustpython_vm::PyObjectRef {
+            ) -> ::rustpython_vm::PyRef<::rustpython_vm::builtins::PyModule> {
                 let module = vm.new_module(MODULE_NAME, vm.ctx.new_dict(), DOC);
                 extend_module(vm, &module);
                 module
