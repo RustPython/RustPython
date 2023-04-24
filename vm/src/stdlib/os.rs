@@ -1140,10 +1140,20 @@ pub(super) mod _os {
         #[pyarg(named, optional)]
         after_in_child: OptionalArg<PyObjectRef>,
     }
-    
+
     impl RegisterAtForkArgs {
-        fn into_validated(self, vm: &VirtualMachine) -> PyResult<(Option<PyObjectRef>, Option<PyObjectRef>, Option<PyObjectRef>)> {
-            fn into_option(arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
+        fn into_validated(
+            self,
+            vm: &VirtualMachine,
+        ) -> PyResult<(
+            Option<PyObjectRef>,
+            Option<PyObjectRef>,
+            Option<PyObjectRef>,
+        )> {
+            fn into_option(
+                arg: OptionalArg<PyObjectRef>,
+                vm: &VirtualMachine,
+            ) -> PyResult<Option<PyObjectRef>> {
                 match arg {
                     OptionalArg::Present(obj) => {
                         if !obj.is_callable() {
@@ -1171,42 +1181,17 @@ pub(super) mod _os {
         _ignored: KwArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let mut found_arg: bool = false; // hack to find atleas one arg
-        match args.before {
-            OptionalArg::Present(before) => {
-                if !before.is_callable() {
-                    return Err(vm.new_type_error("Args must be callable".to_owned()));
-                }
-                vm.state.before_forkers.lock().push(before);
-                found_arg = true
-            }
-            OptionalArg::Missing => (),
-        };
-        match args.after_in_parent {
-            OptionalArg::Present(after_in_parent) => {
-                if !after_in_parent.is_callable() {
-                    return Err(vm.new_type_error("Args must be callable".to_owned()));
-                }
-                vm.state.after_forkers_parent.lock().push(after_in_parent);
-                found_arg = true
-            }
+        let (before, after_in_parent, after_in_child) = args.into_validated(vm)?;
 
-            OptionalArg::Missing => (),
-        };
-        match args.after_in_child {
-            OptionalArg::Present(after_in_child) => {
-                if !after_in_child.is_callable() {
-                    return Err(vm.new_type_error("Args must be callable".to_owned()));
-                }
-                vm.state.after_forkers_child.lock().push(after_in_child);
-                found_arg = true
-            }
-            OptionalArg::Missing => (),
-        };
-        if !found_arg {
-            return Err(vm.new_type_error("At least one argument is required.".to_owned()));
+        if let Some(before) = before {
+            vm.state.before_forkers.lock().push(before);
         }
-
+        if let Some(after_in_parent) = after_in_parent {
+            vm.state.after_forkers_parent.lock().push(after_in_parent);
+        }
+        if let Some(after_in_child) = after_in_child {
+            vm.state.after_forkers_child.lock().push(after_in_child);
+        }
         Ok(())
     }
 
@@ -1230,7 +1215,7 @@ pub(super) mod _os {
 
     #[cfg(unix)]
     fn py_os_before_fork(vm: &VirtualMachine) -> PyResult<()> {
-        let before_forkers: Vec<PyObjectRef> = std::mem::take(&mut *vm.state.before_forkers.lock());
+        let before_forkers: Vec<PyObjectRef> = vm.state.before_forkers.lock().clone();
         // functions must be executed in reversed order as they are registered
         // only for before_forkers, refer: test_register_at_fork in test_posix
 
@@ -1240,16 +1225,14 @@ pub(super) mod _os {
 
     #[cfg(unix)]
     fn py_os_after_fork_child(vm: &VirtualMachine) -> PyResult<()> {
-        let after_forkers_child: Vec<PyObjectRef> =
-            std::mem::take(&mut *vm.state.after_forkers_child.lock());
+        let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
         run_at_forkers(after_forkers_child, false, vm);
         Ok(())
     }
 
     #[cfg(unix)]
     fn py_os_after_fork_parent(vm: &VirtualMachine) -> PyResult<()> {
-        let after_forkers_parent: Vec<PyObjectRef> =
-            std::mem::take(&mut *vm.state.after_forkers_parent.lock());
+        let after_forkers_parent: Vec<PyObjectRef> = vm.state.after_forkers_parent.lock().clone();
         run_at_forkers(after_forkers_parent, false, vm);
         Ok(())
     }
