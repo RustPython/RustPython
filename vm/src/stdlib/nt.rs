@@ -8,7 +8,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     module
 }
 
-#[pymodule(name = "nt")]
+#[pymodule(name = "nt", with(super::os::_os))]
 pub(crate) mod module {
     use crate::{
         builtins::{PyStrRef, PyTupleRef},

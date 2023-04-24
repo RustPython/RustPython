@@ -939,7 +939,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
 
     crate::protocol::VecBuffer::make_class(&vm.ctx);
 
-    builtins::extend_module(vm, module);
+    builtins::extend_module(vm, module).unwrap();
 
     let debug_mode: bool = vm.state.settings.optimize == 0;
     extend_module!(vm, module, {

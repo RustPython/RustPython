@@ -5,12 +5,53 @@ use crate::{
     convert::ToPyObject,
     function::FuncArgs,
     types::{GetAttr, Initializer, Representable},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
-pub struct PyModule {}
+pub struct PyModuleDef {
+    // pub index: usize,
+    pub name: &'static PyStrInterned,
+    pub doc: Option<&'static PyStrInterned>,
+    // pub size: isize,
+    // pub methods: &'static [PyMethodDef],
+    pub slots: PyModuleSlots,
+    // traverse: traverseproc
+    // clear: inquiry
+    // free: freefunc
+}
+
+pub type ModuleCreate =
+    fn(&VirtualMachine, &PyObject, &'static PyModuleDef) -> PyResult<PyRef<PyModule>>;
+pub type ModuleExec = fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>;
+
+#[derive(Default)]
+pub struct PyModuleSlots {
+    pub create: Option<ModuleCreate>,
+    pub exec: Option<ModuleExec>,
+}
+
+impl std::fmt::Debug for PyModuleSlots {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PyModuleSlots")
+            .field("create", &self.create.is_some())
+            .field("exec", &self.exec.is_some())
+            .finish()
+    }
+}
+
+#[allow(clippy::new_without_default)] // avoid Default implementation
+#[pyclass(module = false, name = "module")]
+#[derive(Debug)]
+pub struct PyModule {
+    // PyObject *md_dict;
+    pub def: Option<&'static PyModuleDef>,
+    // state: Any
+    // weaklist
+    // for logging purposes after md_dict is cleared
+    pub name: Option<&'static PyStrInterned>,
+}
 
 impl PyPayload for PyModule {
     fn class(ctx: &Context) -> &'static Py<PyType> {
@@ -26,9 +67,23 @@ pub struct ModuleInitArgs {
 }
 
 impl PyModule {
-    // pub(crate) fn new(d: PyDictRef) -> Self {
-    //     PyModule { dict: d.into() }
-    // }
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {
+            def: None,
+            name: None,
+        }
+    }
+    pub fn from_def(def: &'static PyModuleDef) -> Self {
+        Self {
+            def: Some(def),
+            name: Some(def.name),
+        }
+    }
+    pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<PyModule>) {
+        let doc = module.def.unwrap().doc.map(|doc| doc.to_owned());
+        module.init_module_dict(module.name.unwrap(), doc, vm);
+    }
 }
 
 impl Py<PyModule> {
@@ -63,13 +118,13 @@ impl Py<PyModule> {
     pub(crate) fn init_module_dict(
         &self,
         name: &'static PyStrInterned,
-        doc: PyObjectRef,
+        doc: Option<PyStrRef>,
         vm: &VirtualMachine,
     ) {
         let dict = self.dict();
         dict.set_item(identifier!(vm, __name__), name.to_object(), vm)
             .expect("Failed to set __name__ on module");
-        dict.set_item(identifier!(vm, __doc__), doc, vm)
+        dict.set_item(identifier!(vm, __doc__), doc.to_pyobject(vm), vm)
             .expect("Failed to set __doc__ on module");
         dict.set_item("__package__", vm.ctx.none(), vm)
             .expect("Failed to set __package__ on module");
@@ -98,7 +153,7 @@ impl Py<PyModule> {
 impl PyModule {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyModule {}.into_ref_with_type(vm, cls).map(Into::into)
+        PyModule::new().into_ref_with_type(vm, cls).map(Into::into)
     }
 
     #[pymethod(magic)]
@@ -121,11 +176,7 @@ impl Initializer for PyModule {
             .slots
             .flags
             .has_feature(crate::types::PyTypeFlags::HAS_DICT));
-        zelf.init_module_dict(
-            vm.ctx.intern_str(args.name.as_str()),
-            args.doc.to_pyobject(vm),
-            vm,
-        );
+        zelf.init_module_dict(vm.ctx.intern_str(args.name.as_str()), args.doc, vm);
         Ok(())
     }
 }
