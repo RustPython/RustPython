@@ -23,7 +23,7 @@ pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
-        function::{Either, OptionalArg, KwArgs},
+        function::{Either, KwArgs, OptionalArg},
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, OsPath, OsPathOrFd, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
@@ -501,40 +501,37 @@ pub mod module {
         }
     }
 
-    fn py_os_before_fork(vm: &VirtualMachine) -> PyResult<()> {
+    fn py_os_before_fork(vm: &VirtualMachine) {
         let before_forkers: Vec<PyObjectRef> = vm.state.before_forkers.lock().clone();
         // functions must be executed in reversed order as they are registered
         // only for before_forkers, refer: test_register_at_fork in test_posix
 
         run_at_forkers(before_forkers, true, vm);
-        Ok(())
     }
 
-    fn py_os_after_fork_child(vm: &VirtualMachine) -> PyResult<()> {
+    fn py_os_after_fork_child(vm: &VirtualMachine) {
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
         run_at_forkers(after_forkers_child, false, vm);
-        Ok(())
     }
 
-    fn py_os_after_fork_parent(vm: &VirtualMachine) -> PyResult<()> {
+    fn py_os_after_fork_parent(vm: &VirtualMachine) {
         let after_forkers_parent: Vec<PyObjectRef> = vm.state.after_forkers_parent.lock().clone();
         run_at_forkers(after_forkers_parent, false, vm);
-        Ok(())
     }
 
     #[pyfunction]
-    fn fork(vm: &VirtualMachine) -> PyResult {
+    fn fork(vm: &VirtualMachine) -> i32 {
         let pid: i32;
-        py_os_before_fork(vm)?;
+        py_os_before_fork(vm);
         unsafe {
             pid = libc::fork();
         }
         if pid == 0 {
-            py_os_after_fork_child(vm)?;
+            py_os_after_fork_child(vm);
         } else {
-            py_os_after_fork_parent(vm)?;
+            py_os_after_fork_parent(vm);
         }
-        Ok(vm.ctx.new_int(pid).into())
+        pid
     }
 
     #[cfg(not(target_os = "redox"))]
