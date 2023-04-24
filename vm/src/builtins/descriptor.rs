@@ -32,7 +32,7 @@ pub enum MemberSetter {
     Offset(usize),
 }
 
-pub struct MemberDef {
+pub struct PyMemberDef {
     pub name: String,
     pub kind: MemberKind,
     pub getter: MemberGetter,
@@ -40,7 +40,7 @@ pub struct MemberDef {
     pub doc: Option<String>,
 }
 
-impl MemberDef {
+impl PyMemberDef {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.getter {
             MemberGetter::Getter(getter) => (getter)(vm, obj),
@@ -64,9 +64,9 @@ impl MemberDef {
     }
 }
 
-impl std::fmt::Debug for MemberDef {
+impl std::fmt::Debug for PyMemberDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MemberDef")
+        f.debug_struct("PyMemberDef")
             .field("name", &self.name)
             .field("kind", &self.kind)
             .field("doc", &self.doc)
@@ -78,7 +78,7 @@ impl std::fmt::Debug for MemberDef {
 #[derive(Debug)]
 pub struct MemberDescrObject {
     pub common: DescrObject,
-    pub member: MemberDef,
+    pub member: PyMemberDef,
 }
 
 impl PyPayload for MemberDescrObject {
@@ -136,7 +136,7 @@ impl MemberDescrObject {
 fn get_slot_from_object(
     obj: PyObjectRef,
     offset: usize,
-    member: &MemberDef,
+    member: &PyMemberDef,
     vm: &VirtualMachine,
 ) -> PyResult {
     let slot = match member.kind {
@@ -158,7 +158,7 @@ fn get_slot_from_object(
 fn set_slot_at_object(
     obj: PyObjectRef,
     offset: usize,
-    member: &MemberDef,
+    member: &PyMemberDef,
     value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {

@@ -4,8 +4,8 @@ use crate::{
         bytes,
         code::{self, PyCode},
         descriptor::{
-            DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
-            MemberSetterFunc,
+            DescrObject, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
+            MemberSetterFunc, PyMemberDef,
         },
         getset::PyGetSet,
         object, pystr,
@@ -501,7 +501,7 @@ impl Context {
         setter: MemberSetterFunc,
         class: &'static Py<PyType>,
     ) -> PyRef<MemberDescrObject> {
-        let member_def = MemberDef {
+        let member_def = PyMemberDef {
             name: name.to_owned(),
             kind: member_kind,
             getter: MemberGetter::Getter(getter),
