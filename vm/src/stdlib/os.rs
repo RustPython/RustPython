@@ -1141,6 +1141,7 @@ pub(super) mod _os {
         after_in_child: OptionalArg<PyObjectRef>,
     }
 
+    #[cfg(unix)]
     impl RegisterAtForkArgs {
         fn into_validated(
             self,
