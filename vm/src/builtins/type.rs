@@ -5,7 +5,7 @@ use super::{
 use crate::{
     builtins::{
         descriptor::{
-            DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
+            DescrObject, MemberGetter, MemberKind, MemberSetter, PyMemberDef, PyMemberDescriptor,
         },
         function::PyCellRef,
         tuple::{IntoPyTuple, PyTupleTyped},
@@ -804,15 +804,15 @@ impl PyType {
         if let Some(ref slots) = heaptype_slots {
             let mut offset = base_member_count;
             for member in slots.as_slice() {
-                let member_def = MemberDef {
+                let member_def = PyMemberDef {
                     name: member.to_string(),
                     kind: MemberKind::ObjectEx,
                     getter: MemberGetter::Offset(offset),
                     setter: MemberSetter::Offset(offset),
                     doc: None,
                 };
-                let member_descriptor: PyRef<MemberDescrObject> =
-                    vm.ctx.new_pyref(MemberDescrObject {
+                let member_descriptor: PyRef<PyMemberDescriptor> =
+                    vm.ctx.new_pyref(PyMemberDescriptor {
                         common: DescrObject {
                             typ: typ.clone(),
                             name: vm.ctx.intern_str(member.as_str()),

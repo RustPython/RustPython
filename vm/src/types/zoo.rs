@@ -177,7 +177,7 @@ impl TypeZoo {
             not_implemented_type: singletons::PyNotImplemented::init_builtin_type(),
             generic_alias_type: genericalias::PyGenericAlias::init_builtin_type(),
             union_type: union_::PyUnion::init_builtin_type(),
-            member_descriptor_type: descriptor::MemberDescrObject::init_builtin_type(),
+            member_descriptor_type: descriptor::PyMemberDescriptor::init_builtin_type(),
         }
     }
 
