@@ -53,7 +53,7 @@ def main():
             message.append(f"No cpython/Lib/test/test_{lib}.py")
         
         if test_do:
-            result = subprocess.run(["cargo", "run", "-q", f"{RPYTHONPATH}/Lib/test/test_{lib}.py"], stdout=subprocess.PIPE)
+            result = subprocess.run(["cargo", "run", "-q", f"{RPYTHONPATH}/Lib/test/test_{lib}.py"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             result = result.stdout.decode("utf-8")
 
             if "OK" in result:
