@@ -153,5 +153,4 @@ zipapp
 zipfile
 zipimport
 
-# EOF marks the end of file
-EOF
+# Make sure file ends with empty space

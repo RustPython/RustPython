@@ -1,11 +1,9 @@
-To use, write down your local cpython path in clib_path.txt, and run,
-bash clib_test_one.sh
-
+To use, open cmd and run clib_test.py with args through python
 and check the result in clib_out.txt
 
-The script will try to test every component in clib_list.txt, where,
+The script assumes that the script is being run from RustPython/scripts/clib,
+and that both RustPython and cpython project directories are located under a same parent directory, aka that they are siblings
 
-clib_test_one.sh : test each component individually
-clib_test_all.sh : test every component simultaneously
+If either of those assumptions are false, then you must provide a correct path when running clib_test.py
 
-Use of clib_test_all.sh is discouraged, as one failing component can lead to cascading failure of otherwise non-failing components
+The script will try to test every component in clib_list.txt
