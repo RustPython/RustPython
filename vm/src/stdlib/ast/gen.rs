@@ -15,14 +15,7 @@ struct NodeModule;
 impl NodeModule {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("type_ignores")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("type_ignores")).into()]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -32,11 +25,7 @@ struct NodeInteractive;
 impl NodeInteractive {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into()])
-                .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into()]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -46,11 +35,7 @@ struct NodeExpression;
 impl NodeExpression {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into()])
-                .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into()]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -60,14 +45,7 @@ struct NodeFunctionType;
 impl NodeFunctionType {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("argtypes")).into(),
-                ctx.new_str(ascii!("returns")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("argtypes")).into(),ctx.new_str(ascii!("returns")).into()]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -81,28 +59,8 @@ struct NodeFunctionDef;
 impl NodeFunctionDef {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("name")).into(),
-                ctx.new_str(ascii!("args")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("decorator_list")).into(),
-                ctx.new_str(ascii!("returns")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("name")).into(),ctx.new_str(ascii!("args")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("decorator_list")).into(),ctx.new_str(ascii!("returns")).into(),ctx.new_str(ascii!("type_comment")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "AsyncFunctionDef", base = "NodeKindStmt")]
@@ -111,28 +69,8 @@ struct NodeAsyncFunctionDef;
 impl NodeAsyncFunctionDef {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("name")).into(),
-                ctx.new_str(ascii!("args")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("decorator_list")).into(),
-                ctx.new_str(ascii!("returns")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("name")).into(),ctx.new_str(ascii!("args")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("decorator_list")).into(),ctx.new_str(ascii!("returns")).into(),ctx.new_str(ascii!("type_comment")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "ClassDef", base = "NodeKindStmt")]
@@ -141,27 +79,8 @@ struct NodeClassDef;
 impl NodeClassDef {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("name")).into(),
-                ctx.new_str(ascii!("bases")).into(),
-                ctx.new_str(ascii!("keywords")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("decorator_list")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("name")).into(),ctx.new_str(ascii!("bases")).into(),ctx.new_str(ascii!("keywords")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("decorator_list")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Return", base = "NodeKindStmt")]
@@ -170,21 +89,8 @@ struct NodeReturn;
 impl NodeReturn {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Delete", base = "NodeKindStmt")]
@@ -193,21 +99,8 @@ struct NodeDelete;
 impl NodeDelete {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("targets")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("targets")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Assign", base = "NodeKindStmt")]
@@ -216,25 +109,8 @@ struct NodeAssign;
 impl NodeAssign {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("targets")).into(),
-                ctx.new_str(ascii!("value")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("targets")).into(),ctx.new_str(ascii!("value")).into(),ctx.new_str(ascii!("type_comment")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "AugAssign", base = "NodeKindStmt")]
@@ -243,25 +119,8 @@ struct NodeAugAssign;
 impl NodeAugAssign {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("target")).into(),
-                ctx.new_str(ascii!("op")).into(),
-                ctx.new_str(ascii!("value")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("target")).into(),ctx.new_str(ascii!("op")).into(),ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "AnnAssign", base = "NodeKindStmt")]
@@ -270,26 +129,8 @@ struct NodeAnnAssign;
 impl NodeAnnAssign {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("target")).into(),
-                ctx.new_str(ascii!("annotation")).into(),
-                ctx.new_str(ascii!("value")).into(),
-                ctx.new_str(ascii!("simple")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("target")).into(),ctx.new_str(ascii!("annotation")).into(),ctx.new_str(ascii!("value")).into(),ctx.new_str(ascii!("simple")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "For", base = "NodeKindStmt")]
@@ -298,27 +139,8 @@ struct NodeFor;
 impl NodeFor {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("target")).into(),
-                ctx.new_str(ascii!("iter")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("orelse")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("target")).into(),ctx.new_str(ascii!("iter")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("orelse")).into(),ctx.new_str(ascii!("type_comment")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "AsyncFor", base = "NodeKindStmt")]
@@ -327,27 +149,8 @@ struct NodeAsyncFor;
 impl NodeAsyncFor {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("target")).into(),
-                ctx.new_str(ascii!("iter")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("orelse")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("target")).into(),ctx.new_str(ascii!("iter")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("orelse")).into(),ctx.new_str(ascii!("type_comment")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "While", base = "NodeKindStmt")]
@@ -356,25 +159,8 @@ struct NodeWhile;
 impl NodeWhile {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("test")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("orelse")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("test")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("orelse")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "If", base = "NodeKindStmt")]
@@ -383,25 +169,8 @@ struct NodeIf;
 impl NodeIf {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("test")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("orelse")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("test")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("orelse")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "With", base = "NodeKindStmt")]
@@ -410,25 +179,8 @@ struct NodeWith;
 impl NodeWith {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("items")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("items")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("type_comment")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "AsyncWith", base = "NodeKindStmt")]
@@ -437,25 +189,8 @@ struct NodeAsyncWith;
 impl NodeAsyncWith {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("items")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("items")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("type_comment")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Match", base = "NodeKindStmt")]
@@ -464,24 +199,8 @@ struct NodeMatch;
 impl NodeMatch {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("subject")).into(),
-                ctx.new_str(ascii!("cases")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("subject")).into(),ctx.new_str(ascii!("cases")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Raise", base = "NodeKindStmt")]
@@ -490,24 +209,8 @@ struct NodeRaise;
 impl NodeRaise {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("exc")).into(),
-                ctx.new_str(ascii!("cause")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("exc")).into(),ctx.new_str(ascii!("cause")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Try", base = "NodeKindStmt")]
@@ -516,26 +219,8 @@ struct NodeTry;
 impl NodeTry {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("handlers")).into(),
-                ctx.new_str(ascii!("orelse")).into(),
-                ctx.new_str(ascii!("finalbody")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("handlers")).into(),ctx.new_str(ascii!("orelse")).into(),ctx.new_str(ascii!("finalbody")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "TryStar", base = "NodeKindStmt")]
@@ -544,26 +229,8 @@ struct NodeTryStar;
 impl NodeTryStar {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("handlers")).into(),
-                ctx.new_str(ascii!("orelse")).into(),
-                ctx.new_str(ascii!("finalbody")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("handlers")).into(),ctx.new_str(ascii!("orelse")).into(),ctx.new_str(ascii!("finalbody")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Assert", base = "NodeKindStmt")]
@@ -572,24 +239,8 @@ struct NodeAssert;
 impl NodeAssert {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("test")).into(),
-                ctx.new_str(ascii!("msg")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("test")).into(),ctx.new_str(ascii!("msg")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Import", base = "NodeKindStmt")]
@@ -598,21 +249,8 @@ struct NodeImport;
 impl NodeImport {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("names")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("names")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "ImportFrom", base = "NodeKindStmt")]
@@ -621,25 +259,8 @@ struct NodeImportFrom;
 impl NodeImportFrom {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("module")).into(),
-                ctx.new_str(ascii!("names")).into(),
-                ctx.new_str(ascii!("level")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("module")).into(),ctx.new_str(ascii!("names")).into(),ctx.new_str(ascii!("level")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Global", base = "NodeKindStmt")]
@@ -648,21 +269,8 @@ struct NodeGlobal;
 impl NodeGlobal {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("names")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("names")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Nonlocal", base = "NodeKindStmt")]
@@ -671,21 +279,8 @@ struct NodeNonlocal;
 impl NodeNonlocal {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("names")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("names")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Expr", base = "NodeKindStmt")]
@@ -694,21 +289,8 @@ struct NodeExpr;
 impl NodeExpr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Pass", base = "NodeKindStmt")]
@@ -718,16 +300,7 @@ impl NodePass {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Break", base = "NodeKindStmt")]
@@ -737,16 +310,7 @@ impl NodeBreak {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Continue", base = "NodeKindStmt")]
@@ -756,16 +320,7 @@ impl NodeContinue {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "expr", base = "AstNode")]
@@ -778,24 +333,8 @@ struct NodeBoolOp;
 impl NodeBoolOp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("op")).into(),
-                ctx.new_str(ascii!("values")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("op")).into(),ctx.new_str(ascii!("values")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "NamedExpr", base = "NodeKindExpr")]
@@ -804,24 +343,8 @@ struct NodeNamedExpr;
 impl NodeNamedExpr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("target")).into(),
-                ctx.new_str(ascii!("value")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("target")).into(),ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "BinOp", base = "NodeKindExpr")]
@@ -830,25 +353,8 @@ struct NodeBinOp;
 impl NodeBinOp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("left")).into(),
-                ctx.new_str(ascii!("op")).into(),
-                ctx.new_str(ascii!("right")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("left")).into(),ctx.new_str(ascii!("op")).into(),ctx.new_str(ascii!("right")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "UnaryOp", base = "NodeKindExpr")]
@@ -857,24 +363,8 @@ struct NodeUnaryOp;
 impl NodeUnaryOp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("op")).into(),
-                ctx.new_str(ascii!("operand")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("op")).into(),ctx.new_str(ascii!("operand")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Lambda", base = "NodeKindExpr")]
@@ -883,24 +373,8 @@ struct NodeLambda;
 impl NodeLambda {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("args")).into(),
-                ctx.new_str(ascii!("body")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("args")).into(),ctx.new_str(ascii!("body")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "IfExp", base = "NodeKindExpr")]
@@ -909,25 +383,8 @@ struct NodeIfExp;
 impl NodeIfExp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("test")).into(),
-                ctx.new_str(ascii!("body")).into(),
-                ctx.new_str(ascii!("orelse")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("test")).into(),ctx.new_str(ascii!("body")).into(),ctx.new_str(ascii!("orelse")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Dict", base = "NodeKindExpr")]
@@ -936,24 +393,8 @@ struct NodeDict;
 impl NodeDict {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("keys")).into(),
-                ctx.new_str(ascii!("values")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("keys")).into(),ctx.new_str(ascii!("values")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Set", base = "NodeKindExpr")]
@@ -962,21 +403,8 @@ struct NodeSet;
 impl NodeSet {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("elts")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("elts")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "ListComp", base = "NodeKindExpr")]
@@ -985,24 +413,8 @@ struct NodeListComp;
 impl NodeListComp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("elt")).into(),
-                ctx.new_str(ascii!("generators")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("elt")).into(),ctx.new_str(ascii!("generators")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "SetComp", base = "NodeKindExpr")]
@@ -1011,24 +423,8 @@ struct NodeSetComp;
 impl NodeSetComp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("elt")).into(),
-                ctx.new_str(ascii!("generators")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("elt")).into(),ctx.new_str(ascii!("generators")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "DictComp", base = "NodeKindExpr")]
@@ -1037,25 +433,8 @@ struct NodeDictComp;
 impl NodeDictComp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("key")).into(),
-                ctx.new_str(ascii!("value")).into(),
-                ctx.new_str(ascii!("generators")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("key")).into(),ctx.new_str(ascii!("value")).into(),ctx.new_str(ascii!("generators")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "GeneratorExp", base = "NodeKindExpr")]
@@ -1064,24 +443,8 @@ struct NodeGeneratorExp;
 impl NodeGeneratorExp {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("elt")).into(),
-                ctx.new_str(ascii!("generators")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("elt")).into(),ctx.new_str(ascii!("generators")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Await", base = "NodeKindExpr")]
@@ -1090,21 +453,8 @@ struct NodeAwait;
 impl NodeAwait {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Yield", base = "NodeKindExpr")]
@@ -1113,21 +463,8 @@ struct NodeYield;
 impl NodeYield {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "YieldFrom", base = "NodeKindExpr")]
@@ -1136,21 +473,8 @@ struct NodeYieldFrom;
 impl NodeYieldFrom {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Compare", base = "NodeKindExpr")]
@@ -1159,25 +483,8 @@ struct NodeCompare;
 impl NodeCompare {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("left")).into(),
-                ctx.new_str(ascii!("ops")).into(),
-                ctx.new_str(ascii!("comparators")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("left")).into(),ctx.new_str(ascii!("ops")).into(),ctx.new_str(ascii!("comparators")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Call", base = "NodeKindExpr")]
@@ -1186,25 +493,8 @@ struct NodeCall;
 impl NodeCall {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("func")).into(),
-                ctx.new_str(ascii!("args")).into(),
-                ctx.new_str(ascii!("keywords")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("func")).into(),ctx.new_str(ascii!("args")).into(),ctx.new_str(ascii!("keywords")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "FormattedValue", base = "NodeKindExpr")]
@@ -1213,25 +503,8 @@ struct NodeFormattedValue;
 impl NodeFormattedValue {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("value")).into(),
-                ctx.new_str(ascii!("conversion")).into(),
-                ctx.new_str(ascii!("format_spec")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into(),ctx.new_str(ascii!("conversion")).into(),ctx.new_str(ascii!("format_spec")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "JoinedStr", base = "NodeKindExpr")]
@@ -1240,21 +513,8 @@ struct NodeJoinedStr;
 impl NodeJoinedStr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("values")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("values")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Constant", base = "NodeKindExpr")]
@@ -1263,24 +523,8 @@ struct NodeConstant;
 impl NodeConstant {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("value")).into(),
-                ctx.new_str(ascii!("kind")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into(),ctx.new_str(ascii!("kind")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Attribute", base = "NodeKindExpr")]
@@ -1289,25 +533,8 @@ struct NodeAttribute;
 impl NodeAttribute {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("value")).into(),
-                ctx.new_str(ascii!("attr")).into(),
-                ctx.new_str(ascii!("ctx")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into(),ctx.new_str(ascii!("attr")).into(),ctx.new_str(ascii!("ctx")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Subscript", base = "NodeKindExpr")]
@@ -1316,25 +543,8 @@ struct NodeSubscript;
 impl NodeSubscript {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("value")).into(),
-                ctx.new_str(ascii!("slice")).into(),
-                ctx.new_str(ascii!("ctx")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into(),ctx.new_str(ascii!("slice")).into(),ctx.new_str(ascii!("ctx")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Starred", base = "NodeKindExpr")]
@@ -1343,24 +553,8 @@ struct NodeStarred;
 impl NodeStarred {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("value")).into(),
-                ctx.new_str(ascii!("ctx")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into(),ctx.new_str(ascii!("ctx")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Name", base = "NodeKindExpr")]
@@ -1369,24 +563,8 @@ struct NodeName;
 impl NodeName {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("id")).into(),
-                ctx.new_str(ascii!("ctx")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("id")).into(),ctx.new_str(ascii!("ctx")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "List", base = "NodeKindExpr")]
@@ -1395,24 +573,8 @@ struct NodeList;
 impl NodeList {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("elts")).into(),
-                ctx.new_str(ascii!("ctx")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("elts")).into(),ctx.new_str(ascii!("ctx")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Tuple", base = "NodeKindExpr")]
@@ -1421,24 +583,8 @@ struct NodeTuple;
 impl NodeTuple {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("elts")).into(),
-                ctx.new_str(ascii!("ctx")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("elts")).into(),ctx.new_str(ascii!("ctx")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "Slice", base = "NodeKindExpr")]
@@ -1447,25 +593,8 @@ struct NodeSlice;
 impl NodeSlice {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("lower")).into(),
-                ctx.new_str(ascii!("upper")).into(),
-                ctx.new_str(ascii!("step")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("lower")).into(),ctx.new_str(ascii!("upper")).into(),ctx.new_str(ascii!("step")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "expr_context", base = "AstNode")]
@@ -1814,16 +943,7 @@ struct NodeComprehension;
 impl NodeComprehension {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("target")).into(),
-                ctx.new_str(ascii!("iter")).into(),
-                ctx.new_str(ascii!("ifs")).into(),
-                ctx.new_str(ascii!("is_async")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("target")).into(),ctx.new_str(ascii!("iter")).into(),ctx.new_str(ascii!("ifs")).into(),ctx.new_str(ascii!("is_async")).into()]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1831,35 +951,14 @@ impl NodeComprehension {
 struct NodeKindExcepthandler;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeKindExcepthandler {}
-#[pyclass(
-    module = "_ast",
-    name = "ExceptHandler",
-    base = "NodeKindExcepthandler"
-)]
+#[pyclass(module = "_ast", name = "ExceptHandler", base = "NodeKindExcepthandler")]
 struct NodeExceptHandler;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExceptHandler {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("type")).into(),
-                ctx.new_str(ascii!("name")).into(),
-                ctx.new_str(ascii!("body")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("type")).into(),ctx.new_str(ascii!("name")).into(),ctx.new_str(ascii!("body")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "arguments", base = "AstNode")]
@@ -1868,19 +967,7 @@ struct NodeArguments;
 impl NodeArguments {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("posonlyargs")).into(),
-                ctx.new_str(ascii!("args")).into(),
-                ctx.new_str(ascii!("vararg")).into(),
-                ctx.new_str(ascii!("kwonlyargs")).into(),
-                ctx.new_str(ascii!("kw_defaults")).into(),
-                ctx.new_str(ascii!("kwarg")).into(),
-                ctx.new_str(ascii!("defaults")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("posonlyargs")).into(),ctx.new_str(ascii!("args")).into(),ctx.new_str(ascii!("vararg")).into(),ctx.new_str(ascii!("kwonlyargs")).into(),ctx.new_str(ascii!("kw_defaults")).into(),ctx.new_str(ascii!("kwarg")).into(),ctx.new_str(ascii!("defaults")).into()]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1890,25 +977,8 @@ struct NodeArg;
 impl NodeArg {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("arg")).into(),
-                ctx.new_str(ascii!("annotation")).into(),
-                ctx.new_str(ascii!("type_comment")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("arg")).into(),ctx.new_str(ascii!("annotation")).into(),ctx.new_str(ascii!("type_comment")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "keyword", base = "AstNode")]
@@ -1917,24 +987,8 @@ struct NodeKeyword;
 impl NodeKeyword {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("arg")).into(),
-                ctx.new_str(ascii!("value")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("arg")).into(),ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "alias", base = "AstNode")]
@@ -1943,24 +997,8 @@ struct NodeAlias;
 impl NodeAlias {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("name")).into(),
-                ctx.new_str(ascii!("asname")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("name")).into(),ctx.new_str(ascii!("asname")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "withitem", base = "AstNode")]
@@ -1969,14 +1007,7 @@ struct NodeWithitem;
 impl NodeWithitem {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("context_expr")).into(),
-                ctx.new_str(ascii!("optional_vars")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("context_expr")).into(),ctx.new_str(ascii!("optional_vars")).into()]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -1986,15 +1017,7 @@ struct NodeMatchCase;
 impl NodeMatchCase {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("pattern")).into(),
-                ctx.new_str(ascii!("guard")).into(),
-                ctx.new_str(ascii!("body")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("pattern")).into(),ctx.new_str(ascii!("guard")).into(),ctx.new_str(ascii!("body")).into()]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -2008,21 +1031,8 @@ struct NodeMatchValue;
 impl NodeMatchValue {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "MatchSingleton", base = "NodeKindPattern")]
@@ -2031,21 +1041,8 @@ struct NodeMatchSingleton;
 impl NodeMatchSingleton {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("value")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "MatchSequence", base = "NodeKindPattern")]
@@ -2054,21 +1051,8 @@ struct NodeMatchSequence;
 impl NodeMatchSequence {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("patterns")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("patterns")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "MatchMapping", base = "NodeKindPattern")]
@@ -2077,25 +1061,8 @@ struct NodeMatchMapping;
 impl NodeMatchMapping {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("keys")).into(),
-                ctx.new_str(ascii!("patterns")).into(),
-                ctx.new_str(ascii!("rest")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("keys")).into(),ctx.new_str(ascii!("patterns")).into(),ctx.new_str(ascii!("rest")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "MatchClass", base = "NodeKindPattern")]
@@ -2104,26 +1071,8 @@ struct NodeMatchClass;
 impl NodeMatchClass {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("cls")).into(),
-                ctx.new_str(ascii!("patterns")).into(),
-                ctx.new_str(ascii!("kwd_attrs")).into(),
-                ctx.new_str(ascii!("kwd_patterns")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("cls")).into(),ctx.new_str(ascii!("patterns")).into(),ctx.new_str(ascii!("kwd_attrs")).into(),ctx.new_str(ascii!("kwd_patterns")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "MatchStar", base = "NodeKindPattern")]
@@ -2132,21 +1081,8 @@ struct NodeMatchStar;
 impl NodeMatchStar {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("name")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("name")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "MatchAs", base = "NodeKindPattern")]
@@ -2155,24 +1091,8 @@ struct NodeMatchAs;
 impl NodeMatchAs {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("pattern")).into(),
-                ctx.new_str(ascii!("name")).into(),
-            ])
-            .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("pattern")).into(),ctx.new_str(ascii!("name")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "MatchOr", base = "NodeKindPattern")]
@@ -2181,21 +1101,8 @@ struct NodeMatchOr;
 impl NodeMatchOr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![ctx.new_str(ascii!("patterns")).into()])
-                .into(),
-        );
-        class.set_attr(
-            identifier!(ctx, _attributes),
-            ctx.new_list(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("col_offset")).into(),
-                ctx.new_str(ascii!("end_lineno")).into(),
-                ctx.new_str(ascii!("end_col_offset")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("patterns")).into()]).into());
+        class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("col_offset")).into(),ctx.new_str(ascii!("end_lineno")).into(),ctx.new_str(ascii!("end_col_offset")).into()]).into());
     }
 }
 #[pyclass(module = "_ast", name = "type_ignore", base = "AstNode")]
@@ -2208,14 +1115,7 @@ struct NodeTypeIgnore;
 impl NodeTypeIgnore {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
-        class.set_attr(
-            identifier!(ctx, _fields),
-            ctx.new_tuple(vec![
-                ctx.new_str(ascii!("lineno")).into(),
-                ctx.new_str(ascii!("tag")).into(),
-            ])
-            .into(),
-        );
+        class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![ctx.new_str(ascii!("lineno")).into(),ctx.new_str(ascii!("tag")).into()]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
@@ -2226,88 +1126,61 @@ impl NamedNode for ast::Mod {
 impl Node for ast::Mod {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Mod::Module { body, type_ignores } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeModule::static_type().to_owned())
-                    .unwrap();
+            ast::Mod::Module { body,type_ignores } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeModule::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("type_ignores", type_ignores.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("type_ignores", type_ignores.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::Mod::Interactive { body } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeInteractive::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeInteractive::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::Mod::Expression { body } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeExpression::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeExpression::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::Mod::FunctionType { argtypes, returns } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeFunctionType::static_type().to_owned())
-                    .unwrap();
+            ast::Mod::FunctionType { argtypes,returns } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeFunctionType::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("argtypes", argtypes.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("returns", returns.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("argtypes", argtypes.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("returns", returns.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeModule::static_type()) {
+        Ok(
+        if _cls.is(NodeModule::static_type()) {
             ast::Mod::Module {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "mod")?)?,
-                type_ignores: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "type_ignores", "mod")?,
-                )?,
+                type_ignores: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "type_ignores", "mod")?)?,
             }
-        } else if _cls.is(NodeInteractive::static_type()) {
+        } else
+        if _cls.is(NodeInteractive::static_type()) {
             ast::Mod::Interactive {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "mod")?)?,
             }
-        } else if _cls.is(NodeExpression::static_type()) {
+        } else
+        if _cls.is(NodeExpression::static_type()) {
             ast::Mod::Expression {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "mod")?)?,
             }
-        } else if _cls.is(NodeFunctionType::static_type()) {
+        } else
+        if _cls.is(NodeFunctionType::static_type()) {
             ast::Mod::FunctionType {
-                argtypes: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "argtypes", "mod")?,
-                )?,
-                returns: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "returns", "mod")?,
-                )?,
+                argtypes: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "argtypes", "mod")?)?,
+                returns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "returns", "mod")?)?,
             }
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of mod, but got {}",
-                _object.repr(_vm)?
-            )));
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of mod, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -2317,729 +1190,398 @@ impl NamedNode for ast::StmtKind {
 impl Node for ast::StmtKind {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::StmtKind::FunctionDef {
-                name,
-                args,
-                body,
-                decorator_list,
-                returns,
-                type_comment,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeFunctionDef::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::FunctionDef { name,args,body,decorator_list,returns,type_comment } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeFunctionDef::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("name", name.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("args", args.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("decorator_list", decorator_list.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("returns", returns.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("args", args.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("decorator_list", decorator_list.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("returns", returns.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::AsyncFunctionDef {
-                name,
-                args,
-                body,
-                decorator_list,
-                returns,
-                type_comment,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAsyncFunctionDef::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::AsyncFunctionDef { name,args,body,decorator_list,returns,type_comment } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAsyncFunctionDef::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("name", name.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("args", args.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("decorator_list", decorator_list.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("returns", returns.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("args", args.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("decorator_list", decorator_list.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("returns", returns.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::ClassDef {
-                name,
-                bases,
-                keywords,
-                body,
-                decorator_list,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeClassDef::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::ClassDef { name,bases,keywords,body,decorator_list } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeClassDef::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("name", name.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("bases", bases.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("keywords", keywords.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("decorator_list", decorator_list.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("bases", bases.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("keywords", keywords.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("decorator_list", decorator_list.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::StmtKind::Return { value } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeReturn::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeReturn::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::StmtKind::Delete { targets } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeDelete::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeDelete::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("targets", targets.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("targets", targets.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::Assign {
-                targets,
-                value,
-                type_comment,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAssign::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::Assign { targets,value,type_comment } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAssign::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("targets", targets.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("targets", targets.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::AugAssign { target, op, value } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAugAssign::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::AugAssign { target,op,value } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAugAssign::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("target", target.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("target", target.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("op", op.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::AnnAssign {
-                target,
-                annotation,
-                value,
-                simple,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAnnAssign::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::AnnAssign { target,annotation,value,simple } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAnnAssign::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("target", target.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("annotation", annotation.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("simple", simple.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("target", target.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("annotation", annotation.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("simple", simple.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::For {
-                target,
-                iter,
-                body,
-                orelse,
-                type_comment,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeFor::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::For { target,iter,body,orelse,type_comment } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeFor::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("target", target.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("iter", iter.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("orelse", orelse.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("target", target.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("iter", iter.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("orelse", orelse.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::AsyncFor {
-                target,
-                iter,
-                body,
-                orelse,
-                type_comment,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAsyncFor::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::AsyncFor { target,iter,body,orelse,type_comment } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAsyncFor::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("target", target.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("iter", iter.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("orelse", orelse.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("target", target.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("iter", iter.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("orelse", orelse.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::While { test, body, orelse } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeWhile::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::While { test,body,orelse } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeWhile::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("test", test.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("orelse", orelse.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("test", test.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("orelse", orelse.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::If { test, body, orelse } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeIf::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::If { test,body,orelse } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeIf::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("test", test.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("orelse", orelse.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("test", test.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("orelse", orelse.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::With {
-                items,
-                body,
-                type_comment,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeWith::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::With { items,body,type_comment } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeWith::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("items", items.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("items", items.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::AsyncWith {
-                items,
-                body,
-                type_comment,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAsyncWith::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::AsyncWith { items,body,type_comment } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAsyncWith::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("items", items.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("items", items.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::Match { subject, cases } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatch::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::Match { subject,cases } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatch::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("subject", subject.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("cases", cases.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("subject", subject.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("cases", cases.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::Raise { exc, cause } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeRaise::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::Raise { exc,cause } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeRaise::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
                 _dict.set_item("exc", exc.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("cause", cause.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("cause", cause.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::Try {
-                body,
-                handlers,
-                orelse,
-                finalbody,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeTry::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::Try { body,handlers,orelse,finalbody } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeTry::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("handlers", handlers.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("orelse", orelse.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("finalbody", finalbody.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("handlers", handlers.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("orelse", orelse.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("finalbody", finalbody.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::TryStar {
-                body,
-                handlers,
-                orelse,
-                finalbody,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeTryStar::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::TryStar { body,handlers,orelse,finalbody } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeTryStar::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("handlers", handlers.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("orelse", orelse.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("finalbody", finalbody.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("handlers", handlers.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("orelse", orelse.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("finalbody", finalbody.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::Assert { test, msg } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAssert::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::Assert { test,msg } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAssert::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("test", test.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("test", test.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("msg", msg.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::StmtKind::Import { names } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeImport::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeImport::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("names", names.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("names", names.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::ImportFrom {
-                module,
-                names,
-                level,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeImportFrom::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::ImportFrom { module,names,level } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeImportFrom::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("module", module.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("names", names.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("level", level.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("module", module.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("names", names.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("level", level.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::StmtKind::Global { names } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeGlobal::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeGlobal::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("names", names.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("names", names.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::StmtKind::Nonlocal { names } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeNonlocal::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeNonlocal::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("names", names.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("names", names.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::StmtKind::Expr { value } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeExpr::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeExpr::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::Pass {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodePass::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::Pass {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodePass::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::StmtKind::Break {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeBreak::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::Break {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeBreak::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::StmtKind::Continue {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeContinue::static_type().to_owned())
-                    .unwrap();
+            ast::StmtKind::Continue {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeContinue::static_type().to_owned()).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "stmt")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "stmt")?)?,
-        );
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "stmt")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "stmt")?)?);
         let _cls = _object.class();
-        Ok(if _cls.is(NodeFunctionDef::static_type()) {
+        Ok(
+        if _cls.is(NodeFunctionDef::static_type()) {
             ast::StmtKind::FunctionDef {
                 name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "stmt")?)?,
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                decorator_list: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "decorator_list", "stmt")?,
-                )?,
-                returns: get_node_field_opt(_vm, &_object, "returns")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                decorator_list: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "decorator_list", "stmt")?)?,
+                returns: get_node_field_opt(_vm, &_object, "returns")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeAsyncFunctionDef::static_type()) {
+        } else
+        if _cls.is(NodeAsyncFunctionDef::static_type()) {
             ast::StmtKind::AsyncFunctionDef {
                 name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "stmt")?)?,
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                decorator_list: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "decorator_list", "stmt")?,
-                )?,
-                returns: get_node_field_opt(_vm, &_object, "returns")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                decorator_list: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "decorator_list", "stmt")?)?,
+                returns: get_node_field_opt(_vm, &_object, "returns")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeClassDef::static_type()) {
+        } else
+        if _cls.is(NodeClassDef::static_type()) {
             ast::StmtKind::ClassDef {
                 name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "stmt")?)?,
                 bases: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "bases", "stmt")?)?,
-                keywords: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "keywords", "stmt")?,
-                )?,
+                keywords: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keywords", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                decorator_list: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "decorator_list", "stmt")?,
-                )?,
+                decorator_list: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "decorator_list", "stmt")?)?,
             }
-        } else if _cls.is(NodeReturn::static_type()) {
+        } else
+        if _cls.is(NodeReturn::static_type()) {
             ast::StmtKind::Return {
-                value: get_node_field_opt(_vm, &_object, "value")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                value: get_node_field_opt(_vm, &_object, "value")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeDelete::static_type()) {
+        } else
+        if _cls.is(NodeDelete::static_type()) {
             ast::StmtKind::Delete {
-                targets: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "targets", "stmt")?,
-                )?,
+                targets: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "targets", "stmt")?)?,
             }
-        } else if _cls.is(NodeAssign::static_type()) {
+        } else
+        if _cls.is(NodeAssign::static_type()) {
             ast::StmtKind::Assign {
-                targets: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "targets", "stmt")?,
-                )?,
+                targets: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "targets", "stmt")?)?,
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
-                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeAugAssign::static_type()) {
+        } else
+        if _cls.is(NodeAugAssign::static_type()) {
             ast::StmtKind::AugAssign {
-                target: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "target", "stmt")?,
-                )?,
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "stmt")?)?,
                 op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "stmt")?)?,
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
             }
-        } else if _cls.is(NodeAnnAssign::static_type()) {
+        } else
+        if _cls.is(NodeAnnAssign::static_type()) {
             ast::StmtKind::AnnAssign {
-                target: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "target", "stmt")?,
-                )?,
-                annotation: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "annotation", "stmt")?,
-                )?,
-                value: get_node_field_opt(_vm, &_object, "value")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                simple: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "simple", "stmt")?,
-                )?,
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "stmt")?)?,
+                annotation: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "annotation", "stmt")?)?,
+                value: get_node_field_opt(_vm, &_object, "value")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                simple: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "simple", "stmt")?)?,
             }
-        } else if _cls.is(NodeFor::static_type()) {
+        } else
+        if _cls.is(NodeFor::static_type()) {
             ast::StmtKind::For {
-                target: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "target", "stmt")?,
-                )?,
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "stmt")?)?,
                 iter: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "iter", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                orelse: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "orelse", "stmt")?,
-                )?,
-                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeAsyncFor::static_type()) {
+        } else
+        if _cls.is(NodeAsyncFor::static_type()) {
             ast::StmtKind::AsyncFor {
-                target: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "target", "stmt")?,
-                )?,
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "stmt")?)?,
                 iter: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "iter", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                orelse: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "orelse", "stmt")?,
-                )?,
-                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeWhile::static_type()) {
+        } else
+        if _cls.is(NodeWhile::static_type()) {
             ast::StmtKind::While {
                 test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                orelse: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "orelse", "stmt")?,
-                )?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
             }
-        } else if _cls.is(NodeIf::static_type()) {
+        } else
+        if _cls.is(NodeIf::static_type()) {
             ast::StmtKind::If {
                 test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                orelse: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "orelse", "stmt")?,
-                )?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
             }
-        } else if _cls.is(NodeWith::static_type()) {
+        } else
+        if _cls.is(NodeWith::static_type()) {
             ast::StmtKind::With {
                 items: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "items", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeAsyncWith::static_type()) {
+        } else
+        if _cls.is(NodeAsyncWith::static_type()) {
             ast::StmtKind::AsyncWith {
                 items: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "items", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeMatch::static_type()) {
+        } else
+        if _cls.is(NodeMatch::static_type()) {
             ast::StmtKind::Match {
-                subject: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "subject", "stmt")?,
-                )?,
+                subject: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "subject", "stmt")?)?,
                 cases: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "cases", "stmt")?)?,
             }
-        } else if _cls.is(NodeRaise::static_type()) {
+        } else
+        if _cls.is(NodeRaise::static_type()) {
             ast::StmtKind::Raise {
-                exc: get_node_field_opt(_vm, &_object, "exc")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                cause: get_node_field_opt(_vm, &_object, "cause")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                exc: get_node_field_opt(_vm, &_object, "exc")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                cause: get_node_field_opt(_vm, &_object, "cause")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeTry::static_type()) {
+        } else
+        if _cls.is(NodeTry::static_type()) {
             ast::StmtKind::Try {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                handlers: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "handlers", "stmt")?,
-                )?,
-                orelse: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "orelse", "stmt")?,
-                )?,
-                finalbody: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "finalbody", "stmt")?,
-                )?,
+                handlers: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "handlers", "stmt")?)?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
+                finalbody: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "finalbody", "stmt")?)?,
             }
-        } else if _cls.is(NodeTryStar::static_type()) {
+        } else
+        if _cls.is(NodeTryStar::static_type()) {
             ast::StmtKind::TryStar {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
-                handlers: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "handlers", "stmt")?,
-                )?,
-                orelse: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "orelse", "stmt")?,
-                )?,
-                finalbody: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "finalbody", "stmt")?,
-                )?,
+                handlers: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "handlers", "stmt")?)?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "stmt")?)?,
+                finalbody: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "finalbody", "stmt")?)?,
             }
-        } else if _cls.is(NodeAssert::static_type()) {
+        } else
+        if _cls.is(NodeAssert::static_type()) {
             ast::StmtKind::Assert {
                 test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
-                msg: get_node_field_opt(_vm, &_object, "msg")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                msg: get_node_field_opt(_vm, &_object, "msg")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeImport::static_type()) {
+        } else
+        if _cls.is(NodeImport::static_type()) {
             ast::StmtKind::Import {
                 names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
             }
-        } else if _cls.is(NodeImportFrom::static_type()) {
+        } else
+        if _cls.is(NodeImportFrom::static_type()) {
             ast::StmtKind::ImportFrom {
-                module: get_node_field_opt(_vm, &_object, "module")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                module: get_node_field_opt(_vm, &_object, "module")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
                 names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
-                level: get_node_field_opt(_vm, &_object, "level")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                level: get_node_field_opt(_vm, &_object, "level")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeGlobal::static_type()) {
+        } else
+        if _cls.is(NodeGlobal::static_type()) {
             ast::StmtKind::Global {
                 names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
             }
-        } else if _cls.is(NodeNonlocal::static_type()) {
+        } else
+        if _cls.is(NodeNonlocal::static_type()) {
             ast::StmtKind::Nonlocal {
                 names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
             }
-        } else if _cls.is(NodeExpr::static_type()) {
+        } else
+        if _cls.is(NodeExpr::static_type()) {
             ast::StmtKind::Expr {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
             }
-        } else if _cls.is(NodePass::static_type()) {
-            ast::StmtKind::Pass {}
-        } else if _cls.is(NodeBreak::static_type()) {
-            ast::StmtKind::Break {}
-        } else if _cls.is(NodeContinue::static_type()) {
-            ast::StmtKind::Continue {}
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of stmt, but got {}",
-                _object.repr(_vm)?
-            )));
+        } else
+        if _cls.is(NodePass::static_type()) {
+            ast::StmtKind::Pass {
+            }
+        } else
+        if _cls.is(NodeBreak::static_type()) {
+            ast::StmtKind::Break {
+            }
+        } else
+        if _cls.is(NodeContinue::static_type()) {
+            ast::StmtKind::Continue {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of stmt, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -3049,558 +1591,373 @@ impl NamedNode for ast::ExprKind {
 impl Node for ast::ExprKind {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::ExprKind::BoolOp { op, values } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeBoolOp::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::BoolOp { op,values } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeBoolOp::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
                 _dict.set_item("op", op.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("values", values.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("values", values.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::NamedExpr { target, value } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeNamedExpr::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::NamedExpr { target,value } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeNamedExpr::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("target", target.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("target", target.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::BinOp { left, op, right } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeBinOp::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::BinOp { left,op,right } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeBinOp::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("left", left.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("left", left.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("op", op.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("right", right.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("right", right.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::UnaryOp { op, operand } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeUnaryOp::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::UnaryOp { op,operand } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeUnaryOp::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
                 _dict.set_item("op", op.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("operand", operand.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("operand", operand.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Lambda { args, body } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeLambda::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Lambda { args,body } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeLambda::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("args", args.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("args", args.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::IfExp { test, body, orelse } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeIfExp::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::IfExp { test,body,orelse } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeIfExp::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("test", test.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("orelse", orelse.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("test", test.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("orelse", orelse.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Dict { keys, values } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeDict::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Dict { keys,values } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeDict::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("keys", keys.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("values", values.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("keys", keys.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("values", values.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::ExprKind::Set { elts } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeSet::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeSet::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("elts", elts.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("elts", elts.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::ListComp { elt, generators } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeListComp::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::ListComp { elt,generators } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeListComp::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
                 _dict.set_item("elt", elt.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("generators", generators.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("generators", generators.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::SetComp { elt, generators } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeSetComp::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::SetComp { elt,generators } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeSetComp::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
                 _dict.set_item("elt", elt.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("generators", generators.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("generators", generators.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::DictComp {
-                key,
-                value,
-                generators,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeDictComp::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::DictComp { key,value,generators } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeDictComp::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
                 _dict.set_item("key", key.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("generators", generators.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("generators", generators.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::GeneratorExp { elt, generators } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeGeneratorExp::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::GeneratorExp { elt,generators } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeGeneratorExp::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
                 _dict.set_item("elt", elt.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("generators", generators.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("generators", generators.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::ExprKind::Await { value } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAwait::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeAwait::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::ExprKind::Yield { value } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeYield::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeYield::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::ExprKind::YieldFrom { value } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeYieldFrom::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeYieldFrom::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Compare {
-                left,
-                ops,
-                comparators,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeCompare::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Compare { left,ops,comparators } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeCompare::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("left", left.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("left", left.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("ops", ops.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("comparators", comparators.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("comparators", comparators.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Call {
-                func,
-                args,
-                keywords,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeCall::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Call { func,args,keywords } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeCall::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("func", func.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("args", args.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("keywords", keywords.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("func", func.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("args", args.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("keywords", keywords.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::FormattedValue {
-                value,
-                conversion,
-                format_spec,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeFormattedValue::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::FormattedValue { value,conversion,format_spec } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeFormattedValue::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("conversion", conversion.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("format_spec", format_spec.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("conversion", conversion.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("format_spec", format_spec.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::ExprKind::JoinedStr { values } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeJoinedStr::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeJoinedStr::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("values", values.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("values", values.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Constant { value, kind } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeConstant::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Constant { value,kind } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeConstant::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("kind", kind.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("kind", kind.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Attribute { value, attr, ctx } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAttribute::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Attribute { value,attr,ctx } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAttribute::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("attr", attr.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("attr", attr.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Subscript { value, slice, ctx } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeSubscript::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Subscript { value,slice,ctx } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeSubscript::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("slice", slice.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("slice", slice.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Starred { value, ctx } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeStarred::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Starred { value,ctx } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeStarred::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Name { id, ctx } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeName::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Name { id,ctx } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeName::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
                 _dict.set_item("id", id.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::List { elts, ctx } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeList::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::List { elts,ctx } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeList::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("elts", elts.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("elts", elts.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Tuple { elts, ctx } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeTuple::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Tuple { elts,ctx } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeTuple::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("elts", elts.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("elts", elts.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Slice { lower, upper, step } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeSlice::static_type().to_owned())
-                    .unwrap();
+            ast::ExprKind::Slice { lower,upper,step } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeSlice::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("lower", lower.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("upper", upper.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("step", step.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("lower", lower.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("upper", upper.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("step", step.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "expr")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "expr")?)?,
-        );
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "expr")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "expr")?)?);
         let _cls = _object.class();
-        Ok(if _cls.is(NodeBoolOp::static_type()) {
+        Ok(
+        if _cls.is(NodeBoolOp::static_type()) {
             ast::ExprKind::BoolOp {
                 op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "expr")?)?,
-                values: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "values", "expr")?,
-                )?,
+                values: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "values", "expr")?)?,
             }
-        } else if _cls.is(NodeNamedExpr::static_type()) {
+        } else
+        if _cls.is(NodeNamedExpr::static_type()) {
             ast::ExprKind::NamedExpr {
-                target: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "target", "expr")?,
-                )?,
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "expr")?)?,
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
             }
-        } else if _cls.is(NodeBinOp::static_type()) {
+        } else
+        if _cls.is(NodeBinOp::static_type()) {
             ast::ExprKind::BinOp {
                 left: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "left", "expr")?)?,
                 op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "expr")?)?,
                 right: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "right", "expr")?)?,
             }
-        } else if _cls.is(NodeUnaryOp::static_type()) {
+        } else
+        if _cls.is(NodeUnaryOp::static_type()) {
             ast::ExprKind::UnaryOp {
                 op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "expr")?)?,
-                operand: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "operand", "expr")?,
-                )?,
+                operand: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "operand", "expr")?)?,
             }
-        } else if _cls.is(NodeLambda::static_type()) {
+        } else
+        if _cls.is(NodeLambda::static_type()) {
             ast::ExprKind::Lambda {
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "expr")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "expr")?)?,
             }
-        } else if _cls.is(NodeIfExp::static_type()) {
+        } else
+        if _cls.is(NodeIfExp::static_type()) {
             ast::ExprKind::IfExp {
                 test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "expr")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "expr")?)?,
-                orelse: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "orelse", "expr")?,
-                )?,
+                orelse: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "orelse", "expr")?)?,
             }
-        } else if _cls.is(NodeDict::static_type()) {
+        } else
+        if _cls.is(NodeDict::static_type()) {
             ast::ExprKind::Dict {
                 keys: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keys", "expr")?)?,
-                values: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "values", "expr")?,
-                )?,
+                values: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "values", "expr")?)?,
             }
-        } else if _cls.is(NodeSet::static_type()) {
+        } else
+        if _cls.is(NodeSet::static_type()) {
             ast::ExprKind::Set {
                 elts: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elts", "expr")?)?,
             }
-        } else if _cls.is(NodeListComp::static_type()) {
+        } else
+        if _cls.is(NodeListComp::static_type()) {
             ast::ExprKind::ListComp {
                 elt: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elt", "expr")?)?,
-                generators: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "generators", "expr")?,
-                )?,
+                generators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "generators", "expr")?)?,
             }
-        } else if _cls.is(NodeSetComp::static_type()) {
+        } else
+        if _cls.is(NodeSetComp::static_type()) {
             ast::ExprKind::SetComp {
                 elt: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elt", "expr")?)?,
-                generators: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "generators", "expr")?,
-                )?,
+                generators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "generators", "expr")?)?,
             }
-        } else if _cls.is(NodeDictComp::static_type()) {
+        } else
+        if _cls.is(NodeDictComp::static_type()) {
             ast::ExprKind::DictComp {
                 key: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "key", "expr")?)?,
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
-                generators: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "generators", "expr")?,
-                )?,
+                generators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "generators", "expr")?)?,
             }
-        } else if _cls.is(NodeGeneratorExp::static_type()) {
+        } else
+        if _cls.is(NodeGeneratorExp::static_type()) {
             ast::ExprKind::GeneratorExp {
                 elt: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elt", "expr")?)?,
-                generators: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "generators", "expr")?,
-                )?,
+                generators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "generators", "expr")?)?,
             }
-        } else if _cls.is(NodeAwait::static_type()) {
+        } else
+        if _cls.is(NodeAwait::static_type()) {
             ast::ExprKind::Await {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
             }
-        } else if _cls.is(NodeYield::static_type()) {
+        } else
+        if _cls.is(NodeYield::static_type()) {
             ast::ExprKind::Yield {
-                value: get_node_field_opt(_vm, &_object, "value")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                value: get_node_field_opt(_vm, &_object, "value")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeYieldFrom::static_type()) {
+        } else
+        if _cls.is(NodeYieldFrom::static_type()) {
             ast::ExprKind::YieldFrom {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
             }
-        } else if _cls.is(NodeCompare::static_type()) {
+        } else
+        if _cls.is(NodeCompare::static_type()) {
             ast::ExprKind::Compare {
                 left: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "left", "expr")?)?,
                 ops: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ops", "expr")?)?,
-                comparators: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "comparators", "expr")?,
-                )?,
+                comparators: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "comparators", "expr")?)?,
             }
-        } else if _cls.is(NodeCall::static_type()) {
+        } else
+        if _cls.is(NodeCall::static_type()) {
             ast::ExprKind::Call {
                 func: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "func", "expr")?)?,
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "expr")?)?,
-                keywords: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "keywords", "expr")?,
-                )?,
+                keywords: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keywords", "expr")?)?,
             }
-        } else if _cls.is(NodeFormattedValue::static_type()) {
+        } else
+        if _cls.is(NodeFormattedValue::static_type()) {
             ast::ExprKind::FormattedValue {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
-                conversion: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "conversion", "expr")?,
-                )?,
-                format_spec: get_node_field_opt(_vm, &_object, "format_spec")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                conversion: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "conversion", "expr")?)?,
+                format_spec: get_node_field_opt(_vm, &_object, "format_spec")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeJoinedStr::static_type()) {
+        } else
+        if _cls.is(NodeJoinedStr::static_type()) {
             ast::ExprKind::JoinedStr {
-                values: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "values", "expr")?,
-                )?,
+                values: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "values", "expr")?)?,
             }
-        } else if _cls.is(NodeConstant::static_type()) {
+        } else
+        if _cls.is(NodeConstant::static_type()) {
             ast::ExprKind::Constant {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
-                kind: get_node_field_opt(_vm, &_object, "kind")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                kind: get_node_field_opt(_vm, &_object, "kind")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeAttribute::static_type()) {
+        } else
+        if _cls.is(NodeAttribute::static_type()) {
             ast::ExprKind::Attribute {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
                 attr: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "attr", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             }
-        } else if _cls.is(NodeSubscript::static_type()) {
+        } else
+        if _cls.is(NodeSubscript::static_type()) {
             ast::ExprKind::Subscript {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
                 slice: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "slice", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             }
-        } else if _cls.is(NodeStarred::static_type()) {
+        } else
+        if _cls.is(NodeStarred::static_type()) {
             ast::ExprKind::Starred {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             }
-        } else if _cls.is(NodeName::static_type()) {
+        } else
+        if _cls.is(NodeName::static_type()) {
             ast::ExprKind::Name {
                 id: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "id", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             }
-        } else if _cls.is(NodeList::static_type()) {
+        } else
+        if _cls.is(NodeList::static_type()) {
             ast::ExprKind::List {
                 elts: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elts", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             }
-        } else if _cls.is(NodeTuple::static_type()) {
+        } else
+        if _cls.is(NodeTuple::static_type()) {
             ast::ExprKind::Tuple {
                 elts: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elts", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             }
-        } else if _cls.is(NodeSlice::static_type()) {
+        } else
+        if _cls.is(NodeSlice::static_type()) {
             ast::ExprKind::Slice {
-                lower: get_node_field_opt(_vm, &_object, "lower")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                upper: get_node_field_opt(_vm, &_object, "upper")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                step: get_node_field_opt(_vm, &_object, "step")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                lower: get_node_field_opt(_vm, &_object, "lower")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                upper: get_node_field_opt(_vm, &_object, "upper")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                step: get_node_field_opt(_vm, &_object, "step")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of expr, but got {}",
-                _object.repr(_vm)?
-            )));
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of expr, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -3610,39 +1967,37 @@ impl NamedNode for ast::ExprContext {
 impl Node for ast::ExprContext {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::ExprContext::Load {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeLoad::static_type().to_owned())
-                    .unwrap();
+            ast::ExprContext::Load {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeLoad::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::ExprContext::Store {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeStore::static_type().to_owned())
-                    .unwrap();
+            ast::ExprContext::Store {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeStore::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::ExprContext::Del {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeDel::static_type().to_owned())
-                    .unwrap();
+            ast::ExprContext::Del {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeDel::static_type().to_owned()).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeLoad::static_type()) {
-            ast::ExprContext::Load {}
-        } else if _cls.is(NodeStore::static_type()) {
-            ast::ExprContext::Store {}
-        } else if _cls.is(NodeDel::static_type()) {
-            ast::ExprContext::Del {}
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of expr_context, but got {}",
-                _object.repr(_vm)?
-            )));
+        Ok(
+        if _cls.is(NodeLoad::static_type()) {
+            ast::ExprContext::Load {
+            }
+        } else
+        if _cls.is(NodeStore::static_type()) {
+            ast::ExprContext::Store {
+            }
+        } else
+        if _cls.is(NodeDel::static_type()) {
+            ast::ExprContext::Del {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of expr_context, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -3652,31 +2007,29 @@ impl NamedNode for ast::Boolop {
 impl Node for ast::Boolop {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Boolop::And {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAnd::static_type().to_owned())
-                    .unwrap();
+            ast::Boolop::And {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAnd::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Boolop::Or {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeOr::static_type().to_owned())
-                    .unwrap();
+            ast::Boolop::Or {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeOr::static_type().to_owned()).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeAnd::static_type()) {
-            ast::Boolop::And {}
-        } else if _cls.is(NodeOr::static_type()) {
-            ast::Boolop::Or {}
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of boolop, but got {}",
-                _object.repr(_vm)?
-            )));
+        Ok(
+        if _cls.is(NodeAnd::static_type()) {
+            ast::Boolop::And {
+            }
+        } else
+        if _cls.is(NodeOr::static_type()) {
+            ast::Boolop::Or {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of boolop, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -3686,119 +2039,117 @@ impl NamedNode for ast::Operator {
 impl Node for ast::Operator {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Operator::Add {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeAdd::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::Add {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeAdd::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::Sub {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeSub::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::Sub {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeSub::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::Mult {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMult::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::Mult {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeMult::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::MatMult {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatMult::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::MatMult {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatMult::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::Div {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeDiv::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::Div {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeDiv::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::Mod {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMod::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::Mod {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeMod::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::Pow {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodePow::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::Pow {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodePow::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::LShift {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeLShift::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::LShift {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeLShift::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::RShift {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeRShift::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::RShift {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeRShift::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::BitOr {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeBitOr::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::BitOr {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeBitOr::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::BitXor {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeBitXor::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::BitXor {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeBitXor::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::BitAnd {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeBitAnd::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::BitAnd {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeBitAnd::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Operator::FloorDiv {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeFloorDiv::static_type().to_owned())
-                    .unwrap();
+            ast::Operator::FloorDiv {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeFloorDiv::static_type().to_owned()).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeAdd::static_type()) {
-            ast::Operator::Add {}
-        } else if _cls.is(NodeSub::static_type()) {
-            ast::Operator::Sub {}
-        } else if _cls.is(NodeMult::static_type()) {
-            ast::Operator::Mult {}
-        } else if _cls.is(NodeMatMult::static_type()) {
-            ast::Operator::MatMult {}
-        } else if _cls.is(NodeDiv::static_type()) {
-            ast::Operator::Div {}
-        } else if _cls.is(NodeMod::static_type()) {
-            ast::Operator::Mod {}
-        } else if _cls.is(NodePow::static_type()) {
-            ast::Operator::Pow {}
-        } else if _cls.is(NodeLShift::static_type()) {
-            ast::Operator::LShift {}
-        } else if _cls.is(NodeRShift::static_type()) {
-            ast::Operator::RShift {}
-        } else if _cls.is(NodeBitOr::static_type()) {
-            ast::Operator::BitOr {}
-        } else if _cls.is(NodeBitXor::static_type()) {
-            ast::Operator::BitXor {}
-        } else if _cls.is(NodeBitAnd::static_type()) {
-            ast::Operator::BitAnd {}
-        } else if _cls.is(NodeFloorDiv::static_type()) {
-            ast::Operator::FloorDiv {}
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of operator, but got {}",
-                _object.repr(_vm)?
-            )));
+        Ok(
+        if _cls.is(NodeAdd::static_type()) {
+            ast::Operator::Add {
+            }
+        } else
+        if _cls.is(NodeSub::static_type()) {
+            ast::Operator::Sub {
+            }
+        } else
+        if _cls.is(NodeMult::static_type()) {
+            ast::Operator::Mult {
+            }
+        } else
+        if _cls.is(NodeMatMult::static_type()) {
+            ast::Operator::MatMult {
+            }
+        } else
+        if _cls.is(NodeDiv::static_type()) {
+            ast::Operator::Div {
+            }
+        } else
+        if _cls.is(NodeMod::static_type()) {
+            ast::Operator::Mod {
+            }
+        } else
+        if _cls.is(NodePow::static_type()) {
+            ast::Operator::Pow {
+            }
+        } else
+        if _cls.is(NodeLShift::static_type()) {
+            ast::Operator::LShift {
+            }
+        } else
+        if _cls.is(NodeRShift::static_type()) {
+            ast::Operator::RShift {
+            }
+        } else
+        if _cls.is(NodeBitOr::static_type()) {
+            ast::Operator::BitOr {
+            }
+        } else
+        if _cls.is(NodeBitXor::static_type()) {
+            ast::Operator::BitXor {
+            }
+        } else
+        if _cls.is(NodeBitAnd::static_type()) {
+            ast::Operator::BitAnd {
+            }
+        } else
+        if _cls.is(NodeFloorDiv::static_type()) {
+            ast::Operator::FloorDiv {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of operator, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -3808,47 +2159,45 @@ impl NamedNode for ast::Unaryop {
 impl Node for ast::Unaryop {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Unaryop::Invert {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeInvert::static_type().to_owned())
-                    .unwrap();
+            ast::Unaryop::Invert {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeInvert::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Unaryop::Not {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeNot::static_type().to_owned())
-                    .unwrap();
+            ast::Unaryop::Not {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeNot::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Unaryop::UAdd {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeUAdd::static_type().to_owned())
-                    .unwrap();
+            ast::Unaryop::UAdd {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeUAdd::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Unaryop::USub {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeUSub::static_type().to_owned())
-                    .unwrap();
+            ast::Unaryop::USub {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeUSub::static_type().to_owned()).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeInvert::static_type()) {
-            ast::Unaryop::Invert {}
-        } else if _cls.is(NodeNot::static_type()) {
-            ast::Unaryop::Not {}
-        } else if _cls.is(NodeUAdd::static_type()) {
-            ast::Unaryop::UAdd {}
-        } else if _cls.is(NodeUSub::static_type()) {
-            ast::Unaryop::USub {}
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of unaryop, but got {}",
-                _object.repr(_vm)?
-            )));
+        Ok(
+        if _cls.is(NodeInvert::static_type()) {
+            ast::Unaryop::Invert {
+            }
+        } else
+        if _cls.is(NodeNot::static_type()) {
+            ast::Unaryop::Not {
+            }
+        } else
+        if _cls.is(NodeUAdd::static_type()) {
+            ast::Unaryop::UAdd {
+            }
+        } else
+        if _cls.is(NodeUSub::static_type()) {
+            ast::Unaryop::USub {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of unaryop, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -3858,95 +2207,93 @@ impl NamedNode for ast::Cmpop {
 impl Node for ast::Cmpop {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Cmpop::Eq {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeEq::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::Eq {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeEq::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Cmpop::NotEq {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeNotEq::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::NotEq {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeNotEq::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Cmpop::Lt {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeLt::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::Lt {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeLt::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Cmpop::LtE {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeLtE::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::LtE {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeLtE::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Cmpop::Gt {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeGt::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::Gt {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeGt::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Cmpop::GtE {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeGtE::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::GtE {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeGtE::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Cmpop::Is {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeIs::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::Is {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeIs::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Cmpop::IsNot {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeIsNot::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::IsNot {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeIsNot::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Cmpop::In {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeIn::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::In {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeIn::static_type().to_owned()).unwrap();
                 _node.into()
             }
-            ast::Cmpop::NotIn {} => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeNotIn::static_type().to_owned())
-                    .unwrap();
+            ast::Cmpop::NotIn {  } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeNotIn::static_type().to_owned()).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeEq::static_type()) {
-            ast::Cmpop::Eq {}
-        } else if _cls.is(NodeNotEq::static_type()) {
-            ast::Cmpop::NotEq {}
-        } else if _cls.is(NodeLt::static_type()) {
-            ast::Cmpop::Lt {}
-        } else if _cls.is(NodeLtE::static_type()) {
-            ast::Cmpop::LtE {}
-        } else if _cls.is(NodeGt::static_type()) {
-            ast::Cmpop::Gt {}
-        } else if _cls.is(NodeGtE::static_type()) {
-            ast::Cmpop::GtE {}
-        } else if _cls.is(NodeIs::static_type()) {
-            ast::Cmpop::Is {}
-        } else if _cls.is(NodeIsNot::static_type()) {
-            ast::Cmpop::IsNot {}
-        } else if _cls.is(NodeIn::static_type()) {
-            ast::Cmpop::In {}
-        } else if _cls.is(NodeNotIn::static_type()) {
-            ast::Cmpop::NotIn {}
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of cmpop, but got {}",
-                _object.repr(_vm)?
-            )));
+        Ok(
+        if _cls.is(NodeEq::static_type()) {
+            ast::Cmpop::Eq {
+            }
+        } else
+        if _cls.is(NodeNotEq::static_type()) {
+            ast::Cmpop::NotEq {
+            }
+        } else
+        if _cls.is(NodeLt::static_type()) {
+            ast::Cmpop::Lt {
+            }
+        } else
+        if _cls.is(NodeLtE::static_type()) {
+            ast::Cmpop::LtE {
+            }
+        } else
+        if _cls.is(NodeGt::static_type()) {
+            ast::Cmpop::Gt {
+            }
+        } else
+        if _cls.is(NodeGtE::static_type()) {
+            ast::Cmpop::GtE {
+            }
+        } else
+        if _cls.is(NodeIs::static_type()) {
+            ast::Cmpop::Is {
+            }
+        } else
+        if _cls.is(NodeIsNot::static_type()) {
+            ast::Cmpop::IsNot {
+            }
+        } else
+        if _cls.is(NodeIn::static_type()) {
+            ast::Cmpop::In {
+            }
+        } else
+        if _cls.is(NodeNotIn::static_type()) {
+            ast::Cmpop::NotIn {
+            }
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of cmpop, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -3955,47 +2302,24 @@ impl NamedNode for ast::Comprehension {
 }
 impl Node for ast::Comprehension {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::Comprehension {
-            target,
-            iter,
-            ifs,
-            is_async,
-        } = self;
-        let _node = AstNode
-            .into_ref_with_type(_vm, NodeComprehension::static_type().to_owned())
-            .unwrap();
+        let ast::Comprehension { target,iter,ifs,is_async } = self;
+        let _node = AstNode.into_ref_with_type(_vm, NodeComprehension::static_type().to_owned()).unwrap();
         let _dict = _node.as_object().dict().unwrap();
-        _dict
-            .set_item("target", target.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("iter", iter.ast_to_object(_vm), _vm)
-            .unwrap();
+        _dict.set_item("target", target.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("iter", iter.ast_to_object(_vm), _vm).unwrap();
         _dict.set_item("ifs", ifs.ast_to_object(_vm), _vm).unwrap();
-        _dict
-            .set_item("is_async", is_async.ast_to_object(_vm), _vm)
-            .unwrap();
+        _dict.set_item("is_async", is_async.ast_to_object(_vm), _vm).unwrap();
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::Comprehension {
-            target: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "target", "comprehension")?,
-            )?,
-            iter: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "iter", "comprehension")?,
-            )?,
-            ifs: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "ifs", "comprehension")?,
-            )?,
-            is_async: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "is_async", "comprehension")?,
-            )?,
-        })
+        Ok(
+            ast::Comprehension {
+                target: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "target", "comprehension")?)?,
+                iter: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "iter", "comprehension")?)?,
+                ifs: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ifs", "comprehension")?)?,
+                is_async: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "is_async", "comprehension")?)?,
+            }
+        )
     }
 }
 impl NamedNode for ast::ExcepthandlerKind {
@@ -4004,54 +2328,29 @@ impl NamedNode for ast::ExcepthandlerKind {
 impl Node for ast::ExcepthandlerKind {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::ExcepthandlerKind::ExceptHandler { type_, name, body } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeExceptHandler::static_type().to_owned())
-                    .unwrap();
+            ast::ExcepthandlerKind::ExceptHandler { type_,name,body } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeExceptHandler::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("type", type_.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("name", name.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("body", body.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("type", type_.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "lineno", "excepthandler")?,
-            )?,
-            Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "col_offset", "excepthandler")?,
-            )?,
-        );
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "excepthandler")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "excepthandler")?)?);
         let _cls = _object.class();
-        Ok(if _cls.is(NodeExceptHandler::static_type()) {
+        Ok(
+        if _cls.is(NodeExceptHandler::static_type()) {
             ast::ExcepthandlerKind::ExceptHandler {
-                type_: get_node_field_opt(_vm, &_object, "type")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                name: get_node_field_opt(_vm, &_object, "name")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                body: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "body", "excepthandler")?,
-                )?,
+                type_: get_node_field_opt(_vm, &_object, "type")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                name: get_node_field_opt(_vm, &_object, "name")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "excepthandler")?)?,
             }
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of excepthandler, but got {}",
-                _object.repr(_vm)?
-            )));
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of excepthandler, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -4060,68 +2359,30 @@ impl NamedNode for ast::Arguments {
 }
 impl Node for ast::Arguments {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::Arguments {
-            posonlyargs,
-            args,
-            vararg,
-            kwonlyargs,
-            kw_defaults,
-            kwarg,
-            defaults,
-        } = self;
-        let _node = AstNode
-            .into_ref_with_type(_vm, NodeArguments::static_type().to_owned())
-            .unwrap();
+        let ast::Arguments { posonlyargs,args,vararg,kwonlyargs,kw_defaults,kwarg,defaults } = self;
+        let _node = AstNode.into_ref_with_type(_vm, NodeArguments::static_type().to_owned()).unwrap();
         let _dict = _node.as_object().dict().unwrap();
-        _dict
-            .set_item("posonlyargs", posonlyargs.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("args", args.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("vararg", vararg.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("kwonlyargs", kwonlyargs.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("kw_defaults", kw_defaults.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("kwarg", kwarg.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("defaults", defaults.ast_to_object(_vm), _vm)
-            .unwrap();
+        _dict.set_item("posonlyargs", posonlyargs.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("args", args.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("vararg", vararg.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("kwonlyargs", kwonlyargs.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("kw_defaults", kw_defaults.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("kwarg", kwarg.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("defaults", defaults.ast_to_object(_vm), _vm).unwrap();
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::Arguments {
-            posonlyargs: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "posonlyargs", "arguments")?,
-            )?,
-            args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "arguments")?)?,
-            vararg: get_node_field_opt(_vm, &_object, "vararg")?
-                .map(|obj| Node::ast_from_object(_vm, obj))
-                .transpose()?,
-            kwonlyargs: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "kwonlyargs", "arguments")?,
-            )?,
-            kw_defaults: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "kw_defaults", "arguments")?,
-            )?,
-            kwarg: get_node_field_opt(_vm, &_object, "kwarg")?
-                .map(|obj| Node::ast_from_object(_vm, obj))
-                .transpose()?,
-            defaults: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "defaults", "arguments")?,
-            )?,
-        })
+        Ok(
+            ast::Arguments {
+                posonlyargs: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "posonlyargs", "arguments")?)?,
+                args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "arguments")?)?,
+                vararg: get_node_field_opt(_vm, &_object, "vararg")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                kwonlyargs: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kwonlyargs", "arguments")?)?,
+                kw_defaults: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kw_defaults", "arguments")?)?,
+                kwarg: get_node_field_opt(_vm, &_object, "kwarg")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                defaults: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "defaults", "arguments")?)?,
+            }
+        )
     }
 }
 impl NamedNode for ast::ArgData {
@@ -4129,38 +2390,23 @@ impl NamedNode for ast::ArgData {
 }
 impl Node for ast::ArgData {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::ArgData {
-            arg,
-            annotation,
-            type_comment,
-        } = self;
-        let _node = AstNode
-            .into_ref_with_type(_vm, NodeArg::static_type().to_owned())
-            .unwrap();
+        let ast::ArgData { arg,annotation,type_comment } = self;
+        let _node = AstNode.into_ref_with_type(_vm, NodeArg::static_type().to_owned()).unwrap();
         let _dict = _node.as_object().dict().unwrap();
         _dict.set_item("arg", arg.ast_to_object(_vm), _vm).unwrap();
-        _dict
-            .set_item("annotation", annotation.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-            .unwrap();
+        _dict.set_item("annotation", annotation.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm).unwrap();
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "arg")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "arg")?)?,
-        );
-        Ok(ast::ArgData {
-            arg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "arg", "arg")?)?,
-            annotation: get_node_field_opt(_vm, &_object, "annotation")?
-                .map(|obj| Node::ast_from_object(_vm, obj))
-                .transpose()?,
-            type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
-                .map(|obj| Node::ast_from_object(_vm, obj))
-                .transpose()?,
-        })
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "arg")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "arg")?)?);
+        Ok(
+            ast::ArgData {
+                arg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "arg", "arg")?)?,
+                annotation: get_node_field_opt(_vm, &_object, "annotation")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                type_comment: get_node_field_opt(_vm, &_object, "type_comment")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+            }
+        )
     }
 }
 impl NamedNode for ast::KeywordData {
@@ -4168,28 +2414,21 @@ impl NamedNode for ast::KeywordData {
 }
 impl Node for ast::KeywordData {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::KeywordData { arg, value } = self;
-        let _node = AstNode
-            .into_ref_with_type(_vm, NodeKeyword::static_type().to_owned())
-            .unwrap();
+        let ast::KeywordData { arg,value } = self;
+        let _node = AstNode.into_ref_with_type(_vm, NodeKeyword::static_type().to_owned()).unwrap();
         let _dict = _node.as_object().dict().unwrap();
         _dict.set_item("arg", arg.ast_to_object(_vm), _vm).unwrap();
-        _dict
-            .set_item("value", value.ast_to_object(_vm), _vm)
-            .unwrap();
+        _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "keyword")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "keyword")?)?,
-        );
-        Ok(ast::KeywordData {
-            arg: get_node_field_opt(_vm, &_object, "arg")?
-                .map(|obj| Node::ast_from_object(_vm, obj))
-                .transpose()?,
-            value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "keyword")?)?,
-        })
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "keyword")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "keyword")?)?);
+        Ok(
+            ast::KeywordData {
+                arg: get_node_field_opt(_vm, &_object, "arg")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "keyword")?)?,
+            }
+        )
     }
 }
 impl NamedNode for ast::AliasData {
@@ -4197,30 +2436,21 @@ impl NamedNode for ast::AliasData {
 }
 impl Node for ast::AliasData {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::AliasData { name, asname } = self;
-        let _node = AstNode
-            .into_ref_with_type(_vm, NodeAlias::static_type().to_owned())
-            .unwrap();
+        let ast::AliasData { name,asname } = self;
+        let _node = AstNode.into_ref_with_type(_vm, NodeAlias::static_type().to_owned()).unwrap();
         let _dict = _node.as_object().dict().unwrap();
-        _dict
-            .set_item("name", name.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("asname", asname.ast_to_object(_vm), _vm)
-            .unwrap();
+        _dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("asname", asname.ast_to_object(_vm), _vm).unwrap();
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "alias")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "alias")?)?,
-        );
-        Ok(ast::AliasData {
-            name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "alias")?)?,
-            asname: get_node_field_opt(_vm, &_object, "asname")?
-                .map(|obj| Node::ast_from_object(_vm, obj))
-                .transpose()?,
-        })
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "alias")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "alias")?)?);
+        Ok(
+            ast::AliasData {
+                name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "alias")?)?,
+                asname: get_node_field_opt(_vm, &_object, "asname")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+            }
+        )
     }
 }
 impl NamedNode for ast::Withitem {
@@ -4228,32 +2458,20 @@ impl NamedNode for ast::Withitem {
 }
 impl Node for ast::Withitem {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::Withitem {
-            context_expr,
-            optional_vars,
-        } = self;
-        let _node = AstNode
-            .into_ref_with_type(_vm, NodeWithitem::static_type().to_owned())
-            .unwrap();
+        let ast::Withitem { context_expr,optional_vars } = self;
+        let _node = AstNode.into_ref_with_type(_vm, NodeWithitem::static_type().to_owned()).unwrap();
         let _dict = _node.as_object().dict().unwrap();
-        _dict
-            .set_item("context_expr", context_expr.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("optional_vars", optional_vars.ast_to_object(_vm), _vm)
-            .unwrap();
+        _dict.set_item("context_expr", context_expr.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("optional_vars", optional_vars.ast_to_object(_vm), _vm).unwrap();
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::Withitem {
-            context_expr: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "context_expr", "withitem")?,
-            )?,
-            optional_vars: get_node_field_opt(_vm, &_object, "optional_vars")?
-                .map(|obj| Node::ast_from_object(_vm, obj))
-                .transpose()?,
-        })
+        Ok(
+            ast::Withitem {
+                context_expr: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "context_expr", "withitem")?)?,
+                optional_vars: get_node_field_opt(_vm, &_object, "optional_vars")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+            }
+        )
     }
 }
 impl NamedNode for ast::MatchCase {
@@ -4261,37 +2479,22 @@ impl NamedNode for ast::MatchCase {
 }
 impl Node for ast::MatchCase {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::MatchCase {
-            pattern,
-            guard,
-            body,
-        } = self;
-        let _node = AstNode
-            .into_ref_with_type(_vm, NodeMatchCase::static_type().to_owned())
-            .unwrap();
+        let ast::MatchCase { pattern,guard,body } = self;
+        let _node = AstNode.into_ref_with_type(_vm, NodeMatchCase::static_type().to_owned()).unwrap();
         let _dict = _node.as_object().dict().unwrap();
-        _dict
-            .set_item("pattern", pattern.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("guard", guard.ast_to_object(_vm), _vm)
-            .unwrap();
-        _dict
-            .set_item("body", body.ast_to_object(_vm), _vm)
-            .unwrap();
+        _dict.set_item("pattern", pattern.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("guard", guard.ast_to_object(_vm), _vm).unwrap();
+        _dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::MatchCase {
-            pattern: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "pattern", "match_case")?,
-            )?,
-            guard: get_node_field_opt(_vm, &_object, "guard")?
-                .map(|obj| Node::ast_from_object(_vm, obj))
-                .transpose()?,
-            body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "match_case")?)?,
-        })
+        Ok(
+            ast::MatchCase {
+                pattern: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "pattern", "match_case")?)?,
+                guard: get_node_field_opt(_vm, &_object, "guard")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "match_case")?)?,
+            }
+        )
     }
 }
 impl NamedNode for ast::PatternKind {
@@ -4301,196 +2504,113 @@ impl Node for ast::PatternKind {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
             ast::PatternKind::MatchValue { value } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatchValue::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatchValue::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::PatternKind::MatchSingleton { value } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatchSingleton::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatchSingleton::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("value", value.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("value", value.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::PatternKind::MatchSequence { patterns } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatchSequence::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatchSequence::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("patterns", patterns.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("patterns", patterns.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchMapping {
-                keys,
-                patterns,
-                rest,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatchMapping::static_type().to_owned())
-                    .unwrap();
+            ast::PatternKind::MatchMapping { keys,patterns,rest } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatchMapping::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("keys", keys.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("patterns", patterns.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("rest", rest.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("keys", keys.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("patterns", patterns.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("rest", rest.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchClass {
-                cls,
-                patterns,
-                kwd_attrs,
-                kwd_patterns,
-            } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatchClass::static_type().to_owned())
-                    .unwrap();
+            ast::PatternKind::MatchClass { cls,patterns,kwd_attrs,kwd_patterns } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatchClass::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
                 _dict.set_item("cls", cls.ast_to_object(_vm), _vm).unwrap();
-                _dict
-                    .set_item("patterns", patterns.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("kwd_attrs", kwd_attrs.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("kwd_patterns", kwd_patterns.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("patterns", patterns.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("kwd_attrs", kwd_attrs.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("kwd_patterns", kwd_patterns.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::PatternKind::MatchStar { name } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatchStar::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatchStar::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("name", name.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchAs { pattern, name } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatchAs::static_type().to_owned())
-                    .unwrap();
+            ast::PatternKind::MatchAs { pattern,name } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatchAs::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("pattern", pattern.ast_to_object(_vm), _vm)
-                    .unwrap();
-                _dict
-                    .set_item("name", name.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("pattern", pattern.ast_to_object(_vm), _vm).unwrap();
+                _dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
             ast::PatternKind::MatchOr { patterns } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeMatchOr::static_type().to_owned())
-                    .unwrap();
+                let _node = AstNode.into_ref_with_type(_vm, NodeMatchOr::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("patterns", patterns.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("patterns", patterns.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "pattern")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "pattern")?)?,
-        );
+        let _location = ast::Location::new(Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "pattern")?)?, Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "pattern")?)?);
         let _cls = _object.class();
-        Ok(if _cls.is(NodeMatchValue::static_type()) {
+        Ok(
+        if _cls.is(NodeMatchValue::static_type()) {
             ast::PatternKind::MatchValue {
-                value: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "value", "pattern")?,
-                )?,
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "pattern")?)?,
             }
-        } else if _cls.is(NodeMatchSingleton::static_type()) {
+        } else
+        if _cls.is(NodeMatchSingleton::static_type()) {
             ast::PatternKind::MatchSingleton {
-                value: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "value", "pattern")?,
-                )?,
+                value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "pattern")?)?,
             }
-        } else if _cls.is(NodeMatchSequence::static_type()) {
+        } else
+        if _cls.is(NodeMatchSequence::static_type()) {
             ast::PatternKind::MatchSequence {
-                patterns: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "patterns", "pattern")?,
-                )?,
+                patterns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "patterns", "pattern")?)?,
             }
-        } else if _cls.is(NodeMatchMapping::static_type()) {
+        } else
+        if _cls.is(NodeMatchMapping::static_type()) {
             ast::PatternKind::MatchMapping {
-                keys: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "keys", "pattern")?,
-                )?,
-                patterns: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "patterns", "pattern")?,
-                )?,
-                rest: get_node_field_opt(_vm, &_object, "rest")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                keys: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keys", "pattern")?)?,
+                patterns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "patterns", "pattern")?)?,
+                rest: get_node_field_opt(_vm, &_object, "rest")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeMatchClass::static_type()) {
+        } else
+        if _cls.is(NodeMatchClass::static_type()) {
             ast::PatternKind::MatchClass {
                 cls: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "cls", "pattern")?)?,
-                patterns: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "patterns", "pattern")?,
-                )?,
-                kwd_attrs: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "kwd_attrs", "pattern")?,
-                )?,
-                kwd_patterns: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "kwd_patterns", "pattern")?,
-                )?,
+                patterns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "patterns", "pattern")?)?,
+                kwd_attrs: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kwd_attrs", "pattern")?)?,
+                kwd_patterns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "kwd_patterns", "pattern")?)?,
             }
-        } else if _cls.is(NodeMatchStar::static_type()) {
+        } else
+        if _cls.is(NodeMatchStar::static_type()) {
             ast::PatternKind::MatchStar {
-                name: get_node_field_opt(_vm, &_object, "name")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                name: get_node_field_opt(_vm, &_object, "name")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeMatchAs::static_type()) {
+        } else
+        if _cls.is(NodeMatchAs::static_type()) {
             ast::PatternKind::MatchAs {
-                pattern: get_node_field_opt(_vm, &_object, "pattern")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                name: get_node_field_opt(_vm, &_object, "name")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
+                pattern: get_node_field_opt(_vm, &_object, "pattern")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
+                name: get_node_field_opt(_vm, &_object, "name")?.map(|obj| Node::ast_from_object(_vm, obj)).transpose()?,
             }
-        } else if _cls.is(NodeMatchOr::static_type()) {
+        } else
+        if _cls.is(NodeMatchOr::static_type()) {
             ast::PatternKind::MatchOr {
-                patterns: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "patterns", "pattern")?,
-                )?,
+                patterns: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "patterns", "pattern")?)?,
             }
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of pattern, but got {}",
-                _object.repr(_vm)?
-            )));
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of pattern, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -4500,14 +2620,10 @@ impl NamedNode for ast::TypeIgnore {
 impl Node for ast::TypeIgnore {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::TypeIgnore::TypeIgnore { lineno, tag } => {
-                let _node = AstNode
-                    .into_ref_with_type(_vm, NodeTypeIgnore::static_type().to_owned())
-                    .unwrap();
+            ast::TypeIgnore::TypeIgnore { lineno,tag } => {
+                let _node = AstNode.into_ref_with_type(_vm, NodeTypeIgnore::static_type().to_owned()).unwrap();
                 let _dict = _node.as_object().dict().unwrap();
-                _dict
-                    .set_item("lineno", lineno.ast_to_object(_vm), _vm)
-                    .unwrap();
+                _dict.set_item("lineno", lineno.ast_to_object(_vm), _vm).unwrap();
                 _dict.set_item("tag", tag.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
@@ -4515,22 +2631,15 @@ impl Node for ast::TypeIgnore {
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeTypeIgnore::static_type()) {
+        Ok(
+        if _cls.is(NodeTypeIgnore::static_type()) {
             ast::TypeIgnore::TypeIgnore {
-                lineno: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "lineno", "type_ignore")?,
-                )?,
-                tag: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "tag", "type_ignore")?,
-                )?,
+                lineno: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "type_ignore")?)?,
+                tag: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "tag", "type_ignore")?)?,
             }
-        } else {
-            return Err(_vm.new_type_error(format!(
-                "expected some sort of type_ignore, but got {}",
-                _object.repr(_vm)?
-            )));
+        } else
+        {
+            return Err(_vm.new_type_error(format!("expected some sort of type_ignore, but got {}",_object.repr(_vm)?)));
         })
     }
 }
@@ -4657,3 +2766,4 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &PyObject) {
         "TypeIgnore" => NodeTypeIgnore::make_class(&vm.ctx),
     })
 }
+

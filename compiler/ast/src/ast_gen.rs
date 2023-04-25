@@ -7,24 +7,47 @@ pub use crate::Location;
 
 type Ident = String;
 
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Located<T, U = ()> {
-    pub location: Location,
-    pub end_location: Option<Location>,
-    pub custom: U,
-    pub node: T,
-}
-
-impl<T> Located<T> {
-    pub fn new(location: Location, end_location: Location, node: T) -> Self {
-        Self {
-            location,
-            end_location: Some(end_location),
-            custom: (),
-            node,
+            pub location: Location,
+            pub end_location: Option<Location>,
+            pub custom: U,
+            pub node: T,
         }
-    }
+
+        impl<T> Located<T> {
+            pub fn new(location: Location, end_location: Location, node: T) -> Self {
+                Self { location, end_location: Some(end_location), custom: (), node }
+            }
+        }
+
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModuleData<U = ()> {
+    pub body: Vec<Stmt<U>>,
+    pub type_ignores: Vec<TypeIgnore>,
 }
+pub type Module<U = ()> = Located<ModuleData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InteractiveData<U = ()> {
+    pub body: Vec<Stmt<U>>,
+}
+pub type Interactive<U = ()> = Located<InteractiveData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExpressionData<U = ()> {
+    pub body: Box<Expr<U>>,
+}
+pub type Expression<U = ()> = Located<ExpressionData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FunctionTypeData<U = ()> {
+    pub argtypes: Vec<Expr<U>>,
+    pub returns: Box<Expr<U>>,
+}
+pub type FunctionType<U = ()> = Located<FunctionTypeData<U>, U>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mod<U = ()> {
@@ -43,6 +66,213 @@ pub enum Mod<U = ()> {
         returns: Box<Expr<U>>,
     },
 }
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FunctionDefData<U = ()> {
+    pub name: Ident,
+    pub args: Box<Arguments<U>>,
+    pub body: Vec<Stmt<U>>,
+    pub decorator_list: Vec<Expr<U>>,
+    pub returns: Option<Box<Expr<U>>>,
+    pub type_comment: Option<String>,
+}
+pub type FunctionDef<U = ()> = Located<FunctionDefData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AsyncFunctionDefData<U = ()> {
+    pub name: Ident,
+    pub args: Box<Arguments<U>>,
+    pub body: Vec<Stmt<U>>,
+    pub decorator_list: Vec<Expr<U>>,
+    pub returns: Option<Box<Expr<U>>>,
+    pub type_comment: Option<String>,
+}
+pub type AsyncFunctionDef<U = ()> = Located<AsyncFunctionDefData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ClassDefData<U = ()> {
+    pub name: Ident,
+    pub bases: Vec<Expr<U>>,
+    pub keywords: Vec<Keyword<U>>,
+    pub body: Vec<Stmt<U>>,
+    pub decorator_list: Vec<Expr<U>>,
+}
+pub type ClassDef<U = ()> = Located<ClassDefData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ReturnData<U = ()> {
+    pub value: Option<Box<Expr<U>>>,
+}
+pub type Return<U = ()> = Located<ReturnData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeleteData<U = ()> {
+    pub targets: Vec<Expr<U>>,
+}
+pub type Delete<U = ()> = Located<DeleteData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AssignData<U = ()> {
+    pub targets: Vec<Expr<U>>,
+    pub value: Box<Expr<U>>,
+    pub type_comment: Option<String>,
+}
+pub type Assign<U = ()> = Located<AssignData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AugAssignData<U = ()> {
+    pub target: Box<Expr<U>>,
+    pub op: Operator,
+    pub value: Box<Expr<U>>,
+}
+pub type AugAssign<U = ()> = Located<AugAssignData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnnAssignData<U = ()> {
+    pub target: Box<Expr<U>>,
+    pub annotation: Box<Expr<U>>,
+    pub value: Option<Box<Expr<U>>>,
+    pub simple: usize,
+}
+pub type AnnAssign<U = ()> = Located<AnnAssignData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForData<U = ()> {
+    pub target: Box<Expr<U>>,
+    pub iter: Box<Expr<U>>,
+    pub body: Vec<Stmt<U>>,
+    pub orelse: Vec<Stmt<U>>,
+    pub type_comment: Option<String>,
+}
+pub type For<U = ()> = Located<ForData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AsyncForData<U = ()> {
+    pub target: Box<Expr<U>>,
+    pub iter: Box<Expr<U>>,
+    pub body: Vec<Stmt<U>>,
+    pub orelse: Vec<Stmt<U>>,
+    pub type_comment: Option<String>,
+}
+pub type AsyncFor<U = ()> = Located<AsyncForData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WhileData<U = ()> {
+    pub test: Box<Expr<U>>,
+    pub body: Vec<Stmt<U>>,
+    pub orelse: Vec<Stmt<U>>,
+}
+pub type While<U = ()> = Located<WhileData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct IfData<U = ()> {
+    pub test: Box<Expr<U>>,
+    pub body: Vec<Stmt<U>>,
+    pub orelse: Vec<Stmt<U>>,
+}
+pub type If<U = ()> = Located<IfData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WithData<U = ()> {
+    pub items: Vec<Withitem<U>>,
+    pub body: Vec<Stmt<U>>,
+    pub type_comment: Option<String>,
+}
+pub type With<U = ()> = Located<WithData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AsyncWithData<U = ()> {
+    pub items: Vec<Withitem<U>>,
+    pub body: Vec<Stmt<U>>,
+    pub type_comment: Option<String>,
+}
+pub type AsyncWith<U = ()> = Located<AsyncWithData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchData<U = ()> {
+    pub subject: Box<Expr<U>>,
+    pub cases: Vec<MatchCase<U>>,
+}
+pub type Match<U = ()> = Located<MatchData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RaiseData<U = ()> {
+    pub exc: Option<Box<Expr<U>>>,
+    pub cause: Option<Box<Expr<U>>>,
+}
+pub type Raise<U = ()> = Located<RaiseData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TryData<U = ()> {
+    pub body: Vec<Stmt<U>>,
+    pub handlers: Vec<Excepthandler<U>>,
+    pub orelse: Vec<Stmt<U>>,
+    pub finalbody: Vec<Stmt<U>>,
+}
+pub type Try<U = ()> = Located<TryData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TryStarData<U = ()> {
+    pub body: Vec<Stmt<U>>,
+    pub handlers: Vec<Excepthandler<U>>,
+    pub orelse: Vec<Stmt<U>>,
+    pub finalbody: Vec<Stmt<U>>,
+}
+pub type TryStar<U = ()> = Located<TryStarData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AssertData<U = ()> {
+    pub test: Box<Expr<U>>,
+    pub msg: Option<Box<Expr<U>>>,
+}
+pub type Assert<U = ()> = Located<AssertData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportData<U = ()> {
+    pub names: Vec<Alias<U>>,
+}
+pub type Import<U = ()> = Located<ImportData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ImportFromData<U = ()> {
+    pub module: Option<Ident>,
+    pub names: Vec<Alias<U>>,
+    pub level: Option<usize>,
+}
+pub type ImportFrom<U = ()> = Located<ImportFromData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlobalData<U = ()> {
+    pub names: Vec<Ident>,
+}
+pub type Global<U = ()> = Located<GlobalData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NonlocalData<U = ()> {
+    pub names: Vec<Ident>,
+}
+pub type Nonlocal<U = ()> = Located<NonlocalData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExprData<U = ()> {
+    pub value: Box<Expr<U>>,
+}
+pub type Expr<U = ()> = Located<ExprData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PassData<U = ()> {
+}
+pub type Pass<U = ()> = Located<PassData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BreakData<U = ()> {
+}
+pub type Break<U = ()> = Located<BreakData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ContinueData<U = ()> {
+}
+pub type Continue<U = ()> = Located<ContinueData<U>, U>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StmtKind<U = ()> {
@@ -171,6 +401,199 @@ pub enum StmtKind<U = ()> {
     Continue,
 }
 pub type Stmt<U = ()> = Located<StmtKind<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BoolOpData<U = ()> {
+    pub op: Boolop,
+    pub values: Vec<Expr<U>>,
+}
+pub type BoolOp<U = ()> = Located<BoolOpData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NamedExprData<U = ()> {
+    pub target: Box<Expr<U>>,
+    pub value: Box<Expr<U>>,
+}
+pub type NamedExpr<U = ()> = Located<NamedExprData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BinOpData<U = ()> {
+    pub left: Box<Expr<U>>,
+    pub op: Operator,
+    pub right: Box<Expr<U>>,
+}
+pub type BinOp<U = ()> = Located<BinOpData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnaryOpData<U = ()> {
+    pub op: Unaryop,
+    pub operand: Box<Expr<U>>,
+}
+pub type UnaryOp<U = ()> = Located<UnaryOpData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LambdaData<U = ()> {
+    pub args: Box<Arguments<U>>,
+    pub body: Box<Expr<U>>,
+}
+pub type Lambda<U = ()> = Located<LambdaData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct IfExpData<U = ()> {
+    pub test: Box<Expr<U>>,
+    pub body: Box<Expr<U>>,
+    pub orelse: Box<Expr<U>>,
+}
+pub type IfExp<U = ()> = Located<IfExpData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DictData<U = ()> {
+    pub keys: Vec<Expr<U>>,
+    pub values: Vec<Expr<U>>,
+}
+pub type Dict<U = ()> = Located<DictData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SetData<U = ()> {
+    pub elts: Vec<Expr<U>>,
+}
+pub type Set<U = ()> = Located<SetData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListCompData<U = ()> {
+    pub elt: Box<Expr<U>>,
+    pub generators: Vec<Comprehension<U>>,
+}
+pub type ListComp<U = ()> = Located<ListCompData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SetCompData<U = ()> {
+    pub elt: Box<Expr<U>>,
+    pub generators: Vec<Comprehension<U>>,
+}
+pub type SetComp<U = ()> = Located<SetCompData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DictCompData<U = ()> {
+    pub key: Box<Expr<U>>,
+    pub value: Box<Expr<U>>,
+    pub generators: Vec<Comprehension<U>>,
+}
+pub type DictComp<U = ()> = Located<DictCompData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeneratorExpData<U = ()> {
+    pub elt: Box<Expr<U>>,
+    pub generators: Vec<Comprehension<U>>,
+}
+pub type GeneratorExp<U = ()> = Located<GeneratorExpData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AwaitData<U = ()> {
+    pub value: Box<Expr<U>>,
+}
+pub type Await<U = ()> = Located<AwaitData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct YieldData<U = ()> {
+    pub value: Option<Box<Expr<U>>>,
+}
+pub type Yield<U = ()> = Located<YieldData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct YieldFromData<U = ()> {
+    pub value: Box<Expr<U>>,
+}
+pub type YieldFrom<U = ()> = Located<YieldFromData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompareData<U = ()> {
+    pub left: Box<Expr<U>>,
+    pub ops: Vec<Cmpop>,
+    pub comparators: Vec<Expr<U>>,
+}
+pub type Compare<U = ()> = Located<CompareData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CallData<U = ()> {
+    pub func: Box<Expr<U>>,
+    pub args: Vec<Expr<U>>,
+    pub keywords: Vec<Keyword<U>>,
+}
+pub type Call<U = ()> = Located<CallData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormattedValueData<U = ()> {
+    pub value: Box<Expr<U>>,
+    pub conversion: usize,
+    pub format_spec: Option<Box<Expr<U>>>,
+}
+pub type FormattedValue<U = ()> = Located<FormattedValueData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct JoinedStrData<U = ()> {
+    pub values: Vec<Expr<U>>,
+}
+pub type JoinedStr<U = ()> = Located<JoinedStrData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConstantData<U = ()> {
+    pub value: Constant,
+    pub kind: Option<String>,
+}
+pub type Constant<U = ()> = Located<ConstantData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AttributeData<U = ()> {
+    pub value: Box<Expr<U>>,
+    pub attr: Ident,
+    pub ctx: ExprContext,
+}
+pub type Attribute<U = ()> = Located<AttributeData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SubscriptData<U = ()> {
+    pub value: Box<Expr<U>>,
+    pub slice: Box<Expr<U>>,
+    pub ctx: ExprContext,
+}
+pub type Subscript<U = ()> = Located<SubscriptData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StarredData<U = ()> {
+    pub value: Box<Expr<U>>,
+    pub ctx: ExprContext,
+}
+pub type Starred<U = ()> = Located<StarredData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NameData<U = ()> {
+    pub id: Ident,
+    pub ctx: ExprContext,
+}
+pub type Name<U = ()> = Located<NameData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ListData<U = ()> {
+    pub elts: Vec<Expr<U>>,
+    pub ctx: ExprContext,
+}
+pub type List<U = ()> = Located<ListData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TupleData<U = ()> {
+    pub elts: Vec<Expr<U>>,
+    pub ctx: ExprContext,
+}
+pub type Tuple<U = ()> = Located<TupleData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct SliceData<U = ()> {
+    pub lower: Option<Box<Expr<U>>>,
+    pub upper: Option<Box<Expr<U>>>,
+    pub step: Option<Box<Expr<U>>>,
+}
+pub type Slice<U = ()> = Located<SliceData<U>, U>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ExprKind<U = ()> {
@@ -350,6 +773,14 @@ pub struct Comprehension<U = ()> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct ExceptHandlerData<U = ()> {
+    pub type_: Option<Box<Expr<U>>>,
+    pub name: Option<Ident>,
+    pub body: Vec<Stmt<U>>,
+}
+pub type ExceptHandler<U = ()> = Located<ExceptHandlerData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExcepthandlerKind<U = ()> {
     ExceptHandler {
         type_: Option<Box<Expr<U>>>,
@@ -406,6 +837,60 @@ pub struct MatchCase<U = ()> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct MatchValueData<U = ()> {
+    pub value: Box<Expr<U>>,
+}
+pub type MatchValue<U = ()> = Located<MatchValueData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchSingletonData<U = ()> {
+    pub value: Constant,
+}
+pub type MatchSingleton<U = ()> = Located<MatchSingletonData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchSequenceData<U = ()> {
+    pub patterns: Vec<Pattern<U>>,
+}
+pub type MatchSequence<U = ()> = Located<MatchSequenceData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchMappingData<U = ()> {
+    pub keys: Vec<Expr<U>>,
+    pub patterns: Vec<Pattern<U>>,
+    pub rest: Option<Ident>,
+}
+pub type MatchMapping<U = ()> = Located<MatchMappingData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchClassData<U = ()> {
+    pub cls: Box<Expr<U>>,
+    pub patterns: Vec<Pattern<U>>,
+    pub kwd_attrs: Vec<Ident>,
+    pub kwd_patterns: Vec<Pattern<U>>,
+}
+pub type MatchClass<U = ()> = Located<MatchClassData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchStarData<U = ()> {
+    pub name: Option<Ident>,
+}
+pub type MatchStar<U = ()> = Located<MatchStarData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchAsData<U = ()> {
+    pub pattern: Option<Box<Pattern<U>>>,
+    pub name: Option<Ident>,
+}
+pub type MatchAs<U = ()> = Located<MatchAsData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MatchOrData<U = ()> {
+    pub patterns: Vec<Pattern<U>>,
+}
+pub type MatchOr<U = ()> = Located<MatchOrData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum PatternKind<U = ()> {
     MatchValue {
         value: Box<Expr<U>>,
@@ -441,862 +926,1198 @@ pub enum PatternKind<U = ()> {
 pub type Pattern<U = ()> = Located<PatternKind<U>, U>;
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct TypeIgnoreData<U = ()> {
+    pub lineno: usize,
+    pub tag: String,
+}
+pub type TypeIgnore<U = ()> = Located<TypeIgnoreData<U>, U>;
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum TypeIgnore {
-    TypeIgnore { lineno: usize, tag: String },
+    TypeIgnore {
+        lineno: usize,
+        tag: String,
+    },
 }
 
-#[cfg(feature = "fold")]
-pub mod fold {
+
+#[cfg(feature = "visitor")]
+pub mod visitor {
     use super::*;
-    use crate::fold_helpers::Foldable;
-    pub trait Fold<U> {
-        type TargetU;
-        type Error;
-        fn map_user(&mut self, user: U) -> Result<Self::TargetU, Self::Error>;
-        fn fold_mod(&mut self, node: Mod<U>) -> Result<Mod<Self::TargetU>, Self::Error> {
-            fold_mod(self, node)
+    pub trait Visitor<'a, U=()> {
+        fn visit_Mod(&mut self, node: &'a Mod) {
+            self.generic_visit_Mod(node);
         }
-        fn fold_stmt(&mut self, node: Stmt<U>) -> Result<Stmt<Self::TargetU>, Self::Error> {
-            fold_stmt(self, node)
-        }
-        fn fold_expr(&mut self, node: Expr<U>) -> Result<Expr<Self::TargetU>, Self::Error> {
-            fold_expr(self, node)
-        }
-        fn fold_expr_context(&mut self, node: ExprContext) -> Result<ExprContext, Self::Error> {
-            fold_expr_context(self, node)
-        }
-        fn fold_boolop(&mut self, node: Boolop) -> Result<Boolop, Self::Error> {
-            fold_boolop(self, node)
-        }
-        fn fold_operator(&mut self, node: Operator) -> Result<Operator, Self::Error> {
-            fold_operator(self, node)
-        }
-        fn fold_unaryop(&mut self, node: Unaryop) -> Result<Unaryop, Self::Error> {
-            fold_unaryop(self, node)
-        }
-        fn fold_cmpop(&mut self, node: Cmpop) -> Result<Cmpop, Self::Error> {
-            fold_cmpop(self, node)
-        }
-        fn fold_comprehension(
-            &mut self,
-            node: Comprehension<U>,
-        ) -> Result<Comprehension<Self::TargetU>, Self::Error> {
-            fold_comprehension(self, node)
-        }
-        fn fold_excepthandler(
-            &mut self,
-            node: Excepthandler<U>,
-        ) -> Result<Excepthandler<Self::TargetU>, Self::Error> {
-            fold_excepthandler(self, node)
-        }
-        fn fold_arguments(
-            &mut self,
-            node: Arguments<U>,
-        ) -> Result<Arguments<Self::TargetU>, Self::Error> {
-            fold_arguments(self, node)
-        }
-        fn fold_arg(&mut self, node: Arg<U>) -> Result<Arg<Self::TargetU>, Self::Error> {
-            fold_arg(self, node)
-        }
-        fn fold_keyword(
-            &mut self,
-            node: Keyword<U>,
-        ) -> Result<Keyword<Self::TargetU>, Self::Error> {
-            fold_keyword(self, node)
-        }
-        fn fold_alias(&mut self, node: Alias<U>) -> Result<Alias<Self::TargetU>, Self::Error> {
-            fold_alias(self, node)
-        }
-        fn fold_withitem(
-            &mut self,
-            node: Withitem<U>,
-        ) -> Result<Withitem<Self::TargetU>, Self::Error> {
-            fold_withitem(self, node)
-        }
-        fn fold_match_case(
-            &mut self,
-            node: MatchCase<U>,
-        ) -> Result<MatchCase<Self::TargetU>, Self::Error> {
-            fold_match_case(self, node)
-        }
-        fn fold_pattern(
-            &mut self,
-            node: Pattern<U>,
-        ) -> Result<Pattern<Self::TargetU>, Self::Error> {
-            fold_pattern(self, node)
-        }
-        fn fold_type_ignore(&mut self, node: TypeIgnore) -> Result<TypeIgnore, Self::Error> {
-            fold_type_ignore(self, node)
-        }
-    }
-    fn fold_located<U, F: Fold<U> + ?Sized, T, MT>(
-        folder: &mut F,
-        node: Located<T, U>,
-        f: impl FnOnce(&mut F, T) -> Result<MT, F::Error>,
-    ) -> Result<Located<MT, F::TargetU>, F::Error> {
-        Ok(Located {
-            custom: folder.map_user(node.custom)?,
-            location: node.location,
-            end_location: node.end_location,
-            node: f(folder, node.node)?,
-        })
-    }
-    impl<T, U> Foldable<T, U> for Mod<T> {
-        type Mapped = Mod<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_mod(self)
-        }
-    }
-    pub fn fold_mod<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Mod<U>,
-    ) -> Result<Mod<F::TargetU>, F::Error> {
-        match node {
-            Mod::Module { body, type_ignores } => Ok(Mod::Module {
-                body: Foldable::fold(body, folder)?,
-                type_ignores: Foldable::fold(type_ignores, folder)?,
-            }),
-            Mod::Interactive { body } => Ok(Mod::Interactive {
-                body: Foldable::fold(body, folder)?,
-            }),
-            Mod::Expression { body } => Ok(Mod::Expression {
-                body: Foldable::fold(body, folder)?,
-            }),
-            Mod::FunctionType { argtypes, returns } => Ok(Mod::FunctionType {
-                argtypes: Foldable::fold(argtypes, folder)?,
-                returns: Foldable::fold(returns, folder)?,
-            }),
-        }
-    }
-    impl<T, U> Foldable<T, U> for Stmt<T> {
-        type Mapped = Stmt<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_stmt(self)
-        }
-    }
-    pub fn fold_stmt<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Stmt<U>,
-    ) -> Result<Stmt<F::TargetU>, F::Error> {
-        fold_located(folder, node, |folder, node| match node {
-            StmtKind::FunctionDef {
-                name,
-                args,
-                body,
-                decorator_list,
-                returns,
-                type_comment,
-            } => Ok(StmtKind::FunctionDef {
-                name: Foldable::fold(name, folder)?,
-                args: Foldable::fold(args, folder)?,
-                body: Foldable::fold(body, folder)?,
-                decorator_list: Foldable::fold(decorator_list, folder)?,
-                returns: Foldable::fold(returns, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
-            }),
-            StmtKind::AsyncFunctionDef {
-                name,
-                args,
-                body,
-                decorator_list,
-                returns,
-                type_comment,
-            } => Ok(StmtKind::AsyncFunctionDef {
-                name: Foldable::fold(name, folder)?,
-                args: Foldable::fold(args, folder)?,
-                body: Foldable::fold(body, folder)?,
-                decorator_list: Foldable::fold(decorator_list, folder)?,
-                returns: Foldable::fold(returns, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
-            }),
-            StmtKind::ClassDef {
-                name,
-                bases,
-                keywords,
-                body,
-                decorator_list,
-            } => Ok(StmtKind::ClassDef {
-                name: Foldable::fold(name, folder)?,
-                bases: Foldable::fold(bases, folder)?,
-                keywords: Foldable::fold(keywords, folder)?,
-                body: Foldable::fold(body, folder)?,
-                decorator_list: Foldable::fold(decorator_list, folder)?,
-            }),
-            StmtKind::Return { value } => Ok(StmtKind::Return {
-                value: Foldable::fold(value, folder)?,
-            }),
-            StmtKind::Delete { targets } => Ok(StmtKind::Delete {
-                targets: Foldable::fold(targets, folder)?,
-            }),
-            StmtKind::Assign {
-                targets,
-                value,
-                type_comment,
-            } => Ok(StmtKind::Assign {
-                targets: Foldable::fold(targets, folder)?,
-                value: Foldable::fold(value, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
-            }),
-            StmtKind::AugAssign { target, op, value } => Ok(StmtKind::AugAssign {
-                target: Foldable::fold(target, folder)?,
-                op: Foldable::fold(op, folder)?,
-                value: Foldable::fold(value, folder)?,
-            }),
-            StmtKind::AnnAssign {
-                target,
-                annotation,
-                value,
-                simple,
-            } => Ok(StmtKind::AnnAssign {
-                target: Foldable::fold(target, folder)?,
-                annotation: Foldable::fold(annotation, folder)?,
-                value: Foldable::fold(value, folder)?,
-                simple: Foldable::fold(simple, folder)?,
-            }),
-            StmtKind::For {
-                target,
-                iter,
-                body,
-                orelse,
-                type_comment,
-            } => Ok(StmtKind::For {
-                target: Foldable::fold(target, folder)?,
-                iter: Foldable::fold(iter, folder)?,
-                body: Foldable::fold(body, folder)?,
-                orelse: Foldable::fold(orelse, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
-            }),
-            StmtKind::AsyncFor {
-                target,
-                iter,
-                body,
-                orelse,
-                type_comment,
-            } => Ok(StmtKind::AsyncFor {
-                target: Foldable::fold(target, folder)?,
-                iter: Foldable::fold(iter, folder)?,
-                body: Foldable::fold(body, folder)?,
-                orelse: Foldable::fold(orelse, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
-            }),
-            StmtKind::While { test, body, orelse } => Ok(StmtKind::While {
-                test: Foldable::fold(test, folder)?,
-                body: Foldable::fold(body, folder)?,
-                orelse: Foldable::fold(orelse, folder)?,
-            }),
-            StmtKind::If { test, body, orelse } => Ok(StmtKind::If {
-                test: Foldable::fold(test, folder)?,
-                body: Foldable::fold(body, folder)?,
-                orelse: Foldable::fold(orelse, folder)?,
-            }),
-            StmtKind::With {
-                items,
-                body,
-                type_comment,
-            } => Ok(StmtKind::With {
-                items: Foldable::fold(items, folder)?,
-                body: Foldable::fold(body, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
-            }),
-            StmtKind::AsyncWith {
-                items,
-                body,
-                type_comment,
-            } => Ok(StmtKind::AsyncWith {
-                items: Foldable::fold(items, folder)?,
-                body: Foldable::fold(body, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
-            }),
-            StmtKind::Match { subject, cases } => Ok(StmtKind::Match {
-                subject: Foldable::fold(subject, folder)?,
-                cases: Foldable::fold(cases, folder)?,
-            }),
-            StmtKind::Raise { exc, cause } => Ok(StmtKind::Raise {
-                exc: Foldable::fold(exc, folder)?,
-                cause: Foldable::fold(cause, folder)?,
-            }),
-            StmtKind::Try {
-                body,
-                handlers,
-                orelse,
-                finalbody,
-            } => Ok(StmtKind::Try {
-                body: Foldable::fold(body, folder)?,
-                handlers: Foldable::fold(handlers, folder)?,
-                orelse: Foldable::fold(orelse, folder)?,
-                finalbody: Foldable::fold(finalbody, folder)?,
-            }),
-            StmtKind::TryStar {
-                body,
-                handlers,
-                orelse,
-                finalbody,
-            } => Ok(StmtKind::TryStar {
-                body: Foldable::fold(body, folder)?,
-                handlers: Foldable::fold(handlers, folder)?,
-                orelse: Foldable::fold(orelse, folder)?,
-                finalbody: Foldable::fold(finalbody, folder)?,
-            }),
-            StmtKind::Assert { test, msg } => Ok(StmtKind::Assert {
-                test: Foldable::fold(test, folder)?,
-                msg: Foldable::fold(msg, folder)?,
-            }),
-            StmtKind::Import { names } => Ok(StmtKind::Import {
-                names: Foldable::fold(names, folder)?,
-            }),
-            StmtKind::ImportFrom {
-                module,
-                names,
-                level,
-            } => Ok(StmtKind::ImportFrom {
-                module: Foldable::fold(module, folder)?,
-                names: Foldable::fold(names, folder)?,
-                level: Foldable::fold(level, folder)?,
-            }),
-            StmtKind::Global { names } => Ok(StmtKind::Global {
-                names: Foldable::fold(names, folder)?,
-            }),
-            StmtKind::Nonlocal { names } => Ok(StmtKind::Nonlocal {
-                names: Foldable::fold(names, folder)?,
-            }),
-            StmtKind::Expr { value } => Ok(StmtKind::Expr {
-                value: Foldable::fold(value, folder)?,
-            }),
-            StmtKind::Pass {} => Ok(StmtKind::Pass {}),
-            StmtKind::Break {} => Ok(StmtKind::Break {}),
-            StmtKind::Continue {} => Ok(StmtKind::Continue {}),
-        })
-    }
-    impl<T, U> Foldable<T, U> for Expr<T> {
-        type Mapped = Expr<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_expr(self)
-        }
-    }
-    pub fn fold_expr<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Expr<U>,
-    ) -> Result<Expr<F::TargetU>, F::Error> {
-        fold_located(folder, node, |folder, node| match node {
-            ExprKind::BoolOp { op, values } => Ok(ExprKind::BoolOp {
-                op: Foldable::fold(op, folder)?,
-                values: Foldable::fold(values, folder)?,
-            }),
-            ExprKind::NamedExpr { target, value } => Ok(ExprKind::NamedExpr {
-                target: Foldable::fold(target, folder)?,
-                value: Foldable::fold(value, folder)?,
-            }),
-            ExprKind::BinOp { left, op, right } => Ok(ExprKind::BinOp {
-                left: Foldable::fold(left, folder)?,
-                op: Foldable::fold(op, folder)?,
-                right: Foldable::fold(right, folder)?,
-            }),
-            ExprKind::UnaryOp { op, operand } => Ok(ExprKind::UnaryOp {
-                op: Foldable::fold(op, folder)?,
-                operand: Foldable::fold(operand, folder)?,
-            }),
-            ExprKind::Lambda { args, body } => Ok(ExprKind::Lambda {
-                args: Foldable::fold(args, folder)?,
-                body: Foldable::fold(body, folder)?,
-            }),
-            ExprKind::IfExp { test, body, orelse } => Ok(ExprKind::IfExp {
-                test: Foldable::fold(test, folder)?,
-                body: Foldable::fold(body, folder)?,
-                orelse: Foldable::fold(orelse, folder)?,
-            }),
-            ExprKind::Dict { keys, values } => Ok(ExprKind::Dict {
-                keys: Foldable::fold(keys, folder)?,
-                values: Foldable::fold(values, folder)?,
-            }),
-            ExprKind::Set { elts } => Ok(ExprKind::Set {
-                elts: Foldable::fold(elts, folder)?,
-            }),
-            ExprKind::ListComp { elt, generators } => Ok(ExprKind::ListComp {
-                elt: Foldable::fold(elt, folder)?,
-                generators: Foldable::fold(generators, folder)?,
-            }),
-            ExprKind::SetComp { elt, generators } => Ok(ExprKind::SetComp {
-                elt: Foldable::fold(elt, folder)?,
-                generators: Foldable::fold(generators, folder)?,
-            }),
-            ExprKind::DictComp {
-                key,
-                value,
-                generators,
-            } => Ok(ExprKind::DictComp {
-                key: Foldable::fold(key, folder)?,
-                value: Foldable::fold(value, folder)?,
-                generators: Foldable::fold(generators, folder)?,
-            }),
-            ExprKind::GeneratorExp { elt, generators } => Ok(ExprKind::GeneratorExp {
-                elt: Foldable::fold(elt, folder)?,
-                generators: Foldable::fold(generators, folder)?,
-            }),
-            ExprKind::Await { value } => Ok(ExprKind::Await {
-                value: Foldable::fold(value, folder)?,
-            }),
-            ExprKind::Yield { value } => Ok(ExprKind::Yield {
-                value: Foldable::fold(value, folder)?,
-            }),
-            ExprKind::YieldFrom { value } => Ok(ExprKind::YieldFrom {
-                value: Foldable::fold(value, folder)?,
-            }),
-            ExprKind::Compare {
-                left,
-                ops,
-                comparators,
-            } => Ok(ExprKind::Compare {
-                left: Foldable::fold(left, folder)?,
-                ops: Foldable::fold(ops, folder)?,
-                comparators: Foldable::fold(comparators, folder)?,
-            }),
-            ExprKind::Call {
-                func,
-                args,
-                keywords,
-            } => Ok(ExprKind::Call {
-                func: Foldable::fold(func, folder)?,
-                args: Foldable::fold(args, folder)?,
-                keywords: Foldable::fold(keywords, folder)?,
-            }),
-            ExprKind::FormattedValue {
-                value,
-                conversion,
-                format_spec,
-            } => Ok(ExprKind::FormattedValue {
-                value: Foldable::fold(value, folder)?,
-                conversion: Foldable::fold(conversion, folder)?,
-                format_spec: Foldable::fold(format_spec, folder)?,
-            }),
-            ExprKind::JoinedStr { values } => Ok(ExprKind::JoinedStr {
-                values: Foldable::fold(values, folder)?,
-            }),
-            ExprKind::Constant { value, kind } => Ok(ExprKind::Constant {
-                value: Foldable::fold(value, folder)?,
-                kind: Foldable::fold(kind, folder)?,
-            }),
-            ExprKind::Attribute { value, attr, ctx } => Ok(ExprKind::Attribute {
-                value: Foldable::fold(value, folder)?,
-                attr: Foldable::fold(attr, folder)?,
-                ctx: Foldable::fold(ctx, folder)?,
-            }),
-            ExprKind::Subscript { value, slice, ctx } => Ok(ExprKind::Subscript {
-                value: Foldable::fold(value, folder)?,
-                slice: Foldable::fold(slice, folder)?,
-                ctx: Foldable::fold(ctx, folder)?,
-            }),
-            ExprKind::Starred { value, ctx } => Ok(ExprKind::Starred {
-                value: Foldable::fold(value, folder)?,
-                ctx: Foldable::fold(ctx, folder)?,
-            }),
-            ExprKind::Name { id, ctx } => Ok(ExprKind::Name {
-                id: Foldable::fold(id, folder)?,
-                ctx: Foldable::fold(ctx, folder)?,
-            }),
-            ExprKind::List { elts, ctx } => Ok(ExprKind::List {
-                elts: Foldable::fold(elts, folder)?,
-                ctx: Foldable::fold(ctx, folder)?,
-            }),
-            ExprKind::Tuple { elts, ctx } => Ok(ExprKind::Tuple {
-                elts: Foldable::fold(elts, folder)?,
-                ctx: Foldable::fold(ctx, folder)?,
-            }),
-            ExprKind::Slice { lower, upper, step } => Ok(ExprKind::Slice {
-                lower: Foldable::fold(lower, folder)?,
-                upper: Foldable::fold(upper, folder)?,
-                step: Foldable::fold(step, folder)?,
-            }),
-        })
-    }
-    impl<T, U> Foldable<T, U> for ExprContext {
-        type Mapped = ExprContext;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_expr_context(self)
-        }
-    }
-    pub fn fold_expr_context<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: ExprContext,
-    ) -> Result<ExprContext, F::Error> {
-        match node {
-            ExprContext::Load {} => Ok(ExprContext::Load {}),
-            ExprContext::Store {} => Ok(ExprContext::Store {}),
-            ExprContext::Del {} => Ok(ExprContext::Del {}),
-        }
-    }
-    impl<T, U> Foldable<T, U> for Boolop {
-        type Mapped = Boolop;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_boolop(self)
-        }
-    }
-    pub fn fold_boolop<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Boolop,
-    ) -> Result<Boolop, F::Error> {
-        match node {
-            Boolop::And {} => Ok(Boolop::And {}),
-            Boolop::Or {} => Ok(Boolop::Or {}),
-        }
-    }
-    impl<T, U> Foldable<T, U> for Operator {
-        type Mapped = Operator;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_operator(self)
-        }
-    }
-    pub fn fold_operator<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Operator,
-    ) -> Result<Operator, F::Error> {
-        match node {
-            Operator::Add {} => Ok(Operator::Add {}),
-            Operator::Sub {} => Ok(Operator::Sub {}),
-            Operator::Mult {} => Ok(Operator::Mult {}),
-            Operator::MatMult {} => Ok(Operator::MatMult {}),
-            Operator::Div {} => Ok(Operator::Div {}),
-            Operator::Mod {} => Ok(Operator::Mod {}),
-            Operator::Pow {} => Ok(Operator::Pow {}),
-            Operator::LShift {} => Ok(Operator::LShift {}),
-            Operator::RShift {} => Ok(Operator::RShift {}),
-            Operator::BitOr {} => Ok(Operator::BitOr {}),
-            Operator::BitXor {} => Ok(Operator::BitXor {}),
-            Operator::BitAnd {} => Ok(Operator::BitAnd {}),
-            Operator::FloorDiv {} => Ok(Operator::FloorDiv {}),
-        }
-    }
-    impl<T, U> Foldable<T, U> for Unaryop {
-        type Mapped = Unaryop;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_unaryop(self)
-        }
-    }
-    pub fn fold_unaryop<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Unaryop,
-    ) -> Result<Unaryop, F::Error> {
-        match node {
-            Unaryop::Invert {} => Ok(Unaryop::Invert {}),
-            Unaryop::Not {} => Ok(Unaryop::Not {}),
-            Unaryop::UAdd {} => Ok(Unaryop::UAdd {}),
-            Unaryop::USub {} => Ok(Unaryop::USub {}),
-        }
-    }
-    impl<T, U> Foldable<T, U> for Cmpop {
-        type Mapped = Cmpop;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_cmpop(self)
-        }
-    }
-    pub fn fold_cmpop<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Cmpop,
-    ) -> Result<Cmpop, F::Error> {
-        match node {
-            Cmpop::Eq {} => Ok(Cmpop::Eq {}),
-            Cmpop::NotEq {} => Ok(Cmpop::NotEq {}),
-            Cmpop::Lt {} => Ok(Cmpop::Lt {}),
-            Cmpop::LtE {} => Ok(Cmpop::LtE {}),
-            Cmpop::Gt {} => Ok(Cmpop::Gt {}),
-            Cmpop::GtE {} => Ok(Cmpop::GtE {}),
-            Cmpop::Is {} => Ok(Cmpop::Is {}),
-            Cmpop::IsNot {} => Ok(Cmpop::IsNot {}),
-            Cmpop::In {} => Ok(Cmpop::In {}),
-            Cmpop::NotIn {} => Ok(Cmpop::NotIn {}),
-        }
-    }
-    impl<T, U> Foldable<T, U> for Comprehension<T> {
-        type Mapped = Comprehension<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_comprehension(self)
-        }
-    }
-    pub fn fold_comprehension<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Comprehension<U>,
-    ) -> Result<Comprehension<F::TargetU>, F::Error> {
-        let Comprehension {
-            target,
-            iter,
-            ifs,
-            is_async,
-        } = node;
-        Ok(Comprehension {
-            target: Foldable::fold(target, folder)?,
-            iter: Foldable::fold(iter, folder)?,
-            ifs: Foldable::fold(ifs, folder)?,
-            is_async: Foldable::fold(is_async, folder)?,
-        })
-    }
-    impl<T, U> Foldable<T, U> for Excepthandler<T> {
-        type Mapped = Excepthandler<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_excepthandler(self)
-        }
-    }
-    pub fn fold_excepthandler<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Excepthandler<U>,
-    ) -> Result<Excepthandler<F::TargetU>, F::Error> {
-        fold_located(folder, node, |folder, node| match node {
-            ExcepthandlerKind::ExceptHandler { type_, name, body } => {
-                Ok(ExcepthandlerKind::ExceptHandler {
-                    type_: Foldable::fold(type_, folder)?,
-                    name: Foldable::fold(name, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                })
+        fn generic_visit_Mod(&mut self, node: &'a Mod) {
+            match node.node {
+                Mod::Module {
+                    body,
+                    type_ignores,
+                } => self.visit_Module(Module {
+                    body,
+                    type_ignores,
+                }),
+                Mod::Interactive {
+                    body,
+                } => self.visit_Interactive(Interactive {
+                    body,
+                }),
+                Mod::Expression {
+                    body,
+                } => self.visit_Expression(Expression {
+                    body,
+                }),
+                Mod::FunctionType {
+                    argtypes,
+                    returns,
+                } => self.visit_FunctionType(FunctionType {
+                    argtypes,
+                    returns,
+                }),
             }
-        })
-    }
-    impl<T, U> Foldable<T, U> for Arguments<T> {
-        type Mapped = Arguments<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_arguments(self)
         }
-    }
-    pub fn fold_arguments<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Arguments<U>,
-    ) -> Result<Arguments<F::TargetU>, F::Error> {
-        let Arguments {
-            posonlyargs,
-            args,
-            vararg,
-            kwonlyargs,
-            kw_defaults,
-            kwarg,
-            defaults,
-        } = node;
-        Ok(Arguments {
-            posonlyargs: Foldable::fold(posonlyargs, folder)?,
-            args: Foldable::fold(args, folder)?,
-            vararg: Foldable::fold(vararg, folder)?,
-            kwonlyargs: Foldable::fold(kwonlyargs, folder)?,
-            kw_defaults: Foldable::fold(kw_defaults, folder)?,
-            kwarg: Foldable::fold(kwarg, folder)?,
-            defaults: Foldable::fold(defaults, folder)?,
-        })
-    }
-    impl<T, U> Foldable<T, U> for Arg<T> {
-        type Mapped = Arg<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_arg(self)
+        fn visit_Module(&mut self, node: &'a Module) {
+            self.generic_visit_Module(node);
         }
-    }
-    pub fn fold_arg<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Arg<U>,
-    ) -> Result<Arg<F::TargetU>, F::Error> {
-        fold_located(folder, node, |folder, node| {
-            let ArgData {
-                arg,
-                annotation,
-                type_comment,
-            } = node;
-            Ok(ArgData {
-                arg: Foldable::fold(arg, folder)?,
-                annotation: Foldable::fold(annotation, folder)?,
-                type_comment: Foldable::fold(type_comment, folder)?,
-            })
-        })
-    }
-    impl<T, U> Foldable<T, U> for Keyword<T> {
-        type Mapped = Keyword<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_keyword(self)
+        fn generic_visit_Module(&mut self, node: &'a Module>) {
+                // Hmm: body stmt
+                // Hmm: type_ignores type_ignore
         }
-    }
-    pub fn fold_keyword<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Keyword<U>,
-    ) -> Result<Keyword<F::TargetU>, F::Error> {
-        fold_located(folder, node, |folder, node| {
-            let KeywordData { arg, value } = node;
-            Ok(KeywordData {
-                arg: Foldable::fold(arg, folder)?,
-                value: Foldable::fold(value, folder)?,
-            })
-        })
-    }
-    impl<T, U> Foldable<T, U> for Alias<T> {
-        type Mapped = Alias<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_alias(self)
+
+        fn visit_Interactive(&mut self, node: &'a Interactive) {
+            self.generic_visit_Interactive(node);
         }
-    }
-    pub fn fold_alias<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Alias<U>,
-    ) -> Result<Alias<F::TargetU>, F::Error> {
-        fold_located(folder, node, |folder, node| {
-            let AliasData { name, asname } = node;
-            Ok(AliasData {
-                name: Foldable::fold(name, folder)?,
-                asname: Foldable::fold(asname, folder)?,
-            })
-        })
-    }
-    impl<T, U> Foldable<T, U> for Withitem<T> {
-        type Mapped = Withitem<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_withitem(self)
+        fn generic_visit_Interactive(&mut self, node: &'a Interactive>) {
+                // Hmm: body stmt
         }
-    }
-    pub fn fold_withitem<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Withitem<U>,
-    ) -> Result<Withitem<F::TargetU>, F::Error> {
-        let Withitem {
-            context_expr,
-            optional_vars,
-        } = node;
-        Ok(Withitem {
-            context_expr: Foldable::fold(context_expr, folder)?,
-            optional_vars: Foldable::fold(optional_vars, folder)?,
-        })
-    }
-    impl<T, U> Foldable<T, U> for MatchCase<T> {
-        type Mapped = MatchCase<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_match_case(self)
+
+        fn visit_Expression(&mut self, node: &'a Expression) {
+            self.generic_visit_Expression(node);
         }
-    }
-    pub fn fold_match_case<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: MatchCase<U>,
-    ) -> Result<MatchCase<F::TargetU>, F::Error> {
-        let MatchCase {
-            pattern,
-            guard,
-            body,
-        } = node;
-        Ok(MatchCase {
-            pattern: Foldable::fold(pattern, folder)?,
-            guard: Foldable::fold(guard, folder)?,
-            body: Foldable::fold(body, folder)?,
-        })
-    }
-    impl<T, U> Foldable<T, U> for Pattern<T> {
-        type Mapped = Pattern<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_pattern(self)
+        fn generic_visit_Expression(&mut self, node: &'a Expression>) {
+                // Hmm: body expr
         }
-    }
-    pub fn fold_pattern<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: Pattern<U>,
-    ) -> Result<Pattern<F::TargetU>, F::Error> {
-        fold_located(folder, node, |folder, node| match node {
-            PatternKind::MatchValue { value } => Ok(PatternKind::MatchValue {
-                value: Foldable::fold(value, folder)?,
-            }),
-            PatternKind::MatchSingleton { value } => Ok(PatternKind::MatchSingleton {
-                value: Foldable::fold(value, folder)?,
-            }),
-            PatternKind::MatchSequence { patterns } => Ok(PatternKind::MatchSequence {
-                patterns: Foldable::fold(patterns, folder)?,
-            }),
-            PatternKind::MatchMapping {
-                keys,
-                patterns,
-                rest,
-            } => Ok(PatternKind::MatchMapping {
-                keys: Foldable::fold(keys, folder)?,
-                patterns: Foldable::fold(patterns, folder)?,
-                rest: Foldable::fold(rest, folder)?,
-            }),
-            PatternKind::MatchClass {
-                cls,
-                patterns,
-                kwd_attrs,
-                kwd_patterns,
-            } => Ok(PatternKind::MatchClass {
-                cls: Foldable::fold(cls, folder)?,
-                patterns: Foldable::fold(patterns, folder)?,
-                kwd_attrs: Foldable::fold(kwd_attrs, folder)?,
-                kwd_patterns: Foldable::fold(kwd_patterns, folder)?,
-            }),
-            PatternKind::MatchStar { name } => Ok(PatternKind::MatchStar {
-                name: Foldable::fold(name, folder)?,
-            }),
-            PatternKind::MatchAs { pattern, name } => Ok(PatternKind::MatchAs {
-                pattern: Foldable::fold(pattern, folder)?,
-                name: Foldable::fold(name, folder)?,
-            }),
-            PatternKind::MatchOr { patterns } => Ok(PatternKind::MatchOr {
-                patterns: Foldable::fold(patterns, folder)?,
-            }),
-        })
-    }
-    impl<T, U> Foldable<T, U> for TypeIgnore {
-        type Mapped = TypeIgnore;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
-            self,
-            folder: &mut F,
-        ) -> Result<Self::Mapped, F::Error> {
-            folder.fold_type_ignore(self)
+
+        fn visit_FunctionType(&mut self, node: &'a FunctionType) {
+            self.generic_visit_FunctionType(node);
         }
-    }
-    pub fn fold_type_ignore<U, F: Fold<U> + ?Sized>(
-        #[allow(unused)] folder: &mut F,
-        node: TypeIgnore,
-    ) -> Result<TypeIgnore, F::Error> {
-        match node {
-            TypeIgnore::TypeIgnore { lineno, tag } => Ok(TypeIgnore::TypeIgnore {
-                lineno: Foldable::fold(lineno, folder)?,
-                tag: Foldable::fold(tag, folder)?,
-            }),
+        fn generic_visit_FunctionType(&mut self, node: &'a FunctionType>) {
+                // Hmm: argtypes expr
+                // Hmm: returns expr
         }
+
+        fn visit_Stmt(&mut self, node: &'a Stmt) {
+            self.generic_visit_Stmt(node);
+        }
+        fn generic_visit_Stmt(&mut self, node: &'a Stmt) {
+            match node.node {
+                StmtKind::FunctionDef {
+                    name,
+                    args,
+                    body,
+                    decorator_list,
+                    returns,
+                    type_comment,
+                } => self.visit_FunctionDef(FunctionDef {
+                    name,
+                    args,
+                    body,
+                    decorator_list,
+                    returns,
+                    type_comment,
+                }),
+                StmtKind::AsyncFunctionDef {
+                    name,
+                    args,
+                    body,
+                    decorator_list,
+                    returns,
+                    type_comment,
+                } => self.visit_AsyncFunctionDef(AsyncFunctionDef {
+                    name,
+                    args,
+                    body,
+                    decorator_list,
+                    returns,
+                    type_comment,
+                }),
+                StmtKind::ClassDef {
+                    name,
+                    bases,
+                    keywords,
+                    body,
+                    decorator_list,
+                } => self.visit_ClassDef(ClassDef {
+                    name,
+                    bases,
+                    keywords,
+                    body,
+                    decorator_list,
+                }),
+                StmtKind::Return {
+                    value,
+                } => self.visit_Return(Return {
+                    value,
+                }),
+                StmtKind::Delete {
+                    targets,
+                } => self.visit_Delete(Delete {
+                    targets,
+                }),
+                StmtKind::Assign {
+                    targets,
+                    value,
+                    type_comment,
+                } => self.visit_Assign(Assign {
+                    targets,
+                    value,
+                    type_comment,
+                }),
+                StmtKind::AugAssign {
+                    target,
+                    op,
+                    value,
+                } => self.visit_AugAssign(AugAssign {
+                    target,
+                    op,
+                    value,
+                }),
+                StmtKind::AnnAssign {
+                    target,
+                    annotation,
+                    value,
+                    simple,
+                } => self.visit_AnnAssign(AnnAssign {
+                    target,
+                    annotation,
+                    value,
+                    simple,
+                }),
+                StmtKind::For {
+                    target,
+                    iter,
+                    body,
+                    orelse,
+                    type_comment,
+                } => self.visit_For(For {
+                    target,
+                    iter,
+                    body,
+                    orelse,
+                    type_comment,
+                }),
+                StmtKind::AsyncFor {
+                    target,
+                    iter,
+                    body,
+                    orelse,
+                    type_comment,
+                } => self.visit_AsyncFor(AsyncFor {
+                    target,
+                    iter,
+                    body,
+                    orelse,
+                    type_comment,
+                }),
+                StmtKind::While {
+                    test,
+                    body,
+                    orelse,
+                } => self.visit_While(While {
+                    test,
+                    body,
+                    orelse,
+                }),
+                StmtKind::If {
+                    test,
+                    body,
+                    orelse,
+                } => self.visit_If(If {
+                    test,
+                    body,
+                    orelse,
+                }),
+                StmtKind::With {
+                    items,
+                    body,
+                    type_comment,
+                } => self.visit_With(With {
+                    items,
+                    body,
+                    type_comment,
+                }),
+                StmtKind::AsyncWith {
+                    items,
+                    body,
+                    type_comment,
+                } => self.visit_AsyncWith(AsyncWith {
+                    items,
+                    body,
+                    type_comment,
+                }),
+                StmtKind::Match {
+                    subject,
+                    cases,
+                } => self.visit_Match(Match {
+                    subject,
+                    cases,
+                }),
+                StmtKind::Raise {
+                    exc,
+                    cause,
+                } => self.visit_Raise(Raise {
+                    exc,
+                    cause,
+                }),
+                StmtKind::Try {
+                    body,
+                    handlers,
+                    orelse,
+                    finalbody,
+                } => self.visit_Try(Try {
+                    body,
+                    handlers,
+                    orelse,
+                    finalbody,
+                }),
+                StmtKind::TryStar {
+                    body,
+                    handlers,
+                    orelse,
+                    finalbody,
+                } => self.visit_TryStar(TryStar {
+                    body,
+                    handlers,
+                    orelse,
+                    finalbody,
+                }),
+                StmtKind::Assert {
+                    test,
+                    msg,
+                } => self.visit_Assert(Assert {
+                    test,
+                    msg,
+                }),
+                StmtKind::Import {
+                    names,
+                } => self.visit_Import(Import {
+                    names,
+                }),
+                StmtKind::ImportFrom {
+                    module,
+                    names,
+                    level,
+                } => self.visit_ImportFrom(ImportFrom {
+                    module,
+                    names,
+                    level,
+                }),
+                StmtKind::Global {
+                    names,
+                } => self.visit_Global(Global {
+                    names,
+                }),
+                StmtKind::Nonlocal {
+                    names,
+                } => self.visit_Nonlocal(Nonlocal {
+                    names,
+                }),
+                StmtKind::Expr {
+                    value,
+                } => self.visit_Expr(Expr {
+                    value,
+                }),
+                StmtKind::Pass {
+                } => self.visit_Pass(Pass {
+                }),
+                StmtKind::Break {
+                } => self.visit_Break(Break {
+                }),
+                StmtKind::Continue {
+                } => self.visit_Continue(Continue {
+                }),
+            }
+        }
+        fn visit_FunctionDef(&mut self, node: &'a FunctionDef) {
+            self.generic_visit_FunctionDef(node);
+        }
+        fn generic_visit_FunctionDef(&mut self, node: &'a FunctionDef>) {
+                // Hmm: name identifier
+                // Hmm: args arguments
+                // Hmm: body stmt
+                // Hmm: decorator_list expr
+                // Hmm: returns expr
+                // Hmm: type_comment string
+        }
+
+        fn visit_AsyncFunctionDef(&mut self, node: &'a AsyncFunctionDef) {
+            self.generic_visit_AsyncFunctionDef(node);
+        }
+        fn generic_visit_AsyncFunctionDef(&mut self, node: &'a AsyncFunctionDef>) {
+                // Hmm: name identifier
+                // Hmm: args arguments
+                // Hmm: body stmt
+                // Hmm: decorator_list expr
+                // Hmm: returns expr
+                // Hmm: type_comment string
+        }
+
+        fn visit_ClassDef(&mut self, node: &'a ClassDef) {
+            self.generic_visit_ClassDef(node);
+        }
+        fn generic_visit_ClassDef(&mut self, node: &'a ClassDef>) {
+                // Hmm: name identifier
+                // Hmm: bases expr
+                // Hmm: keywords keyword
+                // Hmm: body stmt
+                // Hmm: decorator_list expr
+        }
+
+        fn visit_Return(&mut self, node: &'a Return) {
+            self.generic_visit_Return(node);
+        }
+        fn generic_visit_Return(&mut self, node: &'a Return>) {
+                // Hmm: value expr
+        }
+
+        fn visit_Delete(&mut self, node: &'a Delete) {
+            self.generic_visit_Delete(node);
+        }
+        fn generic_visit_Delete(&mut self, node: &'a Delete>) {
+                // Hmm: targets expr
+        }
+
+        fn visit_Assign(&mut self, node: &'a Assign) {
+            self.generic_visit_Assign(node);
+        }
+        fn generic_visit_Assign(&mut self, node: &'a Assign>) {
+                // Hmm: targets expr
+                // Hmm: value expr
+                // Hmm: type_comment string
+        }
+
+        fn visit_AugAssign(&mut self, node: &'a AugAssign) {
+            self.generic_visit_AugAssign(node);
+        }
+        fn generic_visit_AugAssign(&mut self, node: &'a AugAssign>) {
+                // Hmm: target expr
+                // Hmm: op operator
+                // Hmm: value expr
+        }
+
+        fn visit_AnnAssign(&mut self, node: &'a AnnAssign) {
+            self.generic_visit_AnnAssign(node);
+        }
+        fn generic_visit_AnnAssign(&mut self, node: &'a AnnAssign>) {
+                // Hmm: target expr
+                // Hmm: annotation expr
+                // Hmm: value expr
+                // Hmm: simple int
+        }
+
+        fn visit_For(&mut self, node: &'a For) {
+            self.generic_visit_For(node);
+        }
+        fn generic_visit_For(&mut self, node: &'a For>) {
+                // Hmm: target expr
+                // Hmm: iter expr
+                // Hmm: body stmt
+                // Hmm: orelse stmt
+                // Hmm: type_comment string
+        }
+
+        fn visit_AsyncFor(&mut self, node: &'a AsyncFor) {
+            self.generic_visit_AsyncFor(node);
+        }
+        fn generic_visit_AsyncFor(&mut self, node: &'a AsyncFor>) {
+                // Hmm: target expr
+                // Hmm: iter expr
+                // Hmm: body stmt
+                // Hmm: orelse stmt
+                // Hmm: type_comment string
+        }
+
+        fn visit_While(&mut self, node: &'a While) {
+            self.generic_visit_While(node);
+        }
+        fn generic_visit_While(&mut self, node: &'a While>) {
+                // Hmm: test expr
+                // Hmm: body stmt
+                // Hmm: orelse stmt
+        }
+
+        fn visit_If(&mut self, node: &'a If) {
+            self.generic_visit_If(node);
+        }
+        fn generic_visit_If(&mut self, node: &'a If>) {
+                // Hmm: test expr
+                // Hmm: body stmt
+                // Hmm: orelse stmt
+        }
+
+        fn visit_With(&mut self, node: &'a With) {
+            self.generic_visit_With(node);
+        }
+        fn generic_visit_With(&mut self, node: &'a With>) {
+                // Hmm: items withitem
+                // Hmm: body stmt
+                // Hmm: type_comment string
+        }
+
+        fn visit_AsyncWith(&mut self, node: &'a AsyncWith) {
+            self.generic_visit_AsyncWith(node);
+        }
+        fn generic_visit_AsyncWith(&mut self, node: &'a AsyncWith>) {
+                // Hmm: items withitem
+                // Hmm: body stmt
+                // Hmm: type_comment string
+        }
+
+        fn visit_Match(&mut self, node: &'a Match) {
+            self.generic_visit_Match(node);
+        }
+        fn generic_visit_Match(&mut self, node: &'a Match>) {
+                // Hmm: subject expr
+                // Hmm: cases match_case
+        }
+
+        fn visit_Raise(&mut self, node: &'a Raise) {
+            self.generic_visit_Raise(node);
+        }
+        fn generic_visit_Raise(&mut self, node: &'a Raise>) {
+                // Hmm: exc expr
+                // Hmm: cause expr
+        }
+
+        fn visit_Try(&mut self, node: &'a Try) {
+            self.generic_visit_Try(node);
+        }
+        fn generic_visit_Try(&mut self, node: &'a Try>) {
+                // Hmm: body stmt
+                // Hmm: handlers excepthandler
+                // Hmm: orelse stmt
+                // Hmm: finalbody stmt
+        }
+
+        fn visit_TryStar(&mut self, node: &'a TryStar) {
+            self.generic_visit_TryStar(node);
+        }
+        fn generic_visit_TryStar(&mut self, node: &'a TryStar>) {
+                // Hmm: body stmt
+                // Hmm: handlers excepthandler
+                // Hmm: orelse stmt
+                // Hmm: finalbody stmt
+        }
+
+        fn visit_Assert(&mut self, node: &'a Assert) {
+            self.generic_visit_Assert(node);
+        }
+        fn generic_visit_Assert(&mut self, node: &'a Assert>) {
+                // Hmm: test expr
+                // Hmm: msg expr
+        }
+
+        fn visit_Import(&mut self, node: &'a Import) {
+            self.generic_visit_Import(node);
+        }
+        fn generic_visit_Import(&mut self, node: &'a Import>) {
+                // Hmm: names alias
+        }
+
+        fn visit_ImportFrom(&mut self, node: &'a ImportFrom) {
+            self.generic_visit_ImportFrom(node);
+        }
+        fn generic_visit_ImportFrom(&mut self, node: &'a ImportFrom>) {
+                // Hmm: module identifier
+                // Hmm: names alias
+                // Hmm: level int
+        }
+
+        fn visit_Global(&mut self, node: &'a Global) {
+            self.generic_visit_Global(node);
+        }
+        fn generic_visit_Global(&mut self, node: &'a Global>) {
+                // Hmm: names identifier
+        }
+
+        fn visit_Nonlocal(&mut self, node: &'a Nonlocal) {
+            self.generic_visit_Nonlocal(node);
+        }
+        fn generic_visit_Nonlocal(&mut self, node: &'a Nonlocal>) {
+                // Hmm: names identifier
+        }
+
+        fn visit_Expr(&mut self, node: &'a Expr) {
+            self.generic_visit_Expr(node);
+        }
+        fn generic_visit_Expr(&mut self, node: &'a Expr>) {
+                // Hmm: value expr
+        }
+
+        fn visit_Pass(&mut self, node: &'a Pass) {
+            self.generic_visit_Pass(node);
+        }
+        fn generic_visit_Pass(&mut self, node: &'a Pass>) {
+        }
+
+        fn visit_Break(&mut self, node: &'a Break) {
+            self.generic_visit_Break(node);
+        }
+        fn generic_visit_Break(&mut self, node: &'a Break>) {
+        }
+
+        fn visit_Continue(&mut self, node: &'a Continue) {
+            self.generic_visit_Continue(node);
+        }
+        fn generic_visit_Continue(&mut self, node: &'a Continue>) {
+        }
+
+        fn visit_Expr(&mut self, node: &'a Expr) {
+            self.generic_visit_Expr(node);
+        }
+        fn generic_visit_Expr(&mut self, node: &'a Expr) {
+            match node.node {
+                ExprKind::BoolOp {
+                    op,
+                    values,
+                } => self.visit_BoolOp(BoolOp {
+                    op,
+                    values,
+                }),
+                ExprKind::NamedExpr {
+                    target,
+                    value,
+                } => self.visit_NamedExpr(NamedExpr {
+                    target,
+                    value,
+                }),
+                ExprKind::BinOp {
+                    left,
+                    op,
+                    right,
+                } => self.visit_BinOp(BinOp {
+                    left,
+                    op,
+                    right,
+                }),
+                ExprKind::UnaryOp {
+                    op,
+                    operand,
+                } => self.visit_UnaryOp(UnaryOp {
+                    op,
+                    operand,
+                }),
+                ExprKind::Lambda {
+                    args,
+                    body,
+                } => self.visit_Lambda(Lambda {
+                    args,
+                    body,
+                }),
+                ExprKind::IfExp {
+                    test,
+                    body,
+                    orelse,
+                } => self.visit_IfExp(IfExp {
+                    test,
+                    body,
+                    orelse,
+                }),
+                ExprKind::Dict {
+                    keys,
+                    values,
+                } => self.visit_Dict(Dict {
+                    keys,
+                    values,
+                }),
+                ExprKind::Set {
+                    elts,
+                } => self.visit_Set(Set {
+                    elts,
+                }),
+                ExprKind::ListComp {
+                    elt,
+                    generators,
+                } => self.visit_ListComp(ListComp {
+                    elt,
+                    generators,
+                }),
+                ExprKind::SetComp {
+                    elt,
+                    generators,
+                } => self.visit_SetComp(SetComp {
+                    elt,
+                    generators,
+                }),
+                ExprKind::DictComp {
+                    key,
+                    value,
+                    generators,
+                } => self.visit_DictComp(DictComp {
+                    key,
+                    value,
+                    generators,
+                }),
+                ExprKind::GeneratorExp {
+                    elt,
+                    generators,
+                } => self.visit_GeneratorExp(GeneratorExp {
+                    elt,
+                    generators,
+                }),
+                ExprKind::Await {
+                    value,
+                } => self.visit_Await(Await {
+                    value,
+                }),
+                ExprKind::Yield {
+                    value,
+                } => self.visit_Yield(Yield {
+                    value,
+                }),
+                ExprKind::YieldFrom {
+                    value,
+                } => self.visit_YieldFrom(YieldFrom {
+                    value,
+                }),
+                ExprKind::Compare {
+                    left,
+                    ops,
+                    comparators,
+                } => self.visit_Compare(Compare {
+                    left,
+                    ops,
+                    comparators,
+                }),
+                ExprKind::Call {
+                    func,
+                    args,
+                    keywords,
+                } => self.visit_Call(Call {
+                    func,
+                    args,
+                    keywords,
+                }),
+                ExprKind::FormattedValue {
+                    value,
+                    conversion,
+                    format_spec,
+                } => self.visit_FormattedValue(FormattedValue {
+                    value,
+                    conversion,
+                    format_spec,
+                }),
+                ExprKind::JoinedStr {
+                    values,
+                } => self.visit_JoinedStr(JoinedStr {
+                    values,
+                }),
+                ExprKind::Constant {
+                    value,
+                    kind,
+                } => self.visit_Constant(Constant {
+                    value,
+                    kind,
+                }),
+                ExprKind::Attribute {
+                    value,
+                    attr,
+                    ctx,
+                } => self.visit_Attribute(Attribute {
+                    value,
+                    attr,
+                    ctx,
+                }),
+                ExprKind::Subscript {
+                    value,
+                    slice,
+                    ctx,
+                } => self.visit_Subscript(Subscript {
+                    value,
+                    slice,
+                    ctx,
+                }),
+                ExprKind::Starred {
+                    value,
+                    ctx,
+                } => self.visit_Starred(Starred {
+                    value,
+                    ctx,
+                }),
+                ExprKind::Name {
+                    id,
+                    ctx,
+                } => self.visit_Name(Name {
+                    id,
+                    ctx,
+                }),
+                ExprKind::List {
+                    elts,
+                    ctx,
+                } => self.visit_List(List {
+                    elts,
+                    ctx,
+                }),
+                ExprKind::Tuple {
+                    elts,
+                    ctx,
+                } => self.visit_Tuple(Tuple {
+                    elts,
+                    ctx,
+                }),
+                ExprKind::Slice {
+                    lower,
+                    upper,
+                    step,
+                } => self.visit_Slice(Slice {
+                    lower,
+                    upper,
+                    step,
+                }),
+            }
+        }
+        fn visit_BoolOp(&mut self, node: &'a BoolOp) {
+            self.generic_visit_BoolOp(node);
+        }
+        fn generic_visit_BoolOp(&mut self, node: &'a BoolOp>) {
+                // Hmm: op boolop
+                // Hmm: values expr
+        }
+
+        fn visit_NamedExpr(&mut self, node: &'a NamedExpr) {
+            self.generic_visit_NamedExpr(node);
+        }
+        fn generic_visit_NamedExpr(&mut self, node: &'a NamedExpr>) {
+                // Hmm: target expr
+                // Hmm: value expr
+        }
+
+        fn visit_BinOp(&mut self, node: &'a BinOp) {
+            self.generic_visit_BinOp(node);
+        }
+        fn generic_visit_BinOp(&mut self, node: &'a BinOp>) {
+                // Hmm: left expr
+                // Hmm: op operator
+                // Hmm: right expr
+        }
+
+        fn visit_UnaryOp(&mut self, node: &'a UnaryOp) {
+            self.generic_visit_UnaryOp(node);
+        }
+        fn generic_visit_UnaryOp(&mut self, node: &'a UnaryOp>) {
+                // Hmm: op unaryop
+                // Hmm: operand expr
+        }
+
+        fn visit_Lambda(&mut self, node: &'a Lambda) {
+            self.generic_visit_Lambda(node);
+        }
+        fn generic_visit_Lambda(&mut self, node: &'a Lambda>) {
+                // Hmm: args arguments
+                // Hmm: body expr
+        }
+
+        fn visit_IfExp(&mut self, node: &'a IfExp) {
+            self.generic_visit_IfExp(node);
+        }
+        fn generic_visit_IfExp(&mut self, node: &'a IfExp>) {
+                // Hmm: test expr
+                // Hmm: body expr
+                // Hmm: orelse expr
+        }
+
+        fn visit_Dict(&mut self, node: &'a Dict) {
+            self.generic_visit_Dict(node);
+        }
+        fn generic_visit_Dict(&mut self, node: &'a Dict>) {
+                // Hmm: keys expr
+                // Hmm: values expr
+        }
+
+        fn visit_Set(&mut self, node: &'a Set) {
+            self.generic_visit_Set(node);
+        }
+        fn generic_visit_Set(&mut self, node: &'a Set>) {
+                // Hmm: elts expr
+        }
+
+        fn visit_ListComp(&mut self, node: &'a ListComp) {
+            self.generic_visit_ListComp(node);
+        }
+        fn generic_visit_ListComp(&mut self, node: &'a ListComp>) {
+                // Hmm: elt expr
+                // Hmm: generators comprehension
+        }
+
+        fn visit_SetComp(&mut self, node: &'a SetComp) {
+            self.generic_visit_SetComp(node);
+        }
+        fn generic_visit_SetComp(&mut self, node: &'a SetComp>) {
+                // Hmm: elt expr
+                // Hmm: generators comprehension
+        }
+
+        fn visit_DictComp(&mut self, node: &'a DictComp) {
+            self.generic_visit_DictComp(node);
+        }
+        fn generic_visit_DictComp(&mut self, node: &'a DictComp>) {
+                // Hmm: key expr
+                // Hmm: value expr
+                // Hmm: generators comprehension
+        }
+
+        fn visit_GeneratorExp(&mut self, node: &'a GeneratorExp) {
+            self.generic_visit_GeneratorExp(node);
+        }
+        fn generic_visit_GeneratorExp(&mut self, node: &'a GeneratorExp>) {
+                // Hmm: elt expr
+                // Hmm: generators comprehension
+        }
+
+        fn visit_Await(&mut self, node: &'a Await) {
+            self.generic_visit_Await(node);
+        }
+        fn generic_visit_Await(&mut self, node: &'a Await>) {
+                // Hmm: value expr
+        }
+
+        fn visit_Yield(&mut self, node: &'a Yield) {
+            self.generic_visit_Yield(node);
+        }
+        fn generic_visit_Yield(&mut self, node: &'a Yield>) {
+                // Hmm: value expr
+        }
+
+        fn visit_YieldFrom(&mut self, node: &'a YieldFrom) {
+            self.generic_visit_YieldFrom(node);
+        }
+        fn generic_visit_YieldFrom(&mut self, node: &'a YieldFrom>) {
+                // Hmm: value expr
+        }
+
+        fn visit_Compare(&mut self, node: &'a Compare) {
+            self.generic_visit_Compare(node);
+        }
+        fn generic_visit_Compare(&mut self, node: &'a Compare>) {
+                // Hmm: left expr
+                // Hmm: ops cmpop
+                // Hmm: comparators expr
+        }
+
+        fn visit_Call(&mut self, node: &'a Call) {
+            self.generic_visit_Call(node);
+        }
+        fn generic_visit_Call(&mut self, node: &'a Call>) {
+                // Hmm: func expr
+                // Hmm: args expr
+                // Hmm: keywords keyword
+        }
+
+        fn visit_FormattedValue(&mut self, node: &'a FormattedValue) {
+            self.generic_visit_FormattedValue(node);
+        }
+        fn generic_visit_FormattedValue(&mut self, node: &'a FormattedValue>) {
+                // Hmm: value expr
+                // Hmm: conversion int
+                // Hmm: format_spec expr
+        }
+
+        fn visit_JoinedStr(&mut self, node: &'a JoinedStr) {
+            self.generic_visit_JoinedStr(node);
+        }
+        fn generic_visit_JoinedStr(&mut self, node: &'a JoinedStr>) {
+                // Hmm: values expr
+        }
+
+        fn visit_Constant(&mut self, node: &'a Constant) {
+            self.generic_visit_Constant(node);
+        }
+        fn generic_visit_Constant(&mut self, node: &'a Constant>) {
+                // Hmm: value constant
+                // Hmm: kind string
+        }
+
+        fn visit_Attribute(&mut self, node: &'a Attribute) {
+            self.generic_visit_Attribute(node);
+        }
+        fn generic_visit_Attribute(&mut self, node: &'a Attribute>) {
+                // Hmm: value expr
+                // Hmm: attr identifier
+                // Hmm: ctx expr_context
+        }
+
+        fn visit_Subscript(&mut self, node: &'a Subscript) {
+            self.generic_visit_Subscript(node);
+        }
+        fn generic_visit_Subscript(&mut self, node: &'a Subscript>) {
+                // Hmm: value expr
+                // Hmm: slice expr
+                // Hmm: ctx expr_context
+        }
+
+        fn visit_Starred(&mut self, node: &'a Starred) {
+            self.generic_visit_Starred(node);
+        }
+        fn generic_visit_Starred(&mut self, node: &'a Starred>) {
+                // Hmm: value expr
+                // Hmm: ctx expr_context
+        }
+
+        fn visit_Name(&mut self, node: &'a Name) {
+            self.generic_visit_Name(node);
+        }
+        fn generic_visit_Name(&mut self, node: &'a Name>) {
+                // Hmm: id identifier
+                // Hmm: ctx expr_context
+        }
+
+        fn visit_List(&mut self, node: &'a List) {
+            self.generic_visit_List(node);
+        }
+        fn generic_visit_List(&mut self, node: &'a List>) {
+                // Hmm: elts expr
+                // Hmm: ctx expr_context
+        }
+
+        fn visit_Tuple(&mut self, node: &'a Tuple) {
+            self.generic_visit_Tuple(node);
+        }
+        fn generic_visit_Tuple(&mut self, node: &'a Tuple>) {
+                // Hmm: elts expr
+                // Hmm: ctx expr_context
+        }
+
+        fn visit_Slice(&mut self, node: &'a Slice) {
+            self.generic_visit_Slice(node);
+        }
+        fn generic_visit_Slice(&mut self, node: &'a Slice>) {
+                // Hmm: lower expr
+                // Hmm: upper expr
+                // Hmm: step expr
+        }
+
+        //Simple:
+        fn visit_ExprContext(&mut self, node: &'a ExprContext) {
+            self.generic_visit_ExprContext(node);
+        }
+        fn generic_visit_ExprContext(&mut self, _node: &'a ExprContext) {}
+        //Simple:
+        fn visit_Boolop(&mut self, node: &'a Boolop) {
+            self.generic_visit_Boolop(node);
+        }
+        fn generic_visit_Boolop(&mut self, _node: &'a Boolop) {}
+        //Simple:
+        fn visit_Operator(&mut self, node: &'a Operator) {
+            self.generic_visit_Operator(node);
+        }
+        fn generic_visit_Operator(&mut self, _node: &'a Operator) {}
+        //Simple:
+        fn visit_Unaryop(&mut self, node: &'a Unaryop) {
+            self.generic_visit_Unaryop(node);
+        }
+        fn generic_visit_Unaryop(&mut self, _node: &'a Unaryop) {}
+        //Simple:
+        fn visit_Cmpop(&mut self, node: &'a Cmpop) {
+            self.generic_visit_Cmpop(node);
+        }
+        fn generic_visit_Cmpop(&mut self, _node: &'a Cmpop) {}
+        fn visit_comprehension(&mut self, node: &'a Comprehension) {
+            self.generic_visit_comprehension(node);
+        }
+        fn generic_visit_comprehension(&mut self, _node: &'a Comprehension) {}
+        fn visit_Excepthandler(&mut self, node: &'a Excepthandler) {
+            self.generic_visit_Excepthandler(node);
+        }
+        fn generic_visit_Excepthandler(&mut self, node: &'a Excepthandler) {
+            match node.node {
+                ExcepthandlerKind::ExceptHandler {
+                    type,
+                    name,
+                    body,
+                } => self.visit_ExceptHandler(ExceptHandler {
+                    type_,
+                    name,
+                    body,
+                }),
+            }
+        }
+        fn visit_ExceptHandler(&mut self, node: &'a ExceptHandler) {
+            self.generic_visit_ExceptHandler(node);
+        }
+        fn generic_visit_ExceptHandler(&mut self, node: &'a ExceptHandler>) {
+                // Hmm: type expr
+                // Hmm: name identifier
+                // Hmm: body stmt
+        }
+
+        fn visit_arguments(&mut self, node: &'a Arguments) {
+            self.generic_visit_arguments(node);
+        }
+        fn generic_visit_arguments(&mut self, _node: &'a Arguments) {}
+        fn visit_arg(&mut self, node: &'a Arg) {
+            self.generic_visit_arg(node);
+        }
+        fn generic_visit_arg(&mut self, _node: &'a Arg) {}
+        fn visit_keyword(&mut self, node: &'a Keyword) {
+            self.generic_visit_keyword(node);
+        }
+        fn generic_visit_keyword(&mut self, _node: &'a Keyword) {}
+        fn visit_alias(&mut self, node: &'a Alias) {
+            self.generic_visit_alias(node);
+        }
+        fn generic_visit_alias(&mut self, _node: &'a Alias) {}
+        fn visit_withitem(&mut self, node: &'a Withitem) {
+            self.generic_visit_withitem(node);
+        }
+        fn generic_visit_withitem(&mut self, _node: &'a Withitem) {}
+        fn visit_match_case(&mut self, node: &'a MatchCase) {
+            self.generic_visit_match_case(node);
+        }
+        fn generic_visit_match_case(&mut self, _node: &'a MatchCase) {}
+        fn visit_Pattern(&mut self, node: &'a Pattern) {
+            self.generic_visit_Pattern(node);
+        }
+        fn generic_visit_Pattern(&mut self, node: &'a Pattern) {
+            match node.node {
+                PatternKind::MatchValue {
+                    value,
+                } => self.visit_MatchValue(MatchValue {
+                    value,
+                }),
+                PatternKind::MatchSingleton {
+                    value,
+                } => self.visit_MatchSingleton(MatchSingleton {
+                    value,
+                }),
+                PatternKind::MatchSequence {
+                    patterns,
+                } => self.visit_MatchSequence(MatchSequence {
+                    patterns,
+                }),
+                PatternKind::MatchMapping {
+                    keys,
+                    patterns,
+                    rest,
+                } => self.visit_MatchMapping(MatchMapping {
+                    keys,
+                    patterns,
+                    rest,
+                }),
+                PatternKind::MatchClass {
+                    cls,
+                    patterns,
+                    kwd_attrs,
+                    kwd_patterns,
+                } => self.visit_MatchClass(MatchClass {
+                    cls,
+                    patterns,
+                    kwd_attrs,
+                    kwd_patterns,
+                }),
+                PatternKind::MatchStar {
+                    name,
+                } => self.visit_MatchStar(MatchStar {
+                    name,
+                }),
+                PatternKind::MatchAs {
+                    pattern,
+                    name,
+                } => self.visit_MatchAs(MatchAs {
+                    pattern,
+                    name,
+                }),
+                PatternKind::MatchOr {
+                    patterns,
+                } => self.visit_MatchOr(MatchOr {
+                    patterns,
+                }),
+            }
+        }
+        fn visit_MatchValue(&mut self, node: &'a MatchValue) {
+            self.generic_visit_MatchValue(node);
+        }
+        fn generic_visit_MatchValue(&mut self, node: &'a MatchValue>) {
+                // Hmm: value expr
+        }
+
+        fn visit_MatchSingleton(&mut self, node: &'a MatchSingleton) {
+            self.generic_visit_MatchSingleton(node);
+        }
+        fn generic_visit_MatchSingleton(&mut self, node: &'a MatchSingleton>) {
+                // Hmm: value constant
+        }
+
+        fn visit_MatchSequence(&mut self, node: &'a MatchSequence) {
+            self.generic_visit_MatchSequence(node);
+        }
+        fn generic_visit_MatchSequence(&mut self, node: &'a MatchSequence>) {
+                // Hmm: patterns pattern
+        }
+
+        fn visit_MatchMapping(&mut self, node: &'a MatchMapping) {
+            self.generic_visit_MatchMapping(node);
+        }
+        fn generic_visit_MatchMapping(&mut self, node: &'a MatchMapping>) {
+                // Hmm: keys expr
+                // Hmm: patterns pattern
+                // Hmm: rest identifier
+        }
+
+        fn visit_MatchClass(&mut self, node: &'a MatchClass) {
+            self.generic_visit_MatchClass(node);
+        }
+        fn generic_visit_MatchClass(&mut self, node: &'a MatchClass>) {
+                // Hmm: cls expr
+                // Hmm: patterns pattern
+                // Hmm: kwd_attrs identifier
+                // Hmm: kwd_patterns pattern
+        }
+
+        fn visit_MatchStar(&mut self, node: &'a MatchStar) {
+            self.generic_visit_MatchStar(node);
+        }
+        fn generic_visit_MatchStar(&mut self, node: &'a MatchStar>) {
+                // Hmm: name identifier
+        }
+
+        fn visit_MatchAs(&mut self, node: &'a MatchAs) {
+            self.generic_visit_MatchAs(node);
+        }
+        fn generic_visit_MatchAs(&mut self, node: &'a MatchAs>) {
+                // Hmm: pattern pattern
+                // Hmm: name identifier
+        }
+
+        fn visit_MatchOr(&mut self, node: &'a MatchOr) {
+            self.generic_visit_MatchOr(node);
+        }
+        fn generic_visit_MatchOr(&mut self, node: &'a MatchOr>) {
+                // Hmm: patterns pattern
+        }
+
+        fn visit_TypeIgnore(&mut self, node: &'a TypeIgnore) {
+            self.generic_visit_TypeIgnore(node);
+        }
+        fn generic_visit_TypeIgnore(&mut self, node: &'a TypeIgnore) {
+            match node.node {
+                TypeIgnore::TypeIgnore {
+                    lineno,
+                    tag,
+                } => self.visit_TypeIgnore(TypeIgnore {
+                    lineno,
+                    tag,
+                }),
+            }
+        }
+        fn visit_TypeIgnore(&mut self, node: &'a TypeIgnore) {
+            self.generic_visit_TypeIgnore(node);
+        }
+        fn generic_visit_TypeIgnore(&mut self, node: &'a TypeIgnore>) {
+                // Hmm: lineno int
+                // Hmm: tag string
+        }
+
     }
 }
+
+

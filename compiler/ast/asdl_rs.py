@@ -205,6 +205,16 @@ class StructVisitor(TypeInfoEmitVisitor):
 
     def sum_with_constructors(self, sum, name, depth):
         typeinfo = self.typeinfo[name]
+
+        for t in sum.types:
+            self.emit_attrs(depth)
+            self.emit(f"pub struct {t.name}Data<U = ()> {{", depth)
+            for f in t.fields:
+                self.visit(f, typeinfo, "pub ", depth+1)
+            self.emit("}", depth)
+            self.emit(f"pub type {t.name}<U = ()> = Located<{t.name}Data<U>, U>;", depth)
+            self.emit("", depth)
+
         generics, generics_applied = self.get_generics(name, "U = ()", "U")
         enumname = rustname = get_rust_type(name)
         # all the attributes right now are for location, so if it has attrs we
@@ -411,6 +421,89 @@ class FoldModuleVisitor(TypeInfoEmitVisitor):
         FoldImplVisitor(self.file, self.typeinfo).visit(mod, depth + 1)
         self.emit("}", depth)
 
+class VisitorTraitDefVisitor(TypeInfoEmitVisitor):
+    def visitModule(self, mod, depth):
+        self.emit("pub trait Visitor<'a, U=()> {", depth)
+        for dfn in mod.dfns:
+            self.visit(dfn, depth+1)
+        self.emit("}", depth)
+
+    def visitType(self, type, depth=0):
+        self.visit(type.value, type.name, depth)
+
+    def visitSum(self, sum, name, depth):
+        if is_simple(sum):
+            self.simple_sum(sum, name, depth)
+        else:
+            self.sum_with_constructors(sum, name, depth)
+
+    def emit_visitor(self, name, depth):
+        self.emit(f"fn visit_{name}(&mut self, node: &'a {get_rust_type(name)}) {{", depth)
+        self.emit(f"self.generic_visit_{name}(node);", depth+1)
+        self.emit("}", depth)
+
+    def emit_empty_generic_visitor(self, name, depth):
+        self.emit(f"fn generic_visit_{name}(&mut self, _node: &'a {get_rust_type(name)}) {{}}", depth)
+
+    def simple_sum(self, sum, name, depth):
+        self.emit("//Simple:", depth)
+        rustname = get_rust_type(name)
+        self.emit_visitor(rustname, depth)
+        self.emit_empty_generic_visitor(rustname, depth)
+
+
+    def sum_with_constructors(self, sum, name, depth):
+        # @TODO: ExceptHandler is weird
+
+        rustname = get_rust_type(name)
+        self.emit_visitor(rustname, depth)
+        self.emit(f"fn generic_visit_{rustname}(&mut self, node: &'a {rustname}) {{", depth)
+        depth += 1
+        self.emit("match node.node {", depth)
+        enumname = get_rust_type(name)
+        if sum.attributes:
+            enumname += "Kind"
+        for t in sum.types:
+            self.emit(f"{enumname}::{t.name} {{", depth+1)
+            for field in t.fields:
+                self.emit(f"{field.name},", depth+2)
+            self.emit(f"}} => self.visit_{t.name}({t.name} {{", depth+1)
+            for field in t.fields:
+                self.emit(f"{rust_field(field.name)},", depth+2)
+            self.emit("}),", depth+1)
+        self.emit("}", depth)
+        depth -= 1
+        self.emit("}", depth)
+
+        # Now for the visitors for the types
+        for t in sum.types:
+            self.emit_visitor(t.name, depth)
+            self.emit(f"fn generic_visit_{t.name}(&mut self, node: &'a {t.name}>) {{", depth)
+            depth += 1
+            # @TODO: Look at each field and maybe visit based on type
+            for f in t.fields:
+                self.emit(f"// Hmm: {f.name} {f.type}", depth+1)
+                # @TODO: look at visitField at 245
+            depth -=1
+            self.emit("}", depth)
+
+            self.emit("", depth)
+
+
+    def visitProduct(self, product, name, depth):
+        self.emit_visitor(name, depth)
+        self.emit_empty_generic_visitor(name, depth)
+
+
+class VisitorModuleVisitor(TypeInfoEmitVisitor):
+    def visitModule(self, mod):
+        depth = 0
+        self.emit('#[cfg(feature = "visitor")]', depth)
+        self.emit("pub mod visitor {", depth)
+        self.emit("use super::*;", depth + 1)
+        VisitorTraitDefVisitor(self.file, self.typeinfo).visit(mod, depth + 1)
+        self.emit("}", depth)
+        self.emit("", depth)
 
 class ClassDefVisitor(EmitVisitor):
     def visitModule(self, mod):
@@ -647,7 +740,7 @@ def write_ast_def(mod, typeinfo, f):
         textwrap.dedent(
             """
         #![allow(clippy::derive_partial_eq_without_eq)]
-        
+
         pub use crate::constant::*;
         pub use crate::Location;
 
@@ -666,7 +759,7 @@ def write_ast_def(mod, typeinfo, f):
             pub custom: U,
             pub node: T,
         }
-    
+
         impl<T> Located<T> {
             pub fn new(location: Location, end_location: Location, node: T) -> Self {
                 Self { location, end_location: Some(end_location), custom: (), node }
@@ -676,8 +769,8 @@ def write_ast_def(mod, typeinfo, f):
     """.lstrip()
         )
     )
-
-    c = ChainOfVisitors(StructVisitor(f, typeinfo), FoldModuleVisitor(f, typeinfo))
+     # FoldModuleVisitor(f, typeinfo)
+    c = ChainOfVisitors(StructVisitor(f, typeinfo), VisitorModuleVisitor(f, typeinfo))
     c.visit(mod)
 
 
