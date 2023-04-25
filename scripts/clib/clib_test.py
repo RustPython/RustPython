@@ -25,6 +25,8 @@ def main():
             if line:
                 liblst.append(line)
 
+    open("clib_out.txt", 'w').close()
+
     for lib in liblst:
         lib_exist = False
         test_exist = False
