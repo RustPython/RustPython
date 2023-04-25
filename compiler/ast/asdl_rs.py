@@ -442,8 +442,12 @@ class VisitorTraitDefVisitor(TypeInfoEmitVisitor):
         self.emit(f"self.generic_visit_{name}(node);", depth+1)
         self.emit("}", depth)
 
+    def emit_generic_visitor_signature(self, name, depth):
+        self.emit(f"fn generic_visit_{name}(&mut self, node: &'a {get_rust_type(name)}) {{", depth)
+
     def emit_empty_generic_visitor(self, name, depth):
-        self.emit(f"fn generic_visit_{name}(&mut self, _node: &'a {get_rust_type(name)}) {{}}", depth)
+        self.emit_generic_visitor_signature(name, depth)
+        self.emit("}", depth)
 
     def simple_sum(self, sum, name, depth):
         self.emit("//Simple:", depth)
@@ -451,43 +455,57 @@ class VisitorTraitDefVisitor(TypeInfoEmitVisitor):
         self.emit_visitor(rustname, depth)
         self.emit_empty_generic_visitor(rustname, depth)
 
+    def visit_match_for_type(self, enumname, type_, depth):
+        self.emit(f"{enumname}::{type_.name} {{", depth)
+        for field in type_.fields:
+            self.emit(f"{field.name},", depth+1)
+        self.emit(f"}} => self.visit_{type_.name}({type_.name} {{", depth)
+        for field in type_.fields:
+            self.emit(f"{rust_field(field.name)},", depth+1)
+        self.emit("}),", depth)
+
+    def visit_sumtype(self, type_, depth):
+        self.emit_visitor(type_.name, depth)
+        self.emit_generic_visitor_signature(type_.name, depth)
+        # @TODO: Look at each field and maybe visit based on type
+        for f in type_.fields:
+            fieldtype = self.typeinfo.get(f.type)
+            if not (fieldtype and fieldtype.has_userdata):
+                continue
+            typ = get_rust_type(f.type)
+            if f.opt:
+                self.emit(f"if let Some(value) = node.{f.name} {{", depth+1)
+                self.emit(f"self.visit_{typ}(value);", depth+2)
+                self.emit("}", depth+1)
+            elif f.seq:
+                self.emit(f"for value in node.{f.name} {{", depth+1)
+                self.emit(f"self.visit_{typ}(value);", depth+2)
+                self.emit("}", depth+1)
+            else:
+                self.emit(f"self.visit_{typ}(value);", depth+1)
+            # @TODO: look at visitField at 245
+        self.emit("}", depth)
 
     def sum_with_constructors(self, sum, name, depth):
         # @TODO: ExceptHandler is weird
 
         rustname = get_rust_type(name)
         self.emit_visitor(rustname, depth)
-        self.emit(f"fn generic_visit_{rustname}(&mut self, node: &'a {rustname}) {{", depth)
+        self.emit_generic_visitor_signature(rustname, depth)
         depth += 1
         self.emit("match node.node {", depth)
         enumname = get_rust_type(name)
         if sum.attributes:
             enumname += "Kind"
         for t in sum.types:
-            self.emit(f"{enumname}::{t.name} {{", depth+1)
-            for field in t.fields:
-                self.emit(f"{field.name},", depth+2)
-            self.emit(f"}} => self.visit_{t.name}({t.name} {{", depth+1)
-            for field in t.fields:
-                self.emit(f"{rust_field(field.name)},", depth+2)
-            self.emit("}),", depth+1)
+            self.visit_match_for_type(enumname, t, depth+1)
         self.emit("}", depth)
         depth -= 1
         self.emit("}", depth)
 
         # Now for the visitors for the types
         for t in sum.types:
-            self.emit_visitor(t.name, depth)
-            self.emit(f"fn generic_visit_{t.name}(&mut self, node: &'a {t.name}>) {{", depth)
-            depth += 1
-            # @TODO: Look at each field and maybe visit based on type
-            for f in t.fields:
-                self.emit(f"// Hmm: {f.name} {f.type}", depth+1)
-                # @TODO: look at visitField at 245
-            depth -=1
-            self.emit("}", depth)
-
-            self.emit("", depth)
+            self.visit_sumtype(t, depth)
 
 
     def visitProduct(self, product, name, depth):
