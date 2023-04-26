@@ -205,16 +205,6 @@ class StructVisitor(TypeInfoEmitVisitor):
 
     def sum_with_constructors(self, sum, name, depth):
         typeinfo = self.typeinfo[name]
-
-        for t in sum.types:
-            self.emit_attrs(depth)
-            self.emit(f"pub struct {t.name}Data<U = ()> {{", depth)
-            for f in t.fields:
-                self.visit(f, typeinfo, "pub ", depth+1)
-            self.emit("}", depth)
-            self.emit(f"pub type {t.name}<U = ()> = Located<{t.name}Data<U>, U>;", depth)
-            self.emit("", depth)
-
         generics, generics_applied = self.get_generics(name, "U = ()", "U")
         enumname = rustname = get_rust_type(name)
         # all the attributes right now are for location, so if it has attrs we
@@ -242,7 +232,7 @@ class StructVisitor(TypeInfoEmitVisitor):
         else:
             self.emit(f"{cons.name},", depth)
 
-    def visitField(self, field, parent, vis, depth, constructor=None):
+    def visitField(self, field, parent, vis, depth, ref=False, constructor=None):
         typ = get_rust_type(field.type)
         fieldtype = self.typeinfo.get(field.type)
         if fieldtype and fieldtype.has_userdata:
@@ -259,6 +249,8 @@ class StructVisitor(TypeInfoEmitVisitor):
             typ = f"Option<{typ}>"
         if field.seq:
             typ = f"Vec<{typ}>"
+        if ref is True:
+            typ = "&'a " + typ
         name = rust_field(field.name)
         self.emit(f"{vis}{name}: {typ},", depth)
 
@@ -421,7 +413,24 @@ class FoldModuleVisitor(TypeInfoEmitVisitor):
         FoldImplVisitor(self.file, self.typeinfo).visit(mod, depth + 1)
         self.emit("}", depth)
 
-class VisitorTraitDefVisitor(TypeInfoEmitVisitor):
+class VisitorStructsDefVisitor(StructVisitor):
+    def visitModule(self, mod, depth):
+        for dfn in mod.dfns:
+            self.visit(dfn, depth)
+
+    def visitSum(self, sum, name, depth):
+        if not is_simple(sum):
+            typeinfo = self.typeinfo[name]
+            for t in sum.types:
+                self.emit(f"pub struct {t.name}Data<'a, U = ()> {{", depth)
+                for f in t.fields:
+                    self.visit(f, typeinfo, "pub ", depth+1, True)
+                self.emit("}", depth)
+                self.emit(f"pub type {t.name}<'a, U = ()> = Located<{t.name}Data<'a, U>, U>;", depth)
+                self.emit("", depth)
+
+
+class VisitorTraitDefVisitor(StructVisitor):
     def visitModule(self, mod, depth):
         self.emit("pub trait Visitor<'a, U=()> {", depth)
         for dfn in mod.dfns:
@@ -450,7 +459,6 @@ class VisitorTraitDefVisitor(TypeInfoEmitVisitor):
         self.emit("}", depth)
 
     def simple_sum(self, sum, name, depth):
-        self.emit("//Simple:", depth)
         rustname = get_rust_type(name)
         self.emit_visitor(rustname, depth)
         self.emit_empty_generic_visitor(rustname, depth)
@@ -458,7 +466,7 @@ class VisitorTraitDefVisitor(TypeInfoEmitVisitor):
     def visit_match_for_type(self, enumname, type_, depth):
         self.emit(f"{enumname}::{type_.name} {{", depth)
         for field in type_.fields:
-            self.emit(f"{field.name},", depth+1)
+            self.emit(f"{rust_field(field.name)},", depth+1)
         self.emit(f"}} => self.visit_{type_.name}({type_.name} {{", depth)
         for field in type_.fields:
             self.emit(f"{rust_field(field.name)},", depth+1)
@@ -467,18 +475,17 @@ class VisitorTraitDefVisitor(TypeInfoEmitVisitor):
     def visit_sumtype(self, type_, depth):
         self.emit_visitor(type_.name, depth)
         self.emit_generic_visitor_signature(type_.name, depth)
-        # @TODO: Look at each field and maybe visit based on type
         for f in type_.fields:
             fieldtype = self.typeinfo.get(f.type)
             if not (fieldtype and fieldtype.has_userdata):
                 continue
             typ = get_rust_type(f.type)
             if f.opt:
-                self.emit(f"if let Some(value) = node.{f.name} {{", depth+1)
+                self.emit(f"if let Some(value) = node.{rust_field(f.name)} {{", depth+1)
                 self.emit(f"self.visit_{typ}(value);", depth+2)
                 self.emit("}", depth+1)
             elif f.seq:
-                self.emit(f"for value in node.{f.name} {{", depth+1)
+                self.emit(f"for value in node.{rust_field(f.name)} {{", depth+1)
                 self.emit(f"self.visit_{typ}(value);", depth+2)
                 self.emit("}", depth+1)
             else:
@@ -488,12 +495,11 @@ class VisitorTraitDefVisitor(TypeInfoEmitVisitor):
 
     def sum_with_constructors(self, sum, name, depth):
         # @TODO: ExceptHandler is weird
-
         rustname = get_rust_type(name)
         self.emit_visitor(rustname, depth)
         self.emit_generic_visitor_signature(rustname, depth)
         depth += 1
-        self.emit("match node.node {", depth)
+        self.emit("match &node.node {", depth)
         enumname = get_rust_type(name)
         if sum.attributes:
             enumname += "Kind"
@@ -519,6 +525,7 @@ class VisitorModuleVisitor(TypeInfoEmitVisitor):
         self.emit('#[cfg(feature = "visitor")]', depth)
         self.emit("pub mod visitor {", depth)
         self.emit("use super::*;", depth + 1)
+        VisitorStructsDefVisitor(self.file, self.typeinfo).visit(mod, depth + 1)
         VisitorTraitDefVisitor(self.file, self.typeinfo).visit(mod, depth + 1)
         self.emit("}", depth)
         self.emit("", depth)
@@ -787,8 +794,7 @@ def write_ast_def(mod, typeinfo, f):
     """.lstrip()
         )
     )
-     # FoldModuleVisitor(f, typeinfo)
-    c = ChainOfVisitors(StructVisitor(f, typeinfo), VisitorModuleVisitor(f, typeinfo))
+    c = ChainOfVisitors(StructVisitor(f, typeinfo), FoldModuleVisitor(f, typeinfo), VisitorModuleVisitor(f, typeinfo))
     c.visit(mod)
 
 
