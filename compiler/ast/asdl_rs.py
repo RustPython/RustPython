@@ -448,8 +448,6 @@ class VisitorTraitDefVisitor(StructVisitor):
     def visitType(self, type, depth=0):
         self.visit(type.value, type.name, depth)
 
-    # @TODO: The lowercase visitors shouldn't have Node structs, they should use the normal ones
-
     def emit_visitor(self, nodename, rusttype, depth):
         self.emit(f"fn visit_{nodename}(&mut self, node: {rusttype}) {{", depth)
         self.emit(f"self.generic_visit_{nodename}(node);", depth+1)
@@ -517,9 +515,6 @@ class VisitorTraitDefVisitor(StructVisitor):
         if not sum.attributes:
             return
 
-        # @TODO: ExceptHandler is weird
-        if name == "type_ignore":
-            return  # @TODO: WTF
         rustname = enumname = get_rust_type(name)
         if sum.attributes:
             enumname += "Kind"

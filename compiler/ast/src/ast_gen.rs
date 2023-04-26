@@ -1293,6 +1293,7 @@ pub mod fold {
     }
 }
 
+#[cfg(feature = "visitor")]
 #[allow(unused_variables, non_snake_case)]
 pub mod visitor {
     use super::*;
