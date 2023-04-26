@@ -198,7 +198,7 @@ pub enum ExprKind<U = ()> {
         orelse: Box<Expr<U>>,
     },
     Dict {
-        keys: Vec<Expr<U>>,
+        keys: Vec<Option<Expr<U>>>,
         values: Vec<Expr<U>>,
     },
     Set {
@@ -1293,558 +1293,414 @@ pub mod fold {
     }
 }
 
-#[cfg(feature = "visitor")]
+#[allow(unused_variables, non_snake_case)]
 pub mod visitor {
     use super::*;
-    pub struct ModuleData<'a, U = ()> {
-        pub body: &'a Vec<Stmt<U>>,
-        pub type_ignores: &'a Vec<TypeIgnore>,
-    }
-    pub type Module<'a, U = ()> = Located<ModuleData<'a, U>, U>;
-
-    pub struct InteractiveData<'a, U = ()> {
-        pub body: &'a Vec<Stmt<U>>,
-    }
-    pub type Interactive<'a, U = ()> = Located<InteractiveData<'a, U>, U>;
-
-    pub struct ExpressionData<'a, U = ()> {
-        pub body: &'a Box<Expr<U>>,
-    }
-    pub type Expression<'a, U = ()> = Located<ExpressionData<'a, U>, U>;
-
-    pub struct FunctionTypeData<'a, U = ()> {
-        pub argtypes: &'a Vec<Expr<U>>,
-        pub returns: &'a Box<Expr<U>>,
-    }
-    pub type FunctionType<'a, U = ()> = Located<FunctionTypeData<'a, U>, U>;
-
-    pub struct FunctionDefData<'a, U = ()> {
-        pub name: &'a Ident,
-        pub args: &'a Box<Arguments<U>>,
-        pub body: &'a Vec<Stmt<U>>,
-        pub decorator_list: &'a Vec<Expr<U>>,
-        pub returns: &'a Option<Box<Expr<U>>>,
-        pub type_comment: &'a Option<String>,
-    }
-    pub type FunctionDef<'a, U = ()> = Located<FunctionDefData<'a, U>, U>;
-
-    pub struct AsyncFunctionDefData<'a, U = ()> {
-        pub name: &'a Ident,
-        pub args: &'a Box<Arguments<U>>,
-        pub body: &'a Vec<Stmt<U>>,
-        pub decorator_list: &'a Vec<Expr<U>>,
-        pub returns: &'a Option<Box<Expr<U>>>,
-        pub type_comment: &'a Option<String>,
-    }
-    pub type AsyncFunctionDef<'a, U = ()> = Located<AsyncFunctionDefData<'a, U>, U>;
-
-    pub struct ClassDefData<'a, U = ()> {
-        pub name: &'a Ident,
-        pub bases: &'a Vec<Expr<U>>,
-        pub keywords: &'a Vec<Keyword<U>>,
-        pub body: &'a Vec<Stmt<U>>,
-        pub decorator_list: &'a Vec<Expr<U>>,
-    }
-    pub type ClassDef<'a, U = ()> = Located<ClassDefData<'a, U>, U>;
-
-    pub struct ReturnData<'a, U = ()> {
-        pub value: &'a Option<Box<Expr<U>>>,
-    }
-    pub type Return<'a, U = ()> = Located<ReturnData<'a, U>, U>;
-
-    pub struct DeleteData<'a, U = ()> {
-        pub targets: &'a Vec<Expr<U>>,
-    }
-    pub type Delete<'a, U = ()> = Located<DeleteData<'a, U>, U>;
-
-    pub struct AssignData<'a, U = ()> {
-        pub targets: &'a Vec<Expr<U>>,
-        pub value: &'a Box<Expr<U>>,
-        pub type_comment: &'a Option<String>,
-    }
-    pub type Assign<'a, U = ()> = Located<AssignData<'a, U>, U>;
-
-    pub struct AugAssignData<'a, U = ()> {
-        pub target: &'a Box<Expr<U>>,
-        pub op: &'a Operator,
-        pub value: &'a Box<Expr<U>>,
-    }
-    pub type AugAssign<'a, U = ()> = Located<AugAssignData<'a, U>, U>;
-
-    pub struct AnnAssignData<'a, U = ()> {
-        pub target: &'a Box<Expr<U>>,
-        pub annotation: &'a Box<Expr<U>>,
-        pub value: &'a Option<Box<Expr<U>>>,
-        pub simple: &'a usize,
-    }
-    pub type AnnAssign<'a, U = ()> = Located<AnnAssignData<'a, U>, U>;
-
-    pub struct ForData<'a, U = ()> {
-        pub target: &'a Box<Expr<U>>,
-        pub iter: &'a Box<Expr<U>>,
-        pub body: &'a Vec<Stmt<U>>,
-        pub orelse: &'a Vec<Stmt<U>>,
-        pub type_comment: &'a Option<String>,
-    }
-    pub type For<'a, U = ()> = Located<ForData<'a, U>, U>;
-
-    pub struct AsyncForData<'a, U = ()> {
-        pub target: &'a Box<Expr<U>>,
-        pub iter: &'a Box<Expr<U>>,
-        pub body: &'a Vec<Stmt<U>>,
-        pub orelse: &'a Vec<Stmt<U>>,
-        pub type_comment: &'a Option<String>,
-    }
-    pub type AsyncFor<'a, U = ()> = Located<AsyncForData<'a, U>, U>;
-
-    pub struct WhileData<'a, U = ()> {
-        pub test: &'a Box<Expr<U>>,
-        pub body: &'a Vec<Stmt<U>>,
-        pub orelse: &'a Vec<Stmt<U>>,
-    }
-    pub type While<'a, U = ()> = Located<WhileData<'a, U>, U>;
-
-    pub struct IfData<'a, U = ()> {
-        pub test: &'a Box<Expr<U>>,
-        pub body: &'a Vec<Stmt<U>>,
-        pub orelse: &'a Vec<Stmt<U>>,
-    }
-    pub type If<'a, U = ()> = Located<IfData<'a, U>, U>;
-
-    pub struct WithData<'a, U = ()> {
-        pub items: &'a Vec<Withitem<U>>,
-        pub body: &'a Vec<Stmt<U>>,
-        pub type_comment: &'a Option<String>,
-    }
-    pub type With<'a, U = ()> = Located<WithData<'a, U>, U>;
-
-    pub struct AsyncWithData<'a, U = ()> {
-        pub items: &'a Vec<Withitem<U>>,
-        pub body: &'a Vec<Stmt<U>>,
-        pub type_comment: &'a Option<String>,
-    }
-    pub type AsyncWith<'a, U = ()> = Located<AsyncWithData<'a, U>, U>;
-
-    pub struct MatchData<'a, U = ()> {
-        pub subject: &'a Box<Expr<U>>,
-        pub cases: &'a Vec<MatchCase<U>>,
-    }
-    pub type Match<'a, U = ()> = Located<MatchData<'a, U>, U>;
-
-    pub struct RaiseData<'a, U = ()> {
-        pub exc: &'a Option<Box<Expr<U>>>,
-        pub cause: &'a Option<Box<Expr<U>>>,
-    }
-    pub type Raise<'a, U = ()> = Located<RaiseData<'a, U>, U>;
-
-    pub struct TryData<'a, U = ()> {
-        pub body: &'a Vec<Stmt<U>>,
-        pub handlers: &'a Vec<Excepthandler<U>>,
-        pub orelse: &'a Vec<Stmt<U>>,
-        pub finalbody: &'a Vec<Stmt<U>>,
-    }
-    pub type Try<'a, U = ()> = Located<TryData<'a, U>, U>;
-
-    pub struct TryStarData<'a, U = ()> {
-        pub body: &'a Vec<Stmt<U>>,
-        pub handlers: &'a Vec<Excepthandler<U>>,
-        pub orelse: &'a Vec<Stmt<U>>,
-        pub finalbody: &'a Vec<Stmt<U>>,
-    }
-    pub type TryStar<'a, U = ()> = Located<TryStarData<'a, U>, U>;
-
-    pub struct AssertData<'a, U = ()> {
-        pub test: &'a Box<Expr<U>>,
-        pub msg: &'a Option<Box<Expr<U>>>,
-    }
-    pub type Assert<'a, U = ()> = Located<AssertData<'a, U>, U>;
-
-    pub struct ImportData<'a, U = ()> {
-        pub names: &'a Vec<Alias<U>>,
-    }
-    pub type Import<'a, U = ()> = Located<ImportData<'a, U>, U>;
-
-    pub struct ImportFromData<'a, U = ()> {
-        pub module: &'a Option<Ident>,
-        pub names: &'a Vec<Alias<U>>,
-        pub level: &'a Option<usize>,
-    }
-    pub type ImportFrom<'a, U = ()> = Located<ImportFromData<'a, U>, U>;
-
-    pub struct GlobalData<'a, U = ()> {
-        pub names: &'a Vec<Ident>,
-    }
-    pub type Global<'a, U = ()> = Located<GlobalData<'a, U>, U>;
-
-    pub struct NonlocalData<'a, U = ()> {
-        pub names: &'a Vec<Ident>,
-    }
-    pub type Nonlocal<'a, U = ()> = Located<NonlocalData<'a, U>, U>;
-
-    pub struct ExprData<'a, U = ()> {
-        pub value: &'a Box<Expr<U>>,
-    }
-    pub type Expr<'a, U = ()> = Located<ExprData<'a, U>, U>;
-
-    pub struct PassData<'a, U = ()> {
-    }
-    pub type Pass<'a, U = ()> = Located<PassData<'a, U>, U>;
-
-    pub struct BreakData<'a, U = ()> {
-    }
-    pub type Break<'a, U = ()> = Located<BreakData<'a, U>, U>;
-
-    pub struct ContinueData<'a, U = ()> {
-    }
-    pub type Continue<'a, U = ()> = Located<ContinueData<'a, U>, U>;
-
-    pub struct BoolOpData<'a, U = ()> {
-        pub op: &'a Boolop,
-        pub values: &'a Vec<Expr<U>>,
-    }
-    pub type BoolOp<'a, U = ()> = Located<BoolOpData<'a, U>, U>;
-
-    pub struct NamedExprData<'a, U = ()> {
-        pub target: &'a Box<Expr<U>>,
-        pub value: &'a Box<Expr<U>>,
-    }
-    pub type NamedExpr<'a, U = ()> = Located<NamedExprData<'a, U>, U>;
-
-    pub struct BinOpData<'a, U = ()> {
-        pub left: &'a Box<Expr<U>>,
-        pub op: &'a Operator,
-        pub right: &'a Box<Expr<U>>,
-    }
-    pub type BinOp<'a, U = ()> = Located<BinOpData<'a, U>, U>;
-
-    pub struct UnaryOpData<'a, U = ()> {
-        pub op: &'a Unaryop,
-        pub operand: &'a Box<Expr<U>>,
-    }
-    pub type UnaryOp<'a, U = ()> = Located<UnaryOpData<'a, U>, U>;
-
-    pub struct LambdaData<'a, U = ()> {
-        pub args: &'a Box<Arguments<U>>,
-        pub body: &'a Box<Expr<U>>,
-    }
-    pub type Lambda<'a, U = ()> = Located<LambdaData<'a, U>, U>;
-
-    pub struct IfExpData<'a, U = ()> {
-        pub test: &'a Box<Expr<U>>,
-        pub body: &'a Box<Expr<U>>,
-        pub orelse: &'a Box<Expr<U>>,
-    }
-    pub type IfExp<'a, U = ()> = Located<IfExpData<'a, U>, U>;
-
-    pub struct DictData<'a, U = ()> {
-        pub keys: &'a Vec<Expr<U>>,
-        pub values: &'a Vec<Expr<U>>,
-    }
-    pub type Dict<'a, U = ()> = Located<DictData<'a, U>, U>;
-
-    pub struct SetData<'a, U = ()> {
-        pub elts: &'a Vec<Expr<U>>,
-    }
-    pub type Set<'a, U = ()> = Located<SetData<'a, U>, U>;
-
-    pub struct ListCompData<'a, U = ()> {
-        pub elt: &'a Box<Expr<U>>,
-        pub generators: &'a Vec<Comprehension<U>>,
-    }
-    pub type ListComp<'a, U = ()> = Located<ListCompData<'a, U>, U>;
-
-    pub struct SetCompData<'a, U = ()> {
-        pub elt: &'a Box<Expr<U>>,
-        pub generators: &'a Vec<Comprehension<U>>,
-    }
-    pub type SetComp<'a, U = ()> = Located<SetCompData<'a, U>, U>;
-
-    pub struct DictCompData<'a, U = ()> {
-        pub key: &'a Box<Expr<U>>,
-        pub value: &'a Box<Expr<U>>,
-        pub generators: &'a Vec<Comprehension<U>>,
-    }
-    pub type DictComp<'a, U = ()> = Located<DictCompData<'a, U>, U>;
-
-    pub struct GeneratorExpData<'a, U = ()> {
-        pub elt: &'a Box<Expr<U>>,
-        pub generators: &'a Vec<Comprehension<U>>,
-    }
-    pub type GeneratorExp<'a, U = ()> = Located<GeneratorExpData<'a, U>, U>;
-
-    pub struct AwaitData<'a, U = ()> {
-        pub value: &'a Box<Expr<U>>,
-    }
-    pub type Await<'a, U = ()> = Located<AwaitData<'a, U>, U>;
-
-    pub struct YieldData<'a, U = ()> {
-        pub value: &'a Option<Box<Expr<U>>>,
-    }
-    pub type Yield<'a, U = ()> = Located<YieldData<'a, U>, U>;
-
-    pub struct YieldFromData<'a, U = ()> {
-        pub value: &'a Box<Expr<U>>,
-    }
-    pub type YieldFrom<'a, U = ()> = Located<YieldFromData<'a, U>, U>;
-
-    pub struct CompareData<'a, U = ()> {
-        pub left: &'a Box<Expr<U>>,
-        pub ops: &'a Vec<Cmpop>,
-        pub comparators: &'a Vec<Expr<U>>,
-    }
-    pub type Compare<'a, U = ()> = Located<CompareData<'a, U>, U>;
-
-    pub struct CallData<'a, U = ()> {
-        pub func: &'a Box<Expr<U>>,
-        pub args: &'a Vec<Expr<U>>,
-        pub keywords: &'a Vec<Keyword<U>>,
-    }
-    pub type Call<'a, U = ()> = Located<CallData<'a, U>, U>;
-
-    pub struct FormattedValueData<'a, U = ()> {
-        pub value: &'a Box<Expr<U>>,
-        pub conversion: &'a usize,
-        pub format_spec: &'a Option<Box<Expr<U>>>,
-    }
-    pub type FormattedValue<'a, U = ()> = Located<FormattedValueData<'a, U>, U>;
-
-    pub struct JoinedStrData<'a, U = ()> {
-        pub values: &'a Vec<Expr<U>>,
-    }
-    pub type JoinedStr<'a, U = ()> = Located<JoinedStrData<'a, U>, U>;
-
-    pub struct ConstantData<'a, U = ()> {
-        pub value: &'a Constant,
-        pub kind: &'a Option<String>,
-    }
-    pub type Constant<'a, U = ()> = Located<ConstantData<'a, U>, U>;
-
-    pub struct AttributeData<'a, U = ()> {
-        pub value: &'a Box<Expr<U>>,
-        pub attr: &'a Ident,
-        pub ctx: &'a ExprContext,
-    }
-    pub type Attribute<'a, U = ()> = Located<AttributeData<'a, U>, U>;
-
-    pub struct SubscriptData<'a, U = ()> {
-        pub value: &'a Box<Expr<U>>,
-        pub slice: &'a Box<Expr<U>>,
-        pub ctx: &'a ExprContext,
-    }
-    pub type Subscript<'a, U = ()> = Located<SubscriptData<'a, U>, U>;
-
-    pub struct StarredData<'a, U = ()> {
-        pub value: &'a Box<Expr<U>>,
-        pub ctx: &'a ExprContext,
-    }
-    pub type Starred<'a, U = ()> = Located<StarredData<'a, U>, U>;
-
-    pub struct NameData<'a, U = ()> {
-        pub id: &'a Ident,
-        pub ctx: &'a ExprContext,
-    }
-    pub type Name<'a, U = ()> = Located<NameData<'a, U>, U>;
-
-    pub struct ListData<'a, U = ()> {
-        pub elts: &'a Vec<Expr<U>>,
-        pub ctx: &'a ExprContext,
-    }
-    pub type List<'a, U = ()> = Located<ListData<'a, U>, U>;
-
-    pub struct TupleData<'a, U = ()> {
-        pub elts: &'a Vec<Expr<U>>,
-        pub ctx: &'a ExprContext,
-    }
-    pub type Tuple<'a, U = ()> = Located<TupleData<'a, U>, U>;
-
-    pub struct SliceData<'a, U = ()> {
-        pub lower: &'a Option<Box<Expr<U>>>,
-        pub upper: &'a Option<Box<Expr<U>>>,
-        pub step: &'a Option<Box<Expr<U>>>,
-    }
-    pub type Slice<'a, U = ()> = Located<SliceData<'a, U>, U>;
-
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct Comprehension<U = ()> {
-        pub target: Expr<U>,
-        pub iter: Expr<U>,
-        pub ifs: Vec<Expr<U>>,
-        pub is_async: usize,
-    }
-
-    pub struct ExceptHandlerData<'a, U = ()> {
-        pub type_: &'a Option<Box<Expr<U>>>,
-        pub name: &'a Option<Ident>,
-        pub body: &'a Vec<Stmt<U>>,
-    }
-    pub type ExceptHandler<'a, U = ()> = Located<ExceptHandlerData<'a, U>, U>;
-
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct Arguments<U = ()> {
-        pub posonlyargs: Vec<Arg<U>>,
-        pub args: Vec<Arg<U>>,
-        pub vararg: Option<Box<Arg<U>>>,
-        pub kwonlyargs: Vec<Arg<U>>,
-        pub kw_defaults: Vec<Expr<U>>,
-        pub kwarg: Option<Box<Arg<U>>>,
-        pub defaults: Vec<Expr<U>>,
-    }
-
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct ArgData<U = ()> {
-        pub arg: Ident,
-        pub annotation: Option<Box<Expr<U>>>,
+    pub struct FunctionDefNodeData<U=()> {
+        pub name: Ident,
+        pub args: Box<Arguments<U>>,
+        pub body: Vec<Stmt<U>>,
+        pub decorator_list: Vec<Expr<U>>,
+        pub returns: Option<Box<Expr<U>>>,
         pub type_comment: Option<String>,
     }
-    pub type Arg<U = ()> = Located<ArgData<U>, U>;
+    pub type FunctionDefNode<U = ()> = Located<FunctionDefNodeData<U>, U>;
 
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct KeywordData<U = ()> {
-        pub arg: Option<Ident>,
-        pub value: Expr<U>,
-    }
-    pub type Keyword<U = ()> = Located<KeywordData<U>, U>;
-
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct AliasData {
+    pub struct AsyncFunctionDefNodeData<U=()> {
         pub name: Ident,
-        pub asname: Option<Ident>,
+        pub args: Box<Arguments<U>>,
+        pub body: Vec<Stmt<U>>,
+        pub decorator_list: Vec<Expr<U>>,
+        pub returns: Option<Box<Expr<U>>>,
+        pub type_comment: Option<String>,
     }
-    pub type Alias<U = ()> = Located<AliasData, U>;
+    pub type AsyncFunctionDefNode<U = ()> = Located<AsyncFunctionDefNodeData<U>, U>;
 
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct Withitem<U = ()> {
-        pub context_expr: Expr<U>,
-        pub optional_vars: Option<Box<Expr<U>>>,
+    pub struct ClassDefNodeData<U=()> {
+        pub name: Ident,
+        pub bases: Vec<Expr<U>>,
+        pub keywords: Vec<Keyword<U>>,
+        pub body: Vec<Stmt<U>>,
+        pub decorator_list: Vec<Expr<U>>,
     }
+    pub type ClassDefNode<U = ()> = Located<ClassDefNodeData<U>, U>;
 
-    #[derive(Clone, Debug, PartialEq)]
-    pub struct MatchCase<U = ()> {
-        pub pattern: Pattern<U>,
-        pub guard: Option<Box<Expr<U>>>,
+    pub struct ReturnNodeData<U=()> {
+        pub value: Option<Box<Expr<U>>>,
+    }
+    pub type ReturnNode<U = ()> = Located<ReturnNodeData<U>, U>;
+
+    pub struct DeleteNodeData<U=()> {
+        pub targets: Vec<Expr<U>>,
+    }
+    pub type DeleteNode<U = ()> = Located<DeleteNodeData<U>, U>;
+
+    pub struct AssignNodeData<U=()> {
+        pub targets: Vec<Expr<U>>,
+        pub value: Box<Expr<U>>,
+        pub type_comment: Option<String>,
+    }
+    pub type AssignNode<U = ()> = Located<AssignNodeData<U>, U>;
+
+    pub struct AugAssignNodeData<U=()> {
+        pub target: Box<Expr<U>>,
+        pub op: Operator,
+        pub value: Box<Expr<U>>,
+    }
+    pub type AugAssignNode<U = ()> = Located<AugAssignNodeData<U>, U>;
+
+    pub struct AnnAssignNodeData<U=()> {
+        pub target: Box<Expr<U>>,
+        pub annotation: Box<Expr<U>>,
+        pub value: Option<Box<Expr<U>>>,
+        pub simple: usize,
+    }
+    pub type AnnAssignNode<U = ()> = Located<AnnAssignNodeData<U>, U>;
+
+    pub struct ForNodeData<U=()> {
+        pub target: Box<Expr<U>>,
+        pub iter: Box<Expr<U>>,
+        pub body: Vec<Stmt<U>>,
+        pub orelse: Vec<Stmt<U>>,
+        pub type_comment: Option<String>,
+    }
+    pub type ForNode<U = ()> = Located<ForNodeData<U>, U>;
+
+    pub struct AsyncForNodeData<U=()> {
+        pub target: Box<Expr<U>>,
+        pub iter: Box<Expr<U>>,
+        pub body: Vec<Stmt<U>>,
+        pub orelse: Vec<Stmt<U>>,
+        pub type_comment: Option<String>,
+    }
+    pub type AsyncForNode<U = ()> = Located<AsyncForNodeData<U>, U>;
+
+    pub struct WhileNodeData<U=()> {
+        pub test: Box<Expr<U>>,
+        pub body: Vec<Stmt<U>>,
+        pub orelse: Vec<Stmt<U>>,
+    }
+    pub type WhileNode<U = ()> = Located<WhileNodeData<U>, U>;
+
+    pub struct IfNodeData<U=()> {
+        pub test: Box<Expr<U>>,
+        pub body: Vec<Stmt<U>>,
+        pub orelse: Vec<Stmt<U>>,
+    }
+    pub type IfNode<U = ()> = Located<IfNodeData<U>, U>;
+
+    pub struct WithNodeData<U=()> {
+        pub items: Vec<Withitem<U>>,
+        pub body: Vec<Stmt<U>>,
+        pub type_comment: Option<String>,
+    }
+    pub type WithNode<U = ()> = Located<WithNodeData<U>, U>;
+
+    pub struct AsyncWithNodeData<U=()> {
+        pub items: Vec<Withitem<U>>,
+        pub body: Vec<Stmt<U>>,
+        pub type_comment: Option<String>,
+    }
+    pub type AsyncWithNode<U = ()> = Located<AsyncWithNodeData<U>, U>;
+
+    pub struct MatchNodeData<U=()> {
+        pub subject: Box<Expr<U>>,
+        pub cases: Vec<MatchCase<U>>,
+    }
+    pub type MatchNode<U = ()> = Located<MatchNodeData<U>, U>;
+
+    pub struct RaiseNodeData<U=()> {
+        pub exc: Option<Box<Expr<U>>>,
+        pub cause: Option<Box<Expr<U>>>,
+    }
+    pub type RaiseNode<U = ()> = Located<RaiseNodeData<U>, U>;
+
+    pub struct TryNodeData<U=()> {
+        pub body: Vec<Stmt<U>>,
+        pub handlers: Vec<Excepthandler<U>>,
+        pub orelse: Vec<Stmt<U>>,
+        pub finalbody: Vec<Stmt<U>>,
+    }
+    pub type TryNode<U = ()> = Located<TryNodeData<U>, U>;
+
+    pub struct TryStarNodeData<U=()> {
+        pub body: Vec<Stmt<U>>,
+        pub handlers: Vec<Excepthandler<U>>,
+        pub orelse: Vec<Stmt<U>>,
+        pub finalbody: Vec<Stmt<U>>,
+    }
+    pub type TryStarNode<U = ()> = Located<TryStarNodeData<U>, U>;
+
+    pub struct AssertNodeData<U=()> {
+        pub test: Box<Expr<U>>,
+        pub msg: Option<Box<Expr<U>>>,
+    }
+    pub type AssertNode<U = ()> = Located<AssertNodeData<U>, U>;
+
+    pub struct ImportNodeData<U=()> {
+        pub names: Vec<Alias<U>>,
+    }
+    pub type ImportNode<U = ()> = Located<ImportNodeData<U>, U>;
+
+    pub struct ImportFromNodeData<U=()> {
+        pub module: Option<Ident>,
+        pub names: Vec<Alias<U>>,
+        pub level: Option<usize>,
+    }
+    pub type ImportFromNode<U = ()> = Located<ImportFromNodeData<U>, U>;
+
+    pub struct GlobalNodeData<> {
+        pub names: Vec<Ident>,
+    }
+    pub type GlobalNode<U = ()> = Located<GlobalNodeData<>, U>;
+
+    pub struct NonlocalNodeData<> {
+        pub names: Vec<Ident>,
+    }
+    pub type NonlocalNode<U = ()> = Located<NonlocalNodeData<>, U>;
+
+    pub struct ExprNodeData<U=()> {
+        pub value: Box<Expr<U>>,
+    }
+    pub type ExprNode<U = ()> = Located<ExprNodeData<U>, U>;
+
+    pub struct PassNodeData<> {
+    }
+    pub type PassNode<U = ()> = Located<PassNodeData<>, U>;
+
+    pub struct BreakNodeData<> {
+    }
+    pub type BreakNode<U = ()> = Located<BreakNodeData<>, U>;
+
+    pub struct ContinueNodeData<> {
+    }
+    pub type ContinueNode<U = ()> = Located<ContinueNodeData<>, U>;
+
+    pub struct BoolOpNodeData<U=()> {
+        pub op: Boolop,
+        pub values: Vec<Expr<U>>,
+    }
+    pub type BoolOpNode<U = ()> = Located<BoolOpNodeData<U>, U>;
+
+    pub struct NamedExprNodeData<U=()> {
+        pub target: Box<Expr<U>>,
+        pub value: Box<Expr<U>>,
+    }
+    pub type NamedExprNode<U = ()> = Located<NamedExprNodeData<U>, U>;
+
+    pub struct BinOpNodeData<U=()> {
+        pub left: Box<Expr<U>>,
+        pub op: Operator,
+        pub right: Box<Expr<U>>,
+    }
+    pub type BinOpNode<U = ()> = Located<BinOpNodeData<U>, U>;
+
+    pub struct UnaryOpNodeData<U=()> {
+        pub op: Unaryop,
+        pub operand: Box<Expr<U>>,
+    }
+    pub type UnaryOpNode<U = ()> = Located<UnaryOpNodeData<U>, U>;
+
+    pub struct LambdaNodeData<U=()> {
+        pub args: Box<Arguments<U>>,
+        pub body: Box<Expr<U>>,
+    }
+    pub type LambdaNode<U = ()> = Located<LambdaNodeData<U>, U>;
+
+    pub struct IfExpNodeData<U=()> {
+        pub test: Box<Expr<U>>,
+        pub body: Box<Expr<U>>,
+        pub orelse: Box<Expr<U>>,
+    }
+    pub type IfExpNode<U = ()> = Located<IfExpNodeData<U>, U>;
+
+    pub struct DictNodeData<U=()> {
+        pub keys: Vec<Option<Expr<U>>>,
+        pub values: Vec<Expr<U>>,
+    }
+    pub type DictNode<U = ()> = Located<DictNodeData<U>, U>;
+
+    pub struct SetNodeData<U=()> {
+        pub elts: Vec<Expr<U>>,
+    }
+    pub type SetNode<U = ()> = Located<SetNodeData<U>, U>;
+
+    pub struct ListCompNodeData<U=()> {
+        pub elt: Box<Expr<U>>,
+        pub generators: Vec<Comprehension<U>>,
+    }
+    pub type ListCompNode<U = ()> = Located<ListCompNodeData<U>, U>;
+
+    pub struct SetCompNodeData<U=()> {
+        pub elt: Box<Expr<U>>,
+        pub generators: Vec<Comprehension<U>>,
+    }
+    pub type SetCompNode<U = ()> = Located<SetCompNodeData<U>, U>;
+
+    pub struct DictCompNodeData<U=()> {
+        pub key: Box<Expr<U>>,
+        pub value: Box<Expr<U>>,
+        pub generators: Vec<Comprehension<U>>,
+    }
+    pub type DictCompNode<U = ()> = Located<DictCompNodeData<U>, U>;
+
+    pub struct GeneratorExpNodeData<U=()> {
+        pub elt: Box<Expr<U>>,
+        pub generators: Vec<Comprehension<U>>,
+    }
+    pub type GeneratorExpNode<U = ()> = Located<GeneratorExpNodeData<U>, U>;
+
+    pub struct AwaitNodeData<U=()> {
+        pub value: Box<Expr<U>>,
+    }
+    pub type AwaitNode<U = ()> = Located<AwaitNodeData<U>, U>;
+
+    pub struct YieldNodeData<U=()> {
+        pub value: Option<Box<Expr<U>>>,
+    }
+    pub type YieldNode<U = ()> = Located<YieldNodeData<U>, U>;
+
+    pub struct YieldFromNodeData<U=()> {
+        pub value: Box<Expr<U>>,
+    }
+    pub type YieldFromNode<U = ()> = Located<YieldFromNodeData<U>, U>;
+
+    pub struct CompareNodeData<U=()> {
+        pub left: Box<Expr<U>>,
+        pub ops: Vec<Cmpop>,
+        pub comparators: Vec<Expr<U>>,
+    }
+    pub type CompareNode<U = ()> = Located<CompareNodeData<U>, U>;
+
+    pub struct CallNodeData<U=()> {
+        pub func: Box<Expr<U>>,
+        pub args: Vec<Expr<U>>,
+        pub keywords: Vec<Keyword<U>>,
+    }
+    pub type CallNode<U = ()> = Located<CallNodeData<U>, U>;
+
+    pub struct FormattedValueNodeData<U=()> {
+        pub value: Box<Expr<U>>,
+        pub conversion: usize,
+        pub format_spec: Option<Box<Expr<U>>>,
+    }
+    pub type FormattedValueNode<U = ()> = Located<FormattedValueNodeData<U>, U>;
+
+    pub struct JoinedStrNodeData<U=()> {
+        pub values: Vec<Expr<U>>,
+    }
+    pub type JoinedStrNode<U = ()> = Located<JoinedStrNodeData<U>, U>;
+
+    pub struct ConstantNodeData<> {
+        pub value: Constant,
+        pub kind: Option<String>,
+    }
+    pub type ConstantNode<U = ()> = Located<ConstantNodeData<>, U>;
+
+    pub struct AttributeNodeData<U=()> {
+        pub value: Box<Expr<U>>,
+        pub attr: Ident,
+        pub ctx: ExprContext,
+    }
+    pub type AttributeNode<U = ()> = Located<AttributeNodeData<U>, U>;
+
+    pub struct SubscriptNodeData<U=()> {
+        pub value: Box<Expr<U>>,
+        pub slice: Box<Expr<U>>,
+        pub ctx: ExprContext,
+    }
+    pub type SubscriptNode<U = ()> = Located<SubscriptNodeData<U>, U>;
+
+    pub struct StarredNodeData<U=()> {
+        pub value: Box<Expr<U>>,
+        pub ctx: ExprContext,
+    }
+    pub type StarredNode<U = ()> = Located<StarredNodeData<U>, U>;
+
+    pub struct NameNodeData<> {
+        pub id: Ident,
+        pub ctx: ExprContext,
+    }
+    pub type NameNode<U = ()> = Located<NameNodeData<>, U>;
+
+    pub struct ListNodeData<U=()> {
+        pub elts: Vec<Expr<U>>,
+        pub ctx: ExprContext,
+    }
+    pub type ListNode<U = ()> = Located<ListNodeData<U>, U>;
+
+    pub struct TupleNodeData<U=()> {
+        pub elts: Vec<Expr<U>>,
+        pub ctx: ExprContext,
+    }
+    pub type TupleNode<U = ()> = Located<TupleNodeData<U>, U>;
+
+    pub struct SliceNodeData<U=()> {
+        pub lower: Option<Box<Expr<U>>>,
+        pub upper: Option<Box<Expr<U>>>,
+        pub step: Option<Box<Expr<U>>>,
+    }
+    pub type SliceNode<U = ()> = Located<SliceNodeData<U>, U>;
+
+    pub struct ExceptHandlerNodeData<U=()> {
+        pub type_: Option<Box<Expr<U>>>,
+        pub name: Option<Ident>,
         pub body: Vec<Stmt<U>>,
     }
+    pub type ExceptHandlerNode<U = ()> = Located<ExceptHandlerNodeData<U>, U>;
 
-    pub struct MatchValueData<'a, U = ()> {
-        pub value: &'a Box<Expr<U>>,
+    pub struct MatchValueNodeData<U=()> {
+        pub value: Box<Expr<U>>,
     }
-    pub type MatchValue<'a, U = ()> = Located<MatchValueData<'a, U>, U>;
+    pub type MatchValueNode<U = ()> = Located<MatchValueNodeData<U>, U>;
 
-    pub struct MatchSingletonData<'a, U = ()> {
-        pub value: &'a Constant,
+    pub struct MatchSingletonNodeData<> {
+        pub value: Constant,
     }
-    pub type MatchSingleton<'a, U = ()> = Located<MatchSingletonData<'a, U>, U>;
+    pub type MatchSingletonNode<U = ()> = Located<MatchSingletonNodeData<>, U>;
 
-    pub struct MatchSequenceData<'a, U = ()> {
-        pub patterns: &'a Vec<Pattern<U>>,
+    pub struct MatchSequenceNodeData<U=()> {
+        pub patterns: Vec<Pattern<U>>,
     }
-    pub type MatchSequence<'a, U = ()> = Located<MatchSequenceData<'a, U>, U>;
+    pub type MatchSequenceNode<U = ()> = Located<MatchSequenceNodeData<U>, U>;
 
-    pub struct MatchMappingData<'a, U = ()> {
-        pub keys: &'a Vec<Expr<U>>,
-        pub patterns: &'a Vec<Pattern<U>>,
-        pub rest: &'a Option<Ident>,
+    pub struct MatchMappingNodeData<U=()> {
+        pub keys: Vec<Expr<U>>,
+        pub patterns: Vec<Pattern<U>>,
+        pub rest: Option<Ident>,
     }
-    pub type MatchMapping<'a, U = ()> = Located<MatchMappingData<'a, U>, U>;
+    pub type MatchMappingNode<U = ()> = Located<MatchMappingNodeData<U>, U>;
 
-    pub struct MatchClassData<'a, U = ()> {
-        pub cls: &'a Box<Expr<U>>,
-        pub patterns: &'a Vec<Pattern<U>>,
-        pub kwd_attrs: &'a Vec<Ident>,
-        pub kwd_patterns: &'a Vec<Pattern<U>>,
+    pub struct MatchClassNodeData<U=()> {
+        pub cls: Box<Expr<U>>,
+        pub patterns: Vec<Pattern<U>>,
+        pub kwd_attrs: Vec<Ident>,
+        pub kwd_patterns: Vec<Pattern<U>>,
     }
-    pub type MatchClass<'a, U = ()> = Located<MatchClassData<'a, U>, U>;
+    pub type MatchClassNode<U = ()> = Located<MatchClassNodeData<U>, U>;
 
-    pub struct MatchStarData<'a, U = ()> {
-        pub name: &'a Option<Ident>,
+    pub struct MatchStarNodeData<> {
+        pub name: Option<Ident>,
     }
-    pub type MatchStar<'a, U = ()> = Located<MatchStarData<'a, U>, U>;
+    pub type MatchStarNode<U = ()> = Located<MatchStarNodeData<>, U>;
 
-    pub struct MatchAsData<'a, U = ()> {
-        pub pattern: &'a Option<Box<Pattern<U>>>,
-        pub name: &'a Option<Ident>,
+    pub struct MatchAsNodeData<U=()> {
+        pub pattern: Option<Box<Pattern<U>>>,
+        pub name: Option<Ident>,
     }
-    pub type MatchAs<'a, U = ()> = Located<MatchAsData<'a, U>, U>;
+    pub type MatchAsNode<U = ()> = Located<MatchAsNodeData<U>, U>;
 
-    pub struct MatchOrData<'a, U = ()> {
-        pub patterns: &'a Vec<Pattern<U>>,
+    pub struct MatchOrNodeData<U=()> {
+        pub patterns: Vec<Pattern<U>>,
     }
-    pub type MatchOr<'a, U = ()> = Located<MatchOrData<'a, U>, U>;
+    pub type MatchOrNode<U = ()> = Located<MatchOrNodeData<U>, U>;
 
-    pub struct TypeIgnoreData<'a, U = ()> {
-        pub lineno: &'a usize,
-        pub tag: &'a String,
-    }
-    pub type TypeIgnore<'a, U = ()> = Located<TypeIgnoreData<'a, U>, U>;
-
-    pub trait Visitor<'a, U=()> {
-        fn visit_Mod(&mut self, node: &'a Mod) {
-            self.generic_visit_Mod(node);
+    pub trait Visitor<U=()> {
+        fn visit_stmt(&mut self, node: Stmt) {
+            self.generic_visit_stmt(node);
         }
-        fn generic_visit_Mod(&mut self, node: &'a Mod) {
-            match &node.node {
-                Mod::Module {
-                    body,
-                    type_ignores,
-                } => self.visit_Module(Module {
-                    body,
-                    type_ignores,
-                }),
-                Mod::Interactive {
-                    body,
-                } => self.visit_Interactive(Interactive {
-                    body,
-                }),
-                Mod::Expression {
-                    body,
-                } => self.visit_Expression(Expression {
-                    body,
-                }),
-                Mod::FunctionType {
-                    argtypes,
-                    returns,
-                } => self.visit_FunctionType(FunctionType {
-                    argtypes,
-                    returns,
-                }),
-            }
-        }
-        fn visit_Module(&mut self, node: &'a Module) {
-            self.generic_visit_Module(node);
-        }
-        fn generic_visit_Module(&mut self, node: &'a Module) {
-            for value in node.body {
-                self.visit_Stmt(value);
-            }
-        }
-        fn visit_Interactive(&mut self, node: &'a Interactive) {
-            self.generic_visit_Interactive(node);
-        }
-        fn generic_visit_Interactive(&mut self, node: &'a Interactive) {
-            for value in node.body {
-                self.visit_Stmt(value);
-            }
-        }
-        fn visit_Expression(&mut self, node: &'a Expression) {
-            self.generic_visit_Expression(node);
-        }
-        fn generic_visit_Expression(&mut self, node: &'a Expression) {
-            self.visit_Expr(value);
-        }
-        fn visit_FunctionType(&mut self, node: &'a FunctionType) {
-            self.generic_visit_FunctionType(node);
-        }
-        fn generic_visit_FunctionType(&mut self, node: &'a FunctionType) {
-            for value in node.argtypes {
-                self.visit_Expr(value);
-            }
-            self.visit_Expr(value);
-        }
-        fn visit_Stmt(&mut self, node: &'a Stmt) {
-            self.generic_visit_Stmt(node);
-        }
-        fn generic_visit_Stmt(&mut self, node: &'a Stmt) {
-            match &node.node {
+        fn generic_visit_stmt(&mut self, node: Stmt) {
+            match node.node {
                 StmtKind::FunctionDef {
                     name,
                     args,
@@ -1852,14 +1708,21 @@ pub mod visitor {
                     decorator_list,
                     returns,
                     type_comment,
-                } => self.visit_FunctionDef(FunctionDef {
-                    name,
-                    args,
-                    body,
-                    decorator_list,
-                    returns,
-                    type_comment,
-                }),
+                } => self.visit_FunctionDef(
+                        FunctionDefNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: FunctionDefNodeData {
+                            name,
+                            args,
+                            body,
+                            decorator_list,
+                            returns,
+                            type_comment,
+                        },
+                    }
+                ),
                 StmtKind::AsyncFunctionDef {
                     name,
                     args,
@@ -1867,1129 +1730,1670 @@ pub mod visitor {
                     decorator_list,
                     returns,
                     type_comment,
-                } => self.visit_AsyncFunctionDef(AsyncFunctionDef {
-                    name,
-                    args,
-                    body,
-                    decorator_list,
-                    returns,
-                    type_comment,
-                }),
+                } => self.visit_AsyncFunctionDef(
+                        AsyncFunctionDefNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: AsyncFunctionDefNodeData {
+                            name,
+                            args,
+                            body,
+                            decorator_list,
+                            returns,
+                            type_comment,
+                        },
+                    }
+                ),
                 StmtKind::ClassDef {
                     name,
                     bases,
                     keywords,
                     body,
                     decorator_list,
-                } => self.visit_ClassDef(ClassDef {
-                    name,
-                    bases,
-                    keywords,
-                    body,
-                    decorator_list,
-                }),
+                } => self.visit_ClassDef(
+                        ClassDefNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ClassDefNodeData {
+                            name,
+                            bases,
+                            keywords,
+                            body,
+                            decorator_list,
+                        },
+                    }
+                ),
                 StmtKind::Return {
                     value,
-                } => self.visit_Return(Return {
-                    value,
-                }),
+                } => self.visit_Return(
+                        ReturnNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ReturnNodeData {
+                            value,
+                        },
+                    }
+                ),
                 StmtKind::Delete {
                     targets,
-                } => self.visit_Delete(Delete {
-                    targets,
-                }),
+                } => self.visit_Delete(
+                        DeleteNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: DeleteNodeData {
+                            targets,
+                        },
+                    }
+                ),
                 StmtKind::Assign {
                     targets,
                     value,
                     type_comment,
-                } => self.visit_Assign(Assign {
-                    targets,
-                    value,
-                    type_comment,
-                }),
+                } => self.visit_Assign(
+                        AssignNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: AssignNodeData {
+                            targets,
+                            value,
+                            type_comment,
+                        },
+                    }
+                ),
                 StmtKind::AugAssign {
                     target,
                     op,
                     value,
-                } => self.visit_AugAssign(AugAssign {
-                    target,
-                    op,
-                    value,
-                }),
+                } => self.visit_AugAssign(
+                        AugAssignNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: AugAssignNodeData {
+                            target,
+                            op,
+                            value,
+                        },
+                    }
+                ),
                 StmtKind::AnnAssign {
                     target,
                     annotation,
                     value,
                     simple,
-                } => self.visit_AnnAssign(AnnAssign {
-                    target,
-                    annotation,
-                    value,
-                    simple,
-                }),
+                } => self.visit_AnnAssign(
+                        AnnAssignNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: AnnAssignNodeData {
+                            target,
+                            annotation,
+                            value,
+                            simple,
+                        },
+                    }
+                ),
                 StmtKind::For {
                     target,
                     iter,
                     body,
                     orelse,
                     type_comment,
-                } => self.visit_For(For {
-                    target,
-                    iter,
-                    body,
-                    orelse,
-                    type_comment,
-                }),
+                } => self.visit_For(
+                        ForNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ForNodeData {
+                            target,
+                            iter,
+                            body,
+                            orelse,
+                            type_comment,
+                        },
+                    }
+                ),
                 StmtKind::AsyncFor {
                     target,
                     iter,
                     body,
                     orelse,
                     type_comment,
-                } => self.visit_AsyncFor(AsyncFor {
-                    target,
-                    iter,
-                    body,
-                    orelse,
-                    type_comment,
-                }),
+                } => self.visit_AsyncFor(
+                        AsyncForNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: AsyncForNodeData {
+                            target,
+                            iter,
+                            body,
+                            orelse,
+                            type_comment,
+                        },
+                    }
+                ),
                 StmtKind::While {
                     test,
                     body,
                     orelse,
-                } => self.visit_While(While {
-                    test,
-                    body,
-                    orelse,
-                }),
+                } => self.visit_While(
+                        WhileNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: WhileNodeData {
+                            test,
+                            body,
+                            orelse,
+                        },
+                    }
+                ),
                 StmtKind::If {
                     test,
                     body,
                     orelse,
-                } => self.visit_If(If {
-                    test,
-                    body,
-                    orelse,
-                }),
+                } => self.visit_If(
+                        IfNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: IfNodeData {
+                            test,
+                            body,
+                            orelse,
+                        },
+                    }
+                ),
                 StmtKind::With {
                     items,
                     body,
                     type_comment,
-                } => self.visit_With(With {
-                    items,
-                    body,
-                    type_comment,
-                }),
+                } => self.visit_With(
+                        WithNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: WithNodeData {
+                            items,
+                            body,
+                            type_comment,
+                        },
+                    }
+                ),
                 StmtKind::AsyncWith {
                     items,
                     body,
                     type_comment,
-                } => self.visit_AsyncWith(AsyncWith {
-                    items,
-                    body,
-                    type_comment,
-                }),
+                } => self.visit_AsyncWith(
+                        AsyncWithNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: AsyncWithNodeData {
+                            items,
+                            body,
+                            type_comment,
+                        },
+                    }
+                ),
                 StmtKind::Match {
                     subject,
                     cases,
-                } => self.visit_Match(Match {
-                    subject,
-                    cases,
-                }),
+                } => self.visit_Match(
+                        MatchNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: MatchNodeData {
+                            subject,
+                            cases,
+                        },
+                    }
+                ),
                 StmtKind::Raise {
                     exc,
                     cause,
-                } => self.visit_Raise(Raise {
-                    exc,
-                    cause,
-                }),
+                } => self.visit_Raise(
+                        RaiseNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: RaiseNodeData {
+                            exc,
+                            cause,
+                        },
+                    }
+                ),
                 StmtKind::Try {
                     body,
                     handlers,
                     orelse,
                     finalbody,
-                } => self.visit_Try(Try {
-                    body,
-                    handlers,
-                    orelse,
-                    finalbody,
-                }),
+                } => self.visit_Try(
+                        TryNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: TryNodeData {
+                            body,
+                            handlers,
+                            orelse,
+                            finalbody,
+                        },
+                    }
+                ),
                 StmtKind::TryStar {
                     body,
                     handlers,
                     orelse,
                     finalbody,
-                } => self.visit_TryStar(TryStar {
-                    body,
-                    handlers,
-                    orelse,
-                    finalbody,
-                }),
+                } => self.visit_TryStar(
+                        TryStarNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: TryStarNodeData {
+                            body,
+                            handlers,
+                            orelse,
+                            finalbody,
+                        },
+                    }
+                ),
                 StmtKind::Assert {
                     test,
                     msg,
-                } => self.visit_Assert(Assert {
-                    test,
-                    msg,
-                }),
+                } => self.visit_Assert(
+                        AssertNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: AssertNodeData {
+                            test,
+                            msg,
+                        },
+                    }
+                ),
                 StmtKind::Import {
                     names,
-                } => self.visit_Import(Import {
-                    names,
-                }),
+                } => self.visit_Import(
+                        ImportNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ImportNodeData {
+                            names,
+                        },
+                    }
+                ),
                 StmtKind::ImportFrom {
                     module,
                     names,
                     level,
-                } => self.visit_ImportFrom(ImportFrom {
-                    module,
-                    names,
-                    level,
-                }),
+                } => self.visit_ImportFrom(
+                        ImportFromNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ImportFromNodeData {
+                            module,
+                            names,
+                            level,
+                        },
+                    }
+                ),
                 StmtKind::Global {
                     names,
-                } => self.visit_Global(Global {
-                    names,
-                }),
+                } => self.visit_Global(
+                        GlobalNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: GlobalNodeData {
+                            names,
+                        },
+                    }
+                ),
                 StmtKind::Nonlocal {
                     names,
-                } => self.visit_Nonlocal(Nonlocal {
-                    names,
-                }),
+                } => self.visit_Nonlocal(
+                        NonlocalNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: NonlocalNodeData {
+                            names,
+                        },
+                    }
+                ),
                 StmtKind::Expr {
                     value,
-                } => self.visit_Expr(Expr {
-                    value,
-                }),
+                } => self.visit_Expr(
+                        ExprNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ExprNodeData {
+                            value,
+                        },
+                    }
+                ),
                 StmtKind::Pass {
-                } => self.visit_Pass(Pass {
-                }),
+                } => self.visit_Pass(
+                        PassNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: PassNodeData {
+                        },
+                    }
+                ),
                 StmtKind::Break {
-                } => self.visit_Break(Break {
-                }),
+                } => self.visit_Break(
+                        BreakNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: BreakNodeData {
+                        },
+                    }
+                ),
                 StmtKind::Continue {
-                } => self.visit_Continue(Continue {
-                }),
+                } => self.visit_Continue(
+                        ContinueNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ContinueNodeData {
+                        },
+                    }
+                ),
             }
         }
-        fn visit_FunctionDef(&mut self, node: &'a FunctionDef) {
+        fn visit_FunctionDef(&mut self, node: FunctionDefNode) {
             self.generic_visit_FunctionDef(node);
         }
-        fn generic_visit_FunctionDef(&mut self, node: &'a FunctionDef) {
-            self.visit_Arguments(value);
-            for value in node.body {
-                self.visit_Stmt(value);
+        fn generic_visit_FunctionDef(&mut self, node: FunctionDefNode) {
+            {
+                let value = node.node.args;
+                self.visit_arguments(*value);
             }
-            for value in node.decorator_list {
-                self.visit_Expr(value);
+            for value in node.node.body {
+                self.visit_stmt(value);
             }
-            if let Some(value) = node.returns {
-                self.visit_Expr(value);
+            for value in node.node.decorator_list {
+                self.visit_expr(value);
+            }
+            if let Some(value) = node.node.returns {
+                self.visit_expr(*value);
             }
         }
-        fn visit_AsyncFunctionDef(&mut self, node: &'a AsyncFunctionDef) {
+        fn visit_AsyncFunctionDef(&mut self, node: AsyncFunctionDefNode) {
             self.generic_visit_AsyncFunctionDef(node);
         }
-        fn generic_visit_AsyncFunctionDef(&mut self, node: &'a AsyncFunctionDef) {
-            self.visit_Arguments(value);
-            for value in node.body {
-                self.visit_Stmt(value);
+        fn generic_visit_AsyncFunctionDef(&mut self, node: AsyncFunctionDefNode) {
+            {
+                let value = node.node.args;
+                self.visit_arguments(*value);
             }
-            for value in node.decorator_list {
-                self.visit_Expr(value);
+            for value in node.node.body {
+                self.visit_stmt(value);
             }
-            if let Some(value) = node.returns {
-                self.visit_Expr(value);
+            for value in node.node.decorator_list {
+                self.visit_expr(value);
+            }
+            if let Some(value) = node.node.returns {
+                self.visit_expr(*value);
             }
         }
-        fn visit_ClassDef(&mut self, node: &'a ClassDef) {
+        fn visit_ClassDef(&mut self, node: ClassDefNode) {
             self.generic_visit_ClassDef(node);
         }
-        fn generic_visit_ClassDef(&mut self, node: &'a ClassDef) {
-            for value in node.bases {
-                self.visit_Expr(value);
+        fn generic_visit_ClassDef(&mut self, node: ClassDefNode) {
+            for value in node.node.bases {
+                self.visit_expr(value);
             }
-            for value in node.keywords {
-                self.visit_Keyword(value);
+            for value in node.node.keywords {
+                self.visit_keyword(value);
             }
-            for value in node.body {
-                self.visit_Stmt(value);
+            for value in node.node.body {
+                self.visit_stmt(value);
             }
-            for value in node.decorator_list {
-                self.visit_Expr(value);
+            for value in node.node.decorator_list {
+                self.visit_expr(value);
             }
         }
-        fn visit_Return(&mut self, node: &'a Return) {
+        fn visit_Return(&mut self, node: ReturnNode) {
             self.generic_visit_Return(node);
         }
-        fn generic_visit_Return(&mut self, node: &'a Return) {
-            if let Some(value) = node.value {
-                self.visit_Expr(value);
+        fn generic_visit_Return(&mut self, node: ReturnNode) {
+            if let Some(value) = node.node.value {
+                self.visit_expr(*value);
             }
         }
-        fn visit_Delete(&mut self, node: &'a Delete) {
+        fn visit_Delete(&mut self, node: DeleteNode) {
             self.generic_visit_Delete(node);
         }
-        fn generic_visit_Delete(&mut self, node: &'a Delete) {
-            for value in node.targets {
-                self.visit_Expr(value);
+        fn generic_visit_Delete(&mut self, node: DeleteNode) {
+            for value in node.node.targets {
+                self.visit_expr(value);
             }
         }
-        fn visit_Assign(&mut self, node: &'a Assign) {
+        fn visit_Assign(&mut self, node: AssignNode) {
             self.generic_visit_Assign(node);
         }
-        fn generic_visit_Assign(&mut self, node: &'a Assign) {
-            for value in node.targets {
-                self.visit_Expr(value);
+        fn generic_visit_Assign(&mut self, node: AssignNode) {
+            for value in node.node.targets {
+                self.visit_expr(value);
             }
-            self.visit_Expr(value);
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_AugAssign(&mut self, node: &'a AugAssign) {
+        fn visit_AugAssign(&mut self, node: AugAssignNode) {
             self.generic_visit_AugAssign(node);
         }
-        fn generic_visit_AugAssign(&mut self, node: &'a AugAssign) {
-            self.visit_Expr(value);
-            self.visit_Expr(value);
+        fn generic_visit_AugAssign(&mut self, node: AugAssignNode) {
+            {
+                let value = node.node.target;
+                self.visit_expr(*value);
+            }
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_AnnAssign(&mut self, node: &'a AnnAssign) {
+        fn visit_AnnAssign(&mut self, node: AnnAssignNode) {
             self.generic_visit_AnnAssign(node);
         }
-        fn generic_visit_AnnAssign(&mut self, node: &'a AnnAssign) {
-            self.visit_Expr(value);
-            self.visit_Expr(value);
-            if let Some(value) = node.value {
-                self.visit_Expr(value);
+        fn generic_visit_AnnAssign(&mut self, node: AnnAssignNode) {
+            {
+                let value = node.node.target;
+                self.visit_expr(*value);
+            }
+            {
+                let value = node.node.annotation;
+                self.visit_expr(*value);
+            }
+            if let Some(value) = node.node.value {
+                self.visit_expr(*value);
             }
         }
-        fn visit_For(&mut self, node: &'a For) {
+        fn visit_For(&mut self, node: ForNode) {
             self.generic_visit_For(node);
         }
-        fn generic_visit_For(&mut self, node: &'a For) {
-            self.visit_Expr(value);
-            self.visit_Expr(value);
-            for value in node.body {
-                self.visit_Stmt(value);
+        fn generic_visit_For(&mut self, node: ForNode) {
+            {
+                let value = node.node.target;
+                self.visit_expr(*value);
             }
-            for value in node.orelse {
-                self.visit_Stmt(value);
+            {
+                let value = node.node.iter;
+                self.visit_expr(*value);
+            }
+            for value in node.node.body {
+                self.visit_stmt(value);
+            }
+            for value in node.node.orelse {
+                self.visit_stmt(value);
             }
         }
-        fn visit_AsyncFor(&mut self, node: &'a AsyncFor) {
+        fn visit_AsyncFor(&mut self, node: AsyncForNode) {
             self.generic_visit_AsyncFor(node);
         }
-        fn generic_visit_AsyncFor(&mut self, node: &'a AsyncFor) {
-            self.visit_Expr(value);
-            self.visit_Expr(value);
-            for value in node.body {
-                self.visit_Stmt(value);
+        fn generic_visit_AsyncFor(&mut self, node: AsyncForNode) {
+            {
+                let value = node.node.target;
+                self.visit_expr(*value);
             }
-            for value in node.orelse {
-                self.visit_Stmt(value);
+            {
+                let value = node.node.iter;
+                self.visit_expr(*value);
+            }
+            for value in node.node.body {
+                self.visit_stmt(value);
+            }
+            for value in node.node.orelse {
+                self.visit_stmt(value);
             }
         }
-        fn visit_While(&mut self, node: &'a While) {
+        fn visit_While(&mut self, node: WhileNode) {
             self.generic_visit_While(node);
         }
-        fn generic_visit_While(&mut self, node: &'a While) {
-            self.visit_Expr(value);
-            for value in node.body {
-                self.visit_Stmt(value);
+        fn generic_visit_While(&mut self, node: WhileNode) {
+            {
+                let value = node.node.test;
+                self.visit_expr(*value);
             }
-            for value in node.orelse {
-                self.visit_Stmt(value);
+            for value in node.node.body {
+                self.visit_stmt(value);
+            }
+            for value in node.node.orelse {
+                self.visit_stmt(value);
             }
         }
-        fn visit_If(&mut self, node: &'a If) {
+        fn visit_If(&mut self, node: IfNode) {
             self.generic_visit_If(node);
         }
-        fn generic_visit_If(&mut self, node: &'a If) {
-            self.visit_Expr(value);
-            for value in node.body {
-                self.visit_Stmt(value);
+        fn generic_visit_If(&mut self, node: IfNode) {
+            {
+                let value = node.node.test;
+                self.visit_expr(*value);
             }
-            for value in node.orelse {
-                self.visit_Stmt(value);
+            for value in node.node.body {
+                self.visit_stmt(value);
+            }
+            for value in node.node.orelse {
+                self.visit_stmt(value);
             }
         }
-        fn visit_With(&mut self, node: &'a With) {
+        fn visit_With(&mut self, node: WithNode) {
             self.generic_visit_With(node);
         }
-        fn generic_visit_With(&mut self, node: &'a With) {
-            for value in node.items {
-                self.visit_Withitem(value);
+        fn generic_visit_With(&mut self, node: WithNode) {
+            for value in node.node.items {
+                self.visit_withitem(value);
             }
-            for value in node.body {
-                self.visit_Stmt(value);
+            for value in node.node.body {
+                self.visit_stmt(value);
             }
         }
-        fn visit_AsyncWith(&mut self, node: &'a AsyncWith) {
+        fn visit_AsyncWith(&mut self, node: AsyncWithNode) {
             self.generic_visit_AsyncWith(node);
         }
-        fn generic_visit_AsyncWith(&mut self, node: &'a AsyncWith) {
-            for value in node.items {
-                self.visit_Withitem(value);
+        fn generic_visit_AsyncWith(&mut self, node: AsyncWithNode) {
+            for value in node.node.items {
+                self.visit_withitem(value);
             }
-            for value in node.body {
-                self.visit_Stmt(value);
+            for value in node.node.body {
+                self.visit_stmt(value);
             }
         }
-        fn visit_Match(&mut self, node: &'a Match) {
+        fn visit_Match(&mut self, node: MatchNode) {
             self.generic_visit_Match(node);
         }
-        fn generic_visit_Match(&mut self, node: &'a Match) {
-            self.visit_Expr(value);
-            for value in node.cases {
-                self.visit_MatchCase(value);
+        fn generic_visit_Match(&mut self, node: MatchNode) {
+            {
+                let value = node.node.subject;
+                self.visit_expr(*value);
+            }
+            for value in node.node.cases {
+                self.visit_match_case(value);
             }
         }
-        fn visit_Raise(&mut self, node: &'a Raise) {
+        fn visit_Raise(&mut self, node: RaiseNode) {
             self.generic_visit_Raise(node);
         }
-        fn generic_visit_Raise(&mut self, node: &'a Raise) {
-            if let Some(value) = node.exc {
-                self.visit_Expr(value);
+        fn generic_visit_Raise(&mut self, node: RaiseNode) {
+            if let Some(value) = node.node.exc {
+                self.visit_expr(*value);
             }
-            if let Some(value) = node.cause {
-                self.visit_Expr(value);
+            if let Some(value) = node.node.cause {
+                self.visit_expr(*value);
             }
         }
-        fn visit_Try(&mut self, node: &'a Try) {
+        fn visit_Try(&mut self, node: TryNode) {
             self.generic_visit_Try(node);
         }
-        fn generic_visit_Try(&mut self, node: &'a Try) {
-            for value in node.body {
-                self.visit_Stmt(value);
+        fn generic_visit_Try(&mut self, node: TryNode) {
+            for value in node.node.body {
+                self.visit_stmt(value);
             }
-            for value in node.handlers {
-                self.visit_Excepthandler(value);
+            for value in node.node.handlers {
+                self.visit_excepthandler(value);
             }
-            for value in node.orelse {
-                self.visit_Stmt(value);
+            for value in node.node.orelse {
+                self.visit_stmt(value);
             }
-            for value in node.finalbody {
-                self.visit_Stmt(value);
+            for value in node.node.finalbody {
+                self.visit_stmt(value);
             }
         }
-        fn visit_TryStar(&mut self, node: &'a TryStar) {
+        fn visit_TryStar(&mut self, node: TryStarNode) {
             self.generic_visit_TryStar(node);
         }
-        fn generic_visit_TryStar(&mut self, node: &'a TryStar) {
-            for value in node.body {
-                self.visit_Stmt(value);
+        fn generic_visit_TryStar(&mut self, node: TryStarNode) {
+            for value in node.node.body {
+                self.visit_stmt(value);
             }
-            for value in node.handlers {
-                self.visit_Excepthandler(value);
+            for value in node.node.handlers {
+                self.visit_excepthandler(value);
             }
-            for value in node.orelse {
-                self.visit_Stmt(value);
+            for value in node.node.orelse {
+                self.visit_stmt(value);
             }
-            for value in node.finalbody {
-                self.visit_Stmt(value);
+            for value in node.node.finalbody {
+                self.visit_stmt(value);
             }
         }
-        fn visit_Assert(&mut self, node: &'a Assert) {
+        fn visit_Assert(&mut self, node: AssertNode) {
             self.generic_visit_Assert(node);
         }
-        fn generic_visit_Assert(&mut self, node: &'a Assert) {
-            self.visit_Expr(value);
-            if let Some(value) = node.msg {
-                self.visit_Expr(value);
+        fn generic_visit_Assert(&mut self, node: AssertNode) {
+            {
+                let value = node.node.test;
+                self.visit_expr(*value);
+            }
+            if let Some(value) = node.node.msg {
+                self.visit_expr(*value);
             }
         }
-        fn visit_Import(&mut self, node: &'a Import) {
+        fn visit_Import(&mut self, node: ImportNode) {
             self.generic_visit_Import(node);
         }
-        fn generic_visit_Import(&mut self, node: &'a Import) {
-            for value in node.names {
-                self.visit_Alias(value);
+        fn generic_visit_Import(&mut self, node: ImportNode) {
+            for value in node.node.names {
+                self.visit_alias(value);
             }
         }
-        fn visit_ImportFrom(&mut self, node: &'a ImportFrom) {
+        fn visit_ImportFrom(&mut self, node: ImportFromNode) {
             self.generic_visit_ImportFrom(node);
         }
-        fn generic_visit_ImportFrom(&mut self, node: &'a ImportFrom) {
-            for value in node.names {
-                self.visit_Alias(value);
+        fn generic_visit_ImportFrom(&mut self, node: ImportFromNode) {
+            for value in node.node.names {
+                self.visit_alias(value);
             }
         }
-        fn visit_Global(&mut self, node: &'a Global) {
+        fn visit_Global(&mut self, node: GlobalNode) {
             self.generic_visit_Global(node);
         }
-        fn generic_visit_Global(&mut self, node: &'a Global) {
+        fn generic_visit_Global(&mut self, node: GlobalNode) {
         }
-        fn visit_Nonlocal(&mut self, node: &'a Nonlocal) {
+        fn visit_Nonlocal(&mut self, node: NonlocalNode) {
             self.generic_visit_Nonlocal(node);
         }
-        fn generic_visit_Nonlocal(&mut self, node: &'a Nonlocal) {
+        fn generic_visit_Nonlocal(&mut self, node: NonlocalNode) {
         }
-        fn visit_Expr(&mut self, node: &'a Expr) {
+        fn visit_Expr(&mut self, node: ExprNode) {
             self.generic_visit_Expr(node);
         }
-        fn generic_visit_Expr(&mut self, node: &'a Expr) {
-            self.visit_Expr(value);
+        fn generic_visit_Expr(&mut self, node: ExprNode) {
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_Pass(&mut self, node: &'a Pass) {
+        fn visit_Pass(&mut self, node: PassNode) {
             self.generic_visit_Pass(node);
         }
-        fn generic_visit_Pass(&mut self, node: &'a Pass) {
+        fn generic_visit_Pass(&mut self, node: PassNode) {
         }
-        fn visit_Break(&mut self, node: &'a Break) {
+        fn visit_Break(&mut self, node: BreakNode) {
             self.generic_visit_Break(node);
         }
-        fn generic_visit_Break(&mut self, node: &'a Break) {
+        fn generic_visit_Break(&mut self, node: BreakNode) {
         }
-        fn visit_Continue(&mut self, node: &'a Continue) {
+        fn visit_Continue(&mut self, node: ContinueNode) {
             self.generic_visit_Continue(node);
         }
-        fn generic_visit_Continue(&mut self, node: &'a Continue) {
+        fn generic_visit_Continue(&mut self, node: ContinueNode) {
         }
-        fn visit_Expr(&mut self, node: &'a Expr) {
-            self.generic_visit_Expr(node);
+        fn visit_expr(&mut self, node: Expr) {
+            self.generic_visit_expr(node);
         }
-        fn generic_visit_Expr(&mut self, node: &'a Expr) {
-            match &node.node {
+        fn generic_visit_expr(&mut self, node: Expr) {
+            match node.node {
                 ExprKind::BoolOp {
                     op,
                     values,
-                } => self.visit_BoolOp(BoolOp {
-                    op,
-                    values,
-                }),
+                } => self.visit_BoolOp(
+                        BoolOpNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: BoolOpNodeData {
+                            op,
+                            values,
+                        },
+                    }
+                ),
                 ExprKind::NamedExpr {
                     target,
                     value,
-                } => self.visit_NamedExpr(NamedExpr {
-                    target,
-                    value,
-                }),
+                } => self.visit_NamedExpr(
+                        NamedExprNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: NamedExprNodeData {
+                            target,
+                            value,
+                        },
+                    }
+                ),
                 ExprKind::BinOp {
                     left,
                     op,
                     right,
-                } => self.visit_BinOp(BinOp {
-                    left,
-                    op,
-                    right,
-                }),
+                } => self.visit_BinOp(
+                        BinOpNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: BinOpNodeData {
+                            left,
+                            op,
+                            right,
+                        },
+                    }
+                ),
                 ExprKind::UnaryOp {
                     op,
                     operand,
-                } => self.visit_UnaryOp(UnaryOp {
-                    op,
-                    operand,
-                }),
+                } => self.visit_UnaryOp(
+                        UnaryOpNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: UnaryOpNodeData {
+                            op,
+                            operand,
+                        },
+                    }
+                ),
                 ExprKind::Lambda {
                     args,
                     body,
-                } => self.visit_Lambda(Lambda {
-                    args,
-                    body,
-                }),
+                } => self.visit_Lambda(
+                        LambdaNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: LambdaNodeData {
+                            args,
+                            body,
+                        },
+                    }
+                ),
                 ExprKind::IfExp {
                     test,
                     body,
                     orelse,
-                } => self.visit_IfExp(IfExp {
-                    test,
-                    body,
-                    orelse,
-                }),
+                } => self.visit_IfExp(
+                        IfExpNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: IfExpNodeData {
+                            test,
+                            body,
+                            orelse,
+                        },
+                    }
+                ),
                 ExprKind::Dict {
                     keys,
                     values,
-                } => self.visit_Dict(Dict {
-                    keys,
-                    values,
-                }),
+                } => self.visit_Dict(
+                        DictNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: DictNodeData {
+                            keys,
+                            values,
+                        },
+                    }
+                ),
                 ExprKind::Set {
                     elts,
-                } => self.visit_Set(Set {
-                    elts,
-                }),
+                } => self.visit_Set(
+                        SetNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: SetNodeData {
+                            elts,
+                        },
+                    }
+                ),
                 ExprKind::ListComp {
                     elt,
                     generators,
-                } => self.visit_ListComp(ListComp {
-                    elt,
-                    generators,
-                }),
+                } => self.visit_ListComp(
+                        ListCompNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ListCompNodeData {
+                            elt,
+                            generators,
+                        },
+                    }
+                ),
                 ExprKind::SetComp {
                     elt,
                     generators,
-                } => self.visit_SetComp(SetComp {
-                    elt,
-                    generators,
-                }),
+                } => self.visit_SetComp(
+                        SetCompNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: SetCompNodeData {
+                            elt,
+                            generators,
+                        },
+                    }
+                ),
                 ExprKind::DictComp {
                     key,
                     value,
                     generators,
-                } => self.visit_DictComp(DictComp {
-                    key,
-                    value,
-                    generators,
-                }),
+                } => self.visit_DictComp(
+                        DictCompNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: DictCompNodeData {
+                            key,
+                            value,
+                            generators,
+                        },
+                    }
+                ),
                 ExprKind::GeneratorExp {
                     elt,
                     generators,
-                } => self.visit_GeneratorExp(GeneratorExp {
-                    elt,
-                    generators,
-                }),
+                } => self.visit_GeneratorExp(
+                        GeneratorExpNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: GeneratorExpNodeData {
+                            elt,
+                            generators,
+                        },
+                    }
+                ),
                 ExprKind::Await {
                     value,
-                } => self.visit_Await(Await {
-                    value,
-                }),
+                } => self.visit_Await(
+                        AwaitNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: AwaitNodeData {
+                            value,
+                        },
+                    }
+                ),
                 ExprKind::Yield {
                     value,
-                } => self.visit_Yield(Yield {
-                    value,
-                }),
+                } => self.visit_Yield(
+                        YieldNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: YieldNodeData {
+                            value,
+                        },
+                    }
+                ),
                 ExprKind::YieldFrom {
                     value,
-                } => self.visit_YieldFrom(YieldFrom {
-                    value,
-                }),
+                } => self.visit_YieldFrom(
+                        YieldFromNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: YieldFromNodeData {
+                            value,
+                        },
+                    }
+                ),
                 ExprKind::Compare {
                     left,
                     ops,
                     comparators,
-                } => self.visit_Compare(Compare {
-                    left,
-                    ops,
-                    comparators,
-                }),
+                } => self.visit_Compare(
+                        CompareNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: CompareNodeData {
+                            left,
+                            ops,
+                            comparators,
+                        },
+                    }
+                ),
                 ExprKind::Call {
                     func,
                     args,
                     keywords,
-                } => self.visit_Call(Call {
-                    func,
-                    args,
-                    keywords,
-                }),
+                } => self.visit_Call(
+                        CallNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: CallNodeData {
+                            func,
+                            args,
+                            keywords,
+                        },
+                    }
+                ),
                 ExprKind::FormattedValue {
                     value,
                     conversion,
                     format_spec,
-                } => self.visit_FormattedValue(FormattedValue {
-                    value,
-                    conversion,
-                    format_spec,
-                }),
+                } => self.visit_FormattedValue(
+                        FormattedValueNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: FormattedValueNodeData {
+                            value,
+                            conversion,
+                            format_spec,
+                        },
+                    }
+                ),
                 ExprKind::JoinedStr {
                     values,
-                } => self.visit_JoinedStr(JoinedStr {
-                    values,
-                }),
+                } => self.visit_JoinedStr(
+                        JoinedStrNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: JoinedStrNodeData {
+                            values,
+                        },
+                    }
+                ),
                 ExprKind::Constant {
                     value,
                     kind,
-                } => self.visit_Constant(Constant {
-                    value,
-                    kind,
-                }),
+                } => self.visit_Constant(
+                        ConstantNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ConstantNodeData {
+                            value,
+                            kind,
+                        },
+                    }
+                ),
                 ExprKind::Attribute {
                     value,
                     attr,
                     ctx,
-                } => self.visit_Attribute(Attribute {
-                    value,
-                    attr,
-                    ctx,
-                }),
+                } => self.visit_Attribute(
+                        AttributeNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: AttributeNodeData {
+                            value,
+                            attr,
+                            ctx,
+                        },
+                    }
+                ),
                 ExprKind::Subscript {
                     value,
                     slice,
                     ctx,
-                } => self.visit_Subscript(Subscript {
-                    value,
-                    slice,
-                    ctx,
-                }),
+                } => self.visit_Subscript(
+                        SubscriptNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: SubscriptNodeData {
+                            value,
+                            slice,
+                            ctx,
+                        },
+                    }
+                ),
                 ExprKind::Starred {
                     value,
                     ctx,
-                } => self.visit_Starred(Starred {
-                    value,
-                    ctx,
-                }),
+                } => self.visit_Starred(
+                        StarredNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: StarredNodeData {
+                            value,
+                            ctx,
+                        },
+                    }
+                ),
                 ExprKind::Name {
                     id,
                     ctx,
-                } => self.visit_Name(Name {
-                    id,
-                    ctx,
-                }),
+                } => self.visit_Name(
+                        NameNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: NameNodeData {
+                            id,
+                            ctx,
+                        },
+                    }
+                ),
                 ExprKind::List {
                     elts,
                     ctx,
-                } => self.visit_List(List {
-                    elts,
-                    ctx,
-                }),
+                } => self.visit_List(
+                        ListNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ListNodeData {
+                            elts,
+                            ctx,
+                        },
+                    }
+                ),
                 ExprKind::Tuple {
                     elts,
                     ctx,
-                } => self.visit_Tuple(Tuple {
-                    elts,
-                    ctx,
-                }),
+                } => self.visit_Tuple(
+                        TupleNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: TupleNodeData {
+                            elts,
+                            ctx,
+                        },
+                    }
+                ),
                 ExprKind::Slice {
                     lower,
                     upper,
                     step,
-                } => self.visit_Slice(Slice {
-                    lower,
-                    upper,
-                    step,
-                }),
+                } => self.visit_Slice(
+                        SliceNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: SliceNodeData {
+                            lower,
+                            upper,
+                            step,
+                        },
+                    }
+                ),
             }
         }
-        fn visit_BoolOp(&mut self, node: &'a BoolOp) {
+        fn visit_BoolOp(&mut self, node: BoolOpNode) {
             self.generic_visit_BoolOp(node);
         }
-        fn generic_visit_BoolOp(&mut self, node: &'a BoolOp) {
-            for value in node.values {
-                self.visit_Expr(value);
+        fn generic_visit_BoolOp(&mut self, node: BoolOpNode) {
+            for value in node.node.values {
+                self.visit_expr(value);
             }
         }
-        fn visit_NamedExpr(&mut self, node: &'a NamedExpr) {
+        fn visit_NamedExpr(&mut self, node: NamedExprNode) {
             self.generic_visit_NamedExpr(node);
         }
-        fn generic_visit_NamedExpr(&mut self, node: &'a NamedExpr) {
-            self.visit_Expr(value);
-            self.visit_Expr(value);
+        fn generic_visit_NamedExpr(&mut self, node: NamedExprNode) {
+            {
+                let value = node.node.target;
+                self.visit_expr(*value);
+            }
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_BinOp(&mut self, node: &'a BinOp) {
+        fn visit_BinOp(&mut self, node: BinOpNode) {
             self.generic_visit_BinOp(node);
         }
-        fn generic_visit_BinOp(&mut self, node: &'a BinOp) {
-            self.visit_Expr(value);
-            self.visit_Expr(value);
+        fn generic_visit_BinOp(&mut self, node: BinOpNode) {
+            {
+                let value = node.node.left;
+                self.visit_expr(*value);
+            }
+            {
+                let value = node.node.right;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_UnaryOp(&mut self, node: &'a UnaryOp) {
+        fn visit_UnaryOp(&mut self, node: UnaryOpNode) {
             self.generic_visit_UnaryOp(node);
         }
-        fn generic_visit_UnaryOp(&mut self, node: &'a UnaryOp) {
-            self.visit_Expr(value);
+        fn generic_visit_UnaryOp(&mut self, node: UnaryOpNode) {
+            {
+                let value = node.node.operand;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_Lambda(&mut self, node: &'a Lambda) {
+        fn visit_Lambda(&mut self, node: LambdaNode) {
             self.generic_visit_Lambda(node);
         }
-        fn generic_visit_Lambda(&mut self, node: &'a Lambda) {
-            self.visit_Arguments(value);
-            self.visit_Expr(value);
+        fn generic_visit_Lambda(&mut self, node: LambdaNode) {
+            {
+                let value = node.node.args;
+                self.visit_arguments(*value);
+            }
+            {
+                let value = node.node.body;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_IfExp(&mut self, node: &'a IfExp) {
+        fn visit_IfExp(&mut self, node: IfExpNode) {
             self.generic_visit_IfExp(node);
         }
-        fn generic_visit_IfExp(&mut self, node: &'a IfExp) {
-            self.visit_Expr(value);
-            self.visit_Expr(value);
-            self.visit_Expr(value);
+        fn generic_visit_IfExp(&mut self, node: IfExpNode) {
+            {
+                let value = node.node.test;
+                self.visit_expr(*value);
+            }
+            {
+                let value = node.node.body;
+                self.visit_expr(*value);
+            }
+            {
+                let value = node.node.orelse;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_Dict(&mut self, node: &'a Dict) {
+        fn visit_Dict(&mut self, node: DictNode) {
             self.generic_visit_Dict(node);
         }
-        fn generic_visit_Dict(&mut self, node: &'a Dict) {
-            for value in node.keys {
-                self.visit_Expr(value);
+        fn generic_visit_Dict(&mut self, node: DictNode) {
+            for value in node.node.keys.into_iter().flatten() {
+                self.visit_expr(value);
             }
-            for value in node.values {
-                self.visit_Expr(value);
+            for value in node.node.values {
+                self.visit_expr(value);
             }
         }
-        fn visit_Set(&mut self, node: &'a Set) {
+        fn visit_Set(&mut self, node: SetNode) {
             self.generic_visit_Set(node);
         }
-        fn generic_visit_Set(&mut self, node: &'a Set) {
-            for value in node.elts {
-                self.visit_Expr(value);
+        fn generic_visit_Set(&mut self, node: SetNode) {
+            for value in node.node.elts {
+                self.visit_expr(value);
             }
         }
-        fn visit_ListComp(&mut self, node: &'a ListComp) {
+        fn visit_ListComp(&mut self, node: ListCompNode) {
             self.generic_visit_ListComp(node);
         }
-        fn generic_visit_ListComp(&mut self, node: &'a ListComp) {
-            self.visit_Expr(value);
-            for value in node.generators {
-                self.visit_Comprehension(value);
+        fn generic_visit_ListComp(&mut self, node: ListCompNode) {
+            {
+                let value = node.node.elt;
+                self.visit_expr(*value);
+            }
+            for value in node.node.generators {
+                self.visit_comprehension(value);
             }
         }
-        fn visit_SetComp(&mut self, node: &'a SetComp) {
+        fn visit_SetComp(&mut self, node: SetCompNode) {
             self.generic_visit_SetComp(node);
         }
-        fn generic_visit_SetComp(&mut self, node: &'a SetComp) {
-            self.visit_Expr(value);
-            for value in node.generators {
-                self.visit_Comprehension(value);
+        fn generic_visit_SetComp(&mut self, node: SetCompNode) {
+            {
+                let value = node.node.elt;
+                self.visit_expr(*value);
+            }
+            for value in node.node.generators {
+                self.visit_comprehension(value);
             }
         }
-        fn visit_DictComp(&mut self, node: &'a DictComp) {
+        fn visit_DictComp(&mut self, node: DictCompNode) {
             self.generic_visit_DictComp(node);
         }
-        fn generic_visit_DictComp(&mut self, node: &'a DictComp) {
-            self.visit_Expr(value);
-            self.visit_Expr(value);
-            for value in node.generators {
-                self.visit_Comprehension(value);
+        fn generic_visit_DictComp(&mut self, node: DictCompNode) {
+            {
+                let value = node.node.key;
+                self.visit_expr(*value);
+            }
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
+            for value in node.node.generators {
+                self.visit_comprehension(value);
             }
         }
-        fn visit_GeneratorExp(&mut self, node: &'a GeneratorExp) {
+        fn visit_GeneratorExp(&mut self, node: GeneratorExpNode) {
             self.generic_visit_GeneratorExp(node);
         }
-        fn generic_visit_GeneratorExp(&mut self, node: &'a GeneratorExp) {
-            self.visit_Expr(value);
-            for value in node.generators {
-                self.visit_Comprehension(value);
+        fn generic_visit_GeneratorExp(&mut self, node: GeneratorExpNode) {
+            {
+                let value = node.node.elt;
+                self.visit_expr(*value);
+            }
+            for value in node.node.generators {
+                self.visit_comprehension(value);
             }
         }
-        fn visit_Await(&mut self, node: &'a Await) {
+        fn visit_Await(&mut self, node: AwaitNode) {
             self.generic_visit_Await(node);
         }
-        fn generic_visit_Await(&mut self, node: &'a Await) {
-            self.visit_Expr(value);
+        fn generic_visit_Await(&mut self, node: AwaitNode) {
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_Yield(&mut self, node: &'a Yield) {
+        fn visit_Yield(&mut self, node: YieldNode) {
             self.generic_visit_Yield(node);
         }
-        fn generic_visit_Yield(&mut self, node: &'a Yield) {
-            if let Some(value) = node.value {
-                self.visit_Expr(value);
+        fn generic_visit_Yield(&mut self, node: YieldNode) {
+            if let Some(value) = node.node.value {
+                self.visit_expr(*value);
             }
         }
-        fn visit_YieldFrom(&mut self, node: &'a YieldFrom) {
+        fn visit_YieldFrom(&mut self, node: YieldFromNode) {
             self.generic_visit_YieldFrom(node);
         }
-        fn generic_visit_YieldFrom(&mut self, node: &'a YieldFrom) {
-            self.visit_Expr(value);
+        fn generic_visit_YieldFrom(&mut self, node: YieldFromNode) {
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_Compare(&mut self, node: &'a Compare) {
+        fn visit_Compare(&mut self, node: CompareNode) {
             self.generic_visit_Compare(node);
         }
-        fn generic_visit_Compare(&mut self, node: &'a Compare) {
-            self.visit_Expr(value);
-            for value in node.comparators {
-                self.visit_Expr(value);
+        fn generic_visit_Compare(&mut self, node: CompareNode) {
+            {
+                let value = node.node.left;
+                self.visit_expr(*value);
+            }
+            for value in node.node.comparators {
+                self.visit_expr(value);
             }
         }
-        fn visit_Call(&mut self, node: &'a Call) {
+        fn visit_Call(&mut self, node: CallNode) {
             self.generic_visit_Call(node);
         }
-        fn generic_visit_Call(&mut self, node: &'a Call) {
-            self.visit_Expr(value);
-            for value in node.args {
-                self.visit_Expr(value);
+        fn generic_visit_Call(&mut self, node: CallNode) {
+            {
+                let value = node.node.func;
+                self.visit_expr(*value);
             }
-            for value in node.keywords {
-                self.visit_Keyword(value);
+            for value in node.node.args {
+                self.visit_expr(value);
+            }
+            for value in node.node.keywords {
+                self.visit_keyword(value);
             }
         }
-        fn visit_FormattedValue(&mut self, node: &'a FormattedValue) {
+        fn visit_FormattedValue(&mut self, node: FormattedValueNode) {
             self.generic_visit_FormattedValue(node);
         }
-        fn generic_visit_FormattedValue(&mut self, node: &'a FormattedValue) {
-            self.visit_Expr(value);
-            if let Some(value) = node.format_spec {
-                self.visit_Expr(value);
+        fn generic_visit_FormattedValue(&mut self, node: FormattedValueNode) {
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
+            if let Some(value) = node.node.format_spec {
+                self.visit_expr(*value);
             }
         }
-        fn visit_JoinedStr(&mut self, node: &'a JoinedStr) {
+        fn visit_JoinedStr(&mut self, node: JoinedStrNode) {
             self.generic_visit_JoinedStr(node);
         }
-        fn generic_visit_JoinedStr(&mut self, node: &'a JoinedStr) {
-            for value in node.values {
-                self.visit_Expr(value);
+        fn generic_visit_JoinedStr(&mut self, node: JoinedStrNode) {
+            for value in node.node.values {
+                self.visit_expr(value);
             }
         }
-        fn visit_Constant(&mut self, node: &'a Constant) {
+        fn visit_Constant(&mut self, node: ConstantNode) {
             self.generic_visit_Constant(node);
         }
-        fn generic_visit_Constant(&mut self, node: &'a Constant) {
+        fn generic_visit_Constant(&mut self, node: ConstantNode) {
         }
-        fn visit_Attribute(&mut self, node: &'a Attribute) {
+        fn visit_Attribute(&mut self, node: AttributeNode) {
             self.generic_visit_Attribute(node);
         }
-        fn generic_visit_Attribute(&mut self, node: &'a Attribute) {
-            self.visit_Expr(value);
+        fn generic_visit_Attribute(&mut self, node: AttributeNode) {
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_Subscript(&mut self, node: &'a Subscript) {
+        fn visit_Subscript(&mut self, node: SubscriptNode) {
             self.generic_visit_Subscript(node);
         }
-        fn generic_visit_Subscript(&mut self, node: &'a Subscript) {
-            self.visit_Expr(value);
-            self.visit_Expr(value);
+        fn generic_visit_Subscript(&mut self, node: SubscriptNode) {
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
+            {
+                let value = node.node.slice;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_Starred(&mut self, node: &'a Starred) {
+        fn visit_Starred(&mut self, node: StarredNode) {
             self.generic_visit_Starred(node);
         }
-        fn generic_visit_Starred(&mut self, node: &'a Starred) {
-            self.visit_Expr(value);
+        fn generic_visit_Starred(&mut self, node: StarredNode) {
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_Name(&mut self, node: &'a Name) {
+        fn visit_Name(&mut self, node: NameNode) {
             self.generic_visit_Name(node);
         }
-        fn generic_visit_Name(&mut self, node: &'a Name) {
+        fn generic_visit_Name(&mut self, node: NameNode) {
         }
-        fn visit_List(&mut self, node: &'a List) {
+        fn visit_List(&mut self, node: ListNode) {
             self.generic_visit_List(node);
         }
-        fn generic_visit_List(&mut self, node: &'a List) {
-            for value in node.elts {
-                self.visit_Expr(value);
+        fn generic_visit_List(&mut self, node: ListNode) {
+            for value in node.node.elts {
+                self.visit_expr(value);
             }
         }
-        fn visit_Tuple(&mut self, node: &'a Tuple) {
+        fn visit_Tuple(&mut self, node: TupleNode) {
             self.generic_visit_Tuple(node);
         }
-        fn generic_visit_Tuple(&mut self, node: &'a Tuple) {
-            for value in node.elts {
-                self.visit_Expr(value);
+        fn generic_visit_Tuple(&mut self, node: TupleNode) {
+            for value in node.node.elts {
+                self.visit_expr(value);
             }
         }
-        fn visit_Slice(&mut self, node: &'a Slice) {
+        fn visit_Slice(&mut self, node: SliceNode) {
             self.generic_visit_Slice(node);
         }
-        fn generic_visit_Slice(&mut self, node: &'a Slice) {
-            if let Some(value) = node.lower {
-                self.visit_Expr(value);
+        fn generic_visit_Slice(&mut self, node: SliceNode) {
+            if let Some(value) = node.node.lower {
+                self.visit_expr(*value);
             }
-            if let Some(value) = node.upper {
-                self.visit_Expr(value);
+            if let Some(value) = node.node.upper {
+                self.visit_expr(*value);
             }
-            if let Some(value) = node.step {
-                self.visit_Expr(value);
+            if let Some(value) = node.node.step {
+                self.visit_expr(*value);
             }
         }
-        fn visit_ExprContext(&mut self, node: &'a ExprContext) {
-            self.generic_visit_ExprContext(node);
+        fn visit_expr_context(&mut self, node: ExprContext) {
+            self.generic_visit_expr_context(node);
         }
-        fn generic_visit_ExprContext(&mut self, node: &'a ExprContext) {
+        fn generic_visit_expr_context(&mut self, node: ExprContext) {
         }
-        fn visit_Boolop(&mut self, node: &'a Boolop) {
-            self.generic_visit_Boolop(node);
+        fn visit_boolop(&mut self, node: Boolop) {
+            self.generic_visit_boolop(node);
         }
-        fn generic_visit_Boolop(&mut self, node: &'a Boolop) {
+        fn generic_visit_boolop(&mut self, node: Boolop) {
         }
-        fn visit_Operator(&mut self, node: &'a Operator) {
-            self.generic_visit_Operator(node);
+        fn visit_operator(&mut self, node: Operator) {
+            self.generic_visit_operator(node);
         }
-        fn generic_visit_Operator(&mut self, node: &'a Operator) {
+        fn generic_visit_operator(&mut self, node: Operator) {
         }
-        fn visit_Unaryop(&mut self, node: &'a Unaryop) {
-            self.generic_visit_Unaryop(node);
+        fn visit_unaryop(&mut self, node: Unaryop) {
+            self.generic_visit_unaryop(node);
         }
-        fn generic_visit_Unaryop(&mut self, node: &'a Unaryop) {
+        fn generic_visit_unaryop(&mut self, node: Unaryop) {
         }
-        fn visit_Cmpop(&mut self, node: &'a Cmpop) {
-            self.generic_visit_Cmpop(node);
+        fn visit_cmpop(&mut self, node: Cmpop) {
+            self.generic_visit_cmpop(node);
         }
-        fn generic_visit_Cmpop(&mut self, node: &'a Cmpop) {
+        fn generic_visit_cmpop(&mut self, node: Cmpop) {
         }
-        fn visit_comprehension(&mut self, node: &'a Comprehension) {
+        fn visit_comprehension(&mut self, node: Comprehension) {
             self.generic_visit_comprehension(node);
         }
-        fn generic_visit_comprehension(&mut self, node: &'a Comprehension) {
+        fn generic_visit_comprehension(&mut self, node: Comprehension) {
         }
-        fn visit_Excepthandler(&mut self, node: &'a Excepthandler) {
-            self.generic_visit_Excepthandler(node);
+        fn visit_excepthandler(&mut self, node: Excepthandler) {
+            self.generic_visit_excepthandler(node);
         }
-        fn generic_visit_Excepthandler(&mut self, node: &'a Excepthandler) {
-            match &node.node {
+        fn generic_visit_excepthandler(&mut self, node: Excepthandler) {
+            match node.node {
                 ExcepthandlerKind::ExceptHandler {
                     type_,
                     name,
                     body,
-                } => self.visit_ExceptHandler(ExceptHandler {
-                    type_,
-                    name,
-                    body,
-                }),
+                } => self.visit_ExceptHandler(
+                        ExceptHandlerNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: ExceptHandlerNodeData {
+                            type_,
+                            name,
+                            body,
+                        },
+                    }
+                ),
             }
         }
-        fn visit_ExceptHandler(&mut self, node: &'a ExceptHandler) {
+        fn visit_ExceptHandler(&mut self, node: ExceptHandlerNode) {
             self.generic_visit_ExceptHandler(node);
         }
-        fn generic_visit_ExceptHandler(&mut self, node: &'a ExceptHandler) {
-            if let Some(value) = node.type_ {
-                self.visit_Expr(value);
+        fn generic_visit_ExceptHandler(&mut self, node: ExceptHandlerNode) {
+            if let Some(value) = node.node.type_ {
+                self.visit_expr(*value);
             }
-            for value in node.body {
-                self.visit_Stmt(value);
+            for value in node.node.body {
+                self.visit_stmt(value);
             }
         }
-        fn visit_arguments(&mut self, node: &'a Arguments) {
+        fn visit_arguments(&mut self, node: Arguments) {
             self.generic_visit_arguments(node);
         }
-        fn generic_visit_arguments(&mut self, node: &'a Arguments) {
+        fn generic_visit_arguments(&mut self, node: Arguments) {
         }
-        fn visit_arg(&mut self, node: &'a Arg) {
+        fn visit_arg(&mut self, node: Arg) {
             self.generic_visit_arg(node);
         }
-        fn generic_visit_arg(&mut self, node: &'a Arg) {
+        fn generic_visit_arg(&mut self, node: Arg) {
         }
-        fn visit_keyword(&mut self, node: &'a Keyword) {
+        fn visit_keyword(&mut self, node: Keyword) {
             self.generic_visit_keyword(node);
         }
-        fn generic_visit_keyword(&mut self, node: &'a Keyword) {
+        fn generic_visit_keyword(&mut self, node: Keyword) {
         }
-        fn visit_alias(&mut self, node: &'a Alias) {
+        fn visit_alias(&mut self, node: Alias) {
             self.generic_visit_alias(node);
         }
-        fn generic_visit_alias(&mut self, node: &'a Alias) {
+        fn generic_visit_alias(&mut self, node: Alias) {
         }
-        fn visit_withitem(&mut self, node: &'a Withitem) {
+        fn visit_withitem(&mut self, node: Withitem) {
             self.generic_visit_withitem(node);
         }
-        fn generic_visit_withitem(&mut self, node: &'a Withitem) {
+        fn generic_visit_withitem(&mut self, node: Withitem) {
         }
-        fn visit_match_case(&mut self, node: &'a MatchCase) {
+        fn visit_match_case(&mut self, node: MatchCase) {
             self.generic_visit_match_case(node);
         }
-        fn generic_visit_match_case(&mut self, node: &'a MatchCase) {
+        fn generic_visit_match_case(&mut self, node: MatchCase) {
         }
-        fn visit_Pattern(&mut self, node: &'a Pattern) {
-            self.generic_visit_Pattern(node);
+        fn visit_pattern(&mut self, node: Pattern) {
+            self.generic_visit_pattern(node);
         }
-        fn generic_visit_Pattern(&mut self, node: &'a Pattern) {
-            match &node.node {
+        fn generic_visit_pattern(&mut self, node: Pattern) {
+            match node.node {
                 PatternKind::MatchValue {
                     value,
-                } => self.visit_MatchValue(MatchValue {
-                    value,
-                }),
+                } => self.visit_MatchValue(
+                        MatchValueNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: MatchValueNodeData {
+                            value,
+                        },
+                    }
+                ),
                 PatternKind::MatchSingleton {
                     value,
-                } => self.visit_MatchSingleton(MatchSingleton {
-                    value,
-                }),
+                } => self.visit_MatchSingleton(
+                        MatchSingletonNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: MatchSingletonNodeData {
+                            value,
+                        },
+                    }
+                ),
                 PatternKind::MatchSequence {
                     patterns,
-                } => self.visit_MatchSequence(MatchSequence {
-                    patterns,
-                }),
+                } => self.visit_MatchSequence(
+                        MatchSequenceNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: MatchSequenceNodeData {
+                            patterns,
+                        },
+                    }
+                ),
                 PatternKind::MatchMapping {
                     keys,
                     patterns,
                     rest,
-                } => self.visit_MatchMapping(MatchMapping {
-                    keys,
-                    patterns,
-                    rest,
-                }),
+                } => self.visit_MatchMapping(
+                        MatchMappingNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: MatchMappingNodeData {
+                            keys,
+                            patterns,
+                            rest,
+                        },
+                    }
+                ),
                 PatternKind::MatchClass {
                     cls,
                     patterns,
                     kwd_attrs,
                     kwd_patterns,
-                } => self.visit_MatchClass(MatchClass {
-                    cls,
-                    patterns,
-                    kwd_attrs,
-                    kwd_patterns,
-                }),
+                } => self.visit_MatchClass(
+                        MatchClassNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: MatchClassNodeData {
+                            cls,
+                            patterns,
+                            kwd_attrs,
+                            kwd_patterns,
+                        },
+                    }
+                ),
                 PatternKind::MatchStar {
                     name,
-                } => self.visit_MatchStar(MatchStar {
-                    name,
-                }),
+                } => self.visit_MatchStar(
+                        MatchStarNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: MatchStarNodeData {
+                            name,
+                        },
+                    }
+                ),
                 PatternKind::MatchAs {
                     pattern,
                     name,
-                } => self.visit_MatchAs(MatchAs {
-                    pattern,
-                    name,
-                }),
+                } => self.visit_MatchAs(
+                        MatchAsNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: MatchAsNodeData {
+                            pattern,
+                            name,
+                        },
+                    }
+                ),
                 PatternKind::MatchOr {
                     patterns,
-                } => self.visit_MatchOr(MatchOr {
-                    patterns,
-                }),
+                } => self.visit_MatchOr(
+                        MatchOrNode {
+                        location: node.location,
+                        end_location: node.end_location,
+                        custom: node.custom,
+                        node: MatchOrNodeData {
+                            patterns,
+                        },
+                    }
+                ),
             }
         }
-        fn visit_MatchValue(&mut self, node: &'a MatchValue) {
+        fn visit_MatchValue(&mut self, node: MatchValueNode) {
             self.generic_visit_MatchValue(node);
         }
-        fn generic_visit_MatchValue(&mut self, node: &'a MatchValue) {
-            self.visit_Expr(value);
+        fn generic_visit_MatchValue(&mut self, node: MatchValueNode) {
+            {
+                let value = node.node.value;
+                self.visit_expr(*value);
+            }
         }
-        fn visit_MatchSingleton(&mut self, node: &'a MatchSingleton) {
+        fn visit_MatchSingleton(&mut self, node: MatchSingletonNode) {
             self.generic_visit_MatchSingleton(node);
         }
-        fn generic_visit_MatchSingleton(&mut self, node: &'a MatchSingleton) {
+        fn generic_visit_MatchSingleton(&mut self, node: MatchSingletonNode) {
         }
-        fn visit_MatchSequence(&mut self, node: &'a MatchSequence) {
+        fn visit_MatchSequence(&mut self, node: MatchSequenceNode) {
             self.generic_visit_MatchSequence(node);
         }
-        fn generic_visit_MatchSequence(&mut self, node: &'a MatchSequence) {
-            for value in node.patterns {
-                self.visit_Pattern(value);
+        fn generic_visit_MatchSequence(&mut self, node: MatchSequenceNode) {
+            for value in node.node.patterns {
+                self.visit_pattern(value);
             }
         }
-        fn visit_MatchMapping(&mut self, node: &'a MatchMapping) {
+        fn visit_MatchMapping(&mut self, node: MatchMappingNode) {
             self.generic_visit_MatchMapping(node);
         }
-        fn generic_visit_MatchMapping(&mut self, node: &'a MatchMapping) {
-            for value in node.keys {
-                self.visit_Expr(value);
+        fn generic_visit_MatchMapping(&mut self, node: MatchMappingNode) {
+            for value in node.node.keys {
+                self.visit_expr(value);
             }
-            for value in node.patterns {
-                self.visit_Pattern(value);
+            for value in node.node.patterns {
+                self.visit_pattern(value);
             }
         }
-        fn visit_MatchClass(&mut self, node: &'a MatchClass) {
+        fn visit_MatchClass(&mut self, node: MatchClassNode) {
             self.generic_visit_MatchClass(node);
         }
-        fn generic_visit_MatchClass(&mut self, node: &'a MatchClass) {
-            self.visit_Expr(value);
-            for value in node.patterns {
-                self.visit_Pattern(value);
+        fn generic_visit_MatchClass(&mut self, node: MatchClassNode) {
+            {
+                let value = node.node.cls;
+                self.visit_expr(*value);
             }
-            for value in node.kwd_patterns {
-                self.visit_Pattern(value);
+            for value in node.node.patterns {
+                self.visit_pattern(value);
+            }
+            for value in node.node.kwd_patterns {
+                self.visit_pattern(value);
             }
         }
-        fn visit_MatchStar(&mut self, node: &'a MatchStar) {
+        fn visit_MatchStar(&mut self, node: MatchStarNode) {
             self.generic_visit_MatchStar(node);
         }
-        fn generic_visit_MatchStar(&mut self, node: &'a MatchStar) {
+        fn generic_visit_MatchStar(&mut self, node: MatchStarNode) {
         }
-        fn visit_MatchAs(&mut self, node: &'a MatchAs) {
+        fn visit_MatchAs(&mut self, node: MatchAsNode) {
             self.generic_visit_MatchAs(node);
         }
-        fn generic_visit_MatchAs(&mut self, node: &'a MatchAs) {
-            if let Some(value) = node.pattern {
-                self.visit_Pattern(value);
+        fn generic_visit_MatchAs(&mut self, node: MatchAsNode) {
+            if let Some(value) = node.node.pattern {
+                self.visit_pattern(*value);
             }
         }
-        fn visit_MatchOr(&mut self, node: &'a MatchOr) {
+        fn visit_MatchOr(&mut self, node: MatchOrNode) {
             self.generic_visit_MatchOr(node);
         }
-        fn generic_visit_MatchOr(&mut self, node: &'a MatchOr) {
-            for value in node.patterns {
-                self.visit_Pattern(value);
+        fn generic_visit_MatchOr(&mut self, node: MatchOrNode) {
+            for value in node.node.patterns {
+                self.visit_pattern(value);
             }
-        }
-        fn visit_TypeIgnore(&mut self, node: &'a TypeIgnore) {
-            self.generic_visit_TypeIgnore(node);
-        }
-        fn generic_visit_TypeIgnore(&mut self, node: &'a TypeIgnore) {
-            match &node.node {
-                TypeIgnore::TypeIgnore {
-                    lineno,
-                    tag,
-                } => self.visit_TypeIgnore(TypeIgnore {
-                    lineno,
-                    tag,
-                }),
-            }
-        }
-        fn visit_TypeIgnore(&mut self, node: &'a TypeIgnore) {
-            self.generic_visit_TypeIgnore(node);
-        }
-        fn generic_visit_TypeIgnore(&mut self, node: &'a TypeIgnore) {
         }
     }
 }
