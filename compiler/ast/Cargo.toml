@@ -12,6 +12,7 @@ default = ["constant-optimization", "fold"]
 constant-optimization = ["fold"]
 fold = []
 unparse = ["rustpython-common"]
+visitor = []
 
 [dependencies]
 rustpython-compiler-core = { path = "../core", version = "0.2.0" }
