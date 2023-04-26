@@ -8,7 +8,7 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [features]
-default = ["constant-optimization", "fold"]
+default = ["constant-optimization", "fold", "visitor"]
 constant-optimization = ["fold"]
 fold = []
 unparse = ["rustpython-common"]
