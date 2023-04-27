@@ -18,47 +18,48 @@ class LibEntry:
     path_cpython_test: str
     path_rpython_lib: str
     path_rpython_test: str
-    path_rpython_tmp_lib: str
-    path_rpython_tmp_test: str
+    path_tpython_lib: str
+    path_tpython_test: str
 
     def __init__(self, name: str, CPYTHON_PATH: str, RPYTHON_PATH: str):
         self.name = name
 
         self.path_cpython_lib = os.path.join(CPYTHON_PATH, "Lib", f"{self.name}.py")
         self.path_rpython_lib = os.path.join(RPYTHON_PATH, "Lib", f"{self.name}.py")
-        self.path_rpython_tmp_lib = os.path.join(RPYTHON_PATH, "LibTmp", f"{self.name}.py")
+        self.path_tpython_lib = os.path.join(RPYTHON_PATH, "LibTest", f"{self.name}.py")
 
         self.path_cpython_test = os.path.join(CPYTHON_PATH, "Lib", "test", f"test_{self.name}.py")
         self.path_rpython_test = os.path.join(RPYTHON_PATH, "Lib", "test", f"test_{self.name}.py")
-        self.path_rpython_tmp_test = os.path.join(RPYTHON_PATH, "LibTmp", "test", f"test_{self.name}.py")
+        self.path_tpython_test = os.path.join(RPYTHON_PATH, "LibTest", "test", f"test_{self.name}.py")
 
-        self.lib_exist = os.path.isfile(self.path_rpython_lib)
-        self.test_exist = os.path.isfile(self.path_rpython_test)
+        self.lib_exist = os.path.isfile(self.path_tpython_lib)
+        self.test_exist = os.path.isfile(self.path_tpython_test)
         self.test_do = os.path.isfile(self.path_cpython_lib) and os.path.isfile(self.path_cpython_test)
 
-    def run(self, CPYTHON_PATH: str, RPYTHON_PATH: str):
+    def run(self, RUSTEXECPATH: str):
         if self.test_do:
-            shutil.copyfile(self.path_cpython_lib, self.path_rpython_lib)
-            shutil.copyfile(self.path_cpython_test, self.path_rpython_test)
+            shutil.copyfile(self.path_cpython_lib, self.path_tpython_lib)
+            shutil.copyfile(self.path_cpython_test, self.path_tpython_test)
 
             result = subprocess.run(
-                ["cargo", "run", "-q", self.path_rpython_test],
+                [RUSTEXECPATH, "-q", self.path_tpython_test],
                 stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT
+                stderr=subprocess.STDOUT,
+                env={"RUSTPYTHONPATH": "LibTest"}
             )
             result = result.stdout.decode("utf-8")
 
             self.test_ok = "OK" in result
 
             if self.lib_exist:
-                os.rename(self.path_rpython_tmp_lib, self.path_rpython_lib)
+                shutil.copyfile(self.path_rpython_lib, self.path_tpython_lib)
             else:
-                os.remove(self.path_rpython_lib)
+                os.remove(self.path_tpython_lib)
             
             if self.test_exist:
-                os.rename(self.path_rpython_tmp_test, self.path_rpython_test)
+                shutil.copyfile(self.path_rpython_test, self.path_tpython_test)
             else:
-                os.remove(self.path_rpython_test)
+                os.remove(self.path_tpython_test)
 
     def to_string(self):
         message = [f"{self.name}:"]
@@ -105,7 +106,7 @@ def main():
 
     shutil.copytree(
         os.path.join(RPYTHON_PATH, "Lib"),
-        os.path.join(RPYTHON_PATH, "LibTmp")
+        os.path.join(RPYTHON_PATH, "LibTest")
     )
 
     library_list: List[LibEntry] = []
@@ -117,11 +118,14 @@ def main():
             if line:
                 library_list.append(LibEntry(line, CPYTHON_PATH, RPYTHON_PATH))
 
+    subprocess.run(["cargo", "build", "--release", "-q"])
+    REXECPATH = os.path.join(CURRENT_PATH.parents[2], "target", "release", "rustpython")
+
     for entry in library_list:
-        entry.run(CPYTHON_PATH, RPYTHON_PATH)
+        entry.run(REXECPATH)
         print(entry.to_string())
     
-    shutil.rmtree(os.path.join(RPYTHON_PATH, "LibTmp"))
+    shutil.rmtree(os.path.join(RPYTHON_PATH, "LibTest"))
 
 if __name__ == "__main__":
     main()
