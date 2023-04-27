@@ -7,39 +7,42 @@ pub use crate::Location;
 
 type Ident = String;
 
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct Located<T, U = ()> {
-            pub location: Location,
-            pub end_location: Option<Location>,
-            pub custom: U,
-            pub node: T,
+    pub location: Location,
+    pub end_location: Option<Location>,
+    pub custom: U,
+    pub node: T,
+}
+
+impl<T> Located<T> {
+    pub fn new(location: Location, end_location: Location, node: T) -> Self {
+        Self {
+            location,
+            end_location: Some(end_location),
+            custom: (),
+            node,
         }
+    }
 
-        impl<T> Located<T> {
-            pub fn new(location: Location, end_location: Location, node: T) -> Self {
-                Self { location, end_location: Some(end_location), custom: (), node }
-            }
+    pub const fn start(&self) -> Location {
+        self.location
+    }
 
-            pub const fn start(&self) -> Location {
-                self.location
-            }
+    /// Returns the node's [`end_location`](Located::end_location) or [`location`](Located::start) if
+    /// [`end_location`](Located::end_location) is `None`.
+    pub fn end(&self) -> Location {
+        self.end_location.unwrap_or(self.location)
+    }
+}
 
-            /// Returns the node's [`end_location`](Located::end_location) or [`location`](Located::start) if 
-            /// [`end_location`](Located::end_location) is `None`.
-            pub fn end(&self) -> Location {
-                self.end_location.unwrap_or(self.location)
-            }      
-        }
+impl<T, U> std::ops::Deref for Located<T, U> {
+    type Target = T;
 
-        impl<T, U> std::ops::Deref for Located<T, U> {
-            type Target = T;
-
-            fn deref(&self) -> &Self::Target {
-                &self.node
-            }
-        }
-
+    fn deref(&self) -> &Self::Target {
+        &self.node
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mod<U = ()> {
@@ -457,12 +460,8 @@ pub type Pattern<U = ()> = Located<PatternKind<U>, U>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TypeIgnore {
-    TypeIgnore {
-        lineno: usize,
-        tag: String,
-    },
+    TypeIgnore { lineno: usize, tag: String },
 }
-
 
 #[cfg(feature = "fold")]
 pub mod fold {
@@ -471,653 +470,602 @@ pub mod fold {
     pub trait Fold<U> {
         type TargetU;
         type Error;
-            fn map_user(&mut self, user: U) -> Result<Self::TargetU, Self::Error>;
-            fn fold_mod(&mut self, node: Mod<U>) -> Result<Mod<Self::TargetU>, Self::Error> {
-                fold_mod(self, node)
-            }
-            fn fold_stmt(&mut self, node: Stmt<U>) -> Result<Stmt<Self::TargetU>, Self::Error> {
-                fold_stmt(self, node)
-            }
-            fn fold_expr(&mut self, node: Expr<U>) -> Result<Expr<Self::TargetU>, Self::Error> {
-                fold_expr(self, node)
-            }
-            fn fold_expr_context(&mut self, node: ExprContext) -> Result<ExprContext, Self::Error> {
-                fold_expr_context(self, node)
-            }
-            fn fold_boolop(&mut self, node: Boolop) -> Result<Boolop, Self::Error> {
-                fold_boolop(self, node)
-            }
-            fn fold_operator(&mut self, node: Operator) -> Result<Operator, Self::Error> {
-                fold_operator(self, node)
-            }
-            fn fold_unaryop(&mut self, node: Unaryop) -> Result<Unaryop, Self::Error> {
-                fold_unaryop(self, node)
-            }
-            fn fold_cmpop(&mut self, node: Cmpop) -> Result<Cmpop, Self::Error> {
-                fold_cmpop(self, node)
-            }
-            fn fold_comprehension(&mut self, node: Comprehension<U>) -> Result<Comprehension<Self::TargetU>, Self::Error> {
-                fold_comprehension(self, node)
-            }
-            fn fold_excepthandler(&mut self, node: Excepthandler<U>) -> Result<Excepthandler<Self::TargetU>, Self::Error> {
-                fold_excepthandler(self, node)
-            }
-            fn fold_arguments(&mut self, node: Arguments<U>) -> Result<Arguments<Self::TargetU>, Self::Error> {
-                fold_arguments(self, node)
-            }
-            fn fold_arg(&mut self, node: Arg<U>) -> Result<Arg<Self::TargetU>, Self::Error> {
-                fold_arg(self, node)
-            }
-            fn fold_keyword(&mut self, node: Keyword<U>) -> Result<Keyword<Self::TargetU>, Self::Error> {
-                fold_keyword(self, node)
-            }
-            fn fold_alias(&mut self, node: Alias<U>) -> Result<Alias<Self::TargetU>, Self::Error> {
-                fold_alias(self, node)
-            }
-            fn fold_withitem(&mut self, node: Withitem<U>) -> Result<Withitem<Self::TargetU>, Self::Error> {
-                fold_withitem(self, node)
-            }
-            fn fold_match_case(&mut self, node: MatchCase<U>) -> Result<MatchCase<Self::TargetU>, Self::Error> {
-                fold_match_case(self, node)
-            }
-            fn fold_pattern(&mut self, node: Pattern<U>) -> Result<Pattern<Self::TargetU>, Self::Error> {
-                fold_pattern(self, node)
-            }
-            fn fold_type_ignore(&mut self, node: TypeIgnore) -> Result<TypeIgnore, Self::Error> {
-                fold_type_ignore(self, node)
-            }
+        fn map_user(&mut self, user: U) -> Result<Self::TargetU, Self::Error>;
+        fn fold_mod(&mut self, node: Mod<U>) -> Result<Mod<Self::TargetU>, Self::Error> {
+            fold_mod(self, node)
+        }
+        fn fold_stmt(&mut self, node: Stmt<U>) -> Result<Stmt<Self::TargetU>, Self::Error> {
+            fold_stmt(self, node)
+        }
+        fn fold_expr(&mut self, node: Expr<U>) -> Result<Expr<Self::TargetU>, Self::Error> {
+            fold_expr(self, node)
+        }
+        fn fold_expr_context(&mut self, node: ExprContext) -> Result<ExprContext, Self::Error> {
+            fold_expr_context(self, node)
+        }
+        fn fold_boolop(&mut self, node: Boolop) -> Result<Boolop, Self::Error> {
+            fold_boolop(self, node)
+        }
+        fn fold_operator(&mut self, node: Operator) -> Result<Operator, Self::Error> {
+            fold_operator(self, node)
+        }
+        fn fold_unaryop(&mut self, node: Unaryop) -> Result<Unaryop, Self::Error> {
+            fold_unaryop(self, node)
+        }
+        fn fold_cmpop(&mut self, node: Cmpop) -> Result<Cmpop, Self::Error> {
+            fold_cmpop(self, node)
+        }
+        fn fold_comprehension(
+            &mut self,
+            node: Comprehension<U>,
+        ) -> Result<Comprehension<Self::TargetU>, Self::Error> {
+            fold_comprehension(self, node)
+        }
+        fn fold_excepthandler(
+            &mut self,
+            node: Excepthandler<U>,
+        ) -> Result<Excepthandler<Self::TargetU>, Self::Error> {
+            fold_excepthandler(self, node)
+        }
+        fn fold_arguments(
+            &mut self,
+            node: Arguments<U>,
+        ) -> Result<Arguments<Self::TargetU>, Self::Error> {
+            fold_arguments(self, node)
+        }
+        fn fold_arg(&mut self, node: Arg<U>) -> Result<Arg<Self::TargetU>, Self::Error> {
+            fold_arg(self, node)
+        }
+        fn fold_keyword(
+            &mut self,
+            node: Keyword<U>,
+        ) -> Result<Keyword<Self::TargetU>, Self::Error> {
+            fold_keyword(self, node)
+        }
+        fn fold_alias(&mut self, node: Alias<U>) -> Result<Alias<Self::TargetU>, Self::Error> {
+            fold_alias(self, node)
+        }
+        fn fold_withitem(
+            &mut self,
+            node: Withitem<U>,
+        ) -> Result<Withitem<Self::TargetU>, Self::Error> {
+            fold_withitem(self, node)
+        }
+        fn fold_match_case(
+            &mut self,
+            node: MatchCase<U>,
+        ) -> Result<MatchCase<Self::TargetU>, Self::Error> {
+            fold_match_case(self, node)
+        }
+        fn fold_pattern(
+            &mut self,
+            node: Pattern<U>,
+        ) -> Result<Pattern<Self::TargetU>, Self::Error> {
+            fold_pattern(self, node)
+        }
+        fn fold_type_ignore(&mut self, node: TypeIgnore) -> Result<TypeIgnore, Self::Error> {
+            fold_type_ignore(self, node)
+        }
     }
-    fn fold_located<U, F: Fold<U> + ?Sized, T, MT>(folder: &mut F, node: Located<T, U>, f: impl FnOnce(&mut F, T) -> Result<MT, F::Error>) -> Result<Located<MT, F::TargetU>, F::Error> {
-        Ok(Located { custom: folder.map_user(node.custom)?, location: node.location, end_location: node.end_location, node: f(folder, node.node)? })
+    fn fold_located<U, F: Fold<U> + ?Sized, T, MT>(
+        folder: &mut F,
+        node: Located<T, U>,
+        f: impl FnOnce(&mut F, T) -> Result<MT, F::Error>,
+    ) -> Result<Located<MT, F::TargetU>, F::Error> {
+        Ok(Located {
+            custom: folder.map_user(node.custom)?,
+            location: node.location,
+            end_location: node.end_location,
+            node: f(folder, node.node)?,
+        })
     }
     impl<T, U> Foldable<T, U> for Mod<T> {
         type Mapped = Mod<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_mod(self)
         }
     }
-    pub fn fold_mod<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Mod<U>) -> Result<Mod<F::TargetU>, F::Error> {
+    pub fn fold_mod<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Mod<U>,
+    ) -> Result<Mod<F::TargetU>, F::Error> {
         match node {
-            Mod::Module { body,type_ignores } => {
-                Ok(Mod::Module {
-                    body: Foldable::fold(body, folder)?,
-                    type_ignores: Foldable::fold(type_ignores, folder)?,
-                })
-            }
-            Mod::Interactive { body } => {
-                Ok(Mod::Interactive {
-                    body: Foldable::fold(body, folder)?,
-                })
-            }
-            Mod::Expression { body } => {
-                Ok(Mod::Expression {
-                    body: Foldable::fold(body, folder)?,
-                })
-            }
-            Mod::FunctionType { argtypes,returns } => {
-                Ok(Mod::FunctionType {
-                    argtypes: Foldable::fold(argtypes, folder)?,
-                    returns: Foldable::fold(returns, folder)?,
-                })
-            }
+            Mod::Module { body, type_ignores } => Ok(Mod::Module {
+                body: Foldable::fold(body, folder)?,
+                type_ignores: Foldable::fold(type_ignores, folder)?,
+            }),
+            Mod::Interactive { body } => Ok(Mod::Interactive {
+                body: Foldable::fold(body, folder)?,
+            }),
+            Mod::Expression { body } => Ok(Mod::Expression {
+                body: Foldable::fold(body, folder)?,
+            }),
+            Mod::FunctionType { argtypes, returns } => Ok(Mod::FunctionType {
+                argtypes: Foldable::fold(argtypes, folder)?,
+                returns: Foldable::fold(returns, folder)?,
+            }),
         }
     }
     impl<T, U> Foldable<T, U> for Stmt<T> {
         type Mapped = Stmt<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_stmt(self)
         }
     }
-    pub fn fold_stmt<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Stmt<U>) -> Result<Stmt<F::TargetU>, F::Error> {
-    fold_located(folder, node, |folder, node| {
-        match node {
-            StmtKind::FunctionDef { name,args,body,decorator_list,returns,type_comment } => {
-                Ok(StmtKind::FunctionDef {
-                    name: Foldable::fold(name, folder)?,
-                    args: Foldable::fold(args, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    decorator_list: Foldable::fold(decorator_list, folder)?,
-                    returns: Foldable::fold(returns, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                })
-            }
-            StmtKind::AsyncFunctionDef { name,args,body,decorator_list,returns,type_comment } => {
-                Ok(StmtKind::AsyncFunctionDef {
-                    name: Foldable::fold(name, folder)?,
-                    args: Foldable::fold(args, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    decorator_list: Foldable::fold(decorator_list, folder)?,
-                    returns: Foldable::fold(returns, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                })
-            }
-            StmtKind::ClassDef { name,bases,keywords,body,decorator_list } => {
-                Ok(StmtKind::ClassDef {
-                    name: Foldable::fold(name, folder)?,
-                    bases: Foldable::fold(bases, folder)?,
-                    keywords: Foldable::fold(keywords, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    decorator_list: Foldable::fold(decorator_list, folder)?,
-                })
-            }
-            StmtKind::Return { value } => {
-                Ok(StmtKind::Return {
-                    value: Foldable::fold(value, folder)?,
-                })
-            }
-            StmtKind::Delete { targets } => {
-                Ok(StmtKind::Delete {
-                    targets: Foldable::fold(targets, folder)?,
-                })
-            }
-            StmtKind::Assign { targets,value,type_comment } => {
-                Ok(StmtKind::Assign {
-                    targets: Foldable::fold(targets, folder)?,
-                    value: Foldable::fold(value, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                })
-            }
-            StmtKind::AugAssign { target,op,value } => {
-                Ok(StmtKind::AugAssign {
-                    target: Foldable::fold(target, folder)?,
-                    op: Foldable::fold(op, folder)?,
-                    value: Foldable::fold(value, folder)?,
-                })
-            }
-            StmtKind::AnnAssign { target,annotation,value,simple } => {
-                Ok(StmtKind::AnnAssign {
-                    target: Foldable::fold(target, folder)?,
-                    annotation: Foldable::fold(annotation, folder)?,
-                    value: Foldable::fold(value, folder)?,
-                    simple: Foldable::fold(simple, folder)?,
-                })
-            }
-            StmtKind::For { target,iter,body,orelse,type_comment } => {
-                Ok(StmtKind::For {
-                    target: Foldable::fold(target, folder)?,
-                    iter: Foldable::fold(iter, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    orelse: Foldable::fold(orelse, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                })
-            }
-            StmtKind::AsyncFor { target,iter,body,orelse,type_comment } => {
-                Ok(StmtKind::AsyncFor {
-                    target: Foldable::fold(target, folder)?,
-                    iter: Foldable::fold(iter, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    orelse: Foldable::fold(orelse, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                })
-            }
-            StmtKind::While { test,body,orelse } => {
-                Ok(StmtKind::While {
-                    test: Foldable::fold(test, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    orelse: Foldable::fold(orelse, folder)?,
-                })
-            }
-            StmtKind::If { test,body,orelse } => {
-                Ok(StmtKind::If {
-                    test: Foldable::fold(test, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    orelse: Foldable::fold(orelse, folder)?,
-                })
-            }
-            StmtKind::With { items,body,type_comment } => {
-                Ok(StmtKind::With {
-                    items: Foldable::fold(items, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                })
-            }
-            StmtKind::AsyncWith { items,body,type_comment } => {
-                Ok(StmtKind::AsyncWith {
-                    items: Foldable::fold(items, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    type_comment: Foldable::fold(type_comment, folder)?,
-                })
-            }
-            StmtKind::Match { subject,cases } => {
-                Ok(StmtKind::Match {
-                    subject: Foldable::fold(subject, folder)?,
-                    cases: Foldable::fold(cases, folder)?,
-                })
-            }
-            StmtKind::Raise { exc,cause } => {
-                Ok(StmtKind::Raise {
-                    exc: Foldable::fold(exc, folder)?,
-                    cause: Foldable::fold(cause, folder)?,
-                })
-            }
-            StmtKind::Try { body,handlers,orelse,finalbody } => {
-                Ok(StmtKind::Try {
-                    body: Foldable::fold(body, folder)?,
-                    handlers: Foldable::fold(handlers, folder)?,
-                    orelse: Foldable::fold(orelse, folder)?,
-                    finalbody: Foldable::fold(finalbody, folder)?,
-                })
-            }
-            StmtKind::TryStar { body,handlers,orelse,finalbody } => {
-                Ok(StmtKind::TryStar {
-                    body: Foldable::fold(body, folder)?,
-                    handlers: Foldable::fold(handlers, folder)?,
-                    orelse: Foldable::fold(orelse, folder)?,
-                    finalbody: Foldable::fold(finalbody, folder)?,
-                })
-            }
-            StmtKind::Assert { test,msg } => {
-                Ok(StmtKind::Assert {
-                    test: Foldable::fold(test, folder)?,
-                    msg: Foldable::fold(msg, folder)?,
-                })
-            }
-            StmtKind::Import { names } => {
-                Ok(StmtKind::Import {
-                    names: Foldable::fold(names, folder)?,
-                })
-            }
-            StmtKind::ImportFrom { module,names,level } => {
-                Ok(StmtKind::ImportFrom {
-                    module: Foldable::fold(module, folder)?,
-                    names: Foldable::fold(names, folder)?,
-                    level: Foldable::fold(level, folder)?,
-                })
-            }
-            StmtKind::Global { names } => {
-                Ok(StmtKind::Global {
-                    names: Foldable::fold(names, folder)?,
-                })
-            }
-            StmtKind::Nonlocal { names } => {
-                Ok(StmtKind::Nonlocal {
-                    names: Foldable::fold(names, folder)?,
-                })
-            }
-            StmtKind::Expr { value } => {
-                Ok(StmtKind::Expr {
-                    value: Foldable::fold(value, folder)?,
-                })
-            }
-            StmtKind::Pass {  } => {
-                Ok(StmtKind::Pass {
-                })
-            }
-            StmtKind::Break {  } => {
-                Ok(StmtKind::Break {
-                })
-            }
-            StmtKind::Continue {  } => {
-                Ok(StmtKind::Continue {
-                })
-            }
-        }
-    })
+    pub fn fold_stmt<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Stmt<U>,
+    ) -> Result<Stmt<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| match node {
+            StmtKind::FunctionDef {
+                name,
+                args,
+                body,
+                decorator_list,
+                returns,
+                type_comment,
+            } => Ok(StmtKind::FunctionDef {
+                name: Foldable::fold(name, folder)?,
+                args: Foldable::fold(args, folder)?,
+                body: Foldable::fold(body, folder)?,
+                decorator_list: Foldable::fold(decorator_list, folder)?,
+                returns: Foldable::fold(returns, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
+            }),
+            StmtKind::AsyncFunctionDef {
+                name,
+                args,
+                body,
+                decorator_list,
+                returns,
+                type_comment,
+            } => Ok(StmtKind::AsyncFunctionDef {
+                name: Foldable::fold(name, folder)?,
+                args: Foldable::fold(args, folder)?,
+                body: Foldable::fold(body, folder)?,
+                decorator_list: Foldable::fold(decorator_list, folder)?,
+                returns: Foldable::fold(returns, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
+            }),
+            StmtKind::ClassDef {
+                name,
+                bases,
+                keywords,
+                body,
+                decorator_list,
+            } => Ok(StmtKind::ClassDef {
+                name: Foldable::fold(name, folder)?,
+                bases: Foldable::fold(bases, folder)?,
+                keywords: Foldable::fold(keywords, folder)?,
+                body: Foldable::fold(body, folder)?,
+                decorator_list: Foldable::fold(decorator_list, folder)?,
+            }),
+            StmtKind::Return { value } => Ok(StmtKind::Return {
+                value: Foldable::fold(value, folder)?,
+            }),
+            StmtKind::Delete { targets } => Ok(StmtKind::Delete {
+                targets: Foldable::fold(targets, folder)?,
+            }),
+            StmtKind::Assign {
+                targets,
+                value,
+                type_comment,
+            } => Ok(StmtKind::Assign {
+                targets: Foldable::fold(targets, folder)?,
+                value: Foldable::fold(value, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
+            }),
+            StmtKind::AugAssign { target, op, value } => Ok(StmtKind::AugAssign {
+                target: Foldable::fold(target, folder)?,
+                op: Foldable::fold(op, folder)?,
+                value: Foldable::fold(value, folder)?,
+            }),
+            StmtKind::AnnAssign {
+                target,
+                annotation,
+                value,
+                simple,
+            } => Ok(StmtKind::AnnAssign {
+                target: Foldable::fold(target, folder)?,
+                annotation: Foldable::fold(annotation, folder)?,
+                value: Foldable::fold(value, folder)?,
+                simple: Foldable::fold(simple, folder)?,
+            }),
+            StmtKind::For {
+                target,
+                iter,
+                body,
+                orelse,
+                type_comment,
+            } => Ok(StmtKind::For {
+                target: Foldable::fold(target, folder)?,
+                iter: Foldable::fold(iter, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
+            }),
+            StmtKind::AsyncFor {
+                target,
+                iter,
+                body,
+                orelse,
+                type_comment,
+            } => Ok(StmtKind::AsyncFor {
+                target: Foldable::fold(target, folder)?,
+                iter: Foldable::fold(iter, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
+            }),
+            StmtKind::While { test, body, orelse } => Ok(StmtKind::While {
+                test: Foldable::fold(test, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+            }),
+            StmtKind::If { test, body, orelse } => Ok(StmtKind::If {
+                test: Foldable::fold(test, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+            }),
+            StmtKind::With {
+                items,
+                body,
+                type_comment,
+            } => Ok(StmtKind::With {
+                items: Foldable::fold(items, folder)?,
+                body: Foldable::fold(body, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
+            }),
+            StmtKind::AsyncWith {
+                items,
+                body,
+                type_comment,
+            } => Ok(StmtKind::AsyncWith {
+                items: Foldable::fold(items, folder)?,
+                body: Foldable::fold(body, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
+            }),
+            StmtKind::Match { subject, cases } => Ok(StmtKind::Match {
+                subject: Foldable::fold(subject, folder)?,
+                cases: Foldable::fold(cases, folder)?,
+            }),
+            StmtKind::Raise { exc, cause } => Ok(StmtKind::Raise {
+                exc: Foldable::fold(exc, folder)?,
+                cause: Foldable::fold(cause, folder)?,
+            }),
+            StmtKind::Try {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => Ok(StmtKind::Try {
+                body: Foldable::fold(body, folder)?,
+                handlers: Foldable::fold(handlers, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+                finalbody: Foldable::fold(finalbody, folder)?,
+            }),
+            StmtKind::TryStar {
+                body,
+                handlers,
+                orelse,
+                finalbody,
+            } => Ok(StmtKind::TryStar {
+                body: Foldable::fold(body, folder)?,
+                handlers: Foldable::fold(handlers, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+                finalbody: Foldable::fold(finalbody, folder)?,
+            }),
+            StmtKind::Assert { test, msg } => Ok(StmtKind::Assert {
+                test: Foldable::fold(test, folder)?,
+                msg: Foldable::fold(msg, folder)?,
+            }),
+            StmtKind::Import { names } => Ok(StmtKind::Import {
+                names: Foldable::fold(names, folder)?,
+            }),
+            StmtKind::ImportFrom {
+                module,
+                names,
+                level,
+            } => Ok(StmtKind::ImportFrom {
+                module: Foldable::fold(module, folder)?,
+                names: Foldable::fold(names, folder)?,
+                level: Foldable::fold(level, folder)?,
+            }),
+            StmtKind::Global { names } => Ok(StmtKind::Global {
+                names: Foldable::fold(names, folder)?,
+            }),
+            StmtKind::Nonlocal { names } => Ok(StmtKind::Nonlocal {
+                names: Foldable::fold(names, folder)?,
+            }),
+            StmtKind::Expr { value } => Ok(StmtKind::Expr {
+                value: Foldable::fold(value, folder)?,
+            }),
+            StmtKind::Pass {} => Ok(StmtKind::Pass {}),
+            StmtKind::Break {} => Ok(StmtKind::Break {}),
+            StmtKind::Continue {} => Ok(StmtKind::Continue {}),
+        })
     }
     impl<T, U> Foldable<T, U> for Expr<T> {
         type Mapped = Expr<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_expr(self)
         }
     }
-    pub fn fold_expr<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Expr<U>) -> Result<Expr<F::TargetU>, F::Error> {
-    fold_located(folder, node, |folder, node| {
-        match node {
-            ExprKind::BoolOp { op,values } => {
-                Ok(ExprKind::BoolOp {
-                    op: Foldable::fold(op, folder)?,
-                    values: Foldable::fold(values, folder)?,
-                })
-            }
-            ExprKind::NamedExpr { target,value } => {
-                Ok(ExprKind::NamedExpr {
-                    target: Foldable::fold(target, folder)?,
-                    value: Foldable::fold(value, folder)?,
-                })
-            }
-            ExprKind::BinOp { left,op,right } => {
-                Ok(ExprKind::BinOp {
-                    left: Foldable::fold(left, folder)?,
-                    op: Foldable::fold(op, folder)?,
-                    right: Foldable::fold(right, folder)?,
-                })
-            }
-            ExprKind::UnaryOp { op,operand } => {
-                Ok(ExprKind::UnaryOp {
-                    op: Foldable::fold(op, folder)?,
-                    operand: Foldable::fold(operand, folder)?,
-                })
-            }
-            ExprKind::Lambda { args,body } => {
-                Ok(ExprKind::Lambda {
-                    args: Foldable::fold(args, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                })
-            }
-            ExprKind::IfExp { test,body,orelse } => {
-                Ok(ExprKind::IfExp {
-                    test: Foldable::fold(test, folder)?,
-                    body: Foldable::fold(body, folder)?,
-                    orelse: Foldable::fold(orelse, folder)?,
-                })
-            }
-            ExprKind::Dict { keys,values } => {
-                Ok(ExprKind::Dict {
-                    keys: Foldable::fold(keys, folder)?,
-                    values: Foldable::fold(values, folder)?,
-                })
-            }
-            ExprKind::Set { elts } => {
-                Ok(ExprKind::Set {
-                    elts: Foldable::fold(elts, folder)?,
-                })
-            }
-            ExprKind::ListComp { elt,generators } => {
-                Ok(ExprKind::ListComp {
-                    elt: Foldable::fold(elt, folder)?,
-                    generators: Foldable::fold(generators, folder)?,
-                })
-            }
-            ExprKind::SetComp { elt,generators } => {
-                Ok(ExprKind::SetComp {
-                    elt: Foldable::fold(elt, folder)?,
-                    generators: Foldable::fold(generators, folder)?,
-                })
-            }
-            ExprKind::DictComp { key,value,generators } => {
-                Ok(ExprKind::DictComp {
-                    key: Foldable::fold(key, folder)?,
-                    value: Foldable::fold(value, folder)?,
-                    generators: Foldable::fold(generators, folder)?,
-                })
-            }
-            ExprKind::GeneratorExp { elt,generators } => {
-                Ok(ExprKind::GeneratorExp {
-                    elt: Foldable::fold(elt, folder)?,
-                    generators: Foldable::fold(generators, folder)?,
-                })
-            }
-            ExprKind::Await { value } => {
-                Ok(ExprKind::Await {
-                    value: Foldable::fold(value, folder)?,
-                })
-            }
-            ExprKind::Yield { value } => {
-                Ok(ExprKind::Yield {
-                    value: Foldable::fold(value, folder)?,
-                })
-            }
-            ExprKind::YieldFrom { value } => {
-                Ok(ExprKind::YieldFrom {
-                    value: Foldable::fold(value, folder)?,
-                })
-            }
-            ExprKind::Compare { left,ops,comparators } => {
-                Ok(ExprKind::Compare {
-                    left: Foldable::fold(left, folder)?,
-                    ops: Foldable::fold(ops, folder)?,
-                    comparators: Foldable::fold(comparators, folder)?,
-                })
-            }
-            ExprKind::Call { func,args,keywords } => {
-                Ok(ExprKind::Call {
-                    func: Foldable::fold(func, folder)?,
-                    args: Foldable::fold(args, folder)?,
-                    keywords: Foldable::fold(keywords, folder)?,
-                })
-            }
-            ExprKind::FormattedValue { value,conversion,format_spec } => {
-                Ok(ExprKind::FormattedValue {
-                    value: Foldable::fold(value, folder)?,
-                    conversion: Foldable::fold(conversion, folder)?,
-                    format_spec: Foldable::fold(format_spec, folder)?,
-                })
-            }
-            ExprKind::JoinedStr { values } => {
-                Ok(ExprKind::JoinedStr {
-                    values: Foldable::fold(values, folder)?,
-                })
-            }
-            ExprKind::Constant { value,kind } => {
-                Ok(ExprKind::Constant {
-                    value: Foldable::fold(value, folder)?,
-                    kind: Foldable::fold(kind, folder)?,
-                })
-            }
-            ExprKind::Attribute { value,attr,ctx } => {
-                Ok(ExprKind::Attribute {
-                    value: Foldable::fold(value, folder)?,
-                    attr: Foldable::fold(attr, folder)?,
-                    ctx: Foldable::fold(ctx, folder)?,
-                })
-            }
-            ExprKind::Subscript { value,slice,ctx } => {
-                Ok(ExprKind::Subscript {
-                    value: Foldable::fold(value, folder)?,
-                    slice: Foldable::fold(slice, folder)?,
-                    ctx: Foldable::fold(ctx, folder)?,
-                })
-            }
-            ExprKind::Starred { value,ctx } => {
-                Ok(ExprKind::Starred {
-                    value: Foldable::fold(value, folder)?,
-                    ctx: Foldable::fold(ctx, folder)?,
-                })
-            }
-            ExprKind::Name { id,ctx } => {
-                Ok(ExprKind::Name {
-                    id: Foldable::fold(id, folder)?,
-                    ctx: Foldable::fold(ctx, folder)?,
-                })
-            }
-            ExprKind::List { elts,ctx } => {
-                Ok(ExprKind::List {
-                    elts: Foldable::fold(elts, folder)?,
-                    ctx: Foldable::fold(ctx, folder)?,
-                })
-            }
-            ExprKind::Tuple { elts,ctx } => {
-                Ok(ExprKind::Tuple {
-                    elts: Foldable::fold(elts, folder)?,
-                    ctx: Foldable::fold(ctx, folder)?,
-                })
-            }
-            ExprKind::Slice { lower,upper,step } => {
-                Ok(ExprKind::Slice {
-                    lower: Foldable::fold(lower, folder)?,
-                    upper: Foldable::fold(upper, folder)?,
-                    step: Foldable::fold(step, folder)?,
-                })
-            }
-        }
-    })
+    pub fn fold_expr<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Expr<U>,
+    ) -> Result<Expr<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| match node {
+            ExprKind::BoolOp { op, values } => Ok(ExprKind::BoolOp {
+                op: Foldable::fold(op, folder)?,
+                values: Foldable::fold(values, folder)?,
+            }),
+            ExprKind::NamedExpr { target, value } => Ok(ExprKind::NamedExpr {
+                target: Foldable::fold(target, folder)?,
+                value: Foldable::fold(value, folder)?,
+            }),
+            ExprKind::BinOp { left, op, right } => Ok(ExprKind::BinOp {
+                left: Foldable::fold(left, folder)?,
+                op: Foldable::fold(op, folder)?,
+                right: Foldable::fold(right, folder)?,
+            }),
+            ExprKind::UnaryOp { op, operand } => Ok(ExprKind::UnaryOp {
+                op: Foldable::fold(op, folder)?,
+                operand: Foldable::fold(operand, folder)?,
+            }),
+            ExprKind::Lambda { args, body } => Ok(ExprKind::Lambda {
+                args: Foldable::fold(args, folder)?,
+                body: Foldable::fold(body, folder)?,
+            }),
+            ExprKind::IfExp { test, body, orelse } => Ok(ExprKind::IfExp {
+                test: Foldable::fold(test, folder)?,
+                body: Foldable::fold(body, folder)?,
+                orelse: Foldable::fold(orelse, folder)?,
+            }),
+            ExprKind::Dict { keys, values } => Ok(ExprKind::Dict {
+                keys: Foldable::fold(keys, folder)?,
+                values: Foldable::fold(values, folder)?,
+            }),
+            ExprKind::Set { elts } => Ok(ExprKind::Set {
+                elts: Foldable::fold(elts, folder)?,
+            }),
+            ExprKind::ListComp { elt, generators } => Ok(ExprKind::ListComp {
+                elt: Foldable::fold(elt, folder)?,
+                generators: Foldable::fold(generators, folder)?,
+            }),
+            ExprKind::SetComp { elt, generators } => Ok(ExprKind::SetComp {
+                elt: Foldable::fold(elt, folder)?,
+                generators: Foldable::fold(generators, folder)?,
+            }),
+            ExprKind::DictComp {
+                key,
+                value,
+                generators,
+            } => Ok(ExprKind::DictComp {
+                key: Foldable::fold(key, folder)?,
+                value: Foldable::fold(value, folder)?,
+                generators: Foldable::fold(generators, folder)?,
+            }),
+            ExprKind::GeneratorExp { elt, generators } => Ok(ExprKind::GeneratorExp {
+                elt: Foldable::fold(elt, folder)?,
+                generators: Foldable::fold(generators, folder)?,
+            }),
+            ExprKind::Await { value } => Ok(ExprKind::Await {
+                value: Foldable::fold(value, folder)?,
+            }),
+            ExprKind::Yield { value } => Ok(ExprKind::Yield {
+                value: Foldable::fold(value, folder)?,
+            }),
+            ExprKind::YieldFrom { value } => Ok(ExprKind::YieldFrom {
+                value: Foldable::fold(value, folder)?,
+            }),
+            ExprKind::Compare {
+                left,
+                ops,
+                comparators,
+            } => Ok(ExprKind::Compare {
+                left: Foldable::fold(left, folder)?,
+                ops: Foldable::fold(ops, folder)?,
+                comparators: Foldable::fold(comparators, folder)?,
+            }),
+            ExprKind::Call {
+                func,
+                args,
+                keywords,
+            } => Ok(ExprKind::Call {
+                func: Foldable::fold(func, folder)?,
+                args: Foldable::fold(args, folder)?,
+                keywords: Foldable::fold(keywords, folder)?,
+            }),
+            ExprKind::FormattedValue {
+                value,
+                conversion,
+                format_spec,
+            } => Ok(ExprKind::FormattedValue {
+                value: Foldable::fold(value, folder)?,
+                conversion: Foldable::fold(conversion, folder)?,
+                format_spec: Foldable::fold(format_spec, folder)?,
+            }),
+            ExprKind::JoinedStr { values } => Ok(ExprKind::JoinedStr {
+                values: Foldable::fold(values, folder)?,
+            }),
+            ExprKind::Constant { value, kind } => Ok(ExprKind::Constant {
+                value: Foldable::fold(value, folder)?,
+                kind: Foldable::fold(kind, folder)?,
+            }),
+            ExprKind::Attribute { value, attr, ctx } => Ok(ExprKind::Attribute {
+                value: Foldable::fold(value, folder)?,
+                attr: Foldable::fold(attr, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
+            }),
+            ExprKind::Subscript { value, slice, ctx } => Ok(ExprKind::Subscript {
+                value: Foldable::fold(value, folder)?,
+                slice: Foldable::fold(slice, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
+            }),
+            ExprKind::Starred { value, ctx } => Ok(ExprKind::Starred {
+                value: Foldable::fold(value, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
+            }),
+            ExprKind::Name { id, ctx } => Ok(ExprKind::Name {
+                id: Foldable::fold(id, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
+            }),
+            ExprKind::List { elts, ctx } => Ok(ExprKind::List {
+                elts: Foldable::fold(elts, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
+            }),
+            ExprKind::Tuple { elts, ctx } => Ok(ExprKind::Tuple {
+                elts: Foldable::fold(elts, folder)?,
+                ctx: Foldable::fold(ctx, folder)?,
+            }),
+            ExprKind::Slice { lower, upper, step } => Ok(ExprKind::Slice {
+                lower: Foldable::fold(lower, folder)?,
+                upper: Foldable::fold(upper, folder)?,
+                step: Foldable::fold(step, folder)?,
+            }),
+        })
     }
     impl<T, U> Foldable<T, U> for ExprContext {
         type Mapped = ExprContext;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_expr_context(self)
         }
     }
-    pub fn fold_expr_context<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: ExprContext) -> Result<ExprContext, F::Error> {
+    pub fn fold_expr_context<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: ExprContext,
+    ) -> Result<ExprContext, F::Error> {
         match node {
-            ExprContext::Load {  } => {
-                Ok(ExprContext::Load {
-                })
-            }
-            ExprContext::Store {  } => {
-                Ok(ExprContext::Store {
-                })
-            }
-            ExprContext::Del {  } => {
-                Ok(ExprContext::Del {
-                })
-            }
+            ExprContext::Load {} => Ok(ExprContext::Load {}),
+            ExprContext::Store {} => Ok(ExprContext::Store {}),
+            ExprContext::Del {} => Ok(ExprContext::Del {}),
         }
     }
     impl<T, U> Foldable<T, U> for Boolop {
         type Mapped = Boolop;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_boolop(self)
         }
     }
-    pub fn fold_boolop<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Boolop) -> Result<Boolop, F::Error> {
+    pub fn fold_boolop<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Boolop,
+    ) -> Result<Boolop, F::Error> {
         match node {
-            Boolop::And {  } => {
-                Ok(Boolop::And {
-                })
-            }
-            Boolop::Or {  } => {
-                Ok(Boolop::Or {
-                })
-            }
+            Boolop::And {} => Ok(Boolop::And {}),
+            Boolop::Or {} => Ok(Boolop::Or {}),
         }
     }
     impl<T, U> Foldable<T, U> for Operator {
         type Mapped = Operator;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_operator(self)
         }
     }
-    pub fn fold_operator<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Operator) -> Result<Operator, F::Error> {
+    pub fn fold_operator<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Operator,
+    ) -> Result<Operator, F::Error> {
         match node {
-            Operator::Add {  } => {
-                Ok(Operator::Add {
-                })
-            }
-            Operator::Sub {  } => {
-                Ok(Operator::Sub {
-                })
-            }
-            Operator::Mult {  } => {
-                Ok(Operator::Mult {
-                })
-            }
-            Operator::MatMult {  } => {
-                Ok(Operator::MatMult {
-                })
-            }
-            Operator::Div {  } => {
-                Ok(Operator::Div {
-                })
-            }
-            Operator::Mod {  } => {
-                Ok(Operator::Mod {
-                })
-            }
-            Operator::Pow {  } => {
-                Ok(Operator::Pow {
-                })
-            }
-            Operator::LShift {  } => {
-                Ok(Operator::LShift {
-                })
-            }
-            Operator::RShift {  } => {
-                Ok(Operator::RShift {
-                })
-            }
-            Operator::BitOr {  } => {
-                Ok(Operator::BitOr {
-                })
-            }
-            Operator::BitXor {  } => {
-                Ok(Operator::BitXor {
-                })
-            }
-            Operator::BitAnd {  } => {
-                Ok(Operator::BitAnd {
-                })
-            }
-            Operator::FloorDiv {  } => {
-                Ok(Operator::FloorDiv {
-                })
-            }
+            Operator::Add {} => Ok(Operator::Add {}),
+            Operator::Sub {} => Ok(Operator::Sub {}),
+            Operator::Mult {} => Ok(Operator::Mult {}),
+            Operator::MatMult {} => Ok(Operator::MatMult {}),
+            Operator::Div {} => Ok(Operator::Div {}),
+            Operator::Mod {} => Ok(Operator::Mod {}),
+            Operator::Pow {} => Ok(Operator::Pow {}),
+            Operator::LShift {} => Ok(Operator::LShift {}),
+            Operator::RShift {} => Ok(Operator::RShift {}),
+            Operator::BitOr {} => Ok(Operator::BitOr {}),
+            Operator::BitXor {} => Ok(Operator::BitXor {}),
+            Operator::BitAnd {} => Ok(Operator::BitAnd {}),
+            Operator::FloorDiv {} => Ok(Operator::FloorDiv {}),
         }
     }
     impl<T, U> Foldable<T, U> for Unaryop {
         type Mapped = Unaryop;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_unaryop(self)
         }
     }
-    pub fn fold_unaryop<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Unaryop) -> Result<Unaryop, F::Error> {
+    pub fn fold_unaryop<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Unaryop,
+    ) -> Result<Unaryop, F::Error> {
         match node {
-            Unaryop::Invert {  } => {
-                Ok(Unaryop::Invert {
-                })
-            }
-            Unaryop::Not {  } => {
-                Ok(Unaryop::Not {
-                })
-            }
-            Unaryop::UAdd {  } => {
-                Ok(Unaryop::UAdd {
-                })
-            }
-            Unaryop::USub {  } => {
-                Ok(Unaryop::USub {
-                })
-            }
+            Unaryop::Invert {} => Ok(Unaryop::Invert {}),
+            Unaryop::Not {} => Ok(Unaryop::Not {}),
+            Unaryop::UAdd {} => Ok(Unaryop::UAdd {}),
+            Unaryop::USub {} => Ok(Unaryop::USub {}),
         }
     }
     impl<T, U> Foldable<T, U> for Cmpop {
         type Mapped = Cmpop;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_cmpop(self)
         }
     }
-    pub fn fold_cmpop<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Cmpop) -> Result<Cmpop, F::Error> {
+    pub fn fold_cmpop<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Cmpop,
+    ) -> Result<Cmpop, F::Error> {
         match node {
-            Cmpop::Eq {  } => {
-                Ok(Cmpop::Eq {
-                })
-            }
-            Cmpop::NotEq {  } => {
-                Ok(Cmpop::NotEq {
-                })
-            }
-            Cmpop::Lt {  } => {
-                Ok(Cmpop::Lt {
-                })
-            }
-            Cmpop::LtE {  } => {
-                Ok(Cmpop::LtE {
-                })
-            }
-            Cmpop::Gt {  } => {
-                Ok(Cmpop::Gt {
-                })
-            }
-            Cmpop::GtE {  } => {
-                Ok(Cmpop::GtE {
-                })
-            }
-            Cmpop::Is {  } => {
-                Ok(Cmpop::Is {
-                })
-            }
-            Cmpop::IsNot {  } => {
-                Ok(Cmpop::IsNot {
-                })
-            }
-            Cmpop::In {  } => {
-                Ok(Cmpop::In {
-                })
-            }
-            Cmpop::NotIn {  } => {
-                Ok(Cmpop::NotIn {
-                })
-            }
+            Cmpop::Eq {} => Ok(Cmpop::Eq {}),
+            Cmpop::NotEq {} => Ok(Cmpop::NotEq {}),
+            Cmpop::Lt {} => Ok(Cmpop::Lt {}),
+            Cmpop::LtE {} => Ok(Cmpop::LtE {}),
+            Cmpop::Gt {} => Ok(Cmpop::Gt {}),
+            Cmpop::GtE {} => Ok(Cmpop::GtE {}),
+            Cmpop::Is {} => Ok(Cmpop::Is {}),
+            Cmpop::IsNot {} => Ok(Cmpop::IsNot {}),
+            Cmpop::In {} => Ok(Cmpop::In {}),
+            Cmpop::NotIn {} => Ok(Cmpop::NotIn {}),
         }
     }
     impl<T, U> Foldable<T, U> for Comprehension<T> {
         type Mapped = Comprehension<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_comprehension(self)
         }
     }
-    pub fn fold_comprehension<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Comprehension<U>) -> Result<Comprehension<F::TargetU>, F::Error> {
-        let Comprehension { target,iter,ifs,is_async } = node;
+    pub fn fold_comprehension<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Comprehension<U>,
+    ) -> Result<Comprehension<F::TargetU>, F::Error> {
+        let Comprehension {
+            target,
+            iter,
+            ifs,
+            is_async,
+        } = node;
         Ok(Comprehension {
             target: Foldable::fold(target, folder)?,
             iter: Foldable::fold(iter, folder)?,
@@ -1127,31 +1075,49 @@ pub mod fold {
     }
     impl<T, U> Foldable<T, U> for Excepthandler<T> {
         type Mapped = Excepthandler<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_excepthandler(self)
         }
     }
-    pub fn fold_excepthandler<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Excepthandler<U>) -> Result<Excepthandler<F::TargetU>, F::Error> {
-    fold_located(folder, node, |folder, node| {
-        match node {
-            ExcepthandlerKind::ExceptHandler { type_,name,body } => {
+    pub fn fold_excepthandler<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Excepthandler<U>,
+    ) -> Result<Excepthandler<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| match node {
+            ExcepthandlerKind::ExceptHandler { type_, name, body } => {
                 Ok(ExcepthandlerKind::ExceptHandler {
                     type_: Foldable::fold(type_, folder)?,
                     name: Foldable::fold(name, folder)?,
                     body: Foldable::fold(body, folder)?,
                 })
             }
-        }
-    })
+        })
     }
     impl<T, U> Foldable<T, U> for Arguments<T> {
         type Mapped = Arguments<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_arguments(self)
         }
     }
-    pub fn fold_arguments<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Arguments<U>) -> Result<Arguments<F::TargetU>, F::Error> {
-        let Arguments { posonlyargs,args,vararg,kwonlyargs,kw_defaults,kwarg,defaults } = node;
+    pub fn fold_arguments<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Arguments<U>,
+    ) -> Result<Arguments<F::TargetU>, F::Error> {
+        let Arguments {
+            posonlyargs,
+            args,
+            vararg,
+            kwonlyargs,
+            kw_defaults,
+            kwarg,
+            defaults,
+        } = node;
         Ok(Arguments {
             posonlyargs: Foldable::fold(posonlyargs, folder)?,
             args: Foldable::fold(args, folder)?,
@@ -1164,58 +1130,89 @@ pub mod fold {
     }
     impl<T, U> Foldable<T, U> for Arg<T> {
         type Mapped = Arg<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_arg(self)
         }
     }
-    pub fn fold_arg<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Arg<U>) -> Result<Arg<F::TargetU>, F::Error> {
-    fold_located(folder, node, |folder, node| {
-        let ArgData { arg,annotation,type_comment } = node;
-        Ok(ArgData {
-            arg: Foldable::fold(arg, folder)?,
-            annotation: Foldable::fold(annotation, folder)?,
-            type_comment: Foldable::fold(type_comment, folder)?,
+    pub fn fold_arg<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Arg<U>,
+    ) -> Result<Arg<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| {
+            let ArgData {
+                arg,
+                annotation,
+                type_comment,
+            } = node;
+            Ok(ArgData {
+                arg: Foldable::fold(arg, folder)?,
+                annotation: Foldable::fold(annotation, folder)?,
+                type_comment: Foldable::fold(type_comment, folder)?,
+            })
         })
-    })
     }
     impl<T, U> Foldable<T, U> for Keyword<T> {
         type Mapped = Keyword<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_keyword(self)
         }
     }
-    pub fn fold_keyword<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Keyword<U>) -> Result<Keyword<F::TargetU>, F::Error> {
-    fold_located(folder, node, |folder, node| {
-        let KeywordData { arg,value } = node;
-        Ok(KeywordData {
-            arg: Foldable::fold(arg, folder)?,
-            value: Foldable::fold(value, folder)?,
+    pub fn fold_keyword<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Keyword<U>,
+    ) -> Result<Keyword<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| {
+            let KeywordData { arg, value } = node;
+            Ok(KeywordData {
+                arg: Foldable::fold(arg, folder)?,
+                value: Foldable::fold(value, folder)?,
+            })
         })
-    })
     }
     impl<T, U> Foldable<T, U> for Alias<T> {
         type Mapped = Alias<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_alias(self)
         }
     }
-    pub fn fold_alias<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Alias<U>) -> Result<Alias<F::TargetU>, F::Error> {
-    fold_located(folder, node, |folder, node| {
-        let AliasData { name,asname } = node;
-        Ok(AliasData {
-            name: Foldable::fold(name, folder)?,
-            asname: Foldable::fold(asname, folder)?,
+    pub fn fold_alias<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Alias<U>,
+    ) -> Result<Alias<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| {
+            let AliasData { name, asname } = node;
+            Ok(AliasData {
+                name: Foldable::fold(name, folder)?,
+                asname: Foldable::fold(asname, folder)?,
+            })
         })
-    })
     }
     impl<T, U> Foldable<T, U> for Withitem<T> {
         type Mapped = Withitem<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_withitem(self)
         }
     }
-    pub fn fold_withitem<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Withitem<U>) -> Result<Withitem<F::TargetU>, F::Error> {
-        let Withitem { context_expr,optional_vars } = node;
+    pub fn fold_withitem<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Withitem<U>,
+    ) -> Result<Withitem<F::TargetU>, F::Error> {
+        let Withitem {
+            context_expr,
+            optional_vars,
+        } = node;
         Ok(Withitem {
             context_expr: Foldable::fold(context_expr, folder)?,
             optional_vars: Foldable::fold(optional_vars, folder)?,
@@ -1223,12 +1220,22 @@ pub mod fold {
     }
     impl<T, U> Foldable<T, U> for MatchCase<T> {
         type Mapped = MatchCase<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_match_case(self)
         }
     }
-    pub fn fold_match_case<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: MatchCase<U>) -> Result<MatchCase<F::TargetU>, F::Error> {
-        let MatchCase { pattern,guard,body } = node;
+    pub fn fold_match_case<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: MatchCase<U>,
+    ) -> Result<MatchCase<F::TargetU>, F::Error> {
+        let MatchCase {
+            pattern,
+            guard,
+            body,
+        } = node;
         Ok(MatchCase {
             pattern: Foldable::fold(pattern, folder)?,
             guard: Foldable::fold(guard, folder)?,
@@ -1237,76 +1244,77 @@ pub mod fold {
     }
     impl<T, U> Foldable<T, U> for Pattern<T> {
         type Mapped = Pattern<U>;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_pattern(self)
         }
     }
-    pub fn fold_pattern<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: Pattern<U>) -> Result<Pattern<F::TargetU>, F::Error> {
-    fold_located(folder, node, |folder, node| {
-        match node {
-            PatternKind::MatchValue { value } => {
-                Ok(PatternKind::MatchValue {
-                    value: Foldable::fold(value, folder)?,
-                })
-            }
-            PatternKind::MatchSingleton { value } => {
-                Ok(PatternKind::MatchSingleton {
-                    value: Foldable::fold(value, folder)?,
-                })
-            }
-            PatternKind::MatchSequence { patterns } => {
-                Ok(PatternKind::MatchSequence {
-                    patterns: Foldable::fold(patterns, folder)?,
-                })
-            }
-            PatternKind::MatchMapping { keys,patterns,rest } => {
-                Ok(PatternKind::MatchMapping {
-                    keys: Foldable::fold(keys, folder)?,
-                    patterns: Foldable::fold(patterns, folder)?,
-                    rest: Foldable::fold(rest, folder)?,
-                })
-            }
-            PatternKind::MatchClass { cls,patterns,kwd_attrs,kwd_patterns } => {
-                Ok(PatternKind::MatchClass {
-                    cls: Foldable::fold(cls, folder)?,
-                    patterns: Foldable::fold(patterns, folder)?,
-                    kwd_attrs: Foldable::fold(kwd_attrs, folder)?,
-                    kwd_patterns: Foldable::fold(kwd_patterns, folder)?,
-                })
-            }
-            PatternKind::MatchStar { name } => {
-                Ok(PatternKind::MatchStar {
-                    name: Foldable::fold(name, folder)?,
-                })
-            }
-            PatternKind::MatchAs { pattern,name } => {
-                Ok(PatternKind::MatchAs {
-                    pattern: Foldable::fold(pattern, folder)?,
-                    name: Foldable::fold(name, folder)?,
-                })
-            }
-            PatternKind::MatchOr { patterns } => {
-                Ok(PatternKind::MatchOr {
-                    patterns: Foldable::fold(patterns, folder)?,
-                })
-            }
-        }
-    })
+    pub fn fold_pattern<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: Pattern<U>,
+    ) -> Result<Pattern<F::TargetU>, F::Error> {
+        fold_located(folder, node, |folder, node| match node {
+            PatternKind::MatchValue { value } => Ok(PatternKind::MatchValue {
+                value: Foldable::fold(value, folder)?,
+            }),
+            PatternKind::MatchSingleton { value } => Ok(PatternKind::MatchSingleton {
+                value: Foldable::fold(value, folder)?,
+            }),
+            PatternKind::MatchSequence { patterns } => Ok(PatternKind::MatchSequence {
+                patterns: Foldable::fold(patterns, folder)?,
+            }),
+            PatternKind::MatchMapping {
+                keys,
+                patterns,
+                rest,
+            } => Ok(PatternKind::MatchMapping {
+                keys: Foldable::fold(keys, folder)?,
+                patterns: Foldable::fold(patterns, folder)?,
+                rest: Foldable::fold(rest, folder)?,
+            }),
+            PatternKind::MatchClass {
+                cls,
+                patterns,
+                kwd_attrs,
+                kwd_patterns,
+            } => Ok(PatternKind::MatchClass {
+                cls: Foldable::fold(cls, folder)?,
+                patterns: Foldable::fold(patterns, folder)?,
+                kwd_attrs: Foldable::fold(kwd_attrs, folder)?,
+                kwd_patterns: Foldable::fold(kwd_patterns, folder)?,
+            }),
+            PatternKind::MatchStar { name } => Ok(PatternKind::MatchStar {
+                name: Foldable::fold(name, folder)?,
+            }),
+            PatternKind::MatchAs { pattern, name } => Ok(PatternKind::MatchAs {
+                pattern: Foldable::fold(pattern, folder)?,
+                name: Foldable::fold(name, folder)?,
+            }),
+            PatternKind::MatchOr { patterns } => Ok(PatternKind::MatchOr {
+                patterns: Foldable::fold(patterns, folder)?,
+            }),
+        })
     }
     impl<T, U> Foldable<T, U> for TypeIgnore {
         type Mapped = TypeIgnore;
-        fn fold<F: Fold<T, TargetU = U> + ?Sized>(self, folder: &mut F) -> Result<Self::Mapped, F::Error> {
+        fn fold<F: Fold<T, TargetU = U> + ?Sized>(
+            self,
+            folder: &mut F,
+        ) -> Result<Self::Mapped, F::Error> {
             folder.fold_type_ignore(self)
         }
     }
-    pub fn fold_type_ignore<U, F: Fold<U> + ?Sized>(#[allow(unused)] folder: &mut F, node: TypeIgnore) -> Result<TypeIgnore, F::Error> {
+    pub fn fold_type_ignore<U, F: Fold<U> + ?Sized>(
+        #[allow(unused)] folder: &mut F,
+        node: TypeIgnore,
+    ) -> Result<TypeIgnore, F::Error> {
         match node {
-            TypeIgnore::TypeIgnore { lineno,tag } => {
-                Ok(TypeIgnore::TypeIgnore {
-                    lineno: Foldable::fold(lineno, folder)?,
-                    tag: Foldable::fold(tag, folder)?,
-                })
-            }
+            TypeIgnore::TypeIgnore { lineno, tag } => Ok(TypeIgnore::TypeIgnore {
+                lineno: Foldable::fold(lineno, folder)?,
+                tag: Foldable::fold(tag, folder)?,
+            }),
         }
     }
 }
@@ -1315,7 +1323,7 @@ pub mod fold {
 #[allow(unused_variables, non_snake_case)]
 pub mod visitor {
     use super::*;
-    pub struct FunctionDefNodeData<U=()> {
+    pub struct FunctionDefNodeData<U = ()> {
         pub name: Ident,
         pub args: Box<Arguments<U>>,
         pub body: Vec<Stmt<U>>,
@@ -1325,7 +1333,7 @@ pub mod visitor {
     }
     pub type FunctionDefNode<U = ()> = Located<FunctionDefNodeData<U>, U>;
 
-    pub struct AsyncFunctionDefNodeData<U=()> {
+    pub struct AsyncFunctionDefNodeData<U = ()> {
         pub name: Ident,
         pub args: Box<Arguments<U>>,
         pub body: Vec<Stmt<U>>,
@@ -1335,7 +1343,7 @@ pub mod visitor {
     }
     pub type AsyncFunctionDefNode<U = ()> = Located<AsyncFunctionDefNodeData<U>, U>;
 
-    pub struct ClassDefNodeData<U=()> {
+    pub struct ClassDefNodeData<U = ()> {
         pub name: Ident,
         pub bases: Vec<Expr<U>>,
         pub keywords: Vec<Keyword<U>>,
@@ -1344,31 +1352,31 @@ pub mod visitor {
     }
     pub type ClassDefNode<U = ()> = Located<ClassDefNodeData<U>, U>;
 
-    pub struct ReturnNodeData<U=()> {
+    pub struct ReturnNodeData<U = ()> {
         pub value: Option<Box<Expr<U>>>,
     }
     pub type ReturnNode<U = ()> = Located<ReturnNodeData<U>, U>;
 
-    pub struct DeleteNodeData<U=()> {
+    pub struct DeleteNodeData<U = ()> {
         pub targets: Vec<Expr<U>>,
     }
     pub type DeleteNode<U = ()> = Located<DeleteNodeData<U>, U>;
 
-    pub struct AssignNodeData<U=()> {
+    pub struct AssignNodeData<U = ()> {
         pub targets: Vec<Expr<U>>,
         pub value: Box<Expr<U>>,
         pub type_comment: Option<String>,
     }
     pub type AssignNode<U = ()> = Located<AssignNodeData<U>, U>;
 
-    pub struct AugAssignNodeData<U=()> {
+    pub struct AugAssignNodeData<U = ()> {
         pub target: Box<Expr<U>>,
         pub op: Operator,
         pub value: Box<Expr<U>>,
     }
     pub type AugAssignNode<U = ()> = Located<AugAssignNodeData<U>, U>;
 
-    pub struct AnnAssignNodeData<U=()> {
+    pub struct AnnAssignNodeData<U = ()> {
         pub target: Box<Expr<U>>,
         pub annotation: Box<Expr<U>>,
         pub value: Option<Box<Expr<U>>>,
@@ -1376,7 +1384,7 @@ pub mod visitor {
     }
     pub type AnnAssignNode<U = ()> = Located<AnnAssignNodeData<U>, U>;
 
-    pub struct ForNodeData<U=()> {
+    pub struct ForNodeData<U = ()> {
         pub target: Box<Expr<U>>,
         pub iter: Box<Expr<U>>,
         pub body: Vec<Stmt<U>>,
@@ -1385,7 +1393,7 @@ pub mod visitor {
     }
     pub type ForNode<U = ()> = Located<ForNodeData<U>, U>;
 
-    pub struct AsyncForNodeData<U=()> {
+    pub struct AsyncForNodeData<U = ()> {
         pub target: Box<Expr<U>>,
         pub iter: Box<Expr<U>>,
         pub body: Vec<Stmt<U>>,
@@ -1394,47 +1402,47 @@ pub mod visitor {
     }
     pub type AsyncForNode<U = ()> = Located<AsyncForNodeData<U>, U>;
 
-    pub struct WhileNodeData<U=()> {
+    pub struct WhileNodeData<U = ()> {
         pub test: Box<Expr<U>>,
         pub body: Vec<Stmt<U>>,
         pub orelse: Vec<Stmt<U>>,
     }
     pub type WhileNode<U = ()> = Located<WhileNodeData<U>, U>;
 
-    pub struct IfNodeData<U=()> {
+    pub struct IfNodeData<U = ()> {
         pub test: Box<Expr<U>>,
         pub body: Vec<Stmt<U>>,
         pub orelse: Vec<Stmt<U>>,
     }
     pub type IfNode<U = ()> = Located<IfNodeData<U>, U>;
 
-    pub struct WithNodeData<U=()> {
+    pub struct WithNodeData<U = ()> {
         pub items: Vec<Withitem<U>>,
         pub body: Vec<Stmt<U>>,
         pub type_comment: Option<String>,
     }
     pub type WithNode<U = ()> = Located<WithNodeData<U>, U>;
 
-    pub struct AsyncWithNodeData<U=()> {
+    pub struct AsyncWithNodeData<U = ()> {
         pub items: Vec<Withitem<U>>,
         pub body: Vec<Stmt<U>>,
         pub type_comment: Option<String>,
     }
     pub type AsyncWithNode<U = ()> = Located<AsyncWithNodeData<U>, U>;
 
-    pub struct MatchNodeData<U=()> {
+    pub struct MatchNodeData<U = ()> {
         pub subject: Box<Expr<U>>,
         pub cases: Vec<MatchCase<U>>,
     }
     pub type MatchNode<U = ()> = Located<MatchNodeData<U>, U>;
 
-    pub struct RaiseNodeData<U=()> {
+    pub struct RaiseNodeData<U = ()> {
         pub exc: Option<Box<Expr<U>>>,
         pub cause: Option<Box<Expr<U>>>,
     }
     pub type RaiseNode<U = ()> = Located<RaiseNodeData<U>, U>;
 
-    pub struct TryNodeData<U=()> {
+    pub struct TryNodeData<U = ()> {
         pub body: Vec<Stmt<U>>,
         pub handlers: Vec<Excepthandler<U>>,
         pub orelse: Vec<Stmt<U>>,
@@ -1442,7 +1450,7 @@ pub mod visitor {
     }
     pub type TryNode<U = ()> = Located<TryNodeData<U>, U>;
 
-    pub struct TryStarNodeData<U=()> {
+    pub struct TryStarNodeData<U = ()> {
         pub body: Vec<Stmt<U>>,
         pub handlers: Vec<Excepthandler<U>>,
         pub orelse: Vec<Stmt<U>>,
@@ -1450,247 +1458,244 @@ pub mod visitor {
     }
     pub type TryStarNode<U = ()> = Located<TryStarNodeData<U>, U>;
 
-    pub struct AssertNodeData<U=()> {
+    pub struct AssertNodeData<U = ()> {
         pub test: Box<Expr<U>>,
         pub msg: Option<Box<Expr<U>>>,
     }
     pub type AssertNode<U = ()> = Located<AssertNodeData<U>, U>;
 
-    pub struct ImportNodeData<U=()> {
+    pub struct ImportNodeData<U = ()> {
         pub names: Vec<Alias<U>>,
     }
     pub type ImportNode<U = ()> = Located<ImportNodeData<U>, U>;
 
-    pub struct ImportFromNodeData<U=()> {
+    pub struct ImportFromNodeData<U = ()> {
         pub module: Option<Ident>,
         pub names: Vec<Alias<U>>,
         pub level: Option<usize>,
     }
     pub type ImportFromNode<U = ()> = Located<ImportFromNodeData<U>, U>;
 
-    pub struct GlobalNodeData<> {
+    pub struct GlobalNodeData {
         pub names: Vec<Ident>,
     }
-    pub type GlobalNode<U = ()> = Located<GlobalNodeData<>, U>;
+    pub type GlobalNode<U = ()> = Located<GlobalNodeData, U>;
 
-    pub struct NonlocalNodeData<> {
+    pub struct NonlocalNodeData {
         pub names: Vec<Ident>,
     }
-    pub type NonlocalNode<U = ()> = Located<NonlocalNodeData<>, U>;
+    pub type NonlocalNode<U = ()> = Located<NonlocalNodeData, U>;
 
-    pub struct ExprNodeData<U=()> {
+    pub struct ExprNodeData<U = ()> {
         pub value: Box<Expr<U>>,
     }
     pub type ExprNode<U = ()> = Located<ExprNodeData<U>, U>;
 
-    pub struct PassNodeData<> {
-    }
-    pub type PassNode<U = ()> = Located<PassNodeData<>, U>;
+    pub struct PassNodeData {}
+    pub type PassNode<U = ()> = Located<PassNodeData, U>;
 
-    pub struct BreakNodeData<> {
-    }
-    pub type BreakNode<U = ()> = Located<BreakNodeData<>, U>;
+    pub struct BreakNodeData {}
+    pub type BreakNode<U = ()> = Located<BreakNodeData, U>;
 
-    pub struct ContinueNodeData<> {
-    }
-    pub type ContinueNode<U = ()> = Located<ContinueNodeData<>, U>;
+    pub struct ContinueNodeData {}
+    pub type ContinueNode<U = ()> = Located<ContinueNodeData, U>;
 
-    pub struct BoolOpNodeData<U=()> {
+    pub struct BoolOpNodeData<U = ()> {
         pub op: Boolop,
         pub values: Vec<Expr<U>>,
     }
     pub type BoolOpNode<U = ()> = Located<BoolOpNodeData<U>, U>;
 
-    pub struct NamedExprNodeData<U=()> {
+    pub struct NamedExprNodeData<U = ()> {
         pub target: Box<Expr<U>>,
         pub value: Box<Expr<U>>,
     }
     pub type NamedExprNode<U = ()> = Located<NamedExprNodeData<U>, U>;
 
-    pub struct BinOpNodeData<U=()> {
+    pub struct BinOpNodeData<U = ()> {
         pub left: Box<Expr<U>>,
         pub op: Operator,
         pub right: Box<Expr<U>>,
     }
     pub type BinOpNode<U = ()> = Located<BinOpNodeData<U>, U>;
 
-    pub struct UnaryOpNodeData<U=()> {
+    pub struct UnaryOpNodeData<U = ()> {
         pub op: Unaryop,
         pub operand: Box<Expr<U>>,
     }
     pub type UnaryOpNode<U = ()> = Located<UnaryOpNodeData<U>, U>;
 
-    pub struct LambdaNodeData<U=()> {
+    pub struct LambdaNodeData<U = ()> {
         pub args: Box<Arguments<U>>,
         pub body: Box<Expr<U>>,
     }
     pub type LambdaNode<U = ()> = Located<LambdaNodeData<U>, U>;
 
-    pub struct IfExpNodeData<U=()> {
+    pub struct IfExpNodeData<U = ()> {
         pub test: Box<Expr<U>>,
         pub body: Box<Expr<U>>,
         pub orelse: Box<Expr<U>>,
     }
     pub type IfExpNode<U = ()> = Located<IfExpNodeData<U>, U>;
 
-    pub struct DictNodeData<U=()> {
+    pub struct DictNodeData<U = ()> {
         pub keys: Vec<Option<Expr<U>>>,
         pub values: Vec<Expr<U>>,
     }
     pub type DictNode<U = ()> = Located<DictNodeData<U>, U>;
 
-    pub struct SetNodeData<U=()> {
+    pub struct SetNodeData<U = ()> {
         pub elts: Vec<Expr<U>>,
     }
     pub type SetNode<U = ()> = Located<SetNodeData<U>, U>;
 
-    pub struct ListCompNodeData<U=()> {
+    pub struct ListCompNodeData<U = ()> {
         pub elt: Box<Expr<U>>,
         pub generators: Vec<Comprehension<U>>,
     }
     pub type ListCompNode<U = ()> = Located<ListCompNodeData<U>, U>;
 
-    pub struct SetCompNodeData<U=()> {
+    pub struct SetCompNodeData<U = ()> {
         pub elt: Box<Expr<U>>,
         pub generators: Vec<Comprehension<U>>,
     }
     pub type SetCompNode<U = ()> = Located<SetCompNodeData<U>, U>;
 
-    pub struct DictCompNodeData<U=()> {
+    pub struct DictCompNodeData<U = ()> {
         pub key: Box<Expr<U>>,
         pub value: Box<Expr<U>>,
         pub generators: Vec<Comprehension<U>>,
     }
     pub type DictCompNode<U = ()> = Located<DictCompNodeData<U>, U>;
 
-    pub struct GeneratorExpNodeData<U=()> {
+    pub struct GeneratorExpNodeData<U = ()> {
         pub elt: Box<Expr<U>>,
         pub generators: Vec<Comprehension<U>>,
     }
     pub type GeneratorExpNode<U = ()> = Located<GeneratorExpNodeData<U>, U>;
 
-    pub struct AwaitNodeData<U=()> {
+    pub struct AwaitNodeData<U = ()> {
         pub value: Box<Expr<U>>,
     }
     pub type AwaitNode<U = ()> = Located<AwaitNodeData<U>, U>;
 
-    pub struct YieldNodeData<U=()> {
+    pub struct YieldNodeData<U = ()> {
         pub value: Option<Box<Expr<U>>>,
     }
     pub type YieldNode<U = ()> = Located<YieldNodeData<U>, U>;
 
-    pub struct YieldFromNodeData<U=()> {
+    pub struct YieldFromNodeData<U = ()> {
         pub value: Box<Expr<U>>,
     }
     pub type YieldFromNode<U = ()> = Located<YieldFromNodeData<U>, U>;
 
-    pub struct CompareNodeData<U=()> {
+    pub struct CompareNodeData<U = ()> {
         pub left: Box<Expr<U>>,
         pub ops: Vec<Cmpop>,
         pub comparators: Vec<Expr<U>>,
     }
     pub type CompareNode<U = ()> = Located<CompareNodeData<U>, U>;
 
-    pub struct CallNodeData<U=()> {
+    pub struct CallNodeData<U = ()> {
         pub func: Box<Expr<U>>,
         pub args: Vec<Expr<U>>,
         pub keywords: Vec<Keyword<U>>,
     }
     pub type CallNode<U = ()> = Located<CallNodeData<U>, U>;
 
-    pub struct FormattedValueNodeData<U=()> {
+    pub struct FormattedValueNodeData<U = ()> {
         pub value: Box<Expr<U>>,
         pub conversion: usize,
         pub format_spec: Option<Box<Expr<U>>>,
     }
     pub type FormattedValueNode<U = ()> = Located<FormattedValueNodeData<U>, U>;
 
-    pub struct JoinedStrNodeData<U=()> {
+    pub struct JoinedStrNodeData<U = ()> {
         pub values: Vec<Expr<U>>,
     }
     pub type JoinedStrNode<U = ()> = Located<JoinedStrNodeData<U>, U>;
 
-    pub struct ConstantNodeData<> {
+    pub struct ConstantNodeData {
         pub value: Constant,
         pub kind: Option<String>,
     }
-    pub type ConstantNode<U = ()> = Located<ConstantNodeData<>, U>;
+    pub type ConstantNode<U = ()> = Located<ConstantNodeData, U>;
 
-    pub struct AttributeNodeData<U=()> {
+    pub struct AttributeNodeData<U = ()> {
         pub value: Box<Expr<U>>,
         pub attr: Ident,
         pub ctx: ExprContext,
     }
     pub type AttributeNode<U = ()> = Located<AttributeNodeData<U>, U>;
 
-    pub struct SubscriptNodeData<U=()> {
+    pub struct SubscriptNodeData<U = ()> {
         pub value: Box<Expr<U>>,
         pub slice: Box<Expr<U>>,
         pub ctx: ExprContext,
     }
     pub type SubscriptNode<U = ()> = Located<SubscriptNodeData<U>, U>;
 
-    pub struct StarredNodeData<U=()> {
+    pub struct StarredNodeData<U = ()> {
         pub value: Box<Expr<U>>,
         pub ctx: ExprContext,
     }
     pub type StarredNode<U = ()> = Located<StarredNodeData<U>, U>;
 
-    pub struct NameNodeData<> {
+    pub struct NameNodeData {
         pub id: Ident,
         pub ctx: ExprContext,
     }
-    pub type NameNode<U = ()> = Located<NameNodeData<>, U>;
+    pub type NameNode<U = ()> = Located<NameNodeData, U>;
 
-    pub struct ListNodeData<U=()> {
+    pub struct ListNodeData<U = ()> {
         pub elts: Vec<Expr<U>>,
         pub ctx: ExprContext,
     }
     pub type ListNode<U = ()> = Located<ListNodeData<U>, U>;
 
-    pub struct TupleNodeData<U=()> {
+    pub struct TupleNodeData<U = ()> {
         pub elts: Vec<Expr<U>>,
         pub ctx: ExprContext,
     }
     pub type TupleNode<U = ()> = Located<TupleNodeData<U>, U>;
 
-    pub struct SliceNodeData<U=()> {
+    pub struct SliceNodeData<U = ()> {
         pub lower: Option<Box<Expr<U>>>,
         pub upper: Option<Box<Expr<U>>>,
         pub step: Option<Box<Expr<U>>>,
     }
     pub type SliceNode<U = ()> = Located<SliceNodeData<U>, U>;
 
-    pub struct ExceptHandlerNodeData<U=()> {
+    pub struct ExceptHandlerNodeData<U = ()> {
         pub type_: Option<Box<Expr<U>>>,
         pub name: Option<Ident>,
         pub body: Vec<Stmt<U>>,
     }
     pub type ExceptHandlerNode<U = ()> = Located<ExceptHandlerNodeData<U>, U>;
 
-    pub struct MatchValueNodeData<U=()> {
+    pub struct MatchValueNodeData<U = ()> {
         pub value: Box<Expr<U>>,
     }
     pub type MatchValueNode<U = ()> = Located<MatchValueNodeData<U>, U>;
 
-    pub struct MatchSingletonNodeData<> {
+    pub struct MatchSingletonNodeData {
         pub value: Constant,
     }
-    pub type MatchSingletonNode<U = ()> = Located<MatchSingletonNodeData<>, U>;
+    pub type MatchSingletonNode<U = ()> = Located<MatchSingletonNodeData, U>;
 
-    pub struct MatchSequenceNodeData<U=()> {
+    pub struct MatchSequenceNodeData<U = ()> {
         pub patterns: Vec<Pattern<U>>,
     }
     pub type MatchSequenceNode<U = ()> = Located<MatchSequenceNodeData<U>, U>;
 
-    pub struct MatchMappingNodeData<U=()> {
+    pub struct MatchMappingNodeData<U = ()> {
         pub keys: Vec<Expr<U>>,
         pub patterns: Vec<Pattern<U>>,
         pub rest: Option<Ident>,
     }
     pub type MatchMappingNode<U = ()> = Located<MatchMappingNodeData<U>, U>;
 
-    pub struct MatchClassNodeData<U=()> {
+    pub struct MatchClassNodeData<U = ()> {
         pub cls: Box<Expr<U>>,
         pub patterns: Vec<Pattern<U>>,
         pub kwd_attrs: Vec<Ident>,
@@ -1698,23 +1703,23 @@ pub mod visitor {
     }
     pub type MatchClassNode<U = ()> = Located<MatchClassNodeData<U>, U>;
 
-    pub struct MatchStarNodeData<> {
+    pub struct MatchStarNodeData {
         pub name: Option<Ident>,
     }
-    pub type MatchStarNode<U = ()> = Located<MatchStarNodeData<>, U>;
+    pub type MatchStarNode<U = ()> = Located<MatchStarNodeData, U>;
 
-    pub struct MatchAsNodeData<U=()> {
+    pub struct MatchAsNodeData<U = ()> {
         pub pattern: Option<Box<Pattern<U>>>,
         pub name: Option<Ident>,
     }
     pub type MatchAsNode<U = ()> = Located<MatchAsNodeData<U>, U>;
 
-    pub struct MatchOrNodeData<U=()> {
+    pub struct MatchOrNodeData<U = ()> {
         pub patterns: Vec<Pattern<U>>,
     }
     pub type MatchOrNode<U = ()> = Located<MatchOrNodeData<U>, U>;
 
-    pub trait Visitor<U=()> {
+    pub trait Visitor<U = ()> {
         fn visit_stmt(&mut self, node: Stmt) {
             self.generic_visit_stmt(node);
         }
@@ -1727,21 +1732,19 @@ pub mod visitor {
                     decorator_list,
                     returns,
                     type_comment,
-                } => self.visit_FunctionDef(
-                        FunctionDefNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: FunctionDefNodeData {
-                            name,
-                            args,
-                            body,
-                            decorator_list,
-                            returns,
-                            type_comment,
-                        },
-                    }
-                ),
+                } => self.visit_FunctionDef(FunctionDefNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: FunctionDefNodeData {
+                        name,
+                        args,
+                        body,
+                        decorator_list,
+                        returns,
+                        type_comment,
+                    },
+                }),
                 StmtKind::AsyncFunctionDef {
                     name,
                     args,
@@ -1749,391 +1752,267 @@ pub mod visitor {
                     decorator_list,
                     returns,
                     type_comment,
-                } => self.visit_AsyncFunctionDef(
-                        AsyncFunctionDefNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: AsyncFunctionDefNodeData {
-                            name,
-                            args,
-                            body,
-                            decorator_list,
-                            returns,
-                            type_comment,
-                        },
-                    }
-                ),
+                } => self.visit_AsyncFunctionDef(AsyncFunctionDefNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: AsyncFunctionDefNodeData {
+                        name,
+                        args,
+                        body,
+                        decorator_list,
+                        returns,
+                        type_comment,
+                    },
+                }),
                 StmtKind::ClassDef {
                     name,
                     bases,
                     keywords,
                     body,
                     decorator_list,
-                } => self.visit_ClassDef(
-                        ClassDefNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ClassDefNodeData {
-                            name,
-                            bases,
-                            keywords,
-                            body,
-                            decorator_list,
-                        },
-                    }
-                ),
-                StmtKind::Return {
-                    value,
-                } => self.visit_Return(
-                        ReturnNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ReturnNodeData {
-                            value,
-                        },
-                    }
-                ),
-                StmtKind::Delete {
-                    targets,
-                } => self.visit_Delete(
-                        DeleteNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: DeleteNodeData {
-                            targets,
-                        },
-                    }
-                ),
+                } => self.visit_ClassDef(ClassDefNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ClassDefNodeData {
+                        name,
+                        bases,
+                        keywords,
+                        body,
+                        decorator_list,
+                    },
+                }),
+                StmtKind::Return { value } => self.visit_Return(ReturnNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ReturnNodeData { value },
+                }),
+                StmtKind::Delete { targets } => self.visit_Delete(DeleteNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: DeleteNodeData { targets },
+                }),
                 StmtKind::Assign {
                     targets,
                     value,
                     type_comment,
-                } => self.visit_Assign(
-                        AssignNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: AssignNodeData {
-                            targets,
-                            value,
-                            type_comment,
-                        },
-                    }
-                ),
-                StmtKind::AugAssign {
-                    target,
-                    op,
-                    value,
-                } => self.visit_AugAssign(
-                        AugAssignNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: AugAssignNodeData {
-                            target,
-                            op,
-                            value,
-                        },
-                    }
-                ),
+                } => self.visit_Assign(AssignNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: AssignNodeData {
+                        targets,
+                        value,
+                        type_comment,
+                    },
+                }),
+                StmtKind::AugAssign { target, op, value } => self.visit_AugAssign(AugAssignNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: AugAssignNodeData { target, op, value },
+                }),
                 StmtKind::AnnAssign {
                     target,
                     annotation,
                     value,
                     simple,
-                } => self.visit_AnnAssign(
-                        AnnAssignNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: AnnAssignNodeData {
-                            target,
-                            annotation,
-                            value,
-                            simple,
-                        },
-                    }
-                ),
+                } => self.visit_AnnAssign(AnnAssignNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: AnnAssignNodeData {
+                        target,
+                        annotation,
+                        value,
+                        simple,
+                    },
+                }),
                 StmtKind::For {
                     target,
                     iter,
                     body,
                     orelse,
                     type_comment,
-                } => self.visit_For(
-                        ForNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ForNodeData {
-                            target,
-                            iter,
-                            body,
-                            orelse,
-                            type_comment,
-                        },
-                    }
-                ),
+                } => self.visit_For(ForNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ForNodeData {
+                        target,
+                        iter,
+                        body,
+                        orelse,
+                        type_comment,
+                    },
+                }),
                 StmtKind::AsyncFor {
                     target,
                     iter,
                     body,
                     orelse,
                     type_comment,
-                } => self.visit_AsyncFor(
-                        AsyncForNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: AsyncForNodeData {
-                            target,
-                            iter,
-                            body,
-                            orelse,
-                            type_comment,
-                        },
-                    }
-                ),
-                StmtKind::While {
-                    test,
-                    body,
-                    orelse,
-                } => self.visit_While(
-                        WhileNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: WhileNodeData {
-                            test,
-                            body,
-                            orelse,
-                        },
-                    }
-                ),
-                StmtKind::If {
-                    test,
-                    body,
-                    orelse,
-                } => self.visit_If(
-                        IfNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: IfNodeData {
-                            test,
-                            body,
-                            orelse,
-                        },
-                    }
-                ),
+                } => self.visit_AsyncFor(AsyncForNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: AsyncForNodeData {
+                        target,
+                        iter,
+                        body,
+                        orelse,
+                        type_comment,
+                    },
+                }),
+                StmtKind::While { test, body, orelse } => self.visit_While(WhileNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: WhileNodeData { test, body, orelse },
+                }),
+                StmtKind::If { test, body, orelse } => self.visit_If(IfNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: IfNodeData { test, body, orelse },
+                }),
                 StmtKind::With {
                     items,
                     body,
                     type_comment,
-                } => self.visit_With(
-                        WithNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: WithNodeData {
-                            items,
-                            body,
-                            type_comment,
-                        },
-                    }
-                ),
+                } => self.visit_With(WithNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: WithNodeData {
+                        items,
+                        body,
+                        type_comment,
+                    },
+                }),
                 StmtKind::AsyncWith {
                     items,
                     body,
                     type_comment,
-                } => self.visit_AsyncWith(
-                        AsyncWithNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: AsyncWithNodeData {
-                            items,
-                            body,
-                            type_comment,
-                        },
-                    }
-                ),
-                StmtKind::Match {
-                    subject,
-                    cases,
-                } => self.visit_Match(
-                        MatchNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: MatchNodeData {
-                            subject,
-                            cases,
-                        },
-                    }
-                ),
-                StmtKind::Raise {
-                    exc,
-                    cause,
-                } => self.visit_Raise(
-                        RaiseNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: RaiseNodeData {
-                            exc,
-                            cause,
-                        },
-                    }
-                ),
+                } => self.visit_AsyncWith(AsyncWithNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: AsyncWithNodeData {
+                        items,
+                        body,
+                        type_comment,
+                    },
+                }),
+                StmtKind::Match { subject, cases } => self.visit_Match(MatchNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: MatchNodeData { subject, cases },
+                }),
+                StmtKind::Raise { exc, cause } => self.visit_Raise(RaiseNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: RaiseNodeData { exc, cause },
+                }),
                 StmtKind::Try {
                     body,
                     handlers,
                     orelse,
                     finalbody,
-                } => self.visit_Try(
-                        TryNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: TryNodeData {
-                            body,
-                            handlers,
-                            orelse,
-                            finalbody,
-                        },
-                    }
-                ),
+                } => self.visit_Try(TryNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: TryNodeData {
+                        body,
+                        handlers,
+                        orelse,
+                        finalbody,
+                    },
+                }),
                 StmtKind::TryStar {
                     body,
                     handlers,
                     orelse,
                     finalbody,
-                } => self.visit_TryStar(
-                        TryStarNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: TryStarNodeData {
-                            body,
-                            handlers,
-                            orelse,
-                            finalbody,
-                        },
-                    }
-                ),
-                StmtKind::Assert {
-                    test,
-                    msg,
-                } => self.visit_Assert(
-                        AssertNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: AssertNodeData {
-                            test,
-                            msg,
-                        },
-                    }
-                ),
-                StmtKind::Import {
-                    names,
-                } => self.visit_Import(
-                        ImportNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ImportNodeData {
-                            names,
-                        },
-                    }
-                ),
+                } => self.visit_TryStar(TryStarNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: TryStarNodeData {
+                        body,
+                        handlers,
+                        orelse,
+                        finalbody,
+                    },
+                }),
+                StmtKind::Assert { test, msg } => self.visit_Assert(AssertNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: AssertNodeData { test, msg },
+                }),
+                StmtKind::Import { names } => self.visit_Import(ImportNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ImportNodeData { names },
+                }),
                 StmtKind::ImportFrom {
                     module,
                     names,
                     level,
-                } => self.visit_ImportFrom(
-                        ImportFromNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ImportFromNodeData {
-                            module,
-                            names,
-                            level,
-                        },
-                    }
-                ),
-                StmtKind::Global {
-                    names,
-                } => self.visit_Global(
-                        GlobalNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: GlobalNodeData {
-                            names,
-                        },
-                    }
-                ),
-                StmtKind::Nonlocal {
-                    names,
-                } => self.visit_Nonlocal(
-                        NonlocalNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: NonlocalNodeData {
-                            names,
-                        },
-                    }
-                ),
-                StmtKind::Expr {
-                    value,
-                } => self.visit_Expr(
-                        ExprNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ExprNodeData {
-                            value,
-                        },
-                    }
-                ),
-                StmtKind::Pass {
-                } => self.visit_Pass(
-                        PassNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: PassNodeData {
-                        },
-                    }
-                ),
-                StmtKind::Break {
-                } => self.visit_Break(
-                        BreakNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: BreakNodeData {
-                        },
-                    }
-                ),
-                StmtKind::Continue {
-                } => self.visit_Continue(
-                        ContinueNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ContinueNodeData {
-                        },
-                    }
-                ),
+                } => self.visit_ImportFrom(ImportFromNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ImportFromNodeData {
+                        module,
+                        names,
+                        level,
+                    },
+                }),
+                StmtKind::Global { names } => self.visit_Global(GlobalNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: GlobalNodeData { names },
+                }),
+                StmtKind::Nonlocal { names } => self.visit_Nonlocal(NonlocalNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: NonlocalNodeData { names },
+                }),
+                StmtKind::Expr { value } => self.visit_Expr(ExprNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ExprNodeData { value },
+                }),
+                StmtKind::Pass {} => self.visit_Pass(PassNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: PassNodeData {},
+                }),
+                StmtKind::Break {} => self.visit_Break(BreakNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: BreakNodeData {},
+                }),
+                StmtKind::Continue {} => self.visit_Continue(ContinueNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ContinueNodeData {},
+                }),
             }
         }
         fn visit_FunctionDef(&mut self, node: FunctionDefNode) {
@@ -2424,13 +2303,11 @@ pub mod visitor {
         fn visit_Global(&mut self, node: GlobalNode) {
             self.generic_visit_Global(node);
         }
-        fn generic_visit_Global(&mut self, node: GlobalNode) {
-        }
+        fn generic_visit_Global(&mut self, node: GlobalNode) {}
         fn visit_Nonlocal(&mut self, node: NonlocalNode) {
             self.generic_visit_Nonlocal(node);
         }
-        fn generic_visit_Nonlocal(&mut self, node: NonlocalNode) {
-        }
+        fn generic_visit_Nonlocal(&mut self, node: NonlocalNode) {}
         fn visit_Expr(&mut self, node: ExprNode) {
             self.generic_visit_Expr(node);
         }
@@ -2443,409 +2320,216 @@ pub mod visitor {
         fn visit_Pass(&mut self, node: PassNode) {
             self.generic_visit_Pass(node);
         }
-        fn generic_visit_Pass(&mut self, node: PassNode) {
-        }
+        fn generic_visit_Pass(&mut self, node: PassNode) {}
         fn visit_Break(&mut self, node: BreakNode) {
             self.generic_visit_Break(node);
         }
-        fn generic_visit_Break(&mut self, node: BreakNode) {
-        }
+        fn generic_visit_Break(&mut self, node: BreakNode) {}
         fn visit_Continue(&mut self, node: ContinueNode) {
             self.generic_visit_Continue(node);
         }
-        fn generic_visit_Continue(&mut self, node: ContinueNode) {
-        }
+        fn generic_visit_Continue(&mut self, node: ContinueNode) {}
         fn visit_expr(&mut self, node: Expr) {
             self.generic_visit_expr(node);
         }
         fn generic_visit_expr(&mut self, node: Expr) {
             match node.node {
-                ExprKind::BoolOp {
-                    op,
-                    values,
-                } => self.visit_BoolOp(
-                        BoolOpNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: BoolOpNodeData {
-                            op,
-                            values,
-                        },
-                    }
-                ),
-                ExprKind::NamedExpr {
-                    target,
-                    value,
-                } => self.visit_NamedExpr(
-                        NamedExprNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: NamedExprNodeData {
-                            target,
-                            value,
-                        },
-                    }
-                ),
-                ExprKind::BinOp {
-                    left,
-                    op,
-                    right,
-                } => self.visit_BinOp(
-                        BinOpNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: BinOpNodeData {
-                            left,
-                            op,
-                            right,
-                        },
-                    }
-                ),
-                ExprKind::UnaryOp {
-                    op,
-                    operand,
-                } => self.visit_UnaryOp(
-                        UnaryOpNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: UnaryOpNodeData {
-                            op,
-                            operand,
-                        },
-                    }
-                ),
-                ExprKind::Lambda {
-                    args,
-                    body,
-                } => self.visit_Lambda(
-                        LambdaNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: LambdaNodeData {
-                            args,
-                            body,
-                        },
-                    }
-                ),
-                ExprKind::IfExp {
-                    test,
-                    body,
-                    orelse,
-                } => self.visit_IfExp(
-                        IfExpNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: IfExpNodeData {
-                            test,
-                            body,
-                            orelse,
-                        },
-                    }
-                ),
-                ExprKind::Dict {
-                    keys,
-                    values,
-                } => self.visit_Dict(
-                        DictNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: DictNodeData {
-                            keys,
-                            values,
-                        },
-                    }
-                ),
-                ExprKind::Set {
-                    elts,
-                } => self.visit_Set(
-                        SetNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: SetNodeData {
-                            elts,
-                        },
-                    }
-                ),
-                ExprKind::ListComp {
-                    elt,
-                    generators,
-                } => self.visit_ListComp(
-                        ListCompNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ListCompNodeData {
-                            elt,
-                            generators,
-                        },
-                    }
-                ),
-                ExprKind::SetComp {
-                    elt,
-                    generators,
-                } => self.visit_SetComp(
-                        SetCompNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: SetCompNodeData {
-                            elt,
-                            generators,
-                        },
-                    }
-                ),
+                ExprKind::BoolOp { op, values } => self.visit_BoolOp(BoolOpNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: BoolOpNodeData { op, values },
+                }),
+                ExprKind::NamedExpr { target, value } => self.visit_NamedExpr(NamedExprNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: NamedExprNodeData { target, value },
+                }),
+                ExprKind::BinOp { left, op, right } => self.visit_BinOp(BinOpNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: BinOpNodeData { left, op, right },
+                }),
+                ExprKind::UnaryOp { op, operand } => self.visit_UnaryOp(UnaryOpNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: UnaryOpNodeData { op, operand },
+                }),
+                ExprKind::Lambda { args, body } => self.visit_Lambda(LambdaNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: LambdaNodeData { args, body },
+                }),
+                ExprKind::IfExp { test, body, orelse } => self.visit_IfExp(IfExpNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: IfExpNodeData { test, body, orelse },
+                }),
+                ExprKind::Dict { keys, values } => self.visit_Dict(DictNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: DictNodeData { keys, values },
+                }),
+                ExprKind::Set { elts } => self.visit_Set(SetNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: SetNodeData { elts },
+                }),
+                ExprKind::ListComp { elt, generators } => self.visit_ListComp(ListCompNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ListCompNodeData { elt, generators },
+                }),
+                ExprKind::SetComp { elt, generators } => self.visit_SetComp(SetCompNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: SetCompNodeData { elt, generators },
+                }),
                 ExprKind::DictComp {
                     key,
                     value,
                     generators,
-                } => self.visit_DictComp(
-                        DictCompNode {
+                } => self.visit_DictComp(DictCompNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: DictCompNodeData {
+                        key,
+                        value,
+                        generators,
+                    },
+                }),
+                ExprKind::GeneratorExp { elt, generators } => {
+                    self.visit_GeneratorExp(GeneratorExpNode {
                         location: node.location,
                         end_location: node.end_location,
                         custom: node.custom,
-                        node: DictCompNodeData {
-                            key,
-                            value,
-                            generators,
-                        },
-                    }
-                ),
-                ExprKind::GeneratorExp {
-                    elt,
-                    generators,
-                } => self.visit_GeneratorExp(
-                        GeneratorExpNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: GeneratorExpNodeData {
-                            elt,
-                            generators,
-                        },
-                    }
-                ),
-                ExprKind::Await {
-                    value,
-                } => self.visit_Await(
-                        AwaitNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: AwaitNodeData {
-                            value,
-                        },
-                    }
-                ),
-                ExprKind::Yield {
-                    value,
-                } => self.visit_Yield(
-                        YieldNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: YieldNodeData {
-                            value,
-                        },
-                    }
-                ),
-                ExprKind::YieldFrom {
-                    value,
-                } => self.visit_YieldFrom(
-                        YieldFromNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: YieldFromNodeData {
-                            value,
-                        },
-                    }
-                ),
+                        node: GeneratorExpNodeData { elt, generators },
+                    })
+                }
+                ExprKind::Await { value } => self.visit_Await(AwaitNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: AwaitNodeData { value },
+                }),
+                ExprKind::Yield { value } => self.visit_Yield(YieldNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: YieldNodeData { value },
+                }),
+                ExprKind::YieldFrom { value } => self.visit_YieldFrom(YieldFromNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: YieldFromNodeData { value },
+                }),
                 ExprKind::Compare {
                     left,
                     ops,
                     comparators,
-                } => self.visit_Compare(
-                        CompareNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: CompareNodeData {
-                            left,
-                            ops,
-                            comparators,
-                        },
-                    }
-                ),
+                } => self.visit_Compare(CompareNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: CompareNodeData {
+                        left,
+                        ops,
+                        comparators,
+                    },
+                }),
                 ExprKind::Call {
                     func,
                     args,
                     keywords,
-                } => self.visit_Call(
-                        CallNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: CallNodeData {
-                            func,
-                            args,
-                            keywords,
-                        },
-                    }
-                ),
+                } => self.visit_Call(CallNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: CallNodeData {
+                        func,
+                        args,
+                        keywords,
+                    },
+                }),
                 ExprKind::FormattedValue {
                     value,
                     conversion,
                     format_spec,
-                } => self.visit_FormattedValue(
-                        FormattedValueNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: FormattedValueNodeData {
-                            value,
-                            conversion,
-                            format_spec,
-                        },
-                    }
-                ),
-                ExprKind::JoinedStr {
-                    values,
-                } => self.visit_JoinedStr(
-                        JoinedStrNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: JoinedStrNodeData {
-                            values,
-                        },
-                    }
-                ),
-                ExprKind::Constant {
-                    value,
-                    kind,
-                } => self.visit_Constant(
-                        ConstantNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ConstantNodeData {
-                            value,
-                            kind,
-                        },
-                    }
-                ),
-                ExprKind::Attribute {
-                    value,
-                    attr,
-                    ctx,
-                } => self.visit_Attribute(
-                        AttributeNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: AttributeNodeData {
-                            value,
-                            attr,
-                            ctx,
-                        },
-                    }
-                ),
-                ExprKind::Subscript {
-                    value,
-                    slice,
-                    ctx,
-                } => self.visit_Subscript(
-                        SubscriptNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: SubscriptNodeData {
-                            value,
-                            slice,
-                            ctx,
-                        },
-                    }
-                ),
-                ExprKind::Starred {
-                    value,
-                    ctx,
-                } => self.visit_Starred(
-                        StarredNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: StarredNodeData {
-                            value,
-                            ctx,
-                        },
-                    }
-                ),
-                ExprKind::Name {
-                    id,
-                    ctx,
-                } => self.visit_Name(
-                        NameNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: NameNodeData {
-                            id,
-                            ctx,
-                        },
-                    }
-                ),
-                ExprKind::List {
-                    elts,
-                    ctx,
-                } => self.visit_List(
-                        ListNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: ListNodeData {
-                            elts,
-                            ctx,
-                        },
-                    }
-                ),
-                ExprKind::Tuple {
-                    elts,
-                    ctx,
-                } => self.visit_Tuple(
-                        TupleNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: TupleNodeData {
-                            elts,
-                            ctx,
-                        },
-                    }
-                ),
-                ExprKind::Slice {
-                    lower,
-                    upper,
-                    step,
-                } => self.visit_Slice(
-                        SliceNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: SliceNodeData {
-                            lower,
-                            upper,
-                            step,
-                        },
-                    }
-                ),
+                } => self.visit_FormattedValue(FormattedValueNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: FormattedValueNodeData {
+                        value,
+                        conversion,
+                        format_spec,
+                    },
+                }),
+                ExprKind::JoinedStr { values } => self.visit_JoinedStr(JoinedStrNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: JoinedStrNodeData { values },
+                }),
+                ExprKind::Constant { value, kind } => self.visit_Constant(ConstantNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ConstantNodeData { value, kind },
+                }),
+                ExprKind::Attribute { value, attr, ctx } => self.visit_Attribute(AttributeNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: AttributeNodeData { value, attr, ctx },
+                }),
+                ExprKind::Subscript { value, slice, ctx } => self.visit_Subscript(SubscriptNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: SubscriptNodeData { value, slice, ctx },
+                }),
+                ExprKind::Starred { value, ctx } => self.visit_Starred(StarredNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: StarredNodeData { value, ctx },
+                }),
+                ExprKind::Name { id, ctx } => self.visit_Name(NameNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: NameNodeData { id, ctx },
+                }),
+                ExprKind::List { elts, ctx } => self.visit_List(ListNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: ListNodeData { elts, ctx },
+                }),
+                ExprKind::Tuple { elts, ctx } => self.visit_Tuple(TupleNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: TupleNodeData { elts, ctx },
+                }),
+                ExprKind::Slice { lower, upper, step } => self.visit_Slice(SliceNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: SliceNodeData { lower, upper, step },
+                }),
             }
         }
         fn visit_BoolOp(&mut self, node: BoolOpNode) {
@@ -3068,8 +2752,7 @@ pub mod visitor {
         fn visit_Constant(&mut self, node: ConstantNode) {
             self.generic_visit_Constant(node);
         }
-        fn generic_visit_Constant(&mut self, node: ConstantNode) {
-        }
+        fn generic_visit_Constant(&mut self, node: ConstantNode) {}
         fn visit_Attribute(&mut self, node: AttributeNode) {
             self.generic_visit_Attribute(node);
         }
@@ -3104,8 +2787,7 @@ pub mod visitor {
         fn visit_Name(&mut self, node: NameNode) {
             self.generic_visit_Name(node);
         }
-        fn generic_visit_Name(&mut self, node: NameNode) {
-        }
+        fn generic_visit_Name(&mut self, node: NameNode) {}
         fn visit_List(&mut self, node: ListNode) {
             self.generic_visit_List(node);
         }
@@ -3139,54 +2821,40 @@ pub mod visitor {
         fn visit_expr_context(&mut self, node: ExprContext) {
             self.generic_visit_expr_context(node);
         }
-        fn generic_visit_expr_context(&mut self, node: ExprContext) {
-        }
+        fn generic_visit_expr_context(&mut self, node: ExprContext) {}
         fn visit_boolop(&mut self, node: Boolop) {
             self.generic_visit_boolop(node);
         }
-        fn generic_visit_boolop(&mut self, node: Boolop) {
-        }
+        fn generic_visit_boolop(&mut self, node: Boolop) {}
         fn visit_operator(&mut self, node: Operator) {
             self.generic_visit_operator(node);
         }
-        fn generic_visit_operator(&mut self, node: Operator) {
-        }
+        fn generic_visit_operator(&mut self, node: Operator) {}
         fn visit_unaryop(&mut self, node: Unaryop) {
             self.generic_visit_unaryop(node);
         }
-        fn generic_visit_unaryop(&mut self, node: Unaryop) {
-        }
+        fn generic_visit_unaryop(&mut self, node: Unaryop) {}
         fn visit_cmpop(&mut self, node: Cmpop) {
             self.generic_visit_cmpop(node);
         }
-        fn generic_visit_cmpop(&mut self, node: Cmpop) {
-        }
+        fn generic_visit_cmpop(&mut self, node: Cmpop) {}
         fn visit_comprehension(&mut self, node: Comprehension) {
             self.generic_visit_comprehension(node);
         }
-        fn generic_visit_comprehension(&mut self, node: Comprehension) {
-        }
+        fn generic_visit_comprehension(&mut self, node: Comprehension) {}
         fn visit_excepthandler(&mut self, node: Excepthandler) {
             self.generic_visit_excepthandler(node);
         }
         fn generic_visit_excepthandler(&mut self, node: Excepthandler) {
             match node.node {
-                ExcepthandlerKind::ExceptHandler {
-                    type_,
-                    name,
-                    body,
-                } => self.visit_ExceptHandler(
-                        ExceptHandlerNode {
+                ExcepthandlerKind::ExceptHandler { type_, name, body } => {
+                    self.visit_ExceptHandler(ExceptHandlerNode {
                         location: node.location,
                         end_location: node.end_location,
                         custom: node.custom,
-                        node: ExceptHandlerNodeData {
-                            type_,
-                            name,
-                            body,
-                        },
-                    }
-                ),
+                        node: ExceptHandlerNodeData { type_, name, body },
+                    })
+                }
             }
         }
         fn visit_ExceptHandler(&mut self, node: ExceptHandlerNode) {
@@ -3203,146 +2871,102 @@ pub mod visitor {
         fn visit_arguments(&mut self, node: Arguments) {
             self.generic_visit_arguments(node);
         }
-        fn generic_visit_arguments(&mut self, node: Arguments) {
-        }
+        fn generic_visit_arguments(&mut self, node: Arguments) {}
         fn visit_arg(&mut self, node: Arg) {
             self.generic_visit_arg(node);
         }
-        fn generic_visit_arg(&mut self, node: Arg) {
-        }
+        fn generic_visit_arg(&mut self, node: Arg) {}
         fn visit_keyword(&mut self, node: Keyword) {
             self.generic_visit_keyword(node);
         }
-        fn generic_visit_keyword(&mut self, node: Keyword) {
-        }
+        fn generic_visit_keyword(&mut self, node: Keyword) {}
         fn visit_alias(&mut self, node: Alias) {
             self.generic_visit_alias(node);
         }
-        fn generic_visit_alias(&mut self, node: Alias) {
-        }
+        fn generic_visit_alias(&mut self, node: Alias) {}
         fn visit_withitem(&mut self, node: Withitem) {
             self.generic_visit_withitem(node);
         }
-        fn generic_visit_withitem(&mut self, node: Withitem) {
-        }
+        fn generic_visit_withitem(&mut self, node: Withitem) {}
         fn visit_match_case(&mut self, node: MatchCase) {
             self.generic_visit_match_case(node);
         }
-        fn generic_visit_match_case(&mut self, node: MatchCase) {
-        }
+        fn generic_visit_match_case(&mut self, node: MatchCase) {}
         fn visit_pattern(&mut self, node: Pattern) {
             self.generic_visit_pattern(node);
         }
         fn generic_visit_pattern(&mut self, node: Pattern) {
             match node.node {
-                PatternKind::MatchValue {
-                    value,
-                } => self.visit_MatchValue(
-                        MatchValueNode {
+                PatternKind::MatchValue { value } => self.visit_MatchValue(MatchValueNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: MatchValueNodeData { value },
+                }),
+                PatternKind::MatchSingleton { value } => {
+                    self.visit_MatchSingleton(MatchSingletonNode {
                         location: node.location,
                         end_location: node.end_location,
                         custom: node.custom,
-                        node: MatchValueNodeData {
-                            value,
-                        },
-                    }
-                ),
-                PatternKind::MatchSingleton {
-                    value,
-                } => self.visit_MatchSingleton(
-                        MatchSingletonNode {
+                        node: MatchSingletonNodeData { value },
+                    })
+                }
+                PatternKind::MatchSequence { patterns } => {
+                    self.visit_MatchSequence(MatchSequenceNode {
                         location: node.location,
                         end_location: node.end_location,
                         custom: node.custom,
-                        node: MatchSingletonNodeData {
-                            value,
-                        },
-                    }
-                ),
-                PatternKind::MatchSequence {
-                    patterns,
-                } => self.visit_MatchSequence(
-                        MatchSequenceNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: MatchSequenceNodeData {
-                            patterns,
-                        },
-                    }
-                ),
+                        node: MatchSequenceNodeData { patterns },
+                    })
+                }
                 PatternKind::MatchMapping {
                     keys,
                     patterns,
                     rest,
-                } => self.visit_MatchMapping(
-                        MatchMappingNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: MatchMappingNodeData {
-                            keys,
-                            patterns,
-                            rest,
-                        },
-                    }
-                ),
+                } => self.visit_MatchMapping(MatchMappingNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: MatchMappingNodeData {
+                        keys,
+                        patterns,
+                        rest,
+                    },
+                }),
                 PatternKind::MatchClass {
                     cls,
                     patterns,
                     kwd_attrs,
                     kwd_patterns,
-                } => self.visit_MatchClass(
-                        MatchClassNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: MatchClassNodeData {
-                            cls,
-                            patterns,
-                            kwd_attrs,
-                            kwd_patterns,
-                        },
-                    }
-                ),
-                PatternKind::MatchStar {
-                    name,
-                } => self.visit_MatchStar(
-                        MatchStarNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: MatchStarNodeData {
-                            name,
-                        },
-                    }
-                ),
-                PatternKind::MatchAs {
-                    pattern,
-                    name,
-                } => self.visit_MatchAs(
-                        MatchAsNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: MatchAsNodeData {
-                            pattern,
-                            name,
-                        },
-                    }
-                ),
-                PatternKind::MatchOr {
-                    patterns,
-                } => self.visit_MatchOr(
-                        MatchOrNode {
-                        location: node.location,
-                        end_location: node.end_location,
-                        custom: node.custom,
-                        node: MatchOrNodeData {
-                            patterns,
-                        },
-                    }
-                ),
+                } => self.visit_MatchClass(MatchClassNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: MatchClassNodeData {
+                        cls,
+                        patterns,
+                        kwd_attrs,
+                        kwd_patterns,
+                    },
+                }),
+                PatternKind::MatchStar { name } => self.visit_MatchStar(MatchStarNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: MatchStarNodeData { name },
+                }),
+                PatternKind::MatchAs { pattern, name } => self.visit_MatchAs(MatchAsNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: MatchAsNodeData { pattern, name },
+                }),
+                PatternKind::MatchOr { patterns } => self.visit_MatchOr(MatchOrNode {
+                    location: node.location,
+                    end_location: node.end_location,
+                    custom: node.custom,
+                    node: MatchOrNodeData { patterns },
+                }),
             }
         }
         fn visit_MatchValue(&mut self, node: MatchValueNode) {
@@ -3357,8 +2981,7 @@ pub mod visitor {
         fn visit_MatchSingleton(&mut self, node: MatchSingletonNode) {
             self.generic_visit_MatchSingleton(node);
         }
-        fn generic_visit_MatchSingleton(&mut self, node: MatchSingletonNode) {
-        }
+        fn generic_visit_MatchSingleton(&mut self, node: MatchSingletonNode) {}
         fn visit_MatchSequence(&mut self, node: MatchSequenceNode) {
             self.generic_visit_MatchSequence(node);
         }
@@ -3396,8 +3019,7 @@ pub mod visitor {
         fn visit_MatchStar(&mut self, node: MatchStarNode) {
             self.generic_visit_MatchStar(node);
         }
-        fn generic_visit_MatchStar(&mut self, node: MatchStarNode) {
-        }
+        fn generic_visit_MatchStar(&mut self, node: MatchStarNode) {}
         fn visit_MatchAs(&mut self, node: MatchAsNode) {
             self.generic_visit_MatchAs(node);
         }
@@ -3416,5 +3038,3 @@ pub mod visitor {
         }
     }
 }
-
-
