@@ -20,19 +20,18 @@ impl VirtualMachine {
         value.into_pytuple(self)
     }
 
-    pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyObjectRef {
+    pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyRef<PyModule> {
         let module = PyRef::new_ref(
-            PyModule {},
+            PyModule::new(),
             self.ctx.types.module_type.to_owned(),
             Some(dict),
         );
         module.init_module_dict(
             self.ctx.intern_str(name),
-            doc.map(|doc| self.new_pyobj(doc.to_owned()))
-                .unwrap_or_else(|| self.ctx.none()),
+            doc.map(|doc| self.ctx.new_str(doc)),
             self,
         );
-        module.into()
+        module
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {

@@ -11,8 +11,9 @@ cfg_if::cfg_if! {
 
 use crate::{
     builtins::PyBaseExceptionRef,
+    builtins::PyModule,
     convert::{IntoPyException, ToPyException, ToPyObject},
-    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 pub use _io::io_open as open;
 
@@ -44,18 +45,18 @@ impl IntoPyException for std::io::Error {
     }
 }
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let ctx = &vm.ctx;
 
     let module = _io::make_module(vm);
 
     #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-    fileio::extend_module(vm, &module);
+    fileio::extend_module(vm, &module).unwrap();
 
     let unsupported_operation = _io::UNSUPPORTED_OPERATION
         .get_or_init(|| _io::make_unsupportedop(ctx))
         .clone();
-    extend_module!(vm, module, {
+    extend_module!(vm, &module, {
         "UnsupportedOperation" => unsupported_operation,
         "BlockingIOError" => ctx.exceptions.blocking_io_error.to_owned(),
     });
@@ -379,7 +380,7 @@ mod _io {
     #[pyattr]
     #[pyclass(name = "_IOBase")]
     #[derive(Debug, PyPayload)]
-    struct _IOBase;
+    pub struct _IOBase;
 
     #[pyclass(with(IterNext, Destructor), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
@@ -3637,6 +3638,7 @@ mod _io {
     }
 
     pub(super) fn make_unsupportedop(ctx: &Context) -> PyTypeRef {
+        use crate::types::PyTypeSlots;
         PyType::new_heap(
             "UnsupportedOperation",
             vec![
@@ -3644,7 +3646,7 @@ mod _io {
                 ctx.exceptions.value_error.to_owned(),
             ],
             Default::default(),
-            Default::default(),
+            PyTypeSlots::heap_default(),
             ctx.types.type_type.to_owned(),
             ctx,
         )

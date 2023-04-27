@@ -1,7 +1,8 @@
 //! Builtin function definitions.
 //!
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
-use crate::{class::PyClassImpl, PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, class::PyClassImpl, Py, VirtualMachine};
+pub use builtins::{ascii, print};
 
 #[pymodule]
 mod builtins {
@@ -933,14 +934,12 @@ mod builtins {
     }
 }
 
-pub use builtins::{ascii, print};
-
-pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
+pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
 
     crate::protocol::VecBuffer::make_class(&vm.ctx);
 
-    builtins::extend_module(vm, &module);
+    builtins::extend_module(vm, module).unwrap();
 
     let debug_mode: bool = vm.state.settings.optimize == 0;
     extend_module!(vm, module, {

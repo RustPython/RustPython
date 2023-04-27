@@ -318,8 +318,9 @@ impl PyStr {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
     }
 
-    pub fn new_ref(s: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(s.into(), ctx.types.str_type.to_owned(), None)
+    pub fn new_ref(zelf: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
+        let zelf = zelf.into();
+        PyRef::new_ref(zelf, ctx.types.str_type.to_owned(), None)
     }
 
     fn new_substr(&self, s: String) -> Self {

@@ -1,10 +1,8 @@
 #[macro_export]
 macro_rules! extend_module {
     ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
-        #[allow(unused_variables)]
-        let module: &$crate::PyObject = &$module;
         $(
-            $vm.__module_set_attr(&module, $name, $value).unwrap();
+            $vm.__module_set_attr($module, $name, $value).unwrap();
         )*
     }};
 }
@@ -17,7 +15,8 @@ macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
             #[allow(unused_mut)]
-            let mut slots = $crate::types::PyTypeSlots::new($class_name, $crate::types::PyTypeFlags::DEFAULT | $flags);
+            let mut slots = $crate::types::PyTypeSlots::heap_default();
+            slots.flags = $flags;
             $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
             let py_class = $ctx.new_class(None, $class_name, $class_base, slots);
             $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*
@@ -48,8 +47,9 @@ macro_rules! py_namespace {
     ( $vm:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         {
             let namespace = $crate::builtins::PyNamespace::new_ref(&$vm.ctx);
+            let obj = $crate::object::AsObject::as_object(&namespace);
             $(
-                $vm.__module_set_attr($crate::object::AsObject::as_object(&namespace), $name, $value).unwrap();
+                obj.generic_setattr($vm.ctx.intern_str($name), $crate::function::PySetterValue::Assign($value.into()), $vm).unwrap();
             )*
             namespace
         }

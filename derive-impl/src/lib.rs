@@ -40,19 +40,18 @@ pub fn derive_from_args(input: DeriveInput) -> TokenStream {
 
 pub fn pyclass(attr: AttributeArgs, item: Item) -> TokenStream {
     if matches!(item, syn::Item::Impl(_) | syn::Item::Trait(_)) {
-        result_to_tokens(pyclass::impl_pyimpl(attr, item))
+        result_to_tokens(pyclass::impl_pyclass_impl(attr, item))
     } else {
         result_to_tokens(pyclass::impl_pyclass(attr, item))
     }
 }
 
-pub use pyclass::PyExceptionDef;
-pub fn define_exception(exc_def: PyExceptionDef) -> TokenStream {
-    result_to_tokens(pyclass::impl_define_exception(exc_def))
-}
-
 pub fn pyexception(attr: AttributeArgs, item: Item) -> TokenStream {
-    result_to_tokens(pyclass::impl_pyexception(attr, item))
+    if matches!(item, syn::Item::Impl(_)) {
+        result_to_tokens(pyclass::impl_pyexception_impl(attr, item))
+    } else {
+        result_to_tokens(pyclass::impl_pyexception(attr, item))
+    }
 }
 
 pub fn pymodule(attr: AttributeArgs, item: Item) -> TokenStream {

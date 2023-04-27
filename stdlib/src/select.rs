@@ -1,9 +1,10 @@
 use crate::vm::{
-    builtins::PyListRef, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::PyListRef, builtins::PyModule, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
 };
 use std::{io, mem};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(windows)]
     crate::vm::stdlib::nt::init_winsock();
 

@@ -32,7 +32,7 @@ pub enum MemberSetter {
     Offset(usize),
 }
 
-pub struct MemberDef {
+pub struct PyMemberDef {
     pub name: String,
     pub kind: MemberKind,
     pub getter: MemberGetter,
@@ -40,7 +40,7 @@ pub struct MemberDef {
     pub doc: Option<String>,
 }
 
-impl MemberDef {
+impl PyMemberDef {
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match self.getter {
             MemberGetter::Getter(getter) => (getter)(vm, obj),
@@ -64,9 +64,9 @@ impl MemberDef {
     }
 }
 
-impl std::fmt::Debug for MemberDef {
+impl std::fmt::Debug for PyMemberDef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MemberDef")
+        f.debug_struct("PyMemberDef")
             .field("name", &self.name)
             .field("kind", &self.kind)
             .field("doc", &self.doc)
@@ -74,14 +74,15 @@ impl std::fmt::Debug for MemberDef {
     }
 }
 
+// PyMemberDescrObject in CPython
 #[pyclass(name = "member_descriptor", module = false)]
 #[derive(Debug)]
-pub struct MemberDescrObject {
+pub struct PyMemberDescriptor {
     pub common: DescrObject,
-    pub member: MemberDef,
+    pub member: PyMemberDef,
 }
 
-impl PyPayload for MemberDescrObject {
+impl PyPayload for PyMemberDescriptor {
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.member_descriptor_type
     }
@@ -101,7 +102,7 @@ fn calculate_qualname(descr: &DescrObject, vm: &VirtualMachine) -> PyResult<Opti
 }
 
 #[pyclass(with(GetDescriptor, Constructor, Representable), flags(BASETYPE))]
-impl MemberDescrObject {
+impl PyMemberDescriptor {
     #[pygetset(magic)]
     fn doc(&self) -> Option<String> {
         self.member.doc.to_owned()
@@ -136,7 +137,7 @@ impl MemberDescrObject {
 fn get_slot_from_object(
     obj: PyObjectRef,
     offset: usize,
-    member: &MemberDef,
+    member: &PyMemberDef,
     vm: &VirtualMachine,
 ) -> PyResult {
     let slot = match member.kind {
@@ -158,7 +159,7 @@ fn get_slot_from_object(
 fn set_slot_at_object(
     obj: PyObjectRef,
     offset: usize,
-    member: &MemberDef,
+    member: &PyMemberDef,
     value: PySetterValue,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
@@ -186,9 +187,9 @@ fn set_slot_at_object(
     Ok(())
 }
 
-impl Unconstructible for MemberDescrObject {}
+impl Unconstructible for PyMemberDescriptor {}
 
-impl Representable for MemberDescrObject {
+impl Representable for PyMemberDescriptor {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
@@ -199,7 +200,7 @@ impl Representable for MemberDescrObject {
     }
 }
 
-impl GetDescriptor for MemberDescrObject {
+impl GetDescriptor for PyMemberDescriptor {
     fn descr_get(
         zelf: PyObjectRef,
         obj: Option<PyObjectRef>,
@@ -218,5 +219,5 @@ impl GetDescriptor for MemberDescrObject {
 
 pub fn init(context: &Context) {
     let member_descriptor_type = &context.types.member_descriptor_type;
-    MemberDescrObject::extend_class(context, member_descriptor_type);
+    PyMemberDescriptor::extend_class(context, member_descriptor_type);
 }

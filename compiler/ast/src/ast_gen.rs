@@ -21,7 +21,30 @@ pub struct Located<T, U = ()> {
                 Self { location, end_location: Some(end_location), custom: (), node }
             }
         }
+<<<<<<< HEAD
 
+=======
+    }
+
+    pub const fn start(&self) -> Location {
+        self.location
+    }
+
+    /// Returns the node's [`end_location`](Located::end_location) or [`location`](Located::start) if
+    /// [`end_location`](Located::end_location) is `None`.
+    pub fn end(&self) -> Location {
+        self.end_location.unwrap_or(self.location)
+    }
+}
+
+impl<T, U> std::ops::Deref for Located<T, U> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.node
+    }
+}
+>>>>>>> 23fee2737c1076470d6807486ba69774f01c1f3c
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Mod<U = ()> {

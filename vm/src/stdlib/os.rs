@@ -1,9 +1,9 @@
 use crate::{
-    builtins::{PyBaseExceptionRef, PySet},
+    builtins::{PyBaseExceptionRef, PyModule, PySet},
     common::crt_fd::Fd,
     convert::IntoPyException,
     function::{ArgumentError, FromArgs, FsPath, FuncArgs},
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{
     ffi, fs, io,
@@ -54,8 +54,9 @@ pub struct OsPath {
 
 impl OsPath {
     pub fn new_str(path: impl Into<ffi::OsString>) -> Self {
+        let path = path.into();
         Self {
-            path: path.into(),
+            path,
             mode: OutputMode::String,
         }
     }
@@ -178,11 +179,13 @@ impl IOErrorBuilder {
         }
     }
     pub(crate) fn filename(mut self, filename: impl Into<OsPathOrFd>) -> Self {
-        self.filename.replace(filename.into());
+        let filename = filename.into();
+        self.filename.replace(filename);
         self
     }
     pub(crate) fn filename2(mut self, filename: impl Into<OsPathOrFd>) -> Self {
-        self.filename2.replace(filename.into());
+        let filename = filename.into();
+        self.filename2.replace(filename);
         self
     }
 }
@@ -296,7 +299,7 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
         .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8".to_owned()))
 }
 
-#[pymodule(name = "_os")]
+#[pymodule(sub)]
 pub(super) mod _os {
     use super::{
         errno_err, DirFd, FollowSymlinks, IOErrorBuilder, OsPath, OsPathOrFd, OutputMode,
@@ -1706,9 +1709,7 @@ impl SupportFunc {
     }
 }
 
-pub fn extend_module(vm: &VirtualMachine, module: &PyObject) {
-    _os::extend_module(vm, module);
-
+pub fn extend_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     let support_funcs = _os::support_funcs();
     let supports_fd = PySet::default().into_ref(&vm.ctx);
     let supports_dir_fd = PySet::default().into_ref(&vm.ctx);

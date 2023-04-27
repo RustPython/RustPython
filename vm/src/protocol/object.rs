@@ -133,7 +133,8 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let attr_name = attr_name.as_pystr(&vm.ctx);
-        self.call_set_attr(vm, attr_name, PySetterValue::Assign(attr_value.into()))
+        let attr_value = attr_value.into();
+        self.call_set_attr(vm, attr_name, PySetterValue::Assign(attr_value))
     }
 
     // int PyObject_GenericSetAttr(PyObject *o, PyObject *name, PyObject *value)

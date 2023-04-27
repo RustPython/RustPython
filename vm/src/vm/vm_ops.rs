@@ -523,7 +523,7 @@ impl VirtualMachine {
     }
 
     pub fn _contains(&self, haystack: &PyObject, needle: PyObjectRef) -> PyResult {
-        match PyMethod::get_special(haystack, identifier!(self, __contains__), self)? {
+        match PyMethod::get_special::<false>(haystack, identifier!(self, __contains__), self)? {
             Some(method) => method.invoke((needle,), self),
             None => self
                 ._membership_iter_search(haystack, needle)

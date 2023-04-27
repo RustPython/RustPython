@@ -60,6 +60,10 @@ pub trait PyClassDef {
     const DOC: Option<&'static str> = None;
     const BASICSIZE: usize;
     const UNHASHABLE: bool = false;
+
+    // due to restriction of rust trait system, object.__base__ is None
+    // but PyBaseObject::Base will be PyBaseObject.
+    type Base: PyClassDef;
 }
 
 pub trait PyClassImpl: PyClassDef {
@@ -98,14 +102,12 @@ pub trait PyClassImpl: PyClassDef {
                 ctx.new_str(module_name).into(),
             );
         }
-        if class.slots.new.load().is_some() {
-            let bound = PyBoundMethod::new_ref(
-                class.to_owned().into(),
-                ctx.slot_new_wrapper.clone().into(),
-                ctx,
-            );
-            class.set_attr(identifier!(ctx, __new__), bound.into());
-        }
+        let bound_new = PyBoundMethod::new_ref(
+            class.to_owned().into(),
+            ctx.slot_new_wrapper.clone().into(),
+            ctx,
+        );
+        class.set_attr(identifier!(ctx, __new__), bound_new.into());
 
         if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
             class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
