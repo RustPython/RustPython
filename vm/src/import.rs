@@ -85,6 +85,7 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
     let frozen = make_frozen(vm, module_name)?;
     let module = import_codeobj(vm, module_name, frozen, false)?;
+    debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
     // TODO: give a correct origname here
     module.set_attr("__origname__", vm.ctx.new_str(module_name.to_owned()), vm)?;
     Ok(module)
@@ -99,8 +100,8 @@ pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
     })?;
     let module = make_module_func(vm);
     let sys_modules = vm.sys_module.get_attr("modules", vm)?;
-    sys_modules.set_item(module_name, module.clone(), vm)?;
-    Ok(module)
+    sys_modules.set_item(module_name, module.as_object().to_owned(), vm)?;
+    Ok(module.into())
 }
 
 #[cfg(feature = "rustpython-compiler")]
@@ -144,12 +145,12 @@ pub fn import_codeobj(
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
     let sys_modules = vm.sys_module.get_attr("modules", vm)?;
-    sys_modules.set_item(module_name, module.clone(), vm)?;
+    sys_modules.set_item(module_name, module.clone().into(), vm)?;
 
     // Execute main code in module:
     let scope = Scope::with_builtins(None, attrs, vm);
     vm.run_code_obj(code_obj, scope)?;
-    Ok(module)
+    Ok(module.into())
 }
 
 fn remove_importlib_frames_inner(

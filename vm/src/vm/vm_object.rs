@@ -135,7 +135,7 @@ impl VirtualMachine {
         obj: &PyObject,
         method: &'static PyStrInterned,
     ) -> PyResult<Option<PyMethod>> {
-        PyMethod::get_special(obj, method, self)
+        PyMethod::get_special::<false>(obj, method, self)
     }
 
     /// NOT PUBLIC API

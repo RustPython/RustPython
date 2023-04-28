@@ -5,7 +5,7 @@ use super::{
 use crate::{
     builtins::{
         descriptor::{
-            DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
+            DescrObject, MemberGetter, MemberKind, MemberSetter, PyMemberDef, PyMemberDescriptor,
         },
         function::PyCellRef,
         tuple::{IntoPyTuple, PyTupleTyped},
@@ -322,7 +322,8 @@ impl PyType {
         value: V,
         ctx: impl AsRef<Context>,
     ) {
-        let attr_name = ctx.as_ref().intern_str(attr_name);
+        let ctx = ctx.as_ref();
+        let attr_name = ctx.intern_str(attr_name);
         self.set_attr(attr_name, value.into())
     }
 
@@ -774,12 +775,11 @@ impl PyType {
             base.slots.member_count + heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
 
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
-        let (slots, heaptype_ext) = unsafe {
-            // # Safety
-            // `slots.name` live long enough because `heaptype_ext` is alive.
+        let (slots, heaptype_ext) = {
             let slots = PyTypeSlots {
                 member_count,
-                ..PyTypeSlots::new(&*(name.as_str() as *const _), flags)
+                flags,
+                ..PyTypeSlots::heap_default()
             };
             let heaptype_ext = HeapTypeExt {
                 name: PyRwLock::new(name),
@@ -804,15 +804,15 @@ impl PyType {
         if let Some(ref slots) = heaptype_slots {
             let mut offset = base_member_count;
             for member in slots.as_slice() {
-                let member_def = MemberDef {
+                let member_def = PyMemberDef {
                     name: member.to_string(),
                     kind: MemberKind::ObjectEx,
                     getter: MemberGetter::Offset(offset),
                     setter: MemberSetter::Offset(offset),
                     doc: None,
                 };
-                let member_descriptor: PyRef<MemberDescrObject> =
-                    vm.ctx.new_pyref(MemberDescrObject {
+                let member_descriptor: PyRef<PyMemberDescriptor> =
+                    vm.ctx.new_pyref(PyMemberDescriptor {
                         common: DescrObject {
                             typ: typ.clone(),
                             name: vm.ctx.intern_str(member.as_str()),

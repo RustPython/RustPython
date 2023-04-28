@@ -1,8 +1,8 @@
-use crate::vm::{PyObjectRef, VirtualMachine};
+use crate::vm::{builtins::PyModule, PyRef, VirtualMachine};
 #[cfg(feature = "ssl")]
 pub(super) use _socket::{sock_select, timeout_error_msg, PySocket, SelectKind};
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(windows)]
     crate::vm::stdlib::nt::init_winsock();
     _socket::make_module(vm)

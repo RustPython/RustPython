@@ -259,7 +259,7 @@ impl IterNext for PyStrIterator {
     }
 }
 
-#[derive(FromArgs, Traverse)]
+#[derive(FromArgs)]
 pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
@@ -318,8 +318,9 @@ impl PyStr {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
     }
 
-    pub fn new_ref(s: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(s.into(), ctx.types.str_type.to_owned(), None)
+    pub fn new_ref(zelf: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
+        let zelf = zelf.into();
+        PyRef::new_ref(zelf, ctx.types.str_type.to_owned(), None)
     }
 
     fn new_substr(&self, s: String) -> Self {
@@ -1400,7 +1401,7 @@ impl AsSequence for PyStr {
     }
 }
 
-#[derive(FromArgs, Traverse)]
+#[derive(FromArgs)]
 struct EncodeArgs {
     #[pyarg(any, default)]
     encoding: Option<PyStrRef>,
@@ -1464,7 +1465,7 @@ impl ToPyObject for AsciiString {
 
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
-#[derive(FromArgs, Traverse)]
+#[derive(FromArgs)]
 pub struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,

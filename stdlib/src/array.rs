@@ -1,8 +1,8 @@
 // spell-checker:ignore typecode tofile tolist fromfile
 
-use rustpython_vm::{PyObjectRef, VirtualMachine};
+use rustpython_vm::{builtins::PyModule, PyRef, VirtualMachine};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = array::make_module(vm);
 
     let array = module
@@ -1434,13 +1434,12 @@ mod array {
         }
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     struct ReconstructorArgs {
         #[pyarg(positional)]
         arraytype: PyTypeRef,
         #[pyarg(positional)]
         typecode: PyStrRef,
-        #[pytraverse(skip)]
         #[pyarg(positional)]
         mformat_code: MachineFormatCode,
         #[pyarg(positional)]

@@ -55,7 +55,7 @@ if HAVE_UNIX_SOCKETS and HAVE_FORKING:
                                     socketserver.UnixDatagramServer):
         pass
 
-
+@test.support.requires_fork() # TODO: RUSTPYTHON, os.fork is currently only supported on Unix-based systems
 @contextlib.contextmanager
 def simple_subprocess(testcase):
     """Tests that a custom child process is not waited on (Issue 1540386)"""

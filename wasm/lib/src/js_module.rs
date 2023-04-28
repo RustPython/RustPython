@@ -94,9 +94,8 @@ mod _js {
     impl PyJsValue {
         #[inline]
         pub fn new(value: impl Into<JsValue>) -> PyJsValue {
-            PyJsValue {
-                value: value.into(),
-            }
+            let value = value.into();
+            PyJsValue { value }
         }
 
         #[pymethod]

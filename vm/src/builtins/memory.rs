@@ -33,7 +33,7 @@ use once_cell::sync::Lazy;
 use rustpython_common::lock::PyMutex;
 use std::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
 
-#[derive(FromArgs, Traverse)]
+#[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
     object: PyObjectRef,
 }
@@ -896,7 +896,7 @@ impl Py<PyMemoryView> {
     }
 }
 
-#[derive(FromArgs, Traverse)]
+#[derive(FromArgs)]
 struct CastArgs {
     #[pyarg(any)]
     format: PyStrRef,

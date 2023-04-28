@@ -8,13 +8,13 @@
 // spell-checker:ignore cantlock commithook foreignkey notnull primarykey gettemppath autoindex convpath
 // spell-checker:ignore dbmoved vnode nbytes
 
-use rustpython_vm::{PyObjectRef, VirtualMachine};
+use rustpython_vm::{builtins::PyModule, AsObject, PyRef, VirtualMachine};
 
 // pub(crate) use _sqlite::make_module;
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     // TODO: sqlite version check
     let module = _sqlite::make_module(vm);
-    _sqlite::setup_module(&module, vm);
+    _sqlite::setup_module(module.as_object(), vm);
     module
 }
 
@@ -340,41 +340,36 @@ mod _sqlite {
         }
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     struct CreateFunctionArgs {
         #[pyarg(any)]
         name: PyStrRef,
-        #[pytraverse(skip)]
         #[pyarg(any)]
         narg: c_int,
         #[pyarg(any)]
         func: PyObjectRef,
-        #[pytraverse(skip)]
         #[pyarg(named, default)]
         deterministic: bool,
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     struct CreateAggregateArgs {
         #[pyarg(any)]
         name: PyStrRef,
-        #[pytraverse(skip)]
         #[pyarg(positional)]
         narg: c_int,
         #[pyarg(positional)]
         aggregate_class: PyObjectRef,
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     struct BlobOpenArgs {
         #[pyarg(positional)]
         table: PyStrRef,
         #[pyarg(positional)]
         column: PyStrRef,
-        #[pytraverse(skip)]
         #[pyarg(positional)]
         row: i64,
-        #[pytraverse(skip)]
         #[pyarg(named, default)]
         readonly: bool,
         #[pyarg(named, default = "vm.ctx.new_str(stringify!(main))")]

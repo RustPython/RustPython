@@ -1,14 +1,14 @@
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 
 pub use module::raw_set_handle_inheritable;
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = module::make_module(vm);
     super::os::extend_module(vm, &module);
     module
 }
 
-#[pymodule(name = "nt")]
+#[pymodule(name = "nt", with(super::os::_os))]
 pub(crate) mod module {
     use crate::{
         builtins::{PyStrRef, PyTupleRef},

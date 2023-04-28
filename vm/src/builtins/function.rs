@@ -522,7 +522,7 @@ impl GetAttr for PyBoundMethod {
     }
 }
 
-#[derive(FromArgs, Traverse)]
+#[derive(FromArgs)]
 pub struct PyBoundMethodNewArgs {
     #[pyarg(positional)]
     function: PyObjectRef,

@@ -1,3 +1,4 @@
+import threading  # XXX: RUSTPYTHON; to check `_at_fork_reinit`
 import unittest
 from test import support
 from test.support import import_helper
@@ -641,7 +642,8 @@ class BaseTestUUID:
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    @unittest.skipUnless(os.name == 'posix', 'requires Posix')
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
+    @support.requires_fork()
     def testIssue8621(self):
         # On at least some versions of OSX self.uuid.uuid4 generates
         # the same sequence of UUIDs in the parent and any
