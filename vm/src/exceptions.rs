@@ -3,8 +3,7 @@ use crate::common::{lock::PyRwLock, str::ReprOverflowError};
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     builtins::{
-        traceback::PyTracebackRef, tuple::IntoPyTuple, PyNone, PyStr, PyStrRef, PyTuple,
-        PyTupleRef, PyType, PyTypeRef,
+        traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
@@ -767,9 +766,8 @@ impl ExceptionZoo {
 
         extend_exception!(PyLookupError, ctx, excs.lookup_error);
         extend_exception!(PyIndexError, ctx, excs.index_error);
-        extend_exception!(PyKeyError, ctx, excs.key_error, {
-            "__str__" => ctx.new_method(identifier!(ctx, __str__), excs.key_error, key_error_str),
-        });
+
+        extend_exception!(PyKeyError, ctx, excs.key_error);
 
         extend_exception!(PyMemoryError, ctx, excs.memory_error);
         extend_exception!(PyNameError, ctx, excs.name_error, {
@@ -801,8 +799,6 @@ impl ExceptionZoo {
             "filename" => ctx.none(),
             // second exception filename
             "filename2" => ctx.none(),
-            "__str__" => ctx.new_method(identifier!(ctx, __str__), excs.os_error, os_error_str),
-            "__reduce__" => ctx.new_method(identifier!(ctx, __reduce__), excs.os_error, os_error_reduce),
         });
         // TODO: this isn't really accurate
         #[cfg(windows)]
@@ -893,84 +889,6 @@ fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyRef<PyNone> {
 
 fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObjectRef> {
     move |exc| exc.get_arg(idx)
-}
-
-fn key_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
-    let args = exc.args();
-    if args.len() == 1 {
-        vm.exception_args_as_string(args, false)
-            .into_iter()
-            .exactly_one()
-            .unwrap()
-    } else {
-        exc.str(vm)
-    }
-}
-
-fn os_error_str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-    let args = exc.args();
-    let obj = exc.as_object().to_owned();
-
-    if args.len() == 2 {
-        // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
-        let errno = exc.get_arg(0).unwrap().str(vm)?;
-        let msg = exc.get_arg(1).unwrap().str(vm)?;
-
-        let s = match obj.get_attr("filename", vm) {
-            Ok(filename) => match obj.get_attr("filename2", vm) {
-                Ok(filename2) => format!(
-                    "[Errno {}] {}: '{}' -> '{}'",
-                    errno,
-                    msg,
-                    filename.str(vm)?,
-                    filename2.str(vm)?
-                ),
-                Err(_) => format!("[Errno {}] {}: '{}'", errno, msg, filename.str(vm)?),
-            },
-            Err(_) => {
-                format!("[Errno {errno}] {msg}")
-            }
-        };
-        Ok(vm.ctx.new_str(s))
-    } else {
-        Ok(exc.str(vm))
-    }
-}
-
-fn os_error_reduce(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
-    let args = exc.args();
-    let obj = exc.as_object().to_owned();
-    let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into()];
-
-    if args.len() >= 2 && args.len() <= 5 {
-        // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
-        let errno = exc.get_arg(0).unwrap();
-        let msg = exc.get_arg(1).unwrap();
-
-        if let Ok(filename) = obj.get_attr("filename", vm) {
-            if !vm.is_none(&filename) {
-                let mut args_reduced: Vec<PyObjectRef> = vec![errno, msg, filename];
-
-                if let Ok(filename2) = obj.get_attr("filename2", vm) {
-                    if !vm.is_none(&filename2) {
-                        args_reduced.push(filename2);
-                    }
-                }
-                result.push(args_reduced.into_pytuple(vm).into());
-            } else {
-                result.push(vm.new_tuple((errno, msg)).into());
-            }
-        } else {
-            result.push(vm.new_tuple((errno, msg)).into());
-        }
-    } else {
-        result.push(args.into());
-    }
-
-    if let Some(dict) = obj.dict().filter(|x| !x.is_empty()) {
-        result.push(dict.into());
-    }
-    result.into_pytuple(vm)
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
@@ -1137,13 +1055,16 @@ pub(super) mod types {
     use crate::common::lock::PyRwLock;
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use crate::{
-        builtins::{traceback::PyTracebackRef, PyInt, PyTupleRef, PyTypeRef},
+        builtins::{
+            traceback::PyTracebackRef, tuple::IntoPyTuple, PyInt, PyStrRef, PyTupleRef, PyTypeRef,
+        },
         convert::ToPyResult,
         function::FuncArgs,
         types::{Constructor, Initializer},
-        PyObjectRef, PyRef, PyResult, VirtualMachine,
+        AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use itertools::Itertools;
 
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
@@ -1275,9 +1196,25 @@ pub(super) mod types {
     #[derive(Debug)]
     pub struct PyIndexError {}
 
-    #[pyexception(name, base = "PyLookupError", ctx = "key_error", impl)]
+    #[pyexception(name, base = "PyLookupError", ctx = "key_error")]
     #[derive(Debug)]
     pub struct PyKeyError {}
+
+    #[pyexception]
+    impl PyKeyError {
+        #[pymethod(magic)]
+        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
+            let args = exc.args();
+            if args.len() == 1 {
+                vm.exception_args_as_string(args, false)
+                    .into_iter()
+                    .exactly_one()
+                    .unwrap()
+            } else {
+                exc.str(vm)
+            }
+        }
+    }
 
     #[pyexception(name, base = "PyException", ctx = "memory_error", impl)]
     #[derive(Debug)]
@@ -1346,6 +1283,74 @@ pub(super) mod types {
                 new_args.args.truncate(2);
             }
             PyBaseException::slot_init(zelf, new_args, vm)
+        }
+
+        #[pymethod(magic)]
+        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            let args = exc.args();
+            let obj = exc.as_object().to_owned();
+
+            if args.len() == 2 {
+                // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
+                let errno = exc.get_arg(0).unwrap().str(vm)?;
+                let msg = exc.get_arg(1).unwrap().str(vm)?;
+
+                let s = match obj.get_attr("filename", vm) {
+                    Ok(filename) => match obj.get_attr("filename2", vm) {
+                        Ok(filename2) => format!(
+                            "[Errno {}] {}: '{}' -> '{}'",
+                            errno,
+                            msg,
+                            filename.str(vm)?,
+                            filename2.str(vm)?
+                        ),
+                        Err(_) => format!("[Errno {}] {}: '{}'", errno, msg, filename.str(vm)?),
+                    },
+                    Err(_) => {
+                        format!("[Errno {errno}] {msg}")
+                    }
+                };
+                Ok(vm.ctx.new_str(s))
+            } else {
+                Ok(exc.str(vm))
+            }
+        }
+
+        #[pymethod(magic)]
+        fn reduce(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
+            let args = exc.args();
+            let obj = exc.as_object().to_owned();
+            let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into()];
+
+            if args.len() >= 2 && args.len() <= 5 {
+                // SAFETY: len() == 2 is checked so get_arg 1 or 2 won't panic
+                let errno = exc.get_arg(0).unwrap();
+                let msg = exc.get_arg(1).unwrap();
+
+                if let Ok(filename) = obj.get_attr("filename", vm) {
+                    if !vm.is_none(&filename) {
+                        let mut args_reduced: Vec<PyObjectRef> = vec![errno, msg, filename];
+
+                        if let Ok(filename2) = obj.get_attr("filename2", vm) {
+                            if !vm.is_none(&filename2) {
+                                args_reduced.push(filename2);
+                            }
+                        }
+                        result.push(args_reduced.into_pytuple(vm).into());
+                    } else {
+                        result.push(vm.new_tuple((errno, msg)).into());
+                    }
+                } else {
+                    result.push(vm.new_tuple((errno, msg)).into());
+                }
+            } else {
+                result.push(args.into());
+            }
+
+            if let Some(dict) = obj.dict().filter(|x| !x.is_empty()) {
+                result.push(dict.into());
+            }
+            result.into_pytuple(vm)
         }
     }
 

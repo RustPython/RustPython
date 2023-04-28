@@ -551,7 +551,12 @@ impl PyObjectRef {
     /// T must be the exact payload type
     #[inline(always)]
     pub unsafe fn downcast_unchecked<T: PyObjectPayload>(self) -> PyRef<T> {
-        PyRef::from_obj_unchecked(self)
+        // PyRef::from_obj_unchecked(self)
+        // manual impl to avoid assertion
+        let obj = ManuallyDrop::new(self);
+        PyRef {
+            ptr: obj.ptr.cast(),
+        }
     }
 
     /// # Safety

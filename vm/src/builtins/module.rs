@@ -3,7 +3,7 @@ use crate::{
     builtins::{pystr::AsPyStr, PyStrInterned},
     class::PyClassImpl,
     convert::ToPyObject,
-    function::FuncArgs,
+    function::{FuncArgs, PyMethodDef},
     types::{GetAttr, Initializer, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
@@ -15,7 +15,7 @@ pub struct PyModuleDef {
     pub name: &'static PyStrInterned,
     pub doc: Option<&'static PyStrInterned>,
     // pub size: isize,
-    // pub methods: &'static [PyMethodDef],
+    pub methods: &'static [PyMethodDef],
     pub slots: PyModuleSlots,
     // traverse: traverseproc
     // clear: inquiry
@@ -82,11 +82,23 @@ impl PyModule {
     }
     pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<PyModule>) {
         let doc = module.def.unwrap().doc.map(|doc| doc.to_owned());
-        module.init_module_dict(module.name.unwrap(), doc, vm);
+        module.init_dict(module.name.unwrap(), doc, vm);
     }
 }
 
 impl Py<PyModule> {
+    pub fn __init_methods(&self, vm: &VirtualMachine) -> PyResult<()> {
+        debug_assert!(self.def.is_some());
+        for method in self.def.unwrap().methods {
+            let func = method
+                .to_function()
+                .with_module(self.name.unwrap())
+                .into_ref(&vm.ctx);
+            vm.__module_set_attr(self, vm.ctx.intern_str(method.name), func)?;
+        }
+        Ok(())
+    }
+
     fn getattr_inner(&self, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         if let Some(attr) = self.as_object().generic_getattr_opt(name, None, vm)? {
             return Ok(attr);
@@ -115,7 +127,7 @@ impl Py<PyModule> {
         self.as_object().dict().unwrap()
     }
     // TODO: should be on PyModule, not Py<PyModule>
-    pub(crate) fn init_module_dict(
+    pub(crate) fn init_dict(
         &self,
         name: &'static PyStrInterned,
         doc: Option<PyStrRef>,
@@ -176,7 +188,7 @@ impl Initializer for PyModule {
             .slots
             .flags
             .has_feature(crate::types::PyTypeFlags::HAS_DICT));
-        zelf.init_module_dict(vm.ctx.intern_str(args.name.as_str()), args.doc, vm);
+        zelf.init_dict(vm.ctx.intern_str(args.name.as_str()), args.doc, vm);
         Ok(())
     }
 }

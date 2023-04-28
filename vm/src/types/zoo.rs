@@ -74,6 +74,7 @@ pub struct TypeZoo {
     pub zip_type: &'static Py<PyType>,
     pub function_type: &'static Py<PyType>,
     pub builtin_function_or_method_type: &'static Py<PyType>,
+    pub builtin_method_type: &'static Py<PyType>,
     pub method_descriptor_type: &'static Py<PyType>,
     pub property_type: &'static Py<PyType>,
     pub getset_type: &'static Py<PyType>,
@@ -91,6 +92,9 @@ pub struct TypeZoo {
     pub generic_alias_type: &'static Py<PyType>,
     pub union_type: &'static Py<PyType>,
     pub member_descriptor_type: &'static Py<PyType>,
+
+    // RustPython-original types
+    pub method_def: &'static Py<PyType>,
 }
 
 impl TypeZoo {
@@ -135,7 +139,8 @@ impl TypeZoo {
             async_generator_wrapped_value:
                 asyncgenerator::PyAsyncGenWrappedValue::init_builtin_type(),
             bound_method_type: function::PyBoundMethod::init_builtin_type(),
-            builtin_function_or_method_type: builtin_func::PyBuiltinFunction::init_builtin_type(),
+            builtin_function_or_method_type: builtin_func::PyNativeFunction::init_builtin_type(),
+            builtin_method_type: builtin_func::PyNativeMethod::init_builtin_type(),
             bytearray_iterator_type: bytearray::PyByteArrayIterator::init_builtin_type(),
             bytes_iterator_type: bytes::PyBytesIterator::init_builtin_type(),
             callable_iterator: iter::PyCallableIterator::init_builtin_type(),
@@ -172,12 +177,14 @@ impl TypeZoo {
             traceback_type: traceback::PyTraceback::init_builtin_type(),
             tuple_iterator_type: tuple::PyTupleIterator::init_builtin_type(),
             weakproxy_type: weakproxy::PyWeakProxy::init_builtin_type(),
-            method_descriptor_type: builtin_func::PyBuiltinMethod::init_builtin_type(),
+            method_descriptor_type: descriptor::PyMethodDescriptor::init_builtin_type(),
             none_type: singletons::PyNone::init_builtin_type(),
             not_implemented_type: singletons::PyNotImplemented::init_builtin_type(),
             generic_alias_type: genericalias::PyGenericAlias::init_builtin_type(),
             union_type: union_::PyUnion::init_builtin_type(),
             member_descriptor_type: descriptor::PyMemberDescriptor::init_builtin_type(),
+
+            method_def: crate::function::HeapMethodDef::init_builtin_type(),
         }
     }
 

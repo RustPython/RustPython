@@ -1,9 +1,12 @@
 use crate::{
     builtins::{
+        builtin_func::PyNativeFunction,
+        descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
         PyBaseException, PyBaseExceptionRef, PyDictRef, PyModule, PyStrRef, PyType, PyTypeRef,
     },
     convert::ToPyObject,
+    function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
     vm::VirtualMachine,
     AsObject, Py, PyObject, PyObjectRef, PyRef,
@@ -20,22 +23,48 @@ impl VirtualMachine {
         value.into_pytuple(self)
     }
 
-    pub fn new_module(&self, name: &str, dict: PyDictRef, doc: Option<&str>) -> PyRef<PyModule> {
+    pub fn new_module(
+        &self,
+        name: &str,
+        dict: PyDictRef,
+        doc: Option<PyStrRef>,
+    ) -> PyRef<PyModule> {
         let module = PyRef::new_ref(
             PyModule::new(),
             self.ctx.types.module_type.to_owned(),
             Some(dict),
         );
-        module.init_module_dict(
-            self.ctx.intern_str(name),
-            doc.map(|doc| self.ctx.new_str(doc)),
-            self,
-        );
+        module.init_dict(self.ctx.intern_str(name), doc, self);
         module
     }
 
     pub fn new_scope_with_builtins(&self) -> Scope {
         Scope::with_builtins(None, self.ctx.new_dict(), self)
+    }
+
+    pub fn new_function<F, FKind>(&self, name: &'static str, f: F) -> PyRef<PyNativeFunction>
+    where
+        F: IntoPyNativeFn<FKind>,
+    {
+        let def = self
+            .ctx
+            .new_method_def(name, f, PyMethodFlags::empty(), None);
+        def.build_function(self)
+    }
+
+    pub fn new_method<F, FKind>(
+        &self,
+        name: &'static str,
+        class: &'static Py<PyType>,
+        f: F,
+    ) -> PyRef<PyMethodDescriptor>
+    where
+        F: IntoPyNativeFn<FKind>,
+    {
+        let def = self
+            .ctx
+            .new_method_def(name, f, PyMethodFlags::METHOD, None);
+        def.build_method(class, self)
     }
 
     /// Instantiate an exception with arguments.

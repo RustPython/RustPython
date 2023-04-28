@@ -1,11 +1,10 @@
 use crate::{
     builtins::{
-        builtin_func::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         code::{self, PyCode},
         descriptor::{
-            DescrObject, MemberGetter, MemberKind, MemberSetter, MemberSetterFunc, PyMemberDef,
-            PyMemberDescriptor,
+            MemberGetter, MemberKind, MemberSetter, MemberSetterFunc, PyDescriptorOwned,
+            PyMemberDef, PyMemberDescriptor,
         },
         getset::PyGetSet,
         object, pystr,
@@ -17,7 +16,10 @@ use crate::{
     class::{PyClassImpl, StaticType},
     common::rc::PyRc,
     exceptions,
-    function::{IntoPyGetterFunc, IntoPyNativeFunc, IntoPySetterFunc},
+    function::{
+        HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, PyMethodDef,
+        PyMethodFlags,
+    },
     intern::{InternableString, MaybeInternedString, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
@@ -45,7 +47,7 @@ pub struct Context {
     pub int_cache_pool: Vec<PyIntRef>,
     // there should only be exact objects of str in here, no non-str objects and no subclasses
     pub(crate) string_pool: StringPool,
-    pub(crate) slot_new_wrapper: PyRef<PyBuiltinFunction>,
+    pub(crate) slot_new_wrapper: PyMethodDef,
     pub names: ConstName,
 }
 
@@ -287,14 +289,16 @@ impl Context {
         let string_pool = StringPool::default();
         let names = unsafe { ConstName::new(&string_pool, &types.str_type.to_owned()) };
 
-        let slot_new_wrapper = create_object(
-            PyNativeFuncDef::new(PyType::__new__.into_func(), names.__new__).into_function(),
-            types.builtin_function_or_method_type,
-        );
+        let slot_new_wrapper = PyMethodDef {
+            name: names.__new__.as_str(),
+            func: PyType::__new__.into_func(),
+            flags: PyMethodFlags::METHOD,
+            doc: None,
+        };
 
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
-        let context = Context {
+        Context {
             true_value,
             false_value,
             none,
@@ -312,10 +316,7 @@ impl Context {
             string_pool,
             slot_new_wrapper,
             names,
-        };
-        TypeZoo::extend(&context);
-        exceptions::ExceptionZoo::extend(&context);
-        context
+        }
     }
 
     pub fn intern_str<S: InternableString>(&self, s: S) -> &'static PyStrInterned {
@@ -484,12 +485,24 @@ impl Context {
         .unwrap()
     }
 
-    #[inline]
-    pub fn make_func_def<F, FKind>(&self, name: &'static PyStrInterned, f: F) -> PyNativeFuncDef
+    pub fn new_method_def<F, FKind>(
+        &self,
+        name: &'static str,
+        f: F,
+        flags: PyMethodFlags,
+        doc: Option<&'static str>,
+    ) -> PyRef<HeapMethodDef>
     where
-        F: IntoPyNativeFunc<FKind>,
+        F: IntoPyNativeFn<FKind>,
     {
-        PyNativeFuncDef::new(f.into_func(), name)
+        let def = PyMethodDef {
+            name,
+            func: f.into_func(),
+            flags,
+            doc,
+        };
+        let payload = HeapMethodDef::new(def);
+        PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
     }
 
     #[inline]
@@ -509,40 +522,14 @@ impl Context {
             doc: None,
         };
         let member_descriptor = PyMemberDescriptor {
-            common: DescrObject {
+            common: PyDescriptorOwned {
                 typ: class.to_owned(),
                 name: self.intern_str(name),
                 qualname: PyRwLock::new(None),
             },
             member: member_def,
         };
-
-        PyRef::new_ref(
-            member_descriptor,
-            self.types.member_descriptor_type.to_owned(),
-            None,
-        )
-    }
-
-    // #[deprecated]
-    pub fn new_function<F, FKind>(&self, name: &str, f: F) -> PyRef<PyBuiltinFunction>
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        self.make_func_def(self.intern_str(name), f)
-            .build_function(self)
-    }
-
-    pub fn new_method<F, FKind>(
-        &self,
-        name: &'static PyStrInterned,
-        class: &'static Py<PyType>,
-        f: F,
-    ) -> PyRef<PyBuiltinMethod>
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        PyBuiltinMethod::new_ref(name, class, f, self)
+        member_descriptor.into_ref(self)
     }
 
     pub fn new_readonly_getset<F, T>(

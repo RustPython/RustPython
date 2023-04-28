@@ -5,6 +5,7 @@ mod builtin;
 mod either;
 mod fspath;
 mod getset;
+mod method;
 mod number;
 mod protocol;
 
@@ -15,11 +16,12 @@ pub use argument::{
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
 pub(self) use builtin::{BorrowedParam, OwnedParam, RefParam};
-pub use builtin::{IntoPyNativeFunc, PyNativeFunc};
+pub use builtin::{IntoPyNativeFn, PyNativeFn};
 pub use either::Either;
 pub use fspath::FsPath;
 pub use getset::PySetterValue;
 pub(super) use getset::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc};
+pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
 pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 

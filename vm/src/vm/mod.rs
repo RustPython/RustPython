@@ -116,17 +116,17 @@ impl VirtualMachine {
 
         // make a new module without access to the vm; doesn't
         // set __spec__, __loader__, etc. attributes
-        let new_module = || {
+        let new_module = |def| {
             PyRef::new_ref(
-                PyModule::new(),
+                PyModule::from_def(def),
                 ctx.types.module_type.to_owned(),
                 Some(ctx.new_dict()),
             )
         };
 
         // Hard-core modules:
-        let builtins = new_module();
-        let sys_module = new_module();
+        let builtins = new_module(stdlib::builtins::__module_def(&ctx));
+        let sys_module = new_module(stdlib::sys::__module_def(&ctx));
 
         let import_func = ctx.none();
         let profile_func = RefCell::new(ctx.none());
@@ -199,11 +199,17 @@ impl VirtualMachine {
         let frozen = frozen::core_frozen_inits().collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
-        vm.builtins
-            .init_module_dict(vm.ctx.intern_str("builtins"), None, &vm);
-        vm.sys_module
-            .init_module_dict(vm.ctx.intern_str("sys"), None, &vm);
-
+        vm.builtins.init_dict(
+            vm.ctx.intern_str("builtins"),
+            Some(vm.ctx.intern_str(stdlib::builtins::DOC.unwrap()).to_owned()),
+            &vm,
+        );
+        vm.sys_module.init_dict(
+            vm.ctx.intern_str("sys"),
+            Some(vm.ctx.intern_str(stdlib::sys::DOC.unwrap()).to_owned()),
+            &vm,
+        );
+        // let name = vm.sys_module.get_attr("__name__", &vm).unwrap();
         vm
     }
 
@@ -251,7 +257,7 @@ impl VirtualMachine {
         self.state_mut().settings.path_list.insert(0, "".to_owned());
 
         stdlib::builtins::init_module(self, &self.builtins);
-        stdlib::sys::init_module(self, self.sys_module.as_ref(), self.builtins.as_ref());
+        stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
 
         let mut essential_init = || -> PyResult {
             #[cfg(not(target_arch = "wasm32"))]
@@ -802,15 +808,13 @@ impl VirtualMachine {
     pub fn __module_set_attr(
         &self,
         module: &Py<PyModule>,
-        attr_name: &str,
+        attr_name: &'static PyStrInterned,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        module.as_object().generic_setattr(
-            self.ctx.intern_str(attr_name),
-            PySetterValue::Assign(val),
-            self,
-        )
+        module
+            .as_object()
+            .generic_setattr(attr_name, PySetterValue::Assign(val), self)
     }
 
     pub fn insert_sys_path(&self, obj: PyObjectRef) -> PyResult<()> {

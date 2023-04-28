@@ -1,11 +1,12 @@
 use super::{
-    mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStaticMethod,
-    PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStr,
+    PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
 };
 use crate::{
     builtins::{
         descriptor::{
-            DescrObject, MemberGetter, MemberKind, MemberSetter, PyMemberDef, PyMemberDescriptor,
+            MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMemberDef,
+            PyMemberDescriptor,
         },
         function::PyCellRef,
         tuple::{IntoPyTuple, PyTupleTyped},
@@ -18,7 +19,7 @@ use crate::{
         lock::{PyRwLock, PyRwLockReadGuard},
     },
     convert::ToPyResult,
-    function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
+    function::{FuncArgs, KwArgs, OptionalArg, PyMethodDef, PySetterValue},
     identifier,
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -426,6 +427,13 @@ impl Py<PyType> {
     pub fn iter_base_chain(&self) -> impl Iterator<Item = &Py<PyType>> {
         std::iter::successors(Some(self), |cls| cls.base.as_deref())
     }
+
+    pub fn extend_methods(&'static self, method_defs: &'static [PyMethodDef], ctx: &Context) {
+        for method_def in method_defs {
+            let method = method_def.to_proper_method(self, ctx);
+            self.set_attr(ctx.intern_str(method_def.name), method);
+        }
+    }
 }
 
 #[pyclass(
@@ -696,11 +704,6 @@ impl PyType {
         };
 
         let mut attributes = dict.to_attributes(vm);
-        if let Some(f) = attributes.get_mut(identifier!(vm, __new__)) {
-            if f.class().is(vm.ctx.types.function_type) {
-                *f = PyStaticMethod::from(f.clone()).into_pyobject(vm);
-            }
-        }
 
         if let Some(f) = attributes.get_mut(identifier!(vm, __init_subclass__)) {
             if f.class().is(vm.ctx.types.function_type) {
@@ -813,7 +816,7 @@ impl PyType {
                 };
                 let member_descriptor: PyRef<PyMemberDescriptor> =
                     vm.ctx.new_pyref(PyMemberDescriptor {
-                        common: DescrObject {
+                        common: PyDescriptorOwned {
                             typ: typ.clone(),
                             name: vm.ctx.intern_str(member.as_str()),
                             qualname: PyRwLock::new(None),
@@ -977,11 +980,7 @@ fn get_signature(doc: &str) -> Option<&str> {
 fn find_signature<'a>(name: &str, doc: &'a str) -> Option<&'a str> {
     let name = name.rsplit('.').next().unwrap();
     let doc = doc.strip_prefix(name)?;
-    if !doc.starts_with('(') {
-        None
-    } else {
-        Some(doc)
-    }
+    doc.starts_with('(').then_some(doc)
 }
 
 pub(crate) fn get_text_signature_from_internal_doc<'a>(

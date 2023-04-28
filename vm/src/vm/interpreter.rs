@@ -46,6 +46,8 @@ impl Interpreter {
         F: FnOnce(&mut VirtualMachine),
     {
         let ctx = Context::genesis();
+        crate::types::TypeZoo::extend(ctx);
+        crate::exceptions::ExceptionZoo::extend(ctx);
         let mut vm = VirtualMachine::new(settings, ctx.clone());
         init(&mut vm);
         vm.initialize();

@@ -1,7 +1,8 @@
 //! Utilities to define a new Python class
 
 use crate::{
-    builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
+    builtins::{PyBaseObject, PyType, PyTypeRef},
+    function::PyMethodDef,
     identifier,
     object::Py,
     types::{hash_not_implemented, PyTypeFlags, PyTypeSlots},
@@ -69,8 +70,6 @@ pub trait PyClassDef {
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
-    fn impl_extend_class(ctx: &Context, class: &'static Py<PyType>);
-
     fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
         #[cfg(debug_assertions)]
         {
@@ -102,16 +101,21 @@ pub trait PyClassImpl: PyClassDef {
                 ctx.new_str(module_name).into(),
             );
         }
-        let bound_new = PyBoundMethod::new_ref(
-            class.to_owned().into(),
-            ctx.slot_new_wrapper.clone().into(),
-            ctx,
-        );
-        class.set_attr(identifier!(ctx, __new__), bound_new.into());
+
+        if class.slots.new.load().is_some() {
+            let bound_new = Context::genesis().slot_new_wrapper.build_bound_method(
+                ctx,
+                class.to_owned().into(),
+                class,
+            );
+            class.set_attr(identifier!(ctx, __new__), bound_new.into());
+        }
 
         if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
             class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
         }
+
+        class.extend_methods(class.slots.methods, ctx);
     }
 
     fn make_class(ctx: &Context) -> PyTypeRef
@@ -130,14 +134,20 @@ pub trait PyClassImpl: PyClassDef {
         .to_owned()
     }
 
+    fn impl_extend_class(ctx: &Context, class: &'static Py<PyType>);
+    fn impl_extend_method_def(method_defs: &mut Vec<PyMethodDef>);
     fn extend_slots(slots: &mut PyTypeSlots);
 
     fn make_slots() -> PyTypeSlots {
+        let mut method_defs = Vec::new();
+        Self::impl_extend_method_def(&mut method_defs);
+
         let mut slots = PyTypeSlots {
             flags: Self::TP_FLAGS,
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             doc: Self::DOC,
+            methods: Box::leak(method_defs.into_boxed_slice()),
             ..Default::default()
         };
 

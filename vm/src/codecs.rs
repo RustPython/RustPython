@@ -2,6 +2,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
     common::{ascii, lock::PyRwLock},
     convert::ToPyObject,
+    function::PyMethodDef,
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Cow, collections::HashMap, fmt::Write, ops::Range};
@@ -142,33 +143,33 @@ impl ToPyObject for PyCodec {
 
 impl CodecsRegistry {
     pub(crate) fn new(ctx: &Context) -> Self {
+        ::rustpython_vm::common::static_cell! {
+            static METHODS: Box<[PyMethodDef]>;
+        }
+
+        let methods = METHODS.get_or_init(|| {
+            crate::define_methods![
+                "strict_errors" => strict_errors as EMPTY,
+                "ignore_errors" => ignore_errors as EMPTY,
+                "replace_errors" => replace_errors as EMPTY,
+                "xmlcharrefreplace_errors" => xmlcharrefreplace_errors as EMPTY,
+                "backslashreplace_errors" => backslashreplace_errors as EMPTY,
+                "namereplace_errors" => namereplace_errors as EMPTY,
+                "surrogatepass_errors" => surrogatepass_errors as EMPTY,
+                "surrogateescape_errors" => surrogateescape_errors as EMPTY
+            ]
+            .into_boxed_slice()
+        });
+
         let errors = [
-            ("strict", ctx.new_function("strict_errors", strict_errors)),
-            ("ignore", ctx.new_function("ignore_errors", ignore_errors)),
-            (
-                "replace",
-                ctx.new_function("replace_errors", replace_errors),
-            ),
-            (
-                "xmlcharrefreplace",
-                ctx.new_function("xmlcharrefreplace_errors", xmlcharrefreplace_errors),
-            ),
-            (
-                "backslashreplace",
-                ctx.new_function("backslashreplace_errors", backslashreplace_errors),
-            ),
-            (
-                "namereplace",
-                ctx.new_function("namereplace_errors", namereplace_errors),
-            ),
-            (
-                "surrogatepass",
-                ctx.new_function("surrogatepass_errors", surrogatepass_errors),
-            ),
-            (
-                "surrogateescape",
-                ctx.new_function("surrogateescape_errors", surrogateescape_errors),
-            ),
+            ("strict", methods[0].build_function(ctx)),
+            ("ignore", methods[1].build_function(ctx)),
+            ("replace", methods[2].build_function(ctx)),
+            ("xmlcharrefreplace", methods[3].build_function(ctx)),
+            ("backslashreplace", methods[4].build_function(ctx)),
+            ("namereplace", methods[5].build_function(ctx)),
+            ("surrogatepass", methods[6].build_function(ctx)),
+            ("surrogateescape", methods[7].build_function(ctx)),
         ];
         let errors = errors
             .into_iter()

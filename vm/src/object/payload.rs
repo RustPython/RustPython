@@ -80,3 +80,7 @@ pub trait PyObjectPayload:
 }
 
 impl<T: PyPayload + 'static> PyObjectPayload for T {}
+
+pub trait SlotOffset {
+    fn offset() -> usize;
+}

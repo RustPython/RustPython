@@ -3,7 +3,9 @@ use crate::{
     bytecode::ComparisonOperator,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
-    function::{Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+    function::{
+        Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PySetterValue,
+    },
     identifier,
     protocol::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberMethods,
@@ -61,6 +63,8 @@ pub struct PyTypeSlots {
     // Iterators
     pub iter: AtomicCell<Option<IterFunc>>,
     pub iternext: AtomicCell<Option<IterNextFunc>>,
+
+    pub methods: &'static [PyMethodDef],
 
     // Flags to define presence of optional/expanded features
     pub flags: PyTypeFlags,
@@ -349,7 +353,7 @@ fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResu
     Ok(())
 }
 
-fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     let new = cls.get_attr(identifier!(vm, __new__)).unwrap();
     args.prepend_arg(cls.into());
     new.call(args, vm)
@@ -827,10 +831,15 @@ pub trait Callable: PyPayload {
     #[inline]
     #[pyslot]
     fn slot_call(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let Some(zelf) = zelf.downcast_ref() else {
-            let err = vm.new_downcast_type_error(Self::class(&vm.ctx), zelf);
-            return Err(err);
-        };
+        let zelf = zelf.downcast_ref().ok_or_else(|| {
+            let repr = zelf.repr(vm);
+            let help = if let Ok(repr) = repr.as_ref() {
+                repr.as_str().to_owned()
+            } else {
+                zelf.class().name().to_owned()
+            };
+            vm.new_type_error(format!("unexpected payload for __call__ of {help}"))
+        })?;
         let args = args.bind(vm)?;
         Self::call(zelf, args, vm)
     }

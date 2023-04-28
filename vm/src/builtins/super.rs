@@ -153,9 +153,8 @@ impl PySuper {
 impl GetAttr for PySuper {
     fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         let skip = |zelf: &Py<Self>, name| zelf.as_object().generic_getattr(name, vm);
-        let obj = zelf.inner.read().obj.clone();
-        let (obj, start_type): (PyObjectRef, PyTypeRef) = match obj {
-            Some(o) => o,
+        let (obj, start_type): (PyObjectRef, PyTypeRef) = match &zelf.inner.read().obj {
+            Some(o) => o.clone(),
             None => return skip(zelf, name),
         };
         // We want __class__ to return the class of the super object

@@ -423,8 +423,8 @@ mod _js {
                     };
                     let _ = then.call(
                         (
-                            vm.ctx.new_function("resolve", resolve),
-                            vm.ctx.new_function("reject", reject),
+                            vm.new_function("resolve", resolve),
+                            vm.new_function("reject", reject),
                         ),
                         vm,
                     );

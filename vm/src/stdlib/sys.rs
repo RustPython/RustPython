@@ -1,6 +1,6 @@
 use crate::{builtins::PyModule, convert::ToPyObject, Py, PyResult, VirtualMachine};
 
-pub(crate) use sys::{UnraisableHookArgs, MAXSIZE, MULTIARCH};
+pub(crate) use sys::{UnraisableHookArgs, __module_def, DOC, MAXSIZE, MULTIARCH};
 
 #[pymodule]
 mod sys {

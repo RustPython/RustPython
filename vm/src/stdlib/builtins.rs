@@ -2,6 +2,7 @@
 //!
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
 use crate::{builtins::PyModule, class::PyClassImpl, Py, VirtualMachine};
+pub(crate) use builtins::{__module_def, DOC};
 pub use builtins::{ascii, print};
 
 #[pymodule]
