@@ -259,7 +259,7 @@ impl IterNext for PyStrIterator {
     }
 }
 
-#[derive(FromArgs, Traverse)]
+#[derive(FromArgs)]
 pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
@@ -1401,7 +1401,7 @@ impl AsSequence for PyStr {
     }
 }
 
-#[derive(FromArgs, Traverse)]
+#[derive(FromArgs)]
 struct EncodeArgs {
     #[pyarg(any, default)]
     encoding: Option<PyStrRef>,
@@ -1465,7 +1465,7 @@ impl ToPyObject for AsciiString {
 
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
-#[derive(FromArgs, Traverse)]
+#[derive(FromArgs)]
 pub struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,

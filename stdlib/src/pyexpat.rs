@@ -156,7 +156,7 @@ mod _pyexpat {
         }
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     #[allow(dead_code)]
     struct ParserCreateArgs {
         #[pyarg(any, optional)]

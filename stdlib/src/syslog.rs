@@ -95,7 +95,7 @@ mod syslog {
         Ok(())
     }
 
-    #[derive(FromArgs, Traverse)]
+    #[derive(FromArgs)]
     struct SysLogArgs {
         #[pyarg(positional)]
         priority: PyObjectRef,
