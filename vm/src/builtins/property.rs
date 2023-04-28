@@ -132,18 +132,18 @@ impl PyProperty {
         let arg_len = args_ref.len();
         
         if arg_len != 2 {
-            return Err(vm.new_exception_msg(
+            Err(vm.new_exception_msg(
                 vm.ctx.exceptions.type_error.to_owned(),
                 format!(
                     "__set_name__() takes 2 positional arguments but {} were given",
                     arg_len
                 ),
             ))
+        } else {
+            *self.name.write() = Some(args_ref[1].clone());
+
+            Ok(())
         }
-
-        *self.name.write() = Some(args_ref[1].clone());
-
-        Ok(())
 
     }
 
