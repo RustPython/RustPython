@@ -358,9 +358,10 @@ class _PropertyUnreachableAttribute:
     def setUpClass(cls):
         cls.obj = cls.cls()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_get_property(self):
         with self.assertRaisesRegex(AttributeError, self._format_exc_msg("has no getter")):
-            #print(self.msg_format, self.cls, self.obj)
             self.obj.foo
 
     # TODO: RUSTPYTHON

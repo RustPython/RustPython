@@ -1,7 +1,7 @@
 /*! Python `property` descriptor class.
 
 */
-use super::{PyType, PyTypeRef, PyStrRef, PyStr};
+use super::{PyType, PyTypeRef, PyStrRef};
 use crate::common::lock::PyRwLock;
 use crate::function::PosArgs;
 use crate::{
@@ -11,14 +11,14 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "property", traverse)]
+#[pyclass(module = false, name = "property")]
 #[derive(Debug)]
 pub struct PyProperty {
     getter: PyRwLock<Option<PyObjectRef>>,
     setter: PyRwLock<Option<PyObjectRef>>,
     deleter: PyRwLock<Option<PyObjectRef>>,
     doc: PyRwLock<Option<PyObjectRef>>,
-    name: PyRwLock<Option<PyStrRef>>
+    name: PyRwLock<Option<PyObjectRef>>
 }
 
 impl PyPayload for PyProperty {
@@ -141,9 +141,7 @@ impl PyProperty {
             ))
         }
 
-        let obj = args_ref[1].clone().payload::<PyStr>(vm)?;
-
-        *self.name.write() = Some();
+        *self.name.write() = Some(args_ref[1].clone());
 
         Ok(())
 
@@ -250,7 +248,13 @@ impl Initializer for PyProperty {
         *zelf.setter.write() = args.fset;
         *zelf.deleter.write() = args.fdel;
         *zelf.doc.write() = args.doc;
-        *zelf.name.write() = args.name;
+
+        let name_arg = match args.name {
+            Some(a) => Some(a.as_object().to_owned()),
+            None => None,
+        };
+        *zelf.name.write() = name_arg;
+        
         Ok(())
     }
 }
