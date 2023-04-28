@@ -44,7 +44,7 @@ impl StoredVirtualMachine {
         let mut settings = Settings::default();
         settings.allow_external_library = false;
         let interp = Interpreter::with_init(settings, |vm| {
-            #[cfg(feature = "stdlib")]
+            #[cfg(feature = "freeze-stdlib")]
             vm.add_native_modules(rustpython_stdlib::get_module_inits());
 
             #[cfg(feature = "freeze-stdlib")]
