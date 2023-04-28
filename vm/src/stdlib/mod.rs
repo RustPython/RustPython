@@ -48,10 +48,10 @@ mod winapi;
 #[cfg(windows)]
 mod winreg;
 
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 use std::{borrow::Cow, collections::HashMap};
 
-pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyObjectRef)>;
+pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyRef<PyModule>)>;
 pub type StdlibMap = HashMap<Cow<'static, str>, StdlibInitFunc, ahash::RandomState>;
 
 pub fn get_module_inits() -> StdlibMap {

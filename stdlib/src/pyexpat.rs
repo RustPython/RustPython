@@ -3,12 +3,12 @@
 *
 */
 
-use crate::vm::{extend_module, PyObjectRef, VirtualMachine};
+use crate::vm::{builtins::PyModule, extend_module, PyRef, VirtualMachine};
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _pyexpat::make_module(vm);
 
-    extend_module!(vm, module, {
+    extend_module!(vm, &module, {
          "errors" => _errors::make_module(vm),
          "model" => _model::make_module(vm),
     });
@@ -43,7 +43,7 @@ mod _pyexpat {
     type MutableObject = PyRwLock<PyObjectRef>;
 
     #[pyattr]
-    #[pyclass(name = "xmlparser", module = false)]
+    #[pyclass(name = "xmlparser", module = false, traverse)]
     #[derive(Debug, PyPayload)]
     pub struct PyExpatLikeXmlParser {
         start_element: MutableObject,
@@ -156,7 +156,7 @@ mod _pyexpat {
         }
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, Traverse)]
     #[allow(dead_code)]
     struct ParserCreateArgs {
         #[pyarg(any, optional)]

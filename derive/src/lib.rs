@@ -19,24 +19,14 @@ pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
     derive_impl::pyclass(attr, item).into()
 }
 
+/// Helper macro to define `Exception` types.
+/// More-or-less is an alias to `pyclass` macro.
+///
 /// This macro serves a goal of generating multiple
 /// `BaseException` / `Exception`
 /// subtypes in a uniform and convenient manner.
 /// It looks like `SimpleExtendsException` in `CPython`.
 /// <https://github.com/python/cpython/blob/main/Objects/exceptions.c>
-///
-/// We need `ctx` to be ready to add
-/// `properties` / `custom` constructors / slots / methods etc.
-/// So, we use `extend_class!` macro as the second
-/// step in exception type definition.
-#[proc_macro]
-pub fn define_exception(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input);
-    derive_impl::define_exception(input).into()
-}
-
-/// Helper macro to define `Exception` types.
-/// More-or-less is an alias to `pyclass` macro.
 #[proc_macro_attribute]
 pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr);
@@ -90,4 +80,28 @@ pub fn py_freeze(input: TokenStream) -> TokenStream {
 pub fn pypayload(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input);
     derive_impl::pypayload(input).into()
+}
+
+/// use on struct with named fields like `struct A{x:PyRef<B>, y:PyRef<C>}` to impl `Traverse` for datatype.
+///
+/// use `#[pytraverse(skip)]` on fields you wish not to trace
+///
+/// add `trace` attr to `#[pyclass]` to make it impl `MaybeTraverse` that will call `Traverse`'s `traverse` method so make it
+/// traceable(Even from type-erased PyObject)(i.e. write `#[pyclass(trace)]`).
+/// # Example
+/// ```rust, ignore
+/// #[pyclass(module = false, traverse)]
+/// #[derive(Default, Traverse)]
+/// pub struct PyList {
+///     elements: PyRwLock<Vec<PyObjectRef>>,
+///     #[pytraverse(skip)]
+///     len: AtomicCell<usize>,
+/// }
+/// ```
+/// This create both `MaybeTraverse` that call `Traverse`'s `traverse` method and `Traverse` that impl `Traverse`
+/// for `PyList` which call elements' `traverse` method and ignore `len` field.
+#[proc_macro_derive(Traverse, attributes(pytraverse))]
+pub fn pytraverse(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let item = parse_macro_input!(item);
+    derive_impl::pytraverse(item).into()
 }

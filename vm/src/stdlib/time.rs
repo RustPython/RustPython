@@ -2,21 +2,9 @@
 
 // See also:
 // https://docs.python.org/3/library/time.html
-use crate::{PyObjectRef, VirtualMachine};
-
 pub use time::*;
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let module = time::make_module(vm);
-    #[cfg(unix)]
-    unix::extend_module(vm, &module);
-    #[cfg(windows)]
-    windows::extend_module(vm, &module);
-
-    module
-}
-
-#[pymodule(name = "time")]
+#[pymodule(name = "time", with(platform))]
 mod time {
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
@@ -386,15 +374,12 @@ mod time {
     }
 
     #[allow(unused_imports)]
-    #[cfg(unix)]
-    use super::unix::*;
-    #[cfg(windows)]
-    use super::windows::*;
+    use super::platform::*;
 }
 
 #[cfg(unix)]
-#[pymodule(name = "time")]
-mod unix {
+#[pymodule(sub)]
+mod platform {
     #[allow(unused_imports)]
     use super::{SEC_TO_NS, US_TO_NS};
     #[cfg_attr(target_os = "macos", allow(unused_imports))]
@@ -631,8 +616,8 @@ mod unix {
 }
 
 #[cfg(windows)]
-#[pymodule(name = "time")]
-mod windows {
+#[pymodule]
+mod platform {
     use super::{time_muldiv, MS_TO_NS, SEC_TO_NS};
     use crate::{
         builtins::{PyNamespace, PyStrRef},
@@ -815,3 +800,8 @@ mod windows {
         Ok(Duration::from_nanos((k_time + u_time) * 100))
     }
 }
+
+// mostly for wasm32
+#[cfg(not(any(unix, windows)))]
+#[pymodule(sub)]
+mod platform {}

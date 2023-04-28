@@ -37,6 +37,8 @@ try:
 except ImportError:
     pty = signal = None
 
+import threading  # XXX: RUSTPYTHON; to skip _at_fork_reinit
+
 
 class Squares:
 
@@ -2269,6 +2271,7 @@ class PtyTests(unittest.TestCase):
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     def test_input_no_stdout_fileno(self):
         # Issue #24402: If stdin is the original terminal but stdout.fileno()
         # fails, do not use the original stdout file descriptor

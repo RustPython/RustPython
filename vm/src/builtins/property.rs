@@ -11,7 +11,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "property")]
+#[pyclass(module = false, name = "property", traverse)]
 #[derive(Debug)]
 pub struct PyProperty {
     getter: PyRwLock<Option<PyObjectRef>>,
@@ -51,7 +51,7 @@ impl GetDescriptor for PyProperty {
         } else if let Some(getter) = zelf.getter.read().as_ref() {
             getter.call((obj,), vm)
         } else {
-            Err(vm.new_attribute_error("unreadable attribute".to_string()))
+            Err(vm.new_attribute_error("property has no getter".to_string()))
         }
     }
 }
@@ -73,14 +73,14 @@ impl PyProperty {
                 if let Some(setter) = zelf.setter.read().as_ref() {
                     setter.call((obj, value), vm).map(drop)
                 } else {
-                    Err(vm.new_attribute_error("can't set attribute".to_owned()))
+                    Err(vm.new_attribute_error("property has no setter".to_owned()))
                 }
             }
             PySetterValue::Delete => {
                 if let Some(deleter) = zelf.deleter.read().as_ref() {
                     deleter.call((obj,), vm).map(drop)
                 } else {
-                    Err(vm.new_attribute_error("can't delete attribute".to_owned()))
+                    Err(vm.new_attribute_error("property has no deleter".to_owned()))
                 }
             }
         }

@@ -3,22 +3,25 @@ use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
     convert::ToPyObject,
     identifier,
+    object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
     types::{AsMapping, GenericMethod},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
-#[derive(Clone)]
+#[derive(Clone, Traverse)]
 pub struct ArgCallable {
     obj: PyObjectRef,
+    #[pytraverse(skip)]
     call: GenericMethod,
 }
 
 impl ArgCallable {
     #[inline(always)]
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
-        (self.call)(&self.obj, args.into_args(vm), vm)
+        let args = args.into_args(vm);
+        (self.call)(&self.obj, args, vm)
     }
 }
 
@@ -75,6 +78,12 @@ pub struct ArgIterable<T = PyObjectRef> {
     _item: PhantomData<T>,
 }
 
+unsafe impl<T: Traverse> Traverse for ArgIterable<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.iterable.traverse(tracer_fn)
+    }
+}
+
 impl<T> ArgIterable<T> {
     /// Returns an iterator over this sequence of objects.
     ///
@@ -110,9 +119,10 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Traverse)]
 pub struct ArgMapping {
     obj: PyObjectRef,
+    #[pytraverse(skip)]
     methods: &'static PyMappingMethods,
 }
 
@@ -186,6 +196,12 @@ impl TryFromObject for ArgMapping {
 // this is not strictly related to PySequence protocol.
 #[derive(Clone)]
 pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
+
+unsafe impl<T: Traverse> Traverse for ArgSequence<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn);
+    }
+}
 
 impl<T> ArgSequence<T> {
     #[inline(always)]

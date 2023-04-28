@@ -1,26 +1,17 @@
-use crate::vm::{PyObjectRef, VirtualMachine};
+use crate::vm::{builtins::PyModule, PyRef, VirtualMachine};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     // if openssl is vendored, it doesn't know the locations of system certificates
     #[cfg(feature = "ssl-vendor")]
     if let None | Some("0") = option_env!("OPENSSL_NO_VENDOR") {
         openssl_probe::init_ssl_cert_env_vars();
     }
     openssl::init();
-
-    let module = _ssl::make_module(vm);
-    #[cfg(ossl101)]
-    ossl101::extend_module(vm, &module);
-    #[cfg(ossl111)]
-    ossl101::extend_module(vm, &module);
-    #[cfg(windows)]
-    windows::extend_module(vm, &module);
-
-    module
+    _ssl::make_module(vm)
 }
 
 #[allow(non_upper_case_globals)]
-#[pymodule]
+#[pymodule(with(ossl101, windows))]
 mod _ssl {
     use super::bio;
     use crate::{
@@ -797,9 +788,10 @@ mod _ssl {
         }
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, Traverse)]
     struct WrapSocketArgs {
         sock: PyRef<PySocket>,
+        #[pytraverse(skip)]
         server_side: bool,
         #[pyarg(any, default)]
         server_hostname: Option<PyStrRef>,
@@ -819,9 +811,11 @@ mod _ssl {
         cadata: Option<Either<PyStrRef, ArgBytesLike>>,
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, Traverse)]
     struct LoadCertChainArgs {
+        #[pytraverse(skip)]
         certfile: FsPath,
+        #[pytraverse(skip)]
         #[pyarg(any, optional)]
         keyfile: Option<FsPath>,
         #[pyarg(any, optional)]
@@ -902,11 +896,13 @@ mod _ssl {
     }
 
     #[pyattr]
-    #[pyclass(module = "ssl", name = "_SSLSocket")]
+    #[pyclass(module = "ssl", name = "_SSLSocket", traverse)]
     #[derive(PyPayload)]
     struct PySslSocket {
         ctx: PyRef<PySslContext>,
+        #[pytraverse(skip)]
         stream: PyRwLock<ssl::SslStream<SocketStream>>,
+        #[pytraverse(skip)]
         socket_type: SslServerOrClient,
         server_hostname: Option<PyStrRef>,
         owner: PyRwLock<Option<PyRef<PyWeak>>>,
@@ -1400,9 +1396,21 @@ mod _ssl {
     }
 }
 
+#[cfg(not(ossl101))]
+#[pymodule(sub)]
+mod ossl101 {}
+
+#[cfg(not(ossl111))]
+#[pymodule(sub)]
+mod ossl111 {}
+
+#[cfg(not(windows))]
+#[pymodule(sub)]
+mod windows {}
+
 #[allow(non_upper_case_globals)]
 #[cfg(ossl101)]
-#[pymodule]
+#[pymodule(sub)]
 mod ossl101 {
     #[pyattr]
     use openssl_sys::{
@@ -1413,14 +1421,14 @@ mod ossl101 {
 
 #[allow(non_upper_case_globals)]
 #[cfg(ossl111)]
-#[pymodule]
+#[pymodule(sub)]
 mod ossl111 {
     #[pyattr]
     use openssl_sys::SSL_OP_NO_TLSv1_3 as OP_NO_TLSv1_3;
 }
 
 #[cfg(windows)]
-#[pymodule]
+#[pymodule(sub)]
 mod windows {
     use crate::{
         common::ascii,

@@ -1,13 +1,13 @@
 #![allow(non_snake_case)]
 
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = winreg::make_module(vm);
 
     macro_rules! add_constants {
         ($($name:ident),*$(,)?) => {
-            extend_module!(vm, module, {
+            extend_module!(vm, &module, {
                 $((stringify!($name)) => vm.new_pyobj(::winreg::enums::$name as usize)),*
             })
         };

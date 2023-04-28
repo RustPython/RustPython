@@ -15,6 +15,7 @@ use crate::{
     format::{format, format_map},
     function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
+    object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -186,10 +187,17 @@ impl<'a> AsPyStr<'a> for &'a PyStrInterned {
     }
 }
 
-#[pyclass(module = false, name = "str_iterator")]
+#[pyclass(module = false, name = "str_iterator", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyStrIterator {
     internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
+}
+
+unsafe impl Traverse for PyStrIterator {
+    fn traverse(&self, tracer: &mut TraverseFn) {
+        // No need to worry about deadlock, for inner is a PyStr and can't make ref cycle
+        self.internal.lock().0.traverse(tracer);
+    }
 }
 
 impl PyPayload for PyStrIterator {
@@ -251,7 +259,7 @@ impl IterNext for PyStrIterator {
     }
 }
 
-#[derive(FromArgs)]
+#[derive(FromArgs, Traverse)]
 pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
@@ -310,8 +318,9 @@ impl PyStr {
         Self::new_str_unchecked(bytes, PyStrKind::Ascii)
     }
 
-    pub fn new_ref(s: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
-        PyRef::new_ref(s.into(), ctx.types.str_type.to_owned(), None)
+    pub fn new_ref(zelf: impl Into<Self>, ctx: &Context) -> PyRef<Self> {
+        let zelf = zelf.into();
+        PyRef::new_ref(zelf, ctx.types.str_type.to_owned(), None)
     }
 
     fn new_substr(&self, s: String) -> Self {
@@ -1392,7 +1401,7 @@ impl AsSequence for PyStr {
     }
 }
 
-#[derive(FromArgs)]
+#[derive(FromArgs, Traverse)]
 struct EncodeArgs {
     #[pyarg(any, default)]
     encoding: Option<PyStrRef>,
@@ -1456,7 +1465,7 @@ impl ToPyObject for AsciiString {
 
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
-#[derive(FromArgs)]
+#[derive(FromArgs, Traverse)]
 pub struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,

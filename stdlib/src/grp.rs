@@ -13,11 +13,14 @@ mod grp {
     use std::ptr::NonNull;
 
     #[pyattr]
-    #[pyclass(module = "grp", name = "struct_group")]
+    #[pyclass(module = "grp", name = "struct_group", traverse)]
     #[derive(PyStructSequence)]
     struct Group {
+        #[pytraverse(skip)]
         gr_name: String,
+        #[pytraverse(skip)]
         gr_passwd: String,
+        #[pytraverse(skip)]
         gr_gid: u32,
         gr_mem: PyListRef,
     }

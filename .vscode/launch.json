@@ -17,6 +17,9 @@
             "preLaunchTask": "Build RustPython Debug",
             "program": "target/debug/rustpython",
             "args": [],
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
             "cwd": "${workspaceFolder}"
         },
         {

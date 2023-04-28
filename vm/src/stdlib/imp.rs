@@ -1,14 +1,9 @@
 use crate::bytecode::frozen_lib::FrozenModule;
-use crate::{builtins::PyBaseExceptionRef, PyObjectRef, VirtualMachine};
-
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let module = _imp::make_module(vm);
-    lock::extend_module(vm, &module);
-    module
-}
+use crate::{builtins::PyBaseExceptionRef, VirtualMachine};
+pub(crate) use _imp::make_module;
 
 #[cfg(feature = "threading")]
-#[pymodule]
+#[pymodule(sub)]
 mod lock {
     use crate::{stdlib::thread::RawRMutex, PyResult, VirtualMachine};
 
@@ -36,7 +31,7 @@ mod lock {
 }
 
 #[cfg(not(feature = "threading"))]
-#[pymodule]
+#[pymodule(sub)]
 mod lock {
     use crate::vm::VirtualMachine;
     #[pyfunction]
@@ -82,12 +77,12 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
         .ok_or(FrozenError::NotFound)
 }
 
-#[pymodule]
+#[pymodule(with(lock))]
 mod _imp {
     use crate::{
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef},
         function::OptionalArg,
-        import, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+        import, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
 
     #[pyattr]
@@ -114,16 +109,16 @@ mod _imp {
     #[pyfunction]
     fn create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let sys_modules = vm.sys_module.get_attr("modules", vm).unwrap();
-        let name = spec.get_attr("name", vm)?;
-        let name = PyStrRef::try_from_object(vm, name)?;
+        let name: PyStrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
 
-        if let Ok(module) = sys_modules.get_item(&*name, vm) {
-            Ok(module)
+        let module = if let Ok(module) = sys_modules.get_item(&*name, vm) {
+            module
         } else if let Some(make_module_func) = vm.state.module_inits.get(name.as_str()) {
-            Ok(make_module_func(vm))
+            make_module_func(vm).into()
         } else {
-            Ok(vm.ctx.none())
-        }
+            vm.ctx.none()
+        };
+        Ok(module)
     }
 
     #[pyfunction]

@@ -5,8 +5,10 @@ use crate::{
 };
 use js_sys::{Object, TypeError};
 use rustpython_vm::{
-    builtins::PyWeak, compiler::Mode, scope::Scope, Interpreter, PyObjectRef, PyPayload, PyRef,
-    PyResult, Settings, VirtualMachine,
+    builtins::{PyModule, PyWeak},
+    compiler::Mode,
+    scope::Scope,
+    Interpreter, PyObjectRef, PyPayload, PyRef, PyResult, Settings, VirtualMachine,
 };
 use std::{
     cell::RefCell,
@@ -26,10 +28,10 @@ pub(crate) struct StoredVirtualMachine {
 #[pymodule]
 mod _window {}
 
-fn init_window_module(vm: &VirtualMachine) -> PyObjectRef {
+fn init_window_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _window::make_module(vm);
 
-    extend_module!(vm, module, {
+    extend_module!(vm, &module, {
         "window" => js_module::PyJsValue::new(wasm_builtins::window()).into_ref(&vm.ctx),
     });
 
@@ -42,7 +44,7 @@ impl StoredVirtualMachine {
         let mut settings = Settings::default();
         settings.allow_external_library = false;
         let interp = Interpreter::with_init(settings, |vm| {
-            #[cfg(feature = "stdlib")]
+            #[cfg(feature = "freeze-stdlib")]
             vm.add_native_modules(rustpython_stdlib::get_module_inits());
 
             #[cfg(feature = "freeze-stdlib")]
@@ -300,7 +302,7 @@ impl WASMVirtualMachine {
             let module = vm.new_module(&name, attrs, None);
 
             let sys_modules = vm.sys_module.get_attr("modules", vm).into_js(vm)?;
-            sys_modules.set_item(&name, module, vm).into_js(vm)?;
+            sys_modules.set_item(&name, module.into(), vm).into_js(vm)?;
 
             Ok(())
         })?
@@ -313,13 +315,15 @@ impl WASMVirtualMachine {
             for entry in convert::object_entries(&module) {
                 let (key, value) = entry?;
                 let key = Object::from(key).to_string();
-                extend_module!(vm, py_module, {
+                extend_module!(vm, &py_module, {
                     &String::from(key) => convert::js_to_py(vm, value),
                 });
             }
 
             let sys_modules = vm.sys_module.get_attr("modules", vm).into_js(vm)?;
-            sys_modules.set_item(&name, py_module, vm).into_js(vm)?;
+            sys_modules
+                .set_item(&name, py_module.into(), vm)
+                .into_js(vm)?;
 
             Ok(())
         })?

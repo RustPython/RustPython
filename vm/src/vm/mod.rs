@@ -98,6 +98,9 @@ pub struct PyGlobalState {
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
     pub override_frozen_modules: AtomicCell<isize>,
+    pub before_forkers: PyMutex<Vec<PyObjectRef>>,
+    pub after_forkers_child: PyMutex<Vec<PyObjectRef>>,
+    pub after_forkers_parent: PyMutex<Vec<PyObjectRef>>,
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -115,7 +118,7 @@ impl VirtualMachine {
         // set __spec__, __loader__, etc. attributes
         let new_module = || {
             PyRef::new_ref(
-                PyModule {},
+                PyModule::new(),
                 ctx.types.module_type.to_owned(),
                 Some(ctx.new_dict()),
             )
@@ -175,6 +178,9 @@ impl VirtualMachine {
                 finalizing: AtomicBool::new(false),
                 warnings,
                 override_frozen_modules: AtomicCell::new(0),
+                before_forkers: PyMutex::default(),
+                after_forkers_child: PyMutex::default(),
+                after_forkers_parent: PyMutex::default(),
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
@@ -194,9 +200,9 @@ impl VirtualMachine {
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
         vm.builtins
-            .init_module_dict(vm.ctx.intern_str("builtins"), vm.ctx.none(), &vm);
+            .init_module_dict(vm.ctx.intern_str("builtins"), None, &vm);
         vm.sys_module
-            .init_module_dict(vm.ctx.intern_str("sys"), vm.ctx.none(), &vm);
+            .init_module_dict(vm.ctx.intern_str("sys"), None, &vm);
 
         vm
     }
@@ -244,7 +250,7 @@ impl VirtualMachine {
         // add the current directory to sys.path
         self.state_mut().settings.path_list.insert(0, "".to_owned());
 
-        stdlib::builtins::make_module(self, self.builtins.clone().into());
+        stdlib::builtins::init_module(self, &self.builtins);
         stdlib::sys::init_module(self, self.sys_module.as_ref(), self.builtins.as_ref());
 
         let mut essential_init = || -> PyResult {
@@ -469,11 +475,12 @@ impl VirtualMachine {
     #[inline]
     pub fn import<'a>(
         &self,
-        module: impl AsPyStr<'a>,
+        module_name: impl AsPyStr<'a>,
         from_list: Option<PyTupleTyped<PyStrRef>>,
         level: usize,
     ) -> PyResult {
-        self.import_inner(module.as_pystr(&self.ctx), from_list, level)
+        let module_name = module_name.as_pystr(&self.ctx);
+        self.import_inner(module_name, from_list, level)
     }
 
     fn import_inner(
@@ -794,12 +801,12 @@ impl VirtualMachine {
     #[doc(hidden)]
     pub fn __module_set_attr(
         &self,
-        module: &PyObject,
+        module: &Py<PyModule>,
         attr_name: &str,
         attr_value: impl Into<PyObjectRef>,
     ) -> PyResult<()> {
         let val = attr_value.into();
-        module.generic_setattr(
+        module.as_object().generic_setattr(
             self.ctx.intern_str(attr_name),
             PySetterValue::Assign(val),
             self,

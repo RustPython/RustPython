@@ -47,7 +47,7 @@ pub use mappingproxy::PyMappingProxy;
 pub(crate) mod memory;
 pub use memory::PyMemoryView;
 pub(crate) mod module;
-pub use module::PyModule;
+pub use module::{PyModule, PyModuleDef};
 pub(crate) mod namespace;
 pub use namespace::PyNamespace;
 pub(crate) mod object;

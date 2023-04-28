@@ -1,4 +1,4 @@
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 use std::os::unix::io::RawFd;
 
 pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
@@ -12,25 +12,25 @@ pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
     Ok(())
 }
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = module::make_module(vm);
     super::os::extend_module(vm, &module);
     module
 }
 
-#[pymodule(name = "posix")]
+#[pymodule(name = "posix", with(super::os::_os))]
 pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
-        function::{Either, OptionalArg},
+        function::{Either, KwArgs, OptionalArg},
         stdlib::os::{
             errno_err, DirFd, FollowSymlinks, OsPath, OsPathOrFd, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
         },
-        types::Constructor,
+        types::{Constructor, Representable},
         utils::ToCString,
-        AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use bitflags::bitflags;
     use nix::{
@@ -421,6 +421,119 @@ pub mod module {
         )
     }
 
+    #[derive(FromArgs)]
+    struct RegisterAtForkArgs {
+        #[pyarg(named, optional)]
+        before: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_parent: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_child: OptionalArg<PyObjectRef>,
+    }
+
+    impl RegisterAtForkArgs {
+        fn into_validated(
+            self,
+            vm: &VirtualMachine,
+        ) -> PyResult<(
+            Option<PyObjectRef>,
+            Option<PyObjectRef>,
+            Option<PyObjectRef>,
+        )> {
+            fn into_option(
+                arg: OptionalArg<PyObjectRef>,
+                vm: &VirtualMachine,
+            ) -> PyResult<Option<PyObjectRef>> {
+                match arg {
+                    OptionalArg::Present(obj) => {
+                        if !obj.is_callable() {
+                            return Err(vm.new_type_error("Args must be callable".to_owned()));
+                        }
+                        Ok(Some(obj))
+                    }
+                    OptionalArg::Missing => Ok(None),
+                }
+            }
+            let before = into_option(self.before, vm)?;
+            let after_in_parent = into_option(self.after_in_parent, vm)?;
+            let after_in_child = into_option(self.after_in_child, vm)?;
+            if before.is_none() && after_in_parent.is_none() && after_in_child.is_none() {
+                return Err(vm.new_type_error("At least one arg must be present".to_owned()));
+            }
+            Ok((before, after_in_parent, after_in_child))
+        }
+    }
+
+    #[pyfunction]
+    fn register_at_fork(
+        args: RegisterAtForkArgs,
+        _ignored: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let (before, after_in_parent, after_in_child) = args.into_validated(vm)?;
+
+        if let Some(before) = before {
+            vm.state.before_forkers.lock().push(before);
+        }
+        if let Some(after_in_parent) = after_in_parent {
+            vm.state.after_forkers_parent.lock().push(after_in_parent);
+        }
+        if let Some(after_in_child) = after_in_child {
+            vm.state.after_forkers_child.lock().push(after_in_child);
+        }
+        Ok(())
+    }
+
+    fn run_at_forkers(mut funcs: Vec<PyObjectRef>, reversed: bool, vm: &VirtualMachine) {
+        if !funcs.is_empty() {
+            if reversed {
+                funcs.reverse();
+            }
+            for func in funcs.into_iter() {
+                if let Err(e) = func.call((), vm) {
+                    let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
+                    vm.run_unraisable(e, Some("Exception ignored in".to_owned()), func);
+                    if exit {
+                        // Do nothing!
+                    }
+                }
+            }
+        }
+    }
+
+    fn py_os_before_fork(vm: &VirtualMachine) {
+        let before_forkers: Vec<PyObjectRef> = vm.state.before_forkers.lock().clone();
+        // functions must be executed in reversed order as they are registered
+        // only for before_forkers, refer: test_register_at_fork in test_posix
+
+        run_at_forkers(before_forkers, true, vm);
+    }
+
+    fn py_os_after_fork_child(vm: &VirtualMachine) {
+        let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
+        run_at_forkers(after_forkers_child, false, vm);
+    }
+
+    fn py_os_after_fork_parent(vm: &VirtualMachine) {
+        let after_forkers_parent: Vec<PyObjectRef> = vm.state.after_forkers_parent.lock().clone();
+        run_at_forkers(after_forkers_parent, false, vm);
+    }
+
+    #[pyfunction]
+    fn fork(vm: &VirtualMachine) -> i32 {
+        let pid: i32;
+        py_os_before_fork(vm);
+        unsafe {
+            pid = libc::fork();
+        }
+        if pid == 0 {
+            py_os_after_fork_child(vm);
+        } else {
+            py_os_after_fork_parent(vm);
+        }
+        pid
+    }
+
     #[cfg(not(target_os = "redox"))]
     const MKNOD_DIR_FD: bool = cfg!(not(target_vendor = "apple"));
 
@@ -540,20 +653,11 @@ pub mod module {
         }
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor, Representable))]
     impl SchedParam {
         #[pygetset]
         fn sched_priority(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.sched_priority.clone().to_pyobject(vm)
-        }
-
-        #[pymethod(magic)]
-        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let sched_priority_repr = self.sched_priority.repr(vm)?;
-            Ok(format!(
-                "posix.sched_param(sched_priority = {})",
-                sched_priority_repr.as_str()
-            ))
         }
 
         #[cfg(any(
@@ -588,6 +692,17 @@ pub mod module {
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
+        }
+    }
+
+    impl Representable for SchedParam {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let sched_priority_repr = zelf.sched_priority.repr(vm)?;
+            Ok(format!(
+                "posix.sched_param(sched_priority = {})",
+                sched_priority_repr.as_str()
+            ))
         }
     }
 

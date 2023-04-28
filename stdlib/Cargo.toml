@@ -55,6 +55,7 @@ sha-1 = "0.10.0"
 sha2 = "0.10.2"
 sha3 = "0.10.1"
 blake2 = "0.10.4"
+hmac = "0.12.1"
 
 ## unicode stuff
 unicode_names2 = { workspace = true }

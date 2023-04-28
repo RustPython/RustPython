@@ -5,7 +5,7 @@ use super::{
 use crate::{
     builtins::{
         descriptor::{
-            DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
+            DescrObject, MemberGetter, MemberKind, MemberSetter, PyMemberDef, PyMemberDescriptor,
         },
         function::PyCellRef,
         tuple::{IntoPyTuple, PyTupleTyped},
@@ -20,6 +20,7 @@ use crate::{
     convert::ToPyResult,
     function::{FuncArgs, KwArgs, OptionalArg, PySetterValue},
     identifier,
+    object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{AsNumber, Callable, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -29,7 +30,7 @@ use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
-#[pyclass(module = false, name = "type")]
+#[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
     pub base: Option<PyTypeRef>,
     pub bases: Vec<PyTypeRef>,
@@ -38,6 +39,20 @@ pub struct PyType {
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
+}
+
+unsafe impl crate::object::Traverse for PyType {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn) {
+        self.base.traverse(tracer_fn);
+        self.bases.traverse(tracer_fn);
+        self.mro.traverse(tracer_fn);
+        self.subclasses.traverse(tracer_fn);
+        self.attributes
+            .read_recursive()
+            .iter()
+            .map(|(_, v)| v.traverse(tracer_fn))
+            .count();
+    }
 }
 
 pub struct HeapTypeExt {
@@ -99,6 +114,12 @@ cfg_if::cfg_if! {
 /// that maintains order and is compatible with the standard HashMap  This is probably
 /// faster and only supports strings as keys.
 pub type PyAttributes = IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState>;
+
+unsafe impl Traverse for PyAttributes {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.values().for_each(|v| v.traverse(tracer_fn));
+    }
+}
 
 impl fmt::Display for PyType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -301,7 +322,8 @@ impl PyType {
         value: V,
         ctx: impl AsRef<Context>,
     ) {
-        let attr_name = ctx.as_ref().intern_str(attr_name);
+        let ctx = ctx.as_ref();
+        let attr_name = ctx.intern_str(attr_name);
         self.set_attr(attr_name, value.into())
     }
 
@@ -753,12 +775,11 @@ impl PyType {
             base.slots.member_count + heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
 
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
-        let (slots, heaptype_ext) = unsafe {
-            // # Safety
-            // `slots.name` live long enough because `heaptype_ext` is alive.
+        let (slots, heaptype_ext) = {
             let slots = PyTypeSlots {
                 member_count,
-                ..PyTypeSlots::new(&*(name.as_str() as *const _), flags)
+                flags,
+                ..PyTypeSlots::heap_default()
             };
             let heaptype_ext = HeapTypeExt {
                 name: PyRwLock::new(name),
@@ -783,15 +804,15 @@ impl PyType {
         if let Some(ref slots) = heaptype_slots {
             let mut offset = base_member_count;
             for member in slots.as_slice() {
-                let member_def = MemberDef {
+                let member_def = PyMemberDef {
                     name: member.to_string(),
                     kind: MemberKind::ObjectEx,
                     getter: MemberGetter::Offset(offset),
                     setter: MemberSetter::Offset(offset),
                     doc: None,
                 };
-                let member_descriptor: PyRef<MemberDescrObject> =
-                    vm.ctx.new_pyref(MemberDescrObject {
+                let member_descriptor: PyRef<PyMemberDescriptor> =
+                    vm.ctx.new_pyref(PyMemberDescriptor {
                         common: DescrObject {
                             typ: typ.clone(),
                             name: vm.ctx.intern_str(member.as_str()),

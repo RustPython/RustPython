@@ -275,7 +275,8 @@ def _getuserbase():
 
     if os.name == "nt":
         base = os.environ.get("APPDATA") or "~"
-        return joinuser(base, "Python")
+        # XXX: RUSTPYTHON; please keep this change for site-packages
+        return joinuser(base, "RustPython")
 
     if sys.platform == "darwin" and sys._framework:
         return joinuser("~", "Library", sys._framework,
@@ -368,7 +369,8 @@ def getsitepackages(prefixes=None):
 
             for libdir in libdirs:
                 path = os.path.join(prefix, libdir,
-                                    "python%d.%d" % sys.version_info[:2],
+                                    # XXX: RUSTPYTHON; please keep this change for site-packages
+                                    "rustpython%d.%d" % sys.version_info[:2],
                                     "site-packages")
                 sitepackages.append(path)
         else:

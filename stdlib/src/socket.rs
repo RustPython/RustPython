@@ -1,8 +1,8 @@
-use crate::vm::{PyObjectRef, VirtualMachine};
+use crate::vm::{builtins::PyModule, PyRef, VirtualMachine};
 #[cfg(feature = "ssl")]
 pub(super) use _socket::{sock_select, timeout_error_msg, PySocket, SelectKind};
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(windows)]
     crate::vm::stdlib::nt::init_winsock();
     _socket::make_module(vm)
@@ -15,9 +15,9 @@ mod _socket {
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, OptionalArg, OptionalOption},
-        types::{DefaultConstructor, Initializer},
+        types::{DefaultConstructor, Initializer, Representable},
         utils::ToCString,
-        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
@@ -309,6 +309,7 @@ mod _socket {
             any(
                 target_arch = "aarch64",
                 target_arch = "i686",
+                target_arch = "loongarch64",
                 target_arch = "mips",
                 target_arch = "powerpc",
                 target_arch = "powerpc64",
@@ -359,6 +360,7 @@ mod _socket {
             any(
                 target_arch = "aarch64",
                 target_arch = "i686",
+                target_arch = "loongarch64",
                 target_arch = "mips",
                 target_arch = "powerpc",
                 target_arch = "powerpc64",
@@ -1015,7 +1017,21 @@ mod _socket {
         }
     }
 
-    #[pyclass(with(DefaultConstructor, Initializer), flags(BASETYPE))]
+    impl Representable for PySocket {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!(
+                "<socket object, fd={}, family={}, type={}, proto={}>",
+                // cast because INVALID_SOCKET is unsigned, so would show usize::MAX instead of -1
+                zelf.fileno() as i64,
+                zelf.family.load(),
+                zelf.kind.load(),
+                zelf.proto.load(),
+            ))
+        }
+    }
+
+    #[pyclass(with(DefaultConstructor, Initializer, Representable), flags(BASETYPE))]
     impl PySocket {
         fn _init(
             zelf: PyRef<Self>,
@@ -1462,18 +1478,6 @@ mod _socket {
         #[pygetset]
         fn proto(&self) -> i32 {
             self.proto.load()
-        }
-
-        #[pymethod(magic)]
-        fn repr(&self) -> String {
-            format!(
-                "<socket object, fd={}, family={}, type={}, proto={}>",
-                // cast because INVALID_SOCKET is unsigned, so would show usize::MAX instead of -1
-                self.fileno() as i64,
-                self.family.load(),
-                self.kind.load(),
-                self.proto.load(),
-            )
         }
     }
 

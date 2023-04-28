@@ -13,7 +13,14 @@ mod contextvars;
 mod csv;
 mod dis;
 mod gc;
+
+mod blake2;
 mod hashlib;
+mod md5;
+mod sha1;
+mod sha256;
+mod sha3;
+
 mod json;
 #[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
 mod locale;
@@ -100,7 +107,13 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_csv" => csv::make_module,
             "_dis" => dis::make_module,
             "gc" => gc::make_module,
-            "hashlib" => hashlib::make_module,
+            "_hashlib" => hashlib::make_module,
+            "_sha1" => sha1::make_module,
+            "_sha3" => sha3::make_module,
+            "_sha256" => sha256::make_module,
+            // "_sha512" => sha512::make_module, // TODO: RUSPYTHON fix strange fail on vm: 'static type has not been initialized'
+            "_md5" => md5::make_module,
+            "_blake2" => blake2::make_module,
             "_json" => json::make_module,
             "math" => math::make_module,
             "pyexpat" => pyexpat::make_module,

@@ -12,7 +12,7 @@ use crate::{
 use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass(module = false, name = "slice", unhashable = true)]
+#[pyclass(module = false, name = "slice", unhashable = true, traverse)]
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
@@ -244,6 +244,7 @@ impl Comparable for PySlice {
         Ok(PyComparisonValue::Implemented(ret))
     }
 }
+
 impl Representable for PySlice {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {

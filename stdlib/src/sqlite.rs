@@ -8,13 +8,13 @@
 // spell-checker:ignore cantlock commithook foreignkey notnull primarykey gettemppath autoindex convpath
 // spell-checker:ignore dbmoved vnode nbytes
 
-use rustpython_vm::{PyObjectRef, VirtualMachine};
+use rustpython_vm::{builtins::PyModule, AsObject, PyRef, VirtualMachine};
 
 // pub(crate) use _sqlite::make_module;
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     // TODO: sqlite version check
     let module = _sqlite::make_module(vm);
-    _sqlite::setup_module(&module, vm);
+    _sqlite::setup_module(module.as_object(), vm);
     module
 }
 
@@ -69,6 +69,7 @@ mod _sqlite {
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine,
         __exports::paste,
+        object::{Traverse, TraverseFn},
     };
     use std::{
         ffi::{c_int, c_longlong, c_uint, c_void, CStr},
@@ -311,6 +312,13 @@ mod _sqlite {
         uri: bool,
     }
 
+    unsafe impl Traverse for ConnectArgs {
+        fn traverse(&self, tracer_fn: &mut TraverseFn) {
+            self.isolation_level.traverse(tracer_fn);
+            self.factory.traverse(tracer_fn);
+        }
+    }
+
     #[derive(FromArgs)]
     struct BackupArgs {
         #[pyarg(any)]
@@ -325,36 +333,48 @@ mod _sqlite {
         sleep: f64,
     }
 
-    #[derive(FromArgs)]
+    unsafe impl Traverse for BackupArgs {
+        fn traverse(&self, tracer_fn: &mut TraverseFn) {
+            self.progress.traverse(tracer_fn);
+            self.name.traverse(tracer_fn);
+        }
+    }
+
+    #[derive(FromArgs, Traverse)]
     struct CreateFunctionArgs {
         #[pyarg(any)]
         name: PyStrRef,
+        #[pytraverse(skip)]
         #[pyarg(any)]
         narg: c_int,
         #[pyarg(any)]
         func: PyObjectRef,
+        #[pytraverse(skip)]
         #[pyarg(named, default)]
         deterministic: bool,
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, Traverse)]
     struct CreateAggregateArgs {
         #[pyarg(any)]
         name: PyStrRef,
+        #[pytraverse(skip)]
         #[pyarg(positional)]
         narg: c_int,
         #[pyarg(positional)]
         aggregate_class: PyObjectRef,
     }
 
-    #[derive(FromArgs)]
+    #[derive(FromArgs, Traverse)]
     struct BlobOpenArgs {
         #[pyarg(positional)]
         table: PyStrRef,
         #[pyarg(positional)]
         column: PyStrRef,
+        #[pytraverse(skip)]
         #[pyarg(positional)]
         row: i64,
+        #[pytraverse(skip)]
         #[pyarg(named, default)]
         readonly: bool,
         #[pyarg(named, default = "vm.ctx.new_str(stringify!(main))")]
@@ -1107,13 +1127,17 @@ mod _sqlite {
         ) -> PyResult<()> {
             let name = name.to_cstring(vm)?;
             let db = self.db_lock(vm)?;
-            let Some(data )= CallbackData::new(callable, vm) else {
+            let Some(data) = CallbackData::new(callable.clone(), vm) else {
                 unsafe {
                     sqlite3_create_collation_v2(db.db, name.as_ptr(), SQLITE_UTF8, null_mut(), None, None);
                 }
                 return Ok(());
             };
             let data = Box::into_raw(Box::new(data));
+
+            if !callable.is_callable() {
+                return Err(vm.new_type_error("parameter must be callable".to_owned()));
+            }
 
             let ret = unsafe {
                 sqlite3_create_collation_v2(
@@ -1336,20 +1360,24 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name)]
+    #[pyclass(name, traverse)]
     #[derive(Debug, PyPayload)]
     struct Cursor {
         connection: PyRef<Connection>,
+        #[pytraverse(skip)]
         arraysize: PyAtomic<c_int>,
+        #[pytraverse(skip)]
         row_factory: PyAtomicRef<Option<PyObject>>,
         inner: PyMutex<Option<CursorInner>>,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Traverse)]
     struct CursorInner {
         description: Option<PyTupleRef>,
         row_cast_map: Vec<Option<PyObjectRef>>,
+        #[pytraverse(skip)]
         lastrowid: i64,
+        #[pytraverse(skip)]
         rowcount: i64,
         statement: Option<PyRef<Statement>>,
     }
@@ -1789,7 +1817,7 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name)]
+    #[pyclass(name, traverse)]
     #[derive(Debug, PyPayload)]
     struct Row {
         data: PyTupleRef,
@@ -1918,10 +1946,11 @@ mod _sqlite {
     }
 
     #[pyattr]
-    #[pyclass(name)]
+    #[pyclass(name, traverse)]
     #[derive(Debug, PyPayload)]
     struct Blob {
         connection: PyRef<Connection>,
+        #[pytraverse(skip)]
         inner: PyMutex<Option<BlobInner>>,
     }
 

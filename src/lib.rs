@@ -99,15 +99,12 @@ fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
     let main_module = vm.new_module("__main__", scope.globals.clone(), None);
     main_module
         .dict()
-        .and_then(|d| {
-            d.set_item("__annotations__", vm.ctx.new_dict().into(), vm)
-                .ok()
-        })
+        .set_item("__annotations__", vm.ctx.new_dict().into(), vm)
         .expect("Failed to initialize __main__.__annotations__");
 
     vm.sys_module
         .get_attr("modules", vm)?
-        .set_item("__main__", main_module, vm)?;
+        .set_item("__main__", main_module.into(), vm)?;
 
     Ok(scope)
 }

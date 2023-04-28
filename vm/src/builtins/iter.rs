@@ -6,6 +6,7 @@ use super::{PyInt, PyTupleRef, PyType};
 use crate::{
     class::PyClassImpl,
     function::ArgCallable,
+    object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
     types::{IterNext, IterNextIterable},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -24,10 +25,25 @@ pub enum IterStatus<T> {
     Exhausted,
 }
 
+unsafe impl<T: Traverse> Traverse for IterStatus<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        match self {
+            IterStatus::Active(ref r) => r.traverse(tracer_fn),
+            IterStatus::Exhausted => (),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct PositionIterInternal<T> {
     pub status: IterStatus<T>,
     pub position: usize,
+}
+
+unsafe impl<T: Traverse> Traverse for PositionIterInternal<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.status.traverse(tracer_fn)
+    }
 }
 
 impl<T> PositionIterInternal<T> {
@@ -158,10 +174,11 @@ pub fn builtins_reversed(vm: &VirtualMachine) -> &PyObject {
     INSTANCE.get_or_init(|| vm.builtins.get_attr("reversed", vm).unwrap())
 }
 
-#[pyclass(module = false, name = "iterator")]
+#[pyclass(module = false, name = "iterator", traverse)]
 #[derive(Debug)]
 pub struct PySequenceIterator {
     // cached sequence methods
+    #[pytraverse(skip)]
     seq_methods: &'static PySequenceMethods,
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
@@ -222,7 +239,7 @@ impl IterNext for PySequenceIterator {
     }
 }
 
-#[pyclass(module = false, name = "callable_iterator")]
+#[pyclass(module = false, name = "callable_iterator", traverse)]
 #[derive(Debug)]
 pub struct PyCallableIterator {
     sentinel: PyObjectRef,
