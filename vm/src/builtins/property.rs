@@ -1,7 +1,7 @@
 /*! Python `property` descriptor class.
 
 */
-use super::{PyType, PyTypeRef, PyStrRef};
+use super::{PyStrRef, PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
 use crate::function::PosArgs;
 use crate::{
@@ -18,7 +18,7 @@ pub struct PyProperty {
     setter: PyRwLock<Option<PyObjectRef>>,
     deleter: PyRwLock<Option<PyObjectRef>>,
     doc: PyRwLock<Option<PyObjectRef>>,
-    name: PyRwLock<Option<PyObjectRef>>
+    name: PyRwLock<Option<PyObjectRef>>,
 }
 
 impl PyPayload for PyProperty {
@@ -128,9 +128,9 @@ impl PyProperty {
 
     #[pymethod(magic)]
     fn set_name(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let args_ref =  args.into_vec();
+        let args_ref = args.into_vec();
         let arg_len = args_ref.len();
-        
+
         if arg_len != 2 {
             Err(vm.new_exception_msg(
                 vm.ctx.exceptions.type_error.to_owned(),
@@ -144,7 +144,6 @@ impl PyProperty {
 
             Ok(())
         }
-
     }
 
     // Python builder functions
@@ -249,12 +248,9 @@ impl Initializer for PyProperty {
         *zelf.deleter.write() = args.fdel;
         *zelf.doc.write() = args.doc;
 
-        let name_arg = match args.name {
-            Some(a) => Some(a.as_object().to_owned()),
-            None => None,
-        };
+        let name_arg = args.name.map(|a| a.as_object().to_owned());
         *zelf.name.write() = name_arg;
-        
+
         Ok(())
     }
 }
