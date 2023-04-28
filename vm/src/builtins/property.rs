@@ -247,9 +247,7 @@ impl Initializer for PyProperty {
         *zelf.setter.write() = args.fset;
         *zelf.deleter.write() = args.fdel;
         *zelf.doc.write() = args.doc;
-
-        let name_arg = args.name.map(|a| a.as_object().to_owned());
-        *zelf.name.write() = name_arg;
+        *zelf.name.write() = args.name.map(|a| a.as_object().to_owned());
 
         Ok(())
     }
