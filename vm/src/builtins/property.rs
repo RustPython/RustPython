@@ -3,7 +3,7 @@
 */
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
-use crate::function::PosArgs;
+use crate::function::{PosArgs, IntoFuncArgs};
 use crate::{
     class::PyClassImpl,
     function::{FuncArgs, PySetterValue},
@@ -128,22 +128,18 @@ impl PyProperty {
 
     #[pymethod(magic)]
     fn set_name(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let args_ref = args.into_vec();
-        let arg_len = args_ref.len();
+        let func_args = args.into_args(vm);
+        let func_args_len = func_args.args.len();
+        let (_owner, name): (PyObjectRef, PyObjectRef) = func_args.bind(vm).map_err(|_e| vm.new_type_error(
+            format!(
+                "__set_name__() takes 2 positional arguments but {} were given",
+                func_args_len
+            ),
+        ))?;
+        
+        *self.name.write() = Some(name);
 
-        if arg_len != 2 {
-            Err(vm.new_exception_msg(
-                vm.ctx.exceptions.type_error.to_owned(),
-                format!(
-                    "__set_name__() takes 2 positional arguments but {} were given",
-                    arg_len
-                ),
-            ))
-        } else {
-            *self.name.write() = Some(args_ref[1].clone());
-
-            Ok(())
-        }
+        Ok(())
     }
 
     // Python builder functions
