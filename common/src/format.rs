@@ -417,12 +417,14 @@ impl FormatSpec {
     }
 
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
-        let x = match input {
-            true => 1,
-            false => 0,
-        };
+        dbg!(&self.format_type);
+        let x = u8::from(input);
         let result: Result<String, FormatSpecError> = match &self.format_type {
             Some(FormatType::Decimal) => Ok(x.to_string()),
+            None => {
+                let first_letter = (input.to_string().as_bytes()[0] as char).to_uppercase();
+                Ok(first_letter.collect::<String>() + &input.to_string()[1..])
+            }
             _ => Err(FormatSpecError::InvalidFormatSpecifier),
         };
         result
