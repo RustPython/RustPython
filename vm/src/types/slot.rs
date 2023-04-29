@@ -305,7 +305,7 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(&zelf, identifier!(vm, __iter__), ())
 }
 
-// PyObject_IterNextIterable in CPython
+// PyObject_SelfIter in CPython
 fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
     Ok(zelf)
 }
@@ -1271,11 +1271,11 @@ pub trait IterNext: PyPayload + Iterable {
     }
 }
 
-pub trait IterNextIterable: PyPayload {}
+pub trait SelfIter: PyPayload {}
 
 impl<T> Iterable for T
 where
-    T: IterNextIterable,
+    T: SelfIter,
 {
     #[cold]
     fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {

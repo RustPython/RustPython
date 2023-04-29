@@ -62,8 +62,8 @@ mod _sqlite {
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         types::{
-            AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext,
-            IterNextIterable, Iterable, PyComparisonOp,
+            AsMapping, AsSequence, Callable, Comparable, Constructor, Hashable, IterNext, Iterable,
+            PyComparisonOp, SelfIter,
         },
         utils::ToCString,
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -1708,7 +1708,7 @@ mod _sqlite {
         }
     }
 
-    impl IterNextIterable for Cursor {}
+    impl SelfIter for Cursor {}
     impl IterNext for Cursor {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let mut inner = zelf.inner(vm)?;

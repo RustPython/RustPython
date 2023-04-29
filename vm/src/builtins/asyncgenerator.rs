@@ -6,7 +6,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{Constructor, IterNext, IterNextIterable, Iterable, Representable, Unconstructible},
+    types::{Constructor, IterNext, Iterable, Representable, SelfIter, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -268,7 +268,7 @@ impl PyAsyncGenASend {
     }
 }
 
-impl IterNextIterable for PyAsyncGenASend {}
+impl SelfIter for PyAsyncGenASend {}
 impl IterNext for PyAsyncGenASend {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)
@@ -414,7 +414,7 @@ impl PyAsyncGenAThrow {
     }
 }
 
-impl IterNextIterable for PyAsyncGenAThrow {}
+impl SelfIter for PyAsyncGenAThrow {}
 impl IterNext for PyAsyncGenAThrow {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         PyIterReturn::from_pyresult(zelf.send(vm.ctx.none(), vm), vm)

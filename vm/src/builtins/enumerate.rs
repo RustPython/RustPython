@@ -7,7 +7,7 @@ use crate::{
     convert::ToPyObject,
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable, Iterable},
+    types::{Constructor, IterNext, Iterable, SelfIter},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use num_bigint::BigInt;
@@ -71,7 +71,7 @@ impl Py<PyEnumerate> {
     }
 }
 
-impl IterNextIterable for PyEnumerate {}
+impl SelfIter for PyEnumerate {}
 impl IterNext for PyEnumerate {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let next_obj = match zelf.iterator.next(vm)? {
@@ -130,7 +130,7 @@ impl PyReverseSequenceIterator {
     }
 }
 
-impl IterNextIterable for PyReverseSequenceIterator {}
+impl SelfIter for PyReverseSequenceIterator {}
 impl IterNext for PyReverseSequenceIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal

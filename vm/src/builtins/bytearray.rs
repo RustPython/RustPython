@@ -31,7 +31,7 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer,
-        IterNext, IterNextIterable, Iterable, PyComparisonOp, Representable, Unconstructible,
+        IterNext, Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -914,7 +914,7 @@ impl PyByteArrayIterator {
 
 impl Unconstructible for PyByteArrayIterator {}
 
-impl IterNextIterable for PyByteArrayIterator {}
+impl SelfIter for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytearray, pos| {

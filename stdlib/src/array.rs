@@ -61,8 +61,8 @@ mod array {
                 SliceableSequenceOp,
             },
             types::{
-                AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext,
-                IterNextIterable, Iterable, PyComparisonOp, Representable,
+                AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext, Iterable,
+                PyComparisonOp, Representable, SelfIter,
             },
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         },
@@ -1422,7 +1422,7 @@ mod array {
         }
     }
 
-    impl IterNextIterable for PyArrayIter {}
+    impl SelfIter for PyArrayIter {}
     impl IterNext for PyArrayIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|array, pos| {

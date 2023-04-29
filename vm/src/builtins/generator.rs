@@ -9,7 +9,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{Constructor, IterNext, IterNextIterable, Iterable, Representable, Unconstructible},
+    types::{Constructor, IterNext, Iterable, Representable, SelfIter, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -104,7 +104,7 @@ impl Representable for PyGenerator {
     }
 }
 
-impl IterNextIterable for PyGenerator {}
+impl SelfIter for PyGenerator {}
 impl IterNext for PyGenerator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.send(vm.ctx.none(), vm)

@@ -16,8 +16,8 @@ use crate::{
     recursion::ReprGuard,
     types::AsNumber,
     types::{
-        AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Representable, Unconstructible,
+        AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, Iterable,
+        PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -1257,7 +1257,7 @@ impl PySetIterator {
 }
 impl Unconstructible for PySetIterator {}
 
-impl IterNextIterable for PySetIterator {}
+impl SelfIter for PySetIterator {}
 impl IterNext for PySetIterator {
     fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();

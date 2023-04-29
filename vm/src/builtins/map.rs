@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable, Iterable},
+    types::{Constructor, IterNext, Iterable, SelfIter},
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -51,7 +51,7 @@ impl PyMap {
     }
 }
 
-impl IterNextIterable for PyMap {}
+impl SelfIter for PyMap {}
 impl IterNext for PyMap {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut next_objs = Vec::new();

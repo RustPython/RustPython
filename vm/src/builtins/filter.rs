@@ -2,7 +2,7 @@ use super::{PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable, Iterable},
+    types::{Constructor, IterNext, Iterable, SelfIter},
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -43,7 +43,7 @@ impl PyFilter {
     }
 }
 
-impl IterNextIterable for PyFilter {}
+impl SelfIter for PyFilter {}
 impl IterNext for PyFilter {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let predicate = &zelf.predicate;

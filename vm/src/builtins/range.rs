@@ -8,8 +8,8 @@ use crate::{
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Representable, Unconstructible,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
+        PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -568,7 +568,7 @@ impl PyLongRangeIterator {
 }
 impl Unconstructible for PyLongRangeIterator {}
 
-impl IterNextIterable for PyLongRangeIterator {}
+impl SelfIter for PyLongRangeIterator {}
 impl IterNext for PyLongRangeIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
@@ -634,7 +634,7 @@ impl PyRangeIterator {
 }
 impl Unconstructible for PyRangeIterator {}
 
-impl IterNextIterable for PyRangeIterator {}
+impl SelfIter for PyRangeIterator {}
 impl IterNext for PyRangeIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around

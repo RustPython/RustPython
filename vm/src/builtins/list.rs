@@ -13,8 +13,8 @@ use crate::{
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Representable, Unconstructible,
+        AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
+        PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -566,7 +566,7 @@ impl PyListIterator {
 }
 impl Unconstructible for PyListIterator {}
 
-impl IterNextIterable for PyListIterator {}
+impl SelfIter for PyListIterator {}
 impl IterNext for PyListIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|list, pos| {
@@ -611,7 +611,7 @@ impl PyListReverseIterator {
 }
 impl Unconstructible for PyListReverseIterator {}
 
-impl IterNextIterable for PyListReverseIterator {}
+impl SelfIter for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().rev_next(|list, pos| {

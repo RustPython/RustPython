@@ -8,7 +8,7 @@ use crate::{
     function::ArgCallable,
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
-    types::{IterNext, IterNextIterable, Iterable},
+    types::{IterNext, Iterable, SelfIter},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use rustpython_common::{
@@ -226,7 +226,7 @@ impl PySequenceIterator {
     }
 }
 
-impl IterNextIterable for PySequenceIterator {}
+impl SelfIter for PySequenceIterator {}
 impl IterNext for PySequenceIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|obj, pos| {
@@ -262,7 +262,7 @@ impl PyCallableIterator {
     }
 }
 
-impl IterNextIterable for PyCallableIterator {}
+impl SelfIter for PyCallableIterator {}
 impl IterNext for PyCallableIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let status = zelf.status.upgradable_read();

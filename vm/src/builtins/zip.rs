@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     function::{ArgIntoBool, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable, Iterable},
+    types::{Constructor, IterNext, Iterable, SelfIter},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
@@ -68,7 +68,7 @@ impl PyZip {
     }
 }
 
-impl IterNextIterable for PyZip {}
+impl SelfIter for PyZip {}
 impl IterNext for PyZip {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         if zelf.iterators.is_empty() {

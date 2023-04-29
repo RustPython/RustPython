@@ -12,8 +12,8 @@ use crate::{
     sequence::{OptionalRangeArgs, SequenceExt},
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Representable, Unconstructible,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
+        PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -457,7 +457,7 @@ impl PyTupleIterator {
 }
 impl Unconstructible for PyTupleIterator {}
 
-impl IterNextIterable for PyTupleIterator {}
+impl SelfIter for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|tuple, pos| {
