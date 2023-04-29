@@ -423,7 +423,7 @@ impl FormatSpec {
         };
         let result: Result<String, FormatSpecError> = match &self.format_type {
             Some(FormatType::Decimal) => Ok(x.to_string()),
-            default => Err(FormatSpecError::InvalidFormatSpecifier),
+            _ => Err(FormatSpecError::InvalidFormatSpecifier),
         };
         result
     }
