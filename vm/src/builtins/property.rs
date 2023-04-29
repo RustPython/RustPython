@@ -1,9 +1,9 @@
 /*! Python `property` descriptor class.
 
 */
-use super::{PyType, PyTypeRef};
+use super::{PyStrRef, PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
-use crate::function::PosArgs;
+use crate::function::{IntoFuncArgs, PosArgs};
 use crate::{
     class::PyClassImpl,
     function::{FuncArgs, PySetterValue},
@@ -18,6 +18,7 @@ pub struct PyProperty {
     setter: PyRwLock<Option<PyObjectRef>>,
     deleter: PyRwLock<Option<PyObjectRef>>,
     doc: PyRwLock<Option<PyObjectRef>>,
+    name: PyRwLock<Option<PyObjectRef>>,
 }
 
 impl PyPayload for PyProperty {
@@ -36,6 +37,8 @@ pub struct PropertyArgs {
     fdel: Option<PyObjectRef>,
     #[pyarg(any, default)]
     doc: Option<PyObjectRef>,
+    #[pyarg(any, default)]
+    name: Option<PyStrRef>,
 }
 
 impl GetDescriptor for PyProperty {
@@ -125,19 +128,18 @@ impl PyProperty {
 
     #[pymethod(magic)]
     fn set_name(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let arg_len = args.into_vec().len();
-
-        if arg_len != 2 {
-            Err(vm.new_exception_msg(
-                vm.ctx.exceptions.type_error.to_owned(),
-                format!(
-                    "__set_name__() takes 2 positional arguments but {} were given",
-                    arg_len
-                ),
+        let func_args = args.into_args(vm);
+        let func_args_len = func_args.args.len();
+        let (_owner, name): (PyObjectRef, PyObjectRef) = func_args.bind(vm).map_err(|_e| {
+            vm.new_type_error(format!(
+                "__set_name__() takes 2 positional arguments but {} were given",
+                func_args_len
             ))
-        } else {
-            Ok(())
-        }
+        })?;
+
+        *self.name.write() = Some(name);
+
+        Ok(())
     }
 
     // Python builder functions
@@ -153,6 +155,7 @@ impl PyProperty {
             setter: PyRwLock::new(zelf.fset()),
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
+            name: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, zelf.class().to_owned())
     }
@@ -168,6 +171,7 @@ impl PyProperty {
             setter: PyRwLock::new(setter.or_else(|| zelf.fset())),
             deleter: PyRwLock::new(zelf.fdel()),
             doc: PyRwLock::new(None),
+            name: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, zelf.class().to_owned())
     }
@@ -183,6 +187,7 @@ impl PyProperty {
             setter: PyRwLock::new(zelf.fset()),
             deleter: PyRwLock::new(deleter.or_else(|| zelf.fdel())),
             doc: PyRwLock::new(None),
+            name: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, zelf.class().to_owned())
     }
@@ -223,6 +228,7 @@ impl Constructor for PyProperty {
             setter: PyRwLock::new(None),
             deleter: PyRwLock::new(None),
             doc: PyRwLock::new(None),
+            name: PyRwLock::new(None),
         }
         .into_ref_with_type(vm, cls)
         .map(Into::into)
@@ -237,6 +243,8 @@ impl Initializer for PyProperty {
         *zelf.setter.write() = args.fset;
         *zelf.deleter.write() = args.fdel;
         *zelf.doc.write() = args.doc;
+        *zelf.name.write() = args.name.map(|a| a.as_object().to_owned());
+
         Ok(())
     }
 }
