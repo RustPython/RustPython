@@ -3,7 +3,7 @@
 */
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
-use crate::function::{PosArgs, IntoFuncArgs};
+use crate::function::{IntoFuncArgs, PosArgs};
 use crate::{
     class::PyClassImpl,
     function::{FuncArgs, PySetterValue},
@@ -130,13 +130,13 @@ impl PyProperty {
     fn set_name(&self, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
         let func_args = args.into_args(vm);
         let func_args_len = func_args.args.len();
-        let (_owner, name): (PyObjectRef, PyObjectRef) = func_args.bind(vm).map_err(|_e| vm.new_type_error(
-            format!(
+        let (_owner, name): (PyObjectRef, PyObjectRef) = func_args.bind(vm).map_err(|_e| {
+            vm.new_type_error(format!(
                 "__set_name__() takes 2 positional arguments but {} were given",
                 func_args_len
-            ),
-        ))?;
-        
+            ))
+        })?;
+
         *self.name.write() = Some(name);
 
         Ok(())
