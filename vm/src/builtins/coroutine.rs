@@ -5,7 +5,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{Constructor, IterNext, IterNextIterable, Representable, Unconstructible},
+    types::{Constructor, IterNext, IterNextIterable, Iterable, Representable, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -128,7 +128,7 @@ impl PyPayload for PyCoroutineWrapper {
     }
 }
 
-#[pyclass(with(IterNext))]
+#[pyclass(with(IterNext, Iterable))]
 impl PyCoroutineWrapper {
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {

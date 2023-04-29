@@ -8,7 +8,7 @@ use crate::{
     function::ArgCallable,
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
-    types::{IterNext, IterNextIterable},
+    types::{IterNext, IterNextIterable, Iterable},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use rustpython_common::{
@@ -189,7 +189,7 @@ impl PyPayload for PySequenceIterator {
     }
 }
 
-#[pyclass(with(IterNext))]
+#[pyclass(with(IterNext, Iterable))]
 impl PySequenceIterator {
     pub fn new(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let seq = PySequence::try_protocol(&obj, vm)?;
@@ -252,7 +252,7 @@ impl PyPayload for PyCallableIterator {
     }
 }
 
-#[pyclass(with(IterNext))]
+#[pyclass(with(IterNext, Iterable))]
 impl PyCallableIterator {
     pub fn new(callable: ArgCallable, sentinel: PyObjectRef) -> Self {
         Self {

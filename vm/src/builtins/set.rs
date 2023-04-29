@@ -1232,7 +1232,7 @@ impl PyPayload for PySetIterator {
     }
 }
 
-#[pyclass(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext, Iterable))]
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {

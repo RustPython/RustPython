@@ -305,6 +305,7 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(&zelf, identifier!(vm, __iter__), ())
 }
 
+// PyObject_IterNextIterable in CPython
 fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
     Ok(zelf)
 }
@@ -1233,12 +1234,16 @@ pub trait AsNumber: PyPayload {
 #[pyclass]
 pub trait Iterable: PyPayload {
     #[pyslot]
-    #[pymethod(name = "__iter__")]
     fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let zelf = zelf
             .downcast()
             .map_err(|_| vm.new_type_error("unexpected payload for __iter__".to_owned()))?;
         Self::iter(zelf, vm)
+    }
+
+    #[pymethod]
+    fn __iter__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::slot_iter(zelf, vm)
     }
 
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
@@ -1273,8 +1278,13 @@ where
     T: IterNextIterable,
 {
     #[cold]
-    fn slot_iter(_zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
-        unreachable!("slot is overriden");
+    fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let repr = zelf.repr(vm)?;
+        unreachable!("slot must be overriden for {}", repr.as_str());
+    }
+
+    fn __iter__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self_iter(zelf, vm)
     }
 
     #[cold]
@@ -1284,6 +1294,6 @@ where
 
     fn extend_slots(slots: &mut PyTypeSlots) {
         let prev = slots.iter.swap(Some(self_iter));
-        debug_assert!(prev.is_some());  // slot_iter would be set
+        debug_assert!(prev.is_some()); // slot_iter would be set
     }
 }

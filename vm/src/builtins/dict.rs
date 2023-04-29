@@ -839,7 +839,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(with(Constructor, IterNext))]
+        #[pyclass(with(Constructor, IterNext, Iterable))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -912,7 +912,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(with(Constructor, IterNext))]
+        #[pyclass(with(Constructor, IterNext, Iterable))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();

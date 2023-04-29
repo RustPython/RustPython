@@ -316,7 +316,7 @@ pub(super) mod _os {
         function::{ArgBytesLike, Either, FsPath, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{IterNext, IterNextIterable, PyStructSequence, Representable},
+        types::{IterNext, IterNextIterable, Iterable, PyStructSequence, Representable},
         vm::VirtualMachine,
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     };
@@ -791,7 +791,7 @@ pub(super) mod _os {
         mode: OutputMode,
     }
 
-    #[pyclass(with(IterNext))]
+    #[pyclass(with(IterNext, Iterable))]
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {

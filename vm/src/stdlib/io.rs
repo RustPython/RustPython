@@ -382,7 +382,7 @@ mod _io {
     #[derive(Debug, PyPayload)]
     pub struct _IOBase;
 
-    #[pyclass(with(IterNext, Destructor), flags(BASETYPE, HAS_DICT))]
+    #[pyclass(with(IterNext, Iterable, Destructor), flags(BASETYPE, HAS_DICT))]
     impl _IOBase {
         #[pymethod]
         fn seek(

@@ -4,7 +4,7 @@ use crate::{
     class::PyClassImpl,
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable},
+    types::{Constructor, IterNext, IterNextIterable, Iterable},
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -32,7 +32,7 @@ impl Constructor for PyMap {
     }
 }
 
-#[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {

@@ -1377,7 +1377,7 @@ mod _sqlite {
         statement: Option<PyRef<Statement>>,
     }
 
-    #[pyclass(with(Constructor, IterNext), flags(BASETYPE))]
+    #[pyclass(with(Constructor, IterNext, Iterable), flags(BASETYPE))]
     impl Cursor {
         fn new(
             connection: PyRef<Connection>,
