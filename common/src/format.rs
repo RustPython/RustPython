@@ -417,10 +417,7 @@ impl FormatSpec {
     }
 
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
-        let x = match input {
-            true => 1,
-            false => 0,
-        };
+        let x = u8::from(input);
         let result: Result<String, FormatSpecError> = match &self.format_type {
             Some(FormatType::Decimal) => Ok(x.to_string()),
             _ => Err(FormatSpecError::InvalidFormatSpecifier),
