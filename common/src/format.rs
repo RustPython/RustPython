@@ -416,6 +416,18 @@ impl FormatSpec {
         }
     }
 
+    pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
+        let x = match input {
+            true => 1,
+            false => 0,
+        };
+        let result: Result<String, FormatSpecError> = match &self.format_type {
+            Some(FormatType::Decimal) => Ok(x.to_string()),
+            default => Err(FormatSpecError::InvalidFormatSpecifier),
+        };
+        result
+    }
+
     pub fn format_float(&self, num: f64) -> Result<String, FormatSpecError> {
         self.validate_format(FormatType::FixedPoint(Case::Lower))?;
         let precision = self.precision.unwrap_or(6);
