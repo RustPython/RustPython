@@ -305,6 +305,10 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(&zelf, identifier!(vm, __iter__), ())
 }
 
+fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
+    Ok(zelf)
+}
+
 fn iternext_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
     PyIterReturn::from_pyresult(
         vm.call_special_method(zelf, identifier!(vm, __next__), ()),
@@ -1238,6 +1242,8 @@ pub trait Iterable: PyPayload {
     }
 
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
+
+    fn extend_slots(_slots: &mut PyTypeSlots) {}
 }
 
 // `Iterator` fits better, but to avoid confusion with rust std::iter::Iterator
@@ -1266,13 +1272,18 @@ impl<T> Iterable for T
 where
     T: IterNextIterable,
 {
-    #[inline]
-    fn slot_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
-        Ok(zelf)
+    #[cold]
+    fn slot_iter(_zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
+        unreachable!("slot is overriden");
     }
 
     #[cold]
     fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
         unreachable!("slot_iter is implemented");
+    }
+
+    fn extend_slots(slots: &mut PyTypeSlots) {
+        let prev = slots.iter.swap(Some(self_iter));
+        debug_assert!(prev.is_some());  // slot_iter would be set
     }
 }
