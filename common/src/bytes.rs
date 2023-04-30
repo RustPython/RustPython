@@ -1,10 +1,15 @@
-use crate::str::ReprOverflowError;
+use crate::str::{Quote, ReprOverflowError};
 
-pub fn repr(b: &[u8]) -> Result<String, ReprOverflowError> {
-    repr_with(b, &[], "")
+pub fn repr(b: &[u8], quote: Quote) -> Result<String, ReprOverflowError> {
+    repr_with(b, &[], "", quote)
 }
 
-pub fn repr_with(b: &[u8], prefixes: &[&str], suffix: &str) -> Result<String, ReprOverflowError> {
+pub fn repr_with(
+    b: &[u8],
+    prefixes: &[&str],
+    suffix: &str,
+    quote: Quote,
+) -> Result<String, ReprOverflowError> {
     use std::fmt::Write;
 
     let mut out_len = 0usize;
@@ -28,7 +33,7 @@ pub fn repr_with(b: &[u8], prefixes: &[&str], suffix: &str) -> Result<String, Re
         out_len = out_len.checked_add(incr).ok_or(ReprOverflowError)?;
     }
 
-    let (quote, num_escaped_quotes) = crate::str::choose_quotes_for_repr(squote, dquote);
+    let (quote, num_escaped_quotes) = crate::str::choose_quotes_for_repr(squote, dquote, quote);
     // we'll be adding backslashes in front of the existing inner quotes
     out_len += num_escaped_quotes;
 

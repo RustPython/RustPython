@@ -9,6 +9,12 @@ use std::{
     ops::{Bound, RangeBounds},
 };
 
+#[derive(Debug, Clone, Copy)]
+pub enum Quote {
+    Single,
+    Double,
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(non_camel_case_types)]
 pub type wchar_t = libc::wchar_t;
@@ -344,9 +350,10 @@ macro_rules! ascii {
 
 /// Get a Display-able type that formats to the python `repr()` of the string value
 #[inline]
-pub fn repr(s: &str) -> Repr<'_> {
+pub fn repr(s: &str, quote: Quote) -> Repr<'_> {
     Repr {
         s,
+        quote,
         info: OnceCell::new(),
     }
 }
@@ -365,8 +372,9 @@ struct ReprInfo {
     dquoted: bool,
     out_len: usize,
 }
+
 impl ReprInfo {
-    fn get(s: &str) -> Result<Self, ReprOverflowError> {
+    fn get(s: &str, default_quote: Quote) -> Result<Self, ReprOverflowError> {
         let mut out_len = 0usize;
         let mut squote = 0;
         let mut dquote = 0;
@@ -398,7 +406,7 @@ impl ReprInfo {
             }
         }
 
-        let (quote, num_escaped_quotes) = choose_quotes_for_repr(squote, dquote);
+        let (quote, num_escaped_quotes) = choose_quotes_for_repr(squote, dquote, default_quote);
         // we'll be adding backslashes in front of the existing inner quotes
         out_len += num_escaped_quotes;
 
@@ -413,12 +421,15 @@ impl ReprInfo {
 
 pub struct Repr<'a> {
     s: &'a str,
+    // the quote type we prefer to use
+    quote: Quote,
     // the tuple is dquouted, out_len
     info: OnceCell<Result<ReprInfo, ReprOverflowError>>,
 }
+
 impl Repr<'_> {
     fn get_info(&self) -> Result<ReprInfo, ReprOverflowError> {
-        *self.info.get_or_init(|| ReprInfo::get(self.s))
+        *self.info.get_or_init(|| ReprInfo::get(self.s, self.quote))
     }
 
     /// Same as `<Self as ToString>::to_string()`, but checks for a possible OverflowError.
@@ -483,14 +494,32 @@ impl fmt::Display for Repr<'_> {
     }
 }
 
-/// returns the outer quotes to use and the number of quotes that need to be escaped
-pub(crate) fn choose_quotes_for_repr(num_squotes: usize, num_dquotes: usize) -> (char, usize) {
-    // always use squote unless we have squotes but no dquotes
-    let use_dquote = num_squotes > 0 && num_dquotes == 0;
-    if use_dquote {
-        ('"', num_dquotes)
-    } else {
-        ('\'', num_squotes)
+/// Returns the outer quotes to use and the number of quotes that need to be
+/// escaped.
+pub(crate) const fn choose_quotes_for_repr(
+    num_squotes: usize,
+    num_dquotes: usize,
+    quote: Quote,
+) -> (char, usize) {
+    match quote {
+        Quote::Single => {
+            // always use squote unless we have squotes but no dquotes
+            let use_dquote = num_squotes > 0 && num_dquotes == 0;
+            if use_dquote {
+                ('"', num_dquotes)
+            } else {
+                ('\'', num_squotes)
+            }
+        }
+        Quote::Double => {
+            // always use dquote unless we have dquotes but no squotes
+            let use_squote = num_dquotes > 0 && num_squotes == 0;
+            if use_squote {
+                ('\'', num_squotes)
+            } else {
+                ('"', num_dquotes)
+            }
+        }
     }
 }
 
