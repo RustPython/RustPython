@@ -5,16 +5,7 @@ expression: parse_ast
 Ok(
     [
         Located {
-            location: Location {
-                row: 1,
-                column: 0,
-            },
-            end_location: Some(
-                Location {
-                    row: 1,
-                    column: 38,
-                },
-            ),
+            range: 0..38,
             custom: (),
             node: FunctionDef {
                 name: "f",
@@ -22,16 +13,7 @@ Ok(
                     posonlyargs: [],
                     args: [
                         Located {
-                            location: Location {
-                                row: 1,
-                                column: 6,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 1,
-                                    column: 7,
-                                },
-                            ),
+                            range: 6..7,
                             custom: (),
                             node: ArgData {
                                 arg: "a",
@@ -40,16 +22,7 @@ Ok(
                             },
                         },
                         Located {
-                            location: Location {
-                                row: 1,
-                                column: 9,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 1,
-                                    column: 10,
-                                },
-                            ),
+                            range: 9..10,
                             custom: (),
                             node: ArgData {
                                 arg: "b",
@@ -58,16 +31,7 @@ Ok(
                             },
                         },
                         Located {
-                            location: Location {
-                                row: 1,
-                                column: 12,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 1,
-                                    column: 13,
-                                },
-                            ),
+                            range: 12..13,
                             custom: (),
                             node: ArgData {
                                 arg: "c",
@@ -79,16 +43,7 @@ Ok(
                     vararg: None,
                     kwonlyargs: [
                         Located {
-                            location: Location {
-                                row: 1,
-                                column: 18,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 1,
-                                    column: 19,
-                                },
-                            ),
+                            range: 18..19,
                             custom: (),
                             node: ArgData {
                                 arg: "d",
@@ -97,16 +52,7 @@ Ok(
                             },
                         },
                         Located {
-                            location: Location {
-                                row: 1,
-                                column: 21,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 1,
-                                    column: 22,
-                                },
-                            ),
+                            range: 21..22,
                             custom: (),
                             node: ArgData {
                                 arg: "e",
@@ -115,16 +61,7 @@ Ok(
                             },
                         },
                         Located {
-                            location: Location {
-                                row: 1,
-                                column: 27,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 1,
-                                    column: 28,
-                                },
-                            ),
+                            range: 27..28,
                             custom: (),
                             node: ArgData {
                                 arg: "f",
@@ -135,16 +72,7 @@ Ok(
                     ],
                     kw_defaults: [
                         Located {
-                            location: Location {
-                                row: 1,
-                                column: 23,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 1,
-                                    column: 25,
-                                },
-                            ),
+                            range: 23..25,
                             custom: (),
                             node: Constant {
                                 value: Int(
@@ -154,16 +82,7 @@ Ok(
                             },
                         },
                         Located {
-                            location: Location {
-                                row: 1,
-                                column: 29,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 1,
-                                    column: 31,
-                                },
-                            ),
+                            range: 29..31,
                             custom: (),
                             node: Constant {
                                 value: Int(
@@ -178,16 +97,7 @@ Ok(
                 },
                 body: [
                     Located {
-                        location: Location {
-                            row: 1,
-                            column: 34,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 1,
-                                column: 38,
-                            },
-                        ),
+                        range: 34..38,
                         custom: (),
                         node: Pass,
                     },

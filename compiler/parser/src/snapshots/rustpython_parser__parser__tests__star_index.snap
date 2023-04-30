@@ -4,30 +4,12 @@ expression: parse_ast
 ---
 [
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 36,
-            },
-        ),
+        range: 0..36,
         custom: (),
         node: Assign {
             targets: [
                 Located {
-                    location: Location {
-                        row: 1,
-                        column: 0,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 1,
-                            column: 11,
-                        },
-                    ),
+                    range: 0..11,
                     custom: (),
                     node: Name {
                         id: "array_slice",
@@ -36,29 +18,11 @@ expression: parse_ast
                 },
             ],
             value: Located {
-                location: Location {
-                    row: 1,
-                    column: 14,
-                },
-                end_location: Some(
-                    Location {
-                        row: 1,
-                        column: 36,
-                    },
-                ),
+                range: 14..36,
                 custom: (),
                 node: Subscript {
                     value: Located {
-                        location: Location {
-                            row: 1,
-                            column: 14,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 1,
-                                column: 19,
-                            },
-                        ),
+                        range: 14..19,
                         custom: (),
                         node: Name {
                             id: "array",
@@ -66,30 +30,12 @@ expression: parse_ast
                         },
                     },
                     slice: Located {
-                        location: Location {
-                            row: 1,
-                            column: 20,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 1,
-                                column: 35,
-                            },
-                        ),
+                        range: 20..35,
                         custom: (),
                         node: Tuple {
                             elts: [
                                 Located {
-                                    location: Location {
-                                        row: 1,
-                                        column: 20,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 1,
-                                            column: 21,
-                                        },
-                                    ),
+                                    range: 20..21,
                                     custom: (),
                                     node: Constant {
                                         value: Int(
@@ -99,29 +45,11 @@ expression: parse_ast
                                     },
                                 },
                                 Located {
-                                    location: Location {
-                                        row: 1,
-                                        column: 23,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 1,
-                                            column: 31,
-                                        },
-                                    ),
+                                    range: 23..31,
                                     custom: (),
                                     node: Starred {
                                         value: Located {
-                                            location: Location {
-                                                row: 1,
-                                                column: 24,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 1,
-                                                    column: 31,
-                                                },
-                                            ),
+                                            range: 24..31,
                                             custom: (),
                                             node: Name {
                                                 id: "indexes",
@@ -132,30 +60,12 @@ expression: parse_ast
                                     },
                                 },
                                 Located {
-                                    location: Location {
-                                        row: 1,
-                                        column: 33,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 1,
-                                            column: 35,
-                                        },
-                                    ),
+                                    range: 33..35,
                                     custom: (),
                                     node: UnaryOp {
                                         op: USub,
                                         operand: Located {
-                                            location: Location {
-                                                row: 1,
-                                                column: 34,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 1,
-                                                    column: 35,
-                                                },
-                                            ),
+                                            range: 34..35,
                                             custom: (),
                                             node: Constant {
                                                 value: Int(
@@ -177,43 +87,16 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 2,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 2,
-                column: 36,
-            },
-        ),
+        range: 37..73,
         custom: (),
         node: Assign {
             targets: [
                 Located {
-                    location: Location {
-                        row: 2,
-                        column: 0,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 2,
-                            column: 22,
-                        },
-                    ),
+                    range: 37..59,
                     custom: (),
                     node: Subscript {
                         value: Located {
-                            location: Location {
-                                row: 2,
-                                column: 0,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 2,
-                                    column: 5,
-                                },
-                            ),
+                            range: 37..42,
                             custom: (),
                             node: Name {
                                 id: "array",
@@ -221,30 +104,12 @@ expression: parse_ast
                             },
                         },
                         slice: Located {
-                            location: Location {
-                                row: 2,
-                                column: 6,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 2,
-                                    column: 21,
-                                },
-                            ),
+                            range: 43..58,
                             custom: (),
                             node: Tuple {
                                 elts: [
                                     Located {
-                                        location: Location {
-                                            row: 2,
-                                            column: 6,
-                                        },
-                                        end_location: Some(
-                                            Location {
-                                                row: 2,
-                                                column: 7,
-                                            },
-                                        ),
+                                        range: 43..44,
                                         custom: (),
                                         node: Constant {
                                             value: Int(
@@ -254,29 +119,11 @@ expression: parse_ast
                                         },
                                     },
                                     Located {
-                                        location: Location {
-                                            row: 2,
-                                            column: 9,
-                                        },
-                                        end_location: Some(
-                                            Location {
-                                                row: 2,
-                                                column: 17,
-                                            },
-                                        ),
+                                        range: 46..54,
                                         custom: (),
                                         node: Starred {
                                             value: Located {
-                                                location: Location {
-                                                    row: 2,
-                                                    column: 10,
-                                                },
-                                                end_location: Some(
-                                                    Location {
-                                                        row: 2,
-                                                        column: 17,
-                                                    },
-                                                ),
+                                                range: 47..54,
                                                 custom: (),
                                                 node: Name {
                                                     id: "indexes",
@@ -287,30 +134,12 @@ expression: parse_ast
                                         },
                                     },
                                     Located {
-                                        location: Location {
-                                            row: 2,
-                                            column: 19,
-                                        },
-                                        end_location: Some(
-                                            Location {
-                                                row: 2,
-                                                column: 21,
-                                            },
-                                        ),
+                                        range: 56..58,
                                         custom: (),
                                         node: UnaryOp {
                                             op: USub,
                                             operand: Located {
-                                                location: Location {
-                                                    row: 2,
-                                                    column: 20,
-                                                },
-                                                end_location: Some(
-                                                    Location {
-                                                        row: 2,
-                                                        column: 21,
-                                                    },
-                                                ),
+                                                range: 57..58,
                                                 custom: (),
                                                 node: Constant {
                                                     value: Int(
@@ -330,16 +159,7 @@ expression: parse_ast
                 },
             ],
             value: Located {
-                location: Location {
-                    row: 2,
-                    column: 25,
-                },
-                end_location: Some(
-                    Location {
-                        row: 2,
-                        column: 36,
-                    },
-                ),
+                range: 62..73,
                 custom: (),
                 node: Name {
                     id: "array_slice",
@@ -350,42 +170,15 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 3,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 3,
-                column: 45,
-            },
-        ),
+        range: 74..119,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 3,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 3,
-                        column: 45,
-                    },
-                ),
+                range: 74..119,
                 custom: (),
                 node: Subscript {
                     value: Located {
-                        location: Location {
-                            row: 3,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 3,
-                                column: 5,
-                            },
-                        ),
+                        range: 74..79,
                         custom: (),
                         node: Name {
                             id: "array",
@@ -393,43 +186,16 @@ expression: parse_ast
                         },
                     },
                     slice: Located {
-                        location: Location {
-                            row: 3,
-                            column: 6,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 3,
-                                column: 44,
-                            },
-                        ),
+                        range: 80..118,
                         custom: (),
                         node: Tuple {
                             elts: [
                                 Located {
-                                    location: Location {
-                                        row: 3,
-                                        column: 6,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 3,
-                                            column: 24,
-                                        },
-                                    ),
+                                    range: 80..98,
                                     custom: (),
                                     node: Starred {
                                         value: Located {
-                                            location: Location {
-                                                row: 3,
-                                                column: 7,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 3,
-                                                    column: 24,
-                                                },
-                                            ),
+                                            range: 81..98,
                                             custom: (),
                                             node: Name {
                                                 id: "indexes_to_select",
@@ -440,29 +206,11 @@ expression: parse_ast
                                     },
                                 },
                                 Located {
-                                    location: Location {
-                                        row: 3,
-                                        column: 26,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 3,
-                                            column: 44,
-                                        },
-                                    ),
+                                    range: 100..118,
                                     custom: (),
                                     node: Starred {
                                         value: Located {
-                                            location: Location {
-                                                row: 3,
-                                                column: 27,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 3,
-                                                    column: 44,
-                                                },
-                                            ),
+                                            range: 101..118,
                                             custom: (),
                                             node: Name {
                                                 id: "indexes_to_select",
@@ -482,42 +230,15 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 4,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 4,
-                column: 30,
-            },
-        ),
+        range: 120..150,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 4,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 4,
-                        column: 30,
-                    },
-                ),
+                range: 120..150,
                 custom: (),
                 node: Subscript {
                     value: Located {
-                        location: Location {
-                            row: 4,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 4,
-                                column: 5,
-                            },
-                        ),
+                        range: 120..125,
                         custom: (),
                         node: Name {
                             id: "array",
@@ -525,44 +246,17 @@ expression: parse_ast
                         },
                     },
                     slice: Located {
-                        location: Location {
-                            row: 4,
-                            column: 6,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 4,
-                                column: 29,
-                            },
-                        ),
+                        range: 126..149,
                         custom: (),
                         node: Tuple {
                             elts: [
                                 Located {
-                                    location: Location {
-                                        row: 4,
-                                        column: 6,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 4,
-                                            column: 9,
-                                        },
-                                    ),
+                                    range: 126..129,
                                     custom: (),
                                     node: Slice {
                                         lower: Some(
                                             Located {
-                                                location: Location {
-                                                    row: 4,
-                                                    column: 6,
-                                                },
-                                                end_location: Some(
-                                                    Location {
-                                                        row: 4,
-                                                        column: 7,
-                                                    },
-                                                ),
+                                                range: 126..127,
                                                 custom: (),
                                                 node: Constant {
                                                     value: Int(
@@ -574,16 +268,7 @@ expression: parse_ast
                                         ),
                                         upper: Some(
                                             Located {
-                                                location: Location {
-                                                    row: 4,
-                                                    column: 8,
-                                                },
-                                                end_location: Some(
-                                                    Location {
-                                                        row: 4,
-                                                        column: 9,
-                                                    },
-                                                ),
+                                                range: 128..129,
                                                 custom: (),
                                                 node: Constant {
                                                     value: Int(
@@ -597,29 +282,11 @@ expression: parse_ast
                                     },
                                 },
                                 Located {
-                                    location: Location {
-                                        row: 4,
-                                        column: 11,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 4,
-                                            column: 29,
-                                        },
-                                    ),
+                                    range: 131..149,
                                     custom: (),
                                     node: Starred {
                                         value: Located {
-                                            location: Location {
-                                                row: 4,
-                                                column: 12,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 4,
-                                                    column: 29,
-                                                },
-                                            ),
+                                            range: 132..149,
                                             custom: (),
                                             node: Name {
                                                 id: "indexes_to_select",

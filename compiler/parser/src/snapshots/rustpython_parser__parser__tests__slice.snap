@@ -3,29 +3,11 @@ source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 Located {
-    location: Location {
-        row: 1,
-        column: 0,
-    },
-    end_location: Some(
-        Location {
-            row: 1,
-            column: 8,
-        },
-    ),
+    range: 0..8,
     custom: (),
     node: Subscript {
         value: Located {
-            location: Location {
-                row: 1,
-                column: 0,
-            },
-            end_location: Some(
-                Location {
-                    row: 1,
-                    column: 1,
-                },
-            ),
+            range: 0..1,
             custom: (),
             node: Name {
                 id: "x",
@@ -33,30 +15,12 @@ Located {
             },
         },
         slice: Located {
-            location: Location {
-                row: 1,
-                column: 2,
-            },
-            end_location: Some(
-                Location {
-                    row: 1,
-                    column: 7,
-                },
-            ),
+            range: 2..7,
             custom: (),
             node: Slice {
                 lower: Some(
                     Located {
-                        location: Location {
-                            row: 1,
-                            column: 2,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 1,
-                                column: 3,
-                            },
-                        ),
+                        range: 2..3,
                         custom: (),
                         node: Constant {
                             value: Int(
@@ -68,16 +32,7 @@ Located {
                 ),
                 upper: Some(
                     Located {
-                        location: Location {
-                            row: 1,
-                            column: 4,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 1,
-                                column: 5,
-                            },
-                        ),
+                        range: 4..5,
                         custom: (),
                         node: Constant {
                             value: Int(
@@ -89,16 +44,7 @@ Located {
                 ),
                 step: Some(
                     Located {
-                        location: Location {
-                            row: 1,
-                            column: 6,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 1,
-                                column: 7,
-                            },
-                        ),
+                        range: 6..7,
                         custom: (),
                         node: Constant {
                             value: Int(

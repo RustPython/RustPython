@@ -4,16 +4,7 @@ expression: parse_ast
 ---
 [
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 38,
-            },
-        ),
+        range: 0..38,
         custom: (),
         node: Constant {
             value: Str(
@@ -23,16 +14,7 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 38,
-            },
-        ),
+        range: 0..38,
         custom: (),
         node: Constant {
             value: Str(
@@ -42,16 +24,7 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 38,
-            },
-        ),
+        range: 0..38,
         custom: (),
         node: Constant {
             value: Str(
@@ -61,29 +34,11 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 38,
-            },
-        ),
+        range: 0..38,
         custom: (),
         node: FormattedValue {
             value: Located {
-                location: Location {
-                    row: 1,
-                    column: 7,
-                },
-                end_location: Some(
-                    Location {
-                        row: 1,
-                        column: 11,
-                    },
-                ),
+                range: 7..11,
                 custom: (),
                 node: Name {
                     id: "user",
@@ -95,16 +50,7 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 38,
-            },
-        ),
+        range: 0..38,
         custom: (),
         node: Constant {
             value: Str(
@@ -114,16 +60,7 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 38,
-            },
-        ),
+        range: 0..38,
         custom: (),
         node: Constant {
             value: Str(
@@ -133,16 +70,7 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 38,
-            },
-        ),
+        range: 0..38,
         custom: (),
         node: Constant {
             value: Str(
@@ -152,29 +80,11 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 38,
-            },
-        ),
+        range: 0..38,
         custom: (),
         node: FormattedValue {
             value: Located {
-                location: Location {
-                    row: 1,
-                    column: 29,
-                },
-                end_location: Some(
-                    Location {
-                        row: 1,
-                        column: 35,
-                    },
-                ),
+                range: 29..35,
                 custom: (),
                 node: Name {
                     id: "second",

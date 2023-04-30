@@ -5,29 +5,11 @@ expression: parse_ast
 Ok(
     [
         Located {
-            location: Location {
-                row: 1,
-                column: 0,
-            },
-            end_location: Some(
-                Location {
-                    row: 1,
-                    column: 9,
-                },
-            ),
+            range: 0..9,
             custom: (),
             node: Expr {
                 value: Located {
-                    location: Location {
-                        row: 1,
-                        column: 0,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 1,
-                            column: 9,
-                        },
-                    ),
+                    range: 0..9,
                     custom: (),
                     node: Lambda {
                         args: Arguments {
@@ -40,16 +22,7 @@ Ok(
                             defaults: [],
                         },
                         body: Located {
-                            location: Location {
-                                row: 1,
-                                column: 8,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 1,
-                                    column: 9,
-                                },
-                            ),
+                            range: 8..9,
                             custom: (),
                             node: Constant {
                                 value: Int(

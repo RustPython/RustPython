@@ -4,29 +4,11 @@ expression: parse_ast
 ---
 [
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 10,
-            },
-        ),
+        range: 0..10,
         custom: (),
         node: AnnAssign {
             target: Located {
-                location: Location {
-                    row: 1,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 1,
-                        column: 1,
-                    },
-                ),
+                range: 0..1,
                 custom: (),
                 node: Name {
                     id: "x",
@@ -34,16 +16,7 @@ expression: parse_ast
                 },
             },
             annotation: Located {
-                location: Location {
-                    row: 1,
-                    column: 3,
-                },
-                end_location: Some(
-                    Location {
-                        row: 1,
-                        column: 6,
-                    },
-                ),
+                range: 3..6,
                 custom: (),
                 node: Name {
                     id: "int",
@@ -52,16 +25,7 @@ expression: parse_ast
             },
             value: Some(
                 Located {
-                    location: Location {
-                        row: 1,
-                        column: 9,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 1,
-                            column: 10,
-                        },
-                    ),
+                    range: 9..10,
                     custom: (),
                     node: Constant {
                         value: Int(

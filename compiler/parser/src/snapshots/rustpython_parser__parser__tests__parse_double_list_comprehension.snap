@@ -3,29 +3,11 @@ source: compiler/parser/src/parser.rs
 expression: parse_ast
 ---
 Located {
-    location: Location {
-        row: 1,
-        column: 0,
-    },
-    end_location: Some(
-        Location {
-            row: 1,
-            column: 48,
-        },
-    ),
+    range: 0..48,
     custom: (),
     node: ListComp {
         elt: Located {
-            location: Location {
-                row: 1,
-                column: 1,
-            },
-            end_location: Some(
-                Location {
-                    row: 1,
-                    column: 2,
-                },
-            ),
+            range: 1..2,
             custom: (),
             node: Name {
                 id: "x",
@@ -35,30 +17,12 @@ Located {
         generators: [
             Comprehension {
                 target: Located {
-                    location: Location {
-                        row: 1,
-                        column: 7,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 1,
-                            column: 12,
-                        },
-                    ),
+                    range: 7..12,
                     custom: (),
                     node: Tuple {
                         elts: [
                             Located {
-                                location: Location {
-                                    row: 1,
-                                    column: 7,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 1,
-                                        column: 8,
-                                    },
-                                ),
+                                range: 7..8,
                                 custom: (),
                                 node: Name {
                                     id: "y",
@@ -66,16 +30,7 @@ Located {
                                 },
                             },
                             Located {
-                                location: Location {
-                                    row: 1,
-                                    column: 10,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 1,
-                                        column: 12,
-                                    },
-                                ),
+                                range: 10..12,
                                 custom: (),
                                 node: Name {
                                     id: "y2",
@@ -87,16 +42,7 @@ Located {
                     },
                 },
                 iter: Located {
-                    location: Location {
-                        row: 1,
-                        column: 16,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 1,
-                            column: 17,
-                        },
-                    ),
+                    range: 16..17,
                     custom: (),
                     node: Name {
                         id: "z",
@@ -108,16 +54,7 @@ Located {
             },
             Comprehension {
                 target: Located {
-                    location: Location {
-                        row: 1,
-                        column: 22,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 1,
-                            column: 23,
-                        },
-                    ),
+                    range: 22..23,
                     custom: (),
                     node: Name {
                         id: "a",
@@ -125,16 +62,7 @@ Located {
                     },
                 },
                 iter: Located {
-                    location: Location {
-                        row: 1,
-                        column: 27,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 1,
-                            column: 28,
-                        },
-                    ),
+                    range: 27..28,
                     custom: (),
                     node: Name {
                         id: "b",
@@ -143,29 +71,11 @@ Located {
                 },
                 ifs: [
                     Located {
-                        location: Location {
-                            row: 1,
-                            column: 32,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 1,
-                                column: 37,
-                            },
-                        ),
+                        range: 32..37,
                         custom: (),
                         node: Compare {
                             left: Located {
-                                location: Location {
-                                    row: 1,
-                                    column: 32,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 1,
-                                        column: 33,
-                                    },
-                                ),
+                                range: 32..33,
                                 custom: (),
                                 node: Name {
                                     id: "a",
@@ -177,16 +87,7 @@ Located {
                             ],
                             comparators: [
                                 Located {
-                                    location: Location {
-                                        row: 1,
-                                        column: 36,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 1,
-                                            column: 37,
-                                        },
-                                    ),
+                                    range: 36..37,
                                     custom: (),
                                     node: Constant {
                                         value: Int(
@@ -199,29 +100,11 @@ Located {
                         },
                     },
                     Located {
-                        location: Location {
-                            row: 1,
-                            column: 41,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 1,
-                                column: 47,
-                            },
-                        ),
+                        range: 41..47,
                         custom: (),
                         node: Compare {
                             left: Located {
-                                location: Location {
-                                    row: 1,
-                                    column: 41,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 1,
-                                        column: 42,
-                                    },
-                                ),
+                                range: 41..42,
                                 custom: (),
                                 node: Name {
                                     id: "a",
@@ -233,16 +116,7 @@ Located {
                             ],
                             comparators: [
                                 Located {
-                                    location: Location {
-                                        row: 1,
-                                        column: 45,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 1,
-                                            column: 47,
-                                        },
-                                    ),
+                                    range: 45..47,
                                     custom: (),
                                     node: Constant {
                                         value: Int(

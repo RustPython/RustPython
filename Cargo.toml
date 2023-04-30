@@ -14,6 +14,7 @@ resolver = "2"
 members = [
     "compiler", "compiler/ast", "compiler/core", "compiler/codegen", "compiler/parser",
     ".", "common", "derive", "jit", "vm", "pylib", "stdlib", "wasm/lib", "derive-impl",
+    "ruff_text_size"
 ]
 
 [workspace.dependencies]

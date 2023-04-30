@@ -4,30 +4,12 @@ expression: parse_ast
 ---
 [
     Located {
-        location: Location {
-            row: 1,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 1,
-                column: 26,
-            },
-        ),
+        range: 0..26,
         custom: (),
         node: Assign {
             targets: [
                 Located {
-                    location: Location {
-                        row: 1,
-                        column: 0,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 1,
-                            column: 1,
-                        },
-                    ),
+                    range: 0..1,
                     custom: (),
                     node: Name {
                         id: "x",
@@ -36,29 +18,11 @@ expression: parse_ast
                 },
             ],
             value: Located {
-                location: Location {
-                    row: 1,
-                    column: 4,
-                },
-                end_location: Some(
-                    Location {
-                        row: 1,
-                        column: 26,
-                    },
-                ),
+                range: 4..26,
                 custom: (),
                 node: SetComp {
                     elt: Located {
-                        location: Location {
-                            row: 1,
-                            column: 5,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 1,
-                                column: 6,
-                            },
-                        ),
+                        range: 5..6,
                         custom: (),
                         node: Name {
                             id: "y",
@@ -68,16 +32,7 @@ expression: parse_ast
                     generators: [
                         Comprehension {
                             target: Located {
-                                location: Location {
-                                    row: 1,
-                                    column: 11,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 1,
-                                        column: 12,
-                                    },
-                                ),
+                                range: 11..12,
                                 custom: (),
                                 node: Name {
                                     id: "y",
@@ -85,30 +40,12 @@ expression: parse_ast
                                 },
                             },
                             iter: Located {
-                                location: Location {
-                                    row: 1,
-                                    column: 16,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 1,
-                                        column: 25,
-                                    },
-                                ),
+                                range: 16..25,
                                 custom: (),
                                 node: Tuple {
                                     elts: [
                                         Located {
-                                            location: Location {
-                                                row: 1,
-                                                column: 17,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 1,
-                                                    column: 18,
-                                                },
-                                            ),
+                                            range: 17..18,
                                             custom: (),
                                             node: Constant {
                                                 value: Int(
@@ -118,16 +55,7 @@ expression: parse_ast
                                             },
                                         },
                                         Located {
-                                            location: Location {
-                                                row: 1,
-                                                column: 20,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 1,
-                                                    column: 21,
-                                                },
-                                            ),
+                                            range: 20..21,
                                             custom: (),
                                             node: Constant {
                                                 value: Int(
@@ -137,16 +65,7 @@ expression: parse_ast
                                             },
                                         },
                                         Located {
-                                            location: Location {
-                                                row: 1,
-                                                column: 23,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 1,
-                                                    column: 24,
-                                                },
-                                            ),
+                                            range: 23..24,
                                             custom: (),
                                             node: Constant {
                                                 value: Int(

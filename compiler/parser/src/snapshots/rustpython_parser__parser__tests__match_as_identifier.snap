@@ -4,69 +4,24 @@ expression: parse_ast
 ---
 [
     Located {
-        location: Location {
-            row: 2,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 2,
-                column: 15,
-            },
-        ),
+        range: 1..16,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 2,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 2,
-                        column: 15,
-                    },
-                ),
+                range: 1..16,
                 custom: (),
                 node: Tuple {
                     elts: [
                         Located {
-                            location: Location {
-                                row: 2,
-                                column: 0,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 2,
-                                    column: 12,
-                                },
-                            ),
+                            range: 1..13,
                             custom: (),
                             node: BinOp {
                                 left: Located {
-                                    location: Location {
-                                        row: 2,
-                                        column: 0,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 2,
-                                            column: 8,
-                                        },
-                                    ),
+                                    range: 1..9,
                                     custom: (),
                                     node: BinOp {
                                         left: Located {
-                                            location: Location {
-                                                row: 2,
-                                                column: 0,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 2,
-                                                    column: 5,
-                                                },
-                                            ),
+                                            range: 1..6,
                                             custom: (),
                                             node: Name {
                                                 id: "match",
@@ -75,16 +30,7 @@ expression: parse_ast
                                         },
                                         op: Mult,
                                         right: Located {
-                                            location: Location {
-                                                row: 2,
-                                                column: 7,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 2,
-                                                    column: 8,
-                                                },
-                                            ),
+                                            range: 8..9,
                                             custom: (),
                                             node: Name {
                                                 id: "a",
@@ -95,16 +41,7 @@ expression: parse_ast
                                 },
                                 op: Add,
                                 right: Located {
-                                    location: Location {
-                                        row: 2,
-                                        column: 11,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 2,
-                                            column: 12,
-                                        },
-                                    ),
+                                    range: 12..13,
                                     custom: (),
                                     node: Name {
                                         id: "b",
@@ -114,16 +51,7 @@ expression: parse_ast
                             },
                         },
                         Located {
-                            location: Location {
-                                row: 2,
-                                column: 14,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 2,
-                                    column: 15,
-                                },
-                            ),
+                            range: 15..16,
                             custom: (),
                             node: Name {
                                 id: "c",
@@ -137,56 +65,20 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 3,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 3,
-                column: 17,
-            },
-        ),
+        range: 42..59,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 3,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 3,
-                        column: 17,
-                    },
-                ),
+                range: 42..59,
                 custom: (),
                 node: Tuple {
                     elts: [
                         Located {
-                            location: Location {
-                                row: 3,
-                                column: 0,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 3,
-                                    column: 14,
-                                },
-                            ),
+                            range: 42..56,
                             custom: (),
                             node: BinOp {
                                 left: Located {
-                                    location: Location {
-                                        row: 3,
-                                        column: 0,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 3,
-                                            column: 5,
-                                        },
-                                    ),
+                                    range: 42..47,
                                     custom: (),
                                     node: Name {
                                         id: "match",
@@ -195,29 +87,11 @@ expression: parse_ast
                                 },
                                 op: Mult,
                                 right: Located {
-                                    location: Location {
-                                        row: 3,
-                                        column: 8,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 3,
-                                            column: 13,
-                                        },
-                                    ),
+                                    range: 50..55,
                                     custom: (),
                                     node: BinOp {
                                         left: Located {
-                                            location: Location {
-                                                row: 3,
-                                                column: 8,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 3,
-                                                    column: 9,
-                                                },
-                                            ),
+                                            range: 50..51,
                                             custom: (),
                                             node: Name {
                                                 id: "a",
@@ -226,16 +100,7 @@ expression: parse_ast
                                         },
                                         op: Add,
                                         right: Located {
-                                            location: Location {
-                                                row: 3,
-                                                column: 12,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 3,
-                                                    column: 13,
-                                                },
-                                            ),
+                                            range: 54..55,
                                             custom: (),
                                             node: Name {
                                                 id: "b",
@@ -247,16 +112,7 @@ expression: parse_ast
                             },
                         },
                         Located {
-                            location: Location {
-                                row: 3,
-                                column: 16,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 3,
-                                    column: 17,
-                                },
-                            ),
+                            range: 58..59,
                             custom: (),
                             node: Name {
                                 id: "c",
@@ -270,42 +126,15 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 4,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 4,
-                column: 17,
-            },
-        ),
+        range: 85..102,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 4,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 4,
-                        column: 17,
-                    },
-                ),
+                range: 85..102,
                 custom: (),
                 node: Call {
                     func: Located {
-                        location: Location {
-                            row: 4,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 4,
-                                column: 5,
-                            },
-                        ),
+                        range: 85..90,
                         custom: (),
                         node: Name {
                             id: "match",
@@ -314,42 +143,15 @@ expression: parse_ast
                     },
                     args: [
                         Located {
-                            location: Location {
-                                row: 4,
-                                column: 7,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 4,
-                                    column: 13,
-                                },
-                            ),
+                            range: 92..98,
                             custom: (),
                             node: Starred {
                                 value: Located {
-                                    location: Location {
-                                        row: 4,
-                                        column: 8,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 4,
-                                            column: 13,
-                                        },
-                                    ),
+                                    range: 93..98,
                                     custom: (),
                                     node: BinOp {
                                         left: Located {
-                                            location: Location {
-                                                row: 4,
-                                                column: 8,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 4,
-                                                    column: 9,
-                                                },
-                                            ),
+                                            range: 93..94,
                                             custom: (),
                                             node: Name {
                                                 id: "a",
@@ -358,16 +160,7 @@ expression: parse_ast
                                         },
                                         op: Add,
                                         right: Located {
-                                            location: Location {
-                                                row: 4,
-                                                column: 12,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 4,
-                                                    column: 13,
-                                                },
-                                            ),
+                                            range: 97..98,
                                             custom: (),
                                             node: Name {
                                                 id: "b",
@@ -380,16 +173,7 @@ expression: parse_ast
                             },
                         },
                         Located {
-                            location: Location {
-                                row: 4,
-                                column: 15,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 4,
-                                    column: 16,
-                                },
-                            ),
+                            range: 100..101,
                             custom: (),
                             node: Name {
                                 id: "c",
@@ -403,55 +187,19 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 5,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 5,
-                column: 16,
-            },
-        ),
+        range: 129..145,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 5,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 5,
-                        column: 16,
-                    },
-                ),
+                range: 129..145,
                 custom: (),
                 node: BinOp {
                     left: Located {
-                        location: Location {
-                            row: 5,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 5,
-                                column: 12,
-                            },
-                        ),
+                        range: 129..141,
                         custom: (),
                         node: BinOp {
                             left: Located {
-                                location: Location {
-                                    row: 5,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 5,
-                                        column: 5,
-                                    },
-                                ),
+                                range: 129..134,
                                 custom: (),
                                 node: Name {
                                     id: "match",
@@ -460,29 +208,11 @@ expression: parse_ast
                             },
                             op: Sub,
                             right: Located {
-                                location: Location {
-                                    row: 5,
-                                    column: 7,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 5,
-                                        column: 12,
-                                    },
-                                ),
+                                range: 136..141,
                                 custom: (),
                                 node: BinOp {
                                     left: Located {
-                                        location: Location {
-                                            row: 5,
-                                            column: 7,
-                                        },
-                                        end_location: Some(
-                                            Location {
-                                                row: 5,
-                                                column: 8,
-                                            },
-                                        ),
+                                        range: 136..137,
                                         custom: (),
                                         node: Name {
                                             id: "a",
@@ -491,16 +221,7 @@ expression: parse_ast
                                     },
                                     op: Mult,
                                     right: Located {
-                                        location: Location {
-                                            row: 5,
-                                            column: 11,
-                                        },
-                                        end_location: Some(
-                                            Location {
-                                                row: 5,
-                                                column: 12,
-                                            },
-                                        ),
+                                        range: 140..141,
                                         custom: (),
                                         node: Name {
                                             id: "b",
@@ -513,16 +234,7 @@ expression: parse_ast
                     },
                     op: Add,
                     right: Located {
-                        location: Location {
-                            row: 5,
-                            column: 15,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 5,
-                                column: 16,
-                            },
-                        ),
+                        range: 144..145,
                         custom: (),
                         node: Name {
                             id: "c",
@@ -534,55 +246,19 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 6,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 6,
-                column: 18,
-            },
-        ),
+        range: 172..190,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 6,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 6,
-                        column: 18,
-                    },
-                ),
+                range: 172..190,
                 custom: (),
                 node: BinOp {
                     left: Located {
-                        location: Location {
-                            row: 6,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 6,
-                                column: 14,
-                            },
-                        ),
+                        range: 172..186,
                         custom: (),
                         node: BinOp {
                             left: Located {
-                                location: Location {
-                                    row: 6,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 6,
-                                        column: 5,
-                                    },
-                                ),
+                                range: 172..177,
                                 custom: (),
                                 node: Name {
                                     id: "match",
@@ -591,29 +267,11 @@ expression: parse_ast
                             },
                             op: Sub,
                             right: Located {
-                                location: Location {
-                                    row: 6,
-                                    column: 8,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 6,
-                                        column: 13,
-                                    },
-                                ),
+                                range: 180..185,
                                 custom: (),
                                 node: BinOp {
                                     left: Located {
-                                        location: Location {
-                                            row: 6,
-                                            column: 8,
-                                        },
-                                        end_location: Some(
-                                            Location {
-                                                row: 6,
-                                                column: 9,
-                                            },
-                                        ),
+                                        range: 180..181,
                                         custom: (),
                                         node: Name {
                                             id: "a",
@@ -622,16 +280,7 @@ expression: parse_ast
                                     },
                                     op: Mult,
                                     right: Located {
-                                        location: Location {
-                                            row: 6,
-                                            column: 12,
-                                        },
-                                        end_location: Some(
-                                            Location {
-                                                row: 6,
-                                                column: 13,
-                                            },
-                                        ),
+                                        range: 184..185,
                                         custom: (),
                                         node: Name {
                                             id: "b",
@@ -644,16 +293,7 @@ expression: parse_ast
                     },
                     op: Add,
                     right: Located {
-                        location: Location {
-                            row: 6,
-                            column: 17,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 6,
-                                column: 18,
-                            },
-                        ),
+                        range: 189..190,
                         custom: (),
                         node: Name {
                             id: "c",
@@ -665,68 +305,23 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 7,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 7,
-                column: 18,
-            },
-        ),
+        range: 217..235,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 7,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 7,
-                        column: 18,
-                    },
-                ),
+                range: 217..235,
                 custom: (),
                 node: BinOp {
                     left: Located {
-                        location: Location {
-                            row: 7,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 7,
-                                column: 14,
-                            },
-                        ),
+                        range: 217..231,
                         custom: (),
                         node: BinOp {
                             left: Located {
-                                location: Location {
-                                    row: 7,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 7,
-                                        column: 10,
-                                    },
-                                ),
+                                range: 217..227,
                                 custom: (),
                                 node: Call {
                                     func: Located {
-                                        location: Location {
-                                            row: 7,
-                                            column: 0,
-                                        },
-                                        end_location: Some(
-                                            Location {
-                                                row: 7,
-                                                column: 5,
-                                            },
-                                        ),
+                                        range: 217..222,
                                         custom: (),
                                         node: Name {
                                             id: "match",
@@ -735,30 +330,12 @@ expression: parse_ast
                                     },
                                     args: [
                                         Located {
-                                            location: Location {
-                                                row: 7,
-                                                column: 7,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 7,
-                                                    column: 9,
-                                                },
-                                            ),
+                                            range: 224..226,
                                             custom: (),
                                             node: UnaryOp {
                                                 op: USub,
                                                 operand: Located {
-                                                    location: Location {
-                                                        row: 7,
-                                                        column: 8,
-                                                    },
-                                                    end_location: Some(
-                                                        Location {
-                                                            row: 7,
-                                                            column: 9,
-                                                        },
-                                                    ),
+                                                    range: 225..226,
                                                     custom: (),
                                                     node: Name {
                                                         id: "a",
@@ -773,16 +350,7 @@ expression: parse_ast
                             },
                             op: Mult,
                             right: Located {
-                                location: Location {
-                                    row: 7,
-                                    column: 13,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 7,
-                                        column: 14,
-                                    },
-                                ),
+                                range: 230..231,
                                 custom: (),
                                 node: Name {
                                     id: "b",
@@ -793,16 +361,7 @@ expression: parse_ast
                     },
                     op: Add,
                     right: Located {
-                        location: Location {
-                            row: 7,
-                            column: 17,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 7,
-                                column: 18,
-                            },
-                        ),
+                        range: 234..235,
                         custom: (),
                         node: Name {
                             id: "c",
@@ -814,55 +373,19 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 8,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 8,
-                column: 10,
-            },
-        ),
+        range: 263..273,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 8,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 8,
-                        column: 10,
-                    },
-                ),
+                range: 263..273,
                 custom: (),
                 node: Attribute {
                     value: Located {
-                        location: Location {
-                            row: 8,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 8,
-                                column: 8,
-                            },
-                        ),
+                        range: 263..271,
                         custom: (),
                         node: Call {
                             func: Located {
-                                location: Location {
-                                    row: 8,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 8,
-                                        column: 5,
-                                    },
-                                ),
+                                range: 263..268,
                                 custom: (),
                                 node: Name {
                                     id: "match",
@@ -880,55 +403,19 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 9,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 9,
-                column: 12,
-            },
-        ),
+        range: 290..302,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 9,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 9,
-                        column: 12,
-                    },
-                ),
+                range: 290..302,
                 custom: (),
                 node: Attribute {
                     value: Located {
-                        location: Location {
-                            row: 9,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 9,
-                                column: 10,
-                            },
-                        ),
+                        range: 290..300,
                         custom: (),
                         node: Call {
                             func: Located {
-                                location: Location {
-                                    row: 9,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 9,
-                                        column: 5,
-                                    },
-                                ),
+                                range: 290..295,
                                 custom: (),
                                 node: Name {
                                     id: "match",
@@ -937,16 +424,7 @@ expression: parse_ast
                             },
                             args: [
                                 Located {
-                                    location: Location {
-                                        row: 9,
-                                        column: 7,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 9,
-                                            column: 9,
-                                        },
-                                    ),
+                                    range: 297..299,
                                     custom: (),
                                     node: Tuple {
                                         elts: [],
@@ -964,55 +442,19 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 10,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 10,
-                column: 13,
-            },
-        ),
+        range: 321..334,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 10,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 10,
-                        column: 13,
-                    },
-                ),
+                range: 321..334,
                 custom: (),
                 node: Attribute {
                     value: Located {
-                        location: Location {
-                            row: 10,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 10,
-                                column: 11,
-                            },
-                        ),
+                        range: 321..332,
                         custom: (),
                         node: Call {
                             func: Located {
-                                location: Location {
-                                    row: 10,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 10,
-                                        column: 5,
-                                    },
-                                ),
+                                range: 321..326,
                                 custom: (),
                                 node: Name {
                                     id: "match",
@@ -1021,16 +463,7 @@ expression: parse_ast
                             },
                             args: [
                                 Located {
-                                    location: Location {
-                                        row: 10,
-                                        column: 7,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 10,
-                                            column: 9,
-                                        },
-                                    ),
+                                    range: 328..330,
                                     custom: (),
                                     node: Tuple {
                                         elts: [],
@@ -1048,55 +481,19 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 11,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 11,
-                column: 11,
-            },
-        ),
+        range: 353..364,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 11,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 11,
-                        column: 11,
-                    },
-                ),
+                range: 353..364,
                 custom: (),
                 node: Attribute {
                     value: Located {
-                        location: Location {
-                            row: 11,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 11,
-                                column: 9,
-                            },
-                        ),
+                        range: 353..362,
                         custom: (),
                         node: Subscript {
                             value: Located {
-                                location: Location {
-                                    row: 11,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 11,
-                                        column: 5,
-                                    },
-                                ),
+                                range: 353..358,
                                 custom: (),
                                 node: Name {
                                     id: "match",
@@ -1104,16 +501,7 @@ expression: parse_ast
                                 },
                             },
                             slice: Located {
-                                location: Location {
-                                    row: 11,
-                                    column: 7,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 11,
-                                        column: 8,
-                                    },
-                                ),
+                                range: 360..361,
                                 custom: (),
                                 node: Name {
                                     id: "a",
@@ -1130,55 +518,19 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 12,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 12,
-                column: 12,
-            },
-        ),
+        range: 382..394,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 12,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 12,
-                        column: 12,
-                    },
-                ),
+                range: 382..394,
                 custom: (),
                 node: Attribute {
                     value: Located {
-                        location: Location {
-                            row: 12,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 12,
-                                column: 10,
-                            },
-                        ),
+                        range: 382..392,
                         custom: (),
                         node: Subscript {
                             value: Located {
-                                location: Location {
-                                    row: 12,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 12,
-                                        column: 5,
-                                    },
-                                ),
+                                range: 382..387,
                                 custom: (),
                                 node: Name {
                                     id: "match",
@@ -1186,30 +538,12 @@ expression: parse_ast
                                 },
                             },
                             slice: Located {
-                                location: Location {
-                                    row: 12,
-                                    column: 7,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 12,
-                                        column: 9,
-                                    },
-                                ),
+                                range: 389..391,
                                 custom: (),
                                 node: Tuple {
                                     elts: [
                                         Located {
-                                            location: Location {
-                                                row: 12,
-                                                column: 7,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 12,
-                                                    column: 8,
-                                                },
-                                            ),
+                                            range: 389..390,
                                             custom: (),
                                             node: Name {
                                                 id: "a",
@@ -1230,55 +564,19 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 13,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 13,
-                column: 14,
-            },
-        ),
+        range: 435..449,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 13,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 13,
-                        column: 14,
-                    },
-                ),
+                range: 435..449,
                 custom: (),
                 node: Attribute {
                     value: Located {
-                        location: Location {
-                            row: 13,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 13,
-                                column: 12,
-                            },
-                        ),
+                        range: 435..447,
                         custom: (),
                         node: Subscript {
                             value: Located {
-                                location: Location {
-                                    row: 13,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 13,
-                                        column: 5,
-                                    },
-                                ),
+                                range: 435..440,
                                 custom: (),
                                 node: Name {
                                     id: "match",
@@ -1286,30 +584,12 @@ expression: parse_ast
                                 },
                             },
                             slice: Located {
-                                location: Location {
-                                    row: 13,
-                                    column: 7,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 13,
-                                        column: 11,
-                                    },
-                                ),
+                                range: 442..446,
                                 custom: (),
                                 node: Tuple {
                                     elts: [
                                         Located {
-                                            location: Location {
-                                                row: 13,
-                                                column: 8,
-                                            },
-                                            end_location: Some(
-                                                Location {
-                                                    row: 13,
-                                                    column: 9,
-                                                },
-                                            ),
+                                            range: 443..444,
                                             custom: (),
                                             node: Name {
                                                 id: "a",
@@ -1330,55 +610,19 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 14,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 15,
-                column: 6,
-            },
-        ),
+        range: 470..487,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 14,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 15,
-                        column: 6,
-                    },
-                ),
+                range: 470..487,
                 custom: (),
                 node: Subscript {
                     value: Located {
-                        location: Location {
-                            row: 14,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 14,
-                                column: 7,
-                            },
-                        ),
+                        range: 470..477,
                         custom: (),
                         node: Call {
                             func: Located {
-                                location: Location {
-                                    row: 14,
-                                    column: 0,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 14,
-                                        column: 5,
-                                    },
-                                ),
+                                range: 470..475,
                                 custom: (),
                                 node: Name {
                                     id: "match",
@@ -1390,30 +634,12 @@ expression: parse_ast
                         },
                     },
                     slice: Located {
-                        location: Location {
-                            row: 14,
-                            column: 8,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 15,
-                                column: 5,
-                            },
-                        ),
+                        range: 478..486,
                         custom: (),
                         node: Slice {
                             lower: Some(
                                 Located {
-                                    location: Location {
-                                        row: 14,
-                                        column: 8,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 14,
-                                            column: 9,
-                                        },
-                                    ),
+                                    range: 478..479,
                                     custom: (),
                                     node: Name {
                                         id: "a",
@@ -1423,16 +649,7 @@ expression: parse_ast
                             ),
                             upper: Some(
                                 Located {
-                                    location: Location {
-                                        row: 15,
-                                        column: 4,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 15,
-                                            column: 5,
-                                        },
-                                    ),
+                                    range: 485..486,
                                     custom: (),
                                     node: Name {
                                         id: "b",
@@ -1449,42 +666,15 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 16,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 16,
-                column: 19,
-            },
-        ),
+        range: 507..526,
         custom: (),
         node: If {
             test: Located {
-                location: Location {
-                    row: 16,
-                    column: 3,
-                },
-                end_location: Some(
-                    Location {
-                        row: 16,
-                        column: 13,
-                    },
-                ),
+                range: 510..520,
                 custom: (),
                 node: NamedExpr {
                     target: Located {
-                        location: Location {
-                            row: 16,
-                            column: 3,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 16,
-                                column: 8,
-                            },
-                        ),
+                        range: 510..515,
                         custom: (),
                         node: Name {
                             id: "match",
@@ -1492,16 +682,7 @@ expression: parse_ast
                         },
                     },
                     value: Located {
-                        location: Location {
-                            row: 16,
-                            column: 12,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 16,
-                                column: 13,
-                            },
-                        ),
+                        range: 519..520,
                         custom: (),
                         node: Constant {
                             value: Int(
@@ -1514,16 +695,7 @@ expression: parse_ast
             },
             body: [
                 Located {
-                    location: Location {
-                        row: 16,
-                        column: 15,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 16,
-                            column: 19,
-                        },
-                    ),
+                    range: 522..526,
                     custom: (),
                     node: Pass,
                 },
@@ -1532,29 +704,11 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 17,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 20,
-                column: 12,
-            },
-        ),
+        range: 527..581,
         custom: (),
         node: Match {
             subject: Located {
-                location: Location {
-                    row: 17,
-                    column: 6,
-                },
-                end_location: Some(
-                    Location {
-                        row: 17,
-                        column: 11,
-                    },
-                ),
+                range: 533..538,
                 custom: (),
                 node: Name {
                     id: "match",
@@ -1564,29 +718,11 @@ expression: parse_ast
             cases: [
                 MatchCase {
                     pattern: Located {
-                        location: Location {
-                            row: 18,
-                            column: 9,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 18,
-                                column: 10,
-                            },
-                        ),
+                        range: 549..550,
                         custom: (),
                         node: MatchValue {
                             value: Located {
-                                location: Location {
-                                    row: 18,
-                                    column: 9,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 18,
-                                        column: 10,
-                                    },
-                                ),
+                                range: 549..550,
                                 custom: (),
                                 node: Constant {
                                     value: Int(
@@ -1600,16 +736,7 @@ expression: parse_ast
                     guard: None,
                     body: [
                         Located {
-                            location: Location {
-                                row: 18,
-                                column: 12,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 18,
-                                    column: 16,
-                                },
-                            ),
+                            range: 552..556,
                             custom: (),
                             node: Pass,
                         },
@@ -1617,29 +744,11 @@ expression: parse_ast
                 },
                 MatchCase {
                     pattern: Located {
-                        location: Location {
-                            row: 19,
-                            column: 9,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 19,
-                                column: 10,
-                            },
-                        ),
+                        range: 566..567,
                         custom: (),
                         node: MatchValue {
                             value: Located {
-                                location: Location {
-                                    row: 19,
-                                    column: 9,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 19,
-                                        column: 10,
-                                    },
-                                ),
+                                range: 566..567,
                                 custom: (),
                                 node: Constant {
                                     value: Int(
@@ -1653,16 +762,7 @@ expression: parse_ast
                     guard: None,
                     body: [
                         Located {
-                            location: Location {
-                                row: 20,
-                                column: 8,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 20,
-                                    column: 12,
-                                },
-                            ),
+                            range: 577..581,
                             custom: (),
                             node: Pass,
                         },
@@ -1672,30 +772,12 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 21,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 21,
-                column: 36,
-            },
-        ),
+        range: 582..618,
         custom: (),
         node: Assign {
             targets: [
                 Located {
-                    location: Location {
-                        row: 21,
-                        column: 0,
-                    },
-                    end_location: Some(
-                        Location {
-                            row: 21,
-                            column: 5,
-                        },
-                    ),
+                    range: 582..587,
                     custom: (),
                     node: Name {
                         id: "match",
@@ -1704,32 +786,14 @@ expression: parse_ast
                 },
             ],
             value: Located {
-                location: Location {
-                    row: 21,
-                    column: 8,
-                },
-                end_location: Some(
-                    Location {
-                        row: 21,
-                        column: 36,
-                    },
-                ),
+                range: 590..618,
                 custom: (),
                 node: Lambda {
                     args: Arguments {
                         posonlyargs: [],
                         args: [
                             Located {
-                                location: Location {
-                                    row: 21,
-                                    column: 15,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 21,
-                                        column: 20,
-                                    },
-                                ),
+                                range: 597..602,
                                 custom: (),
                                 node: ArgData {
                                     arg: "query",
@@ -1745,29 +809,11 @@ expression: parse_ast
                         defaults: [],
                     },
                     body: Located {
-                        location: Location {
-                            row: 21,
-                            column: 22,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 21,
-                                column: 36,
-                            },
-                        ),
+                        range: 604..618,
                         custom: (),
                         node: Compare {
                             left: Located {
-                                location: Location {
-                                    row: 21,
-                                    column: 22,
-                                },
-                                end_location: Some(
-                                    Location {
-                                        row: 21,
-                                        column: 27,
-                                    },
-                                ),
+                                range: 604..609,
                                 custom: (),
                                 node: Name {
                                     id: "query",
@@ -1779,16 +825,7 @@ expression: parse_ast
                             ],
                             comparators: [
                                 Located {
-                                    location: Location {
-                                        row: 21,
-                                        column: 31,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 21,
-                                            column: 36,
-                                        },
-                                    ),
+                                    range: 613..618,
                                     custom: (),
                                     node: Name {
                                         id: "event",
@@ -1804,42 +841,15 @@ expression: parse_ast
         },
     },
     Located {
-        location: Location {
-            row: 22,
-            column: 0,
-        },
-        end_location: Some(
-            Location {
-                row: 22,
-                column: 16,
-            },
-        ),
+        range: 619..635,
         custom: (),
         node: Expr {
             value: Located {
-                location: Location {
-                    row: 22,
-                    column: 0,
-                },
-                end_location: Some(
-                    Location {
-                        row: 22,
-                        column: 16,
-                    },
-                ),
+                range: 619..635,
                 custom: (),
                 node: Call {
                     func: Located {
-                        location: Location {
-                            row: 22,
-                            column: 0,
-                        },
-                        end_location: Some(
-                            Location {
-                                row: 22,
-                                column: 5,
-                            },
-                        ),
+                        range: 619..624,
                         custom: (),
                         node: Name {
                             id: "print",
@@ -1848,29 +858,11 @@ expression: parse_ast
                     },
                     args: [
                         Located {
-                            location: Location {
-                                row: 22,
-                                column: 6,
-                            },
-                            end_location: Some(
-                                Location {
-                                    row: 22,
-                                    column: 15,
-                                },
-                            ),
+                            range: 625..634,
                             custom: (),
                             node: Call {
                                 func: Located {
-                                    location: Location {
-                                        row: 22,
-                                        column: 6,
-                                    },
-                                    end_location: Some(
-                                        Location {
-                                            row: 22,
-                                            column: 11,
-                                        },
-                                    ),
+                                    range: 625..630,
                                     custom: (),
                                     node: Name {
                                         id: "match",
@@ -1879,16 +871,7 @@ expression: parse_ast
                                 },
                                 args: [
                                     Located {
-                                        location: Location {
-                                            row: 22,
-                                            column: 12,
-                                        },
-                                        end_location: Some(
-                                            Location {
-                                                row: 22,
-                                                column: 14,
-                                            },
-                                        ),
+                                        range: 631..633,
                                         custom: (),
                                         node: Constant {
                                             value: Int(
