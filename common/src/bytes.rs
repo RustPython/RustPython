@@ -1,6 +1,10 @@
 use crate::str::{Quote, ReprOverflowError};
 
-pub fn repr(b: &[u8], quote: Quote) -> Result<String, ReprOverflowError> {
+pub fn repr(b: &[u8]) -> Result<String, ReprOverflowError> {
+    repr_with(b, &[], "", Quote::Single)
+}
+
+pub fn repr_with_quote(b: &[u8], quote: Quote) -> Result<String, ReprOverflowError> {
     repr_with(b, &[], "", quote)
 }
 

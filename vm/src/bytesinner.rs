@@ -249,7 +249,12 @@ impl PyBytesInner {
 
     pub fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
         let repr = if let Some(class_name) = class_name {
-            rustpython_common::bytes::repr_with(&self.elements, &[class_name, "("], ")")
+            rustpython_common::bytes::repr_with(
+                &self.elements,
+                &[class_name, "("],
+                ")",
+                rustpython_common::str::Quote::Single,
+            )
         } else {
             rustpython_common::bytes::repr(&self.elements)
         };

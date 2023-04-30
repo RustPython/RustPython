@@ -350,12 +350,8 @@ macro_rules! ascii {
 
 /// Get a Display-able type that formats to the python `repr()` of the string value
 #[inline]
-pub fn repr(s: &str, quote: Quote) -> Repr<'_> {
-    Repr {
-        s,
-        quote,
-        info: OnceCell::new(),
-    }
+pub fn repr(s: &str) -> Repr<'_> {
+    Repr::new(s, Quote::Single)
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -423,8 +419,17 @@ pub struct Repr<'a> {
     s: &'a str,
     // the quote type we prefer to use
     quote: Quote,
-    // the tuple is dquouted, out_len
     info: OnceCell<Result<ReprInfo, ReprOverflowError>>,
+}
+
+impl<'a> Repr<'a> {
+    pub fn new(s: &'a str, quote: Quote) -> Self {
+        Self {
+            s,
+            quote,
+            info: OnceCell::new(),
+        }
+    }
 }
 
 impl Repr<'_> {
