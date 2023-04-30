@@ -1,7 +1,8 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
-    convert::{ToPyObject, ToPyResult},
+    common::format::FormatSpec,
+    convert::{IntoPyException, ToPyObject, ToPyResult},
     function::OptionalArg,
     identifier,
     protocol::PyNumberMethods,
@@ -110,12 +111,11 @@ impl Constructor for PyBool {
 #[pyclass(with(Constructor, AsNumber, Representable))]
 impl PyBool {
     #[pymethod(magic)]
-    fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if format_spec.is_empty() {
-            obj.str(vm)
-        } else {
-            Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_owned()))
-        }
+    fn format(obj: PyObjectRef, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+        let new_bool = obj.try_to_bool(vm)?;
+        FormatSpec::parse(spec.as_str())
+            .and_then(|format_spec| format_spec.format_bool(new_bool))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pymethod(name = "__ror__")]

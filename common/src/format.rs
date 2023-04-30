@@ -416,6 +416,19 @@ impl FormatSpec {
         }
     }
 
+    pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
+        let x = u8::from(input);
+        let result: Result<String, FormatSpecError> = match &self.format_type {
+            Some(FormatType::Decimal) => Ok(x.to_string()),
+            None => {
+                let first_letter = (input.to_string().as_bytes()[0] as char).to_uppercase();
+                Ok(first_letter.collect::<String>() + &input.to_string()[1..])
+            }
+            _ => Err(FormatSpecError::InvalidFormatSpecifier),
+        };
+        result
+    }
+
     pub fn format_float(&self, num: f64) -> Result<String, FormatSpecError> {
         self.validate_format(FormatType::FixedPoint(Case::Lower))?;
         let precision = self.precision.unwrap_or(6);
