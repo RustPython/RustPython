@@ -417,7 +417,6 @@ impl FormatSpec {
     }
 
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
-        dbg!(&self.format_type);
         let x = u8::from(input);
         let result: Result<String, FormatSpecError> = match &self.format_type {
             Some(FormatType::Decimal) => Ok(x.to_string()),
