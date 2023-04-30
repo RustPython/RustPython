@@ -123,7 +123,7 @@ bitflags! {
         const IMMUTABLETYPE = 1 << 8;
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;
-        const METHOD_DESCR = 1 << 17;
+        const METHOD_DESCRIPTOR = 1 << 17;
         const HAS_DICT = 1 << 40;
 
         #[cfg(debug_assertions)]

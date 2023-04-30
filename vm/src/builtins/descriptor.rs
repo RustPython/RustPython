@@ -104,7 +104,7 @@ impl PyMethodDescriptor {
 
 #[pyclass(
     with(GetDescriptor, Callable, Constructor, Representable),
-    flags(METHOD_DESCR)
+    flags(METHOD_DESCRIPTOR)
 )]
 impl PyMethodDescriptor {
     #[pygetset(magic)]
