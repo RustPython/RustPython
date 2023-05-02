@@ -500,9 +500,11 @@ impl PyStr {
 
     #[inline]
     pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        rustpython_common::str::repr(self.as_str())
-            .to_string_checked()
-            .map_err(|err| vm.new_overflow_error(err.to_string()))
+        use rustpython_common::escape::{Escape, UnicodeEscape};
+        let escape = UnicodeEscape::new_repr(self.as_str());
+        escape
+            .to_quoted_string()
+            .ok_or_else(|| vm.new_overflow_error("string is too long to generate repr".to_owned()))
     }
 
     #[pymethod]

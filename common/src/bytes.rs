@@ -1,4 +1,5 @@
-use crate::str::{Quote, ReprOverflowError};
+use crate::escape::Quote;
+use crate::str::ReprOverflowError;
 
 pub fn repr(b: &[u8]) -> Result<String, ReprOverflowError> {
     repr_with(b, &[], "", Quote::Single)
@@ -37,7 +38,7 @@ pub fn repr_with(
         out_len = out_len.checked_add(incr).ok_or(ReprOverflowError)?;
     }
 
-    let (quote, num_escaped_quotes) = crate::str::choose_quotes_for_repr(squote, dquote, quote);
+    let (quote, num_escaped_quotes) = crate::escape::choose_quote(squote, dquote, quote);
     // we'll be adding backslashes in front of the existing inner quotes
     out_len += num_escaped_quotes;
 
@@ -47,7 +48,7 @@ pub fn repr_with(
     let mut res = String::with_capacity(out_len);
     res.extend(prefixes.iter().copied());
     res.push('b');
-    res.push(quote);
+    res.push(quote.to_char());
     for &ch in b {
         match ch {
             b'\t' => res.push_str("\\t"),
@@ -56,7 +57,7 @@ pub fn repr_with(
             // printable ascii range
             0x20..=0x7e => {
                 let ch = ch as char;
-                if ch == quote || ch == '\\' {
+                if ch == quote.to_char() || ch == '\\' {
                     res.push('\\');
                 }
                 res.push(ch);
@@ -64,7 +65,7 @@ pub fn repr_with(
             _ => write!(res, "\\x{ch:02x}").unwrap(),
         }
     }
-    res.push(quote);
+    res.push(quote.to_char());
     res.push_str(suffix);
 
     Ok(res)

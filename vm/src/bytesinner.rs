@@ -5,7 +5,6 @@ use crate::{
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
-    convert::ToPyException,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     identifier,
     protocol::PyBuffer,
@@ -253,12 +252,12 @@ impl PyBytesInner {
                 &self.elements,
                 &[class_name, "("],
                 ")",
-                rustpython_common::str::Quote::Single,
+                rustpython_common::escape::Quote::Single,
             )
         } else {
             rustpython_common::bytes::repr(&self.elements)
         };
-        repr.map_err(|err| err.to_pyexception(vm))
+        repr.map_err(|_| vm.new_overflow_error("bytes object is too large to make repr".to_owned()))
     }
 
     #[inline]

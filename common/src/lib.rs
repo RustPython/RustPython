@@ -14,6 +14,7 @@ pub mod cmp;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod crt_fd;
 pub mod encodings;
+pub mod escape;
 pub mod float_ops;
 pub mod format;
 pub mod hash;
