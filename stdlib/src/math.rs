@@ -8,10 +8,9 @@ mod math {
         identifier, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use itertools::Itertools;
-    use num_bigint::BigInt;
-    use num_rational::Ratio;
-    use num_traits::{One, Signed, ToPrimitive, Zero};
-    use rustpython_common::float_ops;
+    use malachite_bigint::BigInt;
+    use num_traits::{One, Signed, Zero};
+    use rustpython_common::{float_ops, int::true_div};
     use std::cmp::Ordering;
 
     // Constants
@@ -154,8 +153,8 @@ mod math {
         // If we set 2^n to be the greatest power of 2 below x, then x/2^n is in [1, 2), and can
         // thus be converted into a float.
         let n = x.bits() as u32 - 1;
-        let frac = Ratio::new(x.clone(), BigInt::from(2).pow(n));
-        f64::from(n) + frac.to_f64().unwrap().log2()
+        let frac = true_div(x, &BigInt::from(2).pow(n));
+        f64::from(n) + frac.log2()
     }
 
     #[pyfunction]

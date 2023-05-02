@@ -1,6 +1,34 @@
 use bstr::ByteSlice;
-use num_bigint::{BigInt, BigUint, Sign};
-use num_traits::{ToPrimitive, Zero};
+use malachite_base::{num::conversion::traits::RoundingInto, rounding_modes::RoundingMode};
+use malachite_bigint::{BigInt, BigUint, Sign};
+use malachite_q::Rational;
+use num_traits::{One, ToPrimitive, Zero};
+
+pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
+    let val: f64 = Rational::from_integers_ref(numerator.into(), denominator.into())
+        .rounding_into(RoundingMode::Nearest);
+
+    if val == f64::MAX || val == f64::MIN {
+        // FIXME: not possible for available ratio?
+        return f64::INFINITY;
+    }
+    val
+}
+
+pub fn float_to_ratio(value: f64) -> Option<(BigInt, BigInt)> {
+    let sign = match std::cmp::PartialOrd::partial_cmp(&value, &0.0)? {
+        std::cmp::Ordering::Less => Sign::Minus,
+        std::cmp::Ordering::Equal => return Some((BigInt::zero(), BigInt::one())),
+        std::cmp::Ordering::Greater => Sign::Plus,
+    };
+    Rational::try_from(value).ok().map(|x| {
+        let (numer, denom) = x.into_numerator_and_denominator();
+        (
+            BigInt::from_biguint(sign, numer.into()),
+            BigUint::from(denom).into(),
+        )
+    })
+}
 
 pub fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
     // split sign

@@ -3,7 +3,7 @@ use rustpython_parser::ast::{self as ast, fold::Fold, ConstantOptimizer};
 
 pub use rustpython_codegen::compile::CompileOpts;
 pub use rustpython_compiler_core::{bytecode::CodeObject, Mode};
-pub use rustpython_parser::{source_code::SourceLocator, Parse};
+pub use rustpython_parser::{source_code::LinearLocator, Parse};
 
 // these modules are out of repository. re-exporting them here for convenience.
 pub use rustpython_codegen as codegen;
@@ -52,7 +52,7 @@ pub fn compile(
     source_path: String,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
-    let mut locator = SourceLocator::new(source);
+    let mut locator = LinearLocator::new(source);
     let mut ast = match parser::parse(source, mode.into(), &source_path) {
         Ok(x) => x,
         Err(e) => return Err(locator.locate_error(e)),
@@ -71,7 +71,7 @@ pub fn compile_symtable(
     mode: Mode,
     source_path: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
-    let mut locator = SourceLocator::new(source);
+    let mut locator = LinearLocator::new(source);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             let ast =

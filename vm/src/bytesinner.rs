@@ -17,7 +17,7 @@ use crate::{
 };
 use bstr::ByteSlice;
 use itertools::Itertools;
-use num_bigint::BigInt;
+use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
 
 #[derive(Debug, Default, Clone)]

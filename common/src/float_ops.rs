@@ -1,4 +1,4 @@
-use num_bigint::{BigInt, ToBigInt};
+use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{Float, Signed, ToPrimitive, Zero};
 use std::f64;
 
@@ -20,7 +20,7 @@ pub fn ufrexp(value: f64) -> (f64, i32) {
 /// # Examples
 ///
 /// ```
-/// use num_bigint::BigInt;
+/// use malachite_bigint::BigInt;
 /// use rustpython_common::float_ops::eq_int;
 /// let a = 1.0f64;
 /// let b = BigInt::from(1);

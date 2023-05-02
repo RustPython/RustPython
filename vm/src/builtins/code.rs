@@ -14,6 +14,7 @@ use crate::{
     types::Representable,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
+use malachite_bigint::BigInt;
 use num_traits::Zero;
 use std::{borrow::Borrow, fmt, ops::Deref};
 
@@ -151,7 +152,7 @@ impl ConstantBag for PyObjBag<'_> {
         self.0.intern_str(name)
     }
 
-    fn make_int(&self, value: num_bigint::BigInt) -> Self::Constant {
+    fn make_int(&self, value: BigInt) -> Self::Constant {
         Literal(self.0.new_int(value).into())
     }
 

@@ -15,7 +15,7 @@ use crate::{
     VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use num_bigint::{BigInt, Sign};
+use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 use once_cell::sync::Lazy;

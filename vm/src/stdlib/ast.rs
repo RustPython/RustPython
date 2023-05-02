@@ -11,7 +11,7 @@ use crate::{
     compiler::core::bytecode::OpArgType,
     compiler::CompileError,
     convert::ToPyException,
-    source_code::{OneIndexed, SourceLocation, SourceLocator, SourceRange},
+    source_code::{LinearLocator, OneIndexed, SourceLocation, SourceRange},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -329,7 +329,7 @@ pub(crate) fn parse(
     source: &str,
     mode: parser::Mode,
 ) -> Result<PyObjectRef, CompileError> {
-    let mut locator = SourceLocator::new(source);
+    let mut locator = LinearLocator::new(source);
     let top = parser::parse(source, mode, "<unknown>").map_err(|e| locator.locate_error(e))?;
     let top = locator.fold_mod(top).unwrap();
     Ok(top.ast_to_object(vm))
