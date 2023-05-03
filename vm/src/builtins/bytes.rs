@@ -672,7 +672,7 @@ impl Iterable for PyBytes {
 impl Representable for PyBytes {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        zelf.inner.repr(None, vm)
+        zelf.inner.repr_bytes(vm)
     }
 }
 

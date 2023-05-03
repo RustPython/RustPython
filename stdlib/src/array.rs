@@ -1294,7 +1294,7 @@ mod array {
                 }
                 let to_unicode = zelf.tounicode(vm)?;
                 let escape = crate::common::escape::UnicodeEscape::new_repr(&to_unicode);
-                return Ok(format!("{}('u', {})", class_name, escape.repr(),));
+                return Ok(format!("{}('u', {})", class_name, escape.str_repr()));
             }
             zelf.read().repr(&class_name, vm)
         }

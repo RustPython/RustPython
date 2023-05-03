@@ -3,10 +3,7 @@ use crate::{
     hash::PyHash,
 };
 use ascii::AsciiString;
-use std::{
-    fmt,
-    ops::{Bound, RangeBounds},
-};
+use std::ops::{Bound, RangeBounds};
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(non_camel_case_types)]
@@ -339,15 +336,6 @@ macro_rules! ascii {
         };
         unsafe { $crate::vendored::ascii::AsciiStr::from_ascii_unchecked($x.as_bytes()) }
     }};
-}
-
-#[derive(Debug, Copy, Clone)]
-#[non_exhaustive]
-pub struct ReprOverflowError;
-impl fmt::Display for ReprOverflowError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("string is too long to generate repr")
-    }
 }
 
 #[cfg(test)]

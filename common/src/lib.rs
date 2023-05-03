@@ -7,7 +7,6 @@ pub use macros::*;
 pub mod atomic;
 pub mod borrow;
 pub mod boxvec;
-pub mod bytes;
 pub mod cformat;
 pub mod char;
 pub mod cmp;

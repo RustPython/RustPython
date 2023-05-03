@@ -36,27 +36,10 @@ pub struct EscapeLayout {
 }
 
 pub trait Escape {
-    type Source: ?Sized;
-
     fn source_len(&self) -> usize;
     fn layout(&self) -> &EscapeLayout;
     fn changed(&self) -> bool {
         self.layout().len != Some(self.source_len())
-    }
-
-    fn output_layout_with_checker(
-        source: &Self::Source,
-        preferred_quote: Quote,
-        reserved_len: usize,
-        length_add: impl Fn(usize, usize) -> Option<usize>,
-    ) -> EscapeLayout;
-    // fn output_layout(source: &Self::Source, preferred_quote: Quote) -> EscapeLayout {
-    //     Self::output_layout_with_checker(source, preferred_quote, 2, |a, b| a.checked_add(b))
-    // }
-    fn output_layout(source: &Self::Source, preferred_quote: Quote) -> EscapeLayout {
-        Self::output_layout_with_checker(source, preferred_quote, 2, |a, b| {
-            Some((a as isize).checked_add(b as isize)? as usize)
-        })
     }
 
     fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result;
@@ -67,18 +50,6 @@ pub trait Escape {
         } else {
             self.write_source(formatter)
         }
-    }
-    fn write_quoted(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
-        let quote = self.layout().quote.to_char();
-        formatter.write_char(quote)?;
-        self.write_body(formatter)?;
-        formatter.write_char(quote)
-    }
-    fn to_quoted_string(&self) -> Option<String> {
-        let len = self.layout().len?.checked_add(2)?;
-        let mut s = String::with_capacity(len);
-        self.write_quoted(&mut s).unwrap();
-        Some(s)
     }
 }
 
@@ -114,23 +85,90 @@ impl<'a> UnicodeEscape<'a> {
         Self { source, layout }
     }
     pub fn new_repr(source: &'a str) -> Self {
-        let layout = Self::output_layout(source, Quote::Single);
+        let layout = Self::repr_layout(source, Quote::Single);
         Self { source, layout }
     }
-    pub fn repr<'r>(&'a self) -> UnicodeRepr<'r, 'a> {
-        UnicodeRepr(self)
+
+    pub fn str_repr<'r>(&'a self) -> StrRepr<'r, 'a> {
+        StrRepr(self)
     }
 }
 
-pub struct UnicodeRepr<'r, 'a>(&'r UnicodeEscape<'a>);
+pub struct StrRepr<'r, 'a>(&'r UnicodeEscape<'a>);
 
-impl std::fmt::Display for UnicodeRepr<'_, '_> {
+impl StrRepr<'_, '_> {
+    pub fn write(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+        let quote = self.0.layout().quote.to_char();
+        formatter.write_char(quote)?;
+        self.0.write_body(formatter)?;
+        formatter.write_char(quote)
+    }
+
+    pub fn to_string(&self) -> Option<String> {
+        let mut s = String::with_capacity(self.0.layout().len?);
+        self.write(&mut s).unwrap();
+        Some(s)
+    }
+}
+
+impl std::fmt::Display for StrRepr<'_, '_> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.write_quoted(formatter)
+        self.write(formatter)
     }
 }
 
 impl UnicodeEscape<'_> {
+    const REPR_RESERVED_LEN: usize = 2; // for quotes
+
+    pub fn repr_layout(source: &str, preferred_quote: Quote) -> EscapeLayout {
+        Self::output_layout_with_checker(source, preferred_quote, |a, b| {
+            Some((a as isize).checked_add(b as isize)? as usize)
+        })
+    }
+
+    fn output_layout_with_checker(
+        source: &str,
+        preferred_quote: Quote,
+        length_add: impl Fn(usize, usize) -> Option<usize>,
+    ) -> EscapeLayout {
+        let mut out_len = Self::REPR_RESERVED_LEN;
+        let mut single_count = 0;
+        let mut double_count = 0;
+
+        for ch in source.chars() {
+            let incr = match ch {
+                '\'' => {
+                    single_count += 1;
+                    1
+                }
+                '"' => {
+                    double_count += 1;
+                    1
+                }
+                c => Self::escaped_char_len(c),
+            };
+            let Some(new_len) = length_add(out_len, incr) else {
+                #[cold]
+                fn stop(single_count: usize, double_count: usize, preferred_quote: Quote) -> EscapeLayout {
+                    EscapeLayout { quote: choose_quote(single_count, double_count, preferred_quote).0, len: None }
+                }
+                return stop(single_count, double_count, preferred_quote);
+            };
+            out_len = new_len;
+        }
+
+        let (quote, num_escaped_quotes) = choose_quote(single_count, double_count, preferred_quote);
+        // we'll be adding backslashes in front of the existing inner quotes
+        let Some(out_len) = length_add(out_len, num_escaped_quotes) else {
+            return EscapeLayout { quote, len: None };
+        };
+
+        EscapeLayout {
+            quote,
+            len: Some(out_len - Self::REPR_RESERVED_LEN),
+        }
+    }
+
     fn escaped_char_len(ch: char) -> usize {
         match ch {
             '\\' | '\t' | '\r' | '\n' => 2,
@@ -182,58 +220,12 @@ impl UnicodeEscape<'_> {
 }
 
 impl<'a> Escape for UnicodeEscape<'a> {
-    type Source = str;
-
     fn source_len(&self) -> usize {
         self.source.len()
     }
 
     fn layout(&self) -> &EscapeLayout {
         &self.layout
-    }
-
-    fn output_layout_with_checker(
-        source: &str,
-        preferred_quote: Quote,
-        reserved_len: usize,
-        length_add: impl Fn(usize, usize) -> Option<usize>,
-    ) -> EscapeLayout {
-        let mut out_len = reserved_len;
-        let mut single_count = 0;
-        let mut double_count = 0;
-
-        for ch in source.chars() {
-            let incr = match ch {
-                '\'' => {
-                    single_count += 1;
-                    1
-                }
-                '"' => {
-                    double_count += 1;
-                    1
-                }
-                c => Self::escaped_char_len(c),
-            };
-            let Some(new_len) = length_add(out_len, incr) else {
-                #[cold]
-                fn stop(single_count: usize, double_count: usize, preferred_quote: Quote) -> EscapeLayout {
-                    EscapeLayout { quote: choose_quote(single_count, double_count, preferred_quote).0, len: None }
-                }
-                return stop(single_count, double_count, preferred_quote);
-            };
-            out_len = new_len;
-        }
-
-        let (quote, num_escaped_quotes) = choose_quote(single_count, double_count, preferred_quote);
-        // we'll be adding backslashes in front of the existing inner quotes
-        let Some(out_len) = length_add(out_len, num_escaped_quotes) else {
-            return EscapeLayout { quote, len: None };
-        };
-
-        EscapeLayout {
-            quote,
-            len: Some(out_len - reserved_len),
-        }
     }
 
     fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
@@ -264,5 +256,159 @@ mod unicode_escapse_tests {
 
         assert!(test("'\"hello"));
         assert!(test("hello\n"));
+    }
+}
+
+pub struct AsciiEscape<'a> {
+    source: &'a [u8],
+    layout: EscapeLayout,
+}
+
+impl<'a> AsciiEscape<'a> {
+    pub fn new(source: &'a [u8], layout: EscapeLayout) -> Self {
+        Self { source, layout }
+    }
+    pub fn with_forced_quote(source: &'a [u8], quote: Quote) -> Self {
+        let layout = EscapeLayout { quote, len: None };
+        Self { source, layout }
+    }
+    pub fn new_repr(source: &'a [u8]) -> Self {
+        let layout = Self::repr_layout(source, Quote::Single);
+        Self { source, layout }
+    }
+
+    pub fn bytes_repr<'r>(&'a self) -> BytesRepr<'r, 'a> {
+        BytesRepr(self)
+    }
+}
+
+impl AsciiEscape<'_> {
+    pub fn repr_layout(source: &[u8], preferred_quote: Quote) -> EscapeLayout {
+        Self::output_layout_with_checker(source, preferred_quote, 3, |a, b| {
+            Some((a as isize).checked_add(b as isize)? as usize)
+        })
+    }
+
+    pub fn named_repr_layout(source: &[u8], name: &str) -> EscapeLayout {
+        Self::output_layout_with_checker(source, Quote::Single, name.len() + 2 + 3, |a, b| {
+            Some((a as isize).checked_add(b as isize)? as usize)
+        })
+    }
+
+    fn output_layout_with_checker(
+        source: &[u8],
+        preferred_quote: Quote,
+        reserved_len: usize,
+        length_add: impl Fn(usize, usize) -> Option<usize>,
+    ) -> EscapeLayout {
+        let mut out_len = reserved_len;
+        let mut single_count = 0;
+        let mut double_count = 0;
+
+        for ch in source.iter() {
+            let incr = match ch {
+                b'\'' => {
+                    single_count += 1;
+                    1
+                }
+                b'"' => {
+                    double_count += 1;
+                    1
+                }
+                c => Self::escaped_char_len(*c),
+            };
+            let Some(new_len) = length_add(out_len, incr) else {
+                #[cold]
+                fn stop(single_count: usize, double_count: usize, preferred_quote: Quote) -> EscapeLayout {
+                    EscapeLayout { quote: choose_quote(single_count, double_count, preferred_quote).0, len: None }
+                }
+                return stop(single_count, double_count, preferred_quote);
+            };
+            out_len = new_len;
+        }
+
+        let (quote, num_escaped_quotes) = choose_quote(single_count, double_count, preferred_quote);
+        // we'll be adding backslashes in front of the existing inner quotes
+        let Some(out_len) = length_add(out_len, num_escaped_quotes) else {
+            return EscapeLayout { quote, len: None };
+        };
+
+        EscapeLayout {
+            quote,
+            len: Some(out_len - reserved_len),
+        }
+    }
+
+    fn escaped_char_len(ch: u8) -> usize {
+        match ch {
+            b'\\' | b'\t' | b'\r' | b'\n' => 2,
+            0x20..=0x7e => 1,
+            _ => 4, // \xHH
+        }
+    }
+
+    fn write_char(ch: u8, quote: Quote, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+        match ch {
+            b'\t' => formatter.write_str("\\t"),
+            b'\n' => formatter.write_str("\\n"),
+            b'\r' => formatter.write_str("\\r"),
+            0x20..=0x7e => {
+                // printable ascii range
+                if ch == quote.to_byte() || ch == b'\\' {
+                    formatter.write_char('\\')?;
+                }
+                formatter.write_char(ch as char)
+            }
+            ch => write!(formatter, "\\x{ch:02x}"),
+        }
+    }
+}
+
+impl<'a> Escape for AsciiEscape<'a> {
+    fn source_len(&self) -> usize {
+        self.source.len()
+    }
+
+    fn layout(&self) -> &EscapeLayout {
+        &self.layout
+    }
+
+    fn write_source(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+        formatter.write_str(unsafe {
+            // SAFETY: this function must be called only when source is printable ascii characters
+            std::str::from_utf8_unchecked(self.source)
+        })
+    }
+
+    #[cold]
+    fn write_body_slow(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+        for ch in self.source.iter() {
+            Self::write_char(*ch, self.layout().quote, formatter)?;
+        }
+        Ok(())
+    }
+}
+
+pub struct BytesRepr<'r, 'a>(&'r AsciiEscape<'a>);
+
+impl BytesRepr<'_, '_> {
+    pub fn write(&self, formatter: &mut impl std::fmt::Write) -> std::fmt::Result {
+        let quote = self.0.layout().quote.to_char();
+        formatter.write_char('b')?;
+        formatter.write_char(quote)?;
+        self.0.write_body(formatter)?;
+        formatter.write_char(quote)
+    }
+
+    pub fn to_string(&self) -> Option<String> {
+        let mut s = String::with_capacity(self.0.layout().len?);
+        self.write(&mut s).unwrap();
+        Some(s)
+    }
+}
+
+impl std::fmt::Display for BytesRepr<'_, '_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.write(formatter)
     }
 }
