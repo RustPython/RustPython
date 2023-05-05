@@ -11,7 +11,7 @@ license = "MIT"
 threading = ["parking_lot"]
 
 [dependencies]
-rustpython-literal = { path = "../compiler/literal" }
+rustpython-literal = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }

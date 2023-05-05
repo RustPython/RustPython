@@ -12,16 +12,24 @@ include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 [workspace]
 resolver = "2"
 members = [
-    "compiler", "compiler/ast", "compiler/core", "compiler/literal", "compiler/codegen", "compiler/parser",
+    "compiler", "compiler/codegen",
     ".", "common", "derive", "jit", "vm", "pylib", "stdlib", "wasm/lib", "derive-impl",
 ]
 
 [workspace.dependencies]
+rustpython-literal = { git = "https://github.com/RustPython/Parser.git", rev = "6b60f85cc4ca248af9b787697c41be2adb7a3ec8" }
+rustpython-compiler-core = { git = "https://github.com/RustPython/Parser.git", rev = "6b60f85cc4ca248af9b787697c41be2adb7a3ec8" }
+rustpython-parser = { git = "https://github.com/RustPython/Parser.git", rev = "6b60f85cc4ca248af9b787697c41be2adb7a3ec8" }
+rustpython-ast = { git = "https://github.com/RustPython/Parser.git", rev = "6b60f85cc4ca248af9b787697c41be2adb7a3ec8" }
+# rustpython-literal = { path = "../RustPython-parser/literal" }
+# rustpython-compiler-core = { path = "../RustPython-parser/core" }
+# rustpython-parser = { path = "../RustPython-parser/parser" }
+# rustpython-ast = { path = "../RustPython-parser/ast" }
+
 ahash = "0.7.6"
 anyhow = "1.0.45"
 ascii = "1.0"
 atty = "0.2.14"
-bincode = "1.3.3"
 bitflags = "1.3.2"
 bstr = "0.2.17"
 cfg-if = "1.0"
@@ -72,10 +80,11 @@ ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 
 [dependencies]
 rustpython-compiler = { path = "compiler", version = "0.2.0" }
-rustpython-parser = { path = "compiler/parser", version = "0.2.0" }
 rustpython-pylib = { path = "pylib", optional = true, default-features = false }
 rustpython-stdlib = { path = "stdlib", optional = true, default-features = false }
 rustpython-vm = { path = "vm", version = "0.2.0", default-features = false, features = ["compiler"] }
+
+rustpython-parser = { workspace = true }
 
 atty = { workspace = true }
 cfg-if = { workspace = true }

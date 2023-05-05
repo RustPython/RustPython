@@ -1,11 +1,13 @@
 use rustpython_codegen::{compile, symboltable};
-use rustpython_parser::{
-    self as parser,
-    ast::{fold::Fold, ConstantOptimizer},
-};
+use rustpython_parser::ast::{fold::Fold, ConstantOptimizer};
 
 pub use rustpython_codegen::compile::CompileOpts;
 pub use rustpython_compiler_core::{BaseError as CompileErrorBody, CodeObject, Mode};
+
+// these modules are out of repository. re-exporting them here for convenience.
+pub use rustpython_codegen as codegen;
+pub use rustpython_compiler_core as core;
+pub use rustpython_parser as parser;
 
 use std::error::Error as StdError;
 use std::fmt;

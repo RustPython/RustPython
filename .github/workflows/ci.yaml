@@ -18,10 +18,8 @@ env:
   CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
   NON_WASM_PACKAGES: >-
     -p rustpython-common
-    -p rustpython-compiler-core
     -p rustpython-compiler
     -p rustpython-codegen
-    -p rustpython-parser
     -p rustpython-vm
     -p rustpython-stdlib
     -p rustpython-jit
@@ -105,7 +103,6 @@ jobs:
     env:
       RUST_BACKTRACE: full
     name: Run rust tests
-    needs: lalrpop
     runs-on:  ${{ matrix.os }}
     strategy:
       matrix:
@@ -113,11 +110,6 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v3
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -167,16 +159,9 @@ jobs:
   exotic_targets:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Ensure compilation on various targets
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: i686-unknown-linux-gnu
@@ -239,7 +224,6 @@ jobs:
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
-    needs: lalrpop
     env:
       RUST_BACKTRACE: full
     name: Run snippets and cpython tests
@@ -250,12 +234,6 @@ jobs:
       fail-fast: false
     steps:
       - uses: actions/checkout@v3
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
-
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v4
         with:
@@ -316,50 +294,11 @@ jobs:
       - name: Check whats_left is not broken
         run: python -I whats_left.py
 
-  lalrpop:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
-    name: Generate parser with lalrpop
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on:  ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v3
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
-      - name: Check if cached generated parser exists
-        id: generated_parser
-        uses: andstor/file-existence-action@v2
-        with:
-          files: "compiler/parser/python.rs"
-      - if: runner.os == 'Windows'
-        name: Force python.lalrpop to be lf  # actions@checkout ignore .gitattributes
-        run: |
-          set file compiler/parser/python.lalrpop; ((Get-Content $file) -join "`n") + "`n" | Set-Content -NoNewline $file
-      - name: Install lalrpop
-        if: steps.generated_parser.outputs.files_exists == 'false'
-        uses: baptiste0928/cargo-install@v2
-        with:
-          crate: lalrpop
-          version: "0.19.9"
-      - name: Run lalrpop
-        if: steps.generated_parser.outputs.files_exists == 'false'
-        run: lalrpop compiler/parser/python.lalrpop
-
   lint:
     name: Check Rust code with rustfmt and clippy
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
             components: rustfmt, clippy
@@ -372,28 +311,22 @@ jobs:
           python-version: "3.11"
       - name: install ruff
         run: python -m pip install ruff
-      - name: run lint
-        run: ruff extra_tests wasm examples compiler/ast  --exclude='./.*',./Lib,./vm/Lib,./benches/ --select=E9,F63,F7,F82 --show-source
+      - name: run python lint
+        run: ruff extra_tests wasm examples  --exclude='./.*',./Lib,./vm/Lib,./benches/ --select=E9,F63,F7,F82 --show-source
       - name: install prettier
         run: yarn global add prettier && echo "$(yarn global bin)" >>$GITHUB_PATH
       - name: check wasm code with prettier
         # prettier doesn't handle ignore files very well: https://github.com/prettier/prettier/issues/8506
         run: cd wasm && git ls-files -z | xargs -0 prettier --check -u
-      - name: Check update_asdl.sh consistency
-        run: bash scripts/update_asdl.sh && git diff --exit-code
+      # - name: Check update_asdl.sh consistency
+      #   run: bash scripts/update_asdl.sh && git diff --exit-code
 
   miri:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run tests under miri
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@master
         with:
             toolchain: nightly
@@ -408,15 +341,9 @@ jobs:
   wasm:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Check the WASM package and demo
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -462,15 +389,9 @@ jobs:
   wasm-wasi:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     name: Run snippets and cpython tests on wasm-wasi
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: Cache generated parser
-        uses: actions/cache@v3
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasi

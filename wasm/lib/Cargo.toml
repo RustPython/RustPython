@@ -17,11 +17,12 @@ no-start-func = []
 
 [dependencies]
 rustpython-common = { path = "../../common" }
-rustpython-parser = { path = "../../compiler/parser" }
 rustpython-pylib = { path = "../../pylib", default-features = false, optional = true }
 rustpython-stdlib = { path = "../../stdlib", default-features = false, optional = true }
 # make sure no threading! otherwise wasm build will fail
 rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler", "encodings", "serde"] }
+
+rustpython-parser = { workspace = true }
 
 serde = { workspace = true }
 
