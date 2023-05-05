@@ -1293,7 +1293,7 @@ mod array {
                     return Ok(format!("{class_name}('u')"));
                 }
                 let to_unicode = zelf.tounicode(vm)?;
-                let escape = crate::common::escape::UnicodeEscape::new_repr(&to_unicode);
+                let escape = crate::vm::literal::escape::UnicodeEscape::new_repr(&to_unicode);
                 return Ok(format!("{}('u', {})", class_name, escape.str_repr()));
             }
             zelf.read().repr(&class_name, vm)

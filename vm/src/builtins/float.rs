@@ -178,7 +178,7 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
             val.class().name()
         )));
     };
-    float_ops::parse_bytes(b).ok_or_else(|| {
+    crate::literal::float::parse_bytes(b).ok_or_else(|| {
         val.repr(vm)
             .map(|repr| vm.new_value_error(format!("could not convert string to float: {repr}")))
             .unwrap_or_else(|e| e)
@@ -452,7 +452,7 @@ impl PyFloat {
 
     #[pymethod]
     fn is_integer(&self) -> bool {
-        float_ops::is_integer(self.value)
+        crate::literal::float::is_integer(self.value)
     }
 
     #[pymethod]
@@ -476,7 +476,7 @@ impl PyFloat {
 
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        let result = float_ops::from_hex(string.as_str().trim()).ok_or_else(|| {
+        let result = crate::literal::float::from_hex(string.as_str().trim()).ok_or_else(|| {
             vm.new_value_error("invalid hexadecimal floating-point string".to_owned())
         })?;
         PyType::call(&cls, vec![vm.ctx.new_float(result).into()].into(), vm)
@@ -484,7 +484,7 @@ impl PyFloat {
 
     #[pymethod]
     fn hex(&self) -> String {
-        float_ops::to_hex(self.value)
+        crate::literal::float::to_hex(self.value)
     }
 
     #[pymethod(magic)]
@@ -589,7 +589,7 @@ impl AsNumber for PyFloat {
 impl Representable for PyFloat {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-        Ok(float_ops::to_string(zelf.value))
+        Ok(crate::literal::float::to_string(zelf.value))
     }
 }
 

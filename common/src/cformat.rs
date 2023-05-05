@@ -1,9 +1,9 @@
 //! Implementation of Printf-Style string formatting
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
-use crate::float_ops;
 use bitflags::bitflags;
 use num_bigint::{BigInt, Sign};
 use num_traits::Signed;
+use rustpython_literal::{float, format::Case};
 use std::{
     cmp, fmt,
     iter::{Enumerate, Peekable},
@@ -49,23 +49,17 @@ impl fmt::Display for CFormatError {
 pub type CFormatConversion = super::format::FormatConversion;
 
 #[derive(Debug, PartialEq)]
-pub enum CFormatCase {
-    Lowercase,
-    Uppercase,
-}
-
-#[derive(Debug, PartialEq)]
 pub enum CNumberType {
     Decimal,
     Octal,
-    Hex(CFormatCase),
+    Hex(Case),
 }
 
 #[derive(Debug, PartialEq)]
 pub enum CFloatType {
-    Exponent(CFormatCase),
-    PointDecimal(CFormatCase),
-    General(CFormatCase),
+    Exponent(Case),
+    PointDecimal(Case),
+    General(Case),
 }
 
 #[derive(Debug, PartialEq)]
@@ -283,14 +277,13 @@ impl CFormatSpec {
     }
 
     pub fn format_number(&self, num: &BigInt) -> String {
-        use CFormatCase::{Lowercase, Uppercase};
         use CNumberType::*;
         let magnitude = num.abs();
         let prefix = if self.flags.contains(CConversionFlags::ALTERNATE_FORM) {
             match self.format_type {
                 CFormatType::Number(Octal) => "0o",
-                CFormatType::Number(Hex(Lowercase)) => "0x",
-                CFormatType::Number(Hex(Uppercase)) => "0X",
+                CFormatType::Number(Hex(Case::Lower)) => "0x",
+                CFormatType::Number(Hex(Case::Upper)) => "0X",
                 _ => "",
             }
         } else {
@@ -300,8 +293,8 @@ impl CFormatSpec {
         let magnitude_string: String = match self.format_type {
             CFormatType::Number(Decimal) => magnitude.to_str_radix(10),
             CFormatType::Number(Octal) => magnitude.to_str_radix(8),
-            CFormatType::Number(Hex(Lowercase)) => magnitude.to_str_radix(16),
-            CFormatType::Number(Hex(Uppercase)) => {
+            CFormatType::Number(Hex(Case::Lower)) => magnitude.to_str_radix(16),
+            CFormatType::Number(Hex(Case::Upper)) => {
                 let mut result = magnitude.to_str_radix(16);
                 result.make_ascii_uppercase();
                 result
@@ -359,42 +352,30 @@ impl CFormatSpec {
 
         let magnitude_string = match &self.format_type {
             CFormatType::Float(CFloatType::PointDecimal(case)) => {
-                let case = match case {
-                    CFormatCase::Lowercase => float_ops::Case::Lower,
-                    CFormatCase::Uppercase => float_ops::Case::Upper,
-                };
                 let magnitude = num.abs();
-                float_ops::format_fixed(
+                float::format_fixed(
                     precision,
                     magnitude,
-                    case,
+                    *case,
                     self.flags.contains(CConversionFlags::ALTERNATE_FORM),
                 )
             }
             CFormatType::Float(CFloatType::Exponent(case)) => {
-                let case = match case {
-                    CFormatCase::Lowercase => float_ops::Case::Lower,
-                    CFormatCase::Uppercase => float_ops::Case::Upper,
-                };
                 let magnitude = num.abs();
-                float_ops::format_exponent(
+                float::format_exponent(
                     precision,
                     magnitude,
-                    case,
+                    *case,
                     self.flags.contains(CConversionFlags::ALTERNATE_FORM),
                 )
             }
             CFormatType::Float(CFloatType::General(case)) => {
                 let precision = if precision == 0 { 1 } else { precision };
-                let case = match case {
-                    CFormatCase::Lowercase => float_ops::Case::Lower,
-                    CFormatCase::Uppercase => float_ops::Case::Upper,
-                };
                 let magnitude = num.abs();
-                float_ops::format_general(
+                float::format_general(
                     precision,
                     magnitude,
-                    case,
+                    *case,
                     self.flags.contains(CConversionFlags::ALTERNATE_FORM),
                     false,
                 )
@@ -480,7 +461,6 @@ where
     I: Iterator<Item = T>,
 {
     use CFloatType::*;
-    use CFormatCase::{Lowercase, Uppercase};
     use CNumberType::*;
     let (index, c) = match iter.next() {
         Some((index, c)) => (index, c.into()),
@@ -494,14 +474,14 @@ where
     let format_type = match c {
         'd' | 'i' | 'u' => CFormatType::Number(Decimal),
         'o' => CFormatType::Number(Octal),
-        'x' => CFormatType::Number(Hex(Lowercase)),
-        'X' => CFormatType::Number(Hex(Uppercase)),
-        'e' => CFormatType::Float(Exponent(Lowercase)),
-        'E' => CFormatType::Float(Exponent(Uppercase)),
-        'f' => CFormatType::Float(PointDecimal(Lowercase)),
-        'F' => CFormatType::Float(PointDecimal(Uppercase)),
-        'g' => CFormatType::Float(General(Lowercase)),
-        'G' => CFormatType::Float(General(Uppercase)),
+        'x' => CFormatType::Number(Hex(Case::Lower)),
+        'X' => CFormatType::Number(Hex(Case::Upper)),
+        'e' => CFormatType::Float(Exponent(Case::Lower)),
+        'E' => CFormatType::Float(Exponent(Case::Upper)),
+        'f' => CFormatType::Float(PointDecimal(Case::Lower)),
+        'F' => CFormatType::Float(PointDecimal(Case::Upper)),
+        'g' => CFormatType::Float(General(Case::Lower)),
+        'G' => CFormatType::Float(General(Case::Upper)),
         'c' => CFormatType::Character,
         'r' => CFormatType::String(CFormatConversion::Repr),
         's' => CFormatType::String(CFormatConversion::Str),
