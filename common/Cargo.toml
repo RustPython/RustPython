@@ -11,6 +11,8 @@ license = "MIT"
 threading = ["parking_lot"]
 
 [dependencies]
+rustpython-literal = { path = "../compiler/literal" }
+
 ascii = { workspace = true }
 bitflags = { workspace = true }
 bstr = { workspace = true }
@@ -24,12 +26,9 @@ once_cell = { workspace = true }
 parking_lot = { workspace = true, optional = true }
 rand = { workspace = true }
 
-hexf-parse = "0.2.1"
-lexical-parse-float = { version = "0.8.0", features = ["format"] }
 lock_api = "0.4"
 radium = "0.7"
 siphasher = "0.3"
-unic-ucd-category = "0.9"
 volatile = "0.3"
 
 [target.'cfg(windows)'.dependencies]

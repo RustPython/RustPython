@@ -500,7 +500,7 @@ impl PyStr {
 
     #[inline]
     pub(crate) fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        use rustpython_common::escape::UnicodeEscape;
+        use crate::literal::escape::UnicodeEscape;
         let escape = UnicodeEscape::new_repr(self.as_str());
         escape
             .str_repr()
@@ -864,7 +864,7 @@ impl PyStr {
     ///   * Zs (Separator, Space) other than ASCII space('\x20').
     #[pymethod]
     fn isprintable(&self) -> bool {
-        self.char_all(|c| c == '\u{0020}' || rustpython_common::char::is_printable(c))
+        self.char_all(|c| c == '\u{0020}' || rustpython_literal::char::is_printable(c))
     }
 
     #[pymethod]

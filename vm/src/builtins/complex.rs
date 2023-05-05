@@ -14,7 +14,7 @@ use crate::{
 };
 use num_complex::Complex64;
 use num_traits::Zero;
-use rustpython_common::{float_ops, hash};
+use rustpython_common::hash;
 use std::num::Wrapping;
 
 /// Create a complex number from a real part and an optional imaginary part.
@@ -461,7 +461,7 @@ impl Representable for PyComplex {
         let mut im_part = if im.fract() == 0.0 {
             im.to_string()
         } else {
-            float_ops::to_string(im)
+            crate::literal::float::to_string(im)
         };
         im_part.push('j');
 
@@ -475,7 +475,7 @@ impl Representable for PyComplex {
         } else if re.fract() == 0.0 {
             re.to_string()
         } else {
-            float_ops::to_string(re)
+            crate::literal::float::to_string(re)
         };
         let mut result = String::with_capacity(
             re_part.len() + im_part.len() + 2 + im.is_sign_positive() as usize,
@@ -524,13 +524,13 @@ fn parse_str(s: &str) -> Option<Complex64> {
     };
 
     let value = match s.strip_suffix(|c| c == 'j' || c == 'J') {
-        None => Complex64::new(float_ops::parse_str(s)?, 0.0),
+        None => Complex64::new(crate::literal::float::parse_str(s)?, 0.0),
         Some(mut s) => {
             let mut real = 0.0;
             // Find the central +/- operator. If it exists, parse the real part.
             for (i, w) in s.as_bytes().windows(2).enumerate() {
                 if (w[1] == b'+' || w[1] == b'-') && !(w[0] == b'e' || w[0] == b'E') {
-                    real = float_ops::parse_str(&s[..=i])?;
+                    real = crate::literal::float::parse_str(&s[..=i])?;
                     s = &s[i + 1..];
                     break;
                 }
@@ -541,7 +541,7 @@ fn parse_str(s: &str) -> Option<Complex64> {
                 "" | "+" => 1.0,
                 // "-j"
                 "-" => -1.0,
-                s => float_ops::parse_str(s)?,
+                s => crate::literal::float::parse_str(s)?,
             };
 
             Complex64::new(real, imag)

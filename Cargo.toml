@@ -12,7 +12,7 @@ include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
 [workspace]
 resolver = "2"
 members = [
-    "compiler", "compiler/ast", "compiler/core", "compiler/codegen", "compiler/parser",
+    "compiler", "compiler/ast", "compiler/core", "compiler/literal", "compiler/codegen", "compiler/parser",
     ".", "common", "derive", "jit", "vm", "pylib", "stdlib", "wasm/lib", "derive-impl",
 ]
 

@@ -1973,8 +1973,8 @@ name = "rustpython-ast"
 version = "0.2.0"
 dependencies = [
  "num-bigint",
- "rustpython-common",
  "rustpython-compiler-core",
+ "rustpython-literal",
 ]
 
 [[package]]
@@ -2002,9 +2002,7 @@ dependencies = [
  "bitflags",
  "bstr",
  "cfg-if",
- "hexf-parse",
  "itertools",
- "lexical-parse-float",
  "libc",
  "lock_api",
  "num-bigint",
@@ -2014,8 +2012,8 @@ dependencies = [
  "parking_lot",
  "radium",
  "rand",
+ "rustpython-literal",
  "siphasher",
- "unic-ucd-category",
  "volatile",
  "widestring",
 ]
@@ -2089,6 +2087,17 @@ dependencies = [
  "rustpython-compiler-core",
  "rustpython-derive",
  "thiserror",
+]
+
+[[package]]
+name = "rustpython-literal"
+version = "0.2.0"
+dependencies = [
+ "hexf-parse",
+ "lexical-parse-float",
+ "num-traits",
+ "rand",
+ "unic-ucd-category",
 ]
 
 [[package]]
@@ -2247,6 +2256,7 @@ dependencies = [
  "rustpython-compiler-core",
  "rustpython-derive",
  "rustpython-jit",
+ "rustpython-literal",
  "rustpython-parser",
  "rustyline",
  "schannel",

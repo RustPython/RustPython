@@ -6,9 +6,10 @@ use crate::{
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
-    common::{escape::Escape, hash},
+    common::hash,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     identifier,
+    literal::escape::Escape,
     protocol::PyBuffer,
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
@@ -252,7 +253,7 @@ impl PyBytesInner {
     }
 
     pub fn repr_with_name(&self, class_name: &str, vm: &VirtualMachine) -> PyResult<String> {
-        let escape = rustpython_common::escape::AsciiEscape::new_repr(&self.elements);
+        let escape = crate::literal::escape::AsciiEscape::new_repr(&self.elements);
         let len = escape
             .layout()
             .len
@@ -268,8 +269,8 @@ impl PyBytesInner {
     }
 
     pub fn repr_bytes(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let escape = rustpython_common::escape::AsciiEscape::new_repr(&self.elements);
-        let len = escape
+        let escape = crate::literal::escape::AsciiEscape::new_repr(&self.elements);
+        let len = 3 + escape
             .layout()
             .len
             .ok_or_else(|| Self::new_repr_overflow_error(vm))?;

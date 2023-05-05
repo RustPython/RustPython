@@ -30,6 +30,7 @@ rustpython-parser = { path = "../compiler/parser", optional = true, version = "0
 rustpython-codegen = { path = "../compiler/codegen", optional = true, version = "0.2.0" }
 rustpython-compiler-core = { path = "../compiler/core", version = "0.2.0" }
 rustpython-common = { path = "../common" }
+rustpython-literal = { path = "../compiler/literal" }
 rustpython-derive = { path = "../derive", version = "0.2.0" }
 rustpython-jit = { path = "../jit", optional = true, version = "0.2.0" }
 

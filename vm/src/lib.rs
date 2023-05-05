@@ -89,6 +89,7 @@ pub use self::vm::{Context, Interpreter, Settings, VirtualMachine};
 
 pub use rustpython_common as common;
 pub use rustpython_compiler_core as bytecode;
+pub use rustpython_literal as literal;
 
 #[doc(hidden)]
 pub mod __exports {
