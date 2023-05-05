@@ -1,94 +1,42 @@
-use super::{type_, PyClassMethod, PyStaticMethod, PyStr, PyStrInterned, PyStrRef, PyType};
+use super::{type_, PyStrInterned, PyStrRef, PyType};
 use crate::{
-    builtins::PyBoundMethod,
     class::PyClassImpl,
-    function::{FuncArgs, IntoPyNativeFunc, PyNativeFunc},
-    types::{Callable, Constructor, GetDescriptor, Representable, Unconstructible},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    convert::TryFromObject,
+    function::{FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
+    types::{Callable, Comparable, Constructor, PyComparisonOp, Representable, Unconstructible},
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use std::fmt;
 
-pub struct PyNativeFuncDef {
-    pub func: PyNativeFunc,
-    pub name: &'static PyStrInterned,
-    pub doc: Option<PyStrRef>,
-}
-
-impl PyNativeFuncDef {
-    pub fn new(func: PyNativeFunc, name: &'static PyStrInterned) -> Self {
-        Self {
-            func,
-            name,
-            doc: None,
-        }
-    }
-
-    pub fn with_doc(mut self, doc: String, ctx: &Context) -> Self {
-        self.doc = Some(PyStr::new_ref(doc, ctx));
-        self
-    }
-
-    pub fn into_function(self) -> PyBuiltinFunction {
-        self.into()
-    }
-    pub fn build_function(self, ctx: &Context) -> PyRef<PyBuiltinFunction> {
-        self.into_function().into_ref(ctx)
-    }
-    pub fn build_method(self, ctx: &Context, class: &'static Py<PyType>) -> PyRef<PyBuiltinMethod> {
-        PyRef::new_ref(
-            PyBuiltinMethod { value: self, class },
-            ctx.types.method_descriptor_type.to_owned(),
-            None,
-        )
-    }
-    pub fn build_classmethod(
-        self,
-        ctx: &Context,
-        class: &'static Py<PyType>,
-    ) -> PyRef<PyClassMethod> {
-        // TODO: classmethod_descriptor
-        let callable = self.build_method(ctx, class).into();
-        PyClassMethod::new_ref(callable, ctx)
-    }
-    pub fn build_staticmethod(
-        self,
-        ctx: &Context,
-        class: &'static Py<PyType>,
-    ) -> PyRef<PyStaticMethod> {
-        let callable = self.build_method(ctx, class).into();
-        PyStaticMethod::new_ref(callable, ctx)
-    }
-}
-
+// PyCFunctionObject in CPython
 #[pyclass(name = "builtin_function_or_method", module = false)]
-pub struct PyBuiltinFunction {
-    value: PyNativeFuncDef,
-    module: Option<PyObjectRef>,
+pub struct PyNativeFunction {
+    pub(crate) value: &'static PyMethodDef,
+    pub(crate) zelf: Option<PyObjectRef>,
+    pub(crate) module: Option<&'static PyStrInterned>, // None for bound method
 }
 
-impl PyPayload for PyBuiltinFunction {
+impl PyPayload for PyNativeFunction {
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.builtin_function_or_method_type
     }
 }
 
-impl fmt::Debug for PyBuiltinFunction {
+impl fmt::Debug for PyNativeFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "builtin function {}", self.value.name.as_str())
+        write!(
+            f,
+            "builtin function {}.{} ({:?}) self as instance of {:?}",
+            self.module.map_or("<unknown>", |m| m.as_str()),
+            self.value.name,
+            self.value.flags,
+            self.zelf.as_ref().map(|z| z.class().name().to_owned())
+        )
     }
 }
 
-impl From<PyNativeFuncDef> for PyBuiltinFunction {
-    fn from(value: PyNativeFuncDef) -> Self {
-        Self {
-            value,
-            module: None,
-        }
-    }
-}
-
-impl PyBuiltinFunction {
-    pub fn with_module(mut self, module: PyObjectRef) -> Self {
+impl PyNativeFunction {
+    pub fn with_module(mut self, module: &'static PyStrInterned) -> Self {
         self.module = Some(module);
         self
     }
@@ -101,183 +49,202 @@ impl PyBuiltinFunction {
         )
     }
 
-    pub fn as_func(&self) -> &PyNativeFunc {
-        &self.value.func
+    pub fn as_func(&self) -> &'static PyNativeFn {
+        self.value.func
     }
 }
 
-impl Callable for PyBuiltinFunction {
+impl Callable for PyNativeFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if let Some(z) = &zelf.zelf {
+            args.prepend_arg(z.clone());
+        }
         (zelf.value.func)(vm, args)
     }
 }
 
 #[pyclass(with(Callable, Constructor), flags(HAS_DICT))]
-impl PyBuiltinFunction {
+impl PyNativeFunction {
     #[pygetset(magic)]
-    fn module(&self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.unwrap_or_none(self.module.clone())
+    fn module(zelf: NativeFunctionOrMethod) -> Option<&'static PyStrInterned> {
+        zelf.0.module
     }
     #[pygetset(magic)]
-    fn name(&self) -> PyStrRef {
-        self.value.name.to_owned()
+    fn name(zelf: NativeFunctionOrMethod) -> &'static str {
+        zelf.0.value.name
     }
     #[pygetset(magic)]
-    fn qualname(&self) -> PyStrRef {
-        self.name()
+    fn qualname(zelf: NativeFunctionOrMethod, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let zelf = zelf.0;
+        let flags = zelf.value.flags;
+        // if flags.contains(PyMethodFlags::CLASS) || flags.contains(PyMethodFlags::STATIC) {
+        let qualname = if let Some(bound) = &zelf.zelf {
+            let prefix = if flags.contains(PyMethodFlags::CLASS) {
+                bound
+                    .get_attr("__qualname__", vm)
+                    .unwrap()
+                    .str(vm)
+                    .unwrap()
+                    .to_string()
+            } else {
+                bound.class().name().to_string()
+            };
+            vm.ctx.new_str(format!("{}.{}", prefix, &zelf.value.name))
+        } else {
+            vm.ctx.intern_str(zelf.value.name).to_owned()
+        };
+        Ok(qualname)
     }
     #[pygetset(magic)]
-    fn doc(&self) -> Option<PyStrRef> {
-        self.value.doc.clone()
+    fn doc(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
+        zelf.0.value.doc
     }
     #[pygetset(name = "__self__")]
-    fn get_self(&self, vm: &VirtualMachine) -> PyObjectRef {
+    fn __self__(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
     }
     #[pymethod(magic)]
-    fn reduce(&self) -> PyStrRef {
+    fn reduce(&self) -> &'static str {
         // TODO: return (getattr, (self.object, self.name)) if this is a method
-        self.name()
+        self.value.name
     }
     #[pymethod(magic)]
-    fn reduce_ex(&self, _ver: PyObjectRef) -> PyStrRef {
-        self.name()
+    fn reduce_ex(zelf: PyObjectRef, _ver: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm.call_special_method(&zelf, identifier!(vm, __reduce__), ())
     }
     #[pygetset(magic)]
-    fn text_signature(&self) -> Option<String> {
-        let doc = self.value.doc.as_ref()?;
-        let signature =
-            type_::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())?;
-        Some(signature.to_owned())
+    fn text_signature(zelf: NativeFunctionOrMethod) -> Option<&'static str> {
+        let doc = zelf.0.value.doc?;
+        let signature = type_::get_text_signature_from_internal_doc(zelf.0.value.name, doc)?;
+        Some(signature)
     }
 }
 
-impl Representable for PyBuiltinFunction {
+impl Representable for PyNativeFunction {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!("<built-in function {}>", zelf.value.name))
     }
 }
 
-impl Unconstructible for PyBuiltinFunction {}
+impl Unconstructible for PyNativeFunction {}
 
-// `PyBuiltinMethod` is similar to both `PyMethodDescrObject` in
-// https://github.com/python/cpython/blob/main/Include/descrobject.h
-// https://github.com/python/cpython/blob/main/Objects/descrobject.c
-// and `PyCMethodObject` in
-// https://github.com/python/cpython/blob/main/Include/cpython/methodobject.h
-// https://github.com/python/cpython/blob/main/Objects/methodobject.c
-#[pyclass(module = false, name = "method_descriptor")]
-pub struct PyBuiltinMethod {
-    value: PyNativeFuncDef,
-    class: &'static Py<PyType>,
+// `PyCMethodObject` in CPython
+#[pyclass(name = "builtin_method", module = false, base = "PyNativeFunction")]
+pub struct PyNativeMethod {
+    pub(crate) func: PyNativeFunction,
+    pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self
 }
 
-impl PyPayload for PyBuiltinMethod {
+#[pyclass(with(Callable, Comparable, Representable), flags(HAS_DICT))]
+impl PyNativeMethod {
+    #[pygetset(magic)]
+    fn qualname(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let prefix = zelf.class.name().to_string();
+        Ok(vm
+            .ctx
+            .new_str(format!("{}.{}", prefix, &zelf.func.value.name)))
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, (PyObjectRef, &'static str))> {
+        // TODO: return (getattr, (self.object, self.name)) if this is a method
+        let getattr = vm.builtins.get_attr("getattr", vm)?;
+        let target = self
+            .func
+            .zelf
+            .clone()
+            .unwrap_or_else(|| self.class.to_owned().into());
+        let name = self.func.value.name;
+        Ok((getattr, (target, name)))
+    }
+
+    #[pygetset(name = "__self__")]
+    fn __self__(zelf: PyRef<Self>, _vm: &VirtualMachine) -> Option<PyObjectRef> {
+        zelf.func.zelf.clone()
+    }
+}
+
+impl PyPayload for PyNativeMethod {
     fn class(ctx: &Context) -> &'static Py<PyType> {
-        ctx.types.method_descriptor_type
+        ctx.types.builtin_method_type
     }
 }
 
-impl fmt::Debug for PyBuiltinMethod {
+impl fmt::Debug for PyNativeMethod {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "method descriptor for '{}'", self.value.name)
+        write!(
+            f,
+            "builtin method of {:?} with {:?}",
+            &*self.class.name(),
+            &self.func
+        )
     }
 }
 
-impl GetDescriptor for PyBuiltinMethod {
-    fn descr_get(
-        zelf: PyObjectRef,
-        obj: Option<PyObjectRef>,
-        cls: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        let (_zelf, obj) = match Self::_check(&zelf, obj, vm) {
-            Some(obj) => obj,
-            None => return Ok(zelf),
-        };
-        let r = if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
-            zelf
-        } else {
-            PyBoundMethod::new_ref(obj, zelf, &vm.ctx).into()
-        };
-        Ok(r)
-    }
-}
-
-impl Callable for PyBuiltinMethod {
-    type Args = FuncArgs;
-    #[inline]
-    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        (zelf.value.func)(vm, args)
-    }
-}
-
-impl PyBuiltinMethod {
-    pub fn new_ref<F, FKind>(
-        name: &'static PyStrInterned,
-        class: &'static Py<PyType>,
-        f: F,
-        ctx: &Context,
-    ) -> PyRef<Self>
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        ctx.make_func_def(name, f).build_method(ctx, class)
-    }
-}
-
-#[pyclass(
-    with(GetDescriptor, Callable, Constructor, Representable),
-    flags(METHOD_DESCR)
-)]
-impl PyBuiltinMethod {
-    #[pygetset(magic)]
-    fn name(&self) -> PyStrRef {
-        self.value.name.to_owned()
-    }
-    #[pygetset(magic)]
-    fn qualname(&self) -> String {
-        format!("{}.{}", self.class.name(), &self.value.name)
-    }
-    #[pygetset(magic)]
-    fn doc(&self) -> Option<PyStrRef> {
-        self.value.doc.clone()
-    }
-    #[pygetset(magic)]
-    fn text_signature(&self) -> Option<String> {
-        self.value.doc.as_ref().and_then(|doc| {
-            type_::get_text_signature_from_internal_doc(self.value.name.as_str(), doc.as_str())
-                .map(|signature| signature.to_string())
+impl Comparable for PyNativeMethod {
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        op.eq_only(|| {
+            if let Some(other) = other.payload::<Self>() {
+                let eq = match (zelf.func.zelf.as_ref(), other.func.zelf.as_ref()) {
+                    (Some(z), Some(o)) => z.is(o),
+                    (None, None) => true,
+                    _ => false,
+                };
+                let eq = eq && std::ptr::eq(zelf.func.value, other.func.value);
+                Ok(eq.into())
+            } else {
+                Ok(PyComparisonValue::NotImplemented)
+            }
         })
     }
-    #[pymethod(magic)]
-    fn reduce(
-        &self,
-        vm: &VirtualMachine,
-    ) -> (Option<PyObjectRef>, (Option<PyObjectRef>, PyStrRef)) {
-        let builtins_getattr = vm.builtins.get_attr("getattr", vm).ok();
-        let classname = vm.builtins.get_attr(&self.class.__name__(vm), vm).ok();
-        (builtins_getattr, (classname, self.value.name.to_owned()))
+}
+
+impl Callable for PyNativeMethod {
+    type Args = FuncArgs;
+    #[inline]
+    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if let Some(zelf) = &zelf.func.zelf {
+            args.prepend_arg(zelf.clone());
+        }
+        (zelf.func.value.func)(vm, args)
     }
 }
 
-impl Representable for PyBuiltinMethod {
+impl Representable for PyNativeMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
-            "<method '{}' of '{}' objects>",
-            &zelf.value.name,
+            "<built-in method {} of {} object at ...>",
+            &zelf.func.value.name,
             zelf.class.name()
         ))
     }
 }
 
-impl Unconstructible for PyBuiltinMethod {}
+impl Unconstructible for PyNativeMethod {}
 
 pub fn init(context: &Context) {
-    PyBuiltinFunction::extend_class(context, context.types.builtin_function_or_method_type);
-    PyBuiltinMethod::extend_class(context, context.types.method_descriptor_type);
+    PyNativeFunction::extend_class(context, context.types.builtin_function_or_method_type);
+    PyNativeMethod::extend_class(context, context.types.builtin_method_type);
+}
+
+struct NativeFunctionOrMethod(PyRef<PyNativeFunction>);
+
+impl TryFromObject for NativeFunctionOrMethod {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        let class = vm.ctx.types.builtin_function_or_method_type;
+        if obj.fast_isinstance(class) {
+            Ok(NativeFunctionOrMethod(unsafe { obj.downcast_unchecked() }))
+        } else {
+            Err(vm.new_downcast_type_error(class, &obj))
+        }
+    }
 }

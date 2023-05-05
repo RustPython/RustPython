@@ -3,7 +3,9 @@ use crate::{
     bytecode::ComparisonOperator,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
-    function::{Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+    function::{
+        Either, FromArgs, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PySetterValue,
+    },
     identifier,
     protocol::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyNumber, PyNumberMethods,
@@ -62,6 +64,8 @@ pub struct PyTypeSlots {
     pub iter: AtomicCell<Option<IterFunc>>,
     pub iternext: AtomicCell<Option<IterNextFunc>>,
 
+    pub methods: &'static [PyMethodDef],
+
     // Flags to define presence of optional/expanded features
     pub flags: PyTypeFlags,
 
@@ -119,7 +123,7 @@ bitflags! {
         const IMMUTABLETYPE = 1 << 8;
         const HEAPTYPE = 1 << 9;
         const BASETYPE = 1 << 10;
-        const METHOD_DESCR = 1 << 17;
+        const METHOD_DESCRIPTOR = 1 << 17;
         const HAS_DICT = 1 << 40;
 
         #[cfg(debug_assertions)]
@@ -305,6 +309,11 @@ fn iter_wrapper(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     vm.call_special_method(&zelf, identifier!(vm, __iter__), ())
 }
 
+// PyObject_SelfIter in CPython
+fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
+    Ok(zelf)
+}
+
 fn iternext_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
     PyIterReturn::from_pyresult(
         vm.call_special_method(zelf, identifier!(vm, __next__), ()),
@@ -344,7 +353,7 @@ fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResu
     Ok(())
 }
 
-fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+pub(crate) fn new_wrapper(cls: PyTypeRef, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
     let new = cls.get_attr(identifier!(vm, __new__)).unwrap();
     args.prepend_arg(cls.into());
     new.call(args, vm)
@@ -822,10 +831,15 @@ pub trait Callable: PyPayload {
     #[inline]
     #[pyslot]
     fn slot_call(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let Some(zelf) = zelf.downcast_ref() else {
-            let err = vm.new_downcast_type_error(Self::class(&vm.ctx), zelf);
-            return Err(err);
-        };
+        let zelf = zelf.downcast_ref().ok_or_else(|| {
+            let repr = zelf.repr(vm);
+            let help = if let Ok(repr) = repr.as_ref() {
+                repr.as_str().to_owned()
+            } else {
+                zelf.class().name().to_owned()
+            };
+            vm.new_type_error(format!("unexpected payload for __call__ of {help}"))
+        })?;
         let args = args.bind(vm)?;
         Self::call(zelf, args, vm)
     }
@@ -1229,7 +1243,6 @@ pub trait AsNumber: PyPayload {
 #[pyclass]
 pub trait Iterable: PyPayload {
     #[pyslot]
-    #[pymethod(name = "__iter__")]
     fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let zelf = zelf
             .downcast()
@@ -1237,7 +1250,14 @@ pub trait Iterable: PyPayload {
         Self::iter(zelf, vm)
     }
 
+    #[pymethod]
+    fn __iter__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        Self::slot_iter(zelf, vm)
+    }
+
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
+
+    fn extend_slots(_slots: &mut PyTypeSlots) {}
 }
 
 // `Iterator` fits better, but to avoid confusion with rust std::iter::Iterator
@@ -1260,19 +1280,29 @@ pub trait IterNext: PyPayload + Iterable {
     }
 }
 
-pub trait IterNextIterable: PyPayload {}
+pub trait SelfIter: PyPayload {}
 
 impl<T> Iterable for T
 where
-    T: IterNextIterable,
+    T: SelfIter,
 {
-    #[inline]
-    fn slot_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
-        Ok(zelf)
+    #[cold]
+    fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let repr = zelf.repr(vm)?;
+        unreachable!("slot must be overriden for {}", repr.as_str());
+    }
+
+    fn __iter__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        self_iter(zelf, vm)
     }
 
     #[cold]
     fn iter(_zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult {
         unreachable!("slot_iter is implemented");
+    }
+
+    fn extend_slots(slots: &mut PyTypeSlots) {
+        let prev = slots.iter.swap(Some(self_iter));
+        debug_assert!(prev.is_some()); // slot_iter would be set
     }
 }

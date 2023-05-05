@@ -316,7 +316,7 @@ pub(super) mod _os {
         function::{ArgBytesLike, Either, FsPath, FuncArgs, OptionalArg},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{IterNext, IterNextIterable, PyStructSequence, Representable},
+        types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
         vm::VirtualMachine,
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     };
@@ -791,7 +791,7 @@ pub(super) mod _os {
         mode: OutputMode,
     }
 
-    #[pyclass(with(IterNext))]
+    #[pyclass(with(IterNext, Iterable))]
     impl ScandirIterator {
         #[pymethod]
         fn close(&self) {
@@ -809,7 +809,7 @@ pub(super) mod _os {
             zelf.close()
         }
     }
-    impl IterNextIterable for ScandirIterator {}
+    impl SelfIter for ScandirIterator {}
     impl IterNext for ScandirIterator {
         fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let entryref: &mut Option<fs::ReadDir> = &mut zelf.entries.write();

@@ -2,7 +2,7 @@
 macro_rules! extend_module {
     ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
         $(
-            $vm.__module_set_attr($module, $name, $value).unwrap();
+            $vm.__module_set_attr($module, $vm.ctx.intern_str($name), $value).unwrap();
         )*
     }};
 }
@@ -218,12 +218,13 @@ macro_rules! named_function {
         #[allow(unused_variables)] // weird lint, something to do with paste probably
         let ctx: &$crate::Context = &$ctx;
         $crate::__exports::paste::expr! {
-            ctx.make_func_def(
-                ctx.intern_str(stringify!($func)),
+            ctx.new_method_def(
+                stringify!($func),
                 [<$module _ $func>],
+                ::rustpython_vm::function::PyMethodFlags::empty(),
             )
-            .into_function()
-            .with_module(ctx.new_str(stringify!($module).to_owned()).into())
+            .to_function()
+            .with_module(ctx.intern_str(stringify!($module)).into())
             .into_ref(ctx)
         }
     }};

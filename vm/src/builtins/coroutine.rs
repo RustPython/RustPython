@@ -5,7 +5,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{Constructor, IterNext, IterNextIterable, Representable, Unconstructible},
+    types::{Constructor, IterNext, Iterable, Representable, SelfIter, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -108,7 +108,7 @@ impl Representable for PyCoroutine {
     }
 }
 
-impl IterNextIterable for PyCoroutine {}
+impl SelfIter for PyCoroutine {}
 impl IterNext for PyCoroutine {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         Self::send(zelf, vm.ctx.none(), vm)
@@ -128,7 +128,7 @@ impl PyPayload for PyCoroutineWrapper {
     }
 }
 
-#[pyclass(with(IterNext))]
+#[pyclass(with(IterNext, Iterable))]
 impl PyCoroutineWrapper {
     #[pymethod]
     fn send(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
@@ -147,7 +147,7 @@ impl PyCoroutineWrapper {
     }
 }
 
-impl IterNextIterable for PyCoroutineWrapper {}
+impl SelfIter for PyCoroutineWrapper {}
 impl IterNext for PyCoroutineWrapper {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         Self::send(zelf, vm.ctx.none(), vm)

@@ -14,7 +14,7 @@ mod _js {
         convert::{IntoObject, ToPyObject},
         function::{ArgCallable, OptionalArg, OptionalOption, PosArgs},
         protocol::PyIterReturn,
-        types::{IterNext, IterNextIterable, Representable},
+        types::{IterNext, Representable, SelfIter},
         Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::{cell, fmt, future};
@@ -423,8 +423,8 @@ mod _js {
                     };
                     let _ = then.call(
                         (
-                            vm.ctx.new_function("resolve", resolve),
-                            vm.ctx.new_function("reject", reject),
+                            vm.new_function("resolve", resolve),
+                            vm.new_function("reject", reject),
                         ),
                         vm,
                     );
@@ -602,7 +602,7 @@ mod _js {
         }
     }
 
-    impl IterNextIterable for AwaitPromise {}
+    impl SelfIter for AwaitPromise {}
     impl IterNext for AwaitPromise {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.send(None, vm)

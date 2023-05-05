@@ -16,6 +16,7 @@ impl PyObject {
     }
 
     /// PyObject_Call*Arg* series
+    #[inline]
     pub fn call(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
         let args = args.into_args(vm);
         self.call_with_args(args, vm)

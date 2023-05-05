@@ -350,7 +350,7 @@ impl PyPayload for PyFunction {
 
 #[pyclass(
     with(GetDescriptor, Callable, Representable),
-    flags(HAS_DICT, METHOD_DESCR)
+    flags(HAS_DICT, METHOD_DESCRIPTOR)
 )]
 impl PyFunction {
     #[pygetset(magic)]

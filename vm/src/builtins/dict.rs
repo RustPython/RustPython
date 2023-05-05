@@ -20,7 +20,7 @@ use crate::{
     recursion::ReprGuard,
     types::{
         AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer, IterNext,
-        IterNextIterable, Iterable, PyComparisonOp, Representable, Unconstructible,
+        Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -839,7 +839,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(with(Constructor, IterNext))]
+        #[pyclass(with(Constructor, IterNext, Iterable))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -870,7 +870,7 @@ macro_rules! dict_view {
         }
         impl Unconstructible for $iter_name {}
 
-        impl IterNextIterable for $iter_name {}
+        impl SelfIter for $iter_name {}
         impl IterNext for $iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
@@ -912,7 +912,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(with(Constructor, IterNext))]
+        #[pyclass(with(Constructor, IterNext, Iterable))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();
@@ -948,7 +948,7 @@ macro_rules! dict_view {
         }
         impl Unconstructible for $reverse_iter_name {}
 
-        impl IterNextIterable for $reverse_iter_name {}
+        impl SelfIter for $reverse_iter_name {}
         impl IterNext for $reverse_iter_name {
             #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {

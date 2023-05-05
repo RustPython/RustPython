@@ -320,6 +320,7 @@ impl ItemMeta for ClassItemMeta {
         "base",
         "metaclass",
         "unhashable",
+        "ctx",
         "impl",
         "traverse",
     ];

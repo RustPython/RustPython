@@ -1390,13 +1390,20 @@ impl ExecutingFrame<'_> {
         let func = self.pop_value();
         let is_method = self.pop_value().is(&vm.ctx.true_value);
         let target = self.pop_value();
-        let method = if is_method {
-            PyMethod::Function { target, func }
+
+        // TODO: It was PyMethod before #4873. Check if it's correct.
+        let func = if is_method {
+            if let Some(descr_get) = func.class().mro_find_map(|cls| cls.slots.descr_get.load()) {
+                let cls = target.class().to_owned().into();
+                descr_get(func, Some(target), Some(cls), vm)?
+            } else {
+                func
+            }
         } else {
             drop(target); // should be None
-            PyMethod::Attribute(func)
+            func
         };
-        let value = method.invoke(args, vm)?;
+        let value = func.call(args, vm)?;
         self.push_value(value);
         Ok(None)
     }

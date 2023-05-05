@@ -33,7 +33,11 @@ impl PyMethod {
         let cls_attr = match interned_name.and_then(|name| cls.get_attr(name)) {
             Some(descr) => {
                 let descr_cls = descr.class();
-                let descr_get = if descr_cls.slots.flags.has_feature(PyTypeFlags::METHOD_DESCR) {
+                let descr_get = if descr_cls
+                    .slots
+                    .flags
+                    .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
+                {
                     is_method = true;
                     None
                 } else {
@@ -106,7 +110,7 @@ impl PyMethod {
             .class()
             .slots
             .flags
-            .has_feature(PyTypeFlags::METHOD_DESCR)
+            .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
         {
             Self::Function {
                 target: obj.to_owned(),

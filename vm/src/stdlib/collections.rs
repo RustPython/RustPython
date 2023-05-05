@@ -16,8 +16,8 @@ mod _collections {
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
         types::{
-            AsSequence, Comparable, Constructor, Initializer, IterNext, IterNextIterable, Iterable,
-            PyComparisonOp, Representable,
+            AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable, PyComparisonOp,
+            Representable, SelfIter,
         },
         utils::collection_repr,
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -623,7 +623,7 @@ mod _collections {
         }
     }
 
-    #[pyclass(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyDequeIterator {
         pub(crate) fn new(deque: PyDequeRef) -> Self {
             PyDequeIterator {
@@ -654,7 +654,7 @@ mod _collections {
         }
     }
 
-    impl IterNextIterable for PyDequeIterator {}
+    impl SelfIter for PyDequeIterator {}
     impl IterNext for PyDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
@@ -696,7 +696,7 @@ mod _collections {
         }
     }
 
-    #[pyclass(with(IterNext, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyReverseDequeIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
@@ -720,7 +720,7 @@ mod _collections {
         }
     }
 
-    impl IterNextIterable for PyReverseDequeIterator {}
+    impl SelfIter for PyReverseDequeIterator {}
     impl IterNext for PyReverseDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {
