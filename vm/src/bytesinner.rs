@@ -1,11 +1,12 @@
 use crate::{
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
-        pystr, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef,
+        pystr, PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr,
+        PyStrRef, PyTypeRef,
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
-    convert::ToPyException,
+    common::{escape::Escape, hash},
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     identifier,
     protocol::PyBuffer,
@@ -17,7 +18,6 @@ use bstr::ByteSlice;
 use itertools::Itertools;
 use num_bigint::BigInt;
 use num_traits::ToPrimitive;
-use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyBytesInner {
@@ -247,13 +247,36 @@ impl PyBytesInner {
         &self.elements
     }
 
-    pub fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<String> {
-        let repr = if let Some(class_name) = class_name {
-            rustpython_common::bytes::repr_with(&self.elements, &[class_name, "("], ")")
-        } else {
-            rustpython_common::bytes::repr(&self.elements)
-        };
-        repr.map_err(|err| err.to_pyexception(vm))
+    fn new_repr_overflow_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_overflow_error("bytes object is too large to make repr".to_owned())
+    }
+
+    pub fn repr_with_name(&self, class_name: &str, vm: &VirtualMachine) -> PyResult<String> {
+        let escape = rustpython_common::escape::AsciiEscape::new_repr(&self.elements);
+        let len = escape
+            .layout()
+            .len
+            .and_then(|len| (len as isize).checked_add(2 + class_name.len() as isize))
+            .ok_or_else(|| Self::new_repr_overflow_error(vm))? as usize;
+        let mut buf = String::with_capacity(len);
+        buf.push_str(class_name);
+        buf.push('(');
+        escape.bytes_repr().write(&mut buf).unwrap();
+        buf.push(')');
+        debug_assert_eq!(buf.len(), len);
+        Ok(buf)
+    }
+
+    pub fn repr_bytes(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let escape = rustpython_common::escape::AsciiEscape::new_repr(&self.elements);
+        let len = escape
+            .layout()
+            .len
+            .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
+        let mut buf = String::with_capacity(len);
+        escape.bytes_repr().write(&mut buf).unwrap();
+        debug_assert_eq!(buf.len(), len);
+        Ok(buf)
     }
 
     #[inline]

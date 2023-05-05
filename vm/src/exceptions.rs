@@ -1,5 +1,5 @@
 use self::types::{PyBaseException, PyBaseExceptionRef};
-use crate::common::{lock::PyRwLock, str::ReprOverflowError};
+use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     builtins::{
@@ -1534,10 +1534,4 @@ pub(super) mod types {
     #[pyexception(name, base = "PyWarning", ctx = "encoding_warning", impl)]
     #[derive(Debug)]
     pub struct PyEncodingWarning {}
-}
-
-impl ToPyException for ReprOverflowError {
-    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_overflow_error(self.to_string())
-    }
 }

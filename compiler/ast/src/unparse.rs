@@ -511,7 +511,9 @@ impl<'a> Unparser<'a> {
         } else {
             self.p("f")?;
             let body = to_string_fmt(|f| Unparser::new(f).unparse_fstring_body(values, is_spec));
-            fmt::Display::fmt(&rustpython_common::str::repr(&body), &mut self.f)
+            rustpython_common::escape::UnicodeEscape::new_repr(&body)
+                .str_repr()
+                .write(&mut self.f)
         }
     }
 }

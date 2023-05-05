@@ -871,7 +871,7 @@ impl Representable for PyByteArray {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
         let class = zelf.class();
         let class_name = class.name();
-        zelf.inner().repr(Some(&class_name), vm)
+        zelf.inner().repr_with_name(&class_name, vm)
     }
 }
 
