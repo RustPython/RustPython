@@ -3,7 +3,7 @@ mod helper;
 use rustpython_parser::{lexer::LexicalErrorType, ParseErrorType, Tok};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
-    compiler::{self, CompileError, CompileErrorBody, CompileErrorType},
+    compiler::{self, CompileError, CompileErrorType},
     readline::{Readline, ReadlineResult},
     scope::Scope,
     AsObject, PyResult, VirtualMachine,
@@ -36,19 +36,11 @@ fn shell_exec(
             }
         }
         Err(CompileError {
-            body:
-                CompileErrorBody {
-                    error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::Eof)),
-                    ..
-                },
+            error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::Eof)),
             ..
         })
         | Err(CompileError {
-            body:
-                CompileErrorBody {
-                    error: CompileErrorType::Parse(ParseErrorType::Eof),
-                    ..
-                },
+            error: CompileErrorType::Parse(ParseErrorType::Eof),
             ..
         }) => ShellExecResult::Continue,
         Err(err) => {
@@ -57,13 +49,13 @@ fn shell_exec(
             // since indentations errors on columns other than 0 should be ignored.
             // if its an unrecognized token for dedent, set to false
 
-            let bad_error = match err.body.error {
+            let bad_error = match err.error {
                 CompileErrorType::Parse(ref p) => {
                     if matches!(
                         p,
                         ParseErrorType::Lexical(LexicalErrorType::IndentationError)
                     ) {
-                        continuing && err.body.location.column() != 0
+                        continuing && err.location.column() != 0
                     } else {
                         !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
                     }
@@ -73,7 +65,7 @@ fn shell_exec(
 
             // If we are handling an error on an empty line or an error worthy of throwing
             if empty_line_given || bad_error {
-                ShellExecResult::PyErr(vm.new_syntax_error(&err))
+                ShellExecResult::PyErr(vm.new_syntax_error(&err, Some(source)))
             } else {
                 ShellExecResult::Continue
             }

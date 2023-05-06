@@ -248,7 +248,11 @@ impl VirtualMachine {
     }
 
     #[cfg(any(feature = "rustpython-parser", feature = "rustpython-codegen"))]
-    pub fn new_syntax_error(&self, error: &crate::compiler::CompileError) -> PyBaseExceptionRef {
+    pub fn new_syntax_error(
+        &self,
+        error: &crate::compiler::CompileError,
+        source: Option<&str>,
+    ) -> PyBaseExceptionRef {
         let syntax_error_type = match &error.error {
             #[cfg(feature = "rustpython-parser")]
             crate::compiler::CompileErrorType::Parse(p) if p.is_indentation_error() => {
@@ -261,7 +265,40 @@ impl VirtualMachine {
             _ => self.ctx.exceptions.syntax_error,
         }
         .to_owned();
-        let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
+
+        fn get_statement(source: &str, loc: rustpython_compiler_core::Location) -> Option<String> {
+            if loc.column() == 0 || loc.row() == 0 {
+                return None;
+            }
+            let line = source.split('\n').nth(loc.row() - 1)?.to_owned();
+            Some(line + "\n")
+        }
+
+        let statement = if let Some(source) = source {
+            get_statement(source, error.location)
+        } else {
+            None
+        };
+
+        fn fmt(
+            error: &crate::compiler::CompileError,
+            statement: Option<&str>,
+            f: &mut impl std::fmt::Write,
+        ) -> std::fmt::Result {
+            let loc = error.location;
+            if let Some(ref stmt) = statement {
+                // visualize the error when location and statement are provided
+                loc.fmt_with(f, &error.error)?;
+                write!(f, "\n{stmt}{arrow:>pad$}", pad = loc.column(), arrow = "^")
+            } else {
+                loc.fmt_with(f, &error.error)
+            }
+        }
+
+        let mut msg = String::new();
+        fmt(error, statement.as_deref(), &mut msg).unwrap();
+
+        let syntax_error = self.new_exception_msg(syntax_error_type, msg);
         let lineno = self.ctx.new_int(error.location.row());
         let offset = self.ctx.new_int(error.location.column());
         syntax_error
@@ -272,9 +309,10 @@ impl VirtualMachine {
             .as_object()
             .set_attr("offset", offset, self)
             .unwrap();
+
         syntax_error
             .as_object()
-            .set_attr("text", error.statement.clone().to_pyobject(self), self)
+            .set_attr("text", statement.to_pyobject(self), self)
             .unwrap();
         syntax_error
             .as_object()

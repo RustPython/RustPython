@@ -17,10 +17,10 @@ members = [
 ]
 
 [workspace.dependencies]
-rustpython-literal = { git = "https://github.com/RustPython/Parser.git", rev = "6b60f85cc4ca248af9b787697c41be2adb7a3ec8" }
-rustpython-compiler-core = { git = "https://github.com/RustPython/Parser.git", rev = "6b60f85cc4ca248af9b787697c41be2adb7a3ec8" }
-rustpython-parser = { git = "https://github.com/RustPython/Parser.git", rev = "6b60f85cc4ca248af9b787697c41be2adb7a3ec8" }
-rustpython-ast = { git = "https://github.com/RustPython/Parser.git", rev = "6b60f85cc4ca248af9b787697c41be2adb7a3ec8" }
+rustpython-literal = { git = "https://github.com/RustPython/Parser.git", rev = "48920a034e93ae7c737129ea427c068dc30e2da5" }
+rustpython-compiler-core = { git = "https://github.com/RustPython/Parser.git", rev = "48920a034e93ae7c737129ea427c068dc30e2da5" }
+rustpython-parser = { git = "https://github.com/RustPython/Parser.git", rev = "48920a034e93ae7c737129ea427c068dc30e2da5" }
+rustpython-ast = { git = "https://github.com/RustPython/Parser.git", rev = "48920a034e93ae7c737129ea427c068dc30e2da5" }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-compiler-core = { path = "../RustPython-parser/core" }
 # rustpython-parser = { path = "../RustPython-parser/parser" }

@@ -118,7 +118,7 @@ pub fn import_file(
             file_path,
             vm.compile_opts(),
         )
-        .map_err(|err| vm.new_syntax_error(&err))?;
+        .map_err(|err| vm.new_syntax_error(&err, Some(&content)))?;
     import_codeobj(vm, module_name, code, true)
 }
 
