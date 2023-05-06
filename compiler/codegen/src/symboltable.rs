@@ -127,7 +127,6 @@ bitflags! {
 #[derive(Debug, Clone)]
 pub struct Symbol {
     pub name: String,
-    // pub table: SymbolTableRef,
     pub scope: SymbolScope,
     pub flags: SymbolFlags,
 }

@@ -16,7 +16,7 @@ mod symtable {
         filename: PyStrRef,
         mode: PyStrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PySymbolTableRef> {
+    ) -> PyResult<PyRef<PySymbolTable>> {
         let mode = mode
             .as_str()
             .parse::<compiler::Mode>()
@@ -32,9 +32,6 @@ mod symtable {
     fn to_py_symbol_table(symtable: SymbolTable) -> PySymbolTable {
         PySymbolTable { symtable }
     }
-
-    type PySymbolTableRef = PyRef<PySymbolTable>;
-    type PySymbolRef = PyRef<PySymbol>;
 
     #[pyattr]
     #[pyclass(name = "SymbolTable")]
@@ -77,7 +74,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
+        fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PySymbol>> {
             let name = name.as_str();
             if let Some(symbol) = self.symtable.symbols.get(name) {
                 Ok(PySymbol {
