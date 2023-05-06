@@ -23,7 +23,7 @@ mod symtable {
             .map_err(|err| vm.new_value_error(err.to_string()))?;
 
         let symtable = compiler::compile_symtable(source.as_str(), mode, filename.as_str())
-            .map_err(|err| vm.new_syntax_error(&err))?;
+            .map_err(|err| vm.new_syntax_error(&err, Some(source.as_str())))?;
 
         let py_symbol_table = to_py_symbol_table(symtable);
         Ok(py_symbol_table.into_ref(&vm.ctx))

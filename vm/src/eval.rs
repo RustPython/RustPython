@@ -6,7 +6,7 @@ pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) 
             debug!("Code object: {:?}", bytecode);
             vm.run_code_obj(bytecode, scope)
         }
-        Err(err) => Err(vm.new_syntax_error(&err)),
+        Err(err) => Err(vm.new_syntax_error(&err, Some(source))),
     }
 }
 

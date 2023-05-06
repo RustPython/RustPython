@@ -173,14 +173,14 @@ mod builtins {
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
                         let code = vm
                             .compile(source, mode, args.filename.as_str().to_owned())
-                            .map_err(|err| err.to_pyexception(vm))?;
+                            .map_err(|err| (err, Some(source)).to_pyexception(vm))?;
                         Ok(code.into())
                     }
                 } else {
                     let mode = mode_str
                         .parse::<parser::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    ast::parse(vm, source, mode).map_err(|e| e.to_pyexception(vm))
+                    ast::parse(vm, source, mode).map_err(|e| (e, Some(source)).to_pyexception(vm))
                 }
             }
         }
@@ -300,7 +300,7 @@ mod builtins {
             #[cfg(feature = "rustpython-compiler")]
             Either::A(string) => vm
                 .compile(string.as_str(), mode, "<string>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err))?,
+                .map_err(|err| vm.new_syntax_error(&err, Some(string.as_str())))?,
             #[cfg(not(feature = "rustpython-compiler"))]
             Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned())),
             Either::B(code_obj) => code_obj,

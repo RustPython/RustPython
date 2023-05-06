@@ -26,8 +26,8 @@ mod error {
 #[cfg(not(feature = "rustpython-compiler"))]
 pub use error::{CompileError, CompileErrorType};
 
-impl ToPyException for CompileError {
+impl ToPyException for (CompileError, Option<&str>) {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_syntax_error(self)
+        vm.new_syntax_error(&self.0, self.1)
     }
 }

@@ -848,13 +848,10 @@ fn test_nested_frozen() {
     .enter(|vm| {
         let scope = vm.new_scope_with_builtins();
 
+        let source = "from dir_module.dir_module_inner import value2";
         let code_obj = vm
-            .compile(
-                "from dir_module.dir_module_inner import value2",
-                vm::compiler::Mode::Exec,
-                "<embedded>".to_owned(),
-            )
-            .map_err(|err| vm.new_syntax_error(&err))
+            .compile(source, vm::compiler::Mode::Exec, "<embedded>".to_owned())
+            .map_err(|err| vm.new_syntax_error(&err, Some(source)))
             .unwrap();
 
         if let Err(e) = vm.run_code_obj(code_obj, scope) {

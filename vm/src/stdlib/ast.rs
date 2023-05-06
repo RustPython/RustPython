@@ -307,8 +307,7 @@ pub(crate) fn parse(
     source: &str,
     mode: parser::Mode,
 ) -> Result<PyObjectRef, CompileError> {
-    let top =
-        parser::parse(source, mode, "<unknown>").map_err(|err| CompileError::from(err, source))?;
+    let top = parser::parse(source, mode, "<unknown>").map_err(CompileError::from)?;
     Ok(top.ast_to_object(vm))
 }
 
@@ -322,7 +321,7 @@ pub(crate) fn compile(
     let opts = vm.compile_opts();
     let ast = Node::ast_from_object(vm, object)?;
     let code = codegen::compile::compile_top(&ast, filename.to_owned(), mode, opts)
-        .map_err(|err| CompileError::from(err, "<unknown>").to_pyexception(vm))?; // FIXME source
+        .map_err(|err| (CompileError::from(err), None).to_pyexception(vm))?; // FIXME source
     Ok(vm.ctx.new_code(code).into())
 }
 
