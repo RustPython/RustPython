@@ -25,14 +25,15 @@ serde = ["dep:serde"]
 
 [dependencies]
 rustpython-compiler = { path = "../compiler", optional = true, version = "0.2.0" }
-rustpython-ast = { path = "../compiler/ast", optional = true, version = "0.2.0" }
-rustpython-parser = { path = "../compiler/parser", optional = true, version = "0.2.0" }
 rustpython-codegen = { path = "../compiler/codegen", optional = true, version = "0.2.0" }
-rustpython-compiler-core = { path = "../compiler/core", version = "0.2.0" }
 rustpython-common = { path = "../common" }
-rustpython-literal = { path = "../compiler/literal" }
 rustpython-derive = { path = "../derive", version = "0.2.0" }
 rustpython-jit = { path = "../jit", optional = true, version = "0.2.0" }
+
+rustpython-ast = { workspace = true, optional = true }
+rustpython-parser = { workspace = true, optional = true }
+rustpython-compiler-core = { workspace = true }
+rustpython-literal = { workspace = true }
 
 ascii = { workspace = true }
 ahash = { workspace = true }

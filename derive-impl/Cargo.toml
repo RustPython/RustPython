@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-rustpython-compiler-core = { path = "../compiler/core", version = "0.2.0" }
+rustpython-compiler-core = { workspace = true }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main" }
 
 indexmap = { workspace = true }

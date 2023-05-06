@@ -6,6 +6,6 @@ authors = ["RustPython Team"]
 edition = "2021"
 
 [dependencies]
-rustpython-compiler-core = { path = "core" }
 rustpython-codegen = { path = "codegen" }
-rustpython-parser = { path = "parser" }
+rustpython-compiler-core = { workspace = true }
+rustpython-parser = { workspace = true }

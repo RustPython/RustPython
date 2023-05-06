@@ -1077,9 +1077,9 @@ dependencies = [
 
 [[package]]
 name = "lalrpop"
-version = "0.19.9"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f34313ec00c2eb5c3c87ca6732ea02dcf3af99c3ff7a8fb622ffb99c9d860a87"
+checksum = "da4081d44f4611b66c6dd725e6de3169f9f63905421e8626fcb86b6a898998b8"
 dependencies = [
  "ascii-canvas",
  "bit-set",
@@ -1089,9 +1089,8 @@ dependencies = [
  "itertools",
  "lalrpop-util",
  "petgraph",
- "pico-args",
  "regex",
- "regex-syntax",
+ "regex-syntax 0.7.1",
  "string_cache",
  "term",
  "tiny-keccak",
@@ -1100,12 +1099,9 @@ dependencies = [
 
 [[package]]
 name = "lalrpop-util"
-version = "0.19.9"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5c1f7869c94d214466c5fd432dfed12c379fd87786768d36455892d46b18edd"
-dependencies = [
- "regex",
-]
+checksum = "3f35c735096c0293d313e8f2a641627472b83d01b937177fe76e5e2708d31e0d"
 
 [[package]]
 name = "lazy_static"
@@ -1640,12 +1636,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pico-args"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db8bcd96cb740d03149cbad5518db9fd87126a10ab519c011893b1754134c468"
-
-[[package]]
 name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1866,7 +1856,7 @@ checksum = "48aaa5748ba571fb95cd2c85c09f629215d3a6ece942baa100950af03a34f733"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-syntax",
+ "regex-syntax 0.6.28",
 ]
 
 [[package]]
@@ -1880,6 +1870,12 @@ name = "regex-syntax"
 version = "0.6.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "456c603be3e8d448b072f410900c09faf164fbce2d480456f50eea6e25f9c848"
+
+[[package]]
+name = "regex-syntax"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5996294f19bd3aae0453a862ad728f60e6600695733dd5df01da90c54363a3c"
 
 [[package]]
 name = "region"
@@ -1971,6 +1967,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
+source = "git+https://github.com/RustPython/Parser.git?rev=6b60f85cc4ca248af9b787697c41be2adb7a3ec8#6b60f85cc4ca248af9b787697c41be2adb7a3ec8"
 dependencies = [
  "num-bigint",
  "rustpython-compiler-core",
@@ -2030,6 +2027,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
+source = "git+https://github.com/RustPython/Parser.git?rev=6b60f85cc4ca248af9b787697c41be2adb7a3ec8#6b60f85cc4ca248af9b787697c41be2adb7a3ec8"
 dependencies = [
  "bitflags",
  "bstr",
@@ -2037,7 +2035,6 @@ dependencies = [
  "lz4_flex",
  "num-bigint",
  "num-complex",
- "serde",
 ]
 
 [[package]]
@@ -2092,21 +2089,21 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.2.0"
+source = "git+https://github.com/RustPython/Parser.git?rev=6b60f85cc4ca248af9b787697c41be2adb7a3ec8#6b60f85cc4ca248af9b787697c41be2adb7a3ec8"
 dependencies = [
  "hexf-parse",
  "lexical-parse-float",
  "num-traits",
- "rand",
  "unic-ucd-category",
 ]
 
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
+source = "git+https://github.com/RustPython/Parser.git?rev=6b60f85cc4ca248af9b787697c41be2adb7a3ec8#6b60f85cc4ca248af9b787697c41be2adb7a3ec8"
 dependencies = [
  "ahash",
  "anyhow",
- "insta",
  "itertools",
  "lalrpop",
  "lalrpop-util",
@@ -2118,7 +2115,6 @@ dependencies = [
  "rustc-hash",
  "rustpython-ast",
  "rustpython-compiler-core",
- "serde",
  "tiny-keccak",
  "unic-emoji-char",
  "unic-ucd-ident",
