@@ -350,7 +350,7 @@ mod time {
         }
 
         fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
-            let invalid = || vm.new_value_error("invalid struct_time parameter".to_owned());
+            let invalid = || vm.new_overflow_error("invalid struct_time parameter".to_owned());
             macro_rules! field {
                 ($field:ident) => {
                     self.$field.clone().try_into_value(vm)?
