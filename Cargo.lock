@@ -148,6 +148,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
+name = "bitflags"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24a6904aef64d73cf10ab17ebace7befb918b82164785cb89907993be7f83813"
+
+[[package]]
 name = "blake2"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -260,7 +266,7 @@ checksum = "a0610544180c38b88101fecf2dd634b174a62eef6946f84dfc6a7127512b381c"
 dependencies = [
  "ansi_term",
  "atty",
- "bitflags",
+ "bitflags 1.3.2",
  "strsim",
  "textwrap 0.11.0",
  "unicode-width",
@@ -879,9 +885,9 @@ dependencies = [
 
 [[package]]
 name = "getrandom"
-version = "0.2.8"
+version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c05aeb6a22b8f62540c194aac980f2115af067bfe15a0734d7277a768d396b31"
+checksum = "c85e1d9ab2eadba7e5040d4e09cbd6d072b76a557ad64e797c2cb9d4da21d7e4"
 dependencies = [
  "cfg-if",
  "js-sys",
@@ -1019,9 +1025,9 @@ dependencies = [
 
 [[package]]
 name = "is-macro"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c068d4c6b922cd6284c609cfa6dec0e41615c9c5a1a4ba729a970d8daba05fb"
+checksum = "8a7d079e129b77477a49c5c4f1cfe9ce6c2c909ef52520693e8e811a714c7b20"
 dependencies = [
  "Inflector",
  "pmutil",
@@ -1077,6 +1083,28 @@ dependencies = [
 
 [[package]]
 name = "lalrpop"
+version = "0.19.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a1cbf952127589f2851ab2046af368fd20645491bb4b376f04b7f94d7a9837b"
+dependencies = [
+ "ascii-canvas",
+ "bit-set",
+ "diff",
+ "ena",
+ "is-terminal",
+ "itertools",
+ "lalrpop-util 0.19.12",
+ "petgraph",
+ "regex",
+ "regex-syntax 0.6.28",
+ "string_cache",
+ "term",
+ "tiny-keccak",
+ "unicode-xid",
+]
+
+[[package]]
+name = "lalrpop"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da4081d44f4611b66c6dd725e6de3169f9f63905421e8626fcb86b6a898998b8"
@@ -1087,7 +1115,7 @@ dependencies = [
  "ena",
  "is-terminal",
  "itertools",
- "lalrpop-util",
+ "lalrpop-util 0.20.0",
  "petgraph",
  "regex",
  "regex-syntax 0.7.1",
@@ -1095,6 +1123,15 @@ dependencies = [
  "term",
  "tiny-keccak",
  "unicode-xid",
+]
+
+[[package]]
+name = "lalrpop-util"
+version = "0.19.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3c48237b9604c5a4702de6b824e02006c3214327564636aef27c1028a8fa0ed"
+dependencies = [
+ "regex",
 ]
 
 [[package]]
@@ -1354,7 +1391,7 @@ version = "0.23.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f3790c00a0150112de0f4cd161e3d7fc4b2d8a5542ffc35f099a2562aecb35c"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
  "cc",
  "cfg-if",
  "libc",
@@ -1367,7 +1404,7 @@ version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bfdda3d196821d6af13126e40375cdf7da646a96114af134d5f417a9a1dc8e1a"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
  "cfg-if",
  "libc",
  "memoffset 0.7.1",
@@ -1484,7 +1521,7 @@ version = "0.10.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "518915b97df115dd36109bfa429a48b8f737bd05508cf9588977b599648926d2"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
  "cfg-if",
  "foreign-types",
  "libc",
@@ -1822,7 +1859,7 @@ version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
 ]
 
 [[package]]
@@ -1883,7 +1920,7 @@ version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877e54ea2adcd70d80e9179344c97f93ef0dffd6b03e1f4529e6e83ab2fa9ae0"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
  "libc",
  "mach",
  "winapi",
@@ -1912,6 +1949,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruff_python_ast"
+version = "0.0.0"
+source = "git+https://github.com/youknowone/ruff.git?rev=583df5c1fa43b2732896219f8ab425116c140c80#583df5c1fa43b2732896219f8ab425116c140c80"
+dependencies = [
+ "anyhow",
+ "bitflags 2.2.1",
+ "is-macro",
+ "itertools",
+ "log",
+ "memchr",
+ "num-bigint",
+ "num-traits",
+ "once_cell",
+ "regex",
+ "ruff_rustpython",
+ "ruff_text_size 0.0.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
+ "rustc-hash",
+ "rustpython-common 0.2.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
+ "rustpython-parser 0.2.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
+ "smallvec",
+]
+
+[[package]]
+name = "ruff_rustpython"
+version = "0.0.0"
+source = "git+https://github.com/youknowone/ruff.git?rev=583df5c1fa43b2732896219f8ab425116c140c80#583df5c1fa43b2732896219f8ab425116c140c80"
+dependencies = [
+ "anyhow",
+ "once_cell",
+ "rustpython-common 0.2.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
+ "rustpython-parser 0.2.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
+]
+
+[[package]]
+name = "ruff_text_size"
+version = "0.0.0"
+source = "git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d#09a6afdd04587ccc8841a88e34890c9409d8649d"
+
+[[package]]
+name = "ruff_text_size"
+version = "0.0.0"
+source = "git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a#c3147d2c1524ebd0e90cf1c2938d770314fd5a5a"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1932,7 +2016,7 @@ version = "0.37.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85597d61f83914ddeba6a47b3b8ffe7365107221c2e557ed94426489fefb5f77"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
  "errno",
  "io-lifetimes",
  "libc",
@@ -1957,7 +2041,7 @@ dependencies = [
  "log",
  "python3-sys",
  "rustpython-compiler",
- "rustpython-parser",
+ "rustpython-parser 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
  "rustpython-pylib",
  "rustpython-stdlib",
  "rustpython-vm",
@@ -1967,11 +2051,20 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=7b8844bd3e470d6b835147ecb445202130ec18d8#7b8844bd3e470d6b835147ecb445202130ec18d8"
+source = "git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d#09a6afdd04587ccc8841a88e34890c9409d8649d"
 dependencies = [
  "num-bigint",
- "rustpython-compiler-core",
+ "rustpython-compiler-core 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
  "rustpython-literal",
+]
+
+[[package]]
+name = "rustpython-ast"
+version = "0.2.0"
+source = "git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a#c3147d2c1524ebd0e90cf1c2938d770314fd5a5a"
+dependencies = [
+ "num-bigint",
+ "ruff_text_size 0.0.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
 ]
 
 [[package]]
@@ -1979,16 +2072,16 @@ name = "rustpython-codegen"
 version = "0.2.0"
 dependencies = [
  "ahash",
- "bitflags",
+ "bitflags 1.3.2",
  "indexmap",
  "insta",
  "itertools",
  "log",
  "num-complex",
  "num-traits",
- "rustpython-ast",
- "rustpython-compiler-core",
- "rustpython-parser",
+ "rustpython-ast 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
+ "rustpython-compiler-core 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
+ "rustpython-parser 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
 ]
 
 [[package]]
@@ -1996,7 +2089,7 @@ name = "rustpython-common"
 version = "0.2.0"
 dependencies = [
  "ascii",
- "bitflags",
+ "bitflags 1.3.2",
  "bstr",
  "cfg-if",
  "itertools",
@@ -2016,25 +2109,65 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython-common"
+version = "0.2.0"
+source = "git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a#c3147d2c1524ebd0e90cf1c2938d770314fd5a5a"
+dependencies = [
+ "ascii",
+ "bitflags 1.3.2",
+ "bstr",
+ "cfg-if",
+ "getrandom",
+ "hexf-parse",
+ "itertools",
+ "lexical-parse-float",
+ "libc",
+ "lock_api",
+ "num-bigint",
+ "num-traits",
+ "once_cell",
+ "radium",
+ "rand",
+ "siphasher",
+ "unic-ucd-category",
+ "volatile",
+ "widestring",
+]
+
+[[package]]
 name = "rustpython-compiler"
 version = "0.2.0"
 dependencies = [
  "rustpython-codegen",
- "rustpython-compiler-core",
- "rustpython-parser",
+ "rustpython-compiler-core 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
+ "rustpython-parser 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
 ]
 
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=7b8844bd3e470d6b835147ecb445202130ec18d8#7b8844bd3e470d6b835147ecb445202130ec18d8"
+source = "git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d#09a6afdd04587ccc8841a88e34890c9409d8649d"
 dependencies = [
- "bitflags",
- "bstr",
+ "bitflags 1.3.2",
  "itertools",
  "lz4_flex",
  "num-bigint",
  "num-complex",
+ "ruff_python_ast",
+ "ruff_text_size 0.0.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
+]
+
+[[package]]
+name = "rustpython-compiler-core"
+version = "0.2.0"
+source = "git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a#c3147d2c1524ebd0e90cf1c2938d770314fd5a5a"
+dependencies = [
+ "bitflags 1.3.2",
+ "itertools",
+ "lz4_flex",
+ "num-bigint",
+ "num-complex",
+ "ruff_text_size 0.0.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
 ]
 
 [[package]]
@@ -2056,7 +2189,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "rustpython-compiler-core",
+ "rustpython-compiler-core 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
  "rustpython-doc",
  "syn",
  "syn-ext",
@@ -2081,7 +2214,7 @@ dependencies = [
  "cranelift-module",
  "libffi",
  "num-traits",
- "rustpython-compiler-core",
+ "rustpython-compiler-core 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
  "rustpython-derive",
  "thiserror",
 ]
@@ -2089,7 +2222,7 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=7b8844bd3e470d6b835147ecb445202130ec18d8#7b8844bd3e470d6b835147ecb445202130ec18d8"
+source = "git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d#09a6afdd04587ccc8841a88e34890c9409d8649d"
 dependencies = [
  "hexf-parse",
  "lexical-parse-float",
@@ -2100,21 +2233,45 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=7b8844bd3e470d6b835147ecb445202130ec18d8#7b8844bd3e470d6b835147ecb445202130ec18d8"
+source = "git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d#09a6afdd04587ccc8841a88e34890c9409d8649d"
 dependencies = [
  "ahash",
  "anyhow",
  "itertools",
- "lalrpop",
- "lalrpop-util",
+ "lalrpop 0.20.0",
+ "lalrpop-util 0.20.0",
  "log",
  "num-bigint",
  "num-traits",
  "phf",
  "phf_codegen",
  "rustc-hash",
- "rustpython-ast",
- "rustpython-compiler-core",
+ "rustpython-ast 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
+ "rustpython-compiler-core 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
+ "tiny-keccak",
+ "unic-emoji-char",
+ "unic-ucd-ident",
+ "unicode_names2",
+]
+
+[[package]]
+name = "rustpython-parser"
+version = "0.2.0"
+source = "git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a#c3147d2c1524ebd0e90cf1c2938d770314fd5a5a"
+dependencies = [
+ "anyhow",
+ "itertools",
+ "lalrpop 0.19.12",
+ "lalrpop-util 0.19.12",
+ "log",
+ "num-bigint",
+ "num-traits",
+ "phf",
+ "phf_codegen",
+ "ruff_text_size 0.0.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
+ "rustc-hash",
+ "rustpython-ast 0.2.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
+ "rustpython-compiler-core 0.2.0 (git+https://github.com/charliermarsh/RustPython.git?rev=c3147d2c1524ebd0e90cf1c2938d770314fd5a5a)",
  "tiny-keccak",
  "unic-emoji-char",
  "unic-ucd-ident",
@@ -2126,7 +2283,7 @@ name = "rustpython-pylib"
 version = "0.2.0"
 dependencies = [
  "glob",
- "rustpython-compiler-core",
+ "rustpython-compiler-core 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
  "rustpython-derive",
 ]
 
@@ -2178,7 +2335,7 @@ dependencies = [
  "puruspe",
  "rand",
  "rand_core",
- "rustpython-common",
+ "rustpython-common 0.2.0",
  "rustpython-derive",
  "rustpython-vm",
  "schannel",
@@ -2210,7 +2367,7 @@ dependencies = [
  "ahash",
  "ascii",
  "atty",
- "bitflags",
+ "bitflags 1.3.2",
  "bstr",
  "caseless",
  "cfg-if",
@@ -2245,15 +2402,15 @@ dependencies = [
  "rand",
  "result-like",
  "rustc_version",
- "rustpython-ast",
+ "rustpython-ast 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
  "rustpython-codegen",
- "rustpython-common",
+ "rustpython-common 0.2.0",
  "rustpython-compiler",
- "rustpython-compiler-core",
+ "rustpython-compiler-core 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
  "rustpython-derive",
  "rustpython-jit",
  "rustpython-literal",
- "rustpython-parser",
+ "rustpython-parser 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
  "rustyline",
  "schannel",
  "serde",
@@ -2284,8 +2441,8 @@ version = "0.2.0"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
- "rustpython-common",
- "rustpython-parser",
+ "rustpython-common 0.2.0",
+ "rustpython-parser 0.2.0 (git+https://github.com/youknowone/RustPython-parser.git?rev=09a6afdd04587ccc8841a88e34890c9409d8649d)",
  "rustpython-pylib",
  "rustpython-stdlib",
  "rustpython-vm",
@@ -2308,7 +2465,7 @@ version = "11.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5dfc8644681285d1fb67a467fb3021bfea306b99b4146b166a1fe3ada965eece"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
  "cfg-if",
  "clipboard-win",
  "dirs-next",
@@ -2492,7 +2649,7 @@ version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a490c5c46c35dba9a6f5e7ee8e4d67e775eb2d2da0f115750b8d10e1c1ac2d28"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
  "num_enum",
  "optional",
 ]
@@ -2579,7 +2736,7 @@ version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d75182f12f490e953596550b65ee31bda7c8e043d9386174b353bda50838c3fd"
 dependencies = [
- "bitflags",
+ "bitflags 1.3.2",
  "core-foundation",
  "system-configuration-sys",
 ]

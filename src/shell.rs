@@ -55,7 +55,7 @@ fn shell_exec(
                         p,
                         ParseErrorType::Lexical(LexicalErrorType::IndentationError)
                     ) {
-                        continuing && err.location.column() != 0
+                        continuing && err.location.is_some()
                     } else {
                         !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
                     }

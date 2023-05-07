@@ -9,6 +9,7 @@ use crate::{
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
     function::{FuncArgs, OptionalArg},
+    source::try_location_field,
     types::Representable,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
@@ -26,7 +27,7 @@ pub struct ReplaceArgs {
     #[pyarg(named, optional)]
     co_filename: OptionalArg<PyStrRef>,
     #[pyarg(named, optional)]
-    co_firstlineno: OptionalArg<u32>,
+    co_firstlineno: OptionalArg<usize>,
     #[pyarg(named, optional)]
     co_consts: OptionalArg<Vec<PyObjectRef>>,
     #[pyarg(named, optional)]
@@ -276,7 +277,7 @@ impl PyCode {
 
     #[pygetset]
     fn co_firstlineno(&self) -> usize {
-        self.code.first_line_number as usize
+        self.code.first_line_number.to_one_indexed()
     }
 
     #[pygetset]
@@ -348,7 +349,7 @@ impl PyCode {
         };
 
         let first_line_number = match args.co_firstlineno {
-            OptionalArg::Present(first_line_number) => first_line_number,
+            OptionalArg::Present(first_line_number) => try_location_field(first_line_number, vm)?,
             OptionalArg::Missing => self.code.first_line_number,
         };
 

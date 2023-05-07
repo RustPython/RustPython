@@ -2,7 +2,7 @@ use rustpython_codegen::{compile, symboltable};
 use rustpython_parser::ast::{fold::Fold, ConstantOptimizer};
 
 pub use rustpython_codegen::compile::CompileOpts;
-pub use rustpython_compiler_core::{CodeObject, Mode};
+pub use rustpython_compiler_core::{CodeObject, Mode, SourceLocator};
 
 // these modules are out of repository. re-exporting them here for convenience.
 pub use rustpython_codegen as codegen;
@@ -45,7 +45,7 @@ impl From<parser::ParseErrorType> for CompileErrorType {
     }
 }
 
-pub type CompileError = rustpython_compiler_core::BaseError<CompileErrorType>;
+pub type CompileError = rustpython_compiler_core::LocatedError<CompileErrorType>;
 
 /// Compile a given source code into a bytecode object.
 pub fn compile(
@@ -54,15 +54,17 @@ pub fn compile(
     source_path: String,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
+    let mut locator = SourceLocator::new(source);
     let mut ast = match parser::parse(source, mode.into(), &source_path) {
         Ok(x) => x,
-        Err(e) => return Err(e.into()),
+        Err(e) => return Err(e.into_located(&mut locator)),
     };
     if opts.optimize > 0 {
         ast = ConstantOptimizer::new()
             .fold_mod(ast)
             .unwrap_or_else(|e| match e {});
     }
+    let ast = locator.fold_mod(ast).unwrap_or_else(|e| match e {});
     compile::compile_top(&ast, source_path, mode, opts).map_err(|e| e.into())
 }
 
@@ -71,13 +73,18 @@ pub fn compile_symtable(
     mode: compile::Mode,
     source_path: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    let mut locator = SourceLocator::new(source);
     let res = match mode {
         compile::Mode::Exec | compile::Mode::Single | compile::Mode::BlockExpr => {
-            let ast = parser::parse_program(source, source_path).map_err(|e| e.into())?;
+            let ast = parser::parse_program(source, source_path)
+                .map_err(|e| e.into_located(&mut locator))?;
+            let ast = rustpython_parser::ast::locate(&mut locator, ast);
             symboltable::SymbolTable::scan_program(&ast)
         }
         compile::Mode::Eval => {
-            let expr = parser::parse_expression(source, source_path).map_err(|e| e.into())?;
+            let expr = parser::parse_expression(source, source_path)
+                .map_err(|e| e.into_located(&mut locator))?;
+            let expr = rustpython_parser::ast::locate(&mut locator, expr);
             symboltable::SymbolTable::scan_expr(&expr)
         }
     };

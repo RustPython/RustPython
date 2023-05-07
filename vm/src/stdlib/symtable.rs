@@ -60,7 +60,7 @@ mod symtable {
 
         #[pymethod]
         fn get_lineno(&self) -> usize {
-            self.symtable.line_number
+            self.symtable.line_number.to_one_indexed()
         }
 
         #[pymethod]

@@ -4,7 +4,6 @@
 
 use super::*;
 use crate::common::ascii;
-
 #[pyclass(module = "_ast", name = "mod", base = "AstNode")]
 struct NodeKindMod;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
@@ -2220,13 +2219,13 @@ impl NodeTypeIgnore {
     }
 }
 
-impl NamedNode for ast::Mod {
+impl NamedNode for ast::located::Mod {
     const NAME: &'static str = "mod";
 }
-impl Node for ast::Mod {
+impl Node for ast::located::Mod {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Mod::Module(ast::ModModule { body, type_ignores }) => {
+            ast::located::Mod::Module(ast::located::ModModule { body, type_ignores }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeModule::static_type().to_owned())
                     .unwrap();
@@ -2239,7 +2238,7 @@ impl Node for ast::Mod {
                     .unwrap();
                 _node.into()
             }
-            ast::Mod::Interactive(ast::ModInteractive { body }) => {
+            ast::located::Mod::Interactive(ast::located::ModInteractive { body }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeInteractive::static_type().to_owned())
                     .unwrap();
@@ -2249,7 +2248,7 @@ impl Node for ast::Mod {
                     .unwrap();
                 _node.into()
             }
-            ast::Mod::Expression(ast::ModExpression { body }) => {
+            ast::located::Mod::Expression(ast::located::ModExpression { body }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeExpression::static_type().to_owned())
                     .unwrap();
@@ -2259,7 +2258,10 @@ impl Node for ast::Mod {
                     .unwrap();
                 _node.into()
             }
-            ast::Mod::FunctionType(ast::ModFunctionType { argtypes, returns }) => {
+            ast::located::Mod::FunctionType(ast::located::ModFunctionType {
+                argtypes,
+                returns,
+            }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeFunctionType::static_type().to_owned())
                     .unwrap();
@@ -2277,7 +2279,7 @@ impl Node for ast::Mod {
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(NodeModule::static_type()) {
-            ast::Mod::Module(ast::ModModule {
+            ast::located::Mod::Module(ast::located::ModModule {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "mod")?)?,
                 type_ignores: Node::ast_from_object(
                     _vm,
@@ -2285,15 +2287,15 @@ impl Node for ast::Mod {
                 )?,
             })
         } else if _cls.is(NodeInteractive::static_type()) {
-            ast::Mod::Interactive(ast::ModInteractive {
+            ast::located::Mod::Interactive(ast::located::ModInteractive {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "mod")?)?,
             })
         } else if _cls.is(NodeExpression::static_type()) {
-            ast::Mod::Expression(ast::ModExpression {
+            ast::located::Mod::Expression(ast::located::ModExpression {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "mod")?)?,
             })
         } else if _cls.is(NodeFunctionType::static_type()) {
-            ast::Mod::FunctionType(ast::ModFunctionType {
+            ast::located::Mod::FunctionType(ast::located::ModFunctionType {
                 argtypes: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "argtypes", "mod")?,
@@ -2311,13 +2313,13 @@ impl Node for ast::Mod {
         })
     }
 }
-impl NamedNode for ast::StmtKind {
+impl NamedNode for ast::located::StmtKind {
     const NAME: &'static str = "stmt";
 }
-impl Node for ast::StmtKind {
+impl Node for ast::located::StmtKind {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::StmtKind::FunctionDef(ast::StmtFunctionDef {
+            ast::located::StmtKind::FunctionDef(ast::located::StmtFunctionDef {
                 name,
                 args,
                 body,
@@ -2349,7 +2351,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::AsyncFunctionDef(ast::StmtAsyncFunctionDef {
+            ast::located::StmtKind::AsyncFunctionDef(ast::located::StmtAsyncFunctionDef {
                 name,
                 args,
                 body,
@@ -2381,7 +2383,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::ClassDef(ast::StmtClassDef {
+            ast::located::StmtKind::ClassDef(ast::located::StmtClassDef {
                 name,
                 bases,
                 keywords,
@@ -2409,7 +2411,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Return(ast::StmtReturn { value }) => {
+            ast::located::StmtKind::Return(ast::located::StmtReturn { value }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeReturn::static_type().to_owned())
                     .unwrap();
@@ -2419,7 +2421,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Delete(ast::StmtDelete { targets }) => {
+            ast::located::StmtKind::Delete(ast::located::StmtDelete { targets }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeDelete::static_type().to_owned())
                     .unwrap();
@@ -2429,7 +2431,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Assign(ast::StmtAssign {
+            ast::located::StmtKind::Assign(ast::located::StmtAssign {
                 targets,
                 value,
                 type_comment,
@@ -2449,7 +2451,11 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::AugAssign(ast::StmtAugAssign { target, op, value }) => {
+            ast::located::StmtKind::AugAssign(ast::located::StmtAugAssign {
+                target,
+                op,
+                value,
+            }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeAugAssign::static_type().to_owned())
                     .unwrap();
@@ -2463,7 +2469,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::AnnAssign(ast::StmtAnnAssign {
+            ast::located::StmtKind::AnnAssign(ast::located::StmtAnnAssign {
                 target,
                 annotation,
                 value,
@@ -2487,7 +2493,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::For(ast::StmtFor {
+            ast::located::StmtKind::For(ast::located::StmtFor {
                 target,
                 iter,
                 body,
@@ -2515,7 +2521,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::AsyncFor(ast::StmtAsyncFor {
+            ast::located::StmtKind::AsyncFor(ast::located::StmtAsyncFor {
                 target,
                 iter,
                 body,
@@ -2543,7 +2549,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::While(ast::StmtWhile { test, body, orelse }) => {
+            ast::located::StmtKind::While(ast::located::StmtWhile { test, body, orelse }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeWhile::static_type().to_owned())
                     .unwrap();
@@ -2559,7 +2565,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::If(ast::StmtIf { test, body, orelse }) => {
+            ast::located::StmtKind::If(ast::located::StmtIf { test, body, orelse }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeIf::static_type().to_owned())
                     .unwrap();
@@ -2575,7 +2581,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::With(ast::StmtWith {
+            ast::located::StmtKind::With(ast::located::StmtWith {
                 items,
                 body,
                 type_comment,
@@ -2595,7 +2601,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::AsyncWith(ast::StmtAsyncWith {
+            ast::located::StmtKind::AsyncWith(ast::located::StmtAsyncWith {
                 items,
                 body,
                 type_comment,
@@ -2615,7 +2621,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Match(ast::StmtMatch { subject, cases }) => {
+            ast::located::StmtKind::Match(ast::located::StmtMatch { subject, cases }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMatch::static_type().to_owned())
                     .unwrap();
@@ -2628,7 +2634,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Raise(ast::StmtRaise { exc, cause }) => {
+            ast::located::StmtKind::Raise(ast::located::StmtRaise { exc, cause }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeRaise::static_type().to_owned())
                     .unwrap();
@@ -2639,7 +2645,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Try(ast::StmtTry {
+            ast::located::StmtKind::Try(ast::located::StmtTry {
                 body,
                 handlers,
                 orelse,
@@ -2663,7 +2669,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::TryStar(ast::StmtTryStar {
+            ast::located::StmtKind::TryStar(ast::located::StmtTryStar {
                 body,
                 handlers,
                 orelse,
@@ -2687,7 +2693,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Assert(ast::StmtAssert { test, msg }) => {
+            ast::located::StmtKind::Assert(ast::located::StmtAssert { test, msg }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeAssert::static_type().to_owned())
                     .unwrap();
@@ -2698,7 +2704,7 @@ impl Node for ast::StmtKind {
                 _dict.set_item("msg", msg.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::StmtKind::Import(ast::StmtImport { names }) => {
+            ast::located::StmtKind::Import(ast::located::StmtImport { names }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeImport::static_type().to_owned())
                     .unwrap();
@@ -2708,7 +2714,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::ImportFrom(ast::StmtImportFrom {
+            ast::located::StmtKind::ImportFrom(ast::located::StmtImportFrom {
                 module,
                 names,
                 level,
@@ -2728,7 +2734,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Global(ast::StmtGlobal { names }) => {
+            ast::located::StmtKind::Global(ast::located::StmtGlobal { names }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeGlobal::static_type().to_owned())
                     .unwrap();
@@ -2738,7 +2744,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Nonlocal(ast::StmtNonlocal { names }) => {
+            ast::located::StmtKind::Nonlocal(ast::located::StmtNonlocal { names }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeNonlocal::static_type().to_owned())
                     .unwrap();
@@ -2748,7 +2754,7 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Expr(ast::StmtExpr { value }) => {
+            ast::located::StmtKind::Expr(ast::located::StmtExpr { value }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeExpr::static_type().to_owned())
                     .unwrap();
@@ -2758,19 +2764,19 @@ impl Node for ast::StmtKind {
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Pass => {
+            ast::located::StmtKind::Pass => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodePass::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Break => {
+            ast::located::StmtKind::Break => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeBreak::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::StmtKind::Continue => {
+            ast::located::StmtKind::Continue => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeContinue::static_type().to_owned())
                     .unwrap();
@@ -2779,13 +2785,20 @@ impl Node for ast::StmtKind {
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "stmt")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "stmt")?)?,
-        );
+        let _location = {
+            let row = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "stmt")?)?,
+                _vm,
+            )?;
+            let column = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "stmt")?)?,
+                _vm,
+            )?;
+            SourceLocation { row, column }
+        };
         let _cls = _object.class();
         Ok(if _cls.is(NodeFunctionDef::static_type()) {
-            ast::StmtKind::FunctionDef(ast::StmtFunctionDef {
+            ast::located::StmtKind::FunctionDef(ast::located::StmtFunctionDef {
                 name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "stmt")?)?,
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
@@ -2801,7 +2814,7 @@ impl Node for ast::StmtKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeAsyncFunctionDef::static_type()) {
-            ast::StmtKind::AsyncFunctionDef(ast::StmtAsyncFunctionDef {
+            ast::located::StmtKind::AsyncFunctionDef(ast::located::StmtAsyncFunctionDef {
                 name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "stmt")?)?,
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
@@ -2817,7 +2830,7 @@ impl Node for ast::StmtKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeClassDef::static_type()) {
-            ast::StmtKind::ClassDef(ast::StmtClassDef {
+            ast::located::StmtKind::ClassDef(ast::located::StmtClassDef {
                 name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "stmt")?)?,
                 bases: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "bases", "stmt")?)?,
                 keywords: Node::ast_from_object(
@@ -2831,20 +2844,20 @@ impl Node for ast::StmtKind {
                 )?,
             })
         } else if _cls.is(NodeReturn::static_type()) {
-            ast::StmtKind::Return(ast::StmtReturn {
+            ast::located::StmtKind::Return(ast::located::StmtReturn {
                 value: get_node_field_opt(_vm, &_object, "value")?
                     .map(|obj| Node::ast_from_object(_vm, obj))
                     .transpose()?,
             })
         } else if _cls.is(NodeDelete::static_type()) {
-            ast::StmtKind::Delete(ast::StmtDelete {
+            ast::located::StmtKind::Delete(ast::located::StmtDelete {
                 targets: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "targets", "stmt")?,
                 )?,
             })
         } else if _cls.is(NodeAssign::static_type()) {
-            ast::StmtKind::Assign(ast::StmtAssign {
+            ast::located::StmtKind::Assign(ast::located::StmtAssign {
                 targets: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "targets", "stmt")?,
@@ -2855,7 +2868,7 @@ impl Node for ast::StmtKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeAugAssign::static_type()) {
-            ast::StmtKind::AugAssign(ast::StmtAugAssign {
+            ast::located::StmtKind::AugAssign(ast::located::StmtAugAssign {
                 target: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "target", "stmt")?,
@@ -2864,7 +2877,7 @@ impl Node for ast::StmtKind {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
             })
         } else if _cls.is(NodeAnnAssign::static_type()) {
-            ast::StmtKind::AnnAssign(ast::StmtAnnAssign {
+            ast::located::StmtKind::AnnAssign(ast::located::StmtAnnAssign {
                 target: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "target", "stmt")?,
@@ -2882,7 +2895,7 @@ impl Node for ast::StmtKind {
                 )?,
             })
         } else if _cls.is(NodeFor::static_type()) {
-            ast::StmtKind::For(ast::StmtFor {
+            ast::located::StmtKind::For(ast::located::StmtFor {
                 target: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "target", "stmt")?,
@@ -2898,7 +2911,7 @@ impl Node for ast::StmtKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeAsyncFor::static_type()) {
-            ast::StmtKind::AsyncFor(ast::StmtAsyncFor {
+            ast::located::StmtKind::AsyncFor(ast::located::StmtAsyncFor {
                 target: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "target", "stmt")?,
@@ -2914,7 +2927,7 @@ impl Node for ast::StmtKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeWhile::static_type()) {
-            ast::StmtKind::While(ast::StmtWhile {
+            ast::located::StmtKind::While(ast::located::StmtWhile {
                 test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 orelse: Node::ast_from_object(
@@ -2923,7 +2936,7 @@ impl Node for ast::StmtKind {
                 )?,
             })
         } else if _cls.is(NodeIf::static_type()) {
-            ast::StmtKind::If(ast::StmtIf {
+            ast::located::StmtKind::If(ast::located::StmtIf {
                 test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 orelse: Node::ast_from_object(
@@ -2932,7 +2945,7 @@ impl Node for ast::StmtKind {
                 )?,
             })
         } else if _cls.is(NodeWith::static_type()) {
-            ast::StmtKind::With(ast::StmtWith {
+            ast::located::StmtKind::With(ast::located::StmtWith {
                 items: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "items", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
@@ -2940,7 +2953,7 @@ impl Node for ast::StmtKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeAsyncWith::static_type()) {
-            ast::StmtKind::AsyncWith(ast::StmtAsyncWith {
+            ast::located::StmtKind::AsyncWith(ast::located::StmtAsyncWith {
                 items: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "items", "stmt")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
@@ -2948,7 +2961,7 @@ impl Node for ast::StmtKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeMatch::static_type()) {
-            ast::StmtKind::Match(ast::StmtMatch {
+            ast::located::StmtKind::Match(ast::located::StmtMatch {
                 subject: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "subject", "stmt")?,
@@ -2956,7 +2969,7 @@ impl Node for ast::StmtKind {
                 cases: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "cases", "stmt")?)?,
             })
         } else if _cls.is(NodeRaise::static_type()) {
-            ast::StmtKind::Raise(ast::StmtRaise {
+            ast::located::StmtKind::Raise(ast::located::StmtRaise {
                 exc: get_node_field_opt(_vm, &_object, "exc")?
                     .map(|obj| Node::ast_from_object(_vm, obj))
                     .transpose()?,
@@ -2965,7 +2978,7 @@ impl Node for ast::StmtKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeTry::static_type()) {
-            ast::StmtKind::Try(ast::StmtTry {
+            ast::located::StmtKind::Try(ast::located::StmtTry {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 handlers: Node::ast_from_object(
                     _vm,
@@ -2981,7 +2994,7 @@ impl Node for ast::StmtKind {
                 )?,
             })
         } else if _cls.is(NodeTryStar::static_type()) {
-            ast::StmtKind::TryStar(ast::StmtTryStar {
+            ast::located::StmtKind::TryStar(ast::located::StmtTryStar {
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "stmt")?)?,
                 handlers: Node::ast_from_object(
                     _vm,
@@ -2997,18 +3010,18 @@ impl Node for ast::StmtKind {
                 )?,
             })
         } else if _cls.is(NodeAssert::static_type()) {
-            ast::StmtKind::Assert(ast::StmtAssert {
+            ast::located::StmtKind::Assert(ast::located::StmtAssert {
                 test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "stmt")?)?,
                 msg: get_node_field_opt(_vm, &_object, "msg")?
                     .map(|obj| Node::ast_from_object(_vm, obj))
                     .transpose()?,
             })
         } else if _cls.is(NodeImport::static_type()) {
-            ast::StmtKind::Import(ast::StmtImport {
+            ast::located::StmtKind::Import(ast::located::StmtImport {
                 names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
             })
         } else if _cls.is(NodeImportFrom::static_type()) {
-            ast::StmtKind::ImportFrom(ast::StmtImportFrom {
+            ast::located::StmtKind::ImportFrom(ast::located::StmtImportFrom {
                 module: get_node_field_opt(_vm, &_object, "module")?
                     .map(|obj| Node::ast_from_object(_vm, obj))
                     .transpose()?,
@@ -3018,23 +3031,23 @@ impl Node for ast::StmtKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeGlobal::static_type()) {
-            ast::StmtKind::Global(ast::StmtGlobal {
+            ast::located::StmtKind::Global(ast::located::StmtGlobal {
                 names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
             })
         } else if _cls.is(NodeNonlocal::static_type()) {
-            ast::StmtKind::Nonlocal(ast::StmtNonlocal {
+            ast::located::StmtKind::Nonlocal(ast::located::StmtNonlocal {
                 names: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "names", "stmt")?)?,
             })
         } else if _cls.is(NodeExpr::static_type()) {
-            ast::StmtKind::Expr(ast::StmtExpr {
+            ast::located::StmtKind::Expr(ast::located::StmtExpr {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "stmt")?)?,
             })
         } else if _cls.is(NodePass::static_type()) {
-            ast::StmtKind::Pass
+            ast::located::StmtKind::Pass
         } else if _cls.is(NodeBreak::static_type()) {
-            ast::StmtKind::Break
+            ast::located::StmtKind::Break
         } else if _cls.is(NodeContinue::static_type()) {
-            ast::StmtKind::Continue
+            ast::located::StmtKind::Continue
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of stmt, but got {}",
@@ -3043,13 +3056,13 @@ impl Node for ast::StmtKind {
         })
     }
 }
-impl NamedNode for ast::ExprKind {
+impl NamedNode for ast::located::ExprKind {
     const NAME: &'static str = "expr";
 }
-impl Node for ast::ExprKind {
+impl Node for ast::located::ExprKind {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::ExprKind::BoolOp(ast::ExprBoolOp { op, values }) => {
+            ast::located::ExprKind::BoolOp(ast::located::ExprBoolOp { op, values }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeBoolOp::static_type().to_owned())
                     .unwrap();
@@ -3060,7 +3073,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::NamedExpr(ast::ExprNamedExpr { target, value }) => {
+            ast::located::ExprKind::NamedExpr(ast::located::ExprNamedExpr { target, value }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeNamedExpr::static_type().to_owned())
                     .unwrap();
@@ -3073,7 +3086,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::BinOp(ast::ExprBinOp { left, op, right }) => {
+            ast::located::ExprKind::BinOp(ast::located::ExprBinOp { left, op, right }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeBinOp::static_type().to_owned())
                     .unwrap();
@@ -3087,7 +3100,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::UnaryOp(ast::ExprUnaryOp { op, operand }) => {
+            ast::located::ExprKind::UnaryOp(ast::located::ExprUnaryOp { op, operand }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeUnaryOp::static_type().to_owned())
                     .unwrap();
@@ -3098,7 +3111,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::Lambda(ast::ExprLambda { args, body }) => {
+            ast::located::ExprKind::Lambda(ast::located::ExprLambda { args, body }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeLambda::static_type().to_owned())
                     .unwrap();
@@ -3111,7 +3124,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::IfExp(ast::ExprIfExp { test, body, orelse }) => {
+            ast::located::ExprKind::IfExp(ast::located::ExprIfExp { test, body, orelse }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeIfExp::static_type().to_owned())
                     .unwrap();
@@ -3127,7 +3140,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::Dict(ast::ExprDict { keys, values }) => {
+            ast::located::ExprKind::Dict(ast::located::ExprDict { keys, values }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeDict::static_type().to_owned())
                     .unwrap();
@@ -3140,7 +3153,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::Set(ast::ExprSet { elts }) => {
+            ast::located::ExprKind::Set(ast::located::ExprSet { elts }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeSet::static_type().to_owned())
                     .unwrap();
@@ -3150,7 +3163,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::ListComp(ast::ExprListComp { elt, generators }) => {
+            ast::located::ExprKind::ListComp(ast::located::ExprListComp { elt, generators }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeListComp::static_type().to_owned())
                     .unwrap();
@@ -3161,7 +3174,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::SetComp(ast::ExprSetComp { elt, generators }) => {
+            ast::located::ExprKind::SetComp(ast::located::ExprSetComp { elt, generators }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeSetComp::static_type().to_owned())
                     .unwrap();
@@ -3172,7 +3185,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::DictComp(ast::ExprDictComp {
+            ast::located::ExprKind::DictComp(ast::located::ExprDictComp {
                 key,
                 value,
                 generators,
@@ -3190,7 +3203,10 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::GeneratorExp(ast::ExprGeneratorExp { elt, generators }) => {
+            ast::located::ExprKind::GeneratorExp(ast::located::ExprGeneratorExp {
+                elt,
+                generators,
+            }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeGeneratorExp::static_type().to_owned())
                     .unwrap();
@@ -3201,7 +3217,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::Await(ast::ExprAwait { value }) => {
+            ast::located::ExprKind::Await(ast::located::ExprAwait { value }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeAwait::static_type().to_owned())
                     .unwrap();
@@ -3211,7 +3227,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::Yield(ast::ExprYield { value }) => {
+            ast::located::ExprKind::Yield(ast::located::ExprYield { value }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeYield::static_type().to_owned())
                     .unwrap();
@@ -3221,7 +3237,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::YieldFrom(ast::ExprYieldFrom { value }) => {
+            ast::located::ExprKind::YieldFrom(ast::located::ExprYieldFrom { value }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeYieldFrom::static_type().to_owned())
                     .unwrap();
@@ -3231,7 +3247,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::Compare(ast::ExprCompare {
+            ast::located::ExprKind::Compare(ast::located::ExprCompare {
                 left,
                 ops,
                 comparators,
@@ -3249,7 +3265,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::Call(ast::ExprCall {
+            ast::located::ExprKind::Call(ast::located::ExprCall {
                 func,
                 args,
                 keywords,
@@ -3269,7 +3285,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::FormattedValue(ast::ExprFormattedValue {
+            ast::located::ExprKind::FormattedValue(ast::located::ExprFormattedValue {
                 value,
                 conversion,
                 format_spec,
@@ -3289,7 +3305,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::JoinedStr(ast::ExprJoinedStr { values }) => {
+            ast::located::ExprKind::JoinedStr(ast::located::ExprJoinedStr { values }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeJoinedStr::static_type().to_owned())
                     .unwrap();
@@ -3299,7 +3315,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::Constant(ast::ExprConstant { value, kind }) => {
+            ast::located::ExprKind::Constant(ast::located::ExprConstant { value, kind }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeConstant::static_type().to_owned())
                     .unwrap();
@@ -3312,7 +3328,7 @@ impl Node for ast::ExprKind {
                     .unwrap();
                 _node.into()
             }
-            ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, ctx }) => {
+            ast::located::ExprKind::Attribute(ast::located::ExprAttribute { value, attr, ctx }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeAttribute::static_type().to_owned())
                     .unwrap();
@@ -3326,7 +3342,11 @@ impl Node for ast::ExprKind {
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Subscript(ast::ExprSubscript { value, slice, ctx }) => {
+            ast::located::ExprKind::Subscript(ast::located::ExprSubscript {
+                value,
+                slice,
+                ctx,
+            }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeSubscript::static_type().to_owned())
                     .unwrap();
@@ -3340,7 +3360,7 @@ impl Node for ast::ExprKind {
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Starred(ast::ExprStarred { value, ctx }) => {
+            ast::located::ExprKind::Starred(ast::located::ExprStarred { value, ctx }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeStarred::static_type().to_owned())
                     .unwrap();
@@ -3351,7 +3371,7 @@ impl Node for ast::ExprKind {
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Name(ast::ExprName { id, ctx }) => {
+            ast::located::ExprKind::Name(ast::located::ExprName { id, ctx }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeName::static_type().to_owned())
                     .unwrap();
@@ -3360,7 +3380,7 @@ impl Node for ast::ExprKind {
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::List(ast::ExprList { elts, ctx }) => {
+            ast::located::ExprKind::List(ast::located::ExprList { elts, ctx }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeList::static_type().to_owned())
                     .unwrap();
@@ -3371,7 +3391,7 @@ impl Node for ast::ExprKind {
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Tuple(ast::ExprTuple { elts, ctx }) => {
+            ast::located::ExprKind::Tuple(ast::located::ExprTuple { elts, ctx }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeTuple::static_type().to_owned())
                     .unwrap();
@@ -3382,7 +3402,7 @@ impl Node for ast::ExprKind {
                 _dict.set_item("ctx", ctx.ast_to_object(_vm), _vm).unwrap();
                 _node.into()
             }
-            ast::ExprKind::Slice(ast::ExprSlice { lower, upper, step }) => {
+            ast::located::ExprKind::Slice(ast::located::ExprSlice { lower, upper, step }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeSlice::static_type().to_owned())
                     .unwrap();
@@ -3401,13 +3421,20 @@ impl Node for ast::ExprKind {
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "expr")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "expr")?)?,
-        );
+        let _location = {
+            let row = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "expr")?)?,
+                _vm,
+            )?;
+            let column = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "expr")?)?,
+                _vm,
+            )?;
+            SourceLocation { row, column }
+        };
         let _cls = _object.class();
         Ok(if _cls.is(NodeBoolOp::static_type()) {
-            ast::ExprKind::BoolOp(ast::ExprBoolOp {
+            ast::located::ExprKind::BoolOp(ast::located::ExprBoolOp {
                 op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "expr")?)?,
                 values: Node::ast_from_object(
                     _vm,
@@ -3415,7 +3442,7 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeNamedExpr::static_type()) {
-            ast::ExprKind::NamedExpr(ast::ExprNamedExpr {
+            ast::located::ExprKind::NamedExpr(ast::located::ExprNamedExpr {
                 target: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "target", "expr")?,
@@ -3423,13 +3450,13 @@ impl Node for ast::ExprKind {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
             })
         } else if _cls.is(NodeBinOp::static_type()) {
-            ast::ExprKind::BinOp(ast::ExprBinOp {
+            ast::located::ExprKind::BinOp(ast::located::ExprBinOp {
                 left: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "left", "expr")?)?,
                 op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "expr")?)?,
                 right: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "right", "expr")?)?,
             })
         } else if _cls.is(NodeUnaryOp::static_type()) {
-            ast::ExprKind::UnaryOp(ast::ExprUnaryOp {
+            ast::located::ExprKind::UnaryOp(ast::located::ExprUnaryOp {
                 op: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "op", "expr")?)?,
                 operand: Node::ast_from_object(
                     _vm,
@@ -3437,12 +3464,12 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeLambda::static_type()) {
-            ast::ExprKind::Lambda(ast::ExprLambda {
+            ast::located::ExprKind::Lambda(ast::located::ExprLambda {
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "expr")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "expr")?)?,
             })
         } else if _cls.is(NodeIfExp::static_type()) {
-            ast::ExprKind::IfExp(ast::ExprIfExp {
+            ast::located::ExprKind::IfExp(ast::located::ExprIfExp {
                 test: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "test", "expr")?)?,
                 body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "expr")?)?,
                 orelse: Node::ast_from_object(
@@ -3451,7 +3478,7 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeDict::static_type()) {
-            ast::ExprKind::Dict(ast::ExprDict {
+            ast::located::ExprKind::Dict(ast::located::ExprDict {
                 keys: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keys", "expr")?)?,
                 values: Node::ast_from_object(
                     _vm,
@@ -3459,11 +3486,11 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeSet::static_type()) {
-            ast::ExprKind::Set(ast::ExprSet {
+            ast::located::ExprKind::Set(ast::located::ExprSet {
                 elts: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elts", "expr")?)?,
             })
         } else if _cls.is(NodeListComp::static_type()) {
-            ast::ExprKind::ListComp(ast::ExprListComp {
+            ast::located::ExprKind::ListComp(ast::located::ExprListComp {
                 elt: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elt", "expr")?)?,
                 generators: Node::ast_from_object(
                     _vm,
@@ -3471,7 +3498,7 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeSetComp::static_type()) {
-            ast::ExprKind::SetComp(ast::ExprSetComp {
+            ast::located::ExprKind::SetComp(ast::located::ExprSetComp {
                 elt: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elt", "expr")?)?,
                 generators: Node::ast_from_object(
                     _vm,
@@ -3479,7 +3506,7 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeDictComp::static_type()) {
-            ast::ExprKind::DictComp(ast::ExprDictComp {
+            ast::located::ExprKind::DictComp(ast::located::ExprDictComp {
                 key: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "key", "expr")?)?,
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
                 generators: Node::ast_from_object(
@@ -3488,7 +3515,7 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeGeneratorExp::static_type()) {
-            ast::ExprKind::GeneratorExp(ast::ExprGeneratorExp {
+            ast::located::ExprKind::GeneratorExp(ast::located::ExprGeneratorExp {
                 elt: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elt", "expr")?)?,
                 generators: Node::ast_from_object(
                     _vm,
@@ -3496,21 +3523,21 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeAwait::static_type()) {
-            ast::ExprKind::Await(ast::ExprAwait {
+            ast::located::ExprKind::Await(ast::located::ExprAwait {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
             })
         } else if _cls.is(NodeYield::static_type()) {
-            ast::ExprKind::Yield(ast::ExprYield {
+            ast::located::ExprKind::Yield(ast::located::ExprYield {
                 value: get_node_field_opt(_vm, &_object, "value")?
                     .map(|obj| Node::ast_from_object(_vm, obj))
                     .transpose()?,
             })
         } else if _cls.is(NodeYieldFrom::static_type()) {
-            ast::ExprKind::YieldFrom(ast::ExprYieldFrom {
+            ast::located::ExprKind::YieldFrom(ast::located::ExprYieldFrom {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
             })
         } else if _cls.is(NodeCompare::static_type()) {
-            ast::ExprKind::Compare(ast::ExprCompare {
+            ast::located::ExprKind::Compare(ast::located::ExprCompare {
                 left: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "left", "expr")?)?,
                 ops: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ops", "expr")?)?,
                 comparators: Node::ast_from_object(
@@ -3519,7 +3546,7 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeCall::static_type()) {
-            ast::ExprKind::Call(ast::ExprCall {
+            ast::located::ExprKind::Call(ast::located::ExprCall {
                 func: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "func", "expr")?)?,
                 args: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "expr")?)?,
                 keywords: Node::ast_from_object(
@@ -3528,7 +3555,7 @@ impl Node for ast::ExprKind {
                 )?,
             })
         } else if _cls.is(NodeFormattedValue::static_type()) {
-            ast::ExprKind::FormattedValue(ast::ExprFormattedValue {
+            ast::located::ExprKind::FormattedValue(ast::located::ExprFormattedValue {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
                 conversion: Node::ast_from_object(
                     _vm,
@@ -3539,53 +3566,53 @@ impl Node for ast::ExprKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeJoinedStr::static_type()) {
-            ast::ExprKind::JoinedStr(ast::ExprJoinedStr {
+            ast::located::ExprKind::JoinedStr(ast::located::ExprJoinedStr {
                 values: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "values", "expr")?,
                 )?,
             })
         } else if _cls.is(NodeConstant::static_type()) {
-            ast::ExprKind::Constant(ast::ExprConstant {
+            ast::located::ExprKind::Constant(ast::located::ExprConstant {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
                 kind: get_node_field_opt(_vm, &_object, "kind")?
                     .map(|obj| Node::ast_from_object(_vm, obj))
                     .transpose()?,
             })
         } else if _cls.is(NodeAttribute::static_type()) {
-            ast::ExprKind::Attribute(ast::ExprAttribute {
+            ast::located::ExprKind::Attribute(ast::located::ExprAttribute {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
                 attr: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "attr", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             })
         } else if _cls.is(NodeSubscript::static_type()) {
-            ast::ExprKind::Subscript(ast::ExprSubscript {
+            ast::located::ExprKind::Subscript(ast::located::ExprSubscript {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
                 slice: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "slice", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             })
         } else if _cls.is(NodeStarred::static_type()) {
-            ast::ExprKind::Starred(ast::ExprStarred {
+            ast::located::ExprKind::Starred(ast::located::ExprStarred {
                 value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             })
         } else if _cls.is(NodeName::static_type()) {
-            ast::ExprKind::Name(ast::ExprName {
+            ast::located::ExprKind::Name(ast::located::ExprName {
                 id: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "id", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             })
         } else if _cls.is(NodeList::static_type()) {
-            ast::ExprKind::List(ast::ExprList {
+            ast::located::ExprKind::List(ast::located::ExprList {
                 elts: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elts", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             })
         } else if _cls.is(NodeTuple::static_type()) {
-            ast::ExprKind::Tuple(ast::ExprTuple {
+            ast::located::ExprKind::Tuple(ast::located::ExprTuple {
                 elts: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "elts", "expr")?)?,
                 ctx: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "ctx", "expr")?)?,
             })
         } else if _cls.is(NodeSlice::static_type()) {
-            ast::ExprKind::Slice(ast::ExprSlice {
+            ast::located::ExprKind::Slice(ast::located::ExprSlice {
                 lower: get_node_field_opt(_vm, &_object, "lower")?
                     .map(|obj| Node::ast_from_object(_vm, obj))
                     .transpose()?,
@@ -3604,25 +3631,25 @@ impl Node for ast::ExprKind {
         })
     }
 }
-impl NamedNode for ast::ExprContext {
+impl NamedNode for ast::located::ExprContext {
     const NAME: &'static str = "expr_context";
 }
-impl Node for ast::ExprContext {
+impl Node for ast::located::ExprContext {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::ExprContext::Load => {
+            ast::located::ExprContext::Load => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeLoad::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::ExprContext::Store => {
+            ast::located::ExprContext::Store => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeStore::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::ExprContext::Del => {
+            ast::located::ExprContext::Del => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeDel::static_type().to_owned())
                     .unwrap();
@@ -3633,11 +3660,11 @@ impl Node for ast::ExprContext {
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(NodeLoad::static_type()) {
-            ast::ExprContext::Load
+            ast::located::ExprContext::Load
         } else if _cls.is(NodeStore::static_type()) {
-            ast::ExprContext::Store
+            ast::located::ExprContext::Store
         } else if _cls.is(NodeDel::static_type()) {
-            ast::ExprContext::Del
+            ast::located::ExprContext::Del
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of expr_context, but got {}",
@@ -3646,19 +3673,19 @@ impl Node for ast::ExprContext {
         })
     }
 }
-impl NamedNode for ast::Boolop {
+impl NamedNode for ast::located::Boolop {
     const NAME: &'static str = "boolop";
 }
-impl Node for ast::Boolop {
+impl Node for ast::located::Boolop {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Boolop::And => {
+            ast::located::Boolop::And => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeAnd::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Boolop::Or => {
+            ast::located::Boolop::Or => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeOr::static_type().to_owned())
                     .unwrap();
@@ -3669,9 +3696,9 @@ impl Node for ast::Boolop {
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(NodeAnd::static_type()) {
-            ast::Boolop::And
+            ast::located::Boolop::And
         } else if _cls.is(NodeOr::static_type()) {
-            ast::Boolop::Or
+            ast::located::Boolop::Or
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of boolop, but got {}",
@@ -3680,85 +3707,85 @@ impl Node for ast::Boolop {
         })
     }
 }
-impl NamedNode for ast::Operator {
+impl NamedNode for ast::located::Operator {
     const NAME: &'static str = "operator";
 }
-impl Node for ast::Operator {
+impl Node for ast::located::Operator {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Operator::Add => {
+            ast::located::Operator::Add => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeAdd::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::Sub => {
+            ast::located::Operator::Sub => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeSub::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::Mult => {
+            ast::located::Operator::Mult => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMult::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::MatMult => {
+            ast::located::Operator::MatMult => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMatMult::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::Div => {
+            ast::located::Operator::Div => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeDiv::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::Mod => {
+            ast::located::Operator::Mod => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMod::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::Pow => {
+            ast::located::Operator::Pow => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodePow::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::LShift => {
+            ast::located::Operator::LShift => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeLShift::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::RShift => {
+            ast::located::Operator::RShift => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeRShift::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::BitOr => {
+            ast::located::Operator::BitOr => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeBitOr::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::BitXor => {
+            ast::located::Operator::BitXor => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeBitXor::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::BitAnd => {
+            ast::located::Operator::BitAnd => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeBitAnd::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Operator::FloorDiv => {
+            ast::located::Operator::FloorDiv => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeFloorDiv::static_type().to_owned())
                     .unwrap();
@@ -3769,31 +3796,31 @@ impl Node for ast::Operator {
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(NodeAdd::static_type()) {
-            ast::Operator::Add
+            ast::located::Operator::Add
         } else if _cls.is(NodeSub::static_type()) {
-            ast::Operator::Sub
+            ast::located::Operator::Sub
         } else if _cls.is(NodeMult::static_type()) {
-            ast::Operator::Mult
+            ast::located::Operator::Mult
         } else if _cls.is(NodeMatMult::static_type()) {
-            ast::Operator::MatMult
+            ast::located::Operator::MatMult
         } else if _cls.is(NodeDiv::static_type()) {
-            ast::Operator::Div
+            ast::located::Operator::Div
         } else if _cls.is(NodeMod::static_type()) {
-            ast::Operator::Mod
+            ast::located::Operator::Mod
         } else if _cls.is(NodePow::static_type()) {
-            ast::Operator::Pow
+            ast::located::Operator::Pow
         } else if _cls.is(NodeLShift::static_type()) {
-            ast::Operator::LShift
+            ast::located::Operator::LShift
         } else if _cls.is(NodeRShift::static_type()) {
-            ast::Operator::RShift
+            ast::located::Operator::RShift
         } else if _cls.is(NodeBitOr::static_type()) {
-            ast::Operator::BitOr
+            ast::located::Operator::BitOr
         } else if _cls.is(NodeBitXor::static_type()) {
-            ast::Operator::BitXor
+            ast::located::Operator::BitXor
         } else if _cls.is(NodeBitAnd::static_type()) {
-            ast::Operator::BitAnd
+            ast::located::Operator::BitAnd
         } else if _cls.is(NodeFloorDiv::static_type()) {
-            ast::Operator::FloorDiv
+            ast::located::Operator::FloorDiv
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of operator, but got {}",
@@ -3802,31 +3829,31 @@ impl Node for ast::Operator {
         })
     }
 }
-impl NamedNode for ast::Unaryop {
+impl NamedNode for ast::located::Unaryop {
     const NAME: &'static str = "unaryop";
 }
-impl Node for ast::Unaryop {
+impl Node for ast::located::Unaryop {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Unaryop::Invert => {
+            ast::located::Unaryop::Invert => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeInvert::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Unaryop::Not => {
+            ast::located::Unaryop::Not => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeNot::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Unaryop::UAdd => {
+            ast::located::Unaryop::UAdd => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeUAdd::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Unaryop::USub => {
+            ast::located::Unaryop::USub => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeUSub::static_type().to_owned())
                     .unwrap();
@@ -3837,13 +3864,13 @@ impl Node for ast::Unaryop {
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(NodeInvert::static_type()) {
-            ast::Unaryop::Invert
+            ast::located::Unaryop::Invert
         } else if _cls.is(NodeNot::static_type()) {
-            ast::Unaryop::Not
+            ast::located::Unaryop::Not
         } else if _cls.is(NodeUAdd::static_type()) {
-            ast::Unaryop::UAdd
+            ast::located::Unaryop::UAdd
         } else if _cls.is(NodeUSub::static_type()) {
-            ast::Unaryop::USub
+            ast::located::Unaryop::USub
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of unaryop, but got {}",
@@ -3852,67 +3879,67 @@ impl Node for ast::Unaryop {
         })
     }
 }
-impl NamedNode for ast::Cmpop {
+impl NamedNode for ast::located::Cmpop {
     const NAME: &'static str = "cmpop";
 }
-impl Node for ast::Cmpop {
+impl Node for ast::located::Cmpop {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::Cmpop::Eq => {
+            ast::located::Cmpop::Eq => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeEq::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Cmpop::NotEq => {
+            ast::located::Cmpop::NotEq => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeNotEq::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Cmpop::Lt => {
+            ast::located::Cmpop::Lt => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeLt::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Cmpop::LtE => {
+            ast::located::Cmpop::LtE => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeLtE::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Cmpop::Gt => {
+            ast::located::Cmpop::Gt => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeGt::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Cmpop::GtE => {
+            ast::located::Cmpop::GtE => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeGtE::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Cmpop::Is => {
+            ast::located::Cmpop::Is => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeIs::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Cmpop::IsNot => {
+            ast::located::Cmpop::IsNot => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeIsNot::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Cmpop::In => {
+            ast::located::Cmpop::In => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeIn::static_type().to_owned())
                     .unwrap();
                 _node.into()
             }
-            ast::Cmpop::NotIn => {
+            ast::located::Cmpop::NotIn => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeNotIn::static_type().to_owned())
                     .unwrap();
@@ -3923,25 +3950,25 @@ impl Node for ast::Cmpop {
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(NodeEq::static_type()) {
-            ast::Cmpop::Eq
+            ast::located::Cmpop::Eq
         } else if _cls.is(NodeNotEq::static_type()) {
-            ast::Cmpop::NotEq
+            ast::located::Cmpop::NotEq
         } else if _cls.is(NodeLt::static_type()) {
-            ast::Cmpop::Lt
+            ast::located::Cmpop::Lt
         } else if _cls.is(NodeLtE::static_type()) {
-            ast::Cmpop::LtE
+            ast::located::Cmpop::LtE
         } else if _cls.is(NodeGt::static_type()) {
-            ast::Cmpop::Gt
+            ast::located::Cmpop::Gt
         } else if _cls.is(NodeGtE::static_type()) {
-            ast::Cmpop::GtE
+            ast::located::Cmpop::GtE
         } else if _cls.is(NodeIs::static_type()) {
-            ast::Cmpop::Is
+            ast::located::Cmpop::Is
         } else if _cls.is(NodeIsNot::static_type()) {
-            ast::Cmpop::IsNot
+            ast::located::Cmpop::IsNot
         } else if _cls.is(NodeIn::static_type()) {
-            ast::Cmpop::In
+            ast::located::Cmpop::In
         } else if _cls.is(NodeNotIn::static_type()) {
-            ast::Cmpop::NotIn
+            ast::located::Cmpop::NotIn
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of cmpop, but got {}",
@@ -3950,12 +3977,12 @@ impl Node for ast::Cmpop {
         })
     }
 }
-impl NamedNode for ast::Comprehension {
+impl NamedNode for ast::located::Comprehension {
     const NAME: &'static str = "comprehension";
 }
-impl Node for ast::Comprehension {
+impl Node for ast::located::Comprehension {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::Comprehension {
+        let ast::located::Comprehension {
             target,
             iter,
             ifs,
@@ -3978,7 +4005,7 @@ impl Node for ast::Comprehension {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::Comprehension {
+        Ok(ast::located::Comprehension {
             target: Node::ast_from_object(
                 _vm,
                 get_node_field(_vm, &_object, "target", "comprehension")?,
@@ -3998,17 +4025,15 @@ impl Node for ast::Comprehension {
         })
     }
 }
-impl NamedNode for ast::ExcepthandlerKind {
+impl NamedNode for ast::located::ExcepthandlerKind {
     const NAME: &'static str = "excepthandler";
 }
-impl Node for ast::ExcepthandlerKind {
+impl Node for ast::located::ExcepthandlerKind {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::ExcepthandlerKind::ExceptHandler(ast::ExcepthandlerExceptHandler {
-                type_,
-                name,
-                body,
-            }) => {
+            ast::located::ExcepthandlerKind::ExceptHandler(
+                ast::located::ExcepthandlerExceptHandler { type_, name, body },
+            ) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeExceptHandler::static_type().to_owned())
                     .unwrap();
@@ -4027,30 +4052,39 @@ impl Node for ast::ExcepthandlerKind {
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(
+        let _location = {
+            let row = try_location_field(
+                Node::ast_from_object(
+                    _vm,
+                    get_node_field(_vm, &_object, "lineno", "excepthandler")?,
+                )?,
                 _vm,
-                get_node_field(_vm, &_object, "lineno", "excepthandler")?,
-            )?,
-            Node::ast_from_object(
+            )?;
+            let column = try_location_field(
+                Node::ast_from_object(
+                    _vm,
+                    get_node_field(_vm, &_object, "col_offset", "excepthandler")?,
+                )?,
                 _vm,
-                get_node_field(_vm, &_object, "col_offset", "excepthandler")?,
-            )?,
-        );
+            )?;
+            SourceLocation { row, column }
+        };
         let _cls = _object.class();
         Ok(if _cls.is(NodeExceptHandler::static_type()) {
-            ast::ExcepthandlerKind::ExceptHandler(ast::ExcepthandlerExceptHandler {
-                type_: get_node_field_opt(_vm, &_object, "type")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                name: get_node_field_opt(_vm, &_object, "name")?
-                    .map(|obj| Node::ast_from_object(_vm, obj))
-                    .transpose()?,
-                body: Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "body", "excepthandler")?,
-                )?,
-            })
+            ast::located::ExcepthandlerKind::ExceptHandler(
+                ast::located::ExcepthandlerExceptHandler {
+                    type_: get_node_field_opt(_vm, &_object, "type")?
+                        .map(|obj| Node::ast_from_object(_vm, obj))
+                        .transpose()?,
+                    name: get_node_field_opt(_vm, &_object, "name")?
+                        .map(|obj| Node::ast_from_object(_vm, obj))
+                        .transpose()?,
+                    body: Node::ast_from_object(
+                        _vm,
+                        get_node_field(_vm, &_object, "body", "excepthandler")?,
+                    )?,
+                },
+            )
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of excepthandler, but got {}",
@@ -4059,12 +4093,12 @@ impl Node for ast::ExcepthandlerKind {
         })
     }
 }
-impl NamedNode for ast::Arguments {
+impl NamedNode for ast::located::Arguments {
     const NAME: &'static str = "arguments";
 }
-impl Node for ast::Arguments {
+impl Node for ast::located::Arguments {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::Arguments {
+        let ast::located::Arguments {
             posonlyargs,
             args,
             vararg,
@@ -4101,7 +4135,7 @@ impl Node for ast::Arguments {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::Arguments {
+        Ok(ast::located::Arguments {
             posonlyargs: Node::ast_from_object(
                 _vm,
                 get_node_field(_vm, &_object, "posonlyargs", "arguments")?,
@@ -4128,12 +4162,12 @@ impl Node for ast::Arguments {
         })
     }
 }
-impl NamedNode for ast::ArgData {
+impl NamedNode for ast::located::ArgData {
     const NAME: &'static str = "arg";
 }
-impl Node for ast::ArgData {
+impl Node for ast::located::ArgData {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::ArgData {
+        let ast::located::ArgData {
             arg,
             annotation,
             type_comment,
@@ -4152,11 +4186,18 @@ impl Node for ast::ArgData {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "arg")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "arg")?)?,
-        );
-        Ok(ast::ArgData {
+        let _location = {
+            let row = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "arg")?)?,
+                _vm,
+            )?;
+            let column = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "arg")?)?,
+                _vm,
+            )?;
+            SourceLocation { row, column }
+        };
+        Ok(ast::located::ArgData {
             arg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "arg", "arg")?)?,
             annotation: get_node_field_opt(_vm, &_object, "annotation")?
                 .map(|obj| Node::ast_from_object(_vm, obj))
@@ -4167,12 +4208,12 @@ impl Node for ast::ArgData {
         })
     }
 }
-impl NamedNode for ast::KeywordData {
+impl NamedNode for ast::located::KeywordData {
     const NAME: &'static str = "keyword";
 }
-impl Node for ast::KeywordData {
+impl Node for ast::located::KeywordData {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::KeywordData { arg, value } = self;
+        let ast::located::KeywordData { arg, value } = self;
         let _node = AstNode
             .into_ref_with_type(_vm, NodeKeyword::static_type().to_owned())
             .unwrap();
@@ -4184,11 +4225,21 @@ impl Node for ast::KeywordData {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "keyword")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "keyword")?)?,
-        );
-        Ok(ast::KeywordData {
+        let _location = {
+            let row = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "keyword")?)?,
+                _vm,
+            )?;
+            let column = try_location_field(
+                Node::ast_from_object(
+                    _vm,
+                    get_node_field(_vm, &_object, "col_offset", "keyword")?,
+                )?,
+                _vm,
+            )?;
+            SourceLocation { row, column }
+        };
+        Ok(ast::located::KeywordData {
             arg: get_node_field_opt(_vm, &_object, "arg")?
                 .map(|obj| Node::ast_from_object(_vm, obj))
                 .transpose()?,
@@ -4196,12 +4247,12 @@ impl Node for ast::KeywordData {
         })
     }
 }
-impl NamedNode for ast::AliasData {
+impl NamedNode for ast::located::AliasData {
     const NAME: &'static str = "alias";
 }
-impl Node for ast::AliasData {
+impl Node for ast::located::AliasData {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::AliasData { name, asname } = self;
+        let ast::located::AliasData { name, asname } = self;
         let _node = AstNode
             .into_ref_with_type(_vm, NodeAlias::static_type().to_owned())
             .unwrap();
@@ -4215,11 +4266,18 @@ impl Node for ast::AliasData {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "alias")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "alias")?)?,
-        );
-        Ok(ast::AliasData {
+        let _location = {
+            let row = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "alias")?)?,
+                _vm,
+            )?;
+            let column = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "alias")?)?,
+                _vm,
+            )?;
+            SourceLocation { row, column }
+        };
+        Ok(ast::located::AliasData {
             name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "alias")?)?,
             asname: get_node_field_opt(_vm, &_object, "asname")?
                 .map(|obj| Node::ast_from_object(_vm, obj))
@@ -4227,12 +4285,12 @@ impl Node for ast::AliasData {
         })
     }
 }
-impl NamedNode for ast::Withitem {
+impl NamedNode for ast::located::Withitem {
     const NAME: &'static str = "withitem";
 }
-impl Node for ast::Withitem {
+impl Node for ast::located::Withitem {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::Withitem {
+        let ast::located::Withitem {
             context_expr,
             optional_vars,
         } = self;
@@ -4249,7 +4307,7 @@ impl Node for ast::Withitem {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::Withitem {
+        Ok(ast::located::Withitem {
             context_expr: Node::ast_from_object(
                 _vm,
                 get_node_field(_vm, &_object, "context_expr", "withitem")?,
@@ -4260,12 +4318,12 @@ impl Node for ast::Withitem {
         })
     }
 }
-impl NamedNode for ast::MatchCase {
+impl NamedNode for ast::located::MatchCase {
     const NAME: &'static str = "match_case";
 }
-impl Node for ast::MatchCase {
+impl Node for ast::located::MatchCase {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::MatchCase {
+        let ast::located::MatchCase {
             pattern,
             guard,
             body,
@@ -4286,7 +4344,7 @@ impl Node for ast::MatchCase {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::MatchCase {
+        Ok(ast::located::MatchCase {
             pattern: Node::ast_from_object(
                 _vm,
                 get_node_field(_vm, &_object, "pattern", "match_case")?,
@@ -4298,13 +4356,13 @@ impl Node for ast::MatchCase {
         })
     }
 }
-impl NamedNode for ast::PatternKind {
+impl NamedNode for ast::located::PatternKind {
     const NAME: &'static str = "pattern";
 }
-impl Node for ast::PatternKind {
+impl Node for ast::located::PatternKind {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::PatternKind::MatchValue(ast::PatternMatchValue { value }) => {
+            ast::located::PatternKind::MatchValue(ast::located::PatternMatchValue { value }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMatchValue::static_type().to_owned())
                     .unwrap();
@@ -4314,7 +4372,9 @@ impl Node for ast::PatternKind {
                     .unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchSingleton(ast::PatternMatchSingleton { value }) => {
+            ast::located::PatternKind::MatchSingleton(ast::located::PatternMatchSingleton {
+                value,
+            }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMatchSingleton::static_type().to_owned())
                     .unwrap();
@@ -4324,7 +4384,9 @@ impl Node for ast::PatternKind {
                     .unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchSequence(ast::PatternMatchSequence { patterns }) => {
+            ast::located::PatternKind::MatchSequence(ast::located::PatternMatchSequence {
+                patterns,
+            }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMatchSequence::static_type().to_owned())
                     .unwrap();
@@ -4334,7 +4396,7 @@ impl Node for ast::PatternKind {
                     .unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchMapping(ast::PatternMatchMapping {
+            ast::located::PatternKind::MatchMapping(ast::located::PatternMatchMapping {
                 keys,
                 patterns,
                 rest,
@@ -4354,7 +4416,7 @@ impl Node for ast::PatternKind {
                     .unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchClass(ast::PatternMatchClass {
+            ast::located::PatternKind::MatchClass(ast::located::PatternMatchClass {
                 cls,
                 patterns,
                 kwd_attrs,
@@ -4376,7 +4438,7 @@ impl Node for ast::PatternKind {
                     .unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchStar(ast::PatternMatchStar { name }) => {
+            ast::located::PatternKind::MatchStar(ast::located::PatternMatchStar { name }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMatchStar::static_type().to_owned())
                     .unwrap();
@@ -4386,7 +4448,7 @@ impl Node for ast::PatternKind {
                     .unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchAs(ast::PatternMatchAs { pattern, name }) => {
+            ast::located::PatternKind::MatchAs(ast::located::PatternMatchAs { pattern, name }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMatchAs::static_type().to_owned())
                     .unwrap();
@@ -4399,7 +4461,7 @@ impl Node for ast::PatternKind {
                     .unwrap();
                 _node.into()
             }
-            ast::PatternKind::MatchOr(ast::PatternMatchOr { patterns }) => {
+            ast::located::PatternKind::MatchOr(ast::located::PatternMatchOr { patterns }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeMatchOr::static_type().to_owned())
                     .unwrap();
@@ -4412,34 +4474,44 @@ impl Node for ast::PatternKind {
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = ast::Location::new(
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "pattern")?)?,
-            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "pattern")?)?,
-        );
+        let _location = {
+            let row = try_location_field(
+                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "pattern")?)?,
+                _vm,
+            )?;
+            let column = try_location_field(
+                Node::ast_from_object(
+                    _vm,
+                    get_node_field(_vm, &_object, "col_offset", "pattern")?,
+                )?,
+                _vm,
+            )?;
+            SourceLocation { row, column }
+        };
         let _cls = _object.class();
         Ok(if _cls.is(NodeMatchValue::static_type()) {
-            ast::PatternKind::MatchValue(ast::PatternMatchValue {
+            ast::located::PatternKind::MatchValue(ast::located::PatternMatchValue {
                 value: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "value", "pattern")?,
                 )?,
             })
         } else if _cls.is(NodeMatchSingleton::static_type()) {
-            ast::PatternKind::MatchSingleton(ast::PatternMatchSingleton {
+            ast::located::PatternKind::MatchSingleton(ast::located::PatternMatchSingleton {
                 value: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "value", "pattern")?,
                 )?,
             })
         } else if _cls.is(NodeMatchSequence::static_type()) {
-            ast::PatternKind::MatchSequence(ast::PatternMatchSequence {
+            ast::located::PatternKind::MatchSequence(ast::located::PatternMatchSequence {
                 patterns: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "patterns", "pattern")?,
                 )?,
             })
         } else if _cls.is(NodeMatchMapping::static_type()) {
-            ast::PatternKind::MatchMapping(ast::PatternMatchMapping {
+            ast::located::PatternKind::MatchMapping(ast::located::PatternMatchMapping {
                 keys: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "keys", "pattern")?,
@@ -4453,7 +4525,7 @@ impl Node for ast::PatternKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeMatchClass::static_type()) {
-            ast::PatternKind::MatchClass(ast::PatternMatchClass {
+            ast::located::PatternKind::MatchClass(ast::located::PatternMatchClass {
                 cls: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "cls", "pattern")?)?,
                 patterns: Node::ast_from_object(
                     _vm,
@@ -4469,13 +4541,13 @@ impl Node for ast::PatternKind {
                 )?,
             })
         } else if _cls.is(NodeMatchStar::static_type()) {
-            ast::PatternKind::MatchStar(ast::PatternMatchStar {
+            ast::located::PatternKind::MatchStar(ast::located::PatternMatchStar {
                 name: get_node_field_opt(_vm, &_object, "name")?
                     .map(|obj| Node::ast_from_object(_vm, obj))
                     .transpose()?,
             })
         } else if _cls.is(NodeMatchAs::static_type()) {
-            ast::PatternKind::MatchAs(ast::PatternMatchAs {
+            ast::located::PatternKind::MatchAs(ast::located::PatternMatchAs {
                 pattern: get_node_field_opt(_vm, &_object, "pattern")?
                     .map(|obj| Node::ast_from_object(_vm, obj))
                     .transpose()?,
@@ -4484,7 +4556,7 @@ impl Node for ast::PatternKind {
                     .transpose()?,
             })
         } else if _cls.is(NodeMatchOr::static_type()) {
-            ast::PatternKind::MatchOr(ast::PatternMatchOr {
+            ast::located::PatternKind::MatchOr(ast::located::PatternMatchOr {
                 patterns: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "patterns", "pattern")?,
@@ -4498,13 +4570,16 @@ impl Node for ast::PatternKind {
         })
     }
 }
-impl NamedNode for ast::TypeIgnore {
+impl NamedNode for ast::located::TypeIgnore {
     const NAME: &'static str = "type_ignore";
 }
-impl Node for ast::TypeIgnore {
+impl Node for ast::located::TypeIgnore {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::TypeIgnore::TypeIgnore(ast::TypeIgnoreTypeIgnore { lineno, tag }) => {
+            ast::located::TypeIgnore::TypeIgnore(ast::located::TypeIgnoreTypeIgnore {
+                lineno,
+                tag,
+            }) => {
                 let _node = AstNode
                     .into_ref_with_type(_vm, NodeTypeIgnore::static_type().to_owned())
                     .unwrap();
@@ -4520,7 +4595,7 @@ impl Node for ast::TypeIgnore {
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(NodeTypeIgnore::static_type()) {
-            ast::TypeIgnore::TypeIgnore(ast::TypeIgnoreTypeIgnore {
+            ast::located::TypeIgnore::TypeIgnore(ast::located::TypeIgnoreTypeIgnore {
                 lineno: Node::ast_from_object(
                     _vm,
                     get_node_field(_vm, &_object, "lineno", "type_ignore")?,

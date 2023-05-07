@@ -215,6 +215,9 @@ mod decl {
             marshal::MarshalError::InvalidUtf8 => {
                 vm.new_value_error("invalid utf8 in marshalled string".to_owned())
             }
+            marshal::MarshalError::InvalidLocation => {
+                vm.new_value_error("invalid location in marshalled object".to_owned())
+            }
             marshal::MarshalError::BadType => {
                 vm.new_value_error("bad marshal data (unknown type code)".to_owned())
             }

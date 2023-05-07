@@ -2,8 +2,8 @@ use std::ops;
 
 use crate::IndexSet;
 use rustpython_compiler_core::{
-    CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label,
-    Location, OpArg,
+    source_code::SourceLocation, CodeFlags, CodeObject, CodeUnit, ConstantData,
+    InstrDisplayContext, Instruction, Label, LineNumber, OpArg,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -42,7 +42,7 @@ pub struct InstructionInfo {
     pub instr: Instruction,
     pub arg: OpArg,
     pub target: BlockIdx,
-    pub location: Location,
+    pub location: SourceLocation,
 }
 
 // spell-checker:ignore petgraph
@@ -68,7 +68,7 @@ pub struct CodeInfo {
     pub arg_count: u32,
     pub kwonlyarg_count: u32,
     pub source_path: String,
-    pub first_line_number: u32,
+    pub first_line_number: LineNumber,
     pub obj_name: String, // Name of the object that created this code object
 
     pub blocks: Vec<Block>,

@@ -10,14 +10,21 @@ use crate::{
     class::{PyClassImpl, StaticType},
     compiler::CompileError,
     convert::ToPyException,
+    source::try_location_field,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
-use rustpython_ast as ast;
+use rustpython_ast::{
+    self as ast,
+    fold::Fold,
+    location::{SourceLocation, SourceRange},
+    SourceLocator,
+};
 #[cfg(feature = "rustpython-codegen")]
 use rustpython_codegen as codegen;
+use rustpython_compiler_core::text_size::{TextRange, TextSize};
 #[cfg(feature = "rustpython-parser")]
 use rustpython_parser as parser;
 
@@ -144,35 +151,45 @@ impl<T: Node> Node for Option<T> {
     }
 }
 
-impl<T: NamedNode> Node for ast::Located<T> {
+impl<T: NamedNode> Node for ast::located::Located<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let location = self.location();
+        let end_location = self.end_location();
         let obj = self.node.ast_to_object(vm);
-        node_add_location(&obj, self.location, self.end_location, vm);
+        node_add_location(&obj, location, end_location, vm);
         obj
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        let location = ast::Location::new(
-            Node::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?,
-            Node::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?,
-        );
-        let end_location = if let (Some(end_lineno), Some(end_col_offset)) = (
-            get_node_field_opt(vm, &object, "end_lineno")?
-                .map(|obj| Node::ast_from_object(vm, obj))
-                .transpose()?,
-            get_node_field_opt(vm, &object, "end_col_offset")?
-                .map(|obj| Node::ast_from_object(vm, obj))
-                .transpose()?,
-        ) {
-            Some(ast::Location::new(end_lineno, end_col_offset))
+        let row = Node::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?;
+        let column =
+            Node::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?;
+        let location = SourceLocation {
+            row: try_location_field(row, vm)?,
+            column: try_location_field(column, vm)?,
+        };
+        let end_row = get_node_field_opt(vm, &object, "end_lineno")?
+            .map(|obj| Node::ast_from_object(vm, obj))
+            .transpose()?;
+        let end_column = get_node_field_opt(vm, &object, "end_col_offset")?
+            .map(|obj| Node::ast_from_object(vm, obj))
+            .transpose()?;
+        let end_location = if let (Some(row), Some(column)) = (end_row, end_column) {
+            let location = SourceLocation {
+                row: try_location_field(row, vm)?,
+                column: try_location_field(column, vm)?,
+            };
+            Some(location)
         } else {
             None
         };
         let node = T::ast_from_object(vm, object)?;
-        Ok(ast::Located {
-            location,
-            end_location,
-            custom: (),
+        Ok(ast::located::Located {
+            range: TextRange::empty(TextSize::new(0)),
+            custom: SourceRange {
+                start: location,
+                end: end_location,
+            },
             node,
         })
     }
@@ -180,21 +197,29 @@ impl<T: NamedNode> Node for ast::Located<T> {
 
 fn node_add_location(
     node: &PyObject,
-    location: ast::Location,
-    end_location: Option<ast::Location>,
+    location: SourceLocation,
+    end_location: Option<SourceLocation>,
     vm: &VirtualMachine,
 ) {
     let dict = node.dict().unwrap();
-    dict.set_item("lineno", vm.ctx.new_int(location.row()).into(), vm)
+    dict.set_item("lineno", vm.ctx.new_int(location.row.get()).into(), vm)
         .unwrap();
-    dict.set_item("col_offset", vm.ctx.new_int(location.column()).into(), vm)
-        .unwrap();
+    dict.set_item(
+        "col_offset",
+        vm.ctx.new_int(location.column.get()).into(),
+        vm,
+    )
+    .unwrap();
     if let Some(end_location) = end_location {
-        dict.set_item("end_lineno", vm.ctx.new_int(end_location.row()).into(), vm)
-            .unwrap();
+        dict.set_item(
+            "end_lineno",
+            vm.ctx.new_int(end_location.row.get()).into(),
+            vm,
+        )
+        .unwrap();
         dict.set_item(
             "end_col_offset",
-            vm.ctx.new_int(end_location.column()).into(),
+            vm.ctx.new_int(end_location.column.get()).into(),
             vm,
         )
         .unwrap();
@@ -307,7 +332,9 @@ pub(crate) fn parse(
     source: &str,
     mode: parser::Mode,
 ) -> Result<PyObjectRef, CompileError> {
-    let top = parser::parse(source, mode, "<unknown>").map_err(CompileError::from)?;
+    let mut locator = SourceLocator::new(source);
+    let top = parser::parse(source, mode, "<unknown>").map_err(|e| e.into_located(&mut locator))?;
+    let top = locator.fold_mod(top).unwrap();
     Ok(top.ast_to_object(vm))
 }
 

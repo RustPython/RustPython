@@ -20,6 +20,7 @@ use crate::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
+use rustpython_compiler_core::source_code::SourceLocation;
 use std::fmt;
 use std::iter::zip;
 #[cfg(feature = "threading")]
@@ -165,7 +166,7 @@ impl Frame {
         }
     }
 
-    pub fn current_location(&self) -> bytecode::Location {
+    pub fn current_location(&self) -> SourceLocation {
         self.code.locations[self.lasti() as usize - 1]
     }
 
@@ -376,12 +377,8 @@ impl ExecutingFrame<'_> {
 
                         let loc = frame.code.locations[idx];
                         let next = exception.traceback();
-                        let new_traceback = PyTraceback::new(
-                            next,
-                            frame.object.to_owned(),
-                            frame.lasti(),
-                            loc.row(),
-                        );
+                        let new_traceback =
+                            PyTraceback::new(next, frame.object.to_owned(), frame.lasti(), loc.row);
                         vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
                         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
 

@@ -18,8 +18,8 @@ use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
 use rustpython_compiler_core::{
-    self as bytecode, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, Location, OpArg,
-    OpArgType,
+    self as bytecode, source_code::SourceLocation, Arg as OpArgMarker, CodeObject, ConstantData,
+    Instruction, LineNumber, OpArg, OpArgType,
 };
 use std::borrow::Cow;
 
@@ -52,7 +52,7 @@ struct Compiler {
     code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
     source_path: String,
-    current_source_location: Location,
+    current_source_location: SourceLocation,
     qualified_path: Vec<String>,
     done_with_future_stmts: bool,
     future_annotations: bool,
@@ -90,7 +90,7 @@ impl CompileContext {
 
 /// Compile an ast::Mod produced from rustpython_parser::parse()
 pub fn compile_top(
-    ast: &ast::Mod,
+    ast: &ast::located::Mod,
     source_path: String,
     mode: Mode,
     opts: CompileOpts,
@@ -131,7 +131,7 @@ fn compile_impl<Ast: ?Sized>(
 
 /// Compile a standard Python program to bytecode
 pub fn compile_program(
-    ast: &[ast::Stmt],
+    ast: &[ast::located::Stmt],
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
@@ -146,7 +146,7 @@ pub fn compile_program(
 
 /// Compile a Python program to bytecode for the context of a REPL
 pub fn compile_program_single(
-    ast: &[ast::Stmt],
+    ast: &[ast::located::Stmt],
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
@@ -160,7 +160,7 @@ pub fn compile_program_single(
 }
 
 pub fn compile_block_expression(
-    ast: &[ast::Stmt],
+    ast: &[ast::located::Stmt],
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
@@ -174,7 +174,7 @@ pub fn compile_block_expression(
 }
 
 pub fn compile_expression(
-    ast: &ast::Expr,
+    ast: &ast::located::Expr,
     source_path: String,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
@@ -210,7 +210,7 @@ impl Compiler {
             arg_count: 0,
             kwonlyarg_count: 0,
             source_path: source_path.clone(),
-            first_line_number: 0,
+            first_line_number: LineNumber::MIN,
             obj_name: code_name,
 
             blocks: vec![ir::Block::default()],
@@ -225,7 +225,7 @@ impl Compiler {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
             source_path,
-            current_source_location: Location::default(),
+            current_source_location: SourceLocation::MIN,
             qualified_path: Vec::new(),
             done_with_future_stmts: false,
             future_annotations: false,
@@ -239,13 +239,13 @@ impl Compiler {
         }
     }
 
-    fn error(&self, error: CodegenErrorType) -> CodegenError {
+    fn error(&mut self, error: CodegenErrorType) -> CodegenError {
         self.error_loc(error, self.current_source_location)
     }
-    fn error_loc(&self, error: CodegenErrorType, location: Location) -> CodegenError {
+    fn error_loc(&mut self, error: CodegenErrorType, location: SourceLocation) -> CodegenError {
         CodegenError {
             error,
-            location,
+            location: Some(location),
             source_path: self.source_path.clone(),
         }
     }
@@ -342,7 +342,7 @@ impl Compiler {
 
     fn compile_program(
         &mut self,
-        body: &[ast::Stmt],
+        body: &[ast::located::Stmt],
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
         let size_before = self.code_stack.len();
@@ -371,7 +371,7 @@ impl Compiler {
 
     fn compile_program_single(
         &mut self,
-        body: &[ast::Stmt],
+        body: &[ast::located::Stmt],
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
@@ -404,7 +404,7 @@ impl Compiler {
 
     fn compile_block_expr(
         &mut self,
-        body: &[ast::Stmt],
+        body: &[ast::located::Stmt],
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
@@ -434,7 +434,7 @@ impl Compiler {
     // Compile statement in eval mode:
     fn compile_eval(
         &mut self,
-        expression: &ast::Expr,
+        expression: &ast::located::Expr,
         symbol_table: SymbolTable,
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
@@ -443,7 +443,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_statements(&mut self, statements: &[ast::Stmt]) -> CompileResult<()> {
+    fn compile_statements(&mut self, statements: &[ast::located::Stmt]) -> CompileResult<()> {
         for statement in statements {
             self.compile_statement(statement)?
         }
@@ -462,7 +462,7 @@ impl Compiler {
         symboltable::mangle_name(self.class_name.as_deref(), name)
     }
 
-    fn check_forbidden_name(&self, name: &str, usage: NameUsage) -> CompileResult<()> {
+    fn check_forbidden_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
         let msg = match usage {
             NameUsage::Store if is_forbidden_name(name) => "cannot assign to",
             NameUsage::Delete if is_forbidden_name(name) => "cannot delete",
@@ -554,9 +554,9 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
+    fn compile_statement(&mut self, statement: &ast::located::Stmt) -> CompileResult<()> {
         trace!("Compiling {:?}", statement);
-        self.set_source_location(statement.start());
+        self.set_source_location(statement.location());
         use ast::{StmtKind::*, *};
 
         match &statement.node {
@@ -602,9 +602,10 @@ impl Compiler {
 
                 let from_list = if import_star {
                     if self.ctx.in_func() {
-                        return Err(
-                            self.error_loc(CodegenErrorType::FunctionImportStar, statement.start())
-                        );
+                        return Err(self.error_loc(
+                            CodegenErrorType::FunctionImportStar,
+                            statement.location(),
+                        ));
                     }
                     vec![ConstantData::Str {
                         value: "*".to_owned(),
@@ -805,7 +806,9 @@ impl Compiler {
                     emit!(self, Instruction::Break { target: end });
                 }
                 None => {
-                    return Err(self.error_loc(CodegenErrorType::InvalidBreak, statement.start()));
+                    return Err(
+                        self.error_loc(CodegenErrorType::InvalidBreak, statement.location())
+                    );
                 }
             },
             Continue => match self.ctx.loop_data {
@@ -814,13 +817,15 @@ impl Compiler {
                 }
                 None => {
                     return Err(
-                        self.error_loc(CodegenErrorType::InvalidContinue, statement.start())
+                        self.error_loc(CodegenErrorType::InvalidContinue, statement.location())
                     );
                 }
             },
             Return(StmtReturn { value }) => {
                 if !self.ctx.in_func() {
-                    return Err(self.error_loc(CodegenErrorType::InvalidReturn, statement.start()));
+                    return Err(
+                        self.error_loc(CodegenErrorType::InvalidReturn, statement.location())
+                    );
                 }
                 match value {
                     Some(v) => {
@@ -830,8 +835,10 @@ impl Compiler {
                                 .flags
                                 .contains(bytecode::CodeFlags::IS_GENERATOR)
                         {
-                            return Err(self
-                                .error_loc(CodegenErrorType::AsyncReturnValue, statement.start()));
+                            return Err(self.error_loc(
+                                CodegenErrorType::AsyncReturnValue,
+                                statement.location(),
+                            ));
                         }
                         self.compile_expression(v)?;
                     }
@@ -873,7 +880,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_delete(&mut self, expression: &ast::Expr) -> CompileResult<()> {
+    fn compile_delete(&mut self, expression: &ast::located::Expr) -> CompileResult<()> {
         match &expression.node {
             ast::ExprKind::Name(ast::ExprName { id, .. }) => {
                 self.compile_name(id, NameUsage::Delete)?
@@ -907,7 +914,7 @@ impl Compiler {
     fn enter_function(
         &mut self,
         name: &str,
-        args: &ast::Arguments,
+        args: &ast::located::Arguments,
     ) -> CompileResult<bytecode::MakeFunctionFlags> {
         let have_defaults = !args.defaults.is_empty();
         if have_defaults {
@@ -974,14 +981,14 @@ impl Compiler {
         Ok(func_flags)
     }
 
-    fn prepare_decorators(&mut self, decorator_list: &[ast::Expr]) -> CompileResult<()> {
+    fn prepare_decorators(&mut self, decorator_list: &[ast::located::Expr]) -> CompileResult<()> {
         for decorator in decorator_list {
             self.compile_expression(decorator)?;
         }
         Ok(())
     }
 
-    fn apply_decorators(&mut self, decorator_list: &[ast::Expr]) {
+    fn apply_decorators(&mut self, decorator_list: &[ast::located::Expr]) {
         // Apply decorators:
         for _ in decorator_list {
             emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
@@ -990,10 +997,10 @@ impl Compiler {
 
     fn compile_try_statement(
         &mut self,
-        body: &[ast::Stmt],
-        handlers: &[ast::Excepthandler],
-        orelse: &[ast::Stmt],
-        finalbody: &[ast::Stmt],
+        body: &[ast::located::Stmt],
+        handlers: &[ast::located::Excepthandler],
+        orelse: &[ast::located::Stmt],
+        finalbody: &[ast::located::Stmt],
     ) -> CompileResult<()> {
         let handler_block = self.new_block();
         let finally_block = self.new_block();
@@ -1122,10 +1129,10 @@ impl Compiler {
 
     fn compile_try_star_statement(
         &mut self,
-        _body: &[ast::Stmt],
-        _handlers: &[ast::Excepthandler],
-        _orelse: &[ast::Stmt],
-        _finalbody: &[ast::Stmt],
+        _body: &[ast::located::Stmt],
+        _handlers: &[ast::located::Excepthandler],
+        _orelse: &[ast::located::Stmt],
+        _finalbody: &[ast::located::Stmt],
     ) -> CompileResult<()> {
         Err(self.error(CodegenErrorType::NotImplementedYet))
     }
@@ -1137,10 +1144,10 @@ impl Compiler {
     fn compile_function_def(
         &mut self,
         name: &str,
-        args: &ast::Arguments,
-        body: &[ast::Stmt],
-        decorator_list: &[ast::Expr],
-        returns: Option<&ast::Expr>, // TODO: use type hint somehow..
+        args: &ast::located::Arguments,
+        body: &[ast::located::Stmt],
+        decorator_list: &[ast::located::Expr],
+        returns: Option<&ast::located::Expr>, // TODO: use type hint somehow..
         is_async: bool,
     ) -> CompileResult<()> {
         // Create bytecode for this function:
@@ -1295,7 +1302,7 @@ impl Compiler {
     }
 
     // Python/compile.c find_ann
-    fn find_ann(body: &[ast::Stmt]) -> bool {
+    fn find_ann(body: &[ast::located::Stmt]) -> bool {
         use ast::StmtKind::*;
 
         for statement in body {
@@ -1329,10 +1336,10 @@ impl Compiler {
     fn compile_class_def(
         &mut self,
         name: &str,
-        body: &[ast::Stmt],
-        bases: &[ast::Expr],
-        keywords: &[ast::Keyword],
-        decorator_list: &[ast::Expr],
+        body: &[ast::located::Stmt],
+        bases: &[ast::located::Expr],
+        keywords: &[ast::located::Keyword],
+        decorator_list: &[ast::located::Expr],
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
@@ -1448,9 +1455,9 @@ impl Compiler {
 
     fn compile_while(
         &mut self,
-        test: &ast::Expr,
-        body: &[ast::Stmt],
-        orelse: &[ast::Stmt],
+        test: &ast::located::Expr,
+        body: &[ast::located::Stmt],
+        orelse: &[ast::located::Stmt],
     ) -> CompileResult<()> {
         let while_block = self.new_block();
         let else_block = self.new_block();
@@ -1479,8 +1486,8 @@ impl Compiler {
 
     fn compile_with(
         &mut self,
-        items: &[ast::Withitem],
-        body: &[ast::Stmt],
+        items: &[ast::located::Withitem],
+        body: &[ast::located::Stmt],
         is_async: bool,
     ) -> CompileResult<()> {
         let with_location = self.current_source_location;
@@ -1506,7 +1513,7 @@ impl Compiler {
 
             match &item.optional_vars {
                 Some(var) => {
-                    self.set_source_location(var.start());
+                    self.set_source_location(var.location());
                     self.compile_store(var)?;
                 }
                 None => {
@@ -1549,10 +1556,10 @@ impl Compiler {
 
     fn compile_for(
         &mut self,
-        target: &ast::Expr,
-        iter: &ast::Expr,
-        body: &[ast::Stmt],
-        orelse: &[ast::Stmt],
+        target: &ast::located::Expr,
+        iter: &ast::located::Expr,
+        body: &[ast::located::Stmt],
+        orelse: &[ast::located::Stmt],
         is_async: bool,
     ) -> CompileResult<()> {
         // Start loop
@@ -1610,8 +1617,8 @@ impl Compiler {
 
     fn compile_match(
         &mut self,
-        subject: &ast::Expr,
-        cases: &[ast::MatchCase],
+        subject: &ast::located::Expr,
+        cases: &[ast::located::MatchCase],
     ) -> CompileResult<()> {
         eprintln!("match subject: {subject:?}");
         eprintln!("match cases: {cases:?}");
@@ -1620,9 +1627,9 @@ impl Compiler {
 
     fn compile_chained_comparison(
         &mut self,
-        left: &ast::Expr,
+        left: &ast::located::Expr,
         ops: &[ast::Cmpop],
-        exprs: &[ast::Expr],
+        exprs: &[ast::located::Expr],
     ) -> CompileResult<()> {
         assert!(!ops.is_empty());
         assert_eq!(exprs.len(), ops.len());
@@ -1706,7 +1713,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_annotation(&mut self, annotation: &ast::Expr) -> CompileResult<()> {
+    fn compile_annotation(&mut self, annotation: &ast::located::Expr) -> CompileResult<()> {
         if self.future_annotations {
             self.emit_constant(ConstantData::Str {
                 value: annotation.to_string(),
@@ -1719,9 +1726,9 @@ impl Compiler {
 
     fn compile_annotated_assign(
         &mut self,
-        target: &ast::Expr,
-        annotation: &ast::Expr,
-        value: Option<&ast::Expr>,
+        target: &ast::located::Expr,
+        annotation: &ast::located::Expr,
+        value: Option<&ast::located::Expr>,
     ) -> CompileResult<()> {
         if let Some(value) = value {
             self.compile_expression(value)?;
@@ -1752,7 +1759,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_store(&mut self, target: &ast::Expr) -> CompileResult<()> {
+    fn compile_store(&mut self, target: &ast::located::Expr) -> CompileResult<()> {
         match &target.node {
             ast::ExprKind::Name(ast::ExprName { id, .. }) => self.store_name(id)?,
             ast::ExprKind::Subscript(ast::ExprSubscript { value, slice, .. }) => {
@@ -1783,7 +1790,7 @@ impl Compiler {
                                 .ok_or_else(|| {
                                     self.error_loc(
                                         CodegenErrorType::TooManyStarUnpack,
-                                        target.start(),
+                                        target.location(),
                                     )
                                 })?;
                             let args = bytecode::UnpackExArgs { before, after };
@@ -1824,9 +1831,9 @@ impl Compiler {
 
     fn compile_augassign(
         &mut self,
-        target: &ast::Expr,
+        target: &ast::located::Expr,
         op: &ast::Operator,
-        value: &ast::Expr,
+        value: &ast::located::Expr,
     ) -> CompileResult<()> {
         enum AugAssignKind<'a> {
             Name { id: &'a str },
@@ -1915,7 +1922,7 @@ impl Compiler {
     /// (indicated by the condition parameter).
     fn compile_jump_if(
         &mut self,
-        expression: &ast::Expr,
+        expression: &ast::located::Expr,
         condition: bool,
         target_block: ir::BlockIdx,
     ) -> CompileResult<()> {
@@ -1998,7 +2005,11 @@ impl Compiler {
 
     /// Compile a boolean operation as an expression.
     /// This means, that the last value remains on the stack.
-    fn compile_bool_op(&mut self, op: &ast::Boolop, values: &[ast::Expr]) -> CompileResult<()> {
+    fn compile_bool_op(
+        &mut self,
+        op: &ast::Boolop,
+        values: &[ast::located::Expr],
+    ) -> CompileResult<()> {
         let after_block = self.new_block();
 
         let (last_value, values) = values.split_last().unwrap();
@@ -2033,8 +2044,8 @@ impl Compiler {
 
     fn compile_dict(
         &mut self,
-        keys: &[Option<ast::Expr>],
-        values: &[ast::Expr],
+        keys: &[Option<ast::located::Expr>],
+        values: &[ast::located::Expr],
     ) -> CompileResult<()> {
         let mut size = 0;
         let (packed, unpacked): (Vec<_>, Vec<_>) = keys
@@ -2056,9 +2067,10 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
+    fn compile_expression(&mut self, expression: &ast::located::Expr) -> CompileResult<()> {
         trace!("Compiling {:?}", expression);
-        self.set_source_location(expression.start());
+        let location = expression.location();
+        self.set_source_location(location);
 
         use ast::ExprKind::*;
         match &expression.node {
@@ -2135,7 +2147,7 @@ impl Compiler {
                 self.compile_dict(keys, values)?;
             }
             Slice(ast::ExprSlice { lower, upper, step }) => {
-                let mut compile_bound = |bound: Option<&ast::Expr>| match bound {
+                let mut compile_bound = |bound: Option<&ast::located::Expr>| match bound {
                     Some(exp) => self.compile_expression(exp),
                     None => {
                         self.emit_constant(ConstantData::None);
@@ -2362,7 +2374,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_keywords(&mut self, keywords: &[ast::Keyword]) -> CompileResult<()> {
+    fn compile_keywords(&mut self, keywords: &[ast::located::Keyword]) -> CompileResult<()> {
         let mut size = 0;
         let groupby = keywords.iter().group_by(|e| e.node.arg.is_none());
         for (is_unpacking, sub_keywords) in &groupby {
@@ -2394,9 +2406,9 @@ impl Compiler {
 
     fn compile_call(
         &mut self,
-        func: &ast::Expr,
-        args: &[ast::Expr],
-        keywords: &[ast::Keyword],
+        func: &ast::located::Expr,
+        args: &[ast::located::Expr],
+        keywords: &[ast::located::Keyword],
     ) -> CompileResult<()> {
         let method =
             if let ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, .. }) = &func.node {
@@ -2439,8 +2451,8 @@ impl Compiler {
     fn compile_call_inner(
         &mut self,
         additional_positional: u32,
-        args: &[ast::Expr],
-        keywords: &[ast::Keyword],
+        args: &[ast::located::Expr],
+        keywords: &[ast::located::Keyword],
     ) -> CompileResult<CallType> {
         let count = (args.len() + keywords.len()).to_u32() + additional_positional;
 
@@ -2498,7 +2510,7 @@ impl Compiler {
     fn gather_elements(
         &mut self,
         before: u32,
-        elements: &[ast::Expr],
+        elements: &[ast::located::Expr],
     ) -> CompileResult<(u32, bool)> {
         // First determine if we have starred elements:
         let has_stars = elements
@@ -2549,7 +2561,7 @@ impl Compiler {
         Ok((size, has_stars))
     }
 
-    fn compile_comprehension_element(&mut self, element: &ast::Expr) -> CompileResult<()> {
+    fn compile_comprehension_element(&mut self, element: &ast::located::Expr) -> CompileResult<()> {
         self.compile_expression(element).map_err(|e| {
             if let CodegenErrorType::InvalidStarExpr = e.error {
                 self.error(CodegenErrorType::SyntaxError(
@@ -2565,7 +2577,7 @@ impl Compiler {
         &mut self,
         name: &str,
         init_collection: Option<Instruction>,
-        generators: &[ast::Comprehension],
+        generators: &[ast::located::Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
@@ -2684,7 +2696,10 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_future_features(&mut self, features: &[ast::Alias]) -> Result<(), CodegenError> {
+    fn compile_future_features(
+        &mut self,
+        features: &[ast::located::Alias],
+    ) -> Result<(), CodegenError> {
         if self.done_with_future_stmts {
             return Err(self.error(CodegenErrorType::InvalidFuturePlacement));
         }
@@ -2705,7 +2720,7 @@ impl Compiler {
 
     // Low level helper functions:
     fn _emit(&mut self, instr: Instruction, arg: OpArg, target: ir::BlockIdx) {
-        let location = compile_location(&self.current_source_location);
+        let location = self.current_source_location;
         // TODO: insert source filename
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,
@@ -2770,12 +2785,13 @@ impl Compiler {
         code.current_block = block;
     }
 
-    fn set_source_location(&mut self, location: Location) {
+    fn set_source_location(&mut self, location: SourceLocation) {
         self.current_source_location = location;
     }
 
-    fn get_source_line_number(&self) -> u32 {
-        self.current_source_location.row().to_u32()
+    fn get_source_line_number(&mut self) -> LineNumber {
+        let location = self.current_source_location;
+        location.row
     }
 
     fn push_qualified_path(&mut self, name: &str) {
@@ -2811,7 +2827,7 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
     }
 }
 
-fn split_doc(body: &[ast::Stmt]) -> (Option<String>, &[ast::Stmt]) {
+fn split_doc(body: &[ast::located::Stmt]) -> (Option<String>, &[ast::located::Stmt]) {
     if let Some((val, body_rest)) = body.split_first() {
         if let ast::StmtKind::Expr(ast::StmtExpr { value }) = &val.node {
             if let Some(doc) = try_get_constant_string(std::slice::from_ref(value)) {
@@ -2822,8 +2838,8 @@ fn split_doc(body: &[ast::Stmt]) -> (Option<String>, &[ast::Stmt]) {
     (None, body)
 }
 
-fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {
-    fn get_constant_string_inner(out_string: &mut String, value: &ast::Expr) -> bool {
+fn try_get_constant_string(values: &[ast::located::Expr]) -> Option<String> {
+    fn get_constant_string_inner(out_string: &mut String, value: &ast::located::Expr) -> bool {
         match &value.node {
             ast::ExprKind::Constant(ast::ExprConstant {
                 value: ast::Constant::Str(s),
@@ -2847,10 +2863,6 @@ fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {
     } else {
         None
     }
-}
-
-fn compile_location(location: &Location) -> bytecode::Location {
-    bytecode::Location::new(location.row(), location.column())
 }
 
 fn compile_constant(value: &ast::Constant) -> ConstantData {
@@ -2892,6 +2904,7 @@ mod tests {
             CompileOpts::default(),
             "source_path".to_owned(),
             "<module>".to_owned(),
+            source,
         );
         let ast = parser::parse_program(source, "<test>").unwrap();
         let symbol_scope = SymbolTable::scan_program(&ast).unwrap();
