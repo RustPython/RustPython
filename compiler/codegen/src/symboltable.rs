@@ -634,9 +634,9 @@ impl SymbolTableBuilder {
     }
 
     fn scan_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
-        use ast::StmtKind::*;
+        use ast::{StmtKind::*, *};
         let location = statement.start();
-        if let ImportFrom { module, names, .. } = &statement.node {
+        if let ImportFrom(StmtImportFrom { module, names, .. }) = &statement.node {
             if module.as_deref() == Some("__future__") {
                 for feature in names {
                     if feature.node.name == "annotations" {
@@ -646,32 +646,32 @@ impl SymbolTableBuilder {
             }
         }
         match &statement.node {
-            Global { names } => {
+            Global(StmtGlobal { names }) => {
                 for name in names {
                     self.register_name(name, SymbolUsage::Global, location)?;
                 }
             }
-            Nonlocal { names } => {
+            Nonlocal(StmtNonlocal { names }) => {
                 for name in names {
                     self.register_name(name, SymbolUsage::Nonlocal, location)?;
                 }
             }
-            FunctionDef {
+            FunctionDef(StmtFunctionDef {
                 name,
                 body,
                 args,
                 decorator_list,
                 returns,
                 ..
-            }
-            | AsyncFunctionDef {
+            })
+            | AsyncFunctionDef(StmtAsyncFunctionDef {
                 name,
                 body,
                 args,
                 decorator_list,
                 returns,
                 ..
-            } => {
+            }) => {
                 self.scan_expressions(decorator_list, ExpressionContext::Load)?;
                 self.register_name(name, SymbolUsage::Assigned, location)?;
                 if let Some(expression) = returns {
@@ -681,13 +681,13 @@ impl SymbolTableBuilder {
                 self.scan_statements(body)?;
                 self.leave_scope();
             }
-            ClassDef {
+            ClassDef(StmtClassDef {
                 name,
                 body,
                 bases,
                 keywords,
                 decorator_list,
-            } => {
+            }) => {
                 self.enter_scope(name, SymbolTableType::Class, location.row());
                 let prev_class = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
                 self.register_name("__module__", SymbolUsage::Assigned, location)?;
@@ -704,32 +704,32 @@ impl SymbolTableBuilder {
                 self.scan_expressions(decorator_list, ExpressionContext::Load)?;
                 self.register_name(name, SymbolUsage::Assigned, location)?;
             }
-            Expr { value } => self.scan_expression(value, ExpressionContext::Load)?,
-            If { test, body, orelse } => {
+            Expr(StmtExpr { value }) => self.scan_expression(value, ExpressionContext::Load)?,
+            If(StmtIf { test, body, orelse }) => {
                 self.scan_expression(test, ExpressionContext::Load)?;
                 self.scan_statements(body)?;
                 self.scan_statements(orelse)?;
             }
-            For {
+            For(StmtFor {
                 target,
                 iter,
                 body,
                 orelse,
                 ..
-            }
-            | AsyncFor {
+            })
+            | AsyncFor(StmtAsyncFor {
                 target,
                 iter,
                 body,
                 orelse,
                 ..
-            } => {
+            }) => {
                 self.scan_expression(target, ExpressionContext::Store)?;
                 self.scan_expression(iter, ExpressionContext::Load)?;
                 self.scan_statements(body)?;
                 self.scan_statements(orelse)?;
             }
-            While { test, body, orelse } => {
+            While(StmtWhile { test, body, orelse }) => {
                 self.scan_expression(test, ExpressionContext::Load)?;
                 self.scan_statements(body)?;
                 self.scan_statements(orelse)?;
@@ -737,7 +737,7 @@ impl SymbolTableBuilder {
             Break | Continue | Pass => {
                 // No symbols here.
             }
-            Import { names } | ImportFrom { names, .. } => {
+            Import(StmtImport { names }) | ImportFrom(StmtImportFrom { names, .. }) => {
                 for name in names {
                     if let Some(alias) = &name.node.asname {
                         // `import my_module as my_alias`
@@ -752,37 +752,37 @@ impl SymbolTableBuilder {
                     }
                 }
             }
-            Return { value } => {
+            Return(StmtReturn { value }) => {
                 if let Some(expression) = value {
                     self.scan_expression(expression, ExpressionContext::Load)?;
                 }
             }
-            Assert { test, msg } => {
+            Assert(StmtAssert { test, msg }) => {
                 self.scan_expression(test, ExpressionContext::Load)?;
                 if let Some(expression) = msg {
                     self.scan_expression(expression, ExpressionContext::Load)?;
                 }
             }
-            Delete { targets } => {
+            Delete(StmtDelete { targets }) => {
                 self.scan_expressions(targets, ExpressionContext::Delete)?;
             }
-            Assign { targets, value, .. } => {
+            Assign(StmtAssign { targets, value, .. }) => {
                 self.scan_expressions(targets, ExpressionContext::Store)?;
                 self.scan_expression(value, ExpressionContext::Load)?;
             }
-            AugAssign { target, value, .. } => {
+            AugAssign(StmtAugAssign { target, value, .. }) => {
                 self.scan_expression(target, ExpressionContext::Store)?;
                 self.scan_expression(value, ExpressionContext::Load)?;
             }
-            AnnAssign {
+            AnnAssign(StmtAnnAssign {
                 target,
                 annotation,
                 value,
                 simple,
-            } => {
+            }) => {
                 // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
                 match &target.node {
-                    ast::ExprKind::Name { id, .. } if *simple > 0 => {
+                    ast::ExprKind::Name(ast::ExprName { id, .. }) if *simple > 0 => {
                         self.register_name(id, SymbolUsage::AnnotationAssigned, location)?;
                     }
                     _ => {
@@ -794,7 +794,7 @@ impl SymbolTableBuilder {
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }
             }
-            With { items, body, .. } | AsyncWith { items, body, .. } => {
+            With(StmtWith { items, body, .. }) | AsyncWith(StmtAsyncWith { items, body, .. }) => {
                 for item in items {
                     self.scan_expression(&item.context_expr, ExpressionContext::Load)?;
                     if let Some(expression) = &item.optional_vars {
@@ -803,21 +803,25 @@ impl SymbolTableBuilder {
                 }
                 self.scan_statements(body)?;
             }
-            Try {
+            Try(StmtTry {
                 body,
                 handlers,
                 orelse,
                 finalbody,
-            }
-            | TryStar {
+            })
+            | TryStar(StmtTryStar {
                 body,
                 handlers,
                 orelse,
                 finalbody,
-            } => {
+            }) => {
                 self.scan_statements(body)?;
                 for handler in handlers {
-                    let ast::ExcepthandlerKind::ExceptHandler { type_, name, body } = &handler.node;
+                    let ast::ExcepthandlerKind::ExceptHandler(ast::ExcepthandlerExceptHandler {
+                        type_,
+                        name,
+                        body,
+                    }) = &handler.node;
                     if let Some(expression) = type_ {
                         self.scan_expression(expression, ExpressionContext::Load)?;
                     }
@@ -829,16 +833,16 @@ impl SymbolTableBuilder {
                 self.scan_statements(orelse)?;
                 self.scan_statements(finalbody)?;
             }
-            Match {
+            Match(StmtMatch {
                 subject: _,
                 cases: _,
-            } => {
+            }) => {
                 return Err(SymbolTableError {
                     error: "match expression is not implemented yet".to_owned(),
                     location: Location::default(),
                 });
             }
-            Raise { exc, cause } => {
+            Raise(StmtRaise { exc, cause }) => {
                 if let Some(expression) = exc {
                     self.scan_expression(expression, ExpressionContext::Load)?;
                 }
@@ -866,30 +870,30 @@ impl SymbolTableBuilder {
         expression: &ast::Expr,
         context: ExpressionContext,
     ) -> SymbolTableResult {
-        use ast::ExprKind::*;
+        use ast::{ExprKind::*, *};
         let location = expression.start();
         match &expression.node {
-            BinOp { left, right, .. } => {
+            BinOp(ExprBinOp { left, right, .. }) => {
                 self.scan_expression(left, context)?;
                 self.scan_expression(right, context)?;
             }
-            BoolOp { values, .. } => {
+            BoolOp(ExprBoolOp { values, .. }) => {
                 self.scan_expressions(values, context)?;
             }
-            Compare {
+            Compare(ExprCompare {
                 left, comparators, ..
-            } => {
+            }) => {
                 self.scan_expression(left, context)?;
                 self.scan_expressions(comparators, context)?;
             }
-            Subscript { value, slice, .. } => {
+            Subscript(ExprSubscript { value, slice, .. }) => {
                 self.scan_expression(value, ExpressionContext::Load)?;
                 self.scan_expression(slice, ExpressionContext::Load)?;
             }
-            Attribute { value, .. } => {
+            Attribute(ExprAttribute { value, .. }) => {
                 self.scan_expression(value, ExpressionContext::Load)?;
             }
-            Dict { keys, values } => {
+            Dict(ExprDict { keys, values }) => {
                 for (key, value) in keys.iter().zip(values.iter()) {
                     if let Some(key) = key {
                         self.scan_expression(key, context)?;
@@ -897,28 +901,30 @@ impl SymbolTableBuilder {
                     self.scan_expression(value, context)?;
                 }
             }
-            Await { value } => {
+            Await(ExprAwait { value }) => {
                 self.scan_expression(value, context)?;
             }
-            Yield { value } => {
+            Yield(ExprYield { value }) => {
                 if let Some(expression) = value {
                     self.scan_expression(expression, context)?;
                 }
             }
-            YieldFrom { value } => {
+            YieldFrom(ExprYieldFrom { value }) => {
                 self.scan_expression(value, context)?;
             }
-            UnaryOp { operand, .. } => {
+            UnaryOp(ExprUnaryOp { operand, .. }) => {
                 self.scan_expression(operand, context)?;
             }
-            Constant { .. } => {}
-            Starred { value, .. } => {
+            Constant(ExprConstant { .. }) => {}
+            Starred(ExprStarred { value, .. }) => {
                 self.scan_expression(value, context)?;
             }
-            Tuple { elts, .. } | Set { elts, .. } | List { elts, .. } => {
+            Tuple(ExprTuple { elts, .. })
+            | Set(ExprSet { elts, .. })
+            | List(ExprList { elts, .. }) => {
                 self.scan_expressions(elts, context)?;
             }
-            Slice { lower, upper, step } => {
+            Slice(ExprSlice { lower, upper, step }) => {
                 if let Some(lower) = lower {
                     self.scan_expression(lower, context)?;
                 }
@@ -929,27 +935,27 @@ impl SymbolTableBuilder {
                     self.scan_expression(step, context)?;
                 }
             }
-            GeneratorExp { elt, generators } => {
+            GeneratorExp(ExprGeneratorExp { elt, generators }) => {
                 self.scan_comprehension("genexpr", elt, None, generators, location)?;
             }
-            ListComp { elt, generators } => {
+            ListComp(ExprListComp { elt, generators }) => {
                 self.scan_comprehension("genexpr", elt, None, generators, location)?;
             }
-            SetComp { elt, generators } => {
+            SetComp(ExprSetComp { elt, generators }) => {
                 self.scan_comprehension("genexpr", elt, None, generators, location)?;
             }
-            DictComp {
+            DictComp(ExprDictComp {
                 key,
                 value,
                 generators,
-            } => {
+            }) => {
                 self.scan_comprehension("genexpr", key, Some(value), generators, location)?;
             }
-            Call {
+            Call(ExprCall {
                 func,
                 args,
                 keywords,
-            } => {
+            }) => {
                 match context {
                     ExpressionContext::IterDefinitionExp => {
                         self.scan_expression(func, ExpressionContext::IterDefinitionExp)?;
@@ -964,20 +970,20 @@ impl SymbolTableBuilder {
                     self.scan_expression(&keyword.node.value, ExpressionContext::Load)?;
                 }
             }
-            FormattedValue {
+            FormattedValue(ExprFormattedValue {
                 value, format_spec, ..
-            } => {
+            }) => {
                 self.scan_expression(value, ExpressionContext::Load)?;
                 if let Some(spec) = format_spec {
                     self.scan_expression(spec, ExpressionContext::Load)?;
                 }
             }
-            JoinedStr { values } => {
+            JoinedStr(ExprJoinedStr { values }) => {
                 for value in values {
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }
             }
-            Name { id, .. } => {
+            Name(ExprName { id, .. }) => {
                 // Determine the contextual usage of this symbol:
                 match context {
                     ExpressionContext::Delete => {
@@ -1003,7 +1009,7 @@ impl SymbolTableBuilder {
                     self.register_name("__class__", SymbolUsage::Used, location)?;
                 }
             }
-            Lambda { args, body } => {
+            Lambda(ExprLambda { args, body }) => {
                 self.enter_function("lambda", args, expression.start().row())?;
                 match context {
                     ExpressionContext::IterDefinitionExp => {
@@ -1015,13 +1021,13 @@ impl SymbolTableBuilder {
                 }
                 self.leave_scope();
             }
-            IfExp { test, body, orelse } => {
+            IfExp(ExprIfExp { test, body, orelse }) => {
                 self.scan_expression(test, ExpressionContext::Load)?;
                 self.scan_expression(body, ExpressionContext::Load)?;
                 self.scan_expression(orelse, ExpressionContext::Load)?;
             }
 
-            NamedExpr { target, value } => {
+            NamedExpr(ExprNamedExpr { target, value }) => {
                 // named expressions are not allowed in the definition of
                 // comprehension iterator definitions
                 if let ExpressionContext::IterDefinitionExp = context {
@@ -1038,7 +1044,7 @@ impl SymbolTableBuilder {
                 // that are used in comprehensions. This required to correctly
                 // propagate the scope of the named assigned named and not to
                 // propagate inner names.
-                if let Name { id, .. } = &target.node {
+                if let Name(ExprName { id, .. }) = &target.node {
                     let table = self.tables.last().unwrap();
                     if table.typ == SymbolTableType::Comprehension {
                         self.register_name(

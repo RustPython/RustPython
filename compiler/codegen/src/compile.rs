@@ -96,13 +96,15 @@ pub fn compile_top(
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     match ast {
-        ast::Mod::Module { body, .. } => compile_program(body, source_path, opts),
-        ast::Mod::Interactive { body } => match mode {
+        ast::Mod::Module(ast::ModModule { body, .. }) => compile_program(body, source_path, opts),
+        ast::Mod::Interactive(ast::ModInteractive { body }) => match mode {
             Mode::Single => compile_program_single(body, source_path, opts),
             Mode::BlockExpr => compile_block_expression(body, source_path, opts),
             _ => unreachable!("only Single and BlockExpr parsed to Interactive"),
         },
-        ast::Mod::Expression { body } => compile_expression(body, source_path, opts),
+        ast::Mod::Expression(ast::ModExpression { body }) => {
+            compile_expression(body, source_path, opts)
+        }
         ast::Mod::FunctionType { .. } => panic!("can't compile a FunctionType"),
     }
 }
@@ -376,7 +378,7 @@ impl Compiler {
 
         if let Some((last, body)) = body.split_last() {
             for statement in body {
-                if let ast::StmtKind::Expr { value } = &statement.node {
+                if let ast::StmtKind::Expr(ast::StmtExpr { value }) = &statement.node {
                     self.compile_expression(value)?;
                     emit!(self, Instruction::PrintExpr);
                 } else {
@@ -384,7 +386,7 @@ impl Compiler {
                 }
             }
 
-            if let ast::StmtKind::Expr { value } = &last.node {
+            if let ast::StmtKind::Expr(ast::StmtExpr { value }) = &last.node {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Duplicate);
                 emit!(self, Instruction::PrintExpr);
@@ -555,12 +557,14 @@ impl Compiler {
     fn compile_statement(&mut self, statement: &ast::Stmt) -> CompileResult<()> {
         trace!("Compiling {:?}", statement);
         self.set_source_location(statement.start());
-        use ast::StmtKind::*;
+        use ast::{StmtKind::*, *};
 
         match &statement.node {
             // we do this here because `from __future__` still executes that `from` statement at runtime,
             // we still need to compile the ImportFrom down below
-            ImportFrom { module, names, .. } if module.as_deref() == Some("__future__") => {
+            ImportFrom(ast::StmtImportFrom { module, names, .. })
+                if module.as_deref() == Some("__future__") =>
+            {
                 self.compile_future_features(names)?
             }
             // if we find any other statement, stop accepting future statements
@@ -568,7 +572,7 @@ impl Compiler {
         }
 
         match &statement.node {
-            Import { names } => {
+            Import(StmtImport { names }) => {
                 // import a, b, c as d
                 for name in names {
                     let name = &name.node;
@@ -589,11 +593,11 @@ impl Compiler {
                     }
                 }
             }
-            ImportFrom {
+            ImportFrom(StmtImportFrom {
                 level,
                 module,
                 names,
-            } => {
+            }) => {
                 let import_star = names.iter().any(|n| n.node.name == "*");
 
                 let from_list = if import_star {
@@ -653,16 +657,16 @@ impl Compiler {
                     emit!(self, Instruction::Pop);
                 }
             }
-            Expr { value } => {
+            Expr(StmtExpr { value }) => {
                 self.compile_expression(value)?;
 
                 // Pop result of stack, since we not use it:
                 emit!(self, Instruction::Pop);
             }
-            Global { .. } | Nonlocal { .. } => {
+            Global(StmtGlobal { .. }) | Nonlocal(StmtNonlocal { .. }) => {
                 // Handled during symbol table construction.
             }
-            If { test, body, orelse } => {
+            If(StmtIf { test, body, orelse }) => {
                 let after_block = self.new_block();
                 if orelse.is_empty() {
                     // Only if:
@@ -686,25 +690,25 @@ impl Compiler {
                 }
                 self.switch_to_block(after_block);
             }
-            While { test, body, orelse } => self.compile_while(test, body, orelse)?,
-            With { items, body, .. } => self.compile_with(items, body, false)?,
-            AsyncWith { items, body, .. } => self.compile_with(items, body, true)?,
-            For {
+            While(StmtWhile { test, body, orelse }) => self.compile_while(test, body, orelse)?,
+            With(StmtWith { items, body, .. }) => self.compile_with(items, body, false)?,
+            AsyncWith(StmtAsyncWith { items, body, .. }) => self.compile_with(items, body, true)?,
+            For(StmtFor {
                 target,
                 iter,
                 body,
                 orelse,
                 ..
-            } => self.compile_for(target, iter, body, orelse, false)?,
-            AsyncFor {
+            }) => self.compile_for(target, iter, body, orelse, false)?,
+            AsyncFor(StmtAsyncFor {
                 target,
                 iter,
                 body,
                 orelse,
                 ..
-            } => self.compile_for(target, iter, body, orelse, true)?,
-            Match { subject, cases } => self.compile_match(subject, cases)?,
-            Raise { exc, cause } => {
+            }) => self.compile_for(target, iter, body, orelse, true)?,
+            Match(StmtMatch { subject, cases }) => self.compile_match(subject, cases)?,
+            Raise(StmtRaise { exc, cause }) => {
                 let kind = match exc {
                     Some(value) => {
                         self.compile_expression(value)?;
@@ -720,26 +724,26 @@ impl Compiler {
                 };
                 emit!(self, Instruction::Raise { kind });
             }
-            Try {
+            Try(StmtTry {
                 body,
                 handlers,
                 orelse,
                 finalbody,
-            } => self.compile_try_statement(body, handlers, orelse, finalbody)?,
-            TryStar {
+            }) => self.compile_try_statement(body, handlers, orelse, finalbody)?,
+            TryStar(StmtTryStar {
                 body,
                 handlers,
                 orelse,
                 finalbody,
-            } => self.compile_try_star_statement(body, handlers, orelse, finalbody)?,
-            FunctionDef {
+            }) => self.compile_try_star_statement(body, handlers, orelse, finalbody)?,
+            FunctionDef(StmtFunctionDef {
                 name,
                 args,
                 body,
                 decorator_list,
                 returns,
                 ..
-            } => self.compile_function_def(
+            }) => self.compile_function_def(
                 name,
                 args,
                 body,
@@ -747,14 +751,14 @@ impl Compiler {
                 returns.as_deref(),
                 false,
             )?,
-            AsyncFunctionDef {
+            AsyncFunctionDef(StmtAsyncFunctionDef {
                 name,
                 args,
                 body,
                 decorator_list,
                 returns,
                 ..
-            } => self.compile_function_def(
+            }) => self.compile_function_def(
                 name,
                 args,
                 body,
@@ -762,14 +766,14 @@ impl Compiler {
                 returns.as_deref(),
                 true,
             )?,
-            ClassDef {
+            ClassDef(StmtClassDef {
                 name,
                 body,
                 bases,
                 keywords,
                 decorator_list,
-            } => self.compile_class_def(name, body, bases, keywords, decorator_list)?,
-            Assert { test, msg } => {
+            }) => self.compile_class_def(name, body, bases, keywords, decorator_list)?,
+            Assert(StmtAssert { test, msg }) => {
                 // if some flag, ignore all assert statements!
                 if self.opts.optimize == 0 {
                     let after_block = self.new_block();
@@ -814,7 +818,7 @@ impl Compiler {
                     );
                 }
             },
-            Return { value } => {
+            Return(StmtReturn { value }) => {
                 if !self.ctx.in_func() {
                     return Err(self.error_loc(CodegenErrorType::InvalidReturn, statement.start()));
                 }
@@ -838,7 +842,7 @@ impl Compiler {
 
                 emit!(self, Instruction::ReturnValue);
             }
-            Assign { targets, value, .. } => {
+            Assign(StmtAssign { targets, value, .. }) => {
                 self.compile_expression(value)?;
 
                 for (i, target) in targets.iter().enumerate() {
@@ -848,14 +852,16 @@ impl Compiler {
                     self.compile_store(target)?;
                 }
             }
-            AugAssign { target, op, value } => self.compile_augassign(target, op, value)?,
-            AnnAssign {
+            AugAssign(StmtAugAssign { target, op, value }) => {
+                self.compile_augassign(target, op, value)?
+            }
+            AnnAssign(StmtAnnAssign {
                 target,
                 annotation,
                 value,
                 ..
-            } => self.compile_annotated_assign(target, annotation, value.as_deref())?,
-            Delete { targets } => {
+            }) => self.compile_annotated_assign(target, annotation, value.as_deref())?,
+            Delete(StmtDelete { targets }) => {
                 for target in targets {
                     self.compile_delete(target)?;
                 }
@@ -869,24 +875,28 @@ impl Compiler {
 
     fn compile_delete(&mut self, expression: &ast::Expr) -> CompileResult<()> {
         match &expression.node {
-            ast::ExprKind::Name { id, .. } => self.compile_name(id, NameUsage::Delete)?,
-            ast::ExprKind::Attribute { value, attr, .. } => {
+            ast::ExprKind::Name(ast::ExprName { id, .. }) => {
+                self.compile_name(id, NameUsage::Delete)?
+            }
+            ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, .. }) => {
                 self.check_forbidden_name(attr, NameUsage::Delete)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr);
                 emit!(self, Instruction::DeleteAttr { idx });
             }
-            ast::ExprKind::Subscript { value, slice, .. } => {
+            ast::ExprKind::Subscript(ast::ExprSubscript { value, slice, .. }) => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
                 emit!(self, Instruction::DeleteSubscript);
             }
-            ast::ExprKind::Tuple { elts, .. } | ast::ExprKind::List { elts, .. } => {
+            ast::ExprKind::Tuple(ast::ExprTuple { elts, .. })
+            | ast::ExprKind::List(ast::ExprList { elts, .. }) => {
                 for element in elts {
                     self.compile_delete(element)?;
                 }
             }
-            ast::ExprKind::BinOp { .. } | ast::ExprKind::UnaryOp { .. } => {
+            ast::ExprKind::BinOp(ast::ExprBinOp { .. })
+            | ast::ExprKind::UnaryOp(ast::ExprUnaryOp { .. }) => {
                 return Err(self.error(CodegenErrorType::Delete("expression")))
             }
             _ => return Err(self.error(CodegenErrorType::Delete(expression.node.name()))),
@@ -1015,7 +1025,11 @@ impl Compiler {
         self.switch_to_block(handler_block);
         // Exception is on top of stack now
         for handler in handlers {
-            let ast::ExcepthandlerKind::ExceptHandler { type_, name, body } = &handler.node;
+            let ast::ExcepthandlerKind::ExceptHandler(ast::ExcepthandlerExceptHandler {
+                type_,
+                name,
+                body,
+            }) = &handler.node;
             let next_handler = self.new_block();
 
             // If we gave a typ,
@@ -1287,16 +1301,22 @@ impl Compiler {
         for statement in body {
             let res = match &statement.node {
                 AnnAssign { .. } => true,
-                For { body, orelse, .. } => Self::find_ann(body) || Self::find_ann(orelse),
-                If { body, orelse, .. } => Self::find_ann(body) || Self::find_ann(orelse),
-                While { body, orelse, .. } => Self::find_ann(body) || Self::find_ann(orelse),
-                With { body, .. } => Self::find_ann(body),
-                Try {
+                For(ast::StmtFor { body, orelse, .. }) => {
+                    Self::find_ann(body) || Self::find_ann(orelse)
+                }
+                If(ast::StmtIf { body, orelse, .. }) => {
+                    Self::find_ann(body) || Self::find_ann(orelse)
+                }
+                While(ast::StmtWhile { body, orelse, .. }) => {
+                    Self::find_ann(body) || Self::find_ann(orelse)
+                }
+                With(ast::StmtWith { body, .. }) => Self::find_ann(body),
+                Try(ast::StmtTry {
                     body,
                     orelse,
                     finalbody,
                     ..
-                } => Self::find_ann(body) || Self::find_ann(orelse) || Self::find_ann(finalbody),
+                }) => Self::find_ann(body) || Self::find_ann(orelse) || Self::find_ann(finalbody),
                 _ => false,
             };
             if res {
@@ -1716,7 +1736,7 @@ impl Compiler {
         // Compile annotation:
         self.compile_annotation(annotation)?;
 
-        if let ast::ExprKind::Name { id, .. } = &target.node {
+        if let ast::ExprKind::Name(ast::ExprName { id, .. }) = &target.node {
             // Store as dict entry in __annotations__ dict:
             let annotations = self.name("__annotations__");
             emit!(self, Instruction::LoadNameAny(annotations));
@@ -1734,19 +1754,20 @@ impl Compiler {
 
     fn compile_store(&mut self, target: &ast::Expr) -> CompileResult<()> {
         match &target.node {
-            ast::ExprKind::Name { id, .. } => self.store_name(id)?,
-            ast::ExprKind::Subscript { value, slice, .. } => {
+            ast::ExprKind::Name(ast::ExprName { id, .. }) => self.store_name(id)?,
+            ast::ExprKind::Subscript(ast::ExprSubscript { value, slice, .. }) => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
                 emit!(self, Instruction::StoreSubscript);
             }
-            ast::ExprKind::Attribute { value, attr, .. } => {
+            ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, .. }) => {
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
                 let idx = self.name(attr);
                 emit!(self, Instruction::StoreAttr { idx });
             }
-            ast::ExprKind::List { elts, .. } | ast::ExprKind::Tuple { elts, .. } => {
+            ast::ExprKind::List(ast::ExprList { elts, .. })
+            | ast::ExprKind::Tuple(ast::ExprTuple { elts, .. }) => {
                 let mut seen_star = false;
 
                 // Scan for star args:
@@ -1781,7 +1802,7 @@ impl Compiler {
                 }
 
                 for element in elts {
-                    if let ast::ExprKind::Starred { value, .. } = &element.node {
+                    if let ast::ExprKind::Starred(ast::ExprStarred { value, .. }) = &element.node {
                         self.compile_store(value)?;
                     } else {
                         self.compile_store(element)?;
@@ -1814,18 +1835,18 @@ impl Compiler {
         }
 
         let kind = match &target.node {
-            ast::ExprKind::Name { id, .. } => {
+            ast::ExprKind::Name(ast::ExprName { id, .. }) => {
                 self.compile_name(id, NameUsage::Load)?;
                 AugAssignKind::Name { id }
             }
-            ast::ExprKind::Subscript { value, slice, .. } => {
+            ast::ExprKind::Subscript(ast::ExprSubscript { value, slice, .. }) => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
                 emit!(self, Instruction::Duplicate2);
                 emit!(self, Instruction::Subscript);
                 AugAssignKind::Subscript
             }
-            ast::ExprKind::Attribute { value, attr, .. } => {
+            ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, .. }) => {
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Duplicate);
@@ -1900,7 +1921,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         // Compile expression for test, and jump to label if false
         match &expression.node {
-            ast::ExprKind::BoolOp { op, values } => {
+            ast::ExprKind::BoolOp(ast::ExprBoolOp { op, values }) => {
                 match op {
                     ast::Boolop::And => {
                         if condition {
@@ -1946,10 +1967,10 @@ impl Compiler {
                     }
                 }
             }
-            ast::ExprKind::UnaryOp {
+            ast::ExprKind::UnaryOp(ast::ExprUnaryOp {
                 op: ast::Unaryop::Not,
                 operand,
-            } => {
+            }) => {
                 self.compile_jump_if(operand, !condition, target_block)?;
             }
             _ => {
@@ -2041,25 +2062,25 @@ impl Compiler {
 
         use ast::ExprKind::*;
         match &expression.node {
-            Call {
+            Call(ast::ExprCall {
                 func,
                 args,
                 keywords,
-            } => self.compile_call(func, args, keywords)?,
-            BoolOp { op, values } => self.compile_bool_op(op, values)?,
-            BinOp { left, op, right } => {
+            }) => self.compile_call(func, args, keywords)?,
+            BoolOp(ast::ExprBoolOp { op, values }) => self.compile_bool_op(op, values)?,
+            BinOp(ast::ExprBinOp { left, op, right }) => {
                 self.compile_expression(left)?;
                 self.compile_expression(right)?;
 
                 // Perform operation:
                 self.compile_op(op, false);
             }
-            Subscript { value, slice, .. } => {
+            Subscript(ast::ExprSubscript { value, slice, .. }) => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
                 emit!(self, Instruction::Subscript);
             }
-            UnaryOp { op, operand } => {
+            UnaryOp(ast::ExprUnaryOp { op, operand }) => {
                 self.compile_expression(operand)?;
 
                 // Perform operation:
@@ -2071,22 +2092,22 @@ impl Compiler {
                 };
                 emit!(self, Instruction::UnaryOperation { op });
             }
-            Attribute { value, attr, .. } => {
+            Attribute(ast::ExprAttribute { value, attr, .. }) => {
                 self.compile_expression(value)?;
                 let idx = self.name(attr);
                 emit!(self, Instruction::LoadAttr { idx });
             }
-            Compare {
+            Compare(ast::ExprCompare {
                 left,
                 ops,
                 comparators,
-            } => {
+            }) => {
                 self.compile_chained_comparison(left, ops, comparators)?;
             }
-            Constant { value, .. } => {
+            Constant(ast::ExprConstant { value, .. }) => {
                 self.emit_constant(compile_constant(value));
             }
-            List { elts, .. } => {
+            List(ast::ExprList { elts, .. }) => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
                 if unpack {
                     emit!(self, Instruction::BuildListUnpack { size });
@@ -2094,7 +2115,7 @@ impl Compiler {
                     emit!(self, Instruction::BuildList { size });
                 }
             }
-            Tuple { elts, .. } => {
+            Tuple(ast::ExprTuple { elts, .. }) => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
                 if unpack {
                     emit!(self, Instruction::BuildTupleUnpack { size });
@@ -2102,7 +2123,7 @@ impl Compiler {
                     emit!(self, Instruction::BuildTuple { size });
                 }
             }
-            Set { elts, .. } => {
+            Set(ast::ExprSet { elts, .. }) => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
                 if unpack {
                     emit!(self, Instruction::BuildSetUnpack { size });
@@ -2110,10 +2131,10 @@ impl Compiler {
                     emit!(self, Instruction::BuildSet { size });
                 }
             }
-            Dict { keys, values } => {
+            Dict(ast::ExprDict { keys, values }) => {
                 self.compile_dict(keys, values)?;
             }
-            Slice { lower, upper, step } => {
+            Slice(ast::ExprSlice { lower, upper, step }) => {
                 let mut compile_bound = |bound: Option<&ast::Expr>| match bound {
                     Some(exp) => self.compile_expression(exp),
                     None => {
@@ -2129,7 +2150,7 @@ impl Compiler {
                 let step = step.is_some();
                 emit!(self, Instruction::BuildSlice { step });
             }
-            Yield { value } => {
+            Yield(ast::ExprYield { value }) => {
                 if !self.ctx.in_func() {
                     return Err(self.error(CodegenErrorType::InvalidYield));
                 }
@@ -2140,7 +2161,7 @@ impl Compiler {
                 };
                 emit!(self, Instruction::YieldValue);
             }
-            Await { value } => {
+            Await(ast::ExprAwait { value }) => {
                 if self.ctx.func != FunctionContext::AsyncFunction {
                     return Err(self.error(CodegenErrorType::InvalidAwait));
                 }
@@ -2149,7 +2170,7 @@ impl Compiler {
                 self.emit_constant(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
             }
-            YieldFrom { value } => {
+            YieldFrom(ast::ExprYieldFrom { value }) => {
                 match self.ctx.func {
                     FunctionContext::NoFunction => {
                         return Err(self.error(CodegenErrorType::InvalidYieldFrom));
@@ -2165,7 +2186,7 @@ impl Compiler {
                 self.emit_constant(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
             }
-            ast::ExprKind::JoinedStr { values } => {
+            ast::ExprKind::JoinedStr(ast::ExprJoinedStr { values }) => {
                 if let Some(value) = try_get_constant_string(values) {
                     self.emit_constant(ConstantData::Str { value })
                 } else {
@@ -2180,11 +2201,11 @@ impl Compiler {
                     )
                 }
             }
-            ast::ExprKind::FormattedValue {
+            ast::ExprKind::FormattedValue(ast::ExprFormattedValue {
                 value,
                 conversion,
                 format_spec,
-            } => {
+            }) => {
                 match format_spec {
                     Some(spec) => self.compile_expression(spec)?,
                     None => self.emit_constant(ConstantData::Str {
@@ -2200,8 +2221,8 @@ impl Compiler {
                     },
                 );
             }
-            Name { id, .. } => self.load_name(id)?,
-            Lambda { args, body } => {
+            Name(ast::ExprName { id, .. }) => self.load_name(id)?,
+            Lambda(ast::ExprLambda { args, body }) => {
                 let prev_ctx = self.ctx;
 
                 let name = "<lambda>".to_owned();
@@ -2232,7 +2253,7 @@ impl Compiler {
 
                 self.ctx = prev_ctx;
             }
-            ListComp { elt, generators } => {
+            ListComp(ast::ExprListComp { elt, generators }) => {
                 self.compile_comprehension(
                     "<listcomp>",
                     Some(Instruction::BuildList {
@@ -2251,7 +2272,7 @@ impl Compiler {
                     },
                 )?;
             }
-            SetComp { elt, generators } => {
+            SetComp(ast::ExprSetComp { elt, generators }) => {
                 self.compile_comprehension(
                     "<setcomp>",
                     Some(Instruction::BuildSet {
@@ -2270,11 +2291,11 @@ impl Compiler {
                     },
                 )?;
             }
-            DictComp {
+            DictComp(ast::ExprDictComp {
                 key,
                 value,
                 generators,
-            } => {
+            }) => {
                 self.compile_comprehension(
                     "<dictcomp>",
                     Some(Instruction::BuildMap {
@@ -2297,7 +2318,7 @@ impl Compiler {
                     },
                 )?;
             }
-            GeneratorExp { elt, generators } => {
+            GeneratorExp(ast::ExprGeneratorExp { elt, generators }) => {
                 self.compile_comprehension("<genexpr>", None, generators, &|compiler| {
                     compiler.compile_comprehension_element(elt)?;
                     compiler.mark_generator();
@@ -2307,10 +2328,10 @@ impl Compiler {
                     Ok(())
                 })?;
             }
-            Starred { .. } => {
+            Starred(ast::ExprStarred { .. }) => {
                 return Err(self.error(CodegenErrorType::InvalidStarExpr));
             }
-            IfExp { test, body, orelse } => {
+            IfExp(ast::ExprIfExp { test, body, orelse }) => {
                 let else_block = self.new_block();
                 let after_block = self.new_block();
                 self.compile_jump_if(test, false, else_block)?;
@@ -2332,7 +2353,7 @@ impl Compiler {
                 self.switch_to_block(after_block);
             }
 
-            NamedExpr { target, value } => {
+            NamedExpr(ast::ExprNamedExpr { target, value }) => {
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Duplicate);
                 self.compile_store(target)?;
@@ -2377,15 +2398,16 @@ impl Compiler {
         args: &[ast::Expr],
         keywords: &[ast::Keyword],
     ) -> CompileResult<()> {
-        let method = if let ast::ExprKind::Attribute { value, attr, .. } = &func.node {
-            self.compile_expression(value)?;
-            let idx = self.name(attr);
-            emit!(self, Instruction::LoadMethod { idx });
-            true
-        } else {
-            self.compile_expression(func)?;
-            false
-        };
+        let method =
+            if let ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, .. }) = &func.node {
+                self.compile_expression(value)?;
+                let idx = self.name(attr);
+                emit!(self, Instruction::LoadMethod { idx });
+                true
+            } else {
+                self.compile_expression(func)?;
+                false
+            };
         let call = self.compile_call_inner(0, args, keywords)?;
         if method {
             self.compile_method_call(call)
@@ -2494,7 +2516,7 @@ impl Compiler {
             let groups = elements
                 .iter()
                 .map(|element| {
-                    if let ast::ExprKind::Starred { value, .. } = &element.node {
+                    if let ast::ExprKind::Starred(ast::ExprStarred { value, .. }) = &element.node {
                         (true, value.as_ref())
                     } else {
                         (false, element)
@@ -2791,7 +2813,7 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
 
 fn split_doc(body: &[ast::Stmt]) -> (Option<String>, &[ast::Stmt]) {
     if let Some((val, body_rest)) = body.split_first() {
-        if let ast::StmtKind::Expr { value } = &val.node {
+        if let ast::StmtKind::Expr(ast::StmtExpr { value }) = &val.node {
             if let Some(doc) = try_get_constant_string(std::slice::from_ref(value)) {
                 return (Some(doc), body_rest);
             }
@@ -2803,14 +2825,14 @@ fn split_doc(body: &[ast::Stmt]) -> (Option<String>, &[ast::Stmt]) {
 fn try_get_constant_string(values: &[ast::Expr]) -> Option<String> {
     fn get_constant_string_inner(out_string: &mut String, value: &ast::Expr) -> bool {
         match &value.node {
-            ast::ExprKind::Constant {
+            ast::ExprKind::Constant(ast::ExprConstant {
                 value: ast::Constant::Str(s),
                 ..
-            } => {
+            }) => {
                 out_string.push_str(s);
                 true
             }
-            ast::ExprKind::JoinedStr { values } => values
+            ast::ExprKind::JoinedStr(ast::ExprJoinedStr { values }) => values
                 .iter()
                 .all(|value| get_constant_string_inner(out_string, value)),
             _ => false,
