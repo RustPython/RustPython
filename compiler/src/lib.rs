@@ -2,15 +2,13 @@ use rustpython_codegen::{compile, symboltable};
 use rustpython_parser::ast::{fold::Fold, ConstantOptimizer};
 
 pub use rustpython_codegen::compile::CompileOpts;
-pub use rustpython_compiler_core::{CodeObject, Mode, SourceLocator};
+pub use rustpython_compiler_core::{bytecode::CodeObject, Mode};
+pub use rustpython_parser::source_code::SourceLocator;
 
 // these modules are out of repository. re-exporting them here for convenience.
 pub use rustpython_codegen as codegen;
 pub use rustpython_compiler_core as core;
 pub use rustpython_parser as parser;
-
-use std::error::Error as StdError;
-use std::fmt;
 
 #[derive(Debug)]
 pub enum CompileErrorType {
@@ -18,16 +16,16 @@ pub enum CompileErrorType {
     Parse(parser::ParseErrorType),
 }
 
-impl StdError for CompileErrorType {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+impl std::error::Error for CompileErrorType {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             CompileErrorType::Codegen(e) => e.source(),
             CompileErrorType::Parse(e) => e.source(),
         }
     }
 }
-impl fmt::Display for CompileErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+impl std::fmt::Display for CompileErrorType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             CompileErrorType::Codegen(e) => e.fmt(f),
             CompileErrorType::Parse(e) => e.fmt(f),
@@ -45,19 +43,19 @@ impl From<parser::ParseErrorType> for CompileErrorType {
     }
 }
 
-pub type CompileError = rustpython_compiler_core::LocatedError<CompileErrorType>;
+pub type CompileError = rustpython_parser::source_code::LocatedError<CompileErrorType>;
 
 /// Compile a given source code into a bytecode object.
 pub fn compile(
     source: &str,
-    mode: compile::Mode,
+    mode: Mode,
     source_path: String,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
     let mut locator = SourceLocator::new(source);
     let mut ast = match parser::parse(source, mode.into(), &source_path) {
         Ok(x) => x,
-        Err(e) => return Err(e.into_located(&mut locator)),
+        Err(e) => return Err(locator.locate_error(e)),
     };
     if opts.optimize > 0 {
         ast = ConstantOptimizer::new()
@@ -70,21 +68,21 @@ pub fn compile(
 
 pub fn compile_symtable(
     source: &str,
-    mode: compile::Mode,
+    mode: Mode,
     source_path: &str,
 ) -> Result<symboltable::SymbolTable, CompileError> {
     let mut locator = SourceLocator::new(source);
     let res = match mode {
-        compile::Mode::Exec | compile::Mode::Single | compile::Mode::BlockExpr => {
-            let ast = parser::parse_program(source, source_path)
-                .map_err(|e| e.into_located(&mut locator))?;
-            let ast = rustpython_parser::ast::locate(&mut locator, ast);
+        Mode::Exec | Mode::Single | Mode::BlockExpr => {
+            let ast =
+                parser::parse_program(source, source_path).map_err(|e| locator.locate_error(e))?;
+            let ast = locator.fold(ast).unwrap();
             symboltable::SymbolTable::scan_program(&ast)
         }
-        compile::Mode::Eval => {
+        Mode::Eval => {
             let expr = parser::parse_expression(source, source_path)
-                .map_err(|e| e.into_located(&mut locator))?;
-            let expr = rustpython_parser::ast::locate(&mut locator, expr);
+                .map_err(|e| locator.locate_error(e))?;
+            let expr = locator.fold(expr).unwrap();
             symboltable::SymbolTable::scan_expr(&expr)
         }
     };

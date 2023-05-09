@@ -8,7 +8,8 @@ license = "MIT"
 edition = "2021"
 
 [dependencies]
-rustpython-ast = { workspace = true, features=["unparse"] }
+rustpython-ast = { workspace = true, features=["unparse", "constant-optimization"] }
+rustpython-parser-core = { workspace = true }
 rustpython-compiler-core = { workspace = true }
 
 ahash = { workspace = true }

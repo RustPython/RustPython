@@ -1,10 +1,10 @@
 use std::ops;
 
 use crate::IndexSet;
-use rustpython_compiler_core::{
-    source_code::SourceLocation, CodeFlags, CodeObject, CodeUnit, ConstantData,
-    InstrDisplayContext, Instruction, Label, LineNumber, OpArg,
+use rustpython_compiler_core::bytecode::{
+    CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label, OpArg,
 };
+use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct BlockIdx(pub u32);
@@ -158,7 +158,7 @@ impl CodeInfo {
             arg_count,
             kwonlyarg_count,
             source_path,
-            first_line_number,
+            first_line_number: Some(first_line_number),
             obj_name,
 
             max_stackdepth,

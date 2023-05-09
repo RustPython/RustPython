@@ -83,6 +83,7 @@ impl From<CFormatQuantity> for CFormatPrecision {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct CConversionFlags: u32 {
         const ALTERNATE_FORM = 0b0000_0001;
         const ZERO_PAD = 0b0000_0010;

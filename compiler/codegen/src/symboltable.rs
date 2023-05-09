@@ -13,10 +13,7 @@ use crate::{
 };
 use bitflags::bitflags;
 use rustpython_ast as ast;
-use rustpython_compiler_core::{
-    source_code::{OneIndexed, SourceLocation},
-    LineNumber,
-};
+use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 use std::{borrow::Cow, fmt};
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
@@ -29,7 +26,7 @@ pub struct SymbolTable {
     pub typ: SymbolTableType,
 
     /// The line number in the source code where this symboltable begins.
-    pub line_number: LineNumber,
+    pub line_number: u32,
 
     // Return True if the block is a nested class or function
     pub is_nested: bool,
@@ -43,7 +40,7 @@ pub struct SymbolTable {
 }
 
 impl SymbolTable {
-    fn new(name: String, typ: SymbolTableType, line_number: LineNumber, is_nested: bool) -> Self {
+    fn new(name: String, typ: SymbolTableType, line_number: u32, is_nested: bool) -> Self {
         SymbolTable {
             name,
             typ,
@@ -99,6 +96,7 @@ pub enum SymbolScope {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct SymbolFlags: u16 {
         const REFERENCED = 0x001;
         const ASSIGNED = 0x002;
@@ -121,7 +119,7 @@ bitflags! {
         ///             return x // is_free_class
         /// ```
         const FREE_CLASS = 0x100;
-        const BOUND = Self::ASSIGNED.bits | Self::PARAMETER.bits | Self::IMPORTED.bits | Self::ITER.bits;
+        const BOUND = Self::ASSIGNED.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits();
     }
 }
 
@@ -172,7 +170,7 @@ impl SymbolTableError {
             error: CodegenErrorType::SyntaxError(self.error),
             location: self.location.map(|l| SourceLocation {
                 row: l.row,
-                column: OneIndexed::MIN,
+                column: l.column,
             }),
             source_path,
         }
@@ -565,7 +563,7 @@ impl SymbolTableBuilder {
             tables: vec![],
             future_annotations: false,
         };
-        this.enter_scope("top", SymbolTableType::Module, LineNumber::MIN);
+        this.enter_scope("top", SymbolTableType::Module, 0);
         this
     }
 }
@@ -578,7 +576,7 @@ impl SymbolTableBuilder {
         Ok(symbol_table)
     }
 
-    fn enter_scope(&mut self, name: &str, typ: SymbolTableType, line_number: LineNumber) {
+    fn enter_scope(&mut self, name: &str, typ: SymbolTableType, line_number: u32) {
         let is_nested = self
             .tables
             .last()
@@ -697,7 +695,7 @@ impl SymbolTableBuilder {
                 keywords,
                 decorator_list,
             }) => {
-                self.enter_scope(name, SymbolTableType::Class, location.row);
+                self.enter_scope(name, SymbolTableType::Class, location.row.get());
                 let prev_class = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
                 self.register_name("__module__", SymbolUsage::Assigned, location)?;
                 self.register_name("__qualname__", SymbolUsage::Assigned, location)?;
@@ -1080,7 +1078,11 @@ impl SymbolTableBuilder {
         location: SourceLocation,
     ) -> SymbolTableResult {
         // Comprehensions are compiled as functions, so create a scope for them:
-        self.enter_scope(scope_name, SymbolTableType::Comprehension, location.row);
+        self.enter_scope(
+            scope_name,
+            SymbolTableType::Comprehension,
+            location.row.get(),
+        );
 
         // Register the passed argument to the generator function as the name ".0"
         self.register_name(".0", SymbolUsage::Parameter, location)?;
@@ -1136,7 +1138,7 @@ impl SymbolTableBuilder {
             self.scan_parameter_annotation(name)?;
         }
 
-        self.enter_scope(name, SymbolTableType::Function, line_number);
+        self.enter_scope(name, SymbolTableType::Function, line_number.get());
 
         // Fill scope with parameter names:
         self.scan_parameters(&args.posonlyargs)?;

@@ -9,22 +9,20 @@ use crate::{
     builtins::{self, PyModule, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
     compiler::CompileError,
+    compiler::{
+        core::bytecode::OpArgType,
+        parser::text_size::{TextRange, TextSize},
+    },
     convert::ToPyException,
-    source::try_location_field,
+    source_code::{OneIndexed, SourceLocation, SourceLocator, SourceRange},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
-use rustpython_ast::{
-    self as ast,
-    fold::Fold,
-    location::{SourceLocation, SourceRange},
-    SourceLocator,
-};
+use rustpython_ast::{self as ast, fold::Fold};
 #[cfg(feature = "rustpython-codegen")]
 use rustpython_codegen as codegen;
-use rustpython_compiler_core::text_size::{TextRange, TextSize};
 #[cfg(feature = "rustpython-parser")]
 use rustpython_parser as parser;
 
@@ -161,13 +159,16 @@ impl<T: NamedNode> Node for ast::located::Located<T> {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        fn make_location(row: u32, column: u32) -> Option<SourceLocation> {
+            Some(SourceLocation {
+                row: OneIndexed::new(row)?,
+                column: OneIndexed::from_zero_indexed(column),
+            })
+        }
         let row = Node::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?;
         let column =
             Node::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?;
-        let location = SourceLocation {
-            row: try_location_field(row, vm)?,
-            column: try_location_field(column, vm)?,
-        };
+        let location = make_location(row, column);
         let end_row = get_node_field_opt(vm, &object, "end_lineno")?
             .map(|obj| Node::ast_from_object(vm, obj))
             .transpose()?;
@@ -175,11 +176,7 @@ impl<T: NamedNode> Node for ast::located::Located<T> {
             .map(|obj| Node::ast_from_object(vm, obj))
             .transpose()?;
         let end_location = if let (Some(row), Some(column)) = (end_row, end_column) {
-            let location = SourceLocation {
-                row: try_location_field(row, vm)?,
-                column: try_location_field(column, vm)?,
-            };
-            Some(location)
+            make_location(row, column)
         } else {
             None
         };
@@ -187,7 +184,7 @@ impl<T: NamedNode> Node for ast::located::Located<T> {
         Ok(ast::located::Located {
             range: TextRange::empty(TextSize::new(0)),
             custom: SourceRange {
-                start: location,
+                start: location.unwrap_or(SourceLocation::default()),
                 end: end_location,
             },
             node,
@@ -206,7 +203,7 @@ fn node_add_location(
         .unwrap();
     dict.set_item(
         "col_offset",
-        vm.ctx.new_int(location.column.get()).into(),
+        vm.ctx.new_int(location.column.to_zero_indexed()).into(),
         vm,
     )
     .unwrap();
@@ -219,7 +216,7 @@ fn node_add_location(
         .unwrap();
         dict.set_item(
             "end_col_offset",
-            vm.ctx.new_int(end_location.column.get()).into(),
+            vm.ctx.new_int(end_location.column.to_zero_indexed()).into(),
             vm,
         )
         .unwrap();
@@ -236,7 +233,7 @@ impl Node for String {
     }
 }
 
-impl Node for usize {
+impl Node for u32 {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_int(self).into()
     }
@@ -320,8 +317,8 @@ impl Node for ast::ConversionFlag {
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         i32::try_from_object(vm, object)?
-            .to_usize()
-            .and_then(|f| f.try_into().ok())
+            .to_u32()
+            .and_then(ast::ConversionFlag::from_op_arg)
             .ok_or_else(|| vm.new_value_error("invalid conversion flag".to_owned()))
     }
 }
@@ -333,7 +330,7 @@ pub(crate) fn parse(
     mode: parser::Mode,
 ) -> Result<PyObjectRef, CompileError> {
     let mut locator = SourceLocator::new(source);
-    let top = parser::parse(source, mode, "<unknown>").map_err(|e| e.into_located(&mut locator))?;
+    let top = parser::parse(source, mode, "<unknown>").map_err(|e| locator.locate_error(e))?;
     let top = locator.fold_mod(top).unwrap();
     Ok(top.ast_to_object(vm))
 }
@@ -343,7 +340,7 @@ pub(crate) fn compile(
     vm: &VirtualMachine,
     object: PyObjectRef,
     filename: &str,
-    mode: codegen::compile::Mode,
+    mode: crate::compiler::Mode,
 ) -> PyResult {
     let opts = vm.compile_opts();
     let ast = Node::ast_from_object(vm, object)?;

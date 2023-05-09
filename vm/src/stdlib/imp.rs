@@ -1,4 +1,4 @@
-use crate::bytecode::frozen_lib::FrozenModule;
+use crate::frozen::FrozenModule;
 use crate::{builtins::PyBaseExceptionRef, VirtualMachine};
 pub(crate) use _imp::make_module;
 

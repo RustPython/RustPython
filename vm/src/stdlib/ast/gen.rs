@@ -2785,17 +2785,6 @@ impl Node for ast::located::StmtKind {
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = {
-            let row = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "stmt")?)?,
-                _vm,
-            )?;
-            let column = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "stmt")?)?,
-                _vm,
-            )?;
-            SourceLocation { row, column }
-        };
         let _cls = _object.class();
         Ok(if _cls.is(NodeFunctionDef::static_type()) {
             ast::located::StmtKind::FunctionDef(ast::located::StmtFunctionDef {
@@ -3421,17 +3410,6 @@ impl Node for ast::located::ExprKind {
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = {
-            let row = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "expr")?)?,
-                _vm,
-            )?;
-            let column = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "expr")?)?,
-                _vm,
-            )?;
-            SourceLocation { row, column }
-        };
         let _cls = _object.class();
         Ok(if _cls.is(NodeBoolOp::static_type()) {
             ast::located::ExprKind::BoolOp(ast::located::ExprBoolOp {
@@ -4052,23 +4030,6 @@ impl Node for ast::located::ExcepthandlerKind {
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = {
-            let row = try_location_field(
-                Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "lineno", "excepthandler")?,
-                )?,
-                _vm,
-            )?;
-            let column = try_location_field(
-                Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "col_offset", "excepthandler")?,
-                )?,
-                _vm,
-            )?;
-            SourceLocation { row, column }
-        };
         let _cls = _object.class();
         Ok(if _cls.is(NodeExceptHandler::static_type()) {
             ast::located::ExcepthandlerKind::ExceptHandler(
@@ -4186,17 +4147,6 @@ impl Node for ast::located::ArgData {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = {
-            let row = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "arg")?)?,
-                _vm,
-            )?;
-            let column = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "arg")?)?,
-                _vm,
-            )?;
-            SourceLocation { row, column }
-        };
         Ok(ast::located::ArgData {
             arg: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "arg", "arg")?)?,
             annotation: get_node_field_opt(_vm, &_object, "annotation")?
@@ -4225,20 +4175,6 @@ impl Node for ast::located::KeywordData {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = {
-            let row = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "keyword")?)?,
-                _vm,
-            )?;
-            let column = try_location_field(
-                Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "col_offset", "keyword")?,
-                )?,
-                _vm,
-            )?;
-            SourceLocation { row, column }
-        };
         Ok(ast::located::KeywordData {
             arg: get_node_field_opt(_vm, &_object, "arg")?
                 .map(|obj| Node::ast_from_object(_vm, obj))
@@ -4266,17 +4202,6 @@ impl Node for ast::located::AliasData {
         _node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = {
-            let row = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "alias")?)?,
-                _vm,
-            )?;
-            let column = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "col_offset", "alias")?)?,
-                _vm,
-            )?;
-            SourceLocation { row, column }
-        };
         Ok(ast::located::AliasData {
             name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "alias")?)?,
             asname: get_node_field_opt(_vm, &_object, "asname")?
@@ -4474,20 +4399,6 @@ impl Node for ast::located::PatternKind {
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _location = {
-            let row = try_location_field(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "lineno", "pattern")?)?,
-                _vm,
-            )?;
-            let column = try_location_field(
-                Node::ast_from_object(
-                    _vm,
-                    get_node_field(_vm, &_object, "col_offset", "pattern")?,
-                )?,
-                _vm,
-            )?;
-            SourceLocation { row, column }
-        };
         let _cls = _object.class();
         Ok(if _cls.is(NodeMatchValue::static_type()) {
             ast::located::PatternKind::MatchValue(ast::located::PatternMatchValue {

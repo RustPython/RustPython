@@ -18,12 +18,14 @@ use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast as ast;
 use rustpython_compiler_core::{
-    self as bytecode, source_code::SourceLocation, Arg as OpArgMarker, CodeObject, ConstantData,
-    Instruction, LineNumber, OpArg, OpArgType,
+    bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
+    Mode,
+};
+use rustpython_parser_core::{
+    source_code::{LineNumber, SourceLocation},
+    ConversionFlag,
 };
 use std::borrow::Cow;
-
-pub use rustpython_compiler_core::Mode;
 
 type CompileResult<T> = Result<T, CodegenError>;
 
@@ -225,7 +227,7 @@ impl Compiler {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
             source_path,
-            current_source_location: SourceLocation::MIN,
+            current_source_location: SourceLocation::default(),
             qualified_path: Vec::new(),
             done_with_future_stmts: false,
             future_annotations: false,
@@ -2228,7 +2230,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::FormatValue {
-                        conversion: bytecode::ConversionFlag::try_from(*conversion)
+                        conversion: ConversionFlag::from_op_arg(*conversion)
                             .expect("invalid conversion flag"),
                     },
                 );
@@ -2898,15 +2900,18 @@ impl ToU32 for usize {
 mod tests {
     use super::*;
     use rustpython_parser as parser;
+    use rustpython_parser_core::source_code::SourceLocator;
 
     fn compile_exec(source: &str) -> CodeObject {
+        let mut locator = SourceLocator::new(source);
+        use rustpython_parser::ast::fold::Fold;
         let mut compiler: Compiler = Compiler::new(
             CompileOpts::default(),
             "source_path".to_owned(),
             "<module>".to_owned(),
-            source,
         );
         let ast = parser::parse_program(source, "<test>").unwrap();
+        let ast = locator.fold(ast).unwrap();
         let symbol_scope = SymbolTable::scan_program(&ast).unwrap();
         compiler.compile_program(&ast, symbol_scope).unwrap();
         compiler.pop_code_object()

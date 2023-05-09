@@ -1,4 +1,6 @@
-use rustpython_compiler_core::{CodeObject, ConstantData, Instruction, OpArg, OpArgState};
+use rustpython_compiler_core::bytecode::{
+    CodeObject, ConstantData, Instruction, OpArg, OpArgState,
+};
 use rustpython_jit::{CompiledCode, JitType};
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -165,7 +167,7 @@ macro_rules! jit_function {
                 crate_name = "rustpython_compiler_core",
                 source = $($t)*
             );
-            let code = code.decode(rustpython_compiler_core::BasicBag);
+            let code = code.decode(rustpython_compiler_core::bytecode::BasicBag);
             let mut machine = $crate::common::StackMachine::new();
             machine.run(code);
             machine.get_function(stringify!($func_name)).compile()

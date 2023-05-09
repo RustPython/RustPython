@@ -59,8 +59,8 @@ mod symtable {
         }
 
         #[pymethod]
-        fn get_lineno(&self) -> usize {
-            self.symtable.line_number.to_one_indexed()
+        fn get_lineno(&self) -> u32 {
+            self.symtable.line_number
         }
 
         #[pymethod]

@@ -1,8 +1,9 @@
 use rustpython_common::lock::PyMutex;
 
 use super::PyType;
-use crate::{class::PyClassImpl, frame::FrameRef, Context, Py, PyPayload, PyRef};
-use rustpython_compiler_core::LineNumber;
+use crate::{
+    class::PyClassImpl, frame::FrameRef, source_code::LineNumber, Context, Py, PyPayload, PyRef,
+};
 
 #[pyclass(module = false, name = "traceback", traverse)]
 #[derive(Debug)]
@@ -46,7 +47,7 @@ impl PyTraceback {
 
     #[pygetset]
     fn tb_lineno(&self) -> usize {
-        self.lineno.to_one_indexed()
+        self.lineno.to_usize()
     }
 
     #[pygetset]
@@ -77,7 +78,7 @@ impl serde::Serialize for PyTraceback {
 
         let mut struc = s.serialize_struct("PyTraceback", 3)?;
         struc.serialize_field("name", self.frame.code.obj_name.as_str())?;
-        struc.serialize_field("lineno", &self.lineno)?;
+        struc.serialize_field("lineno", &self.lineno.get())?;
         struc.serialize_field("filename", self.frame.code.source_path.as_str())?;
         struc.end()
     }

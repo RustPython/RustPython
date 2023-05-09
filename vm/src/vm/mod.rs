@@ -22,12 +22,11 @@ use crate::{
         PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned, PyStrRef,
         PyTypeRef,
     },
-    bytecode::frozen_lib::FrozenModule,
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::ToPyObject,
     frame::{ExecutionResult, Frame, FrameRef},
-    frozen,
+    frozen::FrozenModule,
     function::{ArgMapping, FuncArgs, PySetterValue},
     import,
     protocol::PyIterIter,
@@ -196,7 +195,7 @@ impl VirtualMachine {
             panic!("Interpreters in same process must share the hash seed");
         }
 
-        let frozen = frozen::core_frozen_inits().collect();
+        let frozen = core_frozen_inits().collect();
         PyRc::get_mut(&mut vm.state).unwrap().frozen = frozen;
 
         vm.builtins.init_dict(
@@ -835,6 +834,42 @@ impl AsRef<Context> for VirtualMachine {
     fn as_ref(&self) -> &Context {
         &self.ctx
     }
+}
+
+fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
+    let iter = std::iter::empty();
+    macro_rules! ext_modules {
+        ($iter:ident, $($t:tt)*) => {
+            let $iter = $iter.chain(py_freeze!($($t)*));
+        };
+    }
+
+    // keep as example but use file one now
+    // ext_modules!(
+    //     iter,
+    //     source = "initialized = True; print(\"Hello world!\")\n",
+    //     module_name = "__hello__",
+    // );
+
+    // Python modules that the vm calls into, but are not actually part of the stdlib. They could
+    // in theory be implemented in Rust, but are easiest to do in Python for one reason or another.
+    // Includes _importlib_bootstrap and _importlib_bootstrap_external
+    ext_modules!(
+        iter,
+        dir = "./Lib/python_builtins",
+        crate_name = "rustpython_compiler_core"
+    );
+
+    // core stdlib Python modules that the vm calls into, but are still used in Python
+    // application code, e.g. copyreg
+    #[cfg(not(feature = "freeze-stdlib"))]
+    ext_modules!(
+        iter,
+        dir = "./Lib/core_modules",
+        crate_name = "rustpython_compiler_core"
+    );
+
+    iter
 }
 
 #[test]

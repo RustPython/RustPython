@@ -9,10 +9,10 @@ use crate::{
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
     source::AtLocation,
+    source_code::SourceLocation,
     vm::VirtualMachine,
     AsObject, Py, PyObject, PyObjectRef, PyRef,
 };
-use rustpython_ast::location::SourceLocation;
 
 /// Collection of object creation helpers
 impl VirtualMachine {
@@ -272,7 +272,7 @@ impl VirtualMachine {
         fn get_statement(source: &str, loc: Option<SourceLocation>) -> Option<String> {
             let line = source
                 .split('\n')
-                .nth(loc?.row.to_zero_indexed())?
+                .nth(loc?.row.to_zero_indexed_usize())?
                 .to_owned();
             Some(line + "\n")
         }
@@ -296,7 +296,7 @@ impl VirtualMachine {
                     "{error}{at_location}\n{stmt}{arrow:>pad$}",
                     error = error.error,
                     at_location = AtLocation(loc.as_ref()),
-                    pad = loc.map_or(0, |loc| loc.column.to_one_indexed()),
+                    pad = loc.map_or(0, |loc| loc.column.to_usize()),
                     arrow = "^"
                 )
             } else {

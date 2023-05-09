@@ -118,6 +118,7 @@ impl std::fmt::Debug for PyTypeSlots {
 }
 
 bitflags! {
+    #[derive(Copy, Clone, Debug, PartialEq)]
     #[non_exhaustive]
     pub struct PyTypeFlags: u64 {
         const IMMUTABLETYPE = 1 << 8;
@@ -140,10 +141,10 @@ impl PyTypeFlags {
     /// Used for types created in Python. Subclassable and are a
     /// heaptype.
     pub const fn heap_type_flags() -> Self {
-        unsafe {
-            Self::from_bits_unchecked(
-                Self::DEFAULT.bits | Self::HEAPTYPE.bits | Self::BASETYPE.bits,
-            )
+        match Self::from_bits(Self::DEFAULT.bits() | Self::HEAPTYPE.bits() | Self::BASETYPE.bits())
+        {
+            Some(flags) => flags,
+            None => unreachable!(),
         }
     }
 

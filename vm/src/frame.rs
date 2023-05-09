@@ -14,17 +14,16 @@ use crate::{
     function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
+    source_code::SourceLocation,
     stdlib::builtins,
     vm::{Context, PyMethod},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use rustpython_compiler_core::source_code::SourceLocation;
-use std::fmt;
-use std::iter::zip;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
+use std::{fmt, iter::zip};
 
 #[derive(Clone, Debug)]
 struct Block {

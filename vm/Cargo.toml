@@ -33,6 +33,7 @@ rustpython-jit = { path = "../jit", optional = true, version = "0.2.0" }
 rustpython-ast = { workspace = true, optional = true }
 rustpython-parser = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
+rustpython-parser-core = { workspace = true }
 rustpython-literal = { workspace = true }
 
 ascii = { workspace = true }

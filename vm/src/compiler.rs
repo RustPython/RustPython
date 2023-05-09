@@ -4,7 +4,12 @@ use crate::{builtins::PyBaseExceptionRef, convert::ToPyException, VirtualMachine
 pub use rustpython_codegen::CompileOpts;
 #[cfg(feature = "rustpython-compiler")]
 pub use rustpython_compiler::*;
-pub use rustpython_compiler_core::Mode;
+
+#[cfg(not(feature = "rustpython-compiler"))]
+pub use rustpython_compiler_core as core;
+
+#[cfg(all(not(feature = "rustpython-compiler"), feature = "rustpython-parser"))]
+pub use rustpython_parser_core as parser;
 
 #[cfg(not(feature = "rustpython-compiler"))]
 mod error {
