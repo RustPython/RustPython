@@ -103,14 +103,18 @@ impl VirtualMachine {
             self.use_tracing.set(false);
             let res = trace_func.call(args.clone(), self);
             self.use_tracing.set(true);
-            res?;
+            if res.is_err() {
+                *self.trace_func.borrow_mut() = self.ctx.none();
+            }
         }
 
         if !self.is_none(&profile_func) {
             self.use_tracing.set(false);
             let res = profile_func.call(args, self);
             self.use_tracing.set(true);
-            res?;
+            if res.is_err() {
+                *self.profile_func.borrow_mut() = self.ctx.none();
+            }
         }
         Ok(())
     }
