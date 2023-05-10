@@ -646,7 +646,7 @@ impl SymbolTableBuilder {
         if let ImportFrom(StmtImportFrom { module, names, .. }) = &statement.node {
             if module.as_ref().map(|id| id.as_str()) == Some("__future__") {
                 for feature in names {
-                    if feature.node.name.as_str() == "annotations" {
+                    if &feature.node.name == "annotations" {
                         self.future_annotations = true;
                     }
                 }
@@ -752,7 +752,7 @@ impl SymbolTableBuilder {
                     } else {
                         // `import module`
                         self.register_name(
-                            name.node.name.as_str().split('.').next().unwrap(),
+                            name.node.name.split('.').next().unwrap(),
                             SymbolUsage::Imported,
                             location,
                         )?;
