@@ -612,7 +612,7 @@ impl SymbolTableBuilder {
         } else {
             SymbolUsage::Parameter
         };
-        self.register_name(&parameter.node.arg, usage, parameter.location())
+        self.register_name(parameter.node.arg.as_str(), usage, parameter.location())
     }
 
     fn scan_parameters_annotations(
@@ -644,9 +644,9 @@ impl SymbolTableBuilder {
         use ast::{StmtKind::*, *};
         let location = statement.location();
         if let ImportFrom(StmtImportFrom { module, names, .. }) = &statement.node {
-            if module.as_deref() == Some("__future__") {
+            if module.as_ref().map(|id| id.as_str()) == Some("__future__") {
                 for feature in names {
-                    if feature.node.name == "annotations" {
+                    if feature.node.name.as_str() == "annotations" {
                         self.future_annotations = true;
                     }
                 }
@@ -655,12 +655,12 @@ impl SymbolTableBuilder {
         match &statement.node {
             Global(StmtGlobal { names }) => {
                 for name in names {
-                    self.register_name(name, SymbolUsage::Global, location)?;
+                    self.register_name(name.as_str(), SymbolUsage::Global, location)?;
                 }
             }
             Nonlocal(StmtNonlocal { names }) => {
                 for name in names {
-                    self.register_name(name, SymbolUsage::Nonlocal, location)?;
+                    self.register_name(name.as_str(), SymbolUsage::Nonlocal, location)?;
                 }
             }
             FunctionDef(StmtFunctionDef {
@@ -680,11 +680,11 @@ impl SymbolTableBuilder {
                 ..
             }) => {
                 self.scan_expressions(decorator_list, ExpressionContext::Load)?;
-                self.register_name(name, SymbolUsage::Assigned, location)?;
+                self.register_name(name.as_str(), SymbolUsage::Assigned, location)?;
                 if let Some(expression) = returns {
                     self.scan_annotation(expression)?;
                 }
-                self.enter_function(name, args, location.row)?;
+                self.enter_function(name.as_str(), args, location.row)?;
                 self.scan_statements(body)?;
                 self.leave_scope();
             }
@@ -695,8 +695,8 @@ impl SymbolTableBuilder {
                 keywords,
                 decorator_list,
             }) => {
-                self.enter_scope(name, SymbolTableType::Class, location.row.get());
-                let prev_class = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
+                self.enter_scope(name.as_str(), SymbolTableType::Class, location.row.get());
+                let prev_class = std::mem::replace(&mut self.class_name, Some(name.to_string()));
                 self.register_name("__module__", SymbolUsage::Assigned, location)?;
                 self.register_name("__qualname__", SymbolUsage::Assigned, location)?;
                 self.register_name("__doc__", SymbolUsage::Assigned, location)?;
@@ -709,7 +709,7 @@ impl SymbolTableBuilder {
                     self.scan_expression(&keyword.node.value, ExpressionContext::Load)?;
                 }
                 self.scan_expressions(decorator_list, ExpressionContext::Load)?;
-                self.register_name(name, SymbolUsage::Assigned, location)?;
+                self.register_name(name.as_str(), SymbolUsage::Assigned, location)?;
             }
             Expr(StmtExpr { value }) => self.scan_expression(value, ExpressionContext::Load)?,
             If(StmtIf { test, body, orelse }) => {
@@ -748,11 +748,11 @@ impl SymbolTableBuilder {
                 for name in names {
                     if let Some(alias) = &name.node.asname {
                         // `import my_module as my_alias`
-                        self.register_name(alias, SymbolUsage::Imported, location)?;
+                        self.register_name(alias.as_str(), SymbolUsage::Imported, location)?;
                     } else {
                         // `import module`
                         self.register_name(
-                            name.node.name.split('.').next().unwrap(),
+                            name.node.name.as_str().split('.').next().unwrap(),
                             SymbolUsage::Imported,
                             location,
                         )?;
@@ -789,8 +789,8 @@ impl SymbolTableBuilder {
             }) => {
                 // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
                 match &target.node {
-                    ast::ExprKind::Name(ast::ExprName { id, .. }) if *simple > 0 => {
-                        self.register_name(id, SymbolUsage::AnnotationAssigned, location)?;
+                    ast::ExprKind::Name(ast::ExprName { id, .. }) if *simple => {
+                        self.register_name(id.as_str(), SymbolUsage::AnnotationAssigned, location)?;
                     }
                     _ => {
                         self.scan_expression(target, ExpressionContext::Store)?;
@@ -833,7 +833,7 @@ impl SymbolTableBuilder {
                         self.scan_expression(expression, ExpressionContext::Load)?;
                     }
                     if let Some(name) = name {
-                        self.register_name(name, SymbolUsage::Assigned, location)?;
+                        self.register_name(name.as_str(), SymbolUsage::Assigned, location)?;
                     }
                     self.scan_statements(body)?;
                 }
@@ -988,6 +988,7 @@ impl SymbolTableBuilder {
                 }
             }
             Name(ExprName { id, .. }) => {
+                let id = id.as_str();
                 // Determine the contextual usage of this symbol:
                 match context {
                     ExpressionContext::Delete => {
@@ -1048,6 +1049,7 @@ impl SymbolTableBuilder {
                 // propagate the scope of the named assigned named and not to
                 // propagate inner names.
                 if let Name(ExprName { id, .. }) = &target.node {
+                    let id = id.as_str();
                     let table = self.tables.last().unwrap();
                     if table.typ == SymbolTableType::Comprehension {
                         self.register_name(

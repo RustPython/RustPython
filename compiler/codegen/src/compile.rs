@@ -565,7 +565,7 @@ impl Compiler {
             // we do this here because `from __future__` still executes that `from` statement at runtime,
             // we still need to compile the ImportFrom down below
             ImportFrom(ast::StmtImportFrom { module, names, .. })
-                if module.as_deref() == Some("__future__") =>
+                if module.as_ref().map(|id| id.as_str()) == Some("__future__") =>
             {
                 self.compile_future_features(names)?
             }
@@ -582,16 +582,16 @@ impl Compiler {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_constant(ConstantData::None);
-                    let idx = self.name(&name.name);
+                    let idx = self.name(name.name.as_str());
                     emit!(self, Instruction::ImportName { idx });
                     if let Some(alias) = &name.asname {
-                        for part in name.name.split('.').skip(1) {
+                        for part in name.name.as_str().split('.').skip(1) {
                             let idx = self.name(part);
                             emit!(self, Instruction::LoadAttr { idx });
                         }
-                        self.store_name(alias)?
+                        self.store_name(alias.as_str())?
                     } else {
-                        self.store_name(name.name.split('.').next().unwrap())?
+                        self.store_name(name.name.as_str().split('.').next().unwrap())?
                     }
                 }
             }
@@ -600,7 +600,7 @@ impl Compiler {
                 module,
                 names,
             }) => {
-                let import_star = names.iter().any(|n| n.node.name == "*");
+                let import_star = names.iter().any(|n| n.node.name.as_str() == "*");
 
                 let from_list = if import_star {
                     if self.ctx.in_func() {
@@ -616,16 +616,16 @@ impl Compiler {
                     names
                         .iter()
                         .map(|n| ConstantData::Str {
-                            value: n.node.name.to_owned(),
+                            value: n.node.name.to_string(),
                         })
                         .collect()
                 };
 
-                let module_idx = module.as_ref().map(|s| self.name(s));
+                let module_idx = module.as_ref().map(|s| self.name(s.as_str()));
 
                 // from .... import (*fromlist)
                 self.emit_constant(ConstantData::Integer {
-                    value: (*level).unwrap_or(0).into(),
+                    value: level.as_ref().map_or(0, |level| level.to_u32()).into(),
                 });
                 self.emit_constant(ConstantData::Tuple {
                     elements: from_list,
@@ -644,15 +644,15 @@ impl Compiler {
 
                     for name in names {
                         let name = &name.node;
-                        let idx = self.name(&name.name);
+                        let idx = self.name(name.name.as_str());
                         // import symbol from module:
                         emit!(self, Instruction::ImportFrom { idx });
 
                         // Store module under proper name:
                         if let Some(alias) = &name.asname {
-                            self.store_name(alias)?
+                            self.store_name(alias.as_str())?
                         } else {
-                            self.store_name(&name.name)?
+                            self.store_name(name.name.as_str())?
                         }
                     }
 
@@ -747,7 +747,7 @@ impl Compiler {
                 returns,
                 ..
             }) => self.compile_function_def(
-                name,
+                name.as_str(),
                 args,
                 body,
                 decorator_list,
@@ -762,7 +762,7 @@ impl Compiler {
                 returns,
                 ..
             }) => self.compile_function_def(
-                name,
+                name.as_str(),
                 args,
                 body,
                 decorator_list,
@@ -775,7 +775,7 @@ impl Compiler {
                 bases,
                 keywords,
                 decorator_list,
-            }) => self.compile_class_def(name, body, bases, keywords, decorator_list)?,
+            }) => self.compile_class_def(name.as_str(), body, bases, keywords, decorator_list)?,
             Assert(StmtAssert { test, msg }) => {
                 // if some flag, ignore all assert statements!
                 if self.opts.optimize == 0 {
@@ -885,12 +885,12 @@ impl Compiler {
     fn compile_delete(&mut self, expression: &ast::located::Expr) -> CompileResult<()> {
         match &expression.node {
             ast::ExprKind::Name(ast::ExprName { id, .. }) => {
-                self.compile_name(id, NameUsage::Delete)?
+                self.compile_name(id.as_str(), NameUsage::Delete)?
             }
             ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-                self.check_forbidden_name(attr, NameUsage::Delete)?;
+                self.check_forbidden_name(attr.as_str(), NameUsage::Delete)?;
                 self.compile_expression(value)?;
-                let idx = self.name(attr);
+                let idx = self.name(attr.as_str());
                 emit!(self, Instruction::DeleteAttr { idx });
             }
             ast::ExprKind::Subscript(ast::ExprSubscript { value, slice, .. }) => {
@@ -935,7 +935,7 @@ impl Compiler {
                 .zip(&args.kw_defaults)
             {
                 self.emit_constant(ConstantData::Str {
-                    value: kw.node.arg.clone(),
+                    value: kw.node.arg.to_string(),
                 });
                 self.compile_expression(default)?;
             }
@@ -968,16 +968,16 @@ impl Compiler {
             .chain(&args.args)
             .chain(&args.kwonlyargs);
         for name in args_iter {
-            self.varname(&name.node.arg)?;
+            self.varname(name.node.arg.as_str())?;
         }
 
         if let Some(name) = args.vararg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::HAS_VARARGS;
-            self.varname(&name.node.arg)?;
+            self.varname(name.node.arg.as_str())?;
         }
         if let Some(name) = args.kwarg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::HAS_VARKEYWORDS;
-            self.varname(&name.node.arg)?;
+            self.varname(name.node.arg.as_str())?;
         }
 
         Ok(func_flags)
@@ -1066,7 +1066,7 @@ impl Compiler {
 
                 // We have a match, store in name (except x as y)
                 if let Some(alias) = name {
-                    self.store_name(alias)?
+                    self.store_name(alias.as_str())?
                 } else {
                     // Drop exception from top of stack:
                     emit!(self, Instruction::Pop);
@@ -1224,7 +1224,7 @@ impl Compiler {
         for arg in args_iter {
             if let Some(annotation) = &arg.node.annotation {
                 self.emit_constant(ConstantData::Str {
-                    value: self.mangle(&arg.node.arg).into_owned(),
+                    value: self.mangle(arg.node.arg.as_str()).into_owned(),
                 });
                 self.compile_annotation(annotation)?;
                 num_annotations += 1;
@@ -1750,7 +1750,7 @@ impl Compiler {
             let annotations = self.name("__annotations__");
             emit!(self, Instruction::LoadNameAny(annotations));
             self.emit_constant(ConstantData::Str {
-                value: self.mangle(id).into_owned(),
+                value: self.mangle(id.as_str()).into_owned(),
             });
             emit!(self, Instruction::StoreSubscript);
         } else {
@@ -1763,16 +1763,16 @@ impl Compiler {
 
     fn compile_store(&mut self, target: &ast::located::Expr) -> CompileResult<()> {
         match &target.node {
-            ast::ExprKind::Name(ast::ExprName { id, .. }) => self.store_name(id)?,
+            ast::ExprKind::Name(ast::ExprName { id, .. }) => self.store_name(id.as_str())?,
             ast::ExprKind::Subscript(ast::ExprSubscript { value, slice, .. }) => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
                 emit!(self, Instruction::StoreSubscript);
             }
             ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, .. }) => {
-                self.check_forbidden_name(attr, NameUsage::Store)?;
+                self.check_forbidden_name(attr.as_str(), NameUsage::Store)?;
                 self.compile_expression(value)?;
-                let idx = self.name(attr);
+                let idx = self.name(attr.as_str());
                 emit!(self, Instruction::StoreAttr { idx });
             }
             ast::ExprKind::List(ast::ExprList { elts, .. })
@@ -1845,6 +1845,7 @@ impl Compiler {
 
         let kind = match &target.node {
             ast::ExprKind::Name(ast::ExprName { id, .. }) => {
+                let id = id.as_str();
                 self.compile_name(id, NameUsage::Load)?;
                 AugAssignKind::Name { id }
             }
@@ -1856,6 +1857,7 @@ impl Compiler {
                 AugAssignKind::Subscript
             }
             ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, .. }) => {
+                let attr = attr.as_str();
                 self.check_forbidden_name(attr, NameUsage::Store)?;
                 self.compile_expression(value)?;
                 emit!(self, Instruction::Duplicate);
@@ -2108,7 +2110,7 @@ impl Compiler {
             }
             Attribute(ast::ExprAttribute { value, attr, .. }) => {
                 self.compile_expression(value)?;
-                let idx = self.name(attr);
+                let idx = self.name(attr.as_str());
                 emit!(self, Instruction::LoadAttr { idx });
             }
             Compare(ast::ExprCompare {
@@ -2230,12 +2232,12 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::FormatValue {
-                        conversion: ConversionFlag::from_op_arg(*conversion)
+                        conversion: ConversionFlag::from_op_arg(conversion.to_u32())
                             .expect("invalid conversion flag"),
                     },
                 );
             }
-            Name(ast::ExprName { id, .. }) => self.load_name(id)?,
+            Name(ast::ExprName { id, .. }) => self.load_name(id.as_str())?,
             Lambda(ast::ExprLambda { args, body }) => {
                 let prev_ctx = self.ctx;
 
@@ -2390,7 +2392,7 @@ impl Compiler {
                 for keyword in sub_keywords {
                     if let Some(name) = &keyword.node.arg {
                         self.emit_constant(ConstantData::Str {
-                            value: name.to_owned(),
+                            value: name.to_string(),
                         });
                         self.compile_expression(&keyword.node.value)?;
                         sub_size += 1;
@@ -2415,7 +2417,7 @@ impl Compiler {
         let method =
             if let ast::ExprKind::Attribute(ast::ExprAttribute { value, attr, .. }) = &func.node {
                 self.compile_expression(value)?;
-                let idx = self.name(attr);
+                let idx = self.name(attr.as_str());
                 emit!(self, Instruction::LoadMethod { idx });
                 true
             } else {
@@ -2464,7 +2466,7 @@ impl Compiler {
 
         for keyword in keywords {
             if let Some(name) = &keyword.node.arg {
-                self.check_forbidden_name(name, NameUsage::Store)?;
+                self.check_forbidden_name(name.as_str(), NameUsage::Store)?;
             }
         }
 
@@ -2487,7 +2489,7 @@ impl Compiler {
             for keyword in keywords {
                 if let Some(name) = &keyword.node.arg {
                     kwarg_names.push(ConstantData::Str {
-                        value: name.to_owned(),
+                        value: name.to_string(),
                     });
                 } else {
                     // This means **kwargs!
@@ -2611,7 +2613,7 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
-            if generator.is_async > 0 {
+            if generator.is_async {
                 unimplemented!("async for comprehensions");
             }
 
@@ -2706,7 +2708,7 @@ impl Compiler {
             return Err(self.error(CodegenErrorType::InvalidFuturePlacement));
         }
         for feature in features {
-            match &*feature.node.name {
+            match feature.node.name.as_str() {
                 // Python 3 features; we've already implemented them by default
                 "nested_scopes" | "generators" | "division" | "absolute_import"
                 | "with_statement" | "print_function" | "unicode_literals" => {}

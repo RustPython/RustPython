@@ -165,18 +165,18 @@ impl<T: NamedNode> Node for ast::located::Located<T> {
                 column: OneIndexed::from_zero_indexed(column),
             })
         }
-        let row = Node::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?;
+        let row = ast::Int::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?;
         let column =
-            Node::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?;
-        let location = make_location(row, column);
+            ast::Int::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?;
+        let location = make_location(row.to_u32(), column.to_u32());
         let end_row = get_node_field_opt(vm, &object, "end_lineno")?
-            .map(|obj| Node::ast_from_object(vm, obj))
+            .map(|obj| ast::Int::ast_from_object(vm, obj))
             .transpose()?;
         let end_column = get_node_field_opt(vm, &object, "end_col_offset")?
-            .map(|obj| Node::ast_from_object(vm, obj))
+            .map(|obj| ast::Int::ast_from_object(vm, obj))
             .transpose()?;
         let end_location = if let (Some(row), Some(column)) = (end_row, end_column) {
-            make_location(row, column)
+            make_location(row.to_u32(), column.to_u32())
         } else {
             None
         };
@@ -223,23 +223,37 @@ fn node_add_location(
     };
 }
 
-impl Node for String {
+impl Node for ast::String {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        PyStrRef::try_from_object(vm, object).map(|s| s.as_str().to_owned())
+        let py_str = PyStrRef::try_from_object(vm, object)?;
+        Ok(py_str.as_str().to_owned())
     }
 }
 
-impl Node for u32 {
+impl Node for ast::Identifier {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_int(self).into()
+        let id: String = self.into();
+        vm.ctx.new_str(id).into()
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        object.try_into_value(vm)
+        let py_str = PyStrRef::try_from_object(vm, object)?;
+        Ok(ast::Identifier::new(py_str.as_str()))
+    }
+}
+
+impl Node for ast::Int {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_int(self.to_u32()).into()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        let value = object.try_into_value(vm)?;
+        Ok(ast::Int::new(value))
     }
 }
 
