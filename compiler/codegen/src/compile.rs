@@ -582,16 +582,16 @@ impl Compiler {
                         value: num_traits::Zero::zero(),
                     });
                     self.emit_constant(ConstantData::None);
-                    let idx = self.name(name.name.as_str());
+                    let idx = self.name(&name.name);
                     emit!(self, Instruction::ImportName { idx });
                     if let Some(alias) = &name.asname {
-                        for part in name.name.as_str().split('.').skip(1) {
+                        for part in name.name.split('.').skip(1) {
                             let idx = self.name(part);
                             emit!(self, Instruction::LoadAttr { idx });
                         }
                         self.store_name(alias.as_str())?
                     } else {
-                        self.store_name(name.name.as_str().split('.').next().unwrap())?
+                        self.store_name(name.name.split('.').next().unwrap())?
                     }
                 }
             }
@@ -600,7 +600,7 @@ impl Compiler {
                 module,
                 names,
             }) => {
-                let import_star = names.iter().any(|n| n.node.name.as_str() == "*");
+                let import_star = names.iter().any(|n| &n.node.name == "*");
 
                 let from_list = if import_star {
                     if self.ctx.in_func() {
