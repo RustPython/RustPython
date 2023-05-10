@@ -17,7 +17,7 @@ use crate::{extract_spans, Diagnostic};
 use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use rustpython_compiler_core::{frozen_lib, CodeObject, Mode};
+use rustpython_compiler_core::{bytecode::CodeObject, frozen, Mode};
 use std::{
     collections::HashMap,
     env, fs,
@@ -318,7 +318,7 @@ impl PyCompileInput {
             source,
             mode: mode.unwrap_or(Mode::Exec),
             module_name: module_name.unwrap_or_else(|| "frozen".to_owned()),
-            crate_name: crate_name.unwrap_or_else(|| syn::parse_quote!(::rustpython_vm::bytecode)),
+            crate_name: crate_name.unwrap_or_else(|| syn::parse_quote!(::rustpython_vm)),
         })
     }
 }
@@ -374,11 +374,11 @@ pub fn impl_py_compile(
         .source
         .compile_single(args.mode, args.module_name, compiler)?;
 
-    let frozen = frozen_lib::FrozenCodeObject::encode(&code);
+    let frozen = frozen::FrozenCodeObject::encode(&code);
     let bytes = LitByteStr::new(&frozen.bytes, Span::call_site());
 
     let output = quote! {
-        #crate_name::frozen_lib::FrozenCodeObject { bytes: &#bytes[..] }
+        #crate_name::frozen::FrozenCodeObject { bytes: &#bytes[..] }
     };
 
     Ok(output)
@@ -394,9 +394,9 @@ pub fn impl_py_freeze(
     let crate_name = args.crate_name;
     let code_map = args.source.compile(args.mode, args.module_name, compiler)?;
 
-    let data = frozen_lib::FrozenLib::encode(code_map.iter().map(|(k, v)| {
-        let v = frozen_lib::FrozenModule {
-            code: frozen_lib::FrozenCodeObject::encode(&v.code),
+    let data = frozen::FrozenLib::encode(code_map.iter().map(|(k, v)| {
+        let v = frozen::FrozenModule {
+            code: frozen::FrozenCodeObject::encode(&v.code),
             package: v.package,
         };
         (&**k, v)
@@ -404,7 +404,7 @@ pub fn impl_py_freeze(
     let bytes = LitByteStr::new(&data.bytes, Span::call_site());
 
     let output = quote! {
-        #crate_name::frozen_lib::FrozenLib::from_ref(#bytes)
+        #crate_name::frozen::FrozenLib::from_ref(#bytes)
     };
 
     Ok(output)

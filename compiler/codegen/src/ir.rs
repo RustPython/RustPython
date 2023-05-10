@@ -1,10 +1,10 @@
 use std::ops;
 
 use crate::IndexSet;
-use rustpython_compiler_core::{
-    CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label,
-    Location, OpArg,
+use rustpython_compiler_core::bytecode::{
+    CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label, OpArg,
 };
+use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct BlockIdx(pub u32);
@@ -42,7 +42,7 @@ pub struct InstructionInfo {
     pub instr: Instruction,
     pub arg: OpArg,
     pub target: BlockIdx,
-    pub location: Location,
+    pub location: SourceLocation,
 }
 
 // spell-checker:ignore petgraph
@@ -68,7 +68,7 @@ pub struct CodeInfo {
     pub arg_count: u32,
     pub kwonlyarg_count: u32,
     pub source_path: String,
-    pub first_line_number: u32,
+    pub first_line_number: LineNumber,
     pub obj_name: String, // Name of the object that created this code object
 
     pub blocks: Vec<Block>,
@@ -158,7 +158,7 @@ impl CodeInfo {
             arg_count,
             kwonlyarg_count,
             source_path,
-            first_line_number,
+            first_line_number: Some(first_line_number),
             obj_name,
 
             max_stackdepth,

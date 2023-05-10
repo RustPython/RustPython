@@ -8,7 +8,9 @@ use crate::{
     bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
     convert::ToPyObject,
+    frozen,
     function::{FuncArgs, OptionalArg},
+    source_code::OneIndexed,
     types::Representable,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
@@ -180,7 +182,7 @@ impl IntoCodeObject for bytecode::CodeObject {
     }
 }
 
-impl<B: AsRef<[u8]>> IntoCodeObject for bytecode::frozen_lib::FrozenCodeObject<B> {
+impl<B: AsRef<[u8]>> IntoCodeObject for frozen::FrozenCodeObject<B> {
     fn into_code_object(self, ctx: &Context) -> CodeObject {
         self.decode(ctx)
     }
@@ -225,7 +227,7 @@ impl Representable for PyCode {
             code.obj_name,
             zelf.get_id(),
             code.source_path.as_str(),
-            code.first_line_number
+            code.first_line_number.map_or(-1, |n| n.get() as i32)
         ))
     }
 }
@@ -275,8 +277,8 @@ impl PyCode {
     }
 
     #[pygetset]
-    fn co_firstlineno(&self) -> usize {
-        self.code.first_line_number as usize
+    fn co_firstlineno(&self) -> u32 {
+        self.code.first_line_number.map_or(0, |n| n.get())
     }
 
     #[pygetset]
@@ -348,7 +350,7 @@ impl PyCode {
         };
 
         let first_line_number = match args.co_firstlineno {
-            OptionalArg::Present(first_line_number) => first_line_number,
+            OptionalArg::Present(first_line_number) => OneIndexed::new(first_line_number),
             OptionalArg::Missing => self.code.first_line_number,
         };
 

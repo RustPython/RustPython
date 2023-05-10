@@ -259,7 +259,7 @@ fn write_traceback_entry<W: Write>(
         r##"  File "{}", line {}, in {}"##,
         filename, tb_entry.lineno, tb_entry.frame.code.obj_name
     )?;
-    print_source_line(output, filename, tb_entry.lineno)?;
+    print_source_line(output, filename, tb_entry.lineno.to_usize())?;
 
     Ok(())
 }

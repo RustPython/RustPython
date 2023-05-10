@@ -1,8 +1,8 @@
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
-use rustpython_compiler_core::{
-    self as bytecode, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator,
-    Instruction, Label, OpArg, OpArgState, UnaryOperator,
+use rustpython_compiler_core::bytecode::{
+    self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction, Label,
+    OpArg, OpArgState, UnaryOperator,
 };
 use std::collections::HashMap;
 

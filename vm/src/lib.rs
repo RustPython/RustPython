@@ -55,7 +55,6 @@ pub mod eval;
 pub mod exceptions;
 pub mod format;
 pub mod frame;
-mod frozen;
 pub mod function;
 pub mod import;
 mod intern;
@@ -72,6 +71,7 @@ pub mod scope;
 pub mod sequence;
 pub mod signal;
 pub mod sliceable;
+mod source;
 pub mod stdlib;
 pub mod suggestion;
 pub mod types;
@@ -80,6 +80,7 @@ pub mod version;
 pub mod vm;
 pub mod warn;
 
+pub use self::compiler::parser::source_code;
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 pub use self::object::{
     AsObject, Py, PyAtomicRef, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact,
@@ -88,7 +89,7 @@ pub use self::object::{
 pub use self::vm::{Context, Interpreter, Settings, VirtualMachine};
 
 pub use rustpython_common as common;
-pub use rustpython_compiler_core as bytecode;
+pub use rustpython_compiler_core::{bytecode, frozen};
 pub use rustpython_literal as literal;
 
 #[doc(hidden)]

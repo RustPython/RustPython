@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 rustpython-compiler-core = { workspace = true }
-rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main" }
+rustpython-parser-core = { workspace = true }
+rustpython-doc = { workspace = true }
 
 indexmap = { workspace = true }
 itertools = { workspace = true }

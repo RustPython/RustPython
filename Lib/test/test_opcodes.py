@@ -21,8 +21,6 @@ class OpcodeTest(unittest.TestCase):
         if n != 90:
             self.fail('try inside for')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_setup_annotations_line(self):
         # check that SETUP_ANNOTATIONS does not create spurious line numbers
         try:

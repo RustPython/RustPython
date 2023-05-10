@@ -164,6 +164,7 @@ pub mod module {
 
     // Flags for os_access
     bitflags! {
+        #[derive(Copy, Clone, Debug, PartialEq)]
         pub struct AccessFlags: u8 {
             const F_OK = _os::F_OK;
             const R_OK = _os::R_OK;

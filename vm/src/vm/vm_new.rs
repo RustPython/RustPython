@@ -8,6 +8,8 @@ use crate::{
     convert::ToPyObject,
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
+    source::AtLocation,
+    source_code::SourceLocation,
     vm::VirtualMachine,
     AsObject, Py, PyObject, PyObjectRef, PyRef,
 };
@@ -266,11 +268,12 @@ impl VirtualMachine {
         }
         .to_owned();
 
-        fn get_statement(source: &str, loc: rustpython_compiler_core::Location) -> Option<String> {
-            if loc.column() == 0 || loc.row() == 0 {
-                return None;
-            }
-            let line = source.split('\n').nth(loc.row() - 1)?.to_owned();
+        // TODO: replace to SourceCode
+        fn get_statement(source: &str, loc: Option<SourceLocation>) -> Option<String> {
+            let line = source
+                .split('\n')
+                .nth(loc?.row.to_zero_indexed_usize())?
+                .to_owned();
             Some(line + "\n")
         }
 
@@ -288,10 +291,21 @@ impl VirtualMachine {
             let loc = error.location;
             if let Some(ref stmt) = statement {
                 // visualize the error when location and statement are provided
-                loc.fmt_with(f, &error.error)?;
-                write!(f, "\n{stmt}{arrow:>pad$}", pad = loc.column(), arrow = "^")
+                write!(
+                    f,
+                    "{error}{at_location}\n{stmt}{arrow:>pad$}",
+                    error = error.error,
+                    at_location = AtLocation(loc.as_ref()),
+                    pad = loc.map_or(0, |loc| loc.column.to_usize()),
+                    arrow = "^"
+                )
             } else {
-                loc.fmt_with(f, &error.error)
+                write!(
+                    f,
+                    "{error}{at_location}",
+                    error = error.error,
+                    at_location = AtLocation(loc.as_ref()),
+                )
             }
         }
 
@@ -299,8 +313,9 @@ impl VirtualMachine {
         fmt(error, statement.as_deref(), &mut msg).unwrap();
 
         let syntax_error = self.new_exception_msg(syntax_error_type, msg);
-        let lineno = self.ctx.new_int(error.location.row());
-        let offset = self.ctx.new_int(error.location.column());
+        let (lineno, offset) = error.python_location();
+        let lineno = self.ctx.new_int(lineno);
+        let offset = self.ctx.new_int(offset);
         syntax_error
             .as_object()
             .set_attr("lineno", lineno, self)

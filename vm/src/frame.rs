@@ -14,16 +14,16 @@ use crate::{
     function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
+    source_code::SourceLocation,
     stdlib::builtins,
     vm::{Context, PyMethod},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use std::fmt;
-use std::iter::zip;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
+use std::{fmt, iter::zip};
 
 #[derive(Clone, Debug)]
 struct Block {
@@ -165,7 +165,7 @@ impl Frame {
         }
     }
 
-    pub fn current_location(&self) -> bytecode::Location {
+    pub fn current_location(&self) -> SourceLocation {
         self.code.locations[self.lasti() as usize - 1]
     }
 
@@ -376,12 +376,8 @@ impl ExecutingFrame<'_> {
 
                         let loc = frame.code.locations[idx];
                         let next = exception.traceback();
-                        let new_traceback = PyTraceback::new(
-                            next,
-                            frame.object.to_owned(),
-                            frame.lasti(),
-                            loc.row(),
-                        );
+                        let new_traceback =
+                            PyTraceback::new(next, frame.object.to_owned(), frame.lasti(), loc.row);
                         vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
                         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
 

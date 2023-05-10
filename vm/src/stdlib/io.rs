@@ -722,7 +722,7 @@ mod _io {
     }
 
     bitflags::bitflags! {
-        #[derive(Default)]
+        #[derive(Copy, Clone, Debug, PartialEq, Default)]
         struct BufferedFlags: u8 {
             const DETACHED = 1 << 0;
             const WRITABLE = 1 << 1;
@@ -3723,6 +3723,7 @@ mod fileio {
     use std::io::{Read, Write};
 
     bitflags::bitflags! {
+        #[derive(Copy, Clone, Debug, PartialEq)]
         struct Mode: u8 {
             const CREATED   = 0b0001;
             const READABLE  = 0b0010;
