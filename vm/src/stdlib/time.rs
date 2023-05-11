@@ -350,7 +350,10 @@ mod time {
         }
 
         fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
-            let invalid = || vm.new_value_error("invalid struct_time parameter".to_owned());
+            let invalid_overflow =
+                || vm.new_overflow_error("mktime argument out of range".to_owned());
+            let invalid_value = || vm.new_value_error("invalid struct_time parameter".to_owned());
+
             macro_rules! field {
                 ($field:ident) => {
                     self.$field.clone().try_into_value(vm)?
@@ -358,9 +361,9 @@ mod time {
             }
             let dt = NaiveDateTime::new(
                 NaiveDate::from_ymd_opt(field!(tm_year), field!(tm_mon), field!(tm_mday))
-                    .ok_or_else(invalid)?,
+                    .ok_or_else(invalid_value)?,
                 NaiveTime::from_hms_opt(field!(tm_hour), field!(tm_min), field!(tm_sec))
-                    .ok_or_else(invalid)?,
+                    .ok_or_else(invalid_overflow)?,
             );
             Ok(dt)
         }
