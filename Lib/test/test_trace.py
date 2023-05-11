@@ -298,8 +298,6 @@ class TestFuncs(unittest.TestCase):
         }
         self.assertEqual(self.tracer.results().calledfuncs, expected)
 
-    # TODO: RUSTPYTHON, gc
-    @unittest.expectedFailure
     def test_arg_errors(self):
         res = self.tracer.runfunc(traced_capturer, 1, 2, self=3, func=4)
         self.assertEqual(res, ((1, 2), {'self': 3, 'func': 4}))
@@ -552,8 +550,6 @@ class TestCommandLine(unittest.TestCase):
             expected = f'filename: {filename}, modulename: {modulename}, funcname: <module>'
             self.assertIn(expected.encode(), stdout)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sys_argv_list(self):
         with open(TESTFN, 'w', encoding='utf-8') as fd:
             self.addCleanup(unlink, TESTFN)
@@ -591,8 +587,6 @@ class TestCommandLine(unittest.TestCase):
         self.assertIn('lines   cov%   module   (path)', stdout)
         self.assertIn(f'6   100%   {modulename}   ({filename})', stdout)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_run_as_module(self):
         assert_python_ok('-m', 'trace', '-l', '--module', 'timeit', '-n', '1')
         assert_python_failure('-m', 'trace', '-l', '--module', 'not_a_module_zzz')
