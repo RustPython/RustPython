@@ -253,11 +253,12 @@ impl PyBytesInner {
     }
 
     pub fn repr_with_name(&self, class_name: &str, vm: &VirtualMachine) -> PyResult<String> {
+        const DECORATION_LEN: isize = 2 + 3; // 2 for (), 3 for b"" => bytearray(b"")
         let escape = crate::literal::escape::AsciiEscape::new_repr(&self.elements);
         let len = escape
             .layout()
             .len
-            .and_then(|len| (len as isize).checked_add(2 + class_name.len() as isize))
+            .and_then(|len| (len as isize).checked_add(DECORATION_LEN + class_name.len() as isize))
             .ok_or_else(|| Self::new_repr_overflow_error(vm))? as usize;
         let mut buf = String::with_capacity(len);
         buf.push_str(class_name);
