@@ -34,7 +34,7 @@ use rustpython_common::{
     hash,
     lock::PyMutex,
 };
-use rustpython_literal::format::{FormatSpec, FormatString, FromTemplate};
+use rustpython_format::{FormatSpec, FormatString, FromTemplate};
 use std::{char, fmt, ops::Range, string::ToString};
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;

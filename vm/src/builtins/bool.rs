@@ -11,7 +11,7 @@ use crate::{
 };
 use num_bigint::Sign;
 use num_traits::Zero;
-use rustpython_literal::format::FormatSpec;
+use rustpython_format::FormatSpec;
 use std::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {

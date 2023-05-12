@@ -37,6 +37,7 @@ rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main
  rustpython-parser-core = { path = "../RustPython-parser/core" }
  rustpython-parser = { path = "../RustPython-parser/parser" }
  rustpython-ast = { path = "../RustPython-parser/ast" }
+rustpython-format = { path = "../RustPython-parser/format" }
 
 ahash = "0.7.6"
 anyhow = "1.0.45"

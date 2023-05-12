@@ -12,7 +12,7 @@ use crate::{
 };
 use itertools::Itertools;
 use num_traits::cast::ToPrimitive;
-use rustpython_literal::cformat::*;
+use rustpython_format::cformat::*;
 use std::str::FromStr;
 
 fn spec_format_bytes(

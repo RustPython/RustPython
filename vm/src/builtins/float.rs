@@ -21,7 +21,7 @@ use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_rational::Ratio;
 use num_traits::{Signed, ToPrimitive, Zero};
-use rustpython_literal::format::FormatSpec;
+use rustpython_format::FormatSpec;
 
 #[pyclass(module = false, name = "float")]
 #[derive(Debug, Copy, Clone, PartialEq)]

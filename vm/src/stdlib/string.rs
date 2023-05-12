@@ -12,7 +12,7 @@ mod _string {
         convert::ToPyObject,
         PyObjectRef, PyResult, VirtualMachine,
     };
-    use rustpython_literal::format::{
+    use rustpython_format::{
         FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
     };
     use std::mem;

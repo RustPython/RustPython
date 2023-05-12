@@ -912,15 +912,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
-name = "hmac"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
-dependencies = [
- "digest",
-]
-
-[[package]]
 name = "iana-time-zone"
 version = "0.1.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1907,13 +1898,12 @@ dependencies = [
  "libc",
  "lock_api",
  "num-bigint",
- "num-complex",
  "num-traits",
  "once_cell",
  "parking_lot",
  "radium",
  "rand",
- "rustpython-literal",
+ "rustpython-format",
  "siphasher",
  "volatile",
  "widestring",
@@ -1954,7 +1944,6 @@ dependencies = [
 name = "rustpython-derive-impl"
 version = "0.2.0"
 dependencies = [
- "indexmap",
  "itertools",
  "maplit",
  "once_cell",
@@ -1977,6 +1966,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustpython-format"
+version = "0.2.0"
+dependencies = [
+ "bitflags 2.2.1",
+ "itertools",
+ "num-bigint",
+ "num-traits",
+ "rustpython-literal",
+]
+
+[[package]]
 name = "rustpython-jit"
 version = "0.2.0"
 dependencies = [
@@ -1995,11 +1995,8 @@ dependencies = [
 name = "rustpython-literal"
 version = "0.2.0"
 dependencies = [
- "bitflags 2.2.1",
  "hexf-parse",
- "itertools",
  "lexical-parse-float",
- "num-bigint",
  "num-traits",
  "unic-ucd-category",
 ]
@@ -2029,10 +2026,6 @@ dependencies = [
 name = "rustpython-parser-core"
 version = "0.2.0"
 dependencies = [
- "itertools",
- "lz4_flex",
- "num-bigint",
- "num-complex",
  "ruff_source_location",
  "ruff_text_size",
 ]
@@ -2067,7 +2060,6 @@ dependencies = [
  "foreign-types-shared",
  "gethostname",
  "hex",
- "hmac",
  "itertools",
  "libc",
  "libsqlite3-sys",
@@ -2167,6 +2159,7 @@ dependencies = [
  "rustpython-compiler",
  "rustpython-compiler-core",
  "rustpython-derive",
+ "rustpython-format",
  "rustpython-jit",
  "rustpython-literal",
  "rustpython-parser",
