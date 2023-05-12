@@ -4,7 +4,6 @@ use crate::{
     bytesinner::PyBytesInner,
     class::PyClassImpl,
     common::{
-        format::FormatSpec,
         hash,
         int::{bigint_to_finite_float, bytes_to_int},
     },
@@ -22,6 +21,7 @@ use num_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_rational::Ratio;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
+use rustpython_format::FormatSpec;
 use std::ops::{Div, Neg};
 use std::{fmt, ops::Not};
 

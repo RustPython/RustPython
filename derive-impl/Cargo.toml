@@ -8,7 +8,6 @@ rustpython-compiler-core = { workspace = true }
 rustpython-parser-core = { workspace = true }
 rustpython-doc = { workspace = true }
 
-indexmap = { workspace = true }
 itertools = { workspace = true }
 once_cell = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits"] }

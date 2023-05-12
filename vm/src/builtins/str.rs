@@ -7,10 +7,7 @@ use crate::{
     anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
     atomic_func,
     class::PyClassImpl,
-    common::{
-        format::{FormatSpec, FormatString, FromTemplate},
-        str::{BorrowedStr, PyStrKind, PyStrKindData},
-    },
+    common::str::{BorrowedStr, PyStrKind, PyStrKindData},
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
     function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
@@ -37,6 +34,7 @@ use rustpython_common::{
     hash,
     lock::PyMutex,
 };
+use rustpython_format::{FormatSpec, FormatString, FromTemplate};
 use std::{char, fmt, ops::Range, string::ToString};
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;

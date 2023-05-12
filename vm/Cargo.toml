@@ -35,6 +35,7 @@ rustpython-parser = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
 rustpython-parser-core = { workspace = true }
 rustpython-literal = { workspace = true }
+rustpython-format = { workspace = true }
 
 ascii = { workspace = true }
 ahash = { workspace = true }

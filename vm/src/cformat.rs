@@ -5,7 +5,6 @@ use crate::{
     builtins::{
         try_f64_to_bigint, tuple, PyBaseExceptionRef, PyByteArray, PyBytes, PyFloat, PyInt, PyStr,
     },
-    common::cformat::*,
     function::ArgIntoFloat,
     protocol::PyBuffer,
     stdlib::builtins,
@@ -13,6 +12,7 @@ use crate::{
 };
 use itertools::Itertools;
 use num_traits::cast::ToPrimitive;
+use rustpython_format::cformat::*;
 use std::str::FromStr;
 
 fn spec_format_bytes(
