@@ -1,11 +1,12 @@
 use crate::{
     builtins::PyBaseExceptionRef,
-    common::format::*,
     convert::{IntoPyException, ToPyException},
     function::FuncArgs,
     stdlib::builtins,
     PyObject, PyResult, VirtualMachine,
 };
+
+use rustpython_literal::format::*;
 
 impl IntoPyException for FormatSpecError {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {

@@ -1,7 +1,6 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
-    common::format::FormatSpec,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::OptionalArg,
     identifier,
@@ -12,6 +11,7 @@ use crate::{
 };
 use num_bigint::Sign;
 use num_traits::Zero;
+use rustpython_literal::format::FormatSpec;
 use std::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {

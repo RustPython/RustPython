@@ -8,12 +8,12 @@ mod _string {
     use crate::common::ascii;
     use crate::{
         builtins::{PyList, PyStrRef},
-        common::format::{
-            FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
-        },
         convert::ToPyException,
         convert::ToPyObject,
         PyObjectRef, PyResult, VirtualMachine,
+    };
+    use rustpython_literal::format::{
+        FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
     };
     use std::mem;
 

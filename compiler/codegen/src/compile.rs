@@ -908,7 +908,7 @@ impl Compiler {
             | ast::ExprKind::UnaryOp(ast::ExprUnaryOp { .. }) => {
                 return Err(self.error(CodegenErrorType::Delete("expression")))
             }
-            _ => return Err(self.error(CodegenErrorType::Delete(expression.node.name()))),
+            _ => return Err(self.error(CodegenErrorType::Delete(expression.node.python_name()))),
         }
         Ok(())
     }
@@ -1823,7 +1823,7 @@ impl Compiler {
                     ast::ExprKind::Starred { .. } => CodegenErrorType::SyntaxError(
                         "starred assignment target must be in a list or tuple".to_owned(),
                     ),
-                    _ => CodegenErrorType::Assign(target.node.name()),
+                    _ => CodegenErrorType::Assign(target.node.python_name()),
                 }));
             }
         }
@@ -1866,7 +1866,7 @@ impl Compiler {
                 AugAssignKind::Attr { idx }
             }
             _ => {
-                return Err(self.error(CodegenErrorType::Assign(target.node.name())));
+                return Err(self.error(CodegenErrorType::Assign(target.node.python_name())));
             }
         };
 

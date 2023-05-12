@@ -3,6 +3,7 @@ use crate::{
     hash::PyHash,
 };
 use ascii::AsciiString;
+use rustpython_literal::format::CharLen;
 use std::ops::{Bound, RangeBounds};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -136,6 +137,12 @@ impl std::ops::Deref for BorrowedStr<'_> {
 impl std::fmt::Display for BorrowedStr<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.as_str().fmt(f)
+    }
+}
+
+impl CharLen for BorrowedStr<'_> {
+    fn char_len(&self) -> usize {
+        self.char_len()
     }
 }
 
