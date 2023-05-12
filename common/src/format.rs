@@ -5,6 +5,9 @@ use num_traits::{cast::ToPrimitive, Signed};
 use rustpython_literal::{float, format::Case};
 use std::{cmp, str::FromStr};
 
+pub struct Locale;
+pub type LocaleFunc = fn() -> Locale;
+
 trait FormatParse {
     fn parse(text: &str) -> (Option<Self>, &str)
     where
@@ -314,6 +317,7 @@ impl FormatSpec {
         inter: i32,
         sep: char,
         disp_digit_cnt: i32,
+        locale_info: Option<LocaleFunc>,  // will be used to calculate numbers here
     ) -> String {
         // Don't add separators to the floating decimal point of numbers
         let mut parts = magnitude_str.splitn(2, '.');
@@ -394,7 +398,12 @@ impl FormatSpec {
         }
     }
 
-    fn add_magnitude_separators(&self, magnitude_str: String, prefix: &str) -> String {
+    fn add_magnitude_separators(
+        &self,
+        magnitude_str: String,
+        prefix: &str,
+        locale_info: Option<LocaleFunc>,
+    ) -> String {
         match &self.grouping_option {
             Some(fg) => {
                 let sep = match fg {
@@ -410,6 +419,7 @@ impl FormatSpec {
                     inter,
                     sep,
                     disp_digit_cnt,
+                    locale_info,
                 )
             }
             None => magnitude_str,
@@ -500,7 +510,7 @@ impl FormatSpec {
                 FormatSign::MinusOrSpace => " ",
             }
         };
-        let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, sign_str);
+        let magnitude_str = self.add_magnitude_separators(raw_magnitude_str?, sign_str, None);
         self.format_sign_and_align(
             unsafe { &BorrowedStr::from_ascii_unchecked(magnitude_str.as_bytes()) },
             sign_str,
@@ -516,7 +526,11 @@ impl FormatSpec {
         }
     }
 
-    pub fn format_int(&self, num: &BigInt) -> Result<String, FormatSpecError> {
+    pub fn format_int(
+        &self,
+        num: &BigInt,
+        locale_info: Option<LocaleFunc>,
+    ) -> Result<String, FormatSpecError> {
         self.validate_format(FormatType::Decimal)?;
         let magnitude = num.abs();
         let prefix = if self.alternate_form {
@@ -575,7 +589,8 @@ impl FormatSpec {
             },
         };
         let sign_prefix = format!("{sign_str}{prefix}");
-        let magnitude_str = self.add_magnitude_separators(raw_magnitude_str, &sign_prefix);
+        let magnitude_str =
+            self.add_magnitude_separators(raw_magnitude_str, &sign_prefix, locale_info);
         self.format_sign_and_align(
             &BorrowedStr::from_bytes(magnitude_str.as_bytes()),
             &sign_prefix,
