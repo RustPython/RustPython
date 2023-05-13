@@ -137,6 +137,11 @@ pub(crate) mod _thread {
             Ok(())
         }
 
+        #[pymethod]
+        fn _at_fork_reinit(&self, vm: &VirtualMachine) -> PyResult<()> {
+            Ok(())
+        }
+
         #[pymethod(magic)]
         fn exit(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             self.release(vm)
@@ -200,6 +205,11 @@ pub(crate) mod _thread {
                 return Err(vm.new_runtime_error("release unlocked lock".to_owned()));
             }
             unsafe { self.mu.unlock() };
+            Ok(())
+        }
+
+        #[pymethod]
+        fn _at_fork_reinit(&self, vm: &VirtualMachine) -> PyResult<()> {
             Ok(())
         }
 
