@@ -29,16 +29,16 @@ rustpython-pylib = { path = "pylib" }
 rustpython-stdlib = { path = "stdlib" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main" }
 
-rustpython-literal = { git = "https://github.com/RustPython/Parser.git", rev = "a983f4383fb1ad8c1c66acb1d5b0016e59f95a49" }
-rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", rev = "a983f4383fb1ad8c1c66acb1d5b0016e59f95a49" }
-rustpython-parser = { git = "https://github.com/RustPython/Parser.git", rev = "a983f4383fb1ad8c1c66acb1d5b0016e59f95a49" }
-rustpython-ast = { git = "https://github.com/RustPython/Parser.git", rev = "a983f4383fb1ad8c1c66acb1d5b0016e59f95a49" }
-rustpython-format = { git = "https://github.com/RustPython/Parser.git", rev = "a983f4383fb1ad8c1c66acb1d5b0016e59f95a49" }
-#rustpython-literal = { path = "../RustPython-parser/literal" }
-#rustpython-parser-core = { path = "../RustPython-parser/core" }
-#rustpython-parser = { path = "../RustPython-parser/parser" }
-#rustpython-ast = { path = "../RustPython-parser/ast" }
-#rustpython-format = { path = "../RustPython-parser/format" }
+rustpython-literal = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "718354673eb2cc9645d63fc0c50b4ad08e5595c2" }
+rustpython-parser-core = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "718354673eb2cc9645d63fc0c50b4ad08e5595c2" }
+rustpython-parser = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "718354673eb2cc9645d63fc0c50b4ad08e5595c2" }
+rustpython-ast = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "718354673eb2cc9645d63fc0c50b4ad08e5595c2" }
+rustpython-format = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "718354673eb2cc9645d63fc0c50b4ad08e5595c2" }
+# rustpython-literal = { path = "../RustPython-parser/literal" }
+# rustpython-parser-core = { path = "../RustPython-parser/core" }
+# rustpython-parser = { path = "../RustPython-parser/parser" }
+# rustpython-ast = { path = "../RustPython-parser/ast" }
+# rustpython-format = { path = "../RustPython-parser/format" }
 
 ahash = "0.7.6"
 anyhow = "1.0.45"

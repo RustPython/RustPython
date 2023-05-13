@@ -6,13 +6,10 @@
 mod gen;
 
 use crate::{
-    builtins::{self, PyModule, PyStrRef, PyType},
+    builtins::{self, PyDict, PyModule, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
+    compiler::core::bytecode::OpArgType,
     compiler::CompileError,
-    compiler::{
-        core::bytecode::OpArgType,
-        parser::text_size::{TextRange, TextSize},
-    },
     convert::ToPyException,
     source_code::{OneIndexed, SourceLocation, SourceLocator, SourceRange},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -36,10 +33,10 @@ mod _ast {
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]
     #[derive(Debug, PyPayload)]
-    pub(crate) struct AstNode;
+    pub(crate) struct NodeAst;
 
     #[pyclass(flags(BASETYPE, HAS_DICT))]
-    impl AstNode {
+    impl NodeAst {
         #[pyslot]
         #[pymethod(magic)]
         fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
@@ -149,65 +146,48 @@ impl<T: Node> Node for Option<T> {
     }
 }
 
-impl<T: NamedNode> Node for ast::located::Located<T> {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        let location = self.location();
-        let end_location = self.end_location();
-        let obj = self.node.ast_to_object(vm);
-        node_add_location(&obj, location, end_location, vm);
-        obj
-    }
-
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        fn make_location(row: u32, column: u32) -> Option<SourceLocation> {
-            Some(SourceLocation {
-                row: OneIndexed::new(row)?,
-                column: OneIndexed::from_zero_indexed(column),
-            })
-        }
-        let row = ast::Int::ast_from_object(vm, get_node_field(vm, &object, "lineno", T::NAME)?)?;
-        let column =
-            ast::Int::ast_from_object(vm, get_node_field(vm, &object, "col_offset", T::NAME)?)?;
-        let location = make_location(row.to_u32(), column.to_u32());
-        let end_row = get_node_field_opt(vm, &object, "end_lineno")?
-            .map(|obj| ast::Int::ast_from_object(vm, obj))
-            .transpose()?;
-        let end_column = get_node_field_opt(vm, &object, "end_col_offset")?
-            .map(|obj| ast::Int::ast_from_object(vm, obj))
-            .transpose()?;
-        let end_location = if let (Some(row), Some(column)) = (end_row, end_column) {
-            make_location(row.to_u32(), column.to_u32())
-        } else {
-            None
-        };
-        let node = T::ast_from_object(vm, object)?;
-        Ok(ast::located::Located {
-            range: TextRange::empty(TextSize::new(0)),
-            custom: SourceRange {
-                start: location.unwrap_or(SourceLocation::default()),
-                end: end_location,
-            },
-            node,
+fn range_from_object(
+    vm: &VirtualMachine,
+    object: PyObjectRef,
+    name: &str,
+) -> PyResult<SourceRange> {
+    fn make_location(row: u32, column: u32) -> Option<SourceLocation> {
+        Some(SourceLocation {
+            row: OneIndexed::new(row)?,
+            column: OneIndexed::from_zero_indexed(column),
         })
     }
+    let row = ast::Int::ast_from_object(vm, get_node_field(vm, &object, "lineno", name)?)?;
+    let column = ast::Int::ast_from_object(vm, get_node_field(vm, &object, "col_offset", name)?)?;
+    let location = make_location(row.to_u32(), column.to_u32());
+    let end_row = get_node_field_opt(vm, &object, "end_lineno")?
+        .map(|obj| ast::Int::ast_from_object(vm, obj))
+        .transpose()?;
+    let end_column = get_node_field_opt(vm, &object, "end_col_offset")?
+        .map(|obj| ast::Int::ast_from_object(vm, obj))
+        .transpose()?;
+    let end_location = if let (Some(row), Some(column)) = (end_row, end_column) {
+        make_location(row.to_u32(), column.to_u32())
+    } else {
+        None
+    };
+    let range = SourceRange {
+        start: location.unwrap_or(SourceLocation::default()),
+        end: end_location,
+    };
+    Ok(range)
 }
 
-fn node_add_location(
-    node: &PyObject,
-    location: SourceLocation,
-    end_location: Option<SourceLocation>,
-    vm: &VirtualMachine,
-) {
-    let dict = node.dict().unwrap();
-    dict.set_item("lineno", vm.ctx.new_int(location.row.get()).into(), vm)
+fn node_add_location(dict: &Py<PyDict>, range: SourceRange, vm: &VirtualMachine) {
+    dict.set_item("lineno", vm.ctx.new_int(range.start.row.get()).into(), vm)
         .unwrap();
     dict.set_item(
         "col_offset",
-        vm.ctx.new_int(location.column.to_zero_indexed()).into(),
+        vm.ctx.new_int(range.start.column.to_zero_indexed()).into(),
         vm,
     )
     .unwrap();
-    if let Some(end_location) = end_location {
+    if let Some(end_location) = range.end {
         dict.set_item(
             "end_lineno",
             vm.ctx.new_int(end_location.row.get()).into(),
@@ -364,7 +344,7 @@ pub(crate) fn compile(
 }
 
 // Required crate visibility for inclusion by gen.rs
-pub(crate) use _ast::AstNode;
+pub(crate) use _ast::NodeAst;
 // Used by builtins::compile()
 pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 
