@@ -139,6 +139,10 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.mu.is_locked() {
+                unsafe { self.mu.unlock() };
+            }
+
             Ok(())
         }
 
@@ -210,6 +214,11 @@ pub(crate) mod _thread {
 
         #[pymethod]
         fn _at_fork_reinit(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if self.mu.is_locked() {
+                unsafe { self.mu.unlock() };
+            }
+            
+
             Ok(())
         }
 
