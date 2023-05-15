@@ -124,7 +124,7 @@ mod builtins {
 
             if args
                 .source
-                .fast_isinstance(&ast::AstNode::make_class(&vm.ctx))
+                .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
             {
                 #[cfg(not(feature = "rustpython-codegen"))]
                 {
