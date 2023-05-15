@@ -1183,18 +1183,18 @@ pub(super) mod types {
             Ok(())
         }
         #[pymethod(magic)]
-        fn reduce(exc: PyBaseExceptionRef, _vm: &VirtualMachine) -> PyTupleRef {
+        fn reduce(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
             let obj = exc.as_object().to_owned();
             let mut result: Vec<PyObjectRef> = vec![
                 obj.class().to_owned().into(),
-                _vm.new_tuple((exc.get_arg(0).unwrap(),)).into(),
+                vm.new_tuple((exc.get_arg(0).unwrap(),)).into(),
             ];
 
             if let Some(dict) = obj.dict().filter(|x| !x.is_empty()) {
                 result.push(dict.into());
             }
 
-            result.into_pytuple(_vm)
+            result.into_pytuple(vm)
         }
     }
 
