@@ -1793,8 +1793,6 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertIs(type(spam), Spam)
         self.assertEqual(vars(spam), {'ham': 8, 'eggs': 9})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         ns = types.SimpleNamespace(breakfast="spam", lunch="spam")
 
