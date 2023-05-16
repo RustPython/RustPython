@@ -21,10 +21,7 @@ use rustpython_compiler_core::{
     bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
     Mode,
 };
-use rustpython_parser_core::{
-    source_code::{LineNumber, SourceLocation},
-    ConversionFlag,
-};
+use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 use std::borrow::Cow;
 
 type CompileResult<T> = Result<T, CodegenError>;
@@ -2258,8 +2255,7 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::FormatValue {
-                        conversion: ConversionFlag::from_op_arg(conversion.to_u32())
-                            .expect("invalid conversion flag"),
+                        conversion: *conversion,
                     },
                 );
             }
