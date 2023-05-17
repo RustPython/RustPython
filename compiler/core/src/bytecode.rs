@@ -336,18 +336,22 @@ impl fmt::Display for Label {
     }
 }
 
-op_arg_enum_impl!(
-    enum ConversionFlag {
-        /// No conversion
-        None = 0, // CPython uses -1 but not pleasure for us
-        /// Converts by calling `str(<value>)`.
-        Str = b's',
-        /// Converts by calling `ascii(<value>)`.
-        Ascii = b'a',
-        /// Converts by calling `repr(<value>)`.
-        Repr = b'r',
+impl OpArgType for ConversionFlag {
+    #[inline]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        match x as u8 {
+            b's' => Some(ConversionFlag::Str),
+            b'a' => Some(ConversionFlag::Ascii),
+            b'r' => Some(ConversionFlag::Repr),
+            std::u8::MAX => Some(ConversionFlag::None),
+            _ => None,
+        }
     }
-);
+    #[inline]
+    fn to_op_arg(self) -> u32 {
+        self as i8 as u8 as u32
+    }
+}
 
 op_arg_enum!(
     /// The kind of Raise that occurred.
