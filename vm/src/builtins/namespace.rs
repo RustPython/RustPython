@@ -1,17 +1,17 @@
-use super::{PyType, PyTypeRef};
+use super::{tuple::IntoPyTuple, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     builtins::PyDict,
     class::PyClassImpl,
     function::{FuncArgs, PyComparisonValue},
     recursion::ReprGuard,
     types::{Comparable, Constructor, Initializer, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.
 ///
 /// SimpleNamespace(**kwargs)
-#[pyclass(module = false, name = "SimpleNamespace")]
+#[pyclass(module = "types", name = "SimpleNamespace")]
 #[derive(Debug)]
 pub struct PyNamespace {}
 
@@ -43,7 +43,19 @@ impl PyNamespace {
     flags(BASETYPE, HAS_DICT),
     with(Constructor, Initializer, Comparable, Representable)
 )]
-impl PyNamespace {}
+impl PyNamespace {
+    #[pymethod(magic)]
+    fn reduce(zelf: PyObjectRef, vm: &VirtualMachine) -> PyTupleRef {
+        let dict = zelf.as_object().dict().unwrap();
+        let obj = zelf.as_object().to_owned();
+        let result: (PyObjectRef, PyObjectRef, PyObjectRef) = (
+            obj.class().to_owned().into(),
+            vm.new_tuple(()).into(),
+            dict.into(),
+        );
+        result.into_pytuple(vm)
+    }
+}
 
 impl Initializer for PyNamespace {
     type Args = FuncArgs;
