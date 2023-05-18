@@ -99,10 +99,6 @@ trait Node: Sized {
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self>;
 }
 
-trait NamedNode: Node {
-    const NAME: &'static str;
-}
-
 impl<T: Node> Node for Vec<T> {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
@@ -314,6 +310,16 @@ impl Node for ast::ConversionFlag {
             .to_u32()
             .and_then(ast::ConversionFlag::from_op_arg)
             .ok_or_else(|| vm.new_value_error("invalid conversion flag".to_owned()))
+    }
+}
+
+impl Node for ast::located::Arguments {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        self.into_python_arguments().ast_to_object(vm)
+    }
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        ast::located::PythonArguments::ast_from_object(vm, object)
+            .map(ast::located::PythonArguments::into_arguments)
     }
 }
 

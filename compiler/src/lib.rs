@@ -1,9 +1,9 @@
 use rustpython_codegen::{compile, symboltable};
-use rustpython_parser::ast::{fold::Fold, ConstantOptimizer};
+use rustpython_parser::ast::{self as ast, fold::Fold, ConstantOptimizer};
 
 pub use rustpython_codegen::compile::CompileOpts;
 pub use rustpython_compiler_core::{bytecode::CodeObject, Mode};
-pub use rustpython_parser::source_code::SourceLocator;
+pub use rustpython_parser::{source_code::SourceLocator, Parse};
 
 // these modules are out of repository. re-exporting them here for convenience.
 pub use rustpython_codegen as codegen;
@@ -75,13 +75,13 @@ pub fn compile_symtable(
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             let ast =
-                parser::parse_program(source, source_path).map_err(|e| locator.locate_error(e))?;
+                ast::Suite::parse(source, source_path).map_err(|e| locator.locate_error(e))?;
             let ast = locator.fold(ast).unwrap();
             symboltable::SymbolTable::scan_program(&ast)
         }
         Mode::Eval => {
-            let expr = parser::parse_expression(source, source_path)
-                .map_err(|e| locator.locate_error(e))?;
+            let expr =
+                ast::Expr::parse(source, source_path).map_err(|e| locator.locate_error(e))?;
             let expr = locator.fold(expr).unwrap();
             symboltable::SymbolTable::scan_expr(&expr)
         }

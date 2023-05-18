@@ -29,11 +29,11 @@ rustpython-pylib = { path = "pylib" }
 rustpython-stdlib = { path = "stdlib" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main" }
 
-rustpython-literal = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec" }
-rustpython-parser-core = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec" }
-rustpython-parser = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec" }
-rustpython-ast = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec" }
-rustpython-format = { git = "https://github.com/youknowone/RustPython-Parser.git", rev = "fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec" }
+rustpython-literal = { git = "https://github.com/RustPython/Parser.git", rev = "fdec727f8068c882f99a47f0439572a71fd98b28" }
+rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", rev = "fdec727f8068c882f99a47f0439572a71fd98b28" }
+rustpython-parser = { git = "https://github.com/RustPython/Parser.git", rev = "fdec727f8068c882f99a47f0439572a71fd98b28" }
+rustpython-ast = { git = "https://github.com/RustPython/Parser.git", rev = "fdec727f8068c882f99a47f0439572a71fd98b28" }
+rustpython-format = { git = "https://github.com/RustPython/Parser.git", rev = "fdec727f8068c882f99a47f0439572a71fd98b28" }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-parser-core = { path = "../RustPython-parser/core" }
 # rustpython-parser = { path = "../RustPython-parser/parser" }
