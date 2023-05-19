@@ -5,6 +5,7 @@ use crate::{
     common::hash::PyHash,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
+    stdlib::builtins::reversed,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, GetAttr, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SetAttr,
@@ -98,6 +99,11 @@ impl PyWeakProxy {
         self.try_upgrade(vm)?.bytes(vm)
     }
 
+    #[pymethod(magic)]
+    fn reversed(&self, vm: &VirtualMachine) -> PyResult {
+        let obj = self.try_upgrade(vm)?;
+        reversed(obj, vm)
+    }
     #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
         self.try_upgrade(vm)?.to_sequence(vm).contains(&needle, vm)
