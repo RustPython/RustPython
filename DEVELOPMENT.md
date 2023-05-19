@@ -19,7 +19,7 @@ The contents of the Development Guide include:
 
 RustPython requires the following:
 
-- Rust latest stable version (e.g 1.51.0 as of Apr 2 2021)
+- Rust latest stable version (e.g 1.69.0 as of Apr 20 2023)
     - To check Rust version: `rustc --version` 
     - If you have `rustup` on your system, enter to update to the latest
       stable version: `rustup update stable`
@@ -47,7 +47,10 @@ you can check yourself with `cargo clippy`.
 
 Custom Python code (i.e. code not copied from CPython's standard library) should
 follow the [PEP 8](https://www.python.org/dev/peps/pep-0008/) style. We also use
-[flake8](http://flake8.pycqa.org/en/latest/) to check Python code style.
+[ruff](https://beta.ruff.rs/docs/) to check Python code style.
+
+In addition to language specific tools, [cspell](https://github.com/streetsidesoftware/cspell),
+a code spell checker, is used in order to ensure correct spellings for code.
 
 ## Testing
 
