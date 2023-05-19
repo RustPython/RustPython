@@ -1,11 +1,11 @@
 use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
     atomic_func,
-    stdlib::builtins::reversed,
     class::PyClassImpl,
     common::hash::PyHash,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PySequenceMethods},
+    stdlib::builtins::reversed,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, GetAttr, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SetAttr,
