@@ -33,7 +33,7 @@ def test_del_panic():
 # see https://github.com/RustPython/RustPython/issues/4910
 
 def f():
-    del l
+    del b # noqa
 
-l = 'a'
+b = 'a'
 assert_raises(UnboundLocalError, f)
