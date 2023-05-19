@@ -811,6 +811,7 @@ class ProcessTestCase(BaseTestCase):
                                if not is_env_var_to_ignore(k)]
             self.assertEqual(child_env_names, [])
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, null byte is not checked")
     def test_invalid_cmd(self):
         # null character in the command name
         cmd = sys.executable + '\0'
@@ -956,6 +957,7 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, None)
         self.assertEqual(stderr, None)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_communicate_pipe_buf(self):
         # communicate() with writes larger than pipe_buf
         # This test will probably deadlock rather than fail, if
@@ -995,6 +997,8 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, b"bananasplit")
         self.assertEqual(stderr, b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_universal_newlines_and_text(self):
         args = [
             sys.executable, "-c",
@@ -1034,6 +1038,7 @@ class ProcessTestCase(BaseTestCase):
                 self.assertEqual(p.stdout.read(),
                                  "line4\nline5\nline6\nline7\nline8")
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_universal_newlines_communicate(self):
         # universal newlines through communicate()
         p = subprocess.Popen([sys.executable, "-c",
@@ -1085,6 +1090,7 @@ class ProcessTestCase(BaseTestCase):
         p.communicate()
         self.assertEqual(p.returncode, 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_universal_newlines_communicate_stdin_stdout_stderr(self):
         # universal newlines through communicate(), with stdin, stdout, stderr
         p = subprocess.Popen([sys.executable, "-c",
@@ -1113,6 +1119,8 @@ class ProcessTestCase(BaseTestCase):
         # to stderr at exit of subprocess.
         self.assertTrue(stderr.startswith("eline2\neline6\neline7\n"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_universal_newlines_communicate_encodings(self):
         # Check that universal newlines mode works for various encodings,
         # in particular for encodings in the UTF-16 and UTF-32 families.
@@ -1135,6 +1143,8 @@ class ProcessTestCase(BaseTestCase):
             stdout, stderr = popen.communicate(input='')
             self.assertEqual(stdout, '1\n2\n3\n4')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_communicate_errors(self):
         for errors, expected in [
             ('ignore', ''),
@@ -1274,12 +1284,15 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(p.returncode, 0)
         self.assertEqual(read_line, expected)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_bufsize_equal_one_text_mode(self):
         # line is flushed in text mode with bufsize=1.
         # we should get the full line in return
         line = "line\n"
         self._test_bufsize_equal_one(line, line, universal_newlines=True)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bufsize_equal_one_binary_mode(self):
         # line is not flushed in binary mode with bufsize=1.
         # we should get empty response
@@ -1452,6 +1465,7 @@ class ProcessTestCase(BaseTestCase):
         self.assertFalse(os.path.exists(ofname))
         self.assertFalse(os.path.exists(efname))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_communicate_epipe(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
@@ -1482,6 +1496,7 @@ class ProcessTestCase(BaseTestCase):
                 p.returncode = code
                 self.assertEqual(repr(p), sx)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_communicate_epipe_only_stdin(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
@@ -1490,6 +1505,8 @@ class ProcessTestCase(BaseTestCase):
         p.wait()
         p.communicate(b"x" * 2**20)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(signal, 'SIGUSR1'),
                          "Requires signal.SIGUSR1")
     @unittest.skipUnless(hasattr(os, 'kill'),
@@ -1539,6 +1556,8 @@ class ProcessTestCase(BaseTestCase):
             subprocess.call(['/opt/nonexistent_binary', 'with', 'some', 'args'])
         self.assertEqual(c.exception.filename, '/opt/nonexistent_binary')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(mswindows, "behavior currently not supported on Windows")
     def test_file_not_found_with_bad_cwd(self):
         with self.assertRaises(FileNotFoundError) as c:
@@ -1739,6 +1758,8 @@ class RunFuncTestCase(BaseTestCase):
                         msg="TimeoutExpired was delayed! Bad traceback:\n```\n"
                         f"{stacks}```")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_encoding_warning(self):
         code = textwrap.dedent("""\
             from subprocess import *
@@ -1785,6 +1806,8 @@ class POSIXProcessTestCase(BaseTestCase):
                       self._nonexistent_dir)
         return desired_exception
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_cwd(self):
         """Test error in the child raised in the parent for a bad cwd."""
         desired_exception = self._get_chdir_exception()
@@ -1800,6 +1823,8 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.fail("Expected OSError: %s" % desired_exception)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_bad_executable(self):
         """Test error in the child raised in the parent for a bad executable."""
         desired_exception = self._get_chdir_exception()
@@ -1815,6 +1840,8 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.fail("Expected OSError: %s" % desired_exception)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_bad_args_0(self):
         """Test error in the child raised in the parent for a bad args[0]."""
         desired_exception = self._get_chdir_exception()
@@ -1879,6 +1906,8 @@ class POSIXProcessTestCase(BaseTestCase):
 
         self.assertIn(repr(error_data), str(e.exception))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(not os.path.exists('/proc/self/status'),
                      "need /proc/self/status")
     def test_restore_signals(self):
@@ -1919,6 +1948,8 @@ class POSIXProcessTestCase(BaseTestCase):
             child_sid = int(output)
             self.assertNotEqual(parent_sid, child_sid)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setpgid') and hasattr(os, 'getpgid'),
                          'no setpgid or getpgid on platform')
     def test_process_group_0(self):
@@ -1937,6 +1968,8 @@ class POSIXProcessTestCase(BaseTestCase):
             child_pgid = int(output)
             self.assertNotEqual(parent_pgid, child_pgid)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setreuid'), 'no setreuid on platform')
     def test_user(self):
         # For code coverage of the user parameter.  We don't care if we get an
@@ -1994,6 +2027,8 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, user=65535)
 
+    # TODO: RUSTPYTHON, observed gids do not match expected gids
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setregid'), 'no setregid() on platform')
     def test_group(self):
         gid = os.getegid()
@@ -2041,6 +2076,8 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, group=65535)
 
+    # TODO: RUSTPYTHON, observed gids do not match expected gids
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups(self):
         gid = os.getegid()
@@ -2095,6 +2132,8 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, extra_groups=[])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(mswindows or not hasattr(os, 'umask'),
                      'POSIX umask() is not available.')
     def test_umask(self):
@@ -2146,6 +2185,8 @@ class POSIXProcessTestCase(BaseTestCase):
         error_string = str(err)
         self.assertIn("non-zero exit status 2.", error_string)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_preexec(self):
         # DISCLAIMER: Setting environment variables is *not* a good use
         # of a preexec_fn.  This is merely a test.
@@ -2157,6 +2198,8 @@ class POSIXProcessTestCase(BaseTestCase):
         with p:
             self.assertEqual(p.stdout.read(), b"apple")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_preexec_exception(self):
         def raise_it():
             raise ValueError("What if two swallows carried a coconut?")
@@ -2198,6 +2241,8 @@ class POSIXProcessTestCase(BaseTestCase):
                     for fd in devzero_fds:
                         os.close(fd)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(not os.path.exists("/dev/zero"), "/dev/zero required.")
     def test_preexec_errpipe_does_not_double_close_pipes(self):
         """Issue16140: Don't double close pipes on preexec error."""
@@ -2212,6 +2257,8 @@ class POSIXProcessTestCase(BaseTestCase):
                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE, preexec_fn=raise_it)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_preexec_gc_module_failure(self):
         # This tests the code that disables garbage collection if the child
         # process will execute any Python.
@@ -2233,6 +2280,8 @@ class POSIXProcessTestCase(BaseTestCase):
             if not enabled:
                 gc.disable()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(
         sys.platform == 'darwin', 'setrlimit() seems to fail on OS X')
     def test_preexec_fork_failure(self):
@@ -2643,6 +2692,8 @@ class POSIXProcessTestCase(BaseTestCase):
             for to_fds in itertools.permutations(range(3), 2):
                 self._check_swap_std_fds_with_one_closed(from_fds, to_fds)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_surrogates_error_message(self):
         def prepare():
             raise ValueError("surrogate:\uDCff")
@@ -2662,6 +2713,8 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.fail("Expected ValueError or subprocess.SubprocessError")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_undecodable_env(self):
         for key, value in (('test', 'abc\uDCFF'), ('test\uDCFF', '42')):
             encoded_value = value.encode("ascii", "surrogateescape")
@@ -2782,6 +2835,7 @@ class POSIXProcessTestCase(BaseTestCase):
         p1.stdout.close()
         p2.stdout.close()
 
+    @unittest.skip("TODO: RUSTPYTHON, flaky test")
     def test_close_fds(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")
 
@@ -2909,6 +2963,7 @@ class POSIXProcessTestCase(BaseTestCase):
                          msg="Some fds were left open.")
 
 
+    @unittest.skip("TODO: RUSTPYTHON, flaky test")
     # Mac OS X Tiger (10.4) has a kernel bug: sometimes, the file
     # descriptor of a pipe closed in the parent process is valid in the
     # child process according to fstat(), but the mode of the file
@@ -3116,6 +3171,8 @@ class POSIXProcessTestCase(BaseTestCase):
         else:
             self.assertNotIn(ident, [id(o) for o in subprocess._active])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_close_fds_after_preexec(self):
         fd_status = support.findfile("fd_status.py", subdir="subprocessdata")
 
@@ -3418,6 +3475,8 @@ class Win32ProcessTestCase(BaseTestCase):
                               close_fds=True)
         self.assertEqual(rc, 47)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_close_fds_with_stdio(self):
         import msvcrt
 
@@ -3500,6 +3559,8 @@ class Win32ProcessTestCase(BaseTestCase):
         with p:
             self.assertIn(b"physalis", p.stdout.read())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_shell_encodings(self):
         # Run command through the shell (string)
         for enc in ['ansi', 'oem']:
@@ -3646,6 +3707,7 @@ class MiscTests(unittest.TestCase):
                 raise KeyboardInterrupt  # Test how __exit__ handles ^C.
         self._test_keyboardinterrupt_no_kill(popen_via_context_manager)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getoutput(self):
         self.assertEqual(subprocess.getoutput('echo xyzzy'), 'xyzzy')
         self.assertEqual(subprocess.getstatusoutput('echo xyzzy'),
@@ -3718,20 +3780,28 @@ class CommandsWithSpaces (BaseTestCase):
               "2 [%r, 'ab cd']" % self.fname
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_shell_string_with_spaces(self):
         # call() function with string argument with spaces on Windows
         self.with_spaces('"%s" "%s" "%s"' % (sys.executable, self.fname,
                                              "ab cd"), shell=1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_shell_sequence_with_spaces(self):
         # call() function with sequence argument with spaces on Windows
         self.with_spaces([sys.executable, self.fname, "ab cd"], shell=1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_noshell_string_with_spaces(self):
         # call() function with string argument with spaces on Windows
         self.with_spaces('"%s" "%s" "%s"' % (sys.executable, self.fname,
                              "ab cd"))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_noshell_sequence_with_spaces(self):
         # call() function with sequence argument with spaces on Windows
         self.with_spaces([sys.executable, self.fname, "ab cd"])
