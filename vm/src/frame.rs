@@ -612,7 +612,10 @@ impl ExecutingFrame<'_> {
                 if fastlocals[idx].is_none() {
                     return Err(vm.new_exception_msg(
                         vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!("local variable '{}' referenced before assignment", self.code.varnames[idx]),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx]
+                        ),
                     ));
                 }
                 fastlocals[idx] = None;
