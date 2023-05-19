@@ -1694,8 +1694,6 @@ class TestExamples(unittest.TestCase):
     def test_accumulate(self):
         self.assertEqual(list(accumulate([1,2,3,4,5])), [1, 3, 6, 10, 15])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_accumulate_reducible(self):
         # check copy, deepcopy, pickle
         data = [1, 2, 3, 4, 5]

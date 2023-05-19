@@ -1115,12 +1115,15 @@ mod decl {
                 return vm.new_tuple((class, tup, acc_value));
             }
             match acc_value {
-                Some(obj) if obj.is(&vm.ctx.none)  => {
+                Some(obj) if obj.is(&vm.ctx.none) => {
                     let chain_args = PyList::from(vec![]);
                     let chain = PyItertoolsChain {
-                        source: PyRwLock::new(Some(chain_args.to_pyobject(vm).get_iter(vm).unwrap())),
+                        source: PyRwLock::new(Some(
+                            chain_args.to_pyobject(vm).get_iter(vm).unwrap(),
+                        )),
                         active: PyRwLock::new(None),
-                    }.into_pyobject(vm);
+                    }
+                    .into_pyobject(vm);
                     let acc = Self {
                         iterable: PyIter::new(chain),
                         binop,
@@ -1128,10 +1131,10 @@ mod decl {
                         acc_value: PyRwLock::new(None),
                     };
                     let tup = vm.new_tuple((acc, 1, None::<PyObjectRef>));
-                    let islice_cls = PyItertoolsIslice::class(vm).to_owned();
-                    return vm.new_tuple((islice_cls, tup))
+                    let islice_cls = PyItertoolsIslice::class(&vm.ctx).to_owned();
+                    return vm.new_tuple((islice_cls, tup));
                 }
-                _ => {},
+                _ => {}
             }
             let tup = vm.new_tuple((it, binop));
             vm.new_tuple((class, tup, acc_value))
