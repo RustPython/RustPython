@@ -607,7 +607,18 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::DeleteFast(idx) => {
-                self.fastlocals.lock()[idx.get(arg) as usize] = None;
+                let mut fastlocals = self.fastlocals.lock();
+                let idx = idx.get(arg) as usize;
+                if fastlocals[idx].is_none() {
+                    return Err(vm.new_exception_msg(
+                        vm.ctx.exceptions.unbound_local_error.to_owned(),
+                        format!(
+                            "local variable '{}' referenced before assignment",
+                            self.code.varnames[idx]
+                        ),
+                    ));
+                }
+                fastlocals[idx] = None;
                 Ok(None)
             }
             bytecode::Instruction::DeleteLocal(idx) => {

@@ -29,3 +29,11 @@ class MyTest:
 def test_del_panic():
     mytest = MyTest()
     del mytest
+
+# see https://github.com/RustPython/RustPython/issues/4910
+
+def f():
+    del b # noqa
+
+b = 'a'
+assert_raises(UnboundLocalError, f)
