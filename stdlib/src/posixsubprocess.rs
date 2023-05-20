@@ -48,6 +48,7 @@ mod _posixsubprocess {
 
 macro_rules! gen_args {
     ($($field:ident: $t:ty),*$(,)?) => {
+        #[allow(dead_code)]
         #[derive(FromArgs)]
         struct ForkExecArgs {
             $(#[pyarg(positional)] $field: $t,)*
@@ -66,14 +67,31 @@ impl TryFromObject for CStrPathLike {
 }
 
 gen_args! {
-    args: ArgSequence<CStrPathLike> /* list */, exec_list: ArgSequence<CStrPathLike> /* list */,
-    close_fds: bool, fds_to_keep: ArgSequence<i32>,
-    cwd: Option<CStrPathLike>, env_list: Option<ArgSequence<CStrPathLike>>,
-    p2cread: i32, p2cwrite: i32, c2pread: i32, c2pwrite: i32,
-    errread: i32, errwrite: i32, errpipe_read: i32, errpipe_write: i32,
-    restore_signals: bool, call_setsid: bool,
-    gid: Option<Option<Gid>>, groups_list: Option<PyListRef>, uid: Option<Option<Uid>>, child_umask: i32,
+    args: ArgSequence<CStrPathLike> /* list */,
+    exec_list: ArgSequence<CStrPathLike> /* list */,
+    close_fds: bool,
+    fds_to_keep: ArgSequence<i32>,
+    cwd: Option<CStrPathLike>,
+    env_list: Option<ArgSequence<CStrPathLike>>,
+    p2cread: i32,
+    p2cwrite: i32,
+    c2pread: i32,
+    c2pwrite: i32,
+    errread: i32,
+    errwrite: i32,
+    errpipe_read: i32,
+    errpipe_write: i32,
+    restore_signals: bool,
+    call_setsid: bool,
+    // TODO: Difference between gid_to_set and gid_object.
+    // One is a `gid_t` and the other is a `PyObject` in CPython.
+    gid_to_set: Option<Option<Gid>>,
+    gid_object: PyObjectRef,
+    groups_list: Option<PyListRef>,
+    uid: Option<Option<Uid>>,
+    child_umask: i32,
     preexec_fn: Option<PyObjectRef>,
+    use_vfork: bool,
 }
 
 // can't reallocate inside of exec(), so we reallocate prior to fork() and pass this along
@@ -160,7 +178,7 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
         // unistd::setgroups(groups_size, groups);
     }
 
-    if let Some(_gid) = args.gid.as_ref() {
+    if let Some(_gid) = args.gid_to_set.as_ref() {
         // TODO: setgid
         // unistd::setregid(gid, gid)?;
     }
