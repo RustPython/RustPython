@@ -38,10 +38,26 @@ impl Constructor for PyBaseObject {
         // Ensure that all abstract methods are implemented before instantiating instance.
         if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__)) {
             if let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm) {
-                if unimplemented_abstract_method_count? > 0 {
-                    return Err(
-                        vm.new_type_error("You must implement the abstract methods".to_owned())
-                    );
+                let methods: Vec<PyStrRef> = abs_methods.try_to_value(vm)?;
+                let methods: Vec<String> = methods
+                    .into_iter()
+                    .map(|name| name.as_str().to_owned())
+                    .collect();
+                let methods = methods.join(", ");
+
+                let unimplemented_abstract_method_count = unimplemented_abstract_method_count?;
+                let name = cls.name().to_string();
+
+                if unimplemented_abstract_method_count == 1 {
+                    return Err(vm.new_type_error(format!(
+                        "Can't instantiate abstract class {} with abstract method {}",
+                        name, methods
+                    )));
+                } else if unimplemented_abstract_method_count > 1 {
+                    return Err(vm.new_type_error(format!(
+                        "Can't instantiate abstract class {} with abstract methods {}",
+                        name, methods
+                    )));
                 }
             }
         }
