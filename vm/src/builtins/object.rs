@@ -48,16 +48,20 @@ impl Constructor for PyBaseObject {
                 let unimplemented_abstract_method_count = unimplemented_abstract_method_count?;
                 let name = cls.name().to_string();
 
-                if unimplemented_abstract_method_count == 1 {
-                    return Err(vm.new_type_error(format!(
-                        "Can't instantiate abstract class {} with abstract method {}",
-                        name, methods
-                    )));
-                } else if unimplemented_abstract_method_count > 1 {
-                    return Err(vm.new_type_error(format!(
-                        "Can't instantiate abstract class {} with abstract methods {}",
-                        name, methods
-                    )));
+                match unimplemented_abstract_method_count {
+                    1 => {
+                        return Err(vm.new_type_error(format!(
+                            "Can't instantiate abstract class {} with abstract method {}",
+                            name, methods
+                        )));
+                    }
+                    2.. => {
+                        return Err(vm.new_type_error(format!(
+                            "Can't instantiate abstract class {} with abstract methods {}",
+                            name, methods
+                        )));
+                    }
+                    _ => {}
                 }
             }
         }
