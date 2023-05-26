@@ -11,6 +11,7 @@ pub(crate) mod _thread {
         types::{Constructor, GetAttr, Representable, SetAttr},
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
     };
+    use crossbeam_utils::atomic::AtomicCell;
     use parking_lot::{
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
         RawMutex, RawThreadId,
@@ -138,9 +139,20 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn _at_fork_reinit(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
             if self.mu.is_locked() {
-                unsafe { self.mu.unlock() };
+                unsafe {
+                    self.mu.unlock();
+                };
+            }
+            // Casting to AtomicCell is as unsafe as CPython code.
+            // Using AtomicCell will prevent compiler optimizer move it to somewhere later unsafe place.
+            // It will be not under the cell anymore after init call.
+
+            let new_mut = RawMutex::INIT;
+            unsafe {
+                let old_mutex: AtomicCell<&RawMutex> = AtomicCell::new(&self.mu);
+                old_mutex.swap(&new_mut);
             }
 
             Ok(())
@@ -213,11 +225,18 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
-        fn _at_fork_reinit(&self, vm: &VirtualMachine) -> PyResult<()> {
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
             if self.mu.is_locked() {
-                unsafe { self.mu.unlock() };
+                unsafe {
+                    self.mu.unlock();
+                };
             }
-            
+            let new_mut = RawRMutex::INIT;
+
+            unsafe {
+                let old_mutex: AtomicCell<&RawRMutex> = AtomicCell::new(&self.mu);
+                old_mutex.swap(&new_mut);
+            }
 
             Ok(())
         }
