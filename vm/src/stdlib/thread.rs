@@ -151,8 +151,8 @@ pub(crate) mod _thread {
 
             let new_mut = RawMutex::INIT;
             unsafe {
-                let old_mutex: AtomicCell<&RawMutex> = AtomicCell::new(&self.mu);
-                old_mutex.swap(&new_mut);
+                let old_mutex: &AtomicCell<RawMutex> = std::mem::transmute(&self.mu);
+                old_mutex.swap(new_mut);
             }
 
             Ok(())
