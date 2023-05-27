@@ -624,6 +624,7 @@ class ThreadTests(BaseTestCase):
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     @unittest.skipUnless(hasattr(os, 'fork'), "test needs os.fork()")
     @unittest.skipUnless(hasattr(os, 'waitpid'), "test needs os.waitpid()")
+    @unittest.skipIf(os.name != 'posix', "test needs POSIX semantics")
     def test_main_thread_after_fork_from_nonmain_thread(self):
         code = """if 1:
             import os, threading, sys
