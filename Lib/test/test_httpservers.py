@@ -794,7 +794,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         self.assertEqual(res.status, HTTPStatus.NOT_FOUND)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_authorization(self):
         headers = {b'Authorization' : b'Basic ' +
                    base64.b64encode(b'username:pass')}
@@ -804,7 +804,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (res.read(), res.getheader('Content-type'), res.status))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_no_leading_slash(self):
         # http://bugs.python.org/issue2254
         res = self.request('cgi-bin/file1.py')
@@ -813,7 +813,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (res.read(), res.getheader('Content-type'), res.status))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_os_environ_is_not_altered(self):
         signature = "Test CGI Server"
         os.environ['SERVER_SOFTWARE'] = signature
@@ -824,7 +824,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         self.assertEqual(os.environ['SERVER_SOFTWARE'], signature)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_urlquote_decoding_in_cgi_check(self):
         res = self.request('/cgi-bin%2ffile1.py')
         self.assertEqual(
@@ -832,7 +832,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (res.read(), res.getheader('Content-type'), res.status))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_nested_cgi_path_issue21323(self):
         res = self.request('/cgi-bin/child-dir/file3.py')
         self.assertEqual(
@@ -840,7 +840,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (res.read(), res.getheader('Content-type'), res.status))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_query_with_multiple_question_mark(self):
         res = self.request('/cgi-bin/file4.py?a=b?c=d')
         self.assertEqual(
@@ -848,7 +848,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (res.read(), res.getheader('Content-type'), res.status))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_query_with_continuous_slashes(self):
         res = self.request('/cgi-bin/file4.py?k=aa%2F%2Fbb&//q//p//=//a//b//')
         self.assertEqual(
@@ -857,7 +857,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             (res.read(), res.getheader('Content-type'), res.status))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_cgi_path_in_sub_directories(self):
         try:
             CGIHTTPRequestHandler.cgi_directories.append('/sub/dir/cgi-bin')
@@ -869,7 +869,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
             CGIHTTPRequestHandler.cgi_directories.remove('/sub/dir/cgi-bin')
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_accept(self):
         browser_accept = \
                     'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
