@@ -3072,13 +3072,11 @@ class PidTests(unittest.TestCase):
 
     # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
     @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
-    @unittest.expectedFailure
     def test_waitpid(self):
         self.check_waitpid(code='pass', exitcode=0)
 
     # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
     @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
-    @unittest.expectedFailure
     def test_waitstatus_to_exitcode(self):
         exitcode = 23
         code = f'import sys; sys.exit({exitcode})'
@@ -3112,7 +3110,6 @@ class PidTests(unittest.TestCase):
             
     @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
-    @unittest.expectedFailure
     # Skip the test on Windows
     @unittest.skipUnless(hasattr(signal, 'SIGKILL'), 'need signal.SIGKILL')
     def test_waitstatus_to_exitcode_kill(self):
@@ -3221,7 +3218,8 @@ class SpawnTests(unittest.TestCase):
         pid = os.spawnv(os.P_NOWAIT, args[0], args)
         support.wait_process(pid, exitcode=self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
+    # TODO: RUSTPYTHON fix spawnv bytes
+    @unittest.expectedFailure    
     @requires_os_func('spawnve')
     def test_spawnve_bytes(self):
         # Test bytes handling in parse_arglist and parse_envlist (#28114)
