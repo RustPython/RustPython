@@ -3104,7 +3104,6 @@ class PidTests(unittest.TestCase):
         with self.assertRaises(OverflowError):
             os.waitstatus_to_exitcode(-1)
             
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
     # Skip the test on Windows
     @unittest.skipUnless(hasattr(signal, 'SIGKILL'), 'need signal.SIGKILL')
     def test_waitstatus_to_exitcode_kill(self):
