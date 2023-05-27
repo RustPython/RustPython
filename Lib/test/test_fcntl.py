@@ -158,7 +158,7 @@ class TestFcntl(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'))
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
     def test_lockf_exclusive(self):
         self.f = open(TESTFN, 'wb+')
@@ -171,7 +171,7 @@ class TestFcntl(unittest.TestCase):
         self.assertEqual(p.exitcode, 0)
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'))
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
     def test_lockf_share(self):
         self.f = open(TESTFN, 'wb+')
