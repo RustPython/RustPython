@@ -1,4 +1,4 @@
-import threading  # XXX: RUSTPYTHON
+from test import support
 from test.support import verbose, reap_children
 from test.support.import_helper import import_module
 
@@ -211,7 +211,7 @@ class PtyTest(unittest.TestCase):
         s2 = _readline(master_fd)
         self.assertEqual(b'For my pet fish, Eric.\n', normalize_output(s2))
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'))
+    @support.requires_fork()
     def test_fork(self):
         debug("calling pty.fork()")
         pid, master_fd = pty.fork()

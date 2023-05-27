@@ -37,8 +37,6 @@ try:
 except ImportError:
     pty = signal = None
 
-import threading  # XXX: RUSTPYTHON; to skip _at_fork_reinit
-
 
 class Squares:
 
@@ -2261,17 +2259,18 @@ class PtyTests(unittest.TestCase):
         if 'readline' in sys.modules:
             self.skipTest("the readline module is loaded")
 
+    @unittest.skipUnless(hasattr(sys.stdin, 'detach'), 'TODO: RustPython: requires detach function in TextIOWrapper')
     def test_input_tty_non_ascii(self):
         self.skip_if_readline()
         # Check stdin/stdout encoding is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "utf-8")
 
+    @unittest.skipUnless(hasattr(sys.stdin, 'detach'), 'TODO: RustPython: requires detach function in TextIOWrapper')
     def test_input_tty_non_ascii_unicode_errors(self):
         self.skip_if_readline()
         # Check stdin/stdout error handler is used when invoking PyOS_Readline()
         self.check_input_tty("prompté", b"quux\xe9", "ascii")
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'))
     def test_input_no_stdout_fileno(self):
         # Issue #24402: If stdin is the original terminal but stdout.fileno()
         # fails, do not use the original stdout file descriptor

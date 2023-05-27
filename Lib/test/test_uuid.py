@@ -1,4 +1,3 @@
-import threading  # XXX: RUSTPYTHON; to check `_at_fork_reinit`
 import unittest
 from test import support
 from test.support import import_helper
@@ -640,7 +639,6 @@ class BaseTestUUID:
             equal(u, self.uuid.UUID(v))
             equal(str(u), v)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'))
     @support.requires_fork()
     def testIssue8621(self):
         # On at least some versions of OSX self.uuid.uuid4 generates
