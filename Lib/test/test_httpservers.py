@@ -767,7 +767,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
                                  (path, actual, expected))
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_headers_and_content(self):
         res = self.request('/cgi-bin/file1.py')
         self.assertEqual(
@@ -779,7 +779,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
         self.assertEqual(res.status, HTTPStatus.NOT_FOUND)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
     def test_post(self):
         params = urllib.parse.urlencode(
             {'spam' : 1, 'eggs' : 'python', 'bacon' : 123456})
