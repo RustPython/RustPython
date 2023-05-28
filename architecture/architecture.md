@@ -1,20 +1,20 @@
 # Architecture
 
-This document contains a high-level architectural overview of RustPython, thus it's very well-suited to get to know [the codebase](https://github.com/RustPython/RustPython).
+This document contains a high-level architectural overview of RustPython, thus it's very well-suited to get to know [the codebase][1].
 
-RustPython is an Open Source (MIT) Python 3 interpreter written in Rust, available as both a library and a shell environment. Using Rust to implement the Python interpreter enables Python to be used as a programming language for Rust applications. Moreover, it allows Python to be immediately compiled in the browser using WebAssembly, meaning that anyone could easily run their Python code in the browser. For a more detailed introduction to RustPython, have a look at [this blog post](https://2021.desosa.nl/projects/rustpython/posts/vision/).
+RustPython is an Open Source (MIT) Python 3 interpreter written in Rust, available as both a library and a shell environment. Using Rust to implement the Python interpreter enables Python to be used as a programming language for Rust applications. Moreover, it allows Python to be immediately compiled in the browser using WebAssembly, meaning that anyone could easily run their Python code in the browser. For a more detailed introduction to RustPython, have a look at [this blog post][2].
 
-RustPython consists of several components which are described in the section below. Take a look at [this video](https://www.youtube.com/watch?v=nJDY9ASuiLc&t=213s) for a brief walk-through of the components of RustPython. For a more elaborate introduction to one of these components, the parser, see [this blog post](https://rustpython.github.io/2020/04/02/thing-explainer-parser.html) for more information.
+RustPython consists of several components which are described in the section below. Take a look at [this video][3] for a brief walk-through of the components of RustPython. For a more elaborate introduction to one of these components, the parser, see [this blog post][4] for more information.
 
 Have a look at these websites for a demo of RustPython running in the browser using WebAssembly:
 
-- [https://rustpython.github.io/demo/](https://rustpython.github.io/demo/)
-- [https://rustpython.github.io/demo/notebook/](https://rustpython.github.io/demo/notebook/)
+- [The demo page.][5]
+- [The RustPython Notebook, a toy notebook inspired by the Iodide project.][6]
 
-If, after reading this, you are interested to contribute to RustPython, take a look at these sources to get to know how and where to start:
+If, after reading this, you are to contribute to RustPython, take a look at these sources to get to know how and where to start:
 
-- [https://github.com/RustPython/RustPython/blob/master/DEVELOPMENT.md](https://github.com/RustPython/RustPython/blob/master/DEVELOPMENT.md)
-- [https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html](https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html)
+- [RustPython Development Guide and Tips][7]
+- [How to contribute to RustPython using CPython's unit tests][8]
 
 ## Bird's eye view
 
@@ -24,7 +24,7 @@ A high-level overview of the workings of RustPython is visible in the figure bel
 
 Main architecture of RustPython.
 
-The RustPython interpreter can be decoupled into three distinct modules: the parser, compiler and VM. 
+The RustPython interpreter can be decoupled into three distinct components: the parser, compiler and VM.
 
 1. The parser is responsible for converting the source code into tokens, and deriving an Abstract Syntax Tree (AST) from it.
 2. The compiler converts the generated AST to bytecode.
@@ -32,79 +32,97 @@ The RustPython interpreter can be decoupled into three distinct modules: the par
 
 ## Entry points
 
-The entry points are as follows:
+The main entry point of RustPython is located in `src/main.rs` and simply forwards a call to `run`, located in [`src/lib.rs`][9]. This method will call the compiler, which in turn will call the parser, and pass the compiled bytecode to the VM.
 
-- The 'main' method of the application: `run`, located in `src/lib.rs:70`. This method will call the compiler, which in turn will call the parser, and pass the compiled bytecode to the VM.
-- Parser: `parse`, located in `parser/src/parser.rs:74`.
-- Compiler: `compile_top`, located in `compiler/src/compiler.rs:90`.
-- VM: `run_code_obj`, located in `vm/src/rm.rs:459`.
+For each of the three components, the entry point is as follows:
 
-## Modules
+- Parser: The Parser is located in a separate project, [RustPython/Parser][10]. See the documentation there for more information.
+- Compiler: `compile`, located in [`vm/src/vm/compile.rs`][11], this eventually forwards a call to [`compiler::compile`][12].
+- VM: `run_code_obj`, located in [`vm/src/vm/mod.rs`][13]. This creates a new frame in which the bytecode is executed.
 
-Here we give a brief overview of each module and its function. For more details for the separate crates please take a look at their respective READMEs.
+## Components
 
-### Bytecode
+Here we give a brief overview of each component and its function. For more details for the separate crates please take a look at their respective READMEs.
 
-This module (single file at moment) holds the representation of bytecode for RustPython
-<!-- For instance, the following function
+### Compiler
+
+This component, implemented as the `rustpython-compiler/` package, is responsible for translating a Python source file into its equivalent bytecode representation. As an example, the following Python file:
+
 ```python
 def f(x):
     return x + 1
 ```
-Is compiled to
-```rust
-// Not sure what this should be yet
-``` -->
 
-### Compiler
+Is compiled to the following bytecode:
 
-Python compilation to bytecode. The interface is exposed through the porcelain crate with `compile` and `compile_symtable`, while the inner workings are defined in compiler/src/compile.rs, which is mostly an adaptation of the CPython implementation.
+```python
+  2           0 LoadFast             (0, x)
+              1 LoadConst            (1)
+              2 BinaryOperation      (Add)
+              3 ReturnValue
+```
 
-### Derive
+Note that bytecode is subject to change, and is not a stable interface.
 
-Rust language extensions and macros specific to rustpython. Here we can find the definition of `PyModule` and `PyClass` along with useful macros like `py_compile!`
+#### Parser
 
-### Parser
+The Parser is the main sub-component of the compiler. All the functionality required for parsing Python sourcecode to an abstract syntax tree (AST) is implemented here:generator.
 
-All the functionality required for parsing python sourcecode to an abstract syntax tree (AST)
 1. Lexical Analysis
 2. Parsing
 
-As Python heavily relies on whitespace and indentation to organize code, the crate used for parsing, [LALRPOP](https://github.com/lalrpop/lalrpop), the raw source code is first preprocessed by a lexer which makes sure that `Indent` and `Dedent` tokens occur at the correct locations. Then, the parser recursively generates an AST for the code which can be processed by the compiler.
+The functionality for parsing resides in the RustPython/Parser project. See the documentation there for more information.
+
+### VM
+
+The Virtual Machine (VM) is responsible for executing the bytecode generated by the compiler. It is implemented in the `rustpython-vm/` package. The VM is currently implemented as a stack machine, meaning that it uses a stack to store intermediate results. In the `rustpython-vm/` package, additional sub-components are present, for example:
+
+- builtins: the built in objects of Python, such as `int` and `str`.
+- stdlib: parts of the standard library that contains built-in modules needed for the VM to function, such as `sys`.
+
+## Additional packages
+
+### common
+
+The `rustpython-common` package contains functionality that is not directly coupled to one of the other RustPython packages. For example, the [`float_ops.rs`][14] file contains operations on floating point numbers
+which could be used by other projects if needed.
+
+### derive and derive-impl
+
+Rust language extensions and macros specific to RustPython. Here we can find the definition of `PyModule` and `PyClass` along with useful macros like `py_compile!`.
+
+### jit
+
+This folder contains a _very_ experimental JIT implementation.
+
+### stdlib
+
+Part of the Python standard library that's implemented in Rust. The modules that live here are ones that aren't needed for the VM to function, but are useful for the user. For example, the `random` module is implemented here.
 
 ### Lib
 
 Python side of the standard libary, copied over (with care) from CPython sourcecode.
 
-### Lib/test
+#### Lib/test
 
+CPython test suite, which can be used to compare with CPython in terms of conformance.
+Many of these files have been modified to fit with the current state of RustPython (when they were added), in one of three ways:
 
-CPython test suite, which can be used to compare with CPython in terms of functionality and performance.
-Many of these files have been modified to fit with the current state of RustPython (when they were added), with one of three ways:
+- The test has been commented out completely if the parser could not create a valid code object. If a file is unable to be parsed
+  the test suite would not be able to run at all.
+- A test has been marked as `unittest.skip("TODO: RustPython <reason>")` if it led to a crash of RustPython. Adding a reason
+  is useful to know why the test was skipped but not mandatory.
+- A test has been marked as `unittest.expectedFailure` with a `TODO: RustPython <reason>` comment left on top of the decorator. This decorator is used if the test can run but the result differs from what is expected.
 
-- The test has been commented out completely if the parser could not create a valid code object (Syntax Error)
-- A test has been marked as `unittest.skip("TODO: RustPython")` if it led to a crash of RustPython
-- A test has been marked as `unittest.expectedFailure` with `TODO: RustPython` left on top if the test can run but failed
-
-Note: This is a recommended route to starting with contributing. To get started please take a look [this blog post](https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html).
-
-
-### VM
-
-Python VM
-
-- builtins: all the builtin functions
-- obj: Builtin types
-- stdlib: the parts of the standard library implemented in rust
+Note: This is a recommended route to starting with contributing. To get started please take a look [this blog post][15].
 
 ### src
 
-The RustPython executable is implemented here, which is the interface through which users come in contact with library.
+The RustPython executable/REPL (Read-Eval-Print-Loop) is implemented here, which is the interface through which users come in contact with library.
 Some things to note:
 
-- The CLI is defined in `src/lib.rs@run`
-- The interface and helper for the REPL are defined in this package, but the actual REPL can be found in `vm/rustyline.rs`
-
+- The CLI is defined in the [`run` function of `src/lib.rs`][16].
+- The interface and helper for the REPL are defined in this package, but the actual REPL can be found in `vm/src/readline.rs`
 
 ### WASM
 
@@ -112,4 +130,21 @@ Crate for WebAssembly build, which compiles the RustPython package to a format t
 
 ### extra_tests
 
-Integration ans snippet tests for the entire project.
+Integration and snippets that test for additional edge-cases, implementation specific functionality and bug report snippets.
+
+[1]: https://github.com/RustPython/RustPython
+[2]: https://2021.desosa.nl/projects/rustpython/posts/vision/
+[3]: https://www.youtube.com/watch?v=nJDY9ASuiLc&t=213s
+[4]: https://rustpython.github.io/2020/04/02/thing-explainer-parser.html
+[5]: https://rustpython.github.io/demo/
+[6]: https://rustpython.github.io/demo/notebook/
+[7]: https://github.com/RustPython/RustPython/blob/master/DEVELOPMENT.md
+[8]: https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html
+[9]: https://github.com/RustPython/RustPython/blob/0e24cf48c63ae4ca9f829e88142a987cab3a9966/src/lib.rs#L63
+[10]: https://github.com/RustPython/Parser
+[11]: https://github.com/RustPython/RustPython/blob/0e24cf48c63ae4ca9f829e88142a987cab3a9966/vm/src/vm/compile.rs#LL10C17-L10C17
+[12]: https://github.com/RustPython/RustPython/blob/0e24cf48c63ae4ca9f829e88142a987cab3a9966/vm/src/vm/compile.rs#L26
+[13]: https://github.com/RustPython/RustPython/blob/0e24cf48c63ae4ca9f829e88142a987cab3a9966/vm/src/vm/mod.rs#L356
+[14]: https://github.com/RustPython/RustPython/blob/0e24cf48c63ae4ca9f829e88142a987cab3a9966/common/src/float_ops.rs
+[15]: https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html
+[16]: https://github.com/RustPython/RustPython/blob/0e24cf48c63ae4ca9f829e88142a987cab3a9966/src/lib.rs#L63

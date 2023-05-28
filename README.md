@@ -205,6 +205,8 @@ cargo doc --no-deps --all # Excluding all dependencies
 Documentation HTML files can then be found in the `target/doc` directory or you can append `--open` to the previous commands to
 have the documentation open automatically on your default browser.
 
+For a high level overview of the components, see the [architecture](architecture/architecture.md) document.
+
 ## Contributing
 
 Contributions are more than welcome, and in many cases we are happy to guide
