@@ -6,7 +6,6 @@ import os
 import pathlib
 import sys
 import re
-import threading  # XXX: RUSTPYTHON; to check `_at_fork_reinit`
 import warnings
 import contextlib
 import stat
@@ -199,7 +198,6 @@ class TestRandomNameSequence(BaseTestCase):
             if i == 20:
                 break
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @unittest.skipUnless(hasattr(os, 'fork'),
         "os.fork is required for this test")
     def test_process_awareness(self):
@@ -467,7 +465,7 @@ class TestMkstempInner(TestBadTempdir, BaseTestCase):
             expected = user * (1 + 8 + 64)
         self.assertEqual(mode, expected)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
+    @support.requires_fork()
     @unittest.skipUnless(has_spawnl, 'os.spawnl not available')
     def test_noinherit(self):
         # _mkstemp_inner file handles are not inherited by child processes

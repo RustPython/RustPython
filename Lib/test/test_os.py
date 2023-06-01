@@ -3070,15 +3070,9 @@ class PidTests(unittest.TestCase):
         self.assertEqual(os.waitstatus_to_exitcode(status), exitcode)
         self.assertEqual(pid2, pid)
 
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
-    @unittest.expectedFailure
     def test_waitpid(self):
         self.check_waitpid(code='pass', exitcode=0)
 
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
-    @unittest.expectedFailure
     def test_waitstatus_to_exitcode(self):
         exitcode = 23
         code = f'import sys; sys.exit({exitcode})'
@@ -3110,9 +3104,6 @@ class PidTests(unittest.TestCase):
         with self.assertRaises(OverflowError):
             os.waitstatus_to_exitcode(-1)
             
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
-    # TODO: RUSTPYTHON (AttributeError: module 'os' has no attribute 'spawnv')
-    @unittest.expectedFailure
     # Skip the test on Windows
     @unittest.skipUnless(hasattr(signal, 'SIGKILL'), 'need signal.SIGKILL')
     def test_waitstatus_to_exitcode_kill(self):
@@ -3154,35 +3145,30 @@ class SpawnTests(unittest.TestCase):
 
         return args
     
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnl')
     def test_spawnl(self):
         args = self.create_args()
         exitcode = os.spawnl(os.P_WAIT, args[0], *args)
         self.assertEqual(exitcode, self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnle')
     def test_spawnle(self):
         args = self.create_args(with_env=True)
         exitcode = os.spawnle(os.P_WAIT, args[0], *args, self.env)
         self.assertEqual(exitcode, self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnlp')
     def test_spawnlp(self):
         args = self.create_args()
         exitcode = os.spawnlp(os.P_WAIT, args[0], *args)
         self.assertEqual(exitcode, self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnlpe')
     def test_spawnlpe(self):
         args = self.create_args(with_env=True)
         exitcode = os.spawnlpe(os.P_WAIT, args[0], *args, self.env)
         self.assertEqual(exitcode, self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnv')
     def test_spawnv(self):
         args = self.create_args()
@@ -3193,35 +3179,32 @@ class SpawnTests(unittest.TestCase):
         exitcode = os.spawnv(os.P_WAIT, FakePath(args[0]), args)
         self.assertEqual(exitcode, self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnve')
     def test_spawnve(self):
         args = self.create_args(with_env=True)
         exitcode = os.spawnve(os.P_WAIT, args[0], args, self.env)
         self.assertEqual(exitcode, self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnvp')
     def test_spawnvp(self):
         args = self.create_args()
         exitcode = os.spawnvp(os.P_WAIT, args[0], args)
         self.assertEqual(exitcode, self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnvpe')
     def test_spawnvpe(self):
         args = self.create_args(with_env=True)
         exitcode = os.spawnvpe(os.P_WAIT, args[0], args, self.env)
         self.assertEqual(exitcode, self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnv')
     def test_nowait(self):
         args = self.create_args()
         pid = os.spawnv(os.P_NOWAIT, args[0], args)
         support.wait_process(pid, exitcode=self.exitcode)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
+    # TODO: RUSTPYTHON fix spawnv bytes
+    @unittest.expectedFailure    
     @requires_os_func('spawnve')
     def test_spawnve_bytes(self):
         # Test bytes handling in parse_arglist and parse_envlist (#28114)
@@ -3303,12 +3286,10 @@ class SpawnTests(unittest.TestCase):
         exitcode = spawn(os.P_WAIT, args[0], args, newenv)
         self.assertEqual(exitcode, 0)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnve')
     def test_spawnve_invalid_env(self):
         self._test_invalid_env(os.spawnve)
 
-    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, test needs lock._at_fork_reinit')
     @requires_os_func('spawnvpe')
     def test_spawnvpe_invalid_env(self):
         self._test_invalid_env(os.spawnvpe)
