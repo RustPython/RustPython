@@ -125,9 +125,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.2.1"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24a6904aef64d73cf10ab17ebace7befb918b82164785cb89907993be7f83813"
+checksum = "6776fc96284a0bb647b615056fc496d1fe1644a7ab01829818a6d91cae888b84"
 
 [[package]]
 name = "blake2"
@@ -1795,7 +1795,7 @@ dependencies = [
 [[package]]
 name = "ruff_source_location"
 version = "0.0.0"
-source = "git+https://github.com/youknowone/RustPython-Parser.git?rev=fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec#fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec"
+source = "git+https://github.com/RustPython/Parser.git?rev=fdec727f8068c882f99a47f0439572a71fd98b28#fdec727f8068c882f99a47f0439572a71fd98b28"
 dependencies = [
  "memchr",
  "once_cell",
@@ -1805,7 +1805,7 @@ dependencies = [
 [[package]]
 name = "ruff_text_size"
 version = "0.0.0"
-source = "git+https://github.com/youknowone/RustPython-Parser.git?rev=fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec#fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec"
+source = "git+https://github.com/RustPython/Parser.git?rev=fdec727f8068c882f99a47f0439572a71fd98b28#fdec727f8068c882f99a47f0439572a71fd98b28"
 
 [[package]]
 name = "rustc-hash"
@@ -1863,7 +1863,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/youknowone/RustPython-Parser.git?rev=fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec#fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec"
+source = "git+https://github.com/RustPython/Parser.git?rev=fdec727f8068c882f99a47f0439572a71fd98b28#fdec727f8068c882f99a47f0439572a71fd98b28"
 dependencies = [
  "is-macro",
  "num-bigint",
@@ -1877,7 +1877,7 @@ name = "rustpython-codegen"
 version = "0.2.0"
 dependencies = [
  "ahash",
- "bitflags 2.2.1",
+ "bitflags 2.3.1",
  "indexmap",
  "insta",
  "itertools",
@@ -1895,7 +1895,7 @@ name = "rustpython-common"
 version = "0.2.0"
 dependencies = [
  "ascii",
- "bitflags 2.2.1",
+ "bitflags 2.3.1",
  "bstr",
  "cfg-if",
  "itertools",
@@ -1926,7 +1926,7 @@ dependencies = [
 name = "rustpython-compiler-core"
 version = "0.2.0"
 dependencies = [
- "bitflags 2.2.1",
+ "bitflags 2.3.1",
  "itertools",
  "lz4_flex",
  "num-bigint",
@@ -1972,9 +1972,9 @@ dependencies = [
 [[package]]
 name = "rustpython-format"
 version = "0.2.0"
-source = "git+https://github.com/youknowone/RustPython-Parser.git?rev=fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec#fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec"
+source = "git+https://github.com/RustPython/Parser.git?rev=fdec727f8068c882f99a47f0439572a71fd98b28#fdec727f8068c882f99a47f0439572a71fd98b28"
 dependencies = [
- "bitflags 2.2.1",
+ "bitflags 2.3.1",
  "itertools",
  "num-bigint",
  "num-traits",
@@ -1999,7 +1999,7 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.2.0"
-source = "git+https://github.com/youknowone/RustPython-Parser.git?rev=fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec#fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec"
+source = "git+https://github.com/RustPython/Parser.git?rev=fdec727f8068c882f99a47f0439572a71fd98b28#fdec727f8068c882f99a47f0439572a71fd98b28"
 dependencies = [
  "hexf-parse",
  "is-macro",
@@ -2011,7 +2011,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/youknowone/RustPython-Parser.git?rev=fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec#fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec"
+source = "git+https://github.com/RustPython/Parser.git?rev=fdec727f8068c882f99a47f0439572a71fd98b28#fdec727f8068c882f99a47f0439572a71fd98b28"
 dependencies = [
  "anyhow",
  "is-macro",
@@ -2034,7 +2034,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser-core"
 version = "0.2.0"
-source = "git+https://github.com/youknowone/RustPython-Parser.git?rev=fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec#fc301ab1b0f5483f2b2d3e28d8d92a2845b99fec"
+source = "git+https://github.com/RustPython/Parser.git?rev=fdec727f8068c882f99a47f0439572a71fd98b28#fdec727f8068c882f99a47f0439572a71fd98b28"
 dependencies = [
  "is-macro",
  "ruff_source_location",
@@ -2129,7 +2129,7 @@ dependencies = [
  "ahash",
  "ascii",
  "atty",
- "bitflags 2.2.1",
+ "bitflags 2.3.1",
  "bstr",
  "caseless",
  "cfg-if",

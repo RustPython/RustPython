@@ -927,31 +927,30 @@ impl Compiler {
         name: &str,
         args: &located_ast::Arguments,
     ) -> CompileResult<bytecode::MakeFunctionFlags> {
-        let have_defaults = !args.defaults.is_empty();
+        let defaults: Vec<_> = args.defaults().collect();
+        let have_defaults = !defaults.is_empty();
         if have_defaults {
             // Construct a tuple:
-            let size = args.defaults.len().to_u32();
-            for element in &args.defaults {
+            let size = defaults.len().to_u32();
+            for element in &defaults {
                 self.compile_expression(element)?;
             }
             emit!(self, Instruction::BuildTuple { size });
         }
 
-        if !args.kw_defaults.is_empty() {
-            let required_kw_count = args.kwonlyargs.len().saturating_sub(args.kw_defaults.len());
-            for (kw, default) in args.kwonlyargs[required_kw_count..]
-                .iter()
-                .zip(&args.kw_defaults)
-            {
+        let (kw_without_defaults, kw_with_defaults) = args.split_kwonlyargs();
+        if !kw_with_defaults.is_empty() {
+            let default_kw_count = kw_with_defaults.len();
+            for (arg, default) in kw_with_defaults.iter() {
                 self.emit_constant(ConstantData::Str {
-                    value: kw.arg.to_string(),
+                    value: arg.arg.to_string(),
                 });
                 self.compile_expression(default)?;
             }
             emit!(
                 self,
                 Instruction::BuildMap {
-                    size: args.kw_defaults.len().to_u32(),
+                    size: default_kw_count.to_u32(),
                 }
             );
         }
@@ -960,7 +959,7 @@ impl Compiler {
         if have_defaults {
             func_flags |= bytecode::MakeFunctionFlags::DEFAULTS;
         }
-        if !args.kw_defaults.is_empty() {
+        if !kw_with_defaults.is_empty() {
             func_flags |= bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS;
         }
 
@@ -975,7 +974,9 @@ impl Compiler {
         let args_iter = std::iter::empty()
             .chain(&args.posonlyargs)
             .chain(&args.args)
-            .chain(&args.kwonlyargs);
+            .map(|arg| arg.as_arg())
+            .chain(kw_without_defaults.into_iter())
+            .chain(kw_with_defaults.into_iter().map(|(arg, _)| arg));
         for name in args_iter {
             self.varname(name.arg.as_str())?;
         }
@@ -1228,6 +1229,7 @@ impl Compiler {
             .chain(&args.posonlyargs)
             .chain(&args.args)
             .chain(&args.kwonlyargs)
+            .map(|arg| arg.as_arg())
             .chain(args.vararg.as_deref())
             .chain(args.kwarg.as_deref());
         for arg in args_iter {
