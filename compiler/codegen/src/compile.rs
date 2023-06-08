@@ -2942,10 +2942,10 @@ impl ToU32 for usize {
 mod tests {
     use super::*;
     use rustpython_parser as parser;
-    use rustpython_parser_core::source_code::SourceLocator;
+    use rustpython_parser_core::source_code::LinearLocator;
 
     fn compile_exec(source: &str) -> CodeObject {
-        let mut locator: SourceLocator = SourceLocator::new(source);
+        let mut locator: LinearLocator = LinearLocator::new(source);
         use rustpython_parser::ast::fold::Fold;
         let mut compiler: Compiler = Compiler::new(
             CompileOpts::default(),

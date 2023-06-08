@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::{
         hash,
-        int::{bigint_to_finite_float, bytes_to_int},
+        int::{bigint_to_finite_float, bytes_to_int, true_div},
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
@@ -17,13 +17,12 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
 };
-use num_bigint::{BigInt, Sign};
+use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
-use num_rational::Ratio;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use rustpython_format::FormatSpec;
-use std::ops::{Div, Neg};
-use std::{fmt, ops::Not};
+use std::fmt;
+use std::ops::{Neg, Not};
 
 #[pyclass(module = false, name = "int")]
 #[derive(Debug)]
@@ -197,7 +196,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
         return Err(vm.new_zero_division_error("division by zero".to_owned()));
     }
 
-    let float = Ratio::from(i1.clone()).div(i2).to_f64().unwrap();
+    let float = true_div(i1, i2);
 
     if float.is_infinite() {
         Err(vm.new_exception_msg(
@@ -277,7 +276,7 @@ impl PyInt {
                     out = out.wrapping_shl(32) | digit;
                 }
                 match v.sign() {
-                    num_bigint::Sign::Minus => out * -1i32 as u32,
+                    Sign::Minus => out * -1i32 as u32,
                     _ => out,
                 }
             })

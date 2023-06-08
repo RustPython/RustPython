@@ -12,7 +12,7 @@ mod _json {
         types::{Callable, Constructor},
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
-    use num_bigint::BigInt;
+    use malachite_bigint::BigInt;
     use std::str::FromStr;
 
     #[pyattr(name = "make_scanner")]
