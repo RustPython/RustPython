@@ -32,6 +32,7 @@ if hasattr(os, "sendfile") and sys.platform.startswith("linux"):
     assert os.read(src_fd, src_len) == os.read(dest_fd, bytes_sent)
     os.close(src_fd)
     os.close(dest_fd)
+    os.remove('destination.md')
 
 try:
     os.open('DOES_NOT_EXIST', 0)
