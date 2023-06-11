@@ -2,7 +2,7 @@
 
 This document contains a high-level architectural overview of RustPython, thus it's very well-suited to get to know [the codebase][1].
 
-RustPython is an Open Source (MIT) Python 3 interpreter written in Rust, available as both a library and a shell environment. Using Rust to implement the Python interpreter enables Python to be used as a programming language for Rust applications. Moreover, it allows Python to be immediately compiled in the browser using WebAssembly, meaning that anyone could easily run their Python code in the browser. For a more detailed introduction to RustPython, have a look at [this blog post][2].
+RustPython is an Open Source (MIT-licensed) Python 3 interpreter written in Rust, available as both a library and a shell environment. Using Rust to implement the Python interpreter enables Python to be used as a programming language for Rust applications. Moreover, it allows Python to be immediately compiled in the browser using WebAssembly, meaning that anyone could easily run their Python code in the browser. For a more detailed introduction to RustPython, have a look at [this blog post][2].
 
 RustPython consists of several components which are described in the section below. Take a look at [this video][3] for a brief walk-through of the components of RustPython. For a more elaborate introduction to one of these components, the parser, see [this blog post][4] for more information.
 
@@ -11,7 +11,7 @@ Have a look at these websites for a demo of RustPython running in the browser us
 - [The demo page.][5]
 - [The RustPython Notebook, a toy notebook inspired by the Iodide project.][6]
 
-If, after reading this, you are to contribute to RustPython, take a look at these sources to get to know how and where to start:
+If, after reading this, you want to contribute to RustPython, take a look at these sources to get to know how and where to start:
 
 - [RustPython Development Guide and Tips][7]
 - [How to contribute to RustPython using CPython's unit tests][8]
@@ -62,7 +62,7 @@ Is compiled to the following bytecode:
               3 ReturnValue
 ```
 
-Note that bytecode is subject to change, and is not a stable interface.
+Note that bytecode is subject to change, and is _not_ a stable interface.
 
 #### Parser
 
