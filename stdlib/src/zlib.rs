@@ -17,7 +17,6 @@ mod zlib {
         write::ZlibEncoder, Compress, Compression, Decompress, FlushCompress, FlushDecompress,
         Status,
     };
-    use std::ffi::CStr;
     use std::io::Write;
 
     #[cfg(not(feature = "zlib"))]
@@ -61,7 +60,7 @@ mod zlib {
     #[pyattr(name = "ZLIB_RUNTIME_VERSION", once)]
     fn zlib_runtime_version(_vm: &VirtualMachine) -> String {
         unsafe {
-            CStr::from_ptr(libz_sys::zlibVersion())
+            std::ffi::CStr::from_ptr(libz_sys::zlibVersion())
                 .to_string_lossy()
                 .into_owned()
         }
