@@ -6,6 +6,7 @@ import unittest
 import warnings
 from unicodedata import normalize
 from test.support import os_helper
+from test import support
 
 
 filenames = [
@@ -129,6 +130,10 @@ class UnicodeFileTests(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @unittest.skipIf(sys.platform == 'darwin', 'irrelevant test on Mac OS X')
+    @unittest.skipIf(
+        support.is_emscripten or support.is_wasi,
+        "test fails on Emscripten/WASI when host platform is macOS."
+    )
     def test_normalize(self):
         files = set(self.files)
         others = set()

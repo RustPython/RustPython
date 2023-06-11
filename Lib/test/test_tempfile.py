@@ -465,6 +465,7 @@ class TestMkstempInner(TestBadTempdir, BaseTestCase):
             expected = user * (1 + 8 + 64)
         self.assertEqual(mode, expected)
 
+    @support.requires_fork()
     @unittest.skipUnless(has_spawnl, 'os.spawnl not available')
     def test_noinherit(self):
         # _mkstemp_inner file handles are not inherited by child processes
@@ -1417,6 +1418,7 @@ class TestTemporaryDirectory(BaseTestCase):
             with open(os.path.join(path, "test%d.txt" % i), "wb") as f:
                 f.write(b"Hello world!")
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_mkdtemp_failure(self):
         # Check no additional exception if mkdtemp fails
         # Previously would raise AttributeError instead
@@ -1426,10 +1428,6 @@ class TestTemporaryDirectory(BaseTestCase):
         with self.assertRaises(FileNotFoundError) as cm:
             tempfile.TemporaryDirectory(dir=nonexistent)
         self.assertEqual(cm.exception.errno, errno.ENOENT)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_mkdtemp_failure = unittest.expectedFailure(test_mkdtemp_failure)
 
     def test_explicit_cleanup(self):
         # A TemporaryDirectory is deleted when cleaned up

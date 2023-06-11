@@ -5,7 +5,7 @@ from collections import UserList
 
 
 py_bisect = import_helper.import_fresh_module('bisect', blocked=['_bisect'])
-c_bisect = import_helper.import_fresh_module('bisect', fresh=['bisect'])
+c_bisect = import_helper.import_fresh_module('bisect', fresh=['_bisect'])
 
 class Range(object):
     """A trivial range()-like object that has an insert() method."""
@@ -256,6 +256,12 @@ class TestBisect:
                 sorted(target, key=keyfunc),
                 target
             )
+
+    def test_insort_keynotNone(self):
+        x = []
+        y = {"a": 2, "b": 1}
+        for f in (self.module.insort_left, self.module.insort_right):
+            self.assertRaises(TypeError, f, x, y, key = "b")
 
 class TestBisectPython(TestBisect, unittest.TestCase):
     module = py_bisect

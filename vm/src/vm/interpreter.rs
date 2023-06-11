@@ -14,10 +14,12 @@ use std::sync::atomic::Ordering;
 /// use rustpython_vm::compiler::Mode;
 /// Interpreter::without_stdlib(Default::default()).enter(|vm| {
 ///     let scope = vm.new_scope_with_builtins();
-///     let code_obj = vm.compile(r#"print("Hello World!")"#,
+///     let source = r#"print("Hello World!")"#;
+///     let code_obj = vm.compile(
+///             source,
 ///             Mode::Exec,
 ///             "<embedded>".to_owned(),
-///     ).map_err(|err| vm.new_syntax_error(&err)).unwrap();
+///     ).map_err(|err| vm.new_syntax_error(&err, Some(source))).unwrap();
 ///     vm.run_code_obj(code_obj, scope).unwrap();
 /// });
 /// ```
@@ -46,6 +48,8 @@ impl Interpreter {
         F: FnOnce(&mut VirtualMachine),
     {
         let ctx = Context::genesis();
+        crate::types::TypeZoo::extend(ctx);
+        crate::exceptions::ExceptionZoo::extend(ctx);
         let mut vm = VirtualMachine::new(settings, ctx.clone());
         init(&mut vm);
         vm.initialize();
@@ -84,7 +88,7 @@ impl Interpreter {
     }
 }
 
-fn flush_std(vm: &VirtualMachine) {
+pub(crate) fn flush_std(vm: &VirtualMachine) {
     if let Ok(stdout) = sys::get_stdout(vm) {
         let _ = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ());
     }
@@ -100,7 +104,7 @@ mod tests {
         builtins::{int, PyStr},
         PyObjectRef,
     };
-    use num_bigint::ToBigInt;
+    use malachite_bigint::ToBigInt;
 
     #[test]
     fn test_add_py_integers() {

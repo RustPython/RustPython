@@ -6,14 +6,17 @@ import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from test import support
+from test.support import os_helper
 from test.support.script_helper import (
     spawn_python, kill_python, assert_python_ok, assert_python_failure,
     interpreter_requires_environment
 )
-from test.support import os_helper
 
+if not support.has_subprocess_support:
+    raise unittest.SkipTest("test module requires subprocess")
 
 # Debug build?
 Py_DEBUG = hasattr(sys, "gettotalrefcount")
@@ -25,37 +28,62 @@ def _kill_python_and_exit_code(p):
     returncode = p.wait()
     return data, returncode
 
+
 class CmdLineTest(unittest.TestCase):
     def test_directories(self):
         assert_python_failure('.')
         assert_python_failure('< .')
 
     def verify_valid_flag(self, cmd_line):
-        rc, out, err = assert_python_ok(*cmd_line)
+        rc, out, err = assert_python_ok(cmd_line)
         self.assertTrue(out == b'' or out.endswith(b'\n'))
         self.assertNotIn(b'Traceback', out)
         self.assertNotIn(b'Traceback', err)
+        return out
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    def test_help(self):
+        self.verify_valid_flag('-h')
+        self.verify_valid_flag('-?')
+        out = self.verify_valid_flag('--help')
+        lines = out.splitlines()
+        self.assertIn(b'usage', lines[0])
+        self.assertNotIn(b'PYTHONHOME', out)
+        self.assertNotIn(b'-X dev', out)
+        self.assertLess(len(lines), 50)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_help_env(self):
+        out = self.verify_valid_flag('--help-env')
+        self.assertIn(b'PYTHONHOME', out)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_help_xoptions(self):
+        out = self.verify_valid_flag('--help-xoptions')
+        self.assertIn(b'-X dev', out)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_help_all(self):
+        out = self.verify_valid_flag('--help-all')
+        lines = out.splitlines()
+        self.assertIn(b'usage', lines[0])
+        self.assertIn(b'PYTHONHOME', out)
+        self.assertIn(b'-X dev', out)
+
+        # The first line contains the program name,
+        # but the rest should be ASCII-only
+        b''.join(lines[1:]).decode('ascii')
+
     def test_optimize(self):
         self.verify_valid_flag('-O')
         self.verify_valid_flag('-OO')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_site_flag(self):
         self.verify_valid_flag('-S')
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_usage(self):
-        rc, out, err = assert_python_ok('-h')
-        lines = out.splitlines()
-        self.assertIn(b'usage', lines[0])
-        # The first line contains the program name,
-        # but the rest should be ASCII-only
-        b''.join(lines[1:]).decode('ascii')
 
     # NOTE: RUSTPYTHON version never starts with Python
     @unittest.expectedFailure
@@ -114,12 +142,31 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(out.rstrip(), b'{}')
         self.assertEqual(err, b'')
         # "-X showrefcount" shows the refcount, but only in debug builds
-        rc, out, err = run_python('-X', 'showrefcount', '-c', code)
+        rc, out, err = run_python('-I', '-X', 'showrefcount', '-c', code)
         self.assertEqual(out.rstrip(), b"{'showrefcount': True}")
         if Py_DEBUG:
-            self.assertRegex(err, br'^\[\d+ refs, \d+ blocks\]')
+            # bpo-46417: Tolerate negative reference count which can occur
+            # because of bugs in C extensions. This test is only about checking
+            # the showrefcount feature.
+            self.assertRegex(err, br'^\[-?\d+ refs, \d+ blocks\]')
         else:
             self.assertEqual(err, b'')
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_xoption_frozen_modules(self):
+        tests = {
+            ('=on', 'FrozenImporter'),
+            ('=off', 'SourceFileLoader'),
+            ('=', 'FrozenImporter'),
+            ('', 'FrozenImporter'),
+        }
+        for raw, expected in tests:
+            cmd = ['-X', f'frozen_modules{raw}',
+                   '-c', 'import os; print(os.__spec__.loader, end="")']
+            with self.subTest(raw):
+                res = assert_python_ok(*cmd)
+                self.assertRegex(res.out.decode('utf-8'), expected)
 
     def test_run_module(self):
         # Test expected operation of the '-m' switch
@@ -146,6 +193,16 @@ class CmdLineTest(unittest.TestCase):
         self.assertTrue(data.find(b'1 loop') != -1)
         self.assertTrue(data.find(b'__main__.Timer') != -1)
 
+    def test_relativedir_bug46421(self):
+        # Test `python -m unittest` with a relative directory beginning with ./
+        # Note: We have to switch to the project's top module's directory, as per
+        # the python unittest wiki. We will switch back when we are done.
+        projectlibpath = os.path.dirname(__file__).removesuffix("test")
+        with os_helper.change_cwd(projectlibpath):
+            # Testing with and without ./
+            assert_python_ok('-m', 'unittest', "test/test_longexp.py")
+            assert_python_ok('-m', 'unittest', "./test/test_longexp.py")
+
     def test_run_code(self):
         # Test expected operation of the '-c' switch
         # Switch needs an argument
@@ -161,6 +218,14 @@ class CmdLineTest(unittest.TestCase):
         command = ("assert(ord(%r) == %s)"
                    % (os_helper.FS_NONASCII, ord(os_helper.FS_NONASCII)))
         assert_python_ok('-c', command)
+
+    @unittest.skipUnless(os_helper.FS_NONASCII, 'need os_helper.FS_NONASCII')
+    def test_coding(self):
+        # bpo-32381: the -c command ignores the coding cookie
+        ch = os_helper.FS_NONASCII
+        cmd = f"# coding: latin1\nprint(ascii('{ch}'))"
+        res = assert_python_ok('-c', cmd)
+        self.assertEqual(res.out.rstrip(), ascii(ch).encode('ascii'))
 
     # On Windows, pass bytes to subprocess doesn't test how Python decodes the
     # command line, but how subprocess does decode bytes to unicode. Python
@@ -179,7 +244,7 @@ class CmdLineTest(unittest.TestCase):
         code = (
             b'import locale; '
             b'print(ascii("' + undecodable + b'"), '
-                b'locale.getpreferredencoding())')
+                b'locale.getencoding())')
         p = subprocess.Popen(
             [sys.executable, "-c", code],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -214,7 +279,6 @@ class CmdLineTest(unittest.TestCase):
         #
         # Test with default config, in the C locale, in the Python UTF-8 Mode.
         code = 'import sys, os; s=os.fsencode(sys.argv[1]); print(ascii(s))'
-        base_cmd = [sys.executable, '-c', code]
 
         # TODO: RUSTPYTHON
         @unittest.expectedFailure
@@ -279,6 +343,23 @@ class CmdLineTest(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    def test_non_interactive_output_buffering(self):
+        code = textwrap.dedent("""
+            import sys
+            out = sys.stdout
+            print(out.isatty(), out.write_through, out.line_buffering)
+            err = sys.stderr
+            print(err.isatty(), err.write_through, err.line_buffering)
+        """)
+        args = [sys.executable, '-c', code]
+        proc = subprocess.run(args, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, text=True, check=True)
+        self.assertEqual(proc.stdout,
+                         'False False False\n'
+                         'False False True\n')
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unbuffered_output(self):
         # Test expected operation of the '-u' switch
         for stream in ('stdout', 'stderr'):
@@ -320,6 +401,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertIn(path1.encode('ascii'), out)
         self.assertIn(path2.encode('ascii'), out)
 
+    @unittest.skipIf(sys.flags.safe_path,
+                     'PYTHONSAFEPATH changes default sys.path')
     def test_empty_PYTHONPATH_issue16309(self):
         # On Posix, it is documented that setting PATH to the
         # empty string is equivalent to not setting PATH at all,
@@ -369,7 +452,8 @@ class CmdLineTest(unittest.TestCase):
                 stdout, stderr = proc.communicate()
         self.assertEqual(stdout.rstrip(), expected)
 
-    @unittest.skipIf(sys.platform == "win32", "AssertionError: b"'abc\\r'" != b"'abc'"")
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform.startswith('win'), "TODO: RUSTPYTHON windows has \n troubles")
     def test_stdin_readline(self):
         # Issue #11272: check that sys.stdin.readline() replaces '\r\n' by '\n'
         # on Windows (sys.stdin is opened in binary mode)
@@ -377,7 +461,8 @@ class CmdLineTest(unittest.TestCase):
             "import sys; print(repr(sys.stdin.readline()))",
             b"'abc\\n'")
 
-    @unittest.skipIf(sys.platform == "win32", "AssertionError: b"'abc\\r'" != b"'abc'"")
+    # TODO: RUSTPYTHON
+    @unittest.skipIf(sys.platform.startswith('win'), "TODO: RUSTPYTHON windows has \n troubles")
     def test_builtin_input(self):
         # Issue #11272: check that input() strips newlines ('\n' or '\r\n')
         self.check_input(
@@ -385,7 +470,7 @@ class CmdLineTest(unittest.TestCase):
             b"'abc'")
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skipIf(sys.platform.startswith('win'), "TODO: RUSTPYTHON windows has \n troubles")
     def test_output_newline(self):
         # Issue 13119 Newline for print() should be \r\n on Windows.
         code = """if 1:
@@ -398,10 +483,10 @@ class CmdLineTest(unittest.TestCase):
 
         if sys.platform == 'win32':
             self.assertEqual(b'1\r\n2\r\n', out)
-            self.assertEqual(b'3\r\n4', err)
+            self.assertEqual(b'3\r\n4\r\n', err)
         else:
             self.assertEqual(b'1\n2\n', out)
-            self.assertEqual(b'3\n4', err)
+            self.assertEqual(b'3\n4\n', err)
 
     def test_unmached_quote(self):
         # Issue #10206: python program starting with unmatched quote
@@ -459,7 +544,7 @@ class CmdLineTest(unittest.TestCase):
             stderr=subprocess.PIPE,
             preexec_fn=preexec)
         out, err = p.communicate()
-        self.assertEqual(support.strip_python_stderr(err), b'')
+        self.assertEqual(err, b'')
         self.assertEqual(p.returncode, 42)
 
     # TODO: RUSTPYTHON
@@ -527,7 +612,7 @@ class CmdLineTest(unittest.TestCase):
         # the dict whereas the module was destroyed
         filename = os_helper.TESTFN
         self.addCleanup(os_helper.unlink, filename)
-        with open(filename, "w") as script:
+        with open(filename, "w", encoding="utf-8") as script:
             print("import sys", file=script)
             print("del sys.modules['__main__']", file=script)
         assert_python_ok(filename)
@@ -558,24 +643,25 @@ class CmdLineTest(unittest.TestCase):
                      'Cannot run -I tests when PYTHON env vars are required.')
     def test_isolatedmode(self):
         self.verify_valid_flag('-I')
-        self.verify_valid_flag('-IEs')
+        self.verify_valid_flag('-IEPs')
         rc, out, err = assert_python_ok('-I', '-c',
             'from sys import flags as f; '
-            'print(f.no_user_site, f.ignore_environment, f.isolated)',
+            'print(f.no_user_site, f.ignore_environment, f.isolated, f.safe_path)',
             # dummyvar to prevent extraneous -E
             dummyvar="")
-        self.assertEqual(out.strip(), b'1 1 1')
+        self.assertEqual(out.strip(), b'1 1 1 True')
         with os_helper.temp_cwd() as tmpdir:
             fake = os.path.join(tmpdir, "uuid.py")
             main = os.path.join(tmpdir, "main.py")
-            with open(fake, "w") as f:
+            with open(fake, "w", encoding="utf-8") as f:
                 f.write("raise RuntimeError('isolated mode test')\n")
-            with open(main, "w") as f:
+            with open(main, "w", encoding="utf-8") as f:
                 f.write("import uuid\n")
                 f.write("print('ok')\n")
+            # Use -E to ignore PYTHONSAFEPATH env var
             self.assertRaises(subprocess.CalledProcessError,
                               subprocess.check_output,
-                              [sys.executable, main], cwd=tmpdir,
+                              [sys.executable, '-E', main], cwd=tmpdir,
                               stderr=subprocess.DEVNULL)
             out = subprocess.check_output([sys.executable, "-I", main],
                                           cwd=tmpdir)
@@ -716,7 +802,8 @@ class CmdLineTest(unittest.TestCase):
 
     def check_warnings_filters(self, cmdline_option, envvar, use_pywarning=False):
         if use_pywarning:
-            code = ("import sys; from test.support.import_helper import import_fresh_module; "
+            code = ("import sys; from test.support.import_helper import "
+                    "import_fresh_module; "
                     "warnings = import_fresh_module('warnings', blocked=['_warnings']); ")
         else:
             code = "import sys, warnings; "
@@ -846,6 +933,43 @@ class CmdLineTest(unittest.TestCase):
         self.assertTrue(proc.stderr.startswith(err_msg), proc.stderr)
         self.assertNotEqual(proc.returncode, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_int_max_str_digits(self):
+        code = "import sys; print(sys.flags.int_max_str_digits, sys.get_int_max_str_digits())"
+
+        assert_python_failure('-X', 'int_max_str_digits', '-c', code)
+        assert_python_failure('-X', 'int_max_str_digits=foo', '-c', code)
+        assert_python_failure('-X', 'int_max_str_digits=100', '-c', code)
+        assert_python_failure('-X', 'int_max_str_digits', '-c', code,
+                              PYTHONINTMAXSTRDIGITS='4000')
+
+        assert_python_failure('-c', code, PYTHONINTMAXSTRDIGITS='foo')
+        assert_python_failure('-c', code, PYTHONINTMAXSTRDIGITS='100')
+
+        def res2int(res):
+            out = res.out.strip().decode("utf-8")
+            return tuple(int(i) for i in out.split())
+
+        res = assert_python_ok('-c', code)
+        self.assertEqual(res2int(res), (-1, sys.get_int_max_str_digits()))
+        res = assert_python_ok('-X', 'int_max_str_digits=0', '-c', code)
+        self.assertEqual(res2int(res), (0, 0))
+        res = assert_python_ok('-X', 'int_max_str_digits=4000', '-c', code)
+        self.assertEqual(res2int(res), (4000, 4000))
+        res = assert_python_ok('-X', 'int_max_str_digits=100000', '-c', code)
+        self.assertEqual(res2int(res), (100000, 100000))
+
+        res = assert_python_ok('-c', code, PYTHONINTMAXSTRDIGITS='0')
+        self.assertEqual(res2int(res), (0, 0))
+        res = assert_python_ok('-c', code, PYTHONINTMAXSTRDIGITS='4000')
+        self.assertEqual(res2int(res), (4000, 4000))
+        res = assert_python_ok(
+            '-X', 'int_max_str_digits=6000', '-c', code,
+            PYTHONINTMAXSTRDIGITS='4000'
+        )
+        self.assertEqual(res2int(res), (6000, 6000))
+
 
 @unittest.skipIf(interpreter_requires_environment(),
                  'Cannot run -I tests when PYTHON env vars are required.')
@@ -874,7 +998,8 @@ class IgnoreEnvironmentTest(unittest.TestCase):
         # Issue 31845: a startup refactoring broke reading flags from env vars
         expected_outcome = """
             (sys.flags.debug == sys.flags.optimize ==
-             sys.flags.dont_write_bytecode == sys.flags.verbose == 0)
+             sys.flags.dont_write_bytecode ==
+             sys.flags.verbose == sys.flags.safe_path == 0)
         """
         self.run_ignoring_vars(
             expected_outcome,
@@ -882,12 +1007,32 @@ class IgnoreEnvironmentTest(unittest.TestCase):
             PYTHONOPTIMIZE="1",
             PYTHONDONTWRITEBYTECODE="1",
             PYTHONVERBOSE="1",
+            PYTHONSAFEPATH="1",
         )
 
 
-def test_main():
-    support.run_unittest(CmdLineTest, IgnoreEnvironmentTest)
+class SyntaxErrorTests(unittest.TestCase):
+    def check_string(self, code):
+        proc = subprocess.run([sys.executable, "-"], input=code,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertNotEqual(proc.stderr, None)
+        self.assertIn(b"\nSyntaxError", proc.stderr)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_tokenizer_error_with_stdin(self):
+        self.check_string(b"(1+2+3")
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_decoding_error_at_the_end_of_the_line(self):
+        self.check_string(br"'\u1f'")
+
+
+def tearDownModule():
     support.reap_children()
 
+
 if __name__ == "__main__":
-    test_main()
+    unittest.main()

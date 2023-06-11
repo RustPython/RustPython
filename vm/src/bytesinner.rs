@@ -1,12 +1,15 @@
 use crate::{
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
-        pystr, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef, PyTypeRef,
+        pystr, PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr,
+        PyStrRef, PyTypeRef,
     },
     byte::bytes_from_object,
-    cformat::CFormatBytes,
+    cformat::cformat_bytes,
+    common::hash,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     identifier,
+    literal::escape::Escape,
     protocol::PyBuffer,
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
@@ -14,13 +17,12 @@ use crate::{
 };
 use bstr::ByteSlice;
 use itertools::Itertools;
-use num_bigint::BigInt;
+use malachite_bigint::BigInt;
 use num_traits::ToPrimitive;
-use rustpython_common::hash;
 
 #[derive(Debug, Default, Clone)]
 pub struct PyBytesInner {
-    pub(crate) elements: Vec<u8>,
+    pub(super) elements: Vec<u8>,
 }
 
 impl From<Vec<u8>> for PyBytesInner {
@@ -29,8 +31,8 @@ impl From<Vec<u8>> for PyBytesInner {
     }
 }
 
-impl TryFromBorrowedObject for PyBytesInner {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for PyBytesInner {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         bytes_from_object(vm, obj).map(Self::from)
     }
 }
@@ -77,11 +79,9 @@ impl ByteInnerNewOptions {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 let obj = obj.clone();
                 // construct an exact bytes from an exact bytes do not clone
-                let obj = if cls.is(PyBytes::class(vm)) {
+                let obj = if cls.is(PyBytes::class(&vm.ctx)) {
                     match obj.downcast_exact::<PyBytes>(vm) {
-                        Ok(b) => {
-                            return Ok(b);
-                        }
+                        Ok(b) => return Ok(b.into_pyref()),
                         Err(obj) => obj,
                     }
                 } else {
@@ -91,8 +91,8 @@ impl ByteInnerNewOptions {
                 if let Some(bytes_method) = vm.get_method(obj, identifier!(vm, __bytes__)) {
                     // construct an exact bytes from __bytes__ slot.
                     // if __bytes__ return a bytes, use the bytes object except we are the subclass of the bytes
-                    let bytes = vm.invoke(&bytes_method?, ())?;
-                    let bytes = if cls.is(PyBytes::class(vm)) {
+                    let bytes = bytes_method?.call((), vm)?;
+                    let bytes = if cls.is(PyBytes::class(&vm.ctx)) {
                         match bytes.downcast::<PyBytes>() {
                             Ok(b) => return Ok(b),
                             Err(bytes) => bytes,
@@ -240,15 +240,45 @@ impl ByteInnerTranslateOptions {
     }
 }
 
-pub type ByteInnerSplitOptions<'a> = anystr::SplitArgs<'a, PyBytesInner>;
+pub type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
 impl PyBytesInner {
-    pub fn repr(&self, class_name: Option<&str>) -> String {
-        if let Some(class_name) = class_name {
-            rustpython_common::bytes::repr_with(&self.elements, &[class_name, "("], ")")
-        } else {
-            rustpython_common::bytes::repr(&self.elements)
-        }
+    #[inline]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.elements
+    }
+
+    fn new_repr_overflow_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_overflow_error("bytes object is too large to make repr".to_owned())
+    }
+
+    pub fn repr_with_name(&self, class_name: &str, vm: &VirtualMachine) -> PyResult<String> {
+        const DECORATION_LEN: isize = 2 + 3; // 2 for (), 3 for b"" => bytearray(b"")
+        let escape = crate::literal::escape::AsciiEscape::new_repr(&self.elements);
+        let len = escape
+            .layout()
+            .len
+            .and_then(|len| (len as isize).checked_add(DECORATION_LEN + class_name.len() as isize))
+            .ok_or_else(|| Self::new_repr_overflow_error(vm))? as usize;
+        let mut buf = String::with_capacity(len);
+        buf.push_str(class_name);
+        buf.push('(');
+        escape.bytes_repr().write(&mut buf).unwrap();
+        buf.push(')');
+        debug_assert_eq!(buf.len(), len);
+        Ok(buf)
+    }
+
+    pub fn repr_bytes(&self, vm: &VirtualMachine) -> PyResult<String> {
+        let escape = crate::literal::escape::AsciiEscape::new_repr(&self.elements);
+        let len = 3 + escape
+            .layout()
+            .len
+            .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
+        let mut buf = String::with_capacity(len);
+        escape.bytes_repr().write(&mut buf).unwrap();
+        debug_assert_eq!(buf.len(), len);
+        Ok(buf)
     }
 
     #[inline]
@@ -450,8 +480,7 @@ impl PyBytesInner {
         };
 
         Err(vm.new_value_error(format!(
-            "non-hexadecimal number found in fromhex() arg at position {}",
-            i
+            "non-hexadecimal number found in fromhex() arg at position {i}"
         )))
     }
 
@@ -579,24 +608,20 @@ impl PyBytesInner {
             .to_vec()
     }
 
-    pub fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Vec<u8> {
-        self.elements
-            .py_strip(
-                chars,
-                |s, chars| s.trim_start_with(|c| chars.contains(&(c as u8))),
-                |s| s.trim_start(),
-            )
-            .to_vec()
+    pub fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> &[u8] {
+        self.elements.py_strip(
+            chars,
+            |s, chars| s.trim_start_with(|c| chars.contains(&(c as u8))),
+            |s| s.trim_start(),
+        )
     }
 
-    pub fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Vec<u8> {
-        self.elements
-            .py_strip(
-                chars,
-                |s, chars| s.trim_end_with(|c| chars.contains(&(c as u8))),
-                |s| s.trim_end(),
-            )
-            .to_vec()
+    pub fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> &[u8] {
+        self.elements.py_strip(
+            chars,
+            |s, chars| s.trim_end_with(|c| chars.contains(&(c as u8))),
+            |s| s.trim_end(),
+        )
     }
 
     // new in Python 3.9
@@ -716,7 +741,7 @@ impl PyBytesInner {
     where
         FW: Fn(&[u8]) -> W,
     {
-        self.elements.py_splitlines(options, into_wrapper)
+        self.elements.py_bytes_splitlines(options, into_wrapper)
     }
 
     pub fn zfill(&self, width: isize) -> Vec<u8> {
@@ -847,9 +872,11 @@ impl PyBytesInner {
         // stringlib_replace in CPython
         let maxcount = match maxcount {
             OptionalArg::Present(maxcount) if maxcount >= 0 => {
-                if maxcount == 0 || self.elements.is_empty() {
+                if maxcount == 0 || (self.elements.is_empty() && !from.is_empty()) {
                     // nothing to do; return the original bytes
                     return Ok(self.elements.clone());
+                } else if self.elements.is_empty() && from.is_empty() {
+                    return Ok(to.elements);
                 }
                 Some(maxcount as usize)
             }
@@ -912,9 +939,7 @@ impl PyBytesInner {
     }
 
     pub fn cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        CFormatBytes::parse_from_bytes(self.elements.as_slice())
-            .map_err(|err| vm.new_value_error(err.to_string()))?
-            .format(vm, values)
+        cformat_bytes(vm, self.elements.as_slice(), values)
     }
 
     pub fn mul(&self, n: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
@@ -973,7 +998,7 @@ pub trait ByteOr: ToPrimitive {
 
 impl ByteOr for BigInt {}
 
-impl<'s> AnyStrWrapper<'s> for PyBytesInner {
+impl AnyStrWrapper for PyBytesInner {
     type Str = [u8];
     fn as_ref(&self) -> &[u8] {
         &self.elements
@@ -996,11 +1021,11 @@ impl AnyStrContainer<[u8]> for Vec<u8> {
 
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 
-impl<'s> AnyStr<'s> for [u8] {
+impl AnyStr for [u8] {
     type Char = u8;
     type Container = Vec<u8>;
-    type CharIter = bstr::Chars<'s>;
-    type ElementIter = std::iter::Copied<std::slice::Iter<'s, u8>>;
+    type CharIter<'a> = bstr::Chars<'a>;
+    type ElementIter<'a> = std::iter::Copied<std::slice::Iter<'a, u8>>;
 
     fn element_bytes_len(_: u8) -> usize {
         1
@@ -1018,11 +1043,11 @@ impl<'s> AnyStr<'s> for [u8] {
         std::str::from_utf8(self)
     }
 
-    fn chars(&'s self) -> Self::CharIter {
+    fn chars(&self) -> Self::CharIter<'_> {
         bstr::ByteSlice::chars(self)
     }
 
-    fn elements(&'s self) -> Self::ElementIter {
+    fn elements(&self) -> Self::ElementIter<'_> {
         self.iter().copied()
     }
 
@@ -1046,7 +1071,7 @@ impl<'s> AnyStr<'s> for [u8] {
     where
         F: Fn(&Self) -> PyObjectRef,
     {
-        let mut splited = Vec::new();
+        let mut splits = Vec::new();
         let mut count = maxsplit;
         let mut haystack = self;
         while let Some(offset) = haystack.find_byteset(ASCII_WHITESPACES) {
@@ -1054,22 +1079,22 @@ impl<'s> AnyStr<'s> for [u8] {
                 if count == 0 {
                     break;
                 }
-                splited.push(convert(&haystack[..offset]));
+                splits.push(convert(&haystack[..offset]));
                 count -= 1;
             }
             haystack = &haystack[offset + 1..];
         }
         if !haystack.is_empty() {
-            splited.push(convert(haystack));
+            splits.push(convert(haystack));
         }
-        splited
+        splits
     }
 
     fn py_rsplit_whitespace<F>(&self, maxsplit: isize, convert: F) -> Vec<PyObjectRef>
     where
         F: Fn(&Self) -> PyObjectRef,
     {
-        let mut splited = Vec::new();
+        let mut splits = Vec::new();
         let mut count = maxsplit;
         let mut haystack = self;
         while let Some(offset) = haystack.rfind_byteset(ASCII_WHITESPACES) {
@@ -1077,15 +1102,15 @@ impl<'s> AnyStr<'s> for [u8] {
                 if count == 0 {
                     break;
                 }
-                splited.push(convert(&haystack[offset + 1..]));
+                splits.push(convert(&haystack[offset + 1..]));
                 count -= 1;
             }
             haystack = &haystack[..offset];
         }
         if !haystack.is_empty() {
-            splited.push(convert(haystack));
+            splits.push(convert(haystack));
         }
-        splited
+        splits
     }
 }
 

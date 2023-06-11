@@ -4,15 +4,11 @@ use crate::{
     class::PyClassImpl,
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable},
+    types::{Constructor, IterNext, Iterable, SelfIter},
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
-/// map(func, *iterables) --> map object
-///
-/// Make an iterator that computes the function using arguments from
-/// each of the iterables. Stops when the shortest iterable is exhausted.
-#[pyclass(module = false, name = "map")]
+#[pyclass(module = false, name = "map", traverse)]
 #[derive(Debug)]
 pub struct PyMap {
     mapper: PyObjectRef,
@@ -20,8 +16,8 @@ pub struct PyMap {
 }
 
 impl PyPayload for PyMap {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.map_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.map_type
     }
 }
 
@@ -36,7 +32,7 @@ impl Constructor for PyMap {
     }
 }
 
-#[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyMap {
     #[pymethod(magic)]
     fn length_hint(&self, vm: &VirtualMachine) -> PyResult<usize> {
@@ -55,9 +51,9 @@ impl PyMap {
     }
 }
 
-impl IterNextIterable for PyMap {}
+impl SelfIter for PyMap {}
 impl IterNext for PyMap {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut next_objs = Vec::new();
         for iterator in &zelf.iterators {
             let item = match iterator.next(vm)? {
@@ -68,7 +64,7 @@ impl IterNext for PyMap {
         }
 
         // the mapper itself can raise StopIteration which does stop the map iteration
-        PyIterReturn::from_pyresult(vm.invoke(&zelf.mapper, next_objs), vm)
+        PyIterReturn::from_pyresult(zelf.mapper.call(next_objs, vm), vm)
     }
 }
 

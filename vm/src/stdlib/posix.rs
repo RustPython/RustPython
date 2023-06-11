@@ -1,4 +1,4 @@
-use crate::{PyObjectRef, PyResult, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 use std::os::unix::io::RawFd;
 
 pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
@@ -12,33 +12,25 @@ pub fn raw_set_inheritable(fd: RawFd, inheritable: bool) -> nix::Result<()> {
     Ok(())
 }
 
-pub(super) fn bytes_as_osstr<'a>(
-    b: &'a [u8],
-    _vm: &VirtualMachine,
-) -> PyResult<&'a std::ffi::OsStr> {
-    use std::os::unix::ffi::OsStrExt;
-    Ok(std::ffi::OsStr::from_bytes(b))
-}
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = module::make_module(vm);
     super::os::extend_module(vm, &module);
     module
 }
 
-#[pymodule(name = "posix")]
+#[pymodule(name = "posix", with(super::os::_os))]
 pub mod module {
     use crate::{
-        builtins::{PyDictRef, PyInt, PyIntRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
-        function::{Either, OptionalArg},
+        function::{Either, KwArgs, OptionalArg},
         stdlib::os::{
-            errno_err, DirFd, FollowSymlinks, PathOrFd, PyPathLike, SupportFunc, TargetIsDirectory,
+            errno_err, DirFd, FollowSymlinks, OsPath, OsPathOrFd, SupportFunc, TargetIsDirectory,
             _os, fs_metadata, IOErrorBuilder,
         },
-        types::Constructor,
+        types::{Constructor, Representable},
         utils::ToCString,
-        AsObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use bitflags::bitflags;
     use nix::{
@@ -49,9 +41,9 @@ pub mod module {
         env,
         ffi::{CStr, CString},
         fs, io,
-        os::unix::{ffi as ffi_ext, io::RawFd},
+        os::unix::io::RawFd,
     };
-    use strum_macros::EnumString;
+    use strum_macros::{EnumIter, EnumString};
 
     #[pyattr]
     use libc::{PRIO_PGRP, PRIO_PROCESS, PRIO_USER};
@@ -172,6 +164,7 @@ pub mod module {
 
     // Flags for os_access
     bitflags! {
+        #[derive(Copy, Clone, Debug, PartialEq)]
         pub struct AccessFlags: u8 {
             const F_OK = _os::F_OK;
             const R_OK = _os::R_OK;
@@ -258,7 +251,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    pub(super) fn access(path: PyPathLike, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
+    pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         use std::os::unix::fs::MetadataExt;
 
         let flags = AccessFlags::from_bits(mode).ok_or_else(|| {
@@ -268,7 +261,7 @@ pub mod module {
         )
         })?;
 
-        let metadata = fs::metadata(&path.path);
+        let metadata = fs::metadata(path.path);
 
         // if it's only checking for F_OK
         if flags == AccessFlags::F_OK {
@@ -293,7 +286,7 @@ pub mod module {
 
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> PyDictRef {
-        use ffi_ext::OsStringExt;
+        use rustpython_common::os::ffi::OsStringExt;
 
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {
@@ -306,9 +299,9 @@ pub mod module {
     }
 
     #[derive(FromArgs)]
-    pub(super) struct SimlinkArgs {
-        src: PyPathLike,
-        dst: PyPathLike,
+    pub(super) struct SymlinkArgs {
+        src: OsPath,
+        dst: OsPath,
         #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]
@@ -316,7 +309,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    pub(super) fn symlink(args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(args: SymlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
         let src = args.src.into_cstring(vm)?;
         let dst = args.dst.into_cstring(vm)?;
         #[cfg(not(target_os = "redox"))]
@@ -344,7 +337,7 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn chroot(path: PyPathLike, vm: &VirtualMachine) -> PyResult<()> {
+    fn chroot(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
         use crate::stdlib::os::IOErrorBuilder;
 
         nix::unistd::chroot(&*path.path).map_err(|err| {
@@ -359,7 +352,7 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chown(
-        path: PathOrFd,
+        path: OsPathOrFd,
         uid: isize,
         gid: isize,
         dir_fd: DirFd<1>,
@@ -390,10 +383,10 @@ pub mod module {
 
         let dir_fd = dir_fd.get_opt();
         match path {
-            PathOrFd::Path(ref p) => {
+            OsPathOrFd::Path(ref p) => {
                 nix::unistd::fchownat(dir_fd, p.path.as_os_str(), uid, gid, flag)
             }
-            PathOrFd::Fd(fd) => nix::unistd::fchown(fd, uid, gid),
+            OsPathOrFd::Fd(fd) => nix::unistd::fchown(fd, uid, gid),
         }
         .map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
@@ -405,9 +398,9 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn lchown(path: PyPathLike, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn lchown(path: OsPath, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
         chown(
-            PathOrFd::Path(path),
+            OsPathOrFd::Path(path),
             uid,
             gid,
             DirFd::default(),
@@ -420,7 +413,7 @@ pub mod module {
     #[pyfunction]
     fn fchown(fd: i32, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
         chown(
-            PathOrFd::Fd(fd),
+            OsPathOrFd::Fd(fd),
             uid,
             gid,
             DirFd::default(),
@@ -430,18 +423,135 @@ pub mod module {
     }
 
     #[derive(FromArgs)]
+    struct RegisterAtForkArgs {
+        #[pyarg(named, optional)]
+        before: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_parent: OptionalArg<PyObjectRef>,
+        #[pyarg(named, optional)]
+        after_in_child: OptionalArg<PyObjectRef>,
+    }
+
+    impl RegisterAtForkArgs {
+        fn into_validated(
+            self,
+            vm: &VirtualMachine,
+        ) -> PyResult<(
+            Option<PyObjectRef>,
+            Option<PyObjectRef>,
+            Option<PyObjectRef>,
+        )> {
+            fn into_option(
+                arg: OptionalArg<PyObjectRef>,
+                vm: &VirtualMachine,
+            ) -> PyResult<Option<PyObjectRef>> {
+                match arg {
+                    OptionalArg::Present(obj) => {
+                        if !obj.is_callable() {
+                            return Err(vm.new_type_error("Args must be callable".to_owned()));
+                        }
+                        Ok(Some(obj))
+                    }
+                    OptionalArg::Missing => Ok(None),
+                }
+            }
+            let before = into_option(self.before, vm)?;
+            let after_in_parent = into_option(self.after_in_parent, vm)?;
+            let after_in_child = into_option(self.after_in_child, vm)?;
+            if before.is_none() && after_in_parent.is_none() && after_in_child.is_none() {
+                return Err(vm.new_type_error("At least one arg must be present".to_owned()));
+            }
+            Ok((before, after_in_parent, after_in_child))
+        }
+    }
+
+    #[pyfunction]
+    fn register_at_fork(
+        args: RegisterAtForkArgs,
+        _ignored: KwArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let (before, after_in_parent, after_in_child) = args.into_validated(vm)?;
+
+        if let Some(before) = before {
+            vm.state.before_forkers.lock().push(before);
+        }
+        if let Some(after_in_parent) = after_in_parent {
+            vm.state.after_forkers_parent.lock().push(after_in_parent);
+        }
+        if let Some(after_in_child) = after_in_child {
+            vm.state.after_forkers_child.lock().push(after_in_child);
+        }
+        Ok(())
+    }
+
+    fn run_at_forkers(mut funcs: Vec<PyObjectRef>, reversed: bool, vm: &VirtualMachine) {
+        if !funcs.is_empty() {
+            if reversed {
+                funcs.reverse();
+            }
+            for func in funcs.into_iter() {
+                if let Err(e) = func.call((), vm) {
+                    let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
+                    vm.run_unraisable(e, Some("Exception ignored in".to_owned()), func);
+                    if exit {
+                        // Do nothing!
+                    }
+                }
+            }
+        }
+    }
+
+    fn py_os_before_fork(vm: &VirtualMachine) {
+        let before_forkers: Vec<PyObjectRef> = vm.state.before_forkers.lock().clone();
+        // functions must be executed in reversed order as they are registered
+        // only for before_forkers, refer: test_register_at_fork in test_posix
+
+        run_at_forkers(before_forkers, true, vm);
+    }
+
+    fn py_os_after_fork_child(vm: &VirtualMachine) {
+        let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
+        run_at_forkers(after_forkers_child, false, vm);
+    }
+
+    fn py_os_after_fork_parent(vm: &VirtualMachine) {
+        let after_forkers_parent: Vec<PyObjectRef> = vm.state.after_forkers_parent.lock().clone();
+        run_at_forkers(after_forkers_parent, false, vm);
+    }
+
+    #[pyfunction]
+    fn fork(vm: &VirtualMachine) -> i32 {
+        let pid: i32;
+        py_os_before_fork(vm);
+        unsafe {
+            pid = libc::fork();
+        }
+        if pid == 0 {
+            py_os_after_fork_child(vm);
+        } else {
+            py_os_after_fork_parent(vm);
+        }
+        pid
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    const MKNOD_DIR_FD: bool = cfg!(not(target_vendor = "apple"));
+
+    #[cfg(not(target_os = "redox"))]
+    #[derive(FromArgs)]
     struct MknodArgs {
         #[pyarg(any)]
-        path: PyPathLike,
+        path: OsPath,
         #[pyarg(any)]
         mode: libc::mode_t,
         #[pyarg(any)]
         device: libc::dev_t,
-        #[allow(unused)]
         #[pyarg(flatten)]
-        dir_fd: DirFd<1>,
+        dir_fd: DirFd<{ MKNOD_DIR_FD as usize }>,
     }
 
+    #[cfg(not(target_os = "redox"))]
     impl MknodArgs {
         fn _mknod(self, vm: &VirtualMachine) -> PyResult<i32> {
             Ok(unsafe {
@@ -473,6 +583,7 @@ pub mod module {
         }
         #[cfg(target_vendor = "apple")]
         fn mknod(self, vm: &VirtualMachine) -> PyResult<()> {
+            let [] = self.dir_fd.0;
             let ret = self._mknod(vm)?;
             if ret != 0 {
                 Err(errno_err(vm))
@@ -482,6 +593,7 @@ pub mod module {
         }
     }
 
+    #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn mknod(args: MknodArgs, vm: &VirtualMachine) -> PyResult<()> {
         args.mknod(vm)
@@ -542,20 +654,11 @@ pub mod module {
         }
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor, Representable))]
     impl SchedParam {
         #[pygetset]
         fn sched_priority(&self, vm: &VirtualMachine) -> PyObjectRef {
             self.sched_priority.clone().to_pyobject(vm)
-        }
-
-        #[pymethod(magic)]
-        fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-            let sched_priority_repr = self.sched_priority.repr(vm)?;
-            Ok(format!(
-                "posix.sched_param(sched_priority = {})",
-                sched_priority_repr.as_str()
-            ))
         }
 
         #[cfg(any(
@@ -571,10 +674,7 @@ pub mod module {
             let priority_type = priority_class.name();
             let priority = self.sched_priority.clone();
             let value = priority.downcast::<PyInt>().map_err(|_| {
-                vm.new_type_error(format!(
-                    "an integer is required (got type {})",
-                    priority_type
-                ))
+                vm.new_type_error(format!("an integer is required (got type {priority_type})"))
             })?;
             let sched_priority = value.try_to_primitive(vm)?;
             Ok(libc::sched_param { sched_priority })
@@ -593,6 +693,17 @@ pub mod module {
             }
             .into_ref_with_type(vm, cls)
             .map(Into::into)
+        }
+    }
+
+    impl Representable for SchedParam {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let sched_priority_repr = zelf.sched_priority.repr(vm)?;
+            Ok(format!(
+                "posix.sched_param(sched_priority = {})",
+                sched_priority_repr.as_str()
+            ))
         }
     }
 
@@ -775,7 +886,7 @@ pub mod module {
     }
 
     fn _chmod(
-        path: PyPathLike,
+        path: OsPath,
         dir_fd: DirFd<0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
@@ -809,22 +920,22 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chmod(
-        path: PathOrFd,
+        path: OsPathOrFd,
         dir_fd: DirFd<0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match path {
-            PathOrFd::Path(path) => _chmod(path, dir_fd, mode, follow_symlinks, vm),
-            PathOrFd::Fd(fd) => _fchmod(fd, mode, vm),
+            OsPathOrFd::Path(path) => _chmod(path, dir_fd, mode, follow_symlinks, vm),
+            OsPathOrFd::Fd(fd) => _fchmod(fd, mode, vm),
         }
     }
 
     #[cfg(target_os = "redox")]
     #[pyfunction]
     fn chmod(
-        path: PyPathLike,
+        path: OsPath,
         dir_fd: DirFd<0>,
         mode: u32,
         follow_symlinks: FollowSymlinks,
@@ -841,13 +952,13 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn lchmod(path: PyPathLike, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
+    fn lchmod(path: OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         _chmod(path, DirFd::default(), mode, FollowSymlinks(false), vm)
     }
 
     #[pyfunction]
     fn execv(
-        path: PyPathLike,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -874,7 +985,7 @@ pub mod module {
 
     #[pyfunction]
     fn execve(
-        path: PyPathLike,
+        path: OsPath,
         argv: Either<PyListRef, PyTupleRef>,
         env: PyDictRef,
         vm: &VirtualMachine,
@@ -900,8 +1011,8 @@ pub mod module {
             .into_iter()
             .map(|(k, v)| -> PyResult<_> {
                 let (key, value) = (
-                    PyPathLike::try_from_object(vm, k)?.into_bytes(),
-                    PyPathLike::try_from_object(vm, v)?.into_bytes(),
+                    OsPath::try_from_object(vm, k)?.into_bytes(),
+                    OsPath::try_from_object(vm, v)?.into_bytes(),
                 );
 
                 if memchr::memchr(b'=', &key).is_some() {
@@ -1001,7 +1112,8 @@ pub mod module {
 
     fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<Option<u32>> {
         use std::cmp::Ordering;
-        let i = PyIntRef::try_from_object(vm, obj.clone())
+        let i = obj
+            .try_to_ref::<PyInt>(vm)
             .map_err(|_| {
                 vm.new_type_error(format!(
                     "an integer is required (got type {})",
@@ -1012,10 +1124,10 @@ pub mod module {
 
         match i.cmp(&-1) {
             Ordering::Greater => Ok(Some(i.try_into().map_err(|_| {
-                vm.new_overflow_error(format!("{} is larger than maximum", typ_name))
+                vm.new_overflow_error(format!("{typ_name} is larger than maximum"))
             })?)),
             Ordering::Less => {
-                Err(vm.new_overflow_error(format!("{} is less than minimum", typ_name)))
+                Err(vm.new_overflow_error(format!("{typ_name} is less than minimum")))
             }
             Ordering::Equal => Ok(None), // -1 means does not change the value
         }
@@ -1094,13 +1206,9 @@ pub mod module {
 
     #[pyfunction]
     fn ttyname(fd: i32, vm: &VirtualMachine) -> PyResult {
-        let name = unsafe { libc::ttyname(fd) };
-        if name.is_null() {
-            Err(errno_err(vm))
-        } else {
-            let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap();
-            Ok(vm.ctx.new_str(name).into())
-        }
+        let name = unistd::ttyname(fd).map_err(|e| e.into_pyexception(vm))?;
+        let name = name.into_os_string().into_string().unwrap();
+        Ok(vm.ctx.new_str(name).into())
     }
 
     #[pyfunction]
@@ -1132,30 +1240,24 @@ pub mod module {
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn getresuid(vm: &VirtualMachine) -> PyResult<(u32, u32, u32)> {
-        let mut ruid = 0;
-        let mut euid = 0;
-        let mut suid = 0;
-        let ret = unsafe { libc::getresuid(&mut ruid, &mut euid, &mut suid) };
-        if ret == 0 {
-            Ok((ruid, euid, suid))
-        } else {
-            Err(errno_err(vm))
-        }
+        let ret = unistd::getresuid().map_err(|e| e.into_pyexception(vm))?;
+        Ok((
+            ret.real.as_raw(),
+            ret.effective.as_raw(),
+            ret.saved.as_raw(),
+        ))
     }
 
     // cfg from nix
     #[cfg(any(target_os = "android", target_os = "linux", target_os = "openbsd"))]
     #[pyfunction]
     fn getresgid(vm: &VirtualMachine) -> PyResult<(u32, u32, u32)> {
-        let mut rgid = 0;
-        let mut egid = 0;
-        let mut sgid = 0;
-        let ret = unsafe { libc::getresgid(&mut rgid, &mut egid, &mut sgid) };
-        if ret == 0 {
-            Ok((rgid, egid, sgid))
-        } else {
-            Err(errno_err(vm))
-        }
+        let ret = unistd::getresgid().map_err(|e| e.into_pyexception(vm))?;
+        Ok((
+            ret.real.as_raw(),
+            ret.effective.as_raw(),
+            ret.saved.as_raw(),
+        ))
     }
 
     // cfg from nix
@@ -1243,8 +1345,8 @@ pub mod module {
         keys.into_iter()
             .zip(values.into_iter())
             .map(|(k, v)| {
-                let k = PyPathLike::try_from_object(vm, k)?.into_bytes();
-                let v = PyPathLike::try_from_object(vm, v)?.into_bytes();
+                let k = OsPath::try_from_object(vm, k)?.into_bytes();
+                let v = OsPath::try_from_object(vm, v)?.into_bytes();
                 if k.contains(&0) {
                     return Err(
                         vm.new_value_error("envp dict key cannot contain a nul byte".to_owned())
@@ -1272,9 +1374,9 @@ pub mod module {
     #[derive(FromArgs)]
     pub(super) struct PosixSpawnArgs {
         #[pyarg(positional)]
-        path: PyPathLike,
+        path: OsPath,
         #[pyarg(positional)]
-        args: crate::function::ArgIterable<PyPathLike>,
+        args: crate::function::ArgIterable<OsPath>,
         #[pyarg(positional)]
         env: crate::function::ArgMapping,
         #[pyarg(named, default)]
@@ -1323,7 +1425,7 @@ pub mod module {
                     let args: crate::function::FuncArgs = args.to_vec().into();
                     let ret = match id {
                         PosixSpawnFileActionIdentifier::Open => {
-                            let (fd, path, oflag, mode): (_, PyPathLike, _, _) = args.bind(vm)?;
+                            let (fd, path, oflag, mode): (_, OsPath, _, _) = args.bind(vm)?;
                             let path = CString::new(path.into_bytes()).map_err(|_| {
                                 vm.new_value_error(
                                     "POSIX_SPAWN_OPEN path should not have nul bytes".to_owned(),
@@ -1371,7 +1473,7 @@ pub mod module {
                 for sig in sigs.iter(vm)? {
                     let sig = sig?;
                     let sig = signal::Signal::try_from(sig).map_err(|_| {
-                        vm.new_value_error(format!("signal number {} out of range", sig))
+                        vm.new_value_error(format!("signal number {sig} out of range"))
                     })?;
                     set.add(sig);
                 }
@@ -1581,24 +1683,14 @@ pub mod module {
             SupportFunc::new("lchown", None, None, None),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("fchown", Some(true), None, Some(true)),
-            #[cfg(not(target_os = "macos"))]
-            SupportFunc::new("mknod", Some(true), Some(true), Some(false)),
-            #[cfg(target_os = "macos")]
-            SupportFunc::new("mknod", Some(true), Some(false), Some(false)),
+            #[cfg(not(target_os = "redox"))]
+            SupportFunc::new("mknod", Some(true), Some(MKNOD_DIR_FD), Some(false)),
             SupportFunc::new("umask", Some(false), Some(false), Some(false)),
             SupportFunc::new("execv", None, None, None),
             SupportFunc::new("pathconf", Some(true), None, None),
         ]
     }
 
-    /// Return a string containing the name of the user logged in on the
-    /// controlling terminal of the process.
-    ///
-    /// Exceptions:
-    ///
-    /// - `OSError`: Raised if login name could not be determined (`getlogin()`
-    ///   returned a null pointer).
-    /// - `UnicodeDecodeError`: Raised if login name contained invalid UTF-8 bytes.
     #[pyfunction]
     fn getlogin(vm: &VirtualMachine) -> PyResult<String> {
         // Get a pointer to the login name string. The string is statically
@@ -1612,7 +1704,7 @@ pub mod module {
         slice
             .to_str()
             .map(|s| s.to_owned())
-            .map_err(|e| vm.new_unicode_decode_error(format!("unable to decode login name: {}", e)))
+            .map_err(|e| vm.new_unicode_decode_error(format!("unable to decode login name: {e}")))
     }
 
     // cfg from nix
@@ -1702,7 +1794,7 @@ pub mod module {
 
     // Copy from [nix::unistd::PathconfVar](https://docs.rs/nix/0.21.0/nix/unistd/enum.PathconfVar.html)
     // Change enum name to fit python doc
-    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, EnumString)]
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, EnumIter, EnumString)]
     #[repr(i32)]
     #[allow(non_camel_case_types)]
     pub enum PathconfVar {
@@ -1870,20 +1962,21 @@ pub mod module {
     #[cfg(unix)]
     #[pyfunction]
     fn pathconf(
-        path: PathOrFd,
+        path: OsPathOrFd,
         ConfName(name): ConfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
         use nix::errno::{self, Errno};
 
         Errno::clear();
+        debug_assert_eq!(errno::errno(), 0);
         let raw = match path {
-            PathOrFd::Path(path) => {
+            OsPathOrFd::Path(path) => {
                 let path = CString::new(path.into_bytes())
                     .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
                 unsafe { libc::pathconf(path.as_ptr(), name) }
             }
-            PathOrFd::Fd(fd) => unsafe { libc::fpathconf(fd, name) },
+            OsPathOrFd::Fd(fd) => unsafe { libc::fpathconf(fd, name) },
         };
 
         if raw == -1 {
@@ -1899,7 +1992,23 @@ pub mod module {
 
     #[pyfunction]
     fn fpathconf(fd: i32, name: ConfName, vm: &VirtualMachine) -> PyResult<Option<libc::c_long>> {
-        pathconf(PathOrFd::Fd(fd), name, vm)
+        pathconf(OsPathOrFd::Fd(fd), name, vm)
+    }
+
+    #[pyattr]
+    fn pathconf_names(vm: &VirtualMachine) -> PyDictRef {
+        use strum::IntoEnumIterator;
+        let pathname = vm.ctx.new_dict();
+        for variant in PathconfVar::iter() {
+            // get the name of variant as a string to use as the dictionary key
+            let key = vm.ctx.new_str(format!("{:?}", variant));
+            // get the enum from the string and convert it to an integer for the dictionary value
+            let value = vm.ctx.new_int(variant as u8);
+            pathname
+                .set_item(&*key, value.into(), vm)
+                .expect("dict set_item unexpectedly failed");
+        }
+        pathname
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -1999,7 +2108,7 @@ pub mod module {
     #[pyfunction]
     fn getrandom(size: isize, flags: OptionalArg<u32>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let size = usize::try_from(size)
-            .map_err(|_| vm.new_os_error(format!("Invalid argument for size: {}", size)))?;
+            .map_err(|_| vm.new_os_error(format!("Invalid argument for size: {size}")))?;
         let mut buf = Vec::with_capacity(size);
         unsafe {
             let len = sys_getrandom(

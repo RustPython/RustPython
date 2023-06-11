@@ -259,6 +259,8 @@ class TestChainMap(unittest.TestCase):
         d = c.new_child(b=20, c=30)
         self.assertEqual(d.maps, [{'b': 20, 'c': 30}, {'a': 1, 'b': 2}])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union_operators(self):
         cm1 = ChainMap(dict(a=1, b=2), dict(c=3, d=4))
         cm2 = ChainMap(dict(a=10, e=5), dict(b=20, d=4))
@@ -892,8 +894,6 @@ class TestOneTrickPonyABCs(ABCTestCase):
         self.assertFalse(isinstance(CoroLike(), Coroutine))
         self.assertFalse(issubclass(CoroLike, Coroutine))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Hashable(self):
         # Check some non-hashables
         non_samples = [bytearray(), list(), set(), dict()]

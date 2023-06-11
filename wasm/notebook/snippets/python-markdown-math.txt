@@ -20,7 +20,7 @@ In the notebook, you can write markdown, math and python. use %% then:
 
 
 I **can** bold things and _italicize_ them. You got the gist, this is standard
-markdown syntax that you can [google](google.com).
+markdown syntax that you can [google](https://google.com).
 
 <br>
 

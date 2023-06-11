@@ -171,6 +171,8 @@ assert 'hello\nhallo\nHallo'.splitlines() == ['hello', 'hallo', 'Hallo']
 assert 'hello\nhallo\nHallo\n'.splitlines() == ['hello', 'hallo', 'Hallo']
 assert 'hello\nhallo\nHallo'.splitlines(keepends=True) == ['hello\n', 'hallo\n', 'Hallo']
 assert 'hello\nhallo\nHallo\n'.splitlines(keepends=True) == ['hello\n', 'hallo\n', 'Hallo\n']
+assert 'hello\vhallo\x0cHallo\x1cHELLO\x1dhoho\x1ehaha\x85another\u2028yetanother\u2029last\r\n.'.splitlines() == ['hello', 'hallo', 'Hallo', 'HELLO', 'hoho', 'haha', 'another', 'yetanother', 'last', '.']
+assert 'hello\vhallo\x0cHallo\x1cHELLO\x1dhoho\x1ehaha\x85another\u2028yetanother\u2029last\r\n.'.splitlines(keepends=True) == ['hello\x0b', 'hallo\x0c', 'Hallo\x1c', 'HELLO\x1d', 'hoho\x1e', 'haha\x85', 'another\u2028', 'yetanother\u2029', 'last\r\n', '.']
 assert 'abc\t12345\txyz'.expandtabs() == 'abc     12345   xyz'
 assert '-'.join(['1', '2', '3']) == '1-2-3'
 assert 'HALLO'.isupper()
@@ -608,6 +610,35 @@ assert '{:.6g}'.format(1.020e-13) == '1.02e-13'
 assert '{:.7g}'.format(1.020e-13) == '1.02e-13'
 assert '{:g}'.format(1.020e-13) == '1.02e-13'
 assert "{:g}".format(1.020e-4) == '0.000102'
+
+# Test n & N formatting
+assert '{:n}'.format(999999.1234) == '999999'
+assert '{:n}'.format(9999.1234) == '9999.12'
+assert '{:n}'.format(-1000000.1234) == '-1e+06'
+assert '{:n}'.format(1000000.1234) == '1e+06'
+assert '{:.1n}'.format(1000000.1234) == '1e+06'
+assert '{:.2n}'.format(1000000.1234) == '1e+06'
+assert '{:.3n}'.format(1000000.1234) == '1e+06'
+assert '{:.4n}'.format(1000000.1234) == '1e+06'
+assert '{:.5n}'.format(1000000.1234) == '1e+06'
+assert '{:.6n}'.format(1000000.1234) == '1e+06'
+assert '{:.7n}'.format(1000000.1234) == '1000000'
+assert '{:.8n}'.format(1000000.1234) == '1000000.1'
+assert '{:.10n}'.format(1000000.1234) == '1000000.123'
+assert '{:.11n}'.format(1000000.1234) == '1000000.1234'
+assert '{:.11n}'.format(-1000000.1234) == '-1000000.1234'
+assert '{:0n}'.format(-1000000.1234) == '-1e+06'
+assert '{:n}'.format(-1000000.1234) == '-1e+06'
+assert '{:-1n}'.format(-1000000.1234) == '-1e+06'
+
+with AssertRaises(ValueError, msg="Unknown format code 'N' for object of type 'float'"):
+    '{:N}'.format(999999.1234)
+with AssertRaises(ValueError, msg="Unknown format code 'N' for object of type 'float'"):
+    '{:.1N}'.format(1000000.1234)
+with AssertRaises(ValueError, msg="Unknown format code 'N' for object of type 'float'"):
+    '{:0N}'.format(-1000000.1234)
+with AssertRaises(ValueError, msg="Unknown format code 'N' for object of type 'float'"):
+    '{:-1N}'.format(-1000000.1234)
 
 # remove*fix test
 def test_removeprefix():

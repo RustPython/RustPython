@@ -226,6 +226,14 @@ class MockTest(unittest.TestCase):
             with self.assertRaisesRegex(InvalidSpecError,
                                         "Cannot spec attr 'B' as the spec_set "):
                 mock.patch.object(A, 'B', spec_set=A.B).start()
+            with self.assertRaisesRegex(InvalidSpecError,
+                                        "Cannot spec attr 'B' as the spec_set "):
+                mock.patch.object(A, 'B', spec_set=A.B).start()
+            with self.assertRaisesRegex(InvalidSpecError, "Cannot spec a Mock object."):
+                mock.Mock(A.B)
+            with mock.patch('builtins.open', mock.mock_open()):
+                mock.mock_open()  # should still be valid with open() mocked
+
 
     def test_reset_mock(self):
         parent = Mock()
@@ -1643,6 +1651,22 @@ class MockTest(unittest.TestCase):
         m.asert_foo_call()
         m.aseert_foo_call()
         m.assrt_foo_call()
+
+    # gh-100739
+    def test_mock_safe_with_spec(self):
+        class Foo(object):
+            def assert_bar(self):
+                pass
+
+            def assertSome(self):
+                pass
+
+        m = Mock(spec=Foo)
+        m.assert_bar()
+        m.assertSome()
+
+        m.assert_bar.assert_called_once()
+        m.assertSome.assert_called_once()
 
     #Issue21262
     def test_assert_not_called(self):

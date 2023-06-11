@@ -35,8 +35,6 @@ class EmptyNodeListTestCase(unittest.TestCase):
         node_list = EmptyNodeList() + NodeList()
         self.assertEqual(node_list, NodeList())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_emptynodelist___radd__(self):
         node_list = [1,2] + EmptyNodeList()
         self.assertEqual(node_list, [1,2])

@@ -21,13 +21,13 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
     import_builtin(vm, "_weakref")?;
 
     let importlib = thread::enter_vm(vm, || {
-        let importlib = import_frozen(vm, "_frozen_importlib")?;
-        let impmod = import_builtin(vm, "_imp")?;
-        let install = importlib.get_attr("_install", vm)?;
-        vm.invoke(&install, (vm.sys_module.clone(), impmod))?;
-        Ok(importlib)
+        let bootstrap = import_frozen(vm, "_frozen_importlib")?;
+        let install = bootstrap.get_attr("_install", vm)?;
+        let imp = import_builtin(vm, "_imp")?;
+        install.call((vm.sys_module.clone(), imp), vm)?;
+        Ok(bootstrap)
     })?;
-    vm.import_func = importlib.get_attr(identifier!(vm, __import__).to_owned(), vm)?;
+    vm.import_func = importlib.get_attr(identifier!(vm, __import__), vm)?;
     Ok(importlib)
 }
 
@@ -47,7 +47,7 @@ pub(crate) fn init_importlib_package(
         import_builtin(vm, "marshal")?;
 
         let install_external = importlib.get_attr("_install_external_importers", vm)?;
-        vm.invoke(&install_external, ())?;
+        install_external.call((), vm)?;
         // Set pyc magic number to commit hash. Should be changed when bytecode will be more stable.
         let importlib_external = vm.import("_frozen_importlib_external", None, 0)?;
         let mut magic = get_git_revision().into_bytes();
@@ -74,31 +74,34 @@ pub(crate) fn init_importlib_package(
 
 pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
     let frozen = vm.state.frozen.get(name).ok_or_else(|| {
-        vm.new_import_error(format!("No such frozen object named {}", name), name)
+        vm.new_import_error(
+            format!("No such frozen object named {name}"),
+            vm.ctx.new_str(name),
+        )
     })?;
-    Ok(vm.ctx.new_code(frozen.code.clone()))
+    Ok(vm.ctx.new_code(frozen.code))
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    make_frozen(vm, module_name).and_then(|frozen| import_codeobj(vm, module_name, frozen, false))
+    let frozen = make_frozen(vm, module_name)?;
+    let module = import_codeobj(vm, module_name, frozen, false)?;
+    debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
+    // TODO: give a correct origname here
+    module.set_attr("__origname__", vm.ctx.new_str(module_name.to_owned()), vm)?;
+    Ok(module)
 }
 
 pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
-    vm.state
-        .module_inits
-        .get(module_name)
-        .ok_or_else(|| {
-            vm.new_import_error(
-                format!("Cannot import builtin module {}", module_name),
-                module_name,
-            )
-        })
-        .and_then(|make_module_func| {
-            let module = make_module_func(vm);
-            let sys_modules = vm.sys_module.get_attr("modules", vm)?;
-            sys_modules.set_item(module_name, module.clone(), vm)?;
-            Ok(module)
-        })
+    let make_module_func = vm.state.module_inits.get(module_name).ok_or_else(|| {
+        vm.new_import_error(
+            format!("Cannot import builtin module {module_name}"),
+            vm.ctx.new_str(module_name),
+        )
+    })?;
+    let module = make_module_func(vm);
+    let sys_modules = vm.sys_module.get_attr("modules", vm)?;
+    sys_modules.set_item(module_name, module.as_object().to_owned(), vm)?;
+    Ok(module.into())
 }
 
 #[cfg(feature = "rustpython-compiler")]
@@ -115,7 +118,7 @@ pub fn import_file(
             file_path,
             vm.compile_opts(),
         )
-        .map_err(|err| vm.new_syntax_error(&err))?;
+        .map_err(|err| vm.new_syntax_error(&err, Some(&content)))?;
     import_codeobj(vm, module_name, code, true)
 }
 
@@ -142,12 +145,12 @@ pub fn import_codeobj(
 
     // Store module in cache to prevent infinite loop with mutual importing libs:
     let sys_modules = vm.sys_module.get_attr("modules", vm)?;
-    sys_modules.set_item(module_name, module.clone(), vm)?;
+    sys_modules.set_item(module_name, module.clone().into(), vm)?;
 
     // Execute main code in module:
     let scope = Scope::with_builtins(None, attrs, vm);
     vm.run_code_obj(code_obj, scope)?;
-    Ok(module)
+    Ok(module.into())
 }
 
 fn remove_importlib_frames_inner(
@@ -184,7 +187,7 @@ fn remove_importlib_frames_inner(
                 traceback.lasti,
                 traceback.lineno,
             )
-            .into_ref(vm),
+            .into_ref(&vm.ctx),
         ),
         now_in_importlib,
     )

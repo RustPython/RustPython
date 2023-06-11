@@ -145,6 +145,9 @@ class LockType(object):
     def locked(self):
         return self.locked_status
 
+    def _at_fork_reinit(self):
+        self.locked_status = False
+
     def __repr__(self):
         return "<%s %s.%s object at %s>" % (
             "locked" if self.locked_status else "unlocked",

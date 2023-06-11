@@ -29,7 +29,7 @@ mod _browser {
                 "json" => Ok(FetchResponseFormat::Json),
                 "text" => Ok(FetchResponseFormat::Text),
                 "array_buffer" => Ok(FetchResponseFormat::ArrayBuffer),
-                _ => Err(vm.new_type_error("Unkown fetch response_format".into())),
+                _ => Err(vm.new_type_error("Unknown fetch response_format".into())),
             }
         }
         fn get_response(&self, response: &web_sys::Response) -> Result<Promise, JsValue> {
@@ -134,7 +134,7 @@ mod _browser {
             stored_vm.interp.enter(|vm| {
                 let func = func.clone();
                 let args = vec![vm.ctx.new_float(time).into()];
-                let _ = vm.invoke(&func, args);
+                let _ = func.invoke(args, vm);
 
                 let closure = f.borrow_mut().take();
                 drop(closure);

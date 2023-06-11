@@ -1,4 +1,33 @@
-pub(crate) use array::make_module;
+// spell-checker:ignore typecode tofile tolist fromfile
+
+use rustpython_vm::{builtins::PyModule, PyRef, VirtualMachine};
+
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
+    let module = array::make_module(vm);
+
+    let array = module
+        .get_attr("array", vm)
+        .expect("Expect array has array type.");
+
+    let collections_abc = vm
+        .import("collections.abc", None, 0)
+        .expect("Expect collections exist.");
+    let abc = collections_abc
+        .get_attr("abc", vm)
+        .expect("Expect collections has abc submodule.");
+    let mutable_sequence = abc
+        .get_attr("MutableSequence", vm)
+        .expect("Expect collections.abc has MutableSequence type.");
+
+    let register = &mutable_sequence
+        .get_attr("register", vm)
+        .expect("Expect collections.abc.MutableSequence has register method.");
+    register
+        .call((array,), vm)
+        .expect("Expect collections.abc.MutableSequence.register(array.array) not fail.");
+
+    module
+}
 
 #[pymodule(name = "array")]
 mod array {
@@ -12,16 +41,19 @@ mod array {
             str::wchar_t,
         },
         vm::{
+            atomic_func,
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt,
-                PyIntRef, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+                PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
             },
             class_or_notimplemented,
-            convert::{ToPyObject, ToPyResult, TryFromObject},
-            function::{ArgBytesLike, ArgIntoFloat, ArgIterable, OptionalArg, PyComparisonValue},
+            convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
+            function::{
+                ArgBytesLike, ArgIntoFloat, ArgIterable, KwArgs, OptionalArg, PyComparisonValue,
+            },
             protocol::{
                 BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
-                PyMappingMethods,
+                PyMappingMethods, PySequenceMethods,
             },
             sequence::{OptionalRangeArgs, SequenceExt, SequenceMutExt},
             sliceable::{
@@ -29,8 +61,8 @@ mod array {
                 SliceableSequenceOp,
             },
             types::{
-                AsBuffer, AsMapping, Comparable, Constructor, IterNext, IterNextIterable, Iterable,
-                PyComparisonOp,
+                AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext, Iterable,
+                PyComparisonOp, Representable, SelfIter,
             },
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         },
@@ -184,10 +216,12 @@ mod array {
                         $(ArrayContentType::$n(v) => {
                             // safe because every configuration of bytes for the types we
                             // support are valid
-                            let ptr = b.as_ptr() as *const $t;
-                            let ptr_len = b.len() / std::mem::size_of::<$t>();
-                            let slice = unsafe { std::slice::from_raw_parts(ptr, ptr_len) };
-                            v.extend_from_slice(slice);
+                            if b.len() > 0 {
+                                let ptr = b.as_ptr() as *const $t;
+                                let ptr_len = b.len() / std::mem::size_of::<$t>();
+                                let slice = unsafe { std::slice::from_raw_parts(ptr, ptr_len) };
+                                v.extend_from_slice(slice);
+                            }
                         })*
                     }
                 }
@@ -336,7 +370,7 @@ mod array {
                 fn delitem_by_index(&mut self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.del_item_by_index(vm, i)
+                            v.delitem_by_index(vm, i)
                         })*
                     }
                 }
@@ -344,7 +378,7 @@ mod array {
                 fn delitem_by_slice(&mut self, slice: SaturatedSlice, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.del_item_by_slice(vm, slice)
+                            v.delitem_by_slice(vm, slice)
                         })*
                     }
                 }
@@ -476,7 +510,23 @@ mod array {
         fn to_object(self, vm: &VirtualMachine) -> PyObjectRef;
     }
 
-    macro_rules! impl_array_element {
+    macro_rules! impl_int_element {
+        ($($t:ty,)*) => {$(
+            impl ArrayElement for $t {
+                fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+                    obj.try_index(vm)?.try_to_primitive(vm)
+                }
+                fn byteswap(self) -> Self {
+                    <$t>::swap_bytes(self)
+                }
+                fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+                    self.to_pyobject(vm)
+                }
+            }
+        )*};
+    }
+
+    macro_rules! impl_float_element {
         ($(($t:ty, $f_from:path, $f_swap:path, $f_to:path),)*) => {$(
             impl ArrayElement for $t {
                 fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -492,15 +542,8 @@ mod array {
         )*};
     }
 
-    impl_array_element!(
-        (i8, i8::try_from_object, i8::swap_bytes, PyInt::from),
-        (u8, u8::try_from_object, u8::swap_bytes, PyInt::from),
-        (i16, i16::try_from_object, i16::swap_bytes, PyInt::from),
-        (u16, u16::try_from_object, u16::swap_bytes, PyInt::from),
-        (i32, i32::try_from_object, i32::swap_bytes, PyInt::from),
-        (u32, u32::try_from_object, u32::swap_bytes, PyInt::from),
-        (i64, i64::try_from_object, i64::swap_bytes, PyInt::from),
-        (u64, u64::try_from_object, u64::swap_bytes, PyInt::from),
+    impl_int_element!(i8, u8, i16, u16, i32, u32, i64, u64,);
+    impl_float_element!(
         (
             f32,
             f32_try_into_from_object,
@@ -550,15 +593,13 @@ mod array {
     fn u32_to_char(ch: u32) -> Result<char, String> {
         if ch > 0x10ffff {
             return Err(format!(
-                "character U+{:4x} is not in range [U+0000; U+10ffff]",
-                ch
+                "character U+{ch:4x} is not in range [U+0000; U+10ffff]"
             ));
         };
         char::from_u32(ch).ok_or_else(|| {
             format!(
-                "'utf-8' codec can't encode character '\\u{:x}' \
-                in position 0: surrogates not allowed",
-                ch
+                "'utf-8' codec can't encode character '\\u{ch:x}' \
+                in position 0: surrogates not allowed"
             )
         })
     }
@@ -616,11 +657,11 @@ mod array {
     }
 
     impl Constructor for PyArray {
-        type Args = ArrayNewArgs;
+        type Args = (ArrayNewArgs, KwArgs);
 
         fn py_new(
             cls: PyTypeRef,
-            Self::Args { spec, init }: Self::Args,
+            (ArrayNewArgs { spec, init }, kwargs): Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
             let spec = spec.as_str().chars().exactly_one().map_err(|_| {
@@ -628,6 +669,13 @@ mod array {
                     "array() argument 1 must be a unicode character, not str".to_owned(),
                 )
             })?;
+
+            if cls.is(PyArray::class(&vm.ctx)) && !kwargs.is_empty() {
+                return Err(
+                    vm.new_type_error("array.array() takes no keyword arguments".to_owned())
+                );
+            }
+
             let mut array =
                 ArrayContentType::from_char(spec).map_err(|err| vm.new_value_error(err))?;
 
@@ -637,8 +685,7 @@ mod array {
                         (spec, ch) if spec == ch => array.frombytes(&init.get_bytes()),
                         (spec, 'u') => {
                             return Err(vm.new_type_error(format!(
-                            "cannot use a unicode array to initialize an array with typecode '{}'",
-                            spec
+                            "cannot use a unicode array to initialize an array with typecode '{spec}'"
                         )))
                         }
                         _ => {
@@ -653,8 +700,7 @@ mod array {
                         array.frombytes_move(bytes);
                     } else {
                         return Err(vm.new_type_error(format!(
-                            "cannot use a str to initialize an array with typecode '{}'",
-                            spec
+                            "cannot use a str to initialize an array with typecode '{spec}'"
                         )));
                     }
                 } else if init.payload_is::<PyBytes>() || init.payload_is::<PyByteArray>() {
@@ -675,7 +721,15 @@ mod array {
 
     #[pyclass(
         flags(BASETYPE),
-        with(Comparable, AsBuffer, AsMapping, Iterable, Constructor)
+        with(
+            Comparable,
+            AsBuffer,
+            AsMapping,
+            AsSequence,
+            Iterable,
+            Constructor,
+            Representable
+        )
     )]
     impl PyArray {
         fn read(&self) -> PyRwLockReadGuard<'_, ArrayContentType> {
@@ -699,7 +753,7 @@ mod array {
         }
 
         #[pymethod]
-        fn append(zelf: PyRef<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn append(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             zelf.try_resizable(vm)?.push(x, vm)
         }
 
@@ -715,12 +769,12 @@ mod array {
         }
 
         #[pymethod]
-        fn remove(zelf: PyRef<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn remove(zelf: &Py<Self>, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             zelf.try_resizable(vm)?.remove(x, vm)
         }
 
         #[pymethod]
-        fn extend(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn extend(zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut w = zelf.try_resizable(vm)?;
             if zelf.is(&obj) {
                 w.imul(2, vm)
@@ -781,8 +835,8 @@ mod array {
         }
 
         #[pymethod]
-        fn fromunicode(zelf: PyRef<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let utf8 = PyStrRef::try_from_object(vm, obj.clone()).map_err(|_| {
+        fn fromunicode(zelf: &Py<Self>, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let utf8: &str = obj.try_to_value(vm).map_err(|_| {
                 vm.new_type_error(format!(
                     "fromunicode() argument must be str, not {}",
                     obj.class().name()
@@ -794,7 +848,7 @@ mod array {
                 ));
             }
             let mut w = zelf.try_resizable(vm)?;
-            let bytes = Self::_unicode_to_wchar_bytes(utf8.as_str(), w.itemsize());
+            let bytes = Self::_unicode_to_wchar_bytes(utf8, w.itemsize());
             w.frombytes_move(bytes);
             Ok(())
         }
@@ -875,18 +929,13 @@ mod array {
         }
 
         #[pymethod]
-        fn insert(
-            zelf: PyRef<Self>,
-            i: isize,
-            x: PyObjectRef,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn insert(zelf: &Py<Self>, i: isize, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mut w = zelf.try_resizable(vm)?;
             w.insert(i, x, vm)
         }
 
         #[pymethod]
-        fn pop(zelf: PyRef<Self>, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
+        fn pop(zelf: &Py<Self>, i: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult {
             let mut w = zelf.try_resizable(vm)?;
             if w.len() == 0 {
                 Err(vm.new_index_error("pop from empty array".to_owned()))
@@ -910,7 +959,7 @@ mod array {
             let bytes = bytes.get_bytes();
 
             for b in bytes.chunks(BLOCKSIZE) {
-                let b = PyBytes::from(b.to_vec()).into_ref(vm);
+                let b = PyBytes::from(b.to_vec()).into_ref(&vm.ctx);
                 vm.call_method(&f, "write", (b,))?;
             }
             Ok(())
@@ -935,7 +984,7 @@ mod array {
         }
 
         #[pymethod]
-        fn fromlist(zelf: PyRef<Self>, list: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn fromlist(zelf: &Py<Self>, list: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
             zelf.try_resizable(vm)?.fromlist(&list, vm)
         }
 
@@ -967,7 +1016,7 @@ mod array {
         }
 
         fn _setitem(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             needle: &PyObject,
             value: PyObjectRef,
             vm: &VirtualMachine,
@@ -1005,7 +1054,7 @@ mod array {
 
         #[pymethod(magic)]
         fn setitem(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             needle: PyObjectRef,
             value: PyObjectRef,
             vm: &VirtualMachine,
@@ -1030,7 +1079,7 @@ mod array {
             if let Some(other) = other.payload::<PyArray>() {
                 self.read()
                     .add(&other.read(), vm)
-                    .map(|array| PyArray::from(array).into_ref(vm))
+                    .map(|array| PyArray::from(array).into_ref(&vm.ctx))
             } else {
                 Err(vm.new_type_error(format!(
                     "can only append array (not \"{}\") to array",
@@ -1063,30 +1112,13 @@ mod array {
         fn mul(&self, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             self.read()
                 .mul(value, vm)
-                .map(|x| Self::from(x).into_ref(vm))
+                .map(|x| Self::from(x).into_ref(&vm.ctx))
         }
 
         #[pymethod(magic)]
         fn imul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
             zelf.try_resizable(vm)?.imul(value, vm)?;
             Ok(zelf)
-        }
-
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            let class = zelf.class();
-            let class_name = class.name();
-            if zelf.read().typecode() == 'u' {
-                if zelf.len() == 0 {
-                    return Ok(format!("{}('u')", class_name));
-                }
-                return Ok(format!(
-                    "{}('u', {})",
-                    class_name,
-                    crate::common::str::repr(&zelf.tounicode(vm)?)
-                ));
-            }
-            zelf.read().repr(&class_name, vm)
         }
 
         #[pymethod(magic)]
@@ -1120,7 +1152,7 @@ mod array {
 
         #[pymethod(magic)]
         fn reduce_ex(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             proto: usize,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
@@ -1128,7 +1160,7 @@ mod array {
                 return Self::reduce(zelf, vm);
             }
             let array = zelf.read();
-            let cls = zelf.class().clone();
+            let cls = zelf.class().to_owned();
             let typecode = vm.ctx.new_str(array.typecode_str());
             let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
@@ -1144,11 +1176,11 @@ mod array {
 
         #[pymethod(magic)]
         fn reduce(
-            zelf: PyRef<Self>,
+            zelf: &Py<Self>,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
             let array = zelf.read();
-            let cls = zelf.class().clone();
+            let cls = zelf.class().to_owned();
             let typecode = vm.ctx.new_str(array.typecode_str());
             let values = if array.typecode() == 'u' {
                 let s = Self::_wchar_bytes_to_string(array.get_bytes(), array.itemsize(), vm)?;
@@ -1162,6 +1194,23 @@ mod array {
                 vm.new_tuple((typecode, values)),
                 zelf.as_object().dict(),
             ))
+        }
+
+        #[pymethod(magic)]
+        fn contains(&self, value: PyObjectRef, vm: &VirtualMachine) -> bool {
+            let array = self.array.read();
+            for element in array
+                .iter(vm)
+                .map(|x| x.expect("Expected to be checked by array.len() and read lock."))
+            {
+                if let Ok(true) =
+                    element.rich_compare_bool(value.as_object(), PyComparisonOp::Eq, vm)
+                {
+                    return true;
+                }
+            }
+
+            false
         }
     }
 
@@ -1234,6 +1283,23 @@ mod array {
         }
     }
 
+    impl Representable for PyArray {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let class = zelf.class();
+            let class_name = class.name();
+            if zelf.read().typecode() == 'u' {
+                if zelf.len() == 0 {
+                    return Ok(format!("{class_name}('u')"));
+                }
+                let to_unicode = zelf.tounicode(vm)?;
+                let escape = crate::vm::literal::escape::UnicodeEscape::new_repr(&to_unicode);
+                return Ok(format!("{}('u', {})", class_name, escape.str_repr()));
+            }
+            zelf.read().repr(&class_name, vm)
+        }
+    }
+
     static BUFFER_METHODS: BufferMethods = BufferMethods {
         obj_bytes: |buffer| buffer.obj_as::<PyArray>().get_bytes().into(),
         obj_bytes_mut: |buffer| buffer.obj_as::<PyArray>().get_bytes_mut().into(),
@@ -1252,20 +1318,64 @@ mod array {
     };
 
     impl AsMapping for PyArray {
-        const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-            length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-            subscript: Some(|mapping, needle, vm| {
-                Self::mapping_downcast(mapping)._getitem(needle, vm)
-            }),
-            ass_subscript: Some(|mapping, needle, value, vm| {
-                let zelf = Self::mapping_downcast(mapping);
-                if let Some(value) = value {
-                    Self::_setitem(zelf.to_owned(), needle, value, vm)
-                } else {
-                    zelf._delitem(needle, vm)
-                }
-            }),
-        };
+        fn as_mapping() -> &'static PyMappingMethods {
+            static AS_MAPPING: PyMappingMethods = PyMappingMethods {
+                length: atomic_func!(|mapping, _vm| Ok(PyArray::mapping_downcast(mapping).len())),
+                subscript: atomic_func!(|mapping, needle, vm| {
+                    PyArray::mapping_downcast(mapping)._getitem(needle, vm)
+                }),
+                ass_subscript: atomic_func!(|mapping, needle, value, vm| {
+                    let zelf = PyArray::mapping_downcast(mapping);
+                    if let Some(value) = value {
+                        PyArray::_setitem(zelf, needle, value, vm)
+                    } else {
+                        zelf._delitem(needle, vm)
+                    }
+                }),
+            };
+            &AS_MAPPING
+        }
+    }
+
+    impl AsSequence for PyArray {
+        fn as_sequence() -> &'static PySequenceMethods {
+            static AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
+                length: atomic_func!(|seq, _vm| Ok(PyArray::sequence_downcast(seq).len())),
+                concat: atomic_func!(|seq, other, vm| {
+                    let zelf = PyArray::sequence_downcast(seq);
+                    PyArray::add(zelf, other.to_owned(), vm).map(|x| x.into())
+                }),
+                repeat: atomic_func!(|seq, n, vm| {
+                    PyArray::sequence_downcast(seq).mul(n, vm).map(|x| x.into())
+                }),
+                item: atomic_func!(|seq, i, vm| {
+                    PyArray::sequence_downcast(seq)
+                        .read()
+                        .getitem_by_index(i, vm)
+                }),
+                ass_item: atomic_func!(|seq, i, value, vm| {
+                    let zelf = PyArray::sequence_downcast(seq);
+                    if let Some(value) = value {
+                        zelf.write().setitem_by_index(i, value, vm)
+                    } else {
+                        zelf.write().delitem_by_index(i, vm)
+                    }
+                }),
+                contains: atomic_func!(|seq, target, vm| {
+                    let zelf = PyArray::sequence_downcast(seq);
+                    Ok(zelf.contains(target.to_owned(), vm))
+                }),
+                inplace_concat: atomic_func!(|seq, other, vm| {
+                    let zelf = PyArray::sequence_downcast(seq).to_owned();
+                    PyArray::iadd(zelf, other.to_owned(), vm).map(|x| x.into())
+                }),
+                inplace_repeat: atomic_func!(|seq, n, vm| {
+                    let zelf = PyArray::sequence_downcast(seq).to_owned();
+                    PyArray::imul(zelf, n, vm).map(|x| x.into())
+                }),
+            };
+            &AS_SEQUENCE
+        }
     }
 
     impl Iterable for PyArray {
@@ -1277,23 +1387,23 @@ mod array {
         }
     }
 
-    impl<'a> BufferResizeGuard<'a> for PyArray {
-        type Resizable = PyRwLockWriteGuard<'a, ArrayContentType>;
+    impl BufferResizeGuard for PyArray {
+        type Resizable<'a> = PyRwLockWriteGuard<'a, ArrayContentType>;
 
-        fn try_resizable_opt(&'a self) -> Option<Self::Resizable> {
+        fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
             let w = self.write();
             (self.exports.load(atomic::Ordering::SeqCst) == 0).then_some(w)
         }
     }
 
     #[pyattr]
-    #[pyclass(name = "arrayiterator")]
+    #[pyclass(name = "arrayiterator", traverse)]
     #[derive(Debug, PyPayload)]
     pub struct PyArrayIter {
         internal: PyMutex<PositionIterInternal<PyArrayRef>>,
     }
 
-    #[pyclass(with(IterNext), flags(HAS_DICT))]
+    #[pyclass(with(IterNext, Iterable), flags(HAS_DICT))]
     impl PyArrayIter {
         #[pymethod(magic)]
         fn setstate(&self, state: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -1310,7 +1420,7 @@ mod array {
         }
     }
 
-    impl IterNextIterable for PyArrayIter {}
+    impl SelfIter for PyArrayIter {}
     impl IterNext for PyArrayIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|array, pos| {
@@ -1387,9 +1497,9 @@ mod array {
         }
     }
 
-    impl TryFromObject for MachineFormatCode {
-        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            PyIntRef::try_from_object(vm, obj.clone())
+    impl<'a> TryFromBorrowedObject<'a> for MachineFormatCode {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+            obj.try_to_ref::<PyInt>(vm)
                 .map_err(|_| {
                     vm.new_type_error(format!(
                         "an integer is required (got type {})",
@@ -1462,7 +1572,7 @@ mod array {
     }
 
     fn check_array_type(typ: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-        if !typ.fast_issubclass(PyArray::class(vm)) {
+        if !typ.fast_issubclass(PyArray::class(&vm.ctx)) {
             return Err(
                 vm.new_type_error(format!("{} is not a subtype of array.array", typ.name()))
             );

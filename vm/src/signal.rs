@@ -37,8 +37,8 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
         let triggered = trigger.swap(false, Ordering::Relaxed);
         if triggered {
             if let Some(handler) = &signal_handlers[signum] {
-                if vm.is_callable(handler) {
-                    vm.invoke(handler, (signum, vm.ctx.none()))?;
+                if let Some(callable) = handler.to_callable() {
+                    callable.invoke((signum, vm.ctx.none()), vm)?;
                 }
             }
         }

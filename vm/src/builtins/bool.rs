@@ -1,11 +1,17 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::{
-    class::PyClassImpl, convert::ToPyObject, function::OptionalArg, identifier, types::Constructor,
+    class::PyClassImpl,
+    convert::{IntoPyException, ToPyObject, ToPyResult},
+    function::OptionalArg,
+    identifier,
+    protocol::PyNumberMethods,
+    types::{AsNumber, Constructor, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
-use num_bigint::Sign;
+use malachite_bigint::Sign;
 use num_traits::Zero;
+use rustpython_format::FormatSpec;
 use std::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {
@@ -14,8 +20,8 @@ impl ToPyObject for bool {
     }
 }
 
-impl TryFromBorrowedObject for bool {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<bool> {
+impl<'a> TryFromBorrowedObject<'a> for bool {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<bool> {
         if obj.fast_isinstance(vm.ctx.types.int_type) {
             Ok(get_value(obj))
         } else {
@@ -37,7 +43,7 @@ impl PyObjectRef {
             Some(method_or_err) => {
                 // If descriptor returns Error, propagate it further
                 let method = method_or_err?;
-                let bool_obj = vm.invoke(&method, ())?;
+                let bool_obj = method.call((), vm)?;
                 if !bool_obj.fast_isinstance(vm.ctx.types.bool_type) {
                     return Err(vm.new_type_error(format!(
                         "__bool__ should return bool, returned type {}",
@@ -50,7 +56,7 @@ impl PyObjectRef {
             None => match vm.get_method(self, identifier!(vm, __len__)) {
                 Some(method_or_err) => {
                     let method = method_or_err?;
-                    let bool_obj = vm.invoke(&method, ())?;
+                    let bool_obj = method.call((), vm)?;
                     let int_obj = bool_obj.payload::<PyInt>().ok_or_else(|| {
                         vm.new_type_error(format!(
                             "'{}' object cannot be interpreted as an integer",
@@ -71,17 +77,12 @@ impl PyObjectRef {
     }
 }
 
-/// bool(x) -> bool
-///
-/// Returns True when the argument x is true, False otherwise.
-/// The builtins True and False are the only two instances of the class bool.
-/// The class bool is a subclass of the class int, and cannot be subclassed.
 #[pyclass(name = "bool", module = false, base = "PyInt")]
 pub struct PyBool;
 
 impl PyPayload for PyBool {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bool_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bool_type
     }
 }
 
@@ -99,8 +100,7 @@ impl Constructor for PyBool {
             let actual_class = zelf.class();
             let actual_type = &actual_class.name();
             return Err(vm.new_type_error(format!(
-                "requires a 'type' object but received a '{}'",
-                actual_type
+                "requires a 'type' object but received a '{actual_type}'"
             )));
         }
         let val = x.map_or(Ok(false), |val| val.try_to_bool(vm))?;
@@ -108,25 +108,14 @@ impl Constructor for PyBool {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, AsNumber, Representable))]
 impl PyBool {
     #[pymethod(magic)]
-    fn repr(zelf: bool, vm: &VirtualMachine) -> PyStrRef {
-        if zelf {
-            vm.ctx.names.True
-        } else {
-            vm.ctx.names.False
-        }
-        .to_owned()
-    }
-
-    #[pymethod(magic)]
-    fn format(obj: PyObjectRef, format_spec: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        if format_spec.as_str().is_empty() {
-            obj.str(vm)
-        } else {
-            Err(vm.new_type_error("unsupported format string passed to bool.__format__".to_owned()))
-        }
+    fn format(obj: PyObjectRef, spec: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
+        let new_bool = obj.try_to_bool(vm)?;
+        FormatSpec::parse(spec.as_str())
+            .and_then(|format_spec| format_spec.format_bool(new_bool))
+            .map_err(|err| err.into_pyexception(vm))
     }
 
     #[pymethod(name = "__ror__")]
@@ -169,6 +158,35 @@ impl PyBool {
         } else {
             get_py_int(&lhs).xor(rhs, vm).to_pyobject(vm)
         }
+    }
+}
+
+impl AsNumber for PyBool {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            and: Some(|a, b, vm| PyBool::and(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            xor: Some(|a, b, vm| PyBool::xor(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            or: Some(|a, b, vm| PyBool::or(a.to_owned(), b.to_owned(), vm).to_pyresult(vm)),
+            ..PyInt::AS_NUMBER
+        };
+        &AS_NUMBER
+    }
+}
+
+impl Representable for PyBool {
+    #[inline]
+    fn slot_repr(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        let name = if get_value(zelf.as_object()) {
+            vm.ctx.names.True
+        } else {
+            vm.ctx.names.False
+        };
+        Ok(name.to_owned())
+    }
+
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use slot_repr instead")
     }
 }
 

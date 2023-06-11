@@ -175,7 +175,7 @@ mod termios {
             .enumerate()
             .map(|(i, &c)| match i {
                 termios::VMIN | termios::VTIME if noncanon => vm.ctx.new_int(c).into(),
-                _ => vm.ctx.new_bytes(vec![c as u8]).into(),
+                _ => vm.ctx.new_bytes(vec![c as _]).into(),
             })
             .collect::<Vec<_>>();
         let out = vec![
@@ -211,8 +211,7 @@ mod termios {
         let cc = cc.borrow_vec();
         let cc = <&[PyObjectRef; NCCS]>::try_from(&*cc).map_err(|_| {
             vm.new_type_error(format!(
-                "tcsetattr: attributes[6] must be {} element list",
-                NCCS
+                "tcsetattr: attributes[6] must be {NCCS} element list"
             ))
         })?;
         for (cc, x) in termios.c_cc.iter_mut().zip(cc.iter()) {

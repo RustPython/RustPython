@@ -71,15 +71,11 @@ class FnmatchTestCase(unittest.TestCase):
         check('usr/bin', 'usr\\bin', False, fnmatchcase)
         check('usr\\bin', 'usr\\bin', True, fnmatchcase)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_bytes(self):
         self.check_match(b'test', b'te*')
         self.check_match(b'test\xff', b'te*\xff')
         self.check_match(b'foo\nbar', b'foo*')
-
-    # TODO: RUSTPYTHON
-    import sys
-    if sys.platform == 'win32':
-        test_bytes = unittest.expectedFailure(test_bytes)
 
     def test_case(self):
         ignorecase = os.path.normcase('ABC') == os.path.normcase('abc')

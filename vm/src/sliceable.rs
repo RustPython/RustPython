@@ -1,9 +1,9 @@
 // export through sliceable module, not slice.
 use crate::{
     builtins::{int::PyInt, slice::PySlice},
-    AsObject, PyObject, PyResult, VirtualMachine,
+    PyObject, PyResult, VirtualMachine,
 };
-use num_bigint::BigInt;
+use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use std::ops::Range;
 
@@ -86,7 +86,7 @@ where
         }
     }
 
-    fn del_item_by_index(&mut self, vm: &VirtualMachine, index: isize) -> PyResult<()> {
+    fn delitem_by_index(&mut self, vm: &VirtualMachine, index: isize) -> PyResult<()> {
         let pos = self
             .as_ref()
             .wrap_index(index)
@@ -95,11 +95,11 @@ where
         Ok(())
     }
 
-    fn del_item_by_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
+    fn delitem_by_slice(&mut self, _vm: &VirtualMachine, slice: SaturatedSlice) -> PyResult<()> {
         let (range, step, slice_len) = slice.adjust_indices(self.as_ref().len());
         if slice_len == 0 {
             Ok(())
-        } else if step == 1 {
+        } else if step == 1 || step == -1 {
             self.do_set_range(range, &[]);
             Ok(())
         } else {
@@ -192,15 +192,13 @@ pub trait SliceableSequenceOp {
         let sliced = if slice_len == 0 {
             Self::empty()
         } else if step == 1 {
-            if step.is_negative() {
-                self.do_slice_reverse(range)
-            } else {
-                self.do_slice(range)
-            }
-        } else if step.is_negative() {
-            self.do_stepped_slice_reverse(range, step.unsigned_abs())
-        } else {
+            self.do_slice(range)
+        } else if step == -1 {
+            self.do_slice_reverse(range)
+        } else if step.is_positive() {
             self.do_stepped_slice(range, step.unsigned_abs())
+        } else {
+            self.do_stepped_slice_reverse(range, step.unsigned_abs())
         };
         Ok(sliced)
     }
@@ -310,14 +308,15 @@ impl SequenceIndexOp for isize {
     }
 
     fn wrapped_at(&self, len: usize) -> Option<usize> {
-        let neg = self.is_negative();
-        let p = self.unsigned_abs();
-        if neg {
-            len.checked_sub(p)
-        } else if p >= len {
+        let mut p = *self;
+        if p < 0 {
+            // casting to isize is ok because it is used by wrapping_add
+            p = p.wrapping_add(len as isize);
+        }
+        if p < 0 || (p as usize) >= len {
             None
         } else {
-            Some(p)
+            Some(p as usize)
         }
     }
 }

@@ -4,12 +4,13 @@ pub(crate) use math::make_module;
 mod math {
     use crate::vm::{
         builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef, PyStrInterned},
-        function::{ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
-        identifier, AsObject, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        function::{ArgIndex, ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
+        identifier, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
-    use num_bigint::BigInt;
+    use itertools::Itertools;
+    use malachite_bigint::BigInt;
     use num_traits::{One, Signed, Zero};
-    use rustpython_common::float_ops;
+    use rustpython_common::{float_ops, int::true_div};
     use std::cmp::Ordering;
 
     // Constants
@@ -131,18 +132,9 @@ mod math {
     }
 
     #[pyfunction]
-    fn log(x: ArgIntoFloat, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
-        base.map_or_else(
-            || {
-                if x.is_nan() || x > 0.0_f64 {
-                    Ok(x.ln())
-                } else {
-                    Err(vm.new_value_error("math domain error".to_owned()))
-                }
-            },
-            |base| Ok(x.log(*base)),
-        )
+    fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
+        let base = base.map(|b| *b).unwrap_or(std::f64::consts::E);
+        log2(x, vm).map(|logx| logx / base.log2())
     }
 
     #[pyfunction]
@@ -155,24 +147,46 @@ mod math {
         }
     }
 
+    /// Generates the base-2 logarithm of a BigInt `x`
+    fn int_log2(x: &BigInt) -> f64 {
+        // log2(x) = log2(2^n * 2^-n * x) = n + log2(x/2^n)
+        // If we set 2^n to be the greatest power of 2 below x, then x/2^n is in [1, 2), and can
+        // thus be converted into a float.
+        let n = x.bits() as u32 - 1;
+        let frac = true_div(x, &BigInt::from(2).pow(n));
+        f64::from(n) + frac.log2()
+    }
+
     #[pyfunction]
-    fn log2(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
-        if x.is_nan() || x > 0.0_f64 {
-            Ok(x.log2())
-        } else {
-            Err(vm.new_value_error("math domain error".to_owned()))
+    fn log2(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+        match x.try_float(vm) {
+            Ok(x) => {
+                let x = x.to_f64();
+                if x.is_nan() || x > 0.0_f64 {
+                    Ok(x.log2())
+                } else {
+                    Err(vm.new_value_error("math domain error".to_owned()))
+                }
+            }
+            Err(float_err) => {
+                if let Ok(x) = x.try_int(vm) {
+                    let x = x.as_bigint();
+                    if x.is_positive() {
+                        Ok(int_log2(x))
+                    } else {
+                        Err(vm.new_value_error("math domain error".to_owned()))
+                    }
+                } else {
+                    // Return the float error, as it will be more intuitive to users
+                    Err(float_err)
+                }
+            }
         }
     }
 
     #[pyfunction]
-    fn log10(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
-        let x = *x;
-        if x.is_nan() || x > 0.0_f64 {
-            Ok(x.log10())
-        } else {
-            Err(vm.new_value_error("math domain error".to_owned()))
-        }
+    fn log10(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+        log2(x, vm).map(|logx| logx / 10f64.log2())
     }
 
     #[pyfunction]
@@ -196,6 +210,9 @@ mod math {
     #[pyfunction]
     fn sqrt(value: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
         let value = *value;
+        if value.is_nan() {
+            return Ok(value);
+        }
         if value.is_sign_negative() {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
@@ -203,9 +220,8 @@ mod math {
     }
 
     #[pyfunction]
-    fn isqrt(x: PyObjectRef, vm: &VirtualMachine) -> PyResult<BigInt> {
-        let index = x.try_index(vm)?;
-        let value = index.as_bigint();
+    fn isqrt(x: ArgIndex, vm: &VirtualMachine) -> PyResult<BigInt> {
+        let value = x.as_bigint();
 
         if value.is_negative() {
             return Err(vm.new_value_error("isqrt() argument must be nonnegative".to_owned()));
@@ -269,24 +285,73 @@ mod math {
         if has_nan {
             return f64::NAN;
         }
-        vector_norm(&coordinates, max)
+        coordinates.sort_unstable_by(|x, y| x.total_cmp(y).reverse());
+        vector_norm(&coordinates)
     }
 
-    fn vector_norm(v: &[f64], max: f64) -> f64 {
-        if max == 0.0 || v.len() <= 1 {
+    /// Implementation of accurate hypotenuse algorithm from Borges 2019.
+    /// See https://arxiv.org/abs/1904.09481.
+    /// This assumes that its arguments are positive finite and have been scaled to avoid overflow
+    /// and underflow.
+    fn accurate_hypot(max: f64, min: f64) -> f64 {
+        if min <= max * (f64::EPSILON / 2.0).sqrt() {
             return max;
         }
-        let mut csum = 1.0;
-        let mut frac = 0.0;
-        for &f in v {
-            let f = f / max;
-            let f = f * f;
-            let old = csum;
-            csum += f;
-            // this seemingly redundant operation is to reduce float rounding errors/inaccuracy
-            frac += (old - csum) + f;
+        let hypot = max.mul_add(max, min * min).sqrt();
+        let hypot_sq = hypot * hypot;
+        let max_sq = max * max;
+        let correction = (-min).mul_add(min, hypot_sq - max_sq) + hypot.mul_add(hypot, -hypot_sq)
+            - max.mul_add(max, -max_sq);
+        hypot - correction / (2.0 * hypot)
+    }
+
+    /// Calculates the norm of the vector given by `v`.
+    /// `v` is assumed to be a list of non-negative finite floats, sorted in descending order.
+    fn vector_norm(v: &[f64]) -> f64 {
+        // Drop zeros from the vector.
+        let zero_count = v.iter().rev().cloned().take_while(|x| *x == 0.0).count();
+        let v = &v[..v.len() - zero_count];
+        if v.is_empty() {
+            return 0.0;
         }
-        max * f64::sqrt(csum - 1.0 + frac)
+        if v.len() == 1 {
+            return v[0];
+        }
+        // Calculate scaling to avoid overflow / underflow.
+        let max = *v.first().unwrap();
+        let min = *v.last().unwrap();
+        let scale = if max > (f64::MAX / v.len() as f64).sqrt() {
+            max
+        } else if min < f64::MIN_POSITIVE.sqrt() {
+            // ^ This can be an `else if`, because if the max is near f64::MAX and the min is near
+            // f64::MIN_POSITIVE, then the min is relatively unimportant and will be effectively
+            // ignored.
+            min
+        } else {
+            1.0
+        };
+        let mut norm = v
+            .iter()
+            .copied()
+            .map(|x| x / scale)
+            .reduce(accurate_hypot)
+            .unwrap_or_default();
+        if v.len() > 2 {
+            // For larger lists of numbers, we can accumulate a rounding error, so a correction is
+            // needed, similar to that in `accurate_hypot()`.
+            // First, we estimate [sum of squares - norm^2], then we add the first-order
+            // approximation of the square root of that to `norm`.
+            let correction = v
+                .iter()
+                .copied()
+                .map(|x| (x / scale).powi(2))
+                .chain(std::iter::once(-norm * norm))
+                // Pairwise summation of floats gives less rounding error than a naive sum.
+                .tree_fold1(std::ops::Add::add)
+                .expect("expected at least 1 element");
+            norm = norm + correction / (2.0 * norm);
+        }
+        norm * scale
     }
 
     #[pyfunction]
@@ -325,7 +390,8 @@ mod math {
         if has_nan {
             return Ok(f64::NAN);
         }
-        Ok(vector_norm(&diffs, max))
+        diffs.sort_unstable_by(|x, y| x.total_cmp(y).reverse());
+        Ok(vector_norm(&diffs))
     }
 
     #[pyfunction]
@@ -447,7 +513,7 @@ mod math {
                 func_name.as_str(),
             )
         })?;
-        vm.invoke(&method, ())
+        method.call((), vm)
     }
 
     #[pyfunction]
@@ -459,8 +525,8 @@ mod math {
     fn ceil(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result_or_err = try_magic_method(identifier!(vm, __ceil__), vm, &x);
         if result_or_err.is_err() {
-            if let Ok(Some(v)) = x.try_float_opt(vm) {
-                let v = try_f64_to_bigint(v.to_f64().ceil(), vm)?;
+            if let Some(v) = x.try_float_opt(vm) {
+                let v = try_f64_to_bigint(v?.to_f64().ceil(), vm)?;
                 return Ok(vm.ctx.new_int(v).into());
             }
         }
@@ -471,8 +537,8 @@ mod math {
     fn floor(x: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let result_or_err = try_magic_method(identifier!(vm, __floor__), vm, &x);
         if result_or_err.is_err() {
-            if let Ok(Some(v)) = x.try_float_opt(vm) {
-                let v = try_f64_to_bigint(v.to_f64().floor(), vm)?;
+            if let Some(v) = x.try_float_opt(vm) {
+                let v = try_f64_to_bigint(v?.to_f64().floor(), vm)?;
                 return Ok(vm.ctx.new_int(v).into());
             }
         }
@@ -510,7 +576,7 @@ mod math {
         }
     }
 
-    fn math_perf_arb_len_int_op<F>(args: PosArgs<PyIntRef>, op: F, default: BigInt) -> BigInt
+    fn math_perf_arb_len_int_op<F>(args: PosArgs<ArgIndex>, op: F, default: BigInt) -> BigInt
     where
         F: Fn(&BigInt, &PyInt) -> BigInt,
     {
@@ -530,13 +596,13 @@ mod math {
     }
 
     #[pyfunction]
-    fn gcd(args: PosArgs<PyIntRef>) -> BigInt {
+    fn gcd(args: PosArgs<ArgIndex>) -> BigInt {
         use num_integer::Integer;
         math_perf_arb_len_int_op(args, |x, y| x.gcd(y.as_bigint()), BigInt::zero())
     }
 
     #[pyfunction]
-    fn lcm(args: PosArgs<PyIntRef>) -> BigInt {
+    fn lcm(args: PosArgs<ArgIndex>) -> BigInt {
         use num_integer::Integer;
         math_perf_arb_len_int_op(args, |x, y| x.lcm(y.as_bigint()), BigInt::one())
     }
@@ -600,7 +666,7 @@ mod math {
         }
         if special_sum != 0.0 {
             return if inf_sum.is_nan() {
-                Err(vm.new_overflow_error("-inf + inf in fsum".to_owned()))
+                Err(vm.new_value_error("-inf + inf in fsum".to_owned()))
             } else {
                 Ok(special_sum)
             };
@@ -668,8 +734,8 @@ mod math {
 
     #[pyfunction]
     fn perm(
-        n: PyIntRef,
-        k: OptionalArg<Option<PyIntRef>>,
+        n: ArgIndex,
+        k: OptionalArg<Option<ArgIndex>>,
         vm: &VirtualMachine,
     ) -> PyResult<BigInt> {
         let n = n.as_bigint();
@@ -699,7 +765,7 @@ mod math {
     }
 
     #[pyfunction]
-    fn comb(n: PyIntRef, k: PyIntRef, vm: &VirtualMachine) -> PyResult<BigInt> {
+    fn comb(n: ArgIndex, k: ArgIndex, vm: &VirtualMachine) -> PyResult<BigInt> {
         let mut k = k.as_bigint();
         let n = n.as_bigint();
         let one = BigInt::one();

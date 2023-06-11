@@ -1,8 +1,8 @@
 use std::fmt;
 
-pub type CodegenError = rustpython_compiler_core::BaseError<CodegenErrorType>;
+pub type CodegenError = rustpython_parser_core::source_code::LocatedError<CodegenErrorType>;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum CodegenErrorType {
     /// Invalid assignment, cannot store value in target.
@@ -33,12 +33,14 @@ pub enum CodegenErrorType {
     NotImplementedYet, // RustPython marker for unimplemented features
 }
 
+impl std::error::Error for CodegenErrorType {}
+
 impl fmt::Display for CodegenErrorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use CodegenErrorType::*;
         match self {
-            Assign(target) => write!(f, "cannot assign to {}", target),
-            Delete(target) => write!(f, "cannot delete {}", target),
+            Assign(target) => write!(f, "cannot assign to {target}"),
+            Delete(target) => write!(f, "cannot delete {target}"),
             SyntaxError(err) => write!(f, "{}", err.as_str()),
             MultipleStarArgs => {
                 write!(f, "two starred expressions in assignment")
@@ -59,7 +61,7 @@ impl fmt::Display for CodegenErrorType {
                 "from __future__ imports must occur at the beginning of the file"
             ),
             InvalidFutureFeature(feat) => {
-                write!(f, "future feature {} is not defined", feat)
+                write!(f, "future feature {feat} is not defined")
             }
             FunctionImportStar => {
                 write!(f, "import * only allowed at module level")

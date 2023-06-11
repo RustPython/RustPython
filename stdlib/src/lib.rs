@@ -13,8 +13,17 @@ mod contextvars;
 mod csv;
 mod dis;
 mod gc;
+
+mod blake2;
 mod hashlib;
+mod md5;
+mod sha1;
+mod sha256;
+mod sha3;
+
 mod json;
+#[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
+mod locale;
 mod math;
 #[cfg(unix)]
 mod mmap;
@@ -28,7 +37,7 @@ mod statistics;
 mod bz2;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod socket;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "redox")))]
 mod syslog;
 mod unicodedata;
 mod zlib;
@@ -50,6 +59,8 @@ mod resource;
 mod scproxy;
 #[cfg(not(target_arch = "wasm32"))]
 mod select;
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+mod sqlite;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
 #[cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))]
@@ -58,7 +69,8 @@ mod termios;
     target_os = "android",
     target_os = "ios",
     target_os = "windows",
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    target_os = "redox",
 )))]
 mod uuid;
 
@@ -95,7 +107,13 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_csv" => csv::make_module,
             "_dis" => dis::make_module,
             "gc" => gc::make_module,
-            "hashlib" => hashlib::make_module,
+            "_hashlib" => hashlib::make_module,
+            "_sha1" => sha1::make_module,
+            "_sha3" => sha3::make_module,
+            "_sha256" => sha256::make_module,
+            // "_sha512" => sha512::make_module, // TODO: RUSPYTHON fix strange fail on vm: 'static type has not been initialized'
+            "_md5" => md5::make_module,
+            "_blake2" => blake2::make_module,
             "_json" => json::make_module,
             "math" => math::make_module,
             "pyexpat" => pyexpat::make_module,
@@ -118,6 +136,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_socket" => socket::make_module,
             "faulthandler" => faulthandler::make_module,
         }
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        {
+            "_sqlite3" => sqlite::make_module,
+        }
         #[cfg(feature = "ssl")]
         {
             "_ssl" => ssl::make_module,
@@ -130,11 +152,11 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(unix)]
         {
             "_posixsubprocess" => posixsubprocess::make_module,
-            "syslog" => syslog::make_module,
             "mmap" => mmap::make_module,
         }
         #[cfg(all(unix, not(target_os = "redox")))]
         {
+            "syslog" => syslog::make_module,
             "resource" => resource::make_module,
         }
         #[cfg(all(unix, not(any(target_os = "ios", target_os = "redox"))))]
@@ -149,9 +171,13 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_scproxy" => scproxy::make_module,
         }
-        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32")))]
+        #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows", target_arch = "wasm32", target_os = "redox")))]
         {
             "_uuid" => uuid::make_module,
+        }
+        #[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
+        {
+            "_locale" => locale::make_module,
         }
     }
 }

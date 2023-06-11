@@ -3,9 +3,9 @@
 
 use super::VirtualMachine;
 use crate::{
-    builtins::{PyBaseObject, PyStrInterned, PyStrRef},
+    builtins::{PyBaseObject, PyStr, PyStrInterned},
     function::IntoFuncArgs,
-    object::{AsObject, PyObjectRef, PyResult},
+    object::{AsObject, Py, PyObject, PyObjectRef, PyResult},
     types::PyTypeFlags,
 };
 
@@ -19,21 +19,25 @@ pub enum PyMethod {
 }
 
 impl PyMethod {
-    pub fn get(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<Self> {
+    pub fn get(obj: PyObjectRef, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Self> {
         let cls = obj.class();
         let getattro = cls.mro_find_map(|cls| cls.slots.getattro.load()).unwrap();
         if getattro as usize != PyBaseObject::getattro as usize {
-            drop(cls);
             return obj.get_attr(name, vm).map(Self::Attribute);
         }
 
-        let interned_name = vm.ctx.interned_str(&*name);
+        // any correct method name is always interned already.
+        let interned_name = vm.ctx.interned_str(name);
         let mut is_method = false;
 
         let cls_attr = match interned_name.and_then(|name| cls.get_attr(name)) {
             Some(descr) => {
                 let descr_cls = descr.class();
-                let descr_get = if descr_cls.slots.flags.has_feature(PyTypeFlags::METHOD_DESCR) {
+                let descr_get = if descr_cls
+                    .slots
+                    .flags
+                    .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
+                {
                     is_method = true;
                     None
                 } else {
@@ -43,83 +47,83 @@ impl PyMethod {
                             .mro_find_map(|cls| cls.slots.descr_set.load())
                             .is_some()
                         {
-                            drop(descr_cls);
-                            let cls = cls.into_owned().into();
+                            let cls = cls.to_owned().into();
                             return descr_get(descr, Some(obj), Some(cls), vm).map(Self::Attribute);
                         }
                     }
                     descr_get
                 };
-                drop(descr_cls);
                 Some((descr, descr_get))
             }
             None => None,
         };
 
         if let Some(dict) = obj.dict() {
-            if let Some(attr) = dict.get_item_opt(&*name, vm)? {
+            if let Some(attr) = dict.get_item_opt(name, vm)? {
                 return Ok(Self::Attribute(attr));
             }
         }
 
         if let Some((attr, descr_get)) = cls_attr {
             match descr_get {
-                None if is_method => {
-                    drop(cls);
-                    Ok(Self::Function {
-                        target: obj,
-                        func: attr,
-                    })
-                }
+                None if is_method => Ok(Self::Function {
+                    target: obj,
+                    func: attr,
+                }),
                 Some(descr_get) => {
-                    let cls = cls.into_owned().into();
+                    let cls = cls.to_owned().into();
                     descr_get(attr, Some(obj), Some(cls), vm).map(Self::Attribute)
                 }
                 None => Ok(Self::Attribute(attr)),
             }
         } else if let Some(getter) = cls.get_attr(identifier!(vm, __getattr__)) {
-            drop(cls);
-            vm.invoke(&getter, (obj, name)).map(Self::Attribute)
+            getter.call((obj, name.to_owned()), vm).map(Self::Attribute)
         } else {
             let exc = vm.new_attribute_error(format!(
                 "'{}' object has no attribute '{}'",
                 cls.name(),
                 name
             ));
-            vm.set_attribute_error_context(&exc, obj.clone(), name);
+            vm.set_attribute_error_context(&exc, obj.clone(), name.to_owned());
             Err(exc)
         }
     }
 
-    pub(crate) fn get_special(
-        obj: PyObjectRef,
+    pub(crate) fn get_special<const DIRECT: bool>(
+        obj: &PyObject,
         name: &'static PyStrInterned,
         vm: &VirtualMachine,
-    ) -> PyResult<Result<Self, PyObjectRef>> {
+    ) -> PyResult<Option<Self>> {
         let obj_cls = obj.class();
-        let func = match obj_cls.get_attr(name) {
+        let attr = if DIRECT {
+            obj_cls.get_direct_attr(name)
+        } else {
+            obj_cls.get_attr(name)
+        };
+        let func = match attr {
             Some(f) => f,
             None => {
-                drop(obj_cls);
-                return Ok(Err(obj));
+                return Ok(None);
             }
         };
         let meth = if func
             .class()
             .slots
             .flags
-            .has_feature(PyTypeFlags::METHOD_DESCR)
+            .has_feature(PyTypeFlags::METHOD_DESCRIPTOR)
         {
-            drop(obj_cls);
-            Self::Function { target: obj, func }
+            Self::Function {
+                target: obj.to_owned(),
+                func,
+            }
         } else {
-            let obj_cls = obj_cls.into_owned().into();
+            let obj_cls = obj_cls.to_owned().into();
             let attr = vm
-                .call_get_descriptor_specific(func, Some(obj), Some(obj_cls))
-                .unwrap_or_else(Ok)?;
+                .call_get_descriptor_specific(&func, Some(obj.to_owned()), Some(obj_cls))
+                .unwrap_or(Ok(func))?;
             Self::Attribute(attr)
         };
-        Ok(Ok(meth))
+        Ok(Some(meth))
     }
 
     pub fn invoke(self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -127,7 +131,7 @@ impl PyMethod {
             PyMethod::Function { target, func } => (func, args.into_method_args(target, vm)),
             PyMethod::Attribute(func) => (func, args.into_args(vm)),
         };
-        vm.invoke(&func, args)
+        func.call(args, vm)
     }
 
     #[allow(dead_code)]
@@ -138,6 +142,6 @@ impl PyMethod {
             }
             PyMethod::Attribute(func) => (func, args.into_args(vm)),
         };
-        vm.invoke(func, args)
+        func.call(args, vm)
     }
 }

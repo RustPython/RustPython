@@ -6,71 +6,42 @@ on:
 name: Periodic checks/tasks
 
 env:
-  CARGO_ARGS: --features ssl,jit
+  CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
 
 jobs:
+  # codecov collects code coverage data from the rust tests, python snippets and python test suite.
+  # This is done using cargo-llvm-cov, which is a wrapper around llvm-cov.
   codecov:
     name: Collect code coverage data
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v2
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: actions/setup-python@v4
         with:
-          components: llvm-tools-preview
+          python-version: "3.11"
       - run: sudo apt-get update && sudo apt-get -y install lcov
-      - run: cargo build --release --verbose ${{ env.CARGO_ARGS }}
-        env:
-          RUSTC_WRAPPER: './scripts/codecoverage-rustc-wrapper.sh'
-      - uses: actions/setup-python@v2
-        with:
-          python-version: "3.10"
-      - run: python -m pip install pytest
-        working-directory: ./extra_tests
-      - name: run snippets
-        run: LLVM_PROFILE_FILE="$PWD/snippet-%p.profraw" pytest -v
-        working-directory: ./extra_tests
+      - name: Run cargo-llvm-cov with Rust tests.
+        run: cargo llvm-cov --no-report --workspace --exclude rustpython_wasm --verbose --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
+      - name: Run cargo-llvm-cov with Python snippets.
+        run: python scripts/cargo-llvm-cov.py
         continue-on-error: true
-      - name: run cpython tests
-        run: |
-          alltests=($(target/release/rustpython -c 'from test.libregrtest.runtest import findtests; print(*findtests())'))
-          i=0
-          # chunk into chunks of 10 tests each. idk at this point
-          while subtests=("${alltests[@]:$i:10}"); [[ ${#subtests[@]} -ne 0 ]]; do
-            LLVM_PROFILE_FILE="$PWD/regrtest-%p.profraw" target/release/rustpython -m test -v "${subtests[@]}" || true
-            ((i+=10))
-          done
+      - name: Run cargo-llvm-cov with Python test suite.
+        run: cargo llvm-cov --no-report run -- -m test -u all --slowest --fail-env-changed 
         continue-on-error: true
-      - name: prepare code coverage data
-        run: |
-          rusttool() {
-            local tool=$1; shift; "$(rustc --print target-libdir)/../bin/llvm-$tool" "$@"
-          }
-          rusttool profdata merge extra_tests/snippet-*.profraw regrtest-*.profraw --output codecov.profdata
-          rusttool cov export --instr-profile codecov.profdata target/release/rustpython --format lcov > codecov_tmp.lcov
-          lcov -e codecov_tmp.lcov "$PWD"/'*' -o codecov_tmp2.lcov
-          lcov -r codecov_tmp2.lcov "$PWD"/target/'*' -o codecov.lcov  # remove LALRPOP-generated parser
-      - name: upload to Codecov
+      - name: Prepare code coverage data
+        run: cargo llvm-cov report --lcov --output-path='codecov.cov'
+      - name: Upload to Codecov
         uses: codecov/codecov-action@v3
         with:
           file: ./codecov.lcov
 
   testdata:
     name: Collect regression test data
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v2
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
       - name: build rustpython
         run: cargo build --release --verbose
@@ -97,16 +68,13 @@ jobs:
 
   whatsleft:
     name: Collect what is left data
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v2
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
       - name: build rustpython
         run: cargo build --release --verbose
       - name: Collect what is left data
@@ -135,17 +103,11 @@ jobs:
 
   benchmark:
     name: Collect benchmark data
-    needs: lalrpop
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v2
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
+      - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v2
+      - uses: actions/setup-python@v4
         with:
           python-version: 3.9
       - run: cargo install cargo-criterion
@@ -183,35 +145,3 @@ jobs:
           if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update benchmark results"; then
             git push
           fi
-
-  lalrpop:
-    name: Generate parser with lalrpop
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on:  ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v2
-      - name: Cache generated parser
-        uses: actions/cache@v2
-        with:
-          path: compiler/parser/python.rs
-          key: lalrpop-${{ hashFiles('compiler/parser/python.lalrpop') }}
-      - name: Check if cached generated parser exists
-        id: generated_parser
-        uses: andstor/file-existence-action@v1
-        with:
-          files: "compiler/parser/python.rs"
-      - if: runner.os == 'Windows'
-        name: Force python.lalrpop to be lf  # actions@checkout ignore .gitattributes
-        run: |
-          set file compiler/parser/python.lalrpop; ((Get-Content $file) -join "`n") + "`n" | Set-Content -NoNewline $file
-      - name: Install lalrpop
-        if: steps.generated_parser.outputs.files_exists == 'false'
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: lalrpop
-          version: "0.19.8"
-      - name: Run lalrpop
-        if: steps.generated_parser.outputs.files_exists == 'false'
-        run: lalrpop compiler/parser/python.lalrpop

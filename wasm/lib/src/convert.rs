@@ -1,7 +1,7 @@
 use crate::js_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use rustpython_parser::error::ParseErrorType;
+use rustpython_parser::ParseErrorType;
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compiler::{CompileError, CompileErrorType},
@@ -72,7 +72,7 @@ pub fn js_err_to_py_err(vm: &VirtualMachine, js_err: &JsValue) -> PyBaseExceptio
         }
         None => vm.new_exception_msg(
             vm.ctx.exceptions.exception_type.to_owned(),
-            format!("{:?}", js_err),
+            format!("{js_err:?}"),
         ),
     }
 }
@@ -113,7 +113,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                                 .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
                         }
                     }
-                    let result = vm.invoke(&py_obj, py_func_args);
+                    let result = py_obj.call(py_func_args, vm);
                     pyresult_to_jsresult(vm, result)
                 })
             };
@@ -174,7 +174,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             // the browser module might not be injected
             if vm.try_class("browser", "Promise").is_ok() {
                 return js_module::PyPromise::new(promise.clone())
-                    .into_ref(vm)
+                    .into_ref(&vm.ctx)
                     .into();
             }
         }
@@ -187,7 +187,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 .collect();
             vm.ctx.new_list(elems).into()
         } else if ArrayBuffer::is_view(&js_val) || js_val.is_instance_of::<ArrayBuffer>() {
-            // unchecked_ref because if it's not an ArrayByffer it could either be a TypedArray
+            // unchecked_ref because if it's not an ArrayBuffer it could either be a TypedArray
             // or a DataView, but they all have a `buffer` property
             let u8_array = js_sys::Uint8Array::new(
                 &js_val
@@ -214,26 +214,25 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
         }
     } else if js_val.is_function() {
         let func = js_sys::Function::from(js_val);
-        vm.ctx
-            .new_function(
-                String::from(func.name()),
-                move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
-                    let this = Object::new();
-                    for (k, v) in args.kwargs {
-                        Reflect::set(&this, &k.into(), &py_to_js(vm, v))
-                            .expect("property to be settable");
-                    }
-                    let js_args = args
-                        .args
-                        .into_iter()
-                        .map(|v| py_to_js(vm, v))
-                        .collect::<Array>();
-                    func.apply(&this, &js_args)
-                        .map(|val| js_to_py(vm, val))
-                        .map_err(|err| js_err_to_py_err(vm, &err))
-                },
-            )
-            .into()
+        vm.new_function(
+            vm.ctx.intern_str(String::from(func.name())).as_str(),
+            move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
+                let this = Object::new();
+                for (k, v) in args.kwargs {
+                    Reflect::set(&this, &k.into(), &py_to_js(vm, v))
+                        .expect("property to be settable");
+                }
+                let js_args = args
+                    .args
+                    .into_iter()
+                    .map(|v| py_to_js(vm, v))
+                    .collect::<Array>();
+                func.apply(&this, &js_args)
+                    .map(|val| js_to_py(vm, val))
+                    .map_err(|err| js_err_to_py_err(vm, &err))
+            },
+        )
+        .into()
     } else if let Some(err) = js_val.dyn_ref::<js_sys::Error>() {
         js_err_to_py_err(vm, err).into()
     } else if js_val.is_undefined() {
@@ -246,12 +245,16 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
 }
 
 pub fn syntax_err(err: CompileError) -> SyntaxError {
-    let js_err = SyntaxError::new(&format!("Error parsing Python code: {}", err));
-    let _ = Reflect::set(&js_err, &"row".into(), &(err.location.row() as u32).into());
+    let js_err = SyntaxError::new(&format!("Error parsing Python code: {err}"));
+    let _ = Reflect::set(
+        &js_err,
+        &"row".into(),
+        &(err.location.unwrap().row.get()).into(),
+    );
     let _ = Reflect::set(
         &js_err,
         &"col".into(),
-        &(err.location.column() as u32).into(),
+        &(err.location.unwrap().column.get()).into(),
     );
     let can_continue = matches!(&err.error, CompileErrorType::Parse(ParseErrorType::Eof));
     let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());

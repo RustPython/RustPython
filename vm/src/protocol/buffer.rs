@@ -9,8 +9,7 @@ use crate::{
     object::PyObjectPayload,
     sliceable::SequenceIndexOp,
     types::{Constructor, Unconstructible},
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
+    Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{borrow::Cow, fmt::Debug, ops::Range};
@@ -33,10 +32,12 @@ impl Debug for BufferMethods {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Traverse)]
 pub struct PyBuffer {
     pub obj: PyObjectRef,
+    #[pytraverse(skip)]
     pub desc: BufferDescriptor,
+    #[pytraverse(skip)]
     methods: &'static BufferMethods,
 }
 
@@ -137,8 +138,8 @@ impl PyBuffer {
     }
 }
 
-impl TryFromBorrowedObject for PyBuffer {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for PyBuffer {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         let cls = obj.class();
         let as_buffer = cls.mro_find_map(|cls| cls.slots.as_buffer);
         if let Some(f) = as_buffer {
@@ -256,7 +257,7 @@ impl BufferDescriptor {
             .zip_eq(self.dim_desc.iter().cloned())
         {
             let i = i.wrapped_at(shape).ok_or_else(|| {
-                vm.new_index_error(format!("index out of bounds on dimension {}", i))
+                vm.new_index_error(format!("index out of bounds on dimension {i}"))
             })?;
             pos += i as isize * stride + suboffset;
         }
@@ -385,10 +386,12 @@ impl BufferDescriptor {
     // TODO: support fortain order
 }
 
-pub trait BufferResizeGuard<'a> {
-    type Resizable: 'a;
-    fn try_resizable_opt(&'a self) -> Option<Self::Resizable>;
-    fn try_resizable(&'a self, vm: &VirtualMachine) -> PyResult<Self::Resizable> {
+pub trait BufferResizeGuard {
+    type Resizable<'a>: 'a
+    where
+        Self: 'a;
+    fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>>;
+    fn try_resizable(&self, vm: &VirtualMachine) -> PyResult<Self::Resizable<'_>> {
         self.try_resizable_opt().ok_or_else(|| {
             vm.new_buffer_error("Existing exports of data: object cannot be re-sized".to_owned())
         })

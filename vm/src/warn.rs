@@ -44,7 +44,7 @@ fn check_matched(obj: &PyObjectRef, arg: &PyObjectRef, vm: &VirtualMachine) -> P
         return Ok(false);
     }
 
-    let result = vm.invoke(obj, (arg.to_owned(),));
+    let result = obj.call((arg.to_owned(),), vm);
     Ok(result.is_ok())
 }
 
@@ -57,7 +57,7 @@ pub fn py_warn(
     // TODO: use rust warnings module
     if let Ok(module) = vm.import("warnings", None, 0) {
         if let Ok(func) = module.get_attr("warn", vm) {
-            let _ = vm.invoke(&func, (message, category.to_owned(), stack_level));
+            let _ = func.call((message, category.to_owned(), stack_level), vm);
         }
     }
     Ok(())
@@ -108,17 +108,11 @@ fn get_filter(
     for i in 0..filters.borrow_vec().len() {
         let tmp_item = if let Some(tmp_item) = filters.borrow_vec().get(i).cloned() {
             let tmp_item = PyTupleRef::try_from_object(vm, tmp_item)?;
-            if tmp_item.len() == 5 {
-                Some(tmp_item)
-            } else {
-                None
-            }
+            (tmp_item.len() == 5).then_some(tmp_item)
         } else {
             None
-        };
-        let tmp_item = tmp_item.ok_or_else(|| {
-            vm.new_value_error(format!("_warnings.filters item {} isn't a 5-tuple", i))
-        })?;
+        }
+        .ok_or_else(|| vm.new_value_error(format!("_warnings.filters item {i} isn't a 5-tuple")))?;
 
         /* Python code: action, msg, cat, mod, ln = item */
         let action = if let Some(action) = tmp_item.get(0) {
@@ -134,7 +128,7 @@ fn get_filter(
         };
 
         let is_subclass = if let Some(cat) = tmp_item.get(2) {
-            category.fast_isinstance(&cat.class())
+            category.fast_isinstance(cat.class())
         } else {
             false
         };
@@ -247,7 +241,7 @@ fn warn_explicit(
     };
 
     let category = if message.fast_isinstance(vm.ctx.exceptions.warning) {
-        message.class().into_owned()
+        message.class().to_owned()
     } else {
         category
     };

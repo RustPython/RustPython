@@ -1,6 +1,6 @@
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-use std::io;
+use std::{io, str::Utf8Error};
 
 #[cfg(windows)]
 pub fn errno() -> io::Error {
@@ -21,3 +21,19 @@ pub fn errno() -> io::Error {
 pub fn errno() -> io::Error {
     io::Error::last_os_error()
 }
+
+#[cfg(unix)]
+pub fn bytes_as_osstr(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
+    use std::os::unix::ffi::OsStrExt;
+    Ok(std::ffi::OsStr::from_bytes(b))
+}
+
+#[cfg(not(unix))]
+pub fn bytes_as_osstr(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
+    Ok(std::str::from_utf8(b)?.as_ref())
+}
+
+#[cfg(unix)]
+pub use std::os::unix::ffi;
+#[cfg(target_os = "wasi")]
+pub use std::os::wasi::ffi;

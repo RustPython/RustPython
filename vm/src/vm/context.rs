@@ -1,11 +1,10 @@
 use crate::{
     builtins::{
-        builtinfunc::{PyBuiltinFunction, PyBuiltinMethod, PyNativeFuncDef},
         bytes,
         code::{self, PyCode},
         descriptor::{
-            DescrObject, MemberDef, MemberDescrObject, MemberGetter, MemberKind, MemberSetter,
-            MemberSetterFunc,
+            MemberGetter, MemberKind, MemberSetter, MemberSetterFunc, PyDescriptorOwned,
+            PyMemberDef, PyMemberDescriptor,
         },
         getset::PyGetSet,
         object, pystr,
@@ -17,13 +16,16 @@ use crate::{
     class::{PyClassImpl, StaticType},
     common::rc::PyRc,
     exceptions,
-    function::{IntoPyGetterFunc, IntoPyNativeFunc, IntoPySetterFunc},
-    intern::{Internable, MaybeInterned, StringPool},
+    function::{
+        HeapMethodDef, IntoPyGetterFunc, IntoPyNativeFn, IntoPySetterFunc, PyMethodDef,
+        PyMethodFlags,
+    },
+    intern::{InternableString, MaybeInternedString, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     PyResult, VirtualMachine,
 };
-use num_bigint::BigInt;
+use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
@@ -35,7 +37,7 @@ pub struct Context {
     pub none: PyRef<PyNone>,
     pub empty_tuple: PyTupleRef,
     pub empty_frozenset: PyRef<PyFrozenSet>,
-    pub empty_str: PyRef<PyStr>,
+    pub empty_str: &'static PyStrInterned,
     pub empty_bytes: PyRef<PyBytes>,
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyRef<PyNotImplemented>,
@@ -43,9 +45,9 @@ pub struct Context {
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
     pub int_cache_pool: Vec<PyIntRef>,
-    // there should only be exact objects of str in here, no non-strs and no subclasses
+    // there should only be exact objects of str in here, no non-str objects and no subclasses
     pub(crate) string_pool: StringPool,
-    pub(crate) slot_new_wrapper: PyObjectRef,
+    pub(crate) slot_new_wrapper: PyMethodDef,
     pub names: ConstName,
 }
 
@@ -70,6 +72,9 @@ macro_rules! declare_const_name {
 declare_const_name! {
     True,
     False,
+    None,
+    NotImplemented,
+    Ellipsis,
 
     // magic methods
     __abs__,
@@ -78,6 +83,7 @@ declare_const_name! {
     __aenter__,
     __aexit__,
     __aiter__,
+    __alloc__,
     __all__,
     __and__,
     __anext__,
@@ -121,7 +127,9 @@ declare_const_name! {
     __get__,
     __getattr__,
     __getattribute__,
+    __getformat__,
     __getitem__,
+    __getnewargs__,
     __gt__,
     __hash__,
     __iadd__,
@@ -146,6 +154,7 @@ declare_const_name! {
     __iter__,
     __itruediv__,
     __ixor__,
+    __jit__,  // RustPython dialect
     __le__,
     __len__,
     __length_hint__,
@@ -195,13 +204,17 @@ declare_const_name! {
     __rtruediv__,
     __rxor__,
     __set__,
-    __set_name__,
     __setattr__,
     __setitem__,
+    __setstate__,
+    __set_name__,
     __slots__,
     __str__,
     __sub__,
     __subclasscheck__,
+    __subclasshook__,
+    __subclasses__,
+    __sizeof__,
     __truediv__,
     __trunc__,
     __xor__,
@@ -223,8 +236,8 @@ declare_const_name! {
 
 // Basic objects:
 impl Context {
-    pub const INT_CACHE_POOL_MIN: i32 = -5;
-    pub const INT_CACHE_POOL_MAX: i32 = 256;
+    pub const INT_CACHE_POOL_RANGE: std::ops::RangeInclusive<i32> = (-5)..=256;
+    const INT_CACHE_POOL_MIN: i32 = *Self::INT_CACHE_POOL_RANGE.start();
 
     pub fn genesis() -> &'static PyRc<Self> {
         rustpython_common::static_cell! {
@@ -250,7 +263,7 @@ impl Context {
         let ellipsis = create_object(PyEllipsis, PyEllipsis::static_type());
         let not_implemented = create_object(PyNotImplemented, PyNotImplemented::static_type());
 
-        let int_cache_pool = (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX)
+        let int_cache_pool = Self::INT_CACHE_POOL_RANGE
             .map(|v| {
                 PyRef::new_ref(
                     PyInt::from(BigInt::from(v)),
@@ -276,16 +289,16 @@ impl Context {
         let string_pool = StringPool::default();
         let names = unsafe { ConstName::new(&string_pool, &types.str_type.to_owned()) };
 
-        let slot_new_wrapper = create_object(
-            PyNativeFuncDef::new(PyType::__new__.into_func(), names.__new__.to_owned())
-                .into_function(),
-            types.builtin_function_or_method_type,
-        )
-        .into();
+        let slot_new_wrapper = PyMethodDef {
+            name: names.__new__.as_str(),
+            func: PyType::__new__.into_func(),
+            flags: PyMethodFlags::METHOD,
+            doc: None,
+        };
 
-        let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) }.to_owned();
+        let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
-        let context = Context {
+        Context {
             true_value,
             false_value,
             none,
@@ -303,17 +316,17 @@ impl Context {
             string_pool,
             slot_new_wrapper,
             names,
-        };
-        TypeZoo::extend(&context);
-        exceptions::ExceptionZoo::extend(&context);
-        context
+        }
     }
 
-    pub fn intern_str<S: Internable>(&self, s: S) -> &'static PyStrInterned {
+    pub fn intern_str<S: InternableString>(&self, s: S) -> &'static PyStrInterned {
         unsafe { self.string_pool.intern(s, self.types.str_type.to_owned()) }
     }
 
-    pub fn interned_str<S: MaybeInterned + ?Sized>(&self, s: &S) -> Option<&'static PyStrInterned> {
+    pub fn interned_str<S: MaybeInternedString + ?Sized>(
+        &self,
+        s: &S,
+    ) -> Option<&'static PyStrInterned> {
         self.string_pool.interned(s)
     }
 
@@ -332,47 +345,63 @@ impl Context {
         self.not_implemented.clone().into()
     }
 
+    // universal pyref constructor
+    pub fn new_pyref<T, P>(&self, value: T) -> PyRef<P>
+    where
+        T: Into<P>,
+        P: PyPayload,
+    {
+        value.into().into_ref(self)
+    }
+
     // shortcuts for common type
 
     #[inline]
     pub fn new_int<T: Into<BigInt> + ToPrimitive>(&self, i: T) -> PyIntRef {
         if let Some(i) = i.to_i32() {
-            if (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX).contains(&i) {
+            if Self::INT_CACHE_POOL_RANGE.contains(&i) {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
                 return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyRef::new_ref(PyInt::from(i), self.types.int_type.to_owned(), None)
+        PyInt::from(i).into_ref(self)
     }
 
     #[inline]
     pub fn new_bigint(&self, i: &BigInt) -> PyIntRef {
         if let Some(i) = i.to_i32() {
-            if (Self::INT_CACHE_POOL_MIN..=Self::INT_CACHE_POOL_MAX).contains(&i) {
+            if Self::INT_CACHE_POOL_RANGE.contains(&i) {
                 let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
                 return self.int_cache_pool[inner_idx].clone();
             }
         }
-        PyRef::new_ref(PyInt::from(i.clone()), self.types.int_type.to_owned(), None)
+        PyInt::from(i.clone()).into_ref(self)
     }
 
     #[inline]
     pub fn new_float(&self, value: f64) -> PyRef<PyFloat> {
-        PyRef::new_ref(PyFloat::from(value), self.types.float_type.to_owned(), None)
+        PyFloat::from(value).into_ref(self)
     }
 
     #[inline]
     pub fn new_complex(&self, value: Complex64) -> PyRef<PyComplex> {
-        PyRef::new_ref(
-            PyComplex::from(value),
-            self.types.complex_type.to_owned(),
-            None,
-        )
+        PyComplex::from(value).into_ref(self)
     }
 
     #[inline]
     pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
         pystr::PyStr::new_ref(s, self)
+    }
+
+    pub fn interned_or_new_str<S, M>(&self, s: S) -> PyRef<PyStr>
+    where
+        S: Into<PyStr> + AsRef<M>,
+        M: MaybeInternedString,
+    {
+        match self.interned_str(s.as_ref()) {
+            Some(s) => s.to_owned(),
+            None => self.new_str(s),
+        }
     }
 
     #[inline]
@@ -416,12 +445,13 @@ impl Context {
         if let Some(module) = module {
             attrs.insert(identifier!(self, __module__), self.new_str(module).into());
         };
-        PyType::new_ref(
+        PyType::new_heap(
             name,
             vec![base],
             attrs,
             slots,
             self.types.type_type.to_owned(),
+            self,
         )
         .unwrap()
     }
@@ -440,73 +470,66 @@ impl Context {
         let mut attrs = PyAttributes::default();
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
 
-        PyType::new_ref(
+        let interned_name = self.intern_str(name);
+        PyType::new_heap(
             name,
             bases,
             attrs,
-            PyBaseException::make_slots(),
+            PyTypeSlots {
+                name: interned_name.as_str(),
+                ..PyBaseException::make_slots()
+            },
             self.types.type_type.to_owned(),
+            self,
         )
         .unwrap()
     }
 
-    #[inline]
-    pub fn make_funcdef<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyNativeFuncDef
+    pub fn new_method_def<F, FKind>(
+        &self,
+        name: &'static str,
+        f: F,
+        flags: PyMethodFlags,
+        doc: Option<&'static str>,
+    ) -> PyRef<HeapMethodDef>
     where
-        F: IntoPyNativeFunc<FKind>,
+        F: IntoPyNativeFn<FKind>,
     {
-        PyNativeFuncDef::new(f.into_func(), PyStr::new_ref(name, self))
+        let def = PyMethodDef {
+            name,
+            func: f.into_func(),
+            flags,
+            doc,
+        };
+        let payload = HeapMethodDef::new(def);
+        PyRef::new_ref(payload, self.types.method_def.to_owned(), None)
     }
 
     #[inline]
     pub fn new_member(
         &self,
         name: &str,
+        member_kind: MemberKind,
         getter: fn(&VirtualMachine, PyObjectRef) -> PyResult,
         setter: MemberSetterFunc,
         class: &'static Py<PyType>,
-    ) -> PyRef<MemberDescrObject> {
-        let member_def = MemberDef {
+    ) -> PyRef<PyMemberDescriptor> {
+        let member_def = PyMemberDef {
             name: name.to_owned(),
-            kind: MemberKind::ObjectEx,
+            kind: member_kind,
             getter: MemberGetter::Getter(getter),
             setter: MemberSetter::Setter(setter),
             doc: None,
         };
-        let member_descriptor = MemberDescrObject {
-            common: DescrObject {
+        let member_descriptor = PyMemberDescriptor {
+            common: PyDescriptorOwned {
                 typ: class.to_owned(),
-                name: name.to_owned(),
+                name: self.intern_str(name),
                 qualname: PyRwLock::new(None),
             },
             member: member_def,
         };
-
-        PyRef::new_ref(
-            member_descriptor,
-            self.types.member_descriptor_type.to_owned(),
-            None,
-        )
-    }
-
-    // #[deprecated]
-    pub fn new_function<F, FKind>(&self, name: impl Into<PyStr>, f: F) -> PyRef<PyBuiltinFunction>
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        self.make_funcdef(name, f).build_function(self)
-    }
-
-    pub fn new_method<F, FKind>(
-        &self,
-        name: impl Into<PyStr>,
-        class: &'static Py<PyType>,
-        f: F,
-    ) -> PyRef<PyBuiltinMethod>
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        PyBuiltinMethod::new_ref(name, class, f, self)
+        member_descriptor.into_ref(self)
     }
 
     pub fn new_readonly_getset<F, T>(
@@ -518,11 +541,9 @@ impl Context {
     where
         F: IntoPyGetterFunc<T>,
     {
-        PyRef::new_ref(
-            PyGetSet::new(name.into(), class).with_get(f),
-            self.types.getset_type.to_owned(),
-            None,
-        )
+        let name = name.into();
+        let getset = PyGetSet::new(name, class).with_get(f);
+        PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
     pub fn new_getset<G, S, T, U>(
@@ -536,11 +557,9 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        PyRef::new_ref(
-            PyGetSet::new(name.into(), class).with_get(g).with_set(s),
-            self.types.getset_type.to_owned(),
-            None,
-        )
+        let name = name.into();
+        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
+        PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
     pub fn new_base_object(&self, class: PyTypeRef, dict: Option<PyDictRef>) -> PyObjectRef {
@@ -552,7 +571,7 @@ impl Context {
     }
 
     pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
-        let code = code.into_codeobj(self);
+        let code = code.into_code_object(self);
         PyRef::new_ref(PyCode { code }, self.types.code_type.to_owned(), None)
     }
 }

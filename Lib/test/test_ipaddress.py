@@ -195,8 +195,6 @@ class CommonTestMixin_v6(CommonTestMixin):
 class AddressTestCase_v4(BaseTestCase, CommonTestMixin_v4):
     factory = ipaddress.IPv4Address
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format(self):
         v4 = ipaddress.IPv4Address("1.2.3.42")
         v4_pairs  = [
@@ -309,8 +307,6 @@ class AddressTestCase_v4(BaseTestCase, CommonTestMixin_v4):
 class AddressTestCase_v6(BaseTestCase, CommonTestMixin_v6):
     factory = ipaddress.IPv6Address
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format(self):
 
         v6 = ipaddress.IPv6Address("::1.2.3.42")

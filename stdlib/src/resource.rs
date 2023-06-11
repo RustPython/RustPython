@@ -129,8 +129,8 @@ mod resource {
     }
 
     struct Limits(libc::rlimit);
-    impl TryFromBorrowedObject for Limits {
-        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+    impl<'a> TryFromBorrowedObject<'a> for Limits {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
             let seq: Vec<libc::rlim_t> = obj.try_to_value(vm)?;
             match *seq {
                 [cur, max] => Ok(Self(libc::rlimit {
@@ -149,7 +149,8 @@ mod resource {
 
     #[pyfunction]
     fn getrlimit(resource: i32, vm: &VirtualMachine) -> PyResult<Limits> {
-        if resource < 0 || resource >= RLIM_NLIMITS as _ {
+        #[allow(clippy::unnecessary_cast)]
+        if resource < 0 || resource >= RLIM_NLIMITS as i32 {
             return Err(vm.new_value_error("invalid resource specified".to_owned()));
         }
         let rlimit = unsafe {
@@ -164,7 +165,8 @@ mod resource {
 
     #[pyfunction]
     fn setrlimit(resource: i32, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
-        if resource < 0 || resource >= RLIM_NLIMITS as _ {
+        #[allow(clippy::unnecessary_cast)]
+        if resource < 0 || resource >= RLIM_NLIMITS as i32 {
             return Err(vm.new_value_error("invalid resource specified".to_owned()));
         }
         let res = unsafe {

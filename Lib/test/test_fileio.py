@@ -9,7 +9,9 @@ from array import array
 from weakref import proxy
 from functools import wraps
 
-from test.support import cpython_only, swap_attr, gc_collect
+from test.support import (
+    cpython_only, swap_attr, gc_collect, is_emscripten, is_wasi
+)
 from test.support.os_helper import (TESTFN, TESTFN_UNICODE, make_bad_fd)
 from test.support.warnings_helper import check_warnings
 from collections import UserList
@@ -65,6 +67,7 @@ class AutoFileTests:
             self.assertRaises((AttributeError, TypeError),
                               setattr, f, attr, 'oops')
 
+    @unittest.skipIf(is_wasi, "WASI does not expose st_blksize.")
     def testBlksize(self):
         # test private _blksize attribute
         blksize = io.DEFAULT_BUFFER_SIZE
@@ -221,9 +224,6 @@ class AutoFileTests:
         self.assertRaises(ValueError, self.f.writelines, b'')
 
     def testOpendir(self):
-        # TODO: RUSTPYTHON
-        if sys.platform == "win32":
-            testOpendir = unittest.expectedFailure(testOpendir)
         # Issue 3703: opening a directory should fill the errno
         # Windows always returns "[Errno 13]: Permission denied
         # Unix uses fstat and returns "[Errno 21]: Is a directory"
@@ -381,8 +381,7 @@ class CAutoFileTests(AutoFileTests, unittest.TestCase):
     def testOpenDirFD(self):
         super().testOpenDirFD()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
     def testOpendir(self):
         super().testOpendir()
 
@@ -391,8 +390,6 @@ class PyAutoFileTests(AutoFileTests, unittest.TestCase):
     FileIO = _pyio.FileIO
     modulename = '_pyio'
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testOpendir(self):
         super().testOpendir()
 
@@ -421,7 +418,7 @@ class OtherFileTests:
             self.assertEqual(f.isatty(), False)
             f.close()
 
-            if sys.platform != "win32":
+            if sys.platform != "win32" and not is_emscripten:
                 try:
                     f = self.FileIO("/dev/tty", "a")
                 except OSError:

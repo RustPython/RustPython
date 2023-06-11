@@ -5,6 +5,7 @@ import time
 import warnings
 
 from . import result
+from .case import _SubTest
 from .signals import registerResult
 
 __unittest = True
@@ -40,6 +41,7 @@ class TextTestResult(result.TestResult):
         self.showAll = verbosity > 1
         self.dots = verbosity == 1
         self.descriptions = descriptions
+        self._newline = True
 
     def getDescription(self, test):
         doc_first_line = test.shortDescription()
@@ -54,12 +56,40 @@ class TextTestResult(result.TestResult):
             self.stream.write(self.getDescription(test))
             self.stream.write(" ... ")
             self.stream.flush()
+            self._newline = False
+
+    def _write_status(self, test, status):
+        is_subtest = isinstance(test, _SubTest)
+        if is_subtest or self._newline:
+            if not self._newline:
+                self.stream.writeln()
+            if is_subtest:
+                self.stream.write("  ")
+            self.stream.write(self.getDescription(test))
+            self.stream.write(" ... ")
+        self.stream.writeln(status)
+        self.stream.flush()
+        self._newline = True
+
+    def addSubTest(self, test, subtest, err):
+        if err is not None:
+            if self.showAll:
+                if issubclass(err[0], subtest.failureException):
+                    self._write_status(subtest, "FAIL")
+                else:
+                    self._write_status(subtest, "ERROR")
+            elif self.dots:
+                if issubclass(err[0], subtest.failureException):
+                    self.stream.write('F')
+                else:
+                    self.stream.write('E')
+                self.stream.flush()
+        super(TextTestResult, self).addSubTest(test, subtest, err)
 
     def addSuccess(self, test):
         super(TextTestResult, self).addSuccess(test)
         if self.showAll:
-            self.stream.writeln("ok")
-            self.stream.flush()
+            self._write_status(test, "ok")
         elif self.dots:
             self.stream.write('.')
             self.stream.flush()
@@ -67,8 +97,7 @@ class TextTestResult(result.TestResult):
     def addError(self, test, err):
         super(TextTestResult, self).addError(test, err)
         if self.showAll:
-            self.stream.writeln("ERROR")
-            self.stream.flush()
+            self._write_status(test, "ERROR")
         elif self.dots:
             self.stream.write('E')
             self.stream.flush()
@@ -76,8 +105,7 @@ class TextTestResult(result.TestResult):
     def addFailure(self, test, err):
         super(TextTestResult, self).addFailure(test, err)
         if self.showAll:
-            self.stream.writeln("FAIL")
-            self.stream.flush()
+            self._write_status(test, "FAIL")
         elif self.dots:
             self.stream.write('F')
             self.stream.flush()
@@ -85,8 +113,7 @@ class TextTestResult(result.TestResult):
     def addSkip(self, test, reason):
         super(TextTestResult, self).addSkip(test, reason)
         if self.showAll:
-            self.stream.writeln("skipped {0!r}".format(reason))
-            self.stream.flush()
+            self._write_status(test, "skipped {0!r}".format(reason))
         elif self.dots:
             self.stream.write("s")
             self.stream.flush()
@@ -115,6 +142,12 @@ class TextTestResult(result.TestResult):
             self.stream.flush()
         self.printErrorList('ERROR', self.errors)
         self.printErrorList('FAIL', self.failures)
+        unexpectedSuccesses = getattr(self, 'unexpectedSuccesses', ())
+        if unexpectedSuccesses:
+            self.stream.writeln(self.separator1)
+            for test in unexpectedSuccesses:
+                self.stream.writeln(f"UNEXPECTED SUCCESS: {self.getDescription(test)}")
+            self.stream.flush()
 
     def printErrorList(self, flavour, errors):
         for test, err in errors:

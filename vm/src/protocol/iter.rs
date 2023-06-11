@@ -1,6 +1,7 @@
 use crate::{
     builtins::iter::PySequenceIterator,
     convert::{ToPyObject, ToPyResult},
+    object::{Traverse, TraverseFn},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::borrow::Borrow;
@@ -13,6 +14,12 @@ use std::ops::Deref;
 pub struct PyIter<O = PyObjectRef>(O)
 where
     O: Borrow<PyObject>;
+
+unsafe impl<O: Borrow<PyObject>> Traverse for PyIter<O> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.borrow().traverse(tracer_fn);
+    }
+}
 
 impl PyIter<PyObjectRef> {
     pub fn check(obj: &PyObject) -> bool {
@@ -149,6 +156,16 @@ pub enum PyIterReturn<T = PyObjectRef> {
     StopIteration(Option<PyObjectRef>),
 }
 
+unsafe impl<T: Traverse> Traverse for PyIterReturn<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        match self {
+            PyIterReturn::Return(r) => r.traverse(tracer_fn),
+            PyIterReturn::StopIteration(Some(obj)) => obj.traverse(tracer_fn),
+            _ => (),
+        }
+    }
+}
+
 impl PyIterReturn {
     pub fn from_pyresult(result: PyResult, vm: &VirtualMachine) -> PyResult<Self> {
         match result {
@@ -197,7 +214,7 @@ impl ToPyResult for PyIterReturn {
 
 impl ToPyResult for PyResult<PyIterReturn> {
     fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
-        self.and_then(|obj| obj.to_pyresult(vm))
+        self?.to_pyresult(vm)
     }
 }
 
@@ -210,6 +227,15 @@ where
     obj: O, // creating PyIter<O> is zero-cost
     length_hint: Option<usize>,
     _phantom: std::marker::PhantomData<T>,
+}
+
+unsafe impl<'a, T, O> Traverse for PyIterIter<'a, T, O>
+where
+    O: Traverse + Borrow<PyObject>,
+{
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.obj.traverse(tracer_fn)
+    }
 }
 
 impl<'a, T, O> PyIterIter<'a, T, O>
@@ -234,11 +260,14 @@ where
     type Item = PyResult<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        PyIter::new(self.obj.borrow())
-            .next(self.vm)
-            .map(|iret| iret.into_result().ok())
-            .transpose()
-            .map(|x| x.and_then(|obj| T::try_from_object(self.vm, obj)))
+        let imp = |next: PyResult<PyIterReturn>| -> PyResult<Option<T>> {
+            let Some(obj) = next?.into_result().ok() else {
+                return Ok(None);
+            };
+            Ok(Some(T::try_from_object(self.vm, obj)?))
+        };
+        let next = PyIter::new(self.obj.borrow()).next(self.vm);
+        imp(next).transpose()
     }
 
     #[inline]

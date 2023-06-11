@@ -18,6 +18,8 @@ class ExceptionClassTests(unittest.TestCase):
                     "%s missing %s attribute" %
                         (ins.__class__.__name__, attr))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inheritance(self):
         # Make sure the inheritance hierarchy matches the documentation
         exc_set = set()
@@ -28,8 +30,9 @@ class ExceptionClassTests(unittest.TestCase):
             except TypeError:
                 pass
 
-        inheritance_tree = open(os.path.join(os.path.split(__file__)[0],
-                                                'exception_hierarchy.txt'))
+        inheritance_tree = open(
+                os.path.join(os.path.split(__file__)[0], 'exception_hierarchy.txt'),
+                encoding="utf-8")
         try:
             superclass_name = inheritance_tree.readline().rstrip()
             try:
@@ -43,7 +46,7 @@ class ExceptionClassTests(unittest.TestCase):
             last_depth = 0
             for exc_line in inheritance_tree:
                 exc_line = exc_line.rstrip()
-                depth = exc_line.rindex('-')
+                depth = exc_line.rindex('─')
                 exc_name = exc_line[depth+2:]  # Slice past space
                 if '(' in exc_name:
                     paren_index = exc_name.index('(')
@@ -116,6 +119,33 @@ class ExceptionClassTests(unittest.TestCase):
                 [str(exc), ''],
                 [repr(exc), exc.__class__.__name__ + '()'])
         self.interface_test_driver(results)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_setstate_refcount_no_crash(self):
+        # gh-97591: Acquire strong reference before calling tp_hash slot
+        # in PyObject_SetAttr.
+        import gc
+        d = {}
+        class HashThisKeyWillClearTheDict(str):
+            def __hash__(self) -> int:
+                d.clear()
+                return super().__hash__()
+        class Value(str):
+            pass
+        exc = Exception()
+
+        d[HashThisKeyWillClearTheDict()] = Value()  # refcount of Value() is 1 now
+
+        # Exception.__setstate__ should aquire a strong reference of key and
+        # value in the dict. Otherwise, Value()'s refcount would go below
+        # zero in the tp_hash call in PyObject_SetAttr(), and it would cause
+        # crash in GC.
+        exc.__setstate__(d)  # __hash__() is called again here, clearing the dict.
+
+        # This GC would crash if the refcount of Value() goes below zero.
+        gc.collect()
+
 
 class UsageTests(unittest.TestCase):
 

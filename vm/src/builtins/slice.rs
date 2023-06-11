@@ -1,17 +1,18 @@
 // sliceobject.{h,c} in CPython
-use super::{PyInt, PyIntRef, PyTupleRef, PyType, PyTypeRef};
+// spell-checker:ignore sliceobject
+use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
-    types::{Comparable, Constructor, Hashable, PyComparisonOp, Unhashable},
+    types::{Comparable, Constructor, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
-use num_bigint::{BigInt, ToBigInt};
+use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
-#[pyclass(module = false, name = "slice")]
+#[pyclass(module = false, name = "slice", unhashable = true, traverse)]
 #[derive(Debug)]
 pub struct PySlice {
     pub start: Option<PyObjectRef>,
@@ -20,12 +21,12 @@ pub struct PySlice {
 }
 
 impl PyPayload for PySlice {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.slice_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.slice_type
     }
 }
 
-#[pyclass(with(Hashable, Comparable))]
+#[pyclass(with(Comparable, Representable))]
 impl PySlice {
     #[pygetset]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -54,20 +55,6 @@ impl PySlice {
             Some(v) => v,
             None => vm.ctx.none.as_object(),
         }
-    }
-
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let start_repr = self.start_ref(vm).repr(vm)?;
-        let stop_repr = &self.stop.repr(vm)?;
-        let step_repr = self.step_ref(vm).repr(vm)?;
-
-        Ok(format!(
-            "slice({}, {}, {})",
-            start_repr.as_str(),
-            stop_repr.as_str(),
-            step_repr.as_str()
-        ))
     }
 
     pub fn to_saturated(&self, vm: &VirtualMachine) -> PyResult<SaturatedSlice> {
@@ -114,7 +101,7 @@ impl PySlice {
             step = One::one();
         } else {
             // Clone the value, not the reference.
-            let this_step: PyRef<PyInt> = self.step(vm).try_into_value(vm)?;
+            let this_step = self.step(vm).try_index(vm)?;
             step = this_step.as_bigint().clone();
 
             if step.is_zero() {
@@ -148,7 +135,7 @@ impl PySlice {
                 lower.clone()
             };
         } else {
-            let this_start: PyRef<PyInt> = self.start(vm).try_into_value(vm)?;
+            let this_start = self.start(vm).try_index(vm)?;
             start = this_start.as_bigint().clone();
 
             if start < Zero::zero() {
@@ -168,7 +155,7 @@ impl PySlice {
         if vm.is_none(&self.stop) {
             stop = if backwards { lower } else { upper };
         } else {
-            let this_stop: PyRef<PyInt> = self.stop(vm).try_into_value(vm)?;
+            let this_stop = self.stop(vm).try_index(vm)?;
             stop = this_stop.as_bigint().clone();
 
             if stop < Zero::zero() {
@@ -186,7 +173,7 @@ impl PySlice {
     }
 
     #[pymethod]
-    fn indices(&self, length: PyIntRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn indices(&self, length: ArgIndex, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
         let length = length.as_bigint();
         if length.is_negative() {
             return Err(vm.new_value_error("length should not be negative.".to_owned()));
@@ -204,7 +191,7 @@ impl PySlice {
         (Option<PyObjectRef>, PyObjectRef, Option<PyObjectRef>),
     )> {
         Ok((
-            zelf.class().clone(),
+            zelf.class().to_owned(),
             (zelf.start.clone(), zelf.stop.clone(), zelf.step.clone()),
         ))
     }
@@ -212,7 +199,7 @@ impl PySlice {
 
 impl Comparable for PySlice {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -258,15 +245,29 @@ impl Comparable for PySlice {
     }
 }
 
-impl Unhashable for PySlice {}
+impl Representable for PySlice {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let start_repr = zelf.start_ref(vm).repr(vm)?;
+        let stop_repr = &zelf.stop.repr(vm)?;
+        let step_repr = zelf.step_ref(vm).repr(vm)?;
+
+        Ok(format!(
+            "slice({}, {}, {})",
+            start_repr.as_str(),
+            stop_repr.as_str(),
+            step_repr.as_str()
+        ))
+    }
+}
 
 #[pyclass(module = false, name = "EllipsisType")]
 #[derive(Debug)]
 pub struct PyEllipsis;
 
 impl PyPayload for PyEllipsis {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.ellipsis_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.ellipsis_type
     }
 }
 
@@ -278,16 +279,23 @@ impl Constructor for PyEllipsis {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, Representable))]
 impl PyEllipsis {
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        "Ellipsis".to_owned()
+    fn reduce(&self, vm: &VirtualMachine) -> PyStrRef {
+        vm.ctx.names.Ellipsis.to_owned()
+    }
+}
+
+impl Representable for PyEllipsis {
+    #[inline]
+    fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        Ok(vm.ctx.names.Ellipsis.to_owned())
     }
 
-    #[pymethod(magic)]
-    fn reduce(&self) -> String {
-        "Ellipsis".to_owned()
+    #[cold]
+    fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        unreachable!("use repr instead")
     }
 }
 

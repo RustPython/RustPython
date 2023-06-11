@@ -1,25 +1,20 @@
 //! `posix` compatible module for `not(any(unix, windows))`
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 
-use crate::{PyObjectRef, VirtualMachine};
-
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = module::make_module(vm);
     super::os::extend_module(vm, &module);
     module
 }
 
-#[pymodule(name = "posix")]
+#[pymodule(name = "posix", with(super::os::_os))]
 pub(crate) mod module {
     use crate::{
         builtins::PyStrRef,
-        stdlib::os::{DirFd, PyPathLike, SupportFunc, TargetIsDirectory, _os},
+        stdlib::os::{DirFd, OsPath, SupportFunc, TargetIsDirectory, _os},
         PyObjectRef, PyResult, VirtualMachine,
     };
     use std::env;
-    #[cfg(unix)]
-    use std::os::unix::ffi as ffi_ext;
-    #[cfg(target_os = "wasi")]
-    use std::os::wasi::ffi as ffi_ext;
 
     #[pyfunction]
     pub(super) fn access(_path: PyStrRef, _mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
@@ -28,9 +23,9 @@ pub(crate) mod module {
 
     #[derive(FromArgs)]
     #[allow(unused)]
-    pub(super) struct SimlinkArgs {
-        src: PyPathLike,
-        dst: PyPathLike,
+    pub(super) struct SymlinkArgs {
+        src: OsPath,
+        dst: OsPath,
         #[pyarg(flatten)]
         _target_is_directory: TargetIsDirectory,
         #[pyarg(flatten)]
@@ -38,14 +33,14 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    pub(super) fn symlink(_args: SimlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
+    pub(super) fn symlink(_args: SymlinkArgs, vm: &VirtualMachine) -> PyResult<()> {
         os_unimpl("os.symlink", vm)
     }
 
     #[cfg(target_os = "wasi")]
     #[pyattr]
     fn environ(vm: &VirtualMachine) -> crate::builtins::PyDictRef {
-        use ffi_ext::OsStringExt;
+        use rustpython_common::os::ffi::OsStringExt;
 
         let environ = vm.ctx.new_dict();
         for (key, value) in env::vars_os() {

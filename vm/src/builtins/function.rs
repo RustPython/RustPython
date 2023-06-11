@@ -10,20 +10,23 @@ use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
 use crate::convert::ToPyObject;
 use crate::function::ArgMapping;
+use crate::object::{Traverse, TraverseFn};
 use crate::{
     bytecode,
     class::PyClassImpl,
     frame::Frame,
     function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
-    types::{Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp},
+    types::{
+        Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp, Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
-#[pyclass(module = false, name = "function")]
+#[pyclass(module = false, name = "function", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyFunction {
     code: PyRef<PyCode>,
@@ -34,6 +37,14 @@ pub struct PyFunction {
     qualname: PyMutex<PyStrRef>,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
+}
+
+unsafe impl Traverse for PyFunction {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.globals.traverse(tracer_fn);
+        self.closure.traverse(tracer_fn);
+        self.defaults_and_kwdefaults.traverse(tracer_fn);
+    }
 }
 
 impl PyFunction {
@@ -66,8 +77,8 @@ impl PyFunction {
     ) -> PyResult<()> {
         let code = &*self.code;
         let nargs = func_args.args.len();
-        let nexpected_args = code.arg_count;
-        let total_args = code.arg_count + code.kwonlyarg_count;
+        let nexpected_args = code.arg_count as usize;
+        let total_args = code.arg_count as usize + code.kwonlyarg_count as usize;
         // let arg_names = self.code.arg_names();
 
         // This parses the arguments from args and kwargs into
@@ -101,7 +112,9 @@ impl PyFunction {
             if nargs > nexpected_args {
                 return Err(vm.new_type_error(format!(
                     "{}() takes {} positional arguments but {} were given",
-                    &self.code.obj_name, nexpected_args, nargs
+                    self.qualname(),
+                    nexpected_args,
+                    nargs
                 )));
             }
         }
@@ -129,28 +142,32 @@ impl PyFunction {
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
             // Check if we have a parameter with this name:
-            if let Some(pos) = argpos(code.posonlyarg_count..total_args, &name) {
+            if let Some(pos) = argpos(code.posonlyarg_count as usize..total_args, &name) {
                 let slot = &mut fastlocals[pos];
                 if slot.is_some() {
-                    return Err(
-                        vm.new_type_error(format!("Got multiple values for argument '{}'", name))
-                    );
+                    return Err(vm.new_type_error(format!(
+                        "{}() got multiple values for argument '{}'",
+                        self.qualname(),
+                        name
+                    )));
                 }
                 *slot = Some(value);
             } else if let Some(kwargs) = kwargs.as_ref() {
                 kwargs.set_item(&name, value, vm)?;
-            } else if argpos(0..code.posonlyarg_count, &name).is_some() {
+            } else if argpos(0..code.posonlyarg_count as usize, &name).is_some() {
                 posonly_passed_as_kwarg.push(name);
             } else {
-                return Err(
-                    vm.new_type_error(format!("got an unexpected keyword argument '{}'", name))
-                );
+                return Err(vm.new_type_error(format!(
+                    "{}() got an unexpected keyword argument '{}'",
+                    self.qualname(),
+                    name
+                )));
             }
         }
         if !posonly_passed_as_kwarg.is_empty() {
             return Err(vm.new_type_error(format!(
                 "{}() got some positional-only arguments passed as keyword arguments: '{}'",
-                &self.code.obj_name,
+                self.qualname(),
                 posonly_passed_as_kwarg.into_iter().format(", "),
             )));
         }
@@ -170,7 +187,7 @@ impl PyFunction {
             let defaults = get_defaults!().0.as_ref().map(|tup| tup.as_slice());
             let ndefs = defaults.map_or(0, |d| d.len());
 
-            let nrequired = code.arg_count - ndefs;
+            let nrequired = code.arg_count as usize - ndefs;
 
             // Given the number of defaults available, check all the arguments for which we
             // _don't_ have defaults; if any are missing, raise an exception
@@ -207,7 +224,7 @@ impl PyFunction {
 
                 return Err(vm.new_type_error(format!(
                     "{}() missing {} required positional argument{}: '{}{}{}'",
-                    &self.code.obj_name,
+                    self.qualname(),
                     missing_args_len,
                     if missing_args_len == 1 { "" } else { "s" },
                     missing.iter().join("', '"),
@@ -238,8 +255,8 @@ impl PyFunction {
             for (slot, kwarg) in fastlocals
                 .iter_mut()
                 .zip(&*code.varnames)
-                .skip(code.arg_count)
-                .take(code.kwonlyarg_count)
+                .skip(code.arg_count as usize)
+                .take(code.kwonlyarg_count as usize)
                 .filter(|(slot, _)| slot.is_none())
             {
                 if let Some(defaults) = &get_defaults!().1 {
@@ -251,7 +268,7 @@ impl PyFunction {
 
                 // No default value and not specified.
                 return Err(
-                    vm.new_type_error(format!("Missing required kw only argument: '{}'", kwarg))
+                    vm.new_type_error(format!("Missing required kw only argument: '{kwarg}'"))
                 );
             }
         }
@@ -304,7 +321,7 @@ impl PyFunction {
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             vm,
         )
-        .into_ref(vm);
+        .into_ref(&vm.ctx);
 
         self.fill_locals_from_args(&frame, func_args, vm)?;
 
@@ -326,12 +343,15 @@ impl PyFunction {
 }
 
 impl PyPayload for PyFunction {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.function_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.function_type
     }
 }
 
-#[pyclass(with(GetDescriptor, Callable), flags(HAS_DICT, METHOD_DESCR))]
+#[pyclass(
+    with(GetDescriptor, Callable, Representable),
+    flags(HAS_DICT, METHOD_DESCRIPTOR)
+)]
 impl PyFunction {
     #[pygetset(magic)]
     fn code(&self) -> PyRef<PyCode> {
@@ -363,13 +383,13 @@ impl PyFunction {
     // {"__builtins__",  T_OBJECT,     OFF(func_builtins), READONLY},
     #[pymember(magic)]
     fn globals(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_zelf(zelf, vm)?;
+        let zelf = Self::_as_pyref(&zelf, vm)?;
         Ok(zelf.globals.clone().into())
     }
 
     #[pymember(magic)]
     fn closure(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf = Self::_zelf(zelf, vm)?;
+        let zelf = Self::_as_pyref(&zelf, vm)?;
         Ok(vm.unwrap_or_none(zelf.closure.clone().map(|x| x.to_pyobject(vm))))
     }
 
@@ -392,13 +412,12 @@ impl PyFunction {
     fn set_qualname(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                if let Ok(qualname) = value.downcast::<PyStr>() {
-                    *self.qualname.lock() = qualname;
-                } else {
+                let Ok(qualname) = value.downcast::<PyStr>() else {
                     return Err(vm.new_type_error(
                         "__qualname__ must be set to a string object".to_string(),
                     ));
-                }
+                };
+                *self.qualname.lock() = qualname;
             }
             PySetterValue::Delete => {
                 return Err(
@@ -407,11 +426,6 @@ impl PyFunction {
             }
         }
         Ok(())
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>) -> String {
-        format!("<function {} at {:#x}>", zelf.qualname(), zelf.get_id())
     }
 
     #[cfg(feature = "jit")]
@@ -434,11 +448,11 @@ impl GetDescriptor for PyFunction {
         cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, obj) = Self::_unwrap(zelf, obj, vm)?;
-        let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, &obj.class()) {
-            zelf.into()
+        let (_zelf, obj) = Self::_unwrap(&zelf, obj, vm)?;
+        let obj = if vm.is_none(&obj) && !Self::_cls_is(&cls, obj.class()) {
+            zelf
         } else {
-            PyBoundMethod::new_ref(obj, zelf.into(), &vm.ctx).into()
+            PyBoundMethod::new_ref(obj, zelf, &vm.ctx).into()
         };
         Ok(obj)
     }
@@ -447,12 +461,23 @@ impl GetDescriptor for PyFunction {
 impl Callable for PyFunction {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         zelf.invoke(args, vm)
     }
 }
 
-#[pyclass(module = false, name = "method")]
+impl Representable for PyFunction {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        Ok(format!(
+            "<function {} at {:#x}>",
+            zelf.qualname(),
+            zelf.get_id()
+        ))
+    }
+}
+
+#[pyclass(module = false, name = "method", traverse)]
 #[derive(Debug)]
 pub struct PyBoundMethod {
     object: PyObjectRef,
@@ -462,15 +487,15 @@ pub struct PyBoundMethod {
 impl Callable for PyBoundMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, mut args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         args.prepend_arg(zelf.object.clone());
-        vm.invoke(&zelf.function, args)
+        zelf.function.call(args, vm)
     }
 }
 
 impl Comparable for PyBoundMethod {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         _vm: &VirtualMachine,
@@ -485,13 +510,13 @@ impl Comparable for PyBoundMethod {
 }
 
 impl GetAttr for PyBoundMethod {
-    fn getattro(zelf: &Py<Self>, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         let class_attr = vm
             .ctx
-            .interned_str(&*name)
+            .interned_str(name)
             .and_then(|attr_name| zelf.get_class_attr(attr_name));
         if let Some(obj) = class_attr {
-            return vm.call_if_get_descriptor(obj, zelf.to_owned().into());
+            return vm.call_if_get_descriptor(&obj, zelf.to_owned().into());
         }
         zelf.function.get_attr(name, vm)
     }
@@ -533,23 +558,20 @@ impl PyBoundMethod {
     }
 }
 
-#[pyclass(with(Callable, Comparable, GetAttr, Constructor), flags(HAS_DICT))]
+#[pyclass(
+    with(Callable, Comparable, GetAttr, Constructor, Representable),
+    flags(HAS_DICT)
+)]
 impl PyBoundMethod {
     #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        #[allow(clippy::needless_match)] // False positive on nightly
-        let funcname =
-            if let Some(qname) = vm.get_attribute_opt(self.function.clone(), "__qualname__")? {
-                Some(qname)
-            } else {
-                vm.get_attribute_opt(self.function.clone(), "__name__")?
-            };
-        let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
-        Ok(format!(
-            "<bound method {} of {}>",
-            funcname.as_ref().map_or("?", |s| s.as_str()),
-            &self.object.repr(vm)?.as_str(),
-        ))
+    fn reduce(
+        &self,
+        vm: &VirtualMachine,
+    ) -> (Option<PyObjectRef>, (PyObjectRef, Option<PyObjectRef>)) {
+        let builtins_getattr = vm.builtins.get_attr("getattr", vm).ok();
+        let funcself = self.object.clone();
+        let funcname = self.function.get_attr("__name__", vm).ok();
+        (builtins_getattr, (funcself, funcname))
     }
 
     #[pygetset(magic)]
@@ -596,12 +618,31 @@ impl PyBoundMethod {
 }
 
 impl PyPayload for PyBoundMethod {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bound_method_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bound_method_type
     }
 }
 
-#[pyclass(module = false, name = "cell")]
+impl Representable for PyBoundMethod {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        #[allow(clippy::needless_match)] // False positive on nightly
+        let funcname =
+            if let Some(qname) = vm.get_attribute_opt(zelf.function.clone(), "__qualname__")? {
+                Some(qname)
+            } else {
+                vm.get_attribute_opt(zelf.function.clone(), "__name__")?
+            };
+        let funcname: Option<PyStrRef> = funcname.and_then(|o| o.downcast().ok());
+        Ok(format!(
+            "<bound method {} of {}>",
+            funcname.as_ref().map_or("?", |s| s.as_str()),
+            &zelf.object.repr(vm)?.as_str(),
+        ))
+    }
+}
+
+#[pyclass(module = false, name = "cell", traverse)]
 #[derive(Debug, Default)]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
@@ -609,8 +650,8 @@ pub(crate) struct PyCell {
 pub(crate) type PyCellRef = PyRef<PyCell>;
 
 impl PyPayload for PyCell {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.cell_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.cell_type
     }
 }
 

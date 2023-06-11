@@ -7,22 +7,23 @@ use crate::{
     convert::ToPyObject,
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    types::{Constructor, IterNext, Iterable, SelfIter},
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
-use num_bigint::BigInt;
+use malachite_bigint::BigInt;
 use num_traits::Zero;
 
-#[pyclass(module = false, name = "enumerate")]
+#[pyclass(module = false, name = "enumerate", traverse)]
 #[derive(Debug)]
 pub struct PyEnumerate {
+    #[pytraverse(skip)]
     counter: PyRwLock<BigInt>,
     iterator: PyIter,
 }
 
 impl PyPayload for PyEnumerate {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.enumerate_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.enumerate_type
     }
 }
 
@@ -51,24 +52,28 @@ impl Constructor for PyEnumerate {
     }
 }
 
-#[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyclass(with(Py, IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyEnumerate {
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::new(cls, args, vm)
     }
+}
+
+#[pyclass]
+impl Py<PyEnumerate> {
     #[pymethod(magic)]
-    fn reduce(zelf: PyRef<Self>) -> (PyTypeRef, (PyIter, BigInt)) {
+    fn reduce(&self) -> (PyTypeRef, (PyIter, BigInt)) {
         (
-            zelf.class().clone(),
-            (zelf.iterator.clone(), zelf.counter.read().clone()),
+            self.class().to_owned(),
+            (self.iterator.clone(), self.counter.read().clone()),
         )
     }
 }
 
-impl IterNextIterable for PyEnumerate {}
+impl SelfIter for PyEnumerate {}
 impl IterNext for PyEnumerate {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let next_obj = match zelf.iterator.next(vm)? {
             PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
             PyIterReturn::Return(obj) => obj,
@@ -80,19 +85,19 @@ impl IterNext for PyEnumerate {
     }
 }
 
-#[pyclass(module = false, name = "reversed")]
+#[pyclass(module = false, name = "reversed", traverse)]
 #[derive(Debug)]
 pub struct PyReverseSequenceIterator {
     internal: PyMutex<PositionIterInternal<PyObjectRef>>,
 }
 
 impl PyPayload for PyReverseSequenceIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.reverse_iter_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.reverse_iter_type
     }
 }
 
-#[pyclass(with(IterNext))]
+#[pyclass(with(IterNext, Iterable))]
 impl PyReverseSequenceIterator {
     pub fn new(obj: PyObjectRef, len: usize) -> Self {
         let position = len.saturating_sub(1);
@@ -125,9 +130,9 @@ impl PyReverseSequenceIterator {
     }
 }
 
-impl IterNextIterable for PyReverseSequenceIterator {}
+impl SelfIter for PyReverseSequenceIterator {}
 impl IterNext for PyReverseSequenceIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal
             .lock()
             .rev_next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(&pos, vm), vm))

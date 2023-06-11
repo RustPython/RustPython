@@ -5,12 +5,13 @@ pub(crate) use _thread::{make_module, RawRMutex};
 #[pymodule]
 pub(crate) mod _thread {
     use crate::{
-        builtins::{PyDictRef, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{PyDictRef, PyStr, PyTupleRef, PyTypeRef},
         convert::ToPyException,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
-        types::{Constructor, GetAttr, SetAttr},
+        types::{Constructor, GetAttr, Representable, SetAttr},
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
     };
+    use crossbeam_utils::atomic::AtomicCell;
     use parking_lot::{
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
         RawMutex, RawThreadId,
@@ -97,12 +98,12 @@ pub(crate) mod _thread {
             } else {
                 "unlocked"
             };
-            format!(
+            Ok(format!(
                 "<{} {} object at {:#x}>",
                 status,
                 $zelf.class().name(),
                 $zelf.get_id()
-            )
+            ))
         }};
     }
 
@@ -119,7 +120,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor, Representable))]
     impl Lock {
         #[pymethod]
         #[pymethod(name = "acquire_lock")]
@@ -137,6 +138,26 @@ pub(crate) mod _thread {
             Ok(())
         }
 
+        #[pymethod]
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
+            if self.mu.is_locked() {
+                unsafe {
+                    self.mu.unlock();
+                };
+            }
+            // Casting to AtomicCell is as unsafe as CPython code.
+            // Using AtomicCell will prevent compiler optimizer move it to somewhere later unsafe place.
+            // It will be not under the cell anymore after init call.
+
+            let new_mut = RawMutex::INIT;
+            unsafe {
+                let old_mutex: &AtomicCell<RawMutex> = std::mem::transmute(&self.mu);
+                old_mutex.swap(new_mut);
+            }
+
+            Ok(())
+        }
+
         #[pymethod(magic)]
         fn exit(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             self.release(vm)
@@ -146,17 +167,19 @@ pub(crate) mod _thread {
         fn locked(&self) -> bool {
             self.mu.is_locked()
         }
-
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>) -> String {
-            repr_lock_impl!(zelf)
-        }
     }
 
     impl Constructor for Lock {
         type Args = FuncArgs;
         fn py_new(_cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error("cannot create '_thread.lock' instances".to_owned()))
+        }
+    }
+
+    impl Representable for Lock {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            repr_lock_impl!(zelf)
         }
     }
 
@@ -174,7 +197,7 @@ pub(crate) mod _thread {
         }
     }
 
-    #[pyclass]
+    #[pyclass(with(Representable))]
     impl RLock {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
@@ -202,6 +225,21 @@ pub(crate) mod _thread {
         }
 
         #[pymethod]
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
+            if self.mu.is_locked() {
+                unsafe {
+                    self.mu.unlock();
+                };
+            }
+            let new_mut = RawRMutex::INIT;
+
+            let old_mutex: AtomicCell<&RawRMutex> = AtomicCell::new(&self.mu);
+            old_mutex.swap(&new_mut);
+
+            Ok(())
+        }
+
+        #[pymethod]
         fn _is_owned(&self) -> bool {
             self.mu.is_owned_by_current_thread()
         }
@@ -210,9 +248,11 @@ pub(crate) mod _thread {
         fn exit(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             self.release(vm)
         }
+    }
 
-        #[pymethod(magic)]
-        fn repr(zelf: PyRef<Self>) -> String {
+    impl Representable for RLock {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
             repr_lock_impl!(zelf)
         }
     }
@@ -319,7 +359,7 @@ pub(crate) mod _thread {
 
     #[pyfunction]
     fn _set_sentinel(vm: &VirtualMachine) -> PyRef<Lock> {
-        let lock = Lock { mu: RawMutex::INIT }.into_ref(vm);
+        let lock = Lock { mu: RawMutex::INIT }.into_ref(&vm.ctx);
         SENTINELS.with(|sents| sents.borrow_mut().push(lock.clone()));
         lock
     }
@@ -360,13 +400,13 @@ pub(crate) mod _thread {
     }
 
     impl GetAttr for Local {
-        fn getattro(zelf: &Py<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+        fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
             let ldict = zelf.ldict(vm);
             if attr.as_str() == "__dict__" {
                 Ok(ldict.into())
             } else {
                 zelf.as_object()
-                    .generic_getattr_opt(attr.clone(), Some(ldict), vm)?
+                    .generic_getattr_opt(attr, Some(ldict), vm)?
                     .ok_or_else(|| {
                         vm.new_attribute_error(format!(
                             "{} has no attribute '{}'",
@@ -380,8 +420,8 @@ pub(crate) mod _thread {
 
     impl SetAttr for Local {
         fn setattro(
-            zelf: &crate::Py<Self>,
-            attr: PyStrRef,
+            zelf: &Py<Self>,
+            attr: &Py<PyStr>,
             value: PySetterValue,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
@@ -393,9 +433,9 @@ pub(crate) mod _thread {
             } else {
                 let dict = zelf.ldict(vm);
                 if let PySetterValue::Assign(value) = value {
-                    dict.set_item(&*attr, value, vm)?;
+                    dict.set_item(attr, value, vm)?;
                 } else {
-                    dict.del_item(&*attr, vm)?;
+                    dict.del_item(attr, vm)?;
                 }
                 Ok(())
             }

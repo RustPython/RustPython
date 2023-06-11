@@ -52,12 +52,11 @@ class TestBasicOps:
             self.gen.seed(arg)
 
         for arg in [1+2j, tuple('abc'), MySeed()]:
-            with self.assertWarns(DeprecationWarning):
+            with self.assertRaises(TypeError):
                 self.gen.seed(arg)
 
         for arg in [list(range(3)), dict(one=1)]:
-            with self.assertWarns(DeprecationWarning):
-                self.assertRaises(TypeError, self.gen.seed, arg)
+            self.assertRaises(TypeError, self.gen.seed, arg)
         self.assertRaises(TypeError, self.gen.seed, 1, 2, 3, 4)
         self.assertRaises(TypeError, type(self.gen), [])
 
@@ -110,21 +109,27 @@ class TestBasicOps:
         self.assertTrue(lst != shuffled_lst)
         self.assertRaises(TypeError, shuffle, (1, 2, 3))
 
-    def test_shuffle_random_argument(self):
-        # Test random argument to shuffle.
-        shuffle = self.gen.shuffle
-        mock_random = unittest.mock.Mock(return_value=0.5)
-        seq = bytearray(b'abcdefghijk')
-        with self.assertWarns(DeprecationWarning):
-            shuffle(seq, mock_random)
-        mock_random.assert_called_with()
-
     def test_choice(self):
         choice = self.gen.choice
         with self.assertRaises(IndexError):
             choice([])
         self.assertEqual(choice([50]), 50)
         self.assertIn(choice([25, 75]), [25, 75])
+
+    def test_choice_with_numpy(self):
+        # Accommodation for NumPy arrays which have disabled __bool__().
+        # See: https://github.com/python/cpython/issues/100805
+        choice = self.gen.choice
+
+        class NA(list):
+            "Simulate numpy.array() behavior"
+            def __bool__(self):
+                raise RuntimeError
+
+        with self.assertRaises(IndexError):
+            choice(NA([]))
+        self.assertEqual(choice(NA([50])), 50)
+        self.assertIn(choice(NA([25, 75])), [25, 75])
 
     def test_sample(self):
         # For the entire allowable range of 0 <= k <= N, validate that
@@ -169,7 +174,7 @@ class TestBasicOps:
         self.assertRaises(TypeError, self.gen.sample, dict.fromkeys('abcdef'), 2)
 
     def test_sample_on_sets(self):
-        with self.assertWarns(DeprecationWarning):
+        with self.assertRaises(TypeError):
             population = {10, 20, 30, 40, 50, 60, 70}
             self.gen.sample(population, k=5)
 
@@ -391,23 +396,6 @@ class TestBasicOps:
             restoredseq = [newgen.random() for i in range(10)]
             self.assertEqual(origseq, restoredseq)
 
-    @test.support.cpython_only
-    def test_bug_41052(self):
-        # _random.Random should not be allowed to serialization
-        import _random
-        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
-            r = _random.Random()
-            self.assertRaises(TypeError, pickle.dumps, r, proto)
-
-    @test.support.cpython_only
-    def test_bug_42008(self):
-        # _random.Random should call seed with first element of arg tuple
-        import _random
-        r1 = _random.Random()
-        r1.seed(8675309)
-        r2 = _random.Random(8675309)
-        self.assertEqual(r1.random(), r2.random())
-
     # TODO: RUSTPYTHON AttributeError: 'super' object has no attribute 'getstate'
     @unittest.expectedFailure
     def test_bug_1727780(self):
@@ -444,6 +432,10 @@ class TestBasicOps:
         self.assertRaises(TypeError, self.gen.randbytes, 1, 2)
         self.assertRaises(ValueError, self.gen.randbytes, -1)
         self.assertRaises(TypeError, self.gen.randbytes, 1.0)
+
+    def test_mu_sigma_default_args(self):
+        self.assertIsInstance(self.gen.normalvariate(), float)
+        self.assertIsInstance(self.gen.gauss(), float)
 
 
 try:
@@ -590,6 +582,25 @@ class SystemRandom_TestBasicOps(TestBasicOps, unittest.TestCase):
             k = int(1.00001 + _log(n, 2))
             self.assertEqual(k, numbits)        # note the stronger assertion
             self.assertTrue(2**k > n > 2**(k-1))   # note the stronger assertion
+
+
+class TestRawMersenneTwister(unittest.TestCase):
+    @test.support.cpython_only
+    def test_bug_41052(self):
+        # _random.Random should not be allowed to serialization
+        import _random
+        for proto in range(pickle.HIGHEST_PROTOCOL + 1):
+            r = _random.Random()
+            self.assertRaises(TypeError, pickle.dumps, r, proto)
+
+    @test.support.cpython_only
+    def test_bug_42008(self):
+        # _random.Random should call seed with first element of arg tuple
+        import _random
+        r1 = _random.Random()
+        r1.seed(8675309)
+        r2 = _random.Random(8675309)
+        self.assertEqual(r1.random(), r2.random())
 
 
 class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
@@ -846,10 +857,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
                 maxsize+1, maxsize=maxsize
             )
         self.gen._randbelow_without_getrandbits(5640, maxsize=maxsize)
-        # issue 33203: test that _randbelow returns zero on
-        # n == 0 also in its getrandbits-independent branch.
-        x = self.gen._randbelow_without_getrandbits(0, maxsize=maxsize)
-        self.assertEqual(x, 0)
 
         # This might be going too far to test a single line, but because of our
         # noble aim of achieving 100% test coverage we need to write a case in
@@ -1331,7 +1338,7 @@ class TestModule(unittest.TestCase):
         # tests validity but not completeness of the __all__ list
         self.assertTrue(set(random.__all__) <= set(dir(random)))
 
-    @unittest.skipUnless(hasattr(os, "fork"), "fork() required")
+    @test.support.requires_fork()
     def test_after_fork(self):
         # Test the global Random instance gets reseeded in child
         r, w = os.pipe()

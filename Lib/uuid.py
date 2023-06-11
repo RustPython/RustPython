@@ -55,6 +55,8 @@ __author__ = 'Ka-Ping Yee <ping@zesty.ca>'
 # The recognized platforms - known behaviors
 if sys.platform in ('win32', 'darwin'):
     _AIX = _LINUX = False
+elif sys.platform in ('emscripten', 'wasi'):  # XXX: RUSTPYTHON; patched to support those platforms
+    _AIX = _LINUX = False
 else:
     import platform
     _platform_system = platform.system()

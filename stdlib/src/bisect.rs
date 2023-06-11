@@ -3,7 +3,9 @@ pub(crate) use _bisect::make_module;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
-        function::OptionalArg, types::PyComparisonOp, PyObjectRef, PyResult, VirtualMachine,
+        function::{ArgIndex, OptionalArg},
+        types::PyComparisonOp,
+        PyObjectRef, PyResult, VirtualMachine,
     };
 
     #[derive(FromArgs)]
@@ -11,21 +13,18 @@ mod _bisect {
         a: PyObjectRef,
         x: PyObjectRef,
         #[pyarg(any, optional)]
-        lo: OptionalArg<PyObjectRef>,
+        lo: OptionalArg<ArgIndex>,
         #[pyarg(any, optional)]
-        hi: OptionalArg<PyObjectRef>,
+        hi: OptionalArg<ArgIndex>,
         #[pyarg(named, default)]
         key: Option<PyObjectRef>,
     }
 
     // Handles objects that implement __index__ and makes sure index fits in needed isize.
     #[inline]
-    fn handle_default(
-        arg: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<isize>> {
+    fn handle_default(arg: OptionalArg<ArgIndex>, vm: &VirtualMachine) -> PyResult<Option<isize>> {
         arg.into_option()
-            .map(|v| v.try_index(vm)?.try_to_primitive(vm))
+            .map(|v| v.try_to_primitive(vm))
             .transpose()
     }
 
@@ -38,8 +37,8 @@ mod _bisect {
     //    input sequence.
     #[inline]
     fn as_usize(
-        lo: OptionalArg<PyObjectRef>,
-        hi: OptionalArg<PyObjectRef>,
+        lo: OptionalArg<ArgIndex>,
+        hi: OptionalArg<ArgIndex>,
         seq_len: usize,
         vm: &VirtualMachine,
     ) -> PyResult<(usize, usize)> {
@@ -57,14 +56,6 @@ mod _bisect {
         Ok((lo, hi))
     }
 
-    /// Return the index where to insert item x in list a, assuming a is sorted.
-    ///
-    /// The return value i is such that all e in a[:i] have e < x, and all e in
-    /// a[i:] have e >= x.  So if x already appears in the list, a.insert(x) will
-    /// insert just before the leftmost x already there.
-    ///
-    /// Optional args lo (default 0) and hi (default len(a)) bound the
-    /// slice of a to be searched.
     #[inline]
     #[pyfunction]
     fn bisect_left(
@@ -78,7 +69,7 @@ mod _bisect {
             let mid = (lo + hi) / 2;
             let a_mid = a.get_item(&mid, vm)?;
             let comp = if let Some(ref key) = key {
-                vm.invoke(key, (a_mid,))?
+                key.call((a_mid,), vm)?
             } else {
                 a_mid
             };
@@ -91,14 +82,6 @@ mod _bisect {
         Ok(lo)
     }
 
-    /// Return the index where to insert item x in list a, assuming a is sorted.
-    ///
-    /// The return value i is such that all e in a[:i] have e <= x, and all e in
-    /// a[i:] have e > x.  So if x already appears in the list, a.insert(x) will
-    /// insert just after the rightmost x already there.
-    ///
-    /// Optional args lo (default 0) and hi (default len(a)) bound the
-    /// slice of a to be searched.
     #[inline]
     #[pyfunction]
     fn bisect_right(
@@ -112,7 +95,7 @@ mod _bisect {
             let mid = (lo + hi) / 2;
             let a_mid = a.get_item(&mid, vm)?;
             let comp = if let Some(ref key) = key {
-                vm.invoke(key, (a_mid,))?
+                key.call((a_mid,), vm)?
             } else {
                 a_mid
             };
@@ -125,16 +108,10 @@ mod _bisect {
         Ok(lo)
     }
 
-    /// Insert item x in list a, and keep it sorted assuming a is sorted.
-    ///
-    /// If x is already in a, insert it to the left of the leftmost x.
-    ///
-    /// Optional args lo (default 0) and hi (default len(a)) bound the
-    /// slice of a to be searched.
     #[pyfunction]
     fn insort_left(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
         let x = if let Some(ref key) = key {
-            vm.invoke(key, (x,))?
+            key.call((x,), vm)?
         } else {
             x
         };
@@ -151,16 +128,10 @@ mod _bisect {
         vm.call_method(&a, "insert", (index, x))
     }
 
-    /// Insert item x in list a, and keep it sorted assuming a is sorted.
-    ///
-    /// If x is already in a, insert it to the right of the rightmost x.
-    ///
-    /// Optional args lo (default 0) and hi (default len(a)) bound the
-    /// slice of a to be searched
     #[pyfunction]
     fn insort_right(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
         let x = if let Some(ref key) = key {
-            vm.invoke(key, (x,))?
+            key.call((x,), vm)?
         } else {
             x
         };

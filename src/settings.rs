@@ -245,6 +245,9 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
             if name == "warn_default_encoding" {
                 warn_default_encoding = true
             }
+            if name == "no_sig_int" {
+                settings.no_sig_int = true;
+            }
             let value = parts.next().map(ToOwned::to_owned);
             (name, value)
         }));
@@ -344,7 +347,7 @@ fn get_paths(env_variable_name: &str) -> impl Iterator<Item = String> + '_ {
                 .map(|path| {
                     path.into_os_string()
                         .into_string()
-                        .unwrap_or_else(|_| panic!("{} isn't valid unicode", env_variable_name))
+                        .unwrap_or_else(|_| panic!("{env_variable_name} isn't valid unicode"))
                 })
                 .collect::<Vec<_>>()
         })

@@ -41,7 +41,7 @@ fn run(vm: &vm::VirtualMachine) -> vm::PyResult<()> {
     // typing `quit()` is too long, let's make `on(False)` work instead.
     scope
         .globals
-        .set_item("on", vm.ctx.new_function("on", on).into(), vm)?;
+        .set_item("on", vm.new_function("on", on).into(), vm)?;
 
     // let's include a fibonacci function, but let's be lazy and write it in Python
     add_python_function!(
@@ -65,7 +65,7 @@ def fib(n):
         // (note that this is only the case when compiler::Mode::Single is passed to vm.compile)
         match vm
             .compile(&input, vm::compiler::Mode::Single, "<embedded>".to_owned())
-            .map_err(|err| vm.new_syntax_error(&err))
+            .map_err(|err| vm.new_syntax_error(&err, Some(&input)))
             .and_then(|code_obj| vm.run_code_obj(code_obj, scope.clone()))
         {
             Ok(output) => {

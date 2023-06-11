@@ -2,14 +2,14 @@
 
 # [RustPython](https://rustpython.github.io/)
 
-A Python-3 (CPython >= 3.10.0) Interpreter written in Rust :snake: :scream:
+A Python-3 (CPython >= 3.11.0) Interpreter written in Rust :snake: :scream:
 :metal:.
 
 [![Build Status](https://github.com/RustPython/RustPython/workflows/CI/badge.svg)](https://github.com/RustPython/RustPython/actions?query=workflow%3ACI)
 [![codecov](https://codecov.io/gh/RustPython/RustPython/branch/main/graph/badge.svg)](https://codecov.io/gh/RustPython/RustPython)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Contributors](https://img.shields.io/github/contributors/RustPython/RustPython.svg)](https://github.com/RustPython/RustPython/graphs/contributors)
-[![Gitter](https://badges.gitter.im/RustPython/Lobby.svg)](https://gitter.im/rustpython/Lobby)
+[![Discord Shield](https://discordapp.com/api/guilds/1043121930691149845/widget.png?style=shield)][discord]
 [![docs.rs](https://docs.rs/rustpython/badge.svg)](https://docs.rs/rustpython/)
 [![Crates.io](https://img.shields.io/crates/v/rustpython)](https://crates.io/crates/rustpython)
 [![dependency status](https://deps.rs/crate/rustpython/0.1.1/status.svg)](https://deps.rs/crate/rustpython/0.1.1)
@@ -18,36 +18,49 @@ A Python-3 (CPython >= 3.10.0) Interpreter written in Rust :snake: :scream:
 
 ## Usage
 
-#### Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.
+**Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.**
 
-RustPython requires Rust latest stable version (e.g 1.43.0 at May 24th 2020). 
-To check Rust version: `rustc --version` If you wish to update,
-`rustup update stable`.
+RustPython requires Rust latest stable version (e.g 1.67.1 at February 7th 2023). If you don't
+currently have Rust installed on your system you can do so by following the instructions at [rustup.rs](https://rustup.rs/).
 
-To build RustPython locally, do the following:
+To check the version of Rust you're currently running, use `rustc --version`. If you wish to update,
+`rustup update stable` will update your Rust installation to the most recent stable release.
 
-    $ git clone https://github.com/RustPython/RustPython
-    $ cd RustPython
-      # --release is needed (at least on windows) to prevent stack overflow
-    $ cargo run --release demo.py
-    Hello, RustPython!
+To build RustPython locally, first, clone the source code:
+
+```bash
+git clone https://github.com/RustPython/RustPython
+```
+
+Then you can change into the RustPython directory and run the demo (Note: `--release` is
+needed to prevent stack overflow on Windows):
+
+```bash
+$ cd RustPython
+$ cargo run --release demo_closures.py
+Hello, RustPython!
+```
 
 Or use the interactive shell:
 
-    $ cargo run --release
-    Welcome to rustpython
-    >>>>> 2+2
-    4
-    
+```bash
+$ cargo run --release
+Welcome to rustpython
+>>>>> 2+2
+4
+```
+
 NOTE: For windows users, please set `RUSTPYTHONPATH` environment variable as `Lib` path in project directory.
 (e.g. When RustPython directory is `C:\RustPython`, set `RUSTPYTHONPATH` as `C:\RustPython\Lib`)
 
 You can also install and run RustPython with the following:
 
-    $ cargo install --git https://github.com/RustPython/RustPython
-    $ rustpython
-    Welcome to the magnificent Rust Python interpreter
-    >>>>>
+```bash
+$ cargo install --git https://github.com/RustPython/RustPython
+$ rustpython
+Welcome to the magnificent Rust Python interpreter
+>>>>>
+```
 
 (The `rustpython-*` crates are currently yanked from crates.io due to being out
 of date and not building on newer rust versions; we hope to release a new
@@ -61,31 +74,38 @@ which compiles OpenSSL for you but requires a C compiler, perl, and `make`.
 Once you've installed rustpython with SSL support, you can install pip by
 running:
 
-    $ rustpython --install-pip
+```bash
+cargo install --git https://github.com/RustPython/RustPython --features ssl
+rustpython --install-pip
+```
 
 You can also install RustPython through the `conda` package manager, though
 this isn't officially supported and may be out of date:
 
-    $ conda install rustpython -c conda-forge
-    $ rustpython
-
+```bash
+conda install rustpython -c conda-forge
+rustpython
+```
 
 ### WASI
 
 You can compile RustPython to a standalone WebAssembly WASI module so it can run anywhere.
 
 Build
-```shell
-$ cargo build --target wasm32-wasi --no-default-features --features freeze-stdlib,stdlib --release
+
+```bash
+cargo build --target wasm32-wasi --no-default-features --features freeze-stdlib,stdlib --release
 ```
 
 Run by wasmer
-```shell
-$ wasmer run --dir . target/wasm32-wasi/release/rustpython.wasm extra_tests/snippets/stdlib_random.py
+
+```bash
+wasmer run --dir . target/wasm32-wasi/release/rustpython.wasm extra_tests/snippets/stdlib_random.py
 ```
 
 Run by wapm
-```shell
+
+```bash
 $ wapm install rustpython
 $ wapm run rustpython
 >>>>> 2+2
@@ -96,7 +116,7 @@ $ wapm run rustpython
 
 You can build the WebAssembly WASI file with:
 
-```
+```bash
 cargo build --release --target wasm32-wasi --features="freeze-stdlib"
 ```
 
@@ -104,17 +124,19 @@ cargo build --release --target wasm32-wasi --features="freeze-stdlib"
 
 ### JIT (Just in time) compiler
 
-RustPython has an **very** experimental JIT compiler that compile python functions into native code. 
+RustPython has a **very** experimental JIT compiler that compile python functions into native code.
 
 #### Building
 
 By default the JIT compiler isn't enabled, it's enabled with the `jit` cargo feature.
 
-    $ cargo run --features jit
-    
+```bash
+cargo run --features jit
+```
+
 This requires autoconf, automake, libtool, and clang to be installed.
 
-#### Using 
+#### Using
 
 To compile a function, call `__jit__()` on it.
 
@@ -154,9 +176,11 @@ Checkout those talks on conferences:
 Although RustPython is a fairly young project, a few people have used it to
 make cool projects:
 
+- [GreptimeDB](https://github.com/GreptimeTeam/greptimedb): an open-source, cloud-native, distributed time-series database. Using RustPython for embedded scripting.
 - [pyckitup](https://github.com/pickitup247/pyckitup): a game engine written in
   rust.
 - [Robot Rumble](https://github.com/robot-rumble/logic/): an arena-based AI competition platform
+- [Ruff](https://github.com/charliermarsh/ruff/): an extremely fast Python linter, written in Rust
 
 ## Goals
 
@@ -174,16 +198,17 @@ latest release, or the [user guide](https://rustpython.github.io/docs/).
 You can also generate documentation locally by running:
 
 ```shell
-$ cargo doc # Including documentation for all dependencies
-$ cargo doc --no-deps --all # Excluding all dependencies
+cargo doc # Including documentation for all dependencies
+cargo doc --no-deps --all # Excluding all dependencies
 ```
 
-Documentation HTML files can then be found in the `target/doc` directory.
+Documentation HTML files can then be found in the `target/doc` directory or you can append `--open` to the previous commands to
+have the documentation open automatically on your default browser.
 
 ## Contributing
 
 Contributions are more than welcome, and in many cases we are happy to guide
-contributors through PRs or on gitter. Please refer to the
+contributors through PRs or on Discord. Please refer to the
 [development guide](DEVELOPMENT.md) as well for tips on developments.
 
 With that in mind, please note this project is maintained by volunteers, some of
@@ -207,7 +232,9 @@ method.
 
 ## Community
 
-Chat with us on [gitter][gitter].
+[![Discord Banner](https://discordapp.com/api/guilds/1043121930691149845/widget.png?style=banner2)][discord]
+
+Chat with us on [Discord][discord].
 
 ## Code of conduct
 
@@ -219,7 +246,7 @@ The initial work was based on
 [windelbouwman/rspython](https://github.com/windelbouwman/rspython) and
 [shinglyu/RustPython](https://github.com/shinglyu/RustPython)
 
-[gitter]: https://gitter.im/rustpython/Lobby
+[discord]: https://discord.gg/vru8NypEhv
 
 ## Links
 

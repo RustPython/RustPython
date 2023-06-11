@@ -1,6 +1,6 @@
-use crate::{convert::ToPyObject, PyObject, PyResult, VirtualMachine};
+use crate::{builtins::PyModule, convert::ToPyObject, Py, PyResult, VirtualMachine};
 
-pub(crate) use sys::{UnraisableHookArgs, MAXSIZE, MULTIARCH};
+pub(crate) use sys::{UnraisableHookArgs, __module_def, DOC, MAXSIZE, MULTIARCH};
 
 #[pymodule]
 mod sys {
@@ -17,12 +17,12 @@ mod sys {
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
-        AsObject, PyObjectRef, PyRef, PyRefExact, PyResult,
+        AsObject, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
     use std::{
         env::{self, VarError},
-        mem, path,
+        path,
         sync::atomic::Ordering,
     };
 
@@ -60,6 +60,8 @@ mod sys {
                 "darwin"
             } else if #[cfg(windows)] {
                 "win32"
+            } else if #[cfg(target_os = "wasi")] {
+                "wasi"
             } else {
                 "unknown"
             }
@@ -69,6 +71,9 @@ mod sys {
     const PS1: &str = ">>>>> ";
     #[pyattr(name = "ps2")]
     const PS2: &str = "..... ";
+    #[cfg(windows)]
+    #[pyattr(name = "_vpath")]
+    const VPATH: Option<&'static str> = None; // TODO: actual VPATH value
 
     #[pyattr]
     fn default_prefix(_vm: &VirtualMachine) -> &'static str {
@@ -257,6 +262,13 @@ mod sys {
         version::get_version()
     }
 
+    #[cfg(windows)]
+    #[pyattr]
+    fn winver(_vm: &VirtualMachine) -> String {
+        // Note: This is Python DLL version in CPython, but we arbitrary fill it for compatibility
+        version::get_winver_number()
+    }
+
     #[pyattr]
     fn _xoptions(vm: &VirtualMachine) -> PyDictRef {
         let ctx = &vm.ctx;
@@ -324,27 +336,24 @@ mod sys {
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let envar = std::env::var("PYTHONBREAKPOINT")
-            .and_then(|envar| {
-                if envar.is_empty() {
+        let env_var = std::env::var("PYTHONBREAKPOINT")
+            .and_then(|env_var| {
+                if env_var.is_empty() {
                     Err(VarError::NotPresent)
                 } else {
-                    Ok(envar)
+                    Ok(env_var)
                 }
             })
             .unwrap_or_else(|_| "pdb.set_trace".to_owned());
 
-        if envar.eq("0") {
+        if env_var.eq("0") {
             return Ok(vm.ctx.none());
         };
 
         let print_unimportable_module_warn = || {
             warn(
                 vm.ctx.exceptions.runtime_warning,
-                format!(
-                    "Ignoring unimportable $PYTHONBREAKPOINT: \"{}\"",
-                    envar.to_owned(),
-                ),
+                format!("Ignoring unimportable $PYTHONBREAKPOINT: \"{env_var}\"",),
                 0,
                 vm,
             )
@@ -352,31 +361,27 @@ mod sys {
             Ok(vm.ctx.none())
         };
 
-        let last = match envar.split('.').last() {
-            Some(last) => last,
-            None => {
-                return print_unimportable_module_warn();
-            }
+        let last = match env_var.rsplit_once('.') {
+            Some((_, last)) => last,
+            None if !env_var.is_empty() => env_var.as_str(),
+            _ => return print_unimportable_module_warn(),
         };
 
-        let (modulepath, attrname) = if last.eq(&envar) {
-            ("builtins".to_owned(), envar.to_owned())
+        let (module_path, attr_name) = if last == env_var {
+            ("builtins", env_var.as_str())
         } else {
-            (
-                envar[..(envar.len() - last.len() - 1)].to_owned(),
-                last.to_owned(),
-            )
+            (&env_var[..(env_var.len() - last.len() - 1)], last)
         };
 
-        let module = match vm.import(modulepath, None, 0) {
+        let module = match vm.import(&vm.ctx.new_str(module_path), None, 0) {
             Ok(module) => module,
             Err(_) => {
                 return print_unimportable_module_warn();
             }
         };
 
-        match vm.get_attribute_opt(module, attrname) {
-            Ok(Some(hook)) => vm.invoke(hook.as_ref(), args),
+        match vm.get_attribute_opt(module, &vm.ctx.new_str(attr_name)) {
+            Ok(Some(hook)) => hook.as_ref().call(args, vm),
             _ => print_unimportable_module_warn(),
         }
     }
@@ -414,10 +419,23 @@ mod sys {
         vm.recursion_limit.get()
     }
 
+    #[derive(FromArgs)]
+    struct GetsizeofArgs {
+        obj: PyObjectRef,
+        #[pyarg(any, optional)]
+        default: Option<PyObjectRef>,
+    }
+
     #[pyfunction]
-    fn getsizeof(obj: PyObjectRef) -> usize {
-        // TODO: implement default optional argument.
-        mem::size_of_val(&obj)
+    fn getsizeof(args: GetsizeofArgs, vm: &VirtualMachine) -> PyResult {
+        let sizeof = || -> PyResult<usize> {
+            let res = vm.call_special_method(&args.obj, identifier!(vm, __sizeof__), ())?;
+            let res = res.try_index(vm)?.try_to_primitive::<usize>(vm)?;
+            Ok(res + std::mem::size_of::<PyObject>())
+        };
+        sizeof()
+            .map(|x| vm.ctx.new_int(x).into())
+            .or_else(|err| args.default.ok_or(err))
     }
 
     #[pyfunction]
@@ -542,19 +560,19 @@ mod sys {
         // TODO: print received unraisable.exc_traceback
         let tb_module = vm.import("traceback", None, 0)?;
         let print_stack = tb_module.get_attr("print_stack", vm)?;
-        vm.invoke(&print_stack, ())?;
+        print_stack.call((), vm)?;
 
         if vm.is_none(unraisable.exc_type.as_object()) {
             // TODO: early return, but with what error?
         }
         assert!(unraisable
             .exc_type
-            .fast_issubclass(vm.ctx.exceptions.exception_type));
+            .fast_issubclass(vm.ctx.exceptions.base_exception_type));
 
         // TODO: print module name and qualname
 
         if !vm.is_none(&unraisable.exc_value) {
-            write!(stderr, ": ");
+            write!(stderr, "{}: ", unraisable.exc_type);
             if let Ok(str) = unraisable.exc_value.str(vm) {
                 write!(stderr, "{}", str.as_str());
             } else {
@@ -572,7 +590,14 @@ mod sys {
     fn unraisablehook(unraisable: UnraisableHookArgs, vm: &VirtualMachine) {
         if let Err(e) = _unraisablehook(unraisable, vm) {
             let stderr = super::PyStderr(vm);
-            writeln!(stderr, "{}", e.as_object().repr(vm).unwrap().as_str());
+            writeln!(
+                stderr,
+                "{}",
+                e.as_object()
+                    .repr(vm)
+                    .unwrap_or_else(|_| vm.ctx.empty_str.to_owned())
+                    .as_str()
+            );
         }
     }
 
@@ -619,8 +644,7 @@ mod sys {
             Ok(())
         } else {
             Err(vm.new_recursion_error(format!(
-                "cannot set the recursion limit to {} at the recursion depth {}: the limit is too low",
-                recursion_limit, recursion_depth
+                "cannot set the recursion limit to {recursion_limit} at the recursion depth {recursion_depth}: the limit is too low"
             )))
         }
     }
@@ -652,7 +676,7 @@ mod sys {
     /// sys.flags
     ///
     /// Flags provided through command line arguments or environment vars.
-    #[pyclass(noattr, name = "flags", module = "sys")]
+    #[pyclass(no_attr, name = "flags", module = "sys")]
     #[derive(Debug, PyStructSequence)]
     pub(super) struct Flags {
         /// -d
@@ -685,6 +709,10 @@ mod sys {
         dev_mode: bool,
         /// -X utf8
         utf8_mode: u8,
+        /// -X int_max_str_digits=number
+        int_max_str_digits: i8,
+        /// -P, `PYTHONSAFEPATH`
+        safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
         warn_default_encoding: u8,
     }
@@ -707,7 +735,9 @@ mod sys {
                 hash_randomization: settings.hash_seed.is_none() as u8,
                 isolated: settings.isolated as u8,
                 dev_mode: settings.dev_mode,
-                utf8_mode: 1,
+                utf8_mode: settings.utf8_mode,
+                int_max_str_digits: -1,
+                safe_path: false,
                 warn_default_encoding: settings.warn_default_encoding as u8,
             }
         }
@@ -719,7 +749,7 @@ mod sys {
     }
 
     #[cfg(feature = "threading")]
-    #[pyclass(noattr, name = "thread_info")]
+    #[pyclass(no_attr, name = "thread_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyThreadInfo {
         name: Option<&'static str>,
@@ -739,7 +769,7 @@ mod sys {
         };
     }
 
-    #[pyclass(noattr, name = "float_info")]
+    #[pyclass(no_attr, name = "float_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyFloatInfo {
         max: f64,
@@ -772,7 +802,7 @@ mod sys {
         };
     }
 
-    #[pyclass(noattr, name = "hash_info")]
+    #[pyclass(no_attr, name = "hash_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyHashInfo {
         width: usize,
@@ -804,11 +834,13 @@ mod sys {
         };
     }
 
-    #[pyclass(noattr, name = "int_info")]
+    #[pyclass(no_attr, name = "int_info")]
     #[derive(PyStructSequence)]
     pub(super) struct PyIntInfo {
         bits_per_digit: usize,
         sizeof_digit: usize,
+        default_max_str_digits: usize,
+        str_digits_check_threshold: usize,
     }
 
     #[pyclass(with(PyStructSequence))]
@@ -816,10 +848,12 @@ mod sys {
         const INFO: Self = PyIntInfo {
             bits_per_digit: 30, //?
             sizeof_digit: std::mem::size_of::<u32>(),
+            default_max_str_digits: 4300,
+            str_digits_check_threshold: 640,
         };
     }
 
-    #[pyclass(noattr, name = "version_info")]
+    #[pyclass(no_attr, name = "version_info")]
     #[derive(Default, Debug, PyStructSequence)]
     pub struct VersionInfo {
         major: usize,
@@ -849,7 +883,7 @@ mod sys {
     }
 
     #[cfg(windows)]
-    #[pyclass(noattr, name = "getwindowsversion")]
+    #[pyclass(no_attr, name = "getwindowsversion")]
     #[derive(Default, Debug, PyStructSequence)]
     pub(super) struct WindowsVersion {
         major: u32,
@@ -868,7 +902,7 @@ mod sys {
     #[pyclass(with(PyStructSequence))]
     impl WindowsVersion {}
 
-    #[pyclass(noattr, name = "UnraisableHookArgs")]
+    #[pyclass(no_attr, name = "UnraisableHookArgs")]
     #[derive(Debug, PyStructSequence, TryIntoPyStructSequence)]
     pub struct UnraisableHookArgs {
         pub exc_type: PyTypeRef,
@@ -882,13 +916,15 @@ mod sys {
     impl UnraisableHookArgs {}
 }
 
-pub(crate) fn init_module(vm: &VirtualMachine, module: &PyObject, builtins: &PyObject) {
-    sys::extend_module(vm, module);
+pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {
+    sys::extend_module(vm, module).unwrap();
 
     let modules = vm.ctx.new_dict();
-    modules.set_item("sys", module.to_owned(), vm).unwrap();
     modules
-        .set_item("builtins", builtins.to_owned(), vm)
+        .set_item("sys", module.to_owned().into(), vm)
+        .unwrap();
+    modules
+        .set_item("builtins", builtins.to_owned().into(), vm)
         .unwrap();
     extend_module!(vm, module, {
         "__doc__" => sys::DOC.to_owned().to_pyobject(vm),
@@ -920,25 +956,22 @@ impl PyStderr<'_> {
                 return;
             }
         }
-        eprint!("{}", args)
+        eprint!("{args}")
     }
 }
 
 pub fn get_stdin(vm: &VirtualMachine) -> PyResult {
     vm.sys_module
-        .clone()
         .get_attr("stdin", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stdin".to_owned()))
 }
 pub fn get_stdout(vm: &VirtualMachine) -> PyResult {
     vm.sys_module
-        .clone()
         .get_attr("stdout", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stdout".to_owned()))
 }
 pub fn get_stderr(vm: &VirtualMachine) -> PyResult {
     vm.sys_module
-        .clone()
         .get_attr("stderr", vm)
         .map_err(|_| vm.new_runtime_error("lost sys.stderr".to_owned()))
 }

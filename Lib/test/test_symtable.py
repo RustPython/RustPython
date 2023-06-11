@@ -106,8 +106,6 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(sorted(func.get_globals()), ["bar", "glob", "some_assigned_global_var"])
         self.assertEqual(self.internal.get_frees(), ("x",))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_globals(self):
         self.assertTrue(self.spam.lookup("glob").is_global())
         self.assertFalse(self.spam.lookup("glob").is_declared_global())
@@ -128,8 +126,6 @@ class SymtableTest(unittest.TestCase):
         expected = ("some_var",)
         self.assertEqual(self.other_internal.get_nonlocals(), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_local(self):
         self.assertTrue(self.spam.lookup("x").is_local())
         self.assertFalse(self.spam.lookup("bar").is_local())

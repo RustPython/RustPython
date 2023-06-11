@@ -1,22 +1,21 @@
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
-    builtins::builtinfunc::PyBuiltinMethod,
     class::PyClassImpl,
     common::lock::PyMutex,
-    function::{FuncArgs, IntoPyNativeFunc},
-    types::{Callable, Constructor, GetDescriptor, Initializer},
+    function::FuncArgs,
+    types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
-#[pyclass(module = false, name = "staticmethod")]
+#[pyclass(module = false, name = "staticmethod", traverse)]
 #[derive(Debug)]
 pub struct PyStaticMethod {
     pub callable: PyMutex<PyObjectRef>,
 }
 
 impl PyPayload for PyStaticMethod {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.staticmethod_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.staticmethod_type
     }
 }
 
@@ -27,7 +26,7 @@ impl GetDescriptor for PyStaticMethod {
         _cls: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let (zelf, _obj) = Self::_unwrap(zelf, obj, vm)?;
+        let (zelf, _obj) = Self::_unwrap(&zelf, obj, vm)?;
         let x = Ok(zelf.callable.lock().clone());
         x
     }
@@ -73,27 +72,6 @@ impl PyStaticMethod {
     }
 }
 
-impl PyStaticMethod {
-    pub fn new_builtin_ref<F, FKind>(
-        name: impl Into<PyStr>,
-        class: &'static Py<PyType>,
-        f: F,
-        ctx: &Context,
-    ) -> PyRef<Self>
-    where
-        F: IntoPyNativeFunc<FKind>,
-    {
-        let callable = PyBuiltinMethod::new_ref(name, class, f, ctx).into();
-        PyRef::new_ref(
-            Self {
-                callable: PyMutex::new(callable),
-            },
-            ctx.types.staticmethod_type.to_owned(),
-            None,
-        )
-    }
-}
-
 impl Initializer for PyStaticMethod {
     type Args = PyObjectRef;
 
@@ -104,7 +82,7 @@ impl Initializer for PyStaticMethod {
 }
 
 #[pyclass(
-    with(Callable, GetDescriptor, Constructor, Initializer),
+    with(Callable, GetDescriptor, Constructor, Initializer, Representable),
     flags(BASETYPE, HAS_DICT)
 )]
 impl PyStaticMethod {
@@ -138,26 +116,6 @@ impl PyStaticMethod {
         self.callable.lock().get_attr("__annotations__", vm)
     }
 
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> Option<String> {
-        let callable = self.callable.lock().repr(vm).unwrap();
-        let class = Self::class(vm);
-
-        match (
-            class
-                .qualname(vm)
-                .downcast_ref::<PyStr>()
-                .map(|n| n.as_str()),
-            class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
-        ) {
-            (None, _) => None,
-            (Some(qualname), Some(module)) if module != "builtins" => {
-                Some(format!("<{}.{}({})>", module, qualname, callable))
-            }
-            _ => Some(format!("<{}({})>", class.slot_name(), callable)),
-        }
-    }
-
     #[pygetset(magic)]
     fn isabstractmethod(&self, vm: &VirtualMachine) -> PyObjectRef {
         match vm.get_attribute_opt(self.callable.lock().clone(), "__isabstractmethod__") {
@@ -178,9 +136,30 @@ impl PyStaticMethod {
 impl Callable for PyStaticMethod {
     type Args = FuncArgs;
     #[inline]
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let callable = zelf.callable.lock().clone();
-        vm.invoke(&callable, args)
+        callable.call(args, vm)
+    }
+}
+
+impl Representable for PyStaticMethod {
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let callable = zelf.callable.lock().repr(vm).unwrap();
+        let class = Self::class(&vm.ctx);
+
+        match (
+            class
+                .qualname(vm)
+                .downcast_ref::<PyStr>()
+                .map(|n| n.as_str()),
+            class.module(vm).downcast_ref::<PyStr>().map(|m| m.as_str()),
+        ) {
+            (None, _) => Err(vm.new_type_error("Unknown qualified name".into())),
+            (Some(qualname), Some(module)) if module != "builtins" => {
+                Ok(format!("<{module}.{qualname}({callable})>"))
+            }
+            _ => Ok(format!("<{}({})>", class.slot_name(), callable)),
+        }
     }
 }
 

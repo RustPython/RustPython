@@ -1,11 +1,10 @@
 //! Builtin function definitions.
 //!
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
-use crate::{class::PyClassImpl, PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, class::PyClassImpl, Py, VirtualMachine};
+pub(crate) use builtins::{__module_def, DOC};
+pub use builtins::{ascii, print, reversed};
 
-/// Built-in functions, exceptions, and other objects.
-///
-/// Noteworthy: None is the `nil' object; Ellipsis represents `...' in slices.
 #[pymodule]
 mod builtins {
     use crate::{
@@ -20,17 +19,16 @@ mod builtins {
         },
         common::{hash::PyHash, str::to_ascii},
         convert::ToPyException,
-        format::call_object_format,
         function::{
-            ArgBytesLike, ArgCallable, ArgIntoBool, ArgIterable, ArgMapping, ArgStrOrBytesLike,
-            Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs, PyArithmeticValue,
+            ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
+            ArgStrOrBytesLike, Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
         readline::{Readline, ReadlineResult},
         stdlib::sys,
         types::PyComparisonOp,
-        AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive};
 
@@ -76,25 +74,23 @@ mod builtins {
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
-            format!("0b{:b}", x)
+            format!("0b{x:b}")
         }
     }
 
     #[pyfunction]
-    fn callable(obj: PyObjectRef, vm: &VirtualMachine) -> bool {
-        vm.is_callable(&obj)
+    fn callable(obj: PyObjectRef) -> bool {
+        obj.is_callable()
     }
 
     #[pyfunction]
     fn chr(i: PyIntRef, vm: &VirtualMachine) -> PyResult<String> {
-        match i
+        let value = i
             .try_to_primitive::<isize>(vm)?
             .to_u32()
             .and_then(char::from_u32)
-        {
-            Some(value) => Ok(value.to_string()),
-            None => Err(vm.new_value_error("chr() arg not in range(0x110000)".to_owned())),
-        }
+            .ok_or_else(|| vm.new_value_error("chr() arg not in range(0x110000)".to_owned()))?;
+        Ok(value.to_string())
     }
 
     #[derive(FromArgs)]
@@ -121,14 +117,14 @@ mod builtins {
             use crate::{class::PyClassImpl, stdlib::ast};
 
             if args._feature_version.is_present() {
-                eprintln!("TODO: compile() got `_feature_version` but ignored");
+                // TODO: add support for _feature_version
             }
 
             let mode_str = args.mode.as_str();
 
             if args
                 .source
-                .fast_isinstance(&ast::AstNode::make_class(&vm.ctx))
+                .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
             {
                 #[cfg(not(feature = "rustpython-codegen"))]
                 {
@@ -153,7 +149,7 @@ mod builtins {
             {
                 use crate::builtins::PyBytesRef;
                 use num_traits::Zero;
-                use rustpython_parser::parser;
+                use rustpython_parser as parser;
 
                 let source = Either::<PyStrRef, PyBytesRef>::try_from_object(vm, args.source)?;
                 // TODO: compiler::compile should probably get bytes
@@ -177,21 +173,27 @@ mod builtins {
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
                         let code = vm
                             .compile(source, mode, args.filename.as_str().to_owned())
-                            .map_err(|err| err.to_pyexception(vm))?;
+                            .map_err(|err| (err, Some(source)).to_pyexception(vm))?;
                         Ok(code.into())
                     }
                 } else {
                     let mode = mode_str
                         .parse::<parser::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    ast::parse(vm, source, mode).map_err(|e| e.to_pyexception(vm))
+                    ast::parse(vm, source, mode).map_err(|e| (e, Some(source)).to_pyexception(vm))
                 }
             }
         }
     }
 
     #[pyfunction]
-    fn delattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
         obj.del_attr(attr, vm)
     }
 
@@ -243,8 +245,6 @@ mod builtins {
         }
     }
 
-    /// Implements `eval`.
-    /// See also: https://docs.python.org/3/library/functions.html#eval
     #[pyfunction]
     fn eval(
         source: Either<ArgStrOrBytesLike, PyRef<crate::builtins::PyCode>>,
@@ -270,15 +270,13 @@ mod builtins {
 
                     vm.new_exception_msg(vm.ctx.exceptions.syntax_error.to_owned(), msg)
                 })?;
-                Ok(Either::A(vm.ctx.new_str(source)))
+                Ok(Either::A(vm.ctx.new_str(source.trim_start())))
             }
             Either::B(code) => Ok(Either::B(code)),
         }?;
         run_code(vm, code, scope, crate::compiler::Mode::Eval, "eval")
     }
 
-    /// Implements `exec`
-    /// https://docs.python.org/3/library/functions.html#exec
     #[pyfunction]
     fn exec(
         source: Either<PyStrRef, PyRef<crate::builtins::PyCode>>,
@@ -302,7 +300,7 @@ mod builtins {
             #[cfg(feature = "rustpython-compiler")]
             Either::A(string) => vm
                 .compile(string.as_str(), mode, "<string>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err))?,
+                .map_err(|err| vm.new_syntax_error(&err, Some(string.as_str())))?,
             #[cfg(not(feature = "rustpython-compiler"))]
             Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned())),
             Either::B(code_obj) => code_obj,
@@ -310,8 +308,7 @@ mod builtins {
 
         if !code_obj.freevars.is_empty() {
             return Err(vm.new_type_error(format!(
-                "code object passed to {}() may not contain free variables",
-                func
+                "code object passed to {func}() may not contain free variables"
             )));
         }
 
@@ -325,20 +322,23 @@ mod builtins {
         format_spec: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
-        let format_spec = format_spec
-            .into_option()
-            .unwrap_or_else(|| vm.ctx.empty_str.clone());
-
-        call_object_format(vm, value, None, format_spec.as_str())
+        vm.format(&value, format_spec.unwrap_or(vm.ctx.new_str("")))
     }
 
     #[pyfunction]
     fn getattr(
         obj: PyObjectRef,
-        attr: PyStrRef,
+        attr: PyObjectRef,
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
+
         if let OptionalArg::Present(default) = default {
             Ok(vm.get_attribute_opt(obj, attr)?.unwrap_or(default))
         } else {
@@ -352,7 +352,13 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn hasattr(obj: PyObjectRef, attr: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
+    fn hasattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
         Ok(vm.get_attribute_opt(obj, attr)?.is_some())
     }
 
@@ -367,15 +373,15 @@ mod builtins {
             .sys_module
             .get_attr(vm.ctx.intern_str("breakpointhook"), vm)
         {
-            Ok(hook) => vm.invoke(hook.as_ref(), args),
+            Ok(hook) => hook.as_ref().call(args, vm),
             Err(_) => Err(vm.new_runtime_error("lost sys.breakpointhook".to_owned())),
         }
     }
 
     #[pyfunction]
-    fn hex(number: PyIntRef) -> String {
+    fn hex(number: ArgIndex) -> String {
         let n = number.as_bigint();
-        format!("{:#x}", n)
+        format!("{n:#x}")
     }
 
     #[pyfunction]
@@ -441,7 +447,7 @@ mod builtins {
         if let OptionalArg::Present(sentinel) = sentinel {
             let callable = ArgCallable::try_from_object(vm, iter_target)?;
             let iterator = PyCallableIterator::new(callable, sentinel)
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into();
             Ok(PyIter::new(iterator))
         } else {
@@ -452,7 +458,7 @@ mod builtins {
     #[pyfunction]
     fn aiter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if iter_target.payload_is::<PyAsyncGen>() {
-            vm.call_special_method(iter_target, identifier!(vm, __aiter__), ())
+            vm.call_special_method(&iter_target, identifier!(vm, __aiter__), ())
         } else {
             Err(vm.new_type_error("wrong argument type".to_owned()))
         }
@@ -485,8 +491,7 @@ mod builtins {
             std::cmp::Ordering::Greater => {
                 if default.is_some() {
                     return Err(vm.new_type_error(format!(
-                        "Cannot specify a default for {} with multiple positional arguments",
-                        func_name
+                        "Cannot specify a default for {func_name}() with multiple positional arguments"
                     )));
                 }
                 args.args
@@ -494,7 +499,9 @@ mod builtins {
             std::cmp::Ordering::Equal => args.args[0].try_to_value(vm)?,
             std::cmp::Ordering::Less => {
                 // zero arguments means type error:
-                return Err(vm.new_type_error("Expected 1 or more arguments".to_owned()));
+                return Err(
+                    vm.new_type_error(format!("{func_name} expected at least 1 argument, got 0"))
+                );
             }
         };
 
@@ -503,16 +510,16 @@ mod builtins {
             Some(x) => x,
             None => {
                 return default.ok_or_else(|| {
-                    vm.new_value_error(format!("{} arg is an empty sequence", func_name))
+                    vm.new_value_error(format!("{func_name}() arg is an empty sequence"))
                 })
             }
         };
 
         let key_func = key_func.filter(|f| !vm.is_none(f));
         if let Some(ref key_func) = key_func {
-            let mut x_key = vm.invoke(key_func, (x.clone(),))?;
+            let mut x_key = key_func.call((x.clone(),), vm)?;
             for y in candidates_iter {
-                let y_key = vm.invoke(key_func, (y.clone(),))?;
+                let y_key = key_func.call((y.clone(),), vm)?;
                 if y_key.rich_compare_bool(&x_key, op, vm)? {
                     x = y;
                     x_key = y_key;
@@ -531,12 +538,12 @@ mod builtins {
 
     #[pyfunction]
     fn max(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        min_or_max(args, vm, "max()", PyComparisonOp::Gt)
+        min_or_max(args, vm, "max", PyComparisonOp::Gt)
     }
 
     #[pyfunction]
     fn min(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        min_or_max(args, vm, "min()", PyComparisonOp::Lt)
+        min_or_max(args, vm, "min", PyComparisonOp::Lt)
     }
 
     #[pyfunction]
@@ -560,12 +567,12 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn oct(number: PyIntRef, vm: &VirtualMachine) -> PyResult {
+    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyResult {
         let n = number.as_bigint();
         let s = if n.is_negative() {
             format!("-0o{:o}", n.abs())
         } else {
-            format!("0o{:o}", n)
+            format!("0o{n:o}")
         };
 
         Ok(vm.ctx.new_str(s).into())
@@ -578,8 +585,7 @@ mod builtins {
                 let bytes_len = bytes.len();
                 if bytes_len != 1 {
                     return Err(vm.new_type_error(format!(
-                        "ord() expected a character, but string of length {} found",
-                        bytes_len
+                        "ord() expected a character, but string of length {bytes_len} found"
                     )));
                 }
                 Ok(u32::from(bytes[0]))
@@ -589,8 +595,7 @@ mod builtins {
                 let string_len = string.chars().count();
                 if string_len != 1 {
                     return Err(vm.new_type_error(format!(
-                        "ord() expected a character, but string of length {} found",
-                        string_len
+                        "ord() expected a character, but string of length {string_len} found"
                     )));
                 }
                 match string.chars().next() {
@@ -618,45 +623,8 @@ mod builtins {
             exp: y,
             modulus,
         } = args;
-        match modulus {
-            None => vm.call_or_reflection(
-                &x,
-                &y,
-                identifier!(vm, __pow__),
-                identifier!(vm, __rpow__),
-                |vm, x, y| Err(vm.new_unsupported_binop_error(x, y, "pow")),
-            ),
-            Some(z) => {
-                let try_pow_value = |obj: &PyObject,
-                                     args: (PyObjectRef, PyObjectRef, PyObjectRef)|
-                 -> Option<PyResult> {
-                    let method = obj.get_class_attr(identifier!(vm, __pow__))?;
-                    let result = match vm.invoke(&method, args) {
-                        Ok(x) => x,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    Some(Ok(PyArithmeticValue::from_object(vm, result).into_option()?))
-                };
-
-                if let Some(val) = try_pow_value(&x, (x.clone(), y.clone(), z.clone())) {
-                    return val;
-                }
-
-                if !x.class().is(&y.class()) {
-                    if let Some(val) = try_pow_value(&y, (x.clone(), y.clone(), z.clone())) {
-                        return val;
-                    }
-                }
-
-                if !x.class().is(&z.class()) && !y.class().is(&z.class()) {
-                    if let Some(val) = try_pow_value(&z, (x.clone(), y.clone(), z.clone())) {
-                        return val;
-                    }
-                }
-
-                Err(vm.new_unsupported_ternop_error(&x, &y, &z, "pow"))
-            }
-        }
+        let modulus = modulus.as_ref().map_or(vm.ctx.none.as_object(), |m| m);
+        vm._pow(&x, &y, modulus)
     }
 
     #[pyfunction]
@@ -685,7 +653,9 @@ mod builtins {
         };
         let write = |obj: PyStrRef| vm.call_method(&file, "write", (obj,));
 
-        let sep = options.sep.unwrap_or_else(|| PyStr::from(" ").into_ref(vm));
+        let sep = options
+            .sep
+            .unwrap_or_else(|| PyStr::from(" ").into_ref(&vm.ctx));
 
         let mut first = true;
         for object in objects {
@@ -700,7 +670,7 @@ mod builtins {
 
         let end = options
             .end
-            .unwrap_or_else(|| PyStr::from("\n").into_ref(vm));
+            .unwrap_or_else(|| PyStr::from("\n").into_ref(&vm.ctx));
         write(end)?;
 
         if *options.flush {
@@ -716,9 +686,9 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+    pub fn reversed(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         if let Some(reversed_method) = vm.get_method(obj.clone(), identifier!(vm, __reversed__)) {
-            vm.invoke(&reversed_method?, ())
+            reversed_method?.call((), vm)
         } else {
             vm.get_method_or_type_error(obj.clone(), identifier!(vm, __getitem__), || {
                 "argument to reversed() must be a sequence".to_owned()
@@ -739,8 +709,8 @@ mod builtins {
     #[pyfunction]
     fn round(RoundArgs { number, ndigits }: RoundArgs, vm: &VirtualMachine) -> PyResult {
         let meth = vm
-            .get_special_method(number, identifier!(vm, __round__))?
-            .map_err(|number| {
+            .get_special_method(&number, identifier!(vm, __round__))?
+            .ok_or_else(|| {
                 vm.new_type_error(format!(
                     "type {} doesn't define __round__",
                     number.class().name()
@@ -761,10 +731,16 @@ mod builtins {
     #[pyfunction]
     fn setattr(
         obj: PyObjectRef,
-        attr: PyStrRef,
+        attr: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+            vm.new_type_error(format!(
+                "attribute name must be string, not '{}'",
+                attr.class().name()
+            ))
+        })?;
         obj.set_attr(attr, value, vm)?;
         Ok(())
     }
@@ -818,16 +794,15 @@ mod builtins {
 
     #[pyfunction]
     fn __import__(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(&vm.import_func, args)
+        vm.import_func.call(args, vm)
     }
 
     #[pyfunction]
     fn vars(obj: OptionalArg, vm: &VirtualMachine) -> PyResult {
         if let OptionalArg::Present(obj) = obj {
-            obj.get_attr(identifier!(vm, __dict__).to_owned(), vm)
-                .map_err(|_| {
-                    vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
-                })
+            obj.get_attr(identifier!(vm, __dict__), vm).map_err(|_| {
+                vm.new_type_error("vars() argument must have __dict__ attribute".to_owned())
+            })
         } else {
             Ok(vm.current_locals()?.into())
         }
@@ -857,7 +832,7 @@ mod builtins {
             let mro_entries =
                 vm.get_attribute_opt(base.clone(), identifier!(vm, __mro_entries__))?;
             let entries = match mro_entries {
-                Some(meth) => vm.invoke(&meth, (bases.clone(),))?,
+                Some(meth) => meth.call((bases.clone(),), vm)?,
                 None => {
                     if let Some(bases) = &mut new_bases {
                         bases.push(base.clone());
@@ -881,16 +856,20 @@ mod builtins {
         // Use downcast_exact to keep ref to old object on error.
         let metaclass = kwargs
             .pop_kwarg("metaclass")
-            .map(|metaclass| metaclass.downcast_exact::<PyType>(vm))
+            .map(|metaclass| {
+                metaclass
+                    .downcast_exact::<PyType>(vm)
+                    .map(|m| m.into_pyref())
+            })
             .unwrap_or_else(|| Ok(vm.ctx.types.type_type.to_owned()));
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
-                for base in &bases {
+                for base in bases.iter() {
                     let base_class = base.class();
                     if base_class.fast_issubclass(&metaclass) {
-                        metaclass = base.class().clone();
-                    } else if !metaclass.fast_issubclass(&base_class) {
+                        metaclass = base.class().to_owned();
+                    } else if !metaclass.fast_issubclass(base_class) {
                         return Err(vm.new_type_error(
                             "metaclass conflict: the metaclass of a derived class must be a (non-strict) \
                             subclass of the metaclasses of all its bases"
@@ -899,7 +878,7 @@ mod builtins {
                     }
                 }
                 let meta_name = metaclass.slot_name();
-                (metaclass.into(), meta_name)
+                (metaclass.to_owned().into(), meta_name.to_owned())
             }
             Err(obj) => (obj, "<metaclass>".to_owned()),
         };
@@ -910,10 +889,9 @@ mod builtins {
         let namespace = vm
             .get_attribute_opt(metaclass.clone(), identifier!(vm, __prepare__))?
             .map_or(Ok(vm.ctx.new_dict().into()), |prepare| {
-                vm.invoke(
-                    &prepare,
-                    FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone()),
-                )
+                let args =
+                    FuncArgs::new(vec![name_obj.clone().into(), bases.clone()], kwargs.clone());
+                prepare.call(args, vm)
             })?;
 
         // Accept any PyMapping as namespace.
@@ -936,23 +914,19 @@ mod builtins {
             )?;
         }
 
-        let class = vm.invoke(
-            &metaclass,
-            FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs),
-        )?;
+        let args = FuncArgs::new(vec![name_obj.into(), bases, namespace.into()], kwargs);
+        let class = metaclass.call(args, vm)?;
 
         if let Some(ref classcell) = classcell {
             let classcell = classcell.get().ok_or_else(|| {
                 vm.new_type_error(format!(
-                    "__class__ not set defining {:?} as {:?}. Was __classcell__ propagated to type.__new__?",
-                    meta_name, class
+                    "__class__ not set defining {meta_name:?} as {class:?}. Was __classcell__ propagated to type.__new__?"
                 ))
             })?;
 
             if !classcell.is(&class) {
                 return Err(vm.new_type_error(format!(
-                    "__class__ set to {:?} defining {:?} as {:?}",
-                    classcell, meta_name, class
+                    "__class__ set to {classcell:?} defining {meta_name:?} as {class:?}"
                 )));
             }
         }
@@ -961,14 +935,12 @@ mod builtins {
     }
 }
 
-pub use builtins::{ascii, print};
-
-pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
+pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
 
     crate::protocol::VecBuffer::make_class(&vm.ctx);
 
-    builtins::extend_module(vm, &module);
+    builtins::extend_module(vm, module).unwrap();
 
     let debug_mode: bool = vm.state.settings.optimize == 0;
     extend_module!(vm, module, {
@@ -1007,9 +979,10 @@ pub fn make_module(vm: &VirtualMachine, module: PyObjectRef) {
         "NotImplemented" => ctx.not_implemented(),
         "Ellipsis" => vm.ctx.ellipsis.clone(),
 
-        // ordered by exception_hierarachy.txt
+        // ordered by exception_hierarchy.txt
         // Exceptions:
         "BaseException" => ctx.exceptions.base_exception_type.to_owned(),
+        "BaseExceptionGroup" => ctx.exceptions.base_exception_group.to_owned(),
         "SystemExit" => ctx.exceptions.system_exit.to_owned(),
         "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.to_owned(),
         "GeneratorExit" => ctx.exceptions.generator_exit.to_owned(),

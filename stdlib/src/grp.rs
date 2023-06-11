@@ -13,11 +13,14 @@ mod grp {
     use std::ptr::NonNull;
 
     #[pyattr]
-    #[pyclass(module = "grp", name = "struct_group")]
+    #[pyclass(module = "grp", name = "struct_group", traverse)]
     #[derive(PyStructSequence)]
     struct Group {
+        #[pytraverse(skip)]
         gr_name: String,
+        #[pytraverse(skip)]
         gr_passwd: String,
+        #[pytraverse(skip)]
         gr_gid: u32,
         gr_mem: PyListRef,
     }
@@ -53,7 +56,7 @@ mod grp {
         let group = group.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getgrgid: group id {} not found", gr_gid))
+                    .new_str(format!("getgrgid: group id {gr_gid} not found"))
                     .into(),
             )
         })?;
@@ -70,7 +73,7 @@ mod grp {
         let group = group.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getgrnam: group name {} not found", gr_name))
+                    .new_str(format!("getgrnam: group name {gr_name} not found"))
                     .into(),
             )
         })?;

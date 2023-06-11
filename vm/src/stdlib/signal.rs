@@ -1,6 +1,6 @@
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _signal::make_module(vm);
 
     _signal::init_signal_handlers(&module, vm);
@@ -11,8 +11,9 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
 #[pymodule]
 pub(crate) mod _signal {
     use crate::{
+        builtins::PyModule,
         convert::{IntoPyException, TryFromBorrowedObject},
-        signal, PyObjectRef, PyResult, VirtualMachine,
+        signal, Py, PyObjectRef, PyResult, VirtualMachine,
     };
     use std::sync::atomic::{self, Ordering};
 
@@ -80,7 +81,7 @@ pub(crate) mod _signal {
     #[pyattr]
     use libc::{SIGPWR, SIGSTKFLT};
 
-    pub(super) fn init_signal_handlers(module: &PyObjectRef, vm: &VirtualMachine) {
+    pub(super) fn init_signal_handlers(module: &Py<PyModule>, vm: &VirtualMachine) {
         let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
         let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
@@ -100,10 +101,11 @@ pub(crate) mod _signal {
         }
 
         let int_handler = module
-            .clone()
             .get_attr("default_int_handler", vm)
             .expect("_signal does not have this attr?");
-        signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+        if !vm.state.settings.no_sig_int {
+            signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+        }
     }
 
     #[pyfunction]
@@ -122,7 +124,7 @@ pub(crate) mod _signal {
             match usize::try_from_borrowed_object(vm, &handler).ok() {
                 Some(SIG_DFL) => SIG_DFL,
                 Some(SIG_IGN) => SIG_IGN,
-                None if vm.is_callable(&handler) => run_signal as libc::sighandler_t,
+                None if handler.is_callable() => run_signal as libc::sighandler_t,
                 _ => return Err(vm.new_type_error(
                     "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object"
                         .to_owned(),
@@ -230,9 +232,7 @@ pub(crate) mod _signal {
             let nonblock =
                 fcntl::OFlag::from_bits_truncate(oflags).contains(fcntl::OFlag::O_NONBLOCK);
             if !nonblock {
-                return Err(
-                    vm.new_value_error(format!("the fd {} must be in non-blocking mode", fd))
-                );
+                return Err(vm.new_value_error(format!("the fd {fd} must be in non-blocking mode")));
             }
         }
 

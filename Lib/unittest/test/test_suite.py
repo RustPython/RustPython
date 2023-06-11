@@ -370,8 +370,7 @@ class Test_TestSuite(unittest.TestCase, TestEquality):
         del test
 
         # for the benefit of non-reference counting implementations
-        # XXX RUSTPYTHON TODO: gc module
-        # gc.collect()
+        gc.collect()
 
         self.assertEqual(suite._tests, [None])
         self.assertIsNone(wref())

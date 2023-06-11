@@ -3,9 +3,9 @@
 */
 use crate::{
     convert::ToPyResult,
-    function::{OwnedParam, RefParam},
+    function::{BorrowedParam, OwnedParam, RefParam},
     object::PyThreadingConstraint,
-    PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 #[derive(result_like::OptionLike, is_macro::Is, Debug)]
@@ -74,6 +74,18 @@ where
     }
 }
 
+impl<F, S, R> IntoPyGetterFunc<(BorrowedParam<S>, R, VirtualMachine)> for F
+where
+    F: Fn(&Py<S>, &VirtualMachine) -> R + 'static + Send + Sync,
+    S: PyPayload,
+    R: ToPyResult,
+{
+    fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let zelf = PyRef::<S>::try_from_object(vm, obj)?;
+        (self)(&zelf, vm).to_pyresult(vm)
+    }
+}
+
 impl<F, S, R> IntoPyGetterFunc<(RefParam<S>, R, VirtualMachine)> for F
 where
     F: Fn(&S, &VirtualMachine) -> R + 'static + Send + Sync,
@@ -95,6 +107,18 @@ where
     fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let obj = T::try_from_object(vm, obj)?;
         (self)(obj).to_pyresult(vm)
+    }
+}
+
+impl<F, S, R> IntoPyGetterFunc<(BorrowedParam<S>, R)> for F
+where
+    F: Fn(&Py<S>) -> R + 'static + Send + Sync,
+    S: PyPayload,
+    R: ToPyResult,
+{
+    fn get(&self, obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        let zelf = PyRef::<S>::try_from_object(vm, obj)?;
+        (self)(&zelf).to_pyresult(vm)
     }
 }
 
@@ -149,6 +173,20 @@ where
     }
 }
 
+impl<F, S, V, R> IntoPySetterFunc<(BorrowedParam<S>, V, R, VirtualMachine)> for F
+where
+    F: Fn(&Py<S>, V, &VirtualMachine) -> R + 'static + Send + Sync,
+    S: PyPayload,
+    V: FromPySetterValue,
+    R: IntoPyNoResult,
+{
+    fn set(&self, obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf = PyRef::<S>::try_from_object(vm, obj)?;
+        let value = V::from_setter_value(vm, value)?;
+        (self)(&zelf, value, vm).into_noresult()
+    }
+}
+
 impl<F, S, V, R> IntoPySetterFunc<(RefParam<S>, V, R, VirtualMachine)> for F
 where
     F: Fn(&S, V, &VirtualMachine) -> R + 'static + Send + Sync,
@@ -174,6 +212,20 @@ where
         let obj = T::try_from_object(vm, obj)?;
         let value = V::from_setter_value(vm, value)?;
         (self)(obj, value).into_noresult()
+    }
+}
+
+impl<F, S, V, R> IntoPySetterFunc<(BorrowedParam<S>, V, R)> for F
+where
+    F: Fn(&Py<S>, V) -> R + 'static + Send + Sync,
+    S: PyPayload,
+    V: FromPySetterValue,
+    R: IntoPyNoResult,
+{
+    fn set(&self, obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf = PyRef::<S>::try_from_object(vm, obj)?;
+        let value = V::from_setter_value(vm, value)?;
+        (self)(&zelf, value).into_noresult()
     }
 }
 

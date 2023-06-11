@@ -12,10 +12,11 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, Arg};
-
-use rustpython_parser::{ast, parser};
-use std::path::Path;
-use std::time::{Duration, Instant};
+use rustpython_parser::{self as parser, ast};
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 fn main() {
     env_logger::init();
@@ -32,9 +33,9 @@ fn main() {
 
     let folder = Path::new(matches.value_of("folder").unwrap());
     if folder.exists() && folder.is_dir() {
-        println!("Parsing folder of python code: {:?}", folder);
+        println!("Parsing folder of python code: {folder:?}");
         let t1 = Instant::now();
-        let parsed_files = parse_folder(&folder).unwrap();
+        let parsed_files = parse_folder(folder).unwrap();
         let t2 = Instant::now();
         let results = ScanResult {
             t1,
@@ -43,7 +44,7 @@ fn main() {
         };
         statistics(results);
     } else {
-        println!("{:?} is not a folder.", folder);
+        println!("{folder:?} is not a folder.");
     }
 }
 
@@ -83,7 +84,7 @@ fn parse_python_file(filename: &Path) -> ParsedFile {
             result: Err(e.to_string()),
         },
         Ok(source) => {
-            let num_lines = source.to_string().lines().count();
+            let num_lines = source.lines().count();
             let result = parser::parse_program(&source, &filename.to_string_lossy())
                 .map_err(|e| e.to_string());
             ParsedFile {
@@ -111,13 +112,13 @@ fn statistics(results: ScanResult) {
         .iter()
         .filter(|p| p.result.is_ok())
         .count();
-    println!("Passed: {} Failed: {} Total: {}", passed, failed, total);
+    println!("Passed: {passed} Failed: {failed} Total: {total}");
     println!(
         "That is {} % success rate.",
         (passed as f64 * 100.0) / total as f64
     );
     let duration = results.t2 - results.t1;
-    println!("Total time spend: {:?}", duration);
+    println!("Total time spend: {duration:?}");
     println!(
         "Processed {} files. That's {} files/second",
         total,

@@ -32,7 +32,11 @@ impl Clone for StringPool {
 
 impl StringPool {
     #[inline]
-    pub unsafe fn intern<S: Internable>(&self, s: S, typ: PyTypeRef) -> &'static PyStrInterned {
+    pub unsafe fn intern<S: InternableString>(
+        &self,
+        s: S,
+        typ: PyTypeRef,
+    ) -> &'static PyStrInterned {
         if let Some(found) = self.interned(s.as_ref()) {
             return found;
         }
@@ -60,7 +64,10 @@ impl StringPool {
     }
 
     #[inline]
-    pub fn interned<S: MaybeInterned + ?Sized>(&self, s: &S) -> Option<&'static PyStrInterned> {
+    pub fn interned<S: MaybeInternedString + ?Sized>(
+        &self,
+        s: &S,
+    ) -> Option<&'static PyStrInterned> {
         if let Some(interned) = s.as_interned() {
             return Some(interned);
         }
@@ -164,6 +171,13 @@ impl<T: PyPayload> std::hash::Hash for PyInterned<T> {
     }
 }
 
+impl<T: PyPayload> AsRef<Py<T>> for PyInterned<T> {
+    #[inline(always)]
+    fn as_ref(&self) -> &Py<T> {
+        &self.inner
+    }
+}
+
 impl<T: PyPayload> Deref for PyInterned<T> {
     type Target = Py<T>;
     #[inline(always)]
@@ -214,16 +228,16 @@ mod sealed {
 }
 
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait Internable
+pub trait InternableString
 where
     Self: sealed::SealedInternable + ToPyObject + AsRef<Self::Interned>,
-    Self::Interned: MaybeInterned,
+    Self::Interned: MaybeInternedString,
 {
     type Interned: ?Sized;
     fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr>;
 }
 
-impl Internable for String {
+impl InternableString for String {
     type Interned = str;
     #[inline]
     fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr> {
@@ -232,7 +246,7 @@ impl Internable for String {
     }
 }
 
-impl Internable for &str {
+impl InternableString for &str {
     type Interned = str;
     #[inline]
     fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr> {
@@ -240,7 +254,7 @@ impl Internable for &str {
     }
 }
 
-impl Internable for PyRefExact<PyStr> {
+impl InternableString for PyRefExact<PyStr> {
     type Interned = Py<PyStr>;
     #[inline]
     fn into_pyref_exact(self, _str_type: PyTypeRef) -> PyRefExact<PyStr> {
@@ -248,27 +262,27 @@ impl Internable for PyRefExact<PyStr> {
     }
 }
 
-pub trait MaybeInterned:
+pub trait MaybeInternedString:
     AsRef<str> + crate::dictdatatype::DictKey + sealed::SealedMaybeInterned
 {
     fn as_interned(&self) -> Option<&'static PyStrInterned>;
 }
 
-impl MaybeInterned for str {
+impl MaybeInternedString for str {
     #[inline(always)]
     fn as_interned(&self) -> Option<&'static PyStrInterned> {
         None
     }
 }
 
-impl MaybeInterned for PyExact<PyStr> {
+impl MaybeInternedString for PyExact<PyStr> {
     #[inline(always)]
     fn as_interned(&self) -> Option<&'static PyStrInterned> {
         None
     }
 }
 
-impl MaybeInterned for Py<PyStr> {
+impl MaybeInternedString for Py<PyStr> {
     #[inline(always)]
     fn as_interned(&self) -> Option<&'static PyStrInterned> {
         if self.as_object().is_interned() {

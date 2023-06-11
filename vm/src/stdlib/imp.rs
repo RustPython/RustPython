@@ -1,13 +1,9 @@
-use crate::{PyObjectRef, VirtualMachine};
-
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let module = _imp::make_module(vm);
-    lock::extend_module(vm, &module);
-    module
-}
+use crate::frozen::FrozenModule;
+use crate::{builtins::PyBaseExceptionRef, VirtualMachine};
+pub(crate) use _imp::make_module;
 
 #[cfg(feature = "threading")]
-#[pymodule]
+#[pymodule(sub)]
 mod lock {
     use crate::{stdlib::thread::RawRMutex, PyResult, VirtualMachine};
 
@@ -35,7 +31,7 @@ mod lock {
 }
 
 #[cfg(not(feature = "threading"))]
-#[pymodule]
+#[pymodule(sub)]
 mod lock {
     use crate::vm::VirtualMachine;
     #[pyfunction]
@@ -48,11 +44,45 @@ mod lock {
     }
 }
 
-#[pymodule]
+#[allow(dead_code)]
+enum FrozenError {
+    BadName,  // The given module name wasn't valid.
+    NotFound, // It wasn't in PyImport_FrozenModules.
+    Disabled, // -X frozen_modules=off (and not essential)
+    Excluded, // The PyImport_FrozenModules entry has NULL "code"
+    //        (module is present but marked as unimportable, stops search).
+    Invalid, // The PyImport_FrozenModules entry is bogus
+             //          (eg. does not contain executable code).
+}
+
+impl FrozenError {
+    fn to_pyexception(&self, mod_name: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        use FrozenError::*;
+        let msg = match self {
+            BadName | NotFound => format!("No such frozen object named {mod_name}"),
+            Disabled => format!("Frozen modules are disabled and the frozen object named {mod_name} is not essential"),
+            Excluded => format!("Excluded frozen object named {mod_name}"),
+            Invalid => format!("Frozen object named {mod_name} is invalid"),
+        };
+        vm.new_import_error(msg, vm.ctx.new_str(mod_name))
+    }
+}
+
+// find_frozen in frozen.c
+fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenError> {
+    vm.state
+        .frozen
+        .get(name)
+        .copied()
+        .ok_or(FrozenError::NotFound)
+}
+
+#[pymodule(with(lock))]
 mod _imp {
     use crate::{
-        builtins::{PyBytesRef, PyCode, PyModule, PyStrRef},
-        import, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef},
+        function::OptionalArg,
+        import, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
 
     #[pyattr]
@@ -79,16 +109,16 @@ mod _imp {
     #[pyfunction]
     fn create_builtin(spec: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let sys_modules = vm.sys_module.get_attr("modules", vm).unwrap();
-        let name = spec.get_attr("name", vm)?;
-        let name = PyStrRef::try_from_object(vm, name)?;
+        let name: PyStrRef = spec.get_attr("name", vm)?.try_into_value(vm)?;
 
-        if let Ok(module) = sys_modules.get_item(&*name, vm) {
-            Ok(module)
+        let module = if let Ok(module) = sys_modules.get_item(&*name, vm) {
+            module
         } else if let Some(make_module_func) = vm.state.module_inits.get(name.as_str()) {
-            Ok(make_module_func(vm))
+            make_module_func(vm).into()
         } else {
-            Ok(vm.ctx.none())
-        }
+            vm.ctx.none()
+        };
+        Ok(module)
     }
 
     #[pyfunction]
@@ -109,18 +139,43 @@ mod _imp {
 
     #[pyfunction]
     fn is_frozen_package(name: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        vm.state
-            .frozen
-            .get(name.as_str())
+        super::find_frozen(name.as_str(), vm)
             .map(|frozen| frozen.package)
-            .ok_or_else(|| {
-                vm.new_import_error(format!("No such frozen object named {}", name), name)
-            })
+            .map_err(|e| e.to_pyexception(name.as_str(), vm))
+    }
+
+    #[pyfunction]
+    fn _override_frozen_modules_for_tests(value: isize, vm: &VirtualMachine) {
+        vm.state.override_frozen_modules.store(value);
     }
 
     #[pyfunction]
     fn _fix_co_filename(_code: PyObjectRef, _path: PyStrRef) {
         // TODO:
+    }
+
+    #[allow(clippy::type_complexity)]
+    #[pyfunction]
+    fn find_frozen(
+        name: PyStrRef,
+        withdata: OptionalArg<bool>,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, PyStrRef)>> {
+        use super::FrozenError::*;
+
+        if withdata.into_option().is_some() {
+            // this is keyword-only argument in CPython
+            unimplemented!();
+        }
+
+        let info = match super::find_frozen(name.as_str(), vm) {
+            Ok(info) => info,
+            Err(NotFound | Disabled | BadName) => return Ok(None),
+            Err(e) => return Err(e.to_pyexception(name.as_str(), vm)),
+        };
+
+        let origname = name; // FIXME: origname != name
+        Ok(Some((None, info.package, origname)))
     }
 
     #[pyfunction]

@@ -16,7 +16,7 @@ mod decl {
         } else if let Ok(co_str) = PyStrRef::try_from_object(vm, obj.clone()) {
             // String:
             vm.compile(co_str.as_str(), compiler::Mode::Exec, "<dis>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err))?
+                .map_err(|err| vm.new_syntax_error(&err, Some(co_str.as_str())))?
         } else {
             PyRef::try_from_object(vm, obj)?
         };

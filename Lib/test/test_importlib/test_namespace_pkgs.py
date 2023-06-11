@@ -1,5 +1,7 @@
 import contextlib
 import importlib
+import importlib.abc
+import importlib.machinery
 import os
 import sys
 import tempfile
@@ -63,12 +65,7 @@ class NamespacePackageTest(unittest.TestCase):
         self.resolved_paths = [
             os.path.join(self.root, path) for path in self.paths
         ]
-        self.ctx = namespace_tree_context(path=self.resolved_paths)
-        self.ctx.__enter__()
-
-    def tearDown(self):
-        # TODO: will we ever want to pass exc_info to __exit__?
-        self.ctx.__exit__(None, None, None)
+        self.enterContext(namespace_tree_context(path=self.resolved_paths))
 
 
 class SingleNamespacePackage(NamespacePackageTest):
@@ -376,6 +373,11 @@ class LoaderTests(NamespacePackageTest):
         import foo
         expected_path = os.path.join(self.root, 'portion1', 'foo')
         self.assertEqual(foo.__path__[0], expected_path)
+
+    def test_loader_abc(self):
+        import foo
+        self.assertTrue(isinstance(foo.__loader__, importlib.abc.Loader))
+        self.assertTrue(isinstance(foo.__loader__, importlib.machinery.NamespaceLoader))
 
 
 if __name__ == "__main__":

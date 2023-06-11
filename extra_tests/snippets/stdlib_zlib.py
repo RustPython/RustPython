@@ -48,8 +48,9 @@ compressed_lorem_list = [
     b"x\xda\xf3\xc9/J\xcdU\xc8,(.\xcdUH\xc9\xcf\xc9/R(\xce,QH\xccM-\x01\x00\x83\xd5\t\xc5",
 ]
 
-for level, text in enumerate(compressed_lorem_list):
-    assert zlib.compress(lorem, level) == text
+for level, expected in enumerate(compressed_lorem_list):
+    actual = zlib.compress(lorem, level)
+    assert actual == expected
 
 # default level
 assert zlib.compress(lorem) == zlib.compress(lorem, -1) == zlib.compress(lorem, 6)

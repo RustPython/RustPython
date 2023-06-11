@@ -11,7 +11,7 @@ pub fn warn(
     // TODO: use rust warnings module
     if let Ok(module) = vm.import("warnings", None, 0) {
         if let Ok(func) = module.get_attr("warn", vm) {
-            let _ = vm.invoke(&func, (message, category.to_owned(), stack_level));
+            let _ = func.call((message, category.to_owned(), stack_level), vm);
         }
     }
     Ok(())

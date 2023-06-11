@@ -691,8 +691,6 @@ class GlobalsTest(unittest.TestCase):
                             'missing name "%s" in __all__' % name)
 
 
-# TODO: RUSTPYTHON
-@unittest.expectedFailure
 class DocTests(unittest.TestCase):
     @unittest.skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -OO and above")
@@ -1474,8 +1472,6 @@ class TestMean(NumericTestCase, AverageMixin, UnivariateTypeMixin):
         d = Decimal('1e4')
         self.assertEqual(statistics.mean([d]), d)
 
-    # TODO: RUSTPYTHON division converts ints to floats before dividing, not after
-    @unittest.expectedFailure
     def test_regression_25177(self):
         # Regression test for issue 25177.
         # Ensure very big and very small floats don't overflow.
@@ -1954,8 +1950,6 @@ class TestFMean(unittest.TestCase):
         with self.assertRaises(TypeError):
             fmean([10, 20, 60], 70)                 # too many arguments
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_special_values(self):
         # Rules for special values are inherited from math.fsum()
         fmean = statistics.fmean
@@ -2917,12 +2911,7 @@ class TestNormalDistPython(unittest.TestCase, TestNormalDist):
 
     def tearDown(self):
         sys.modules['statistics'] = statistics
-
-    # TODO: RUSTPYTHON, ValueError: math domain error
-    @unittest.expectedFailure
-    def test_inv_cdf(self): # TODO: RUSTPYTHON, remove when this passes
-        super().test_inv_cdf() # TODO: RUSTPYTHON, remove when this passes
-
+ 
 
 @unittest.skipUnless(c_statistics, 'requires _statistics')
 class TestNormalDistC(unittest.TestCase, TestNormalDist):

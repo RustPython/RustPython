@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-codegen"
-version = "0.1.2"
+version = "0.2.0"
 description = "Compiler for python code into bytecode for the rustpython VM."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
@@ -8,18 +8,19 @@ license = "MIT"
 edition = "2021"
 
 [dependencies]
-rustpython-ast = { path = "../ast", features = ["unparse"] }
-rustpython-compiler-core = { path = "../core", version = "0.1.1" }
+rustpython-ast = { workspace = true, features=["unparse", "constant-optimization"] }
+rustpython-parser-core = { workspace = true }
+rustpython-compiler-core = { workspace = true }
 
-ahash = "0.7.6"
-indexmap = "1.8.1"
-itertools = "0.10.3"
-log = "0.4.16"
-num-complex = { version = "0.4.0", features = ["serde"] }
-num-traits = "0.2.14"
-thiserror = "1.0"
+ahash = { workspace = true }
+bitflags = { workspace = true }
+indexmap = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+num-complex = { workspace = true }
+num-traits = { workspace = true }
 
 [dev-dependencies]
-rustpython-parser = { path = "../parser" }
+rustpython-parser = { workspace = true }
 
-insta = "1.14.0"
+insta = { workspace = true }

@@ -4,12 +4,17 @@ use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgMapping, OptionalArg, PyComparisonValue},
-    protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequence, PySequenceMethods},
-    types::{AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp},
+    object::{Traverse, TraverseFn},
+    protocol::{PyMapping, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    types::{
+        AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
+        Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
+use once_cell::sync::Lazy;
 
-#[pyclass(module = false, name = "mappingproxy")]
+#[pyclass(module = false, name = "mappingproxy", traverse)]
 #[derive(Debug)]
 pub struct PyMappingProxy {
     mapping: MappingProxyInner,
@@ -21,9 +26,18 @@ enum MappingProxyInner {
     Mapping(ArgMapping),
 }
 
+unsafe impl Traverse for MappingProxyInner {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        match self {
+            MappingProxyInner::Class(ref r) => r.traverse(tracer_fn),
+            MappingProxyInner::Mapping(ref arg) => arg.traverse(tracer_fn),
+        }
+    }
+}
+
 impl PyPayload for PyMappingProxy {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.mappingproxy_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.mappingproxy_type
     }
 }
 
@@ -47,12 +61,15 @@ impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(cls: PyTypeRef, mapping: Self::Args, vm: &VirtualMachine) -> PyResult {
-        if let Some(methods) = PyMapping::find_methods(&mapping, vm) {
+        if let Some(methods) = PyMapping::find_methods(&mapping) {
             if mapping.payload_if_subclass::<PyList>(vm).is_none()
                 && mapping.payload_if_subclass::<PyTuple>(vm).is_none()
             {
                 return Self {
-                    mapping: MappingProxyInner::Mapping(ArgMapping::with_methods(mapping, methods)),
+                    mapping: MappingProxyInner::Mapping(ArgMapping::with_methods(
+                        mapping,
+                        unsafe { methods.borrow_static() },
+                    )),
                 }
                 .into_ref_with_type(vm, cls)
                 .map(Into::into);
@@ -65,7 +82,15 @@ impl Constructor for PyMappingProxy {
     }
 }
 
-#[pyclass(with(AsMapping, Iterable, Constructor, AsSequence, Comparable))]
+#[pyclass(with(
+    AsMapping,
+    Iterable,
+    Constructor,
+    AsSequence,
+    Comparable,
+    AsNumber,
+    Representable
+))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         let opt = match &self.mapping {
@@ -103,7 +128,7 @@ impl PyMappingProxy {
             MappingProxyInner::Class(class) => Ok(key
                 .as_interned_str(vm)
                 .map_or(false, |key| class.attributes.read().contains_key(key))),
-            MappingProxyInner::Mapping(mapping) => PySequence::contains(mapping, key, vm),
+            MappingProxyInner::Mapping(mapping) => mapping.to_sequence(vm).contains(key, vm),
         }
     }
 
@@ -145,11 +170,6 @@ impl PyMappingProxy {
             }
         }
     }
-    #[pymethod(magic)]
-    fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
-        let obj = self.to_object(vm)?;
-        Ok(format!("mappingproxy({})", obj.repr(vm)?))
-    }
 
     #[pyclassmethod(magic)]
     fn class_getitem(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
@@ -175,7 +195,7 @@ impl PyMappingProxy {
     fn ior(&self, _args: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error(format!(
             "\"'|=' is not supported by {}; use '|' instead\"",
-            Self::class(vm)
+            Self::class(&vm.ctx)
         )))
     }
 
@@ -188,7 +208,7 @@ impl PyMappingProxy {
 
 impl Comparable for PyMappingProxy {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -201,30 +221,46 @@ impl Comparable for PyMappingProxy {
 }
 
 impl AsMapping for PyMappingProxy {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Self::mapping_downcast(mapping).len(vm)),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+            length: atomic_func!(|mapping, vm| PyMappingProxy::mapping_downcast(mapping).len(vm)),
+            subscript: atomic_func!(|mapping, needle, vm| {
+                PyMappingProxy::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+            }),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        });
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyMappingProxy {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        contains: Some(|seq, target, vm| Self::sequence_downcast(seq)._contains(target, vm)),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+            contains: atomic_func!(
+                |seq, target, vm| PyMappingProxy::sequence_downcast(seq)._contains(target, vm)
+            ),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        });
+        &AS_SEQUENCE
+    }
 }
 
 impl AsNumber for PyMappingProxy {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            or: atomic_func!(|num, args, vm| {
-                PyMappingProxy::number_downcast(num).or(args.to_pyobject(vm), vm)
+            or: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyMappingProxy>() {
+                    a.or(b.to_pyobject(vm), vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
-            inplace_or: atomic_func!(|num, args, vm| {
-                PyMappingProxy::number_downcast(num).ior(args.to_pyobject(vm), vm)
+            inplace_or: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyMappingProxy>() {
+                    a.ior(b.to_pyobject(vm), vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -237,6 +273,14 @@ impl Iterable for PyMappingProxy {
         let obj = zelf.to_object(vm)?;
         let iter = obj.get_iter(vm)?;
         Ok(iter.into())
+    }
+}
+
+impl Representable for PyMappingProxy {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let obj = zelf.to_object(vm)?;
+        Ok(format!("mappingproxy({})", obj.repr(vm)?))
     }
 }
 

@@ -32,6 +32,7 @@ if hasattr(os, "sendfile") and sys.platform.startswith("linux"):
     assert os.read(src_fd, src_len) == os.read(dest_fd, bytes_sent)
     os.close(src_fd)
     os.close(dest_fd)
+    os.remove('destination.md')
 
 try:
     os.open('DOES_NOT_EXIST', 0)
@@ -507,3 +508,14 @@ if "win" not in sys.platform:
 
     for arg in [None, 1, 1.0, TabError]:
         assert_raises(TypeError, os.system, arg)
+
+# Testing for os.pathconf_names
+if not sys.platform.startswith('win'):
+    assert len(os.pathconf_names) > 0
+    assert 'PC_NAME_MAX' in os.pathconf_names
+    for option, index in os.pathconf_names.items():
+        if sys.platform == "darwin":
+            # TODO: check why it fails
+            if option in ["PC_MAX_CANON", "PC_MAX_INPUT", "PC_VDISABLE"]:
+                continue
+        assert os.pathconf('/', index) == os.pathconf('/', option)

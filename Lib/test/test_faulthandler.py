@@ -19,6 +19,9 @@ try:
 except ImportError:
     _testcapi = None
 
+if not support.has_subprocess_support:
+    raise unittest.SkipTest("test module requires subprocess")
+
 TIMEOUT = 0.5
 MS_WINDOWS = (os.name == 'nt')
 
@@ -46,6 +49,7 @@ def temporary_filename():
         os_helper.unlink(filename)
 
 class FaultHandlerTests(unittest.TestCase):
+
     def get_output(self, code, filename=None, fd=None):
         """
         Run the specified code in Python (in a new child process) and read the
@@ -368,6 +372,7 @@ class FaultHandlerTests(unittest.TestCase):
             'Segmentation fault',
             all_threads=False)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'")
     @skip_segfault_on_android
     def test_disable(self):
         code = """
@@ -382,9 +387,6 @@ class FaultHandlerTests(unittest.TestCase):
         self.assertTrue(not_expected not in stderr,
                      "%r is present in %r" % (not_expected, stderr))
         self.assertNotEqual(exitcode, 0)
-
-    if sys.platform == "win32":  # TODO: RUSTPYTHON, AttributeError: module 'msvcrt' has no attribute 'GetErrorMode'
-        test_disable = unittest.expectedFailure(test_disable)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -434,6 +436,7 @@ class FaultHandlerTests(unittest.TestCase):
 
     # TODO: RUSTPYTHON, subprocess.CalledProcessError: Command ... returned non-zero exit status 1.
     @unittest.expectedFailure
+    @support.requires_subprocess()
     def test_disabled_by_default(self):
         # By default, the module should be disabled
         code = "import faulthandler; print(faulthandler.is_enabled())"
@@ -444,6 +447,7 @@ class FaultHandlerTests(unittest.TestCase):
 
     # TODO: RUSTPYTHON, subprocess.CalledProcessError: Command '<filter object at ...>' returned non-zero exit status 1.
     @unittest.expectedFailure
+    @support.requires_subprocess()
     def test_sys_xoptions(self):
         # Test python -X faulthandler
         code = "import faulthandler; print(faulthandler.is_enabled())"
@@ -458,6 +462,7 @@ class FaultHandlerTests(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @support.requires_subprocess()
     def test_env_var(self):
         # empty env var
         code = "import faulthandler; print(faulthandler.is_enabled())"

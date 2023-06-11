@@ -61,7 +61,7 @@ mod pwd {
         let user = user.ok_or_else(|| {
             vm.new_key_error(
                 vm.ctx
-                    .new_str(format!("getpwnam(): name not found: {}", pw_name))
+                    .new_str(format!("getpwnam(): name not found: {pw_name}"))
                     .into(),
             )
         })?;

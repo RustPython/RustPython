@@ -12,7 +12,7 @@ import unittest
 from subprocess import PIPE, Popen
 from test.support import import_helper
 from test.support import os_helper
-from test.support import _4G, bigmemtest
+from test.support import _4G, bigmemtest, requires_subprocess
 from test.support.script_helper import assert_python_ok, assert_python_failure
 
 gzip = import_helper.import_module('gzip')
@@ -552,6 +552,15 @@ class TestGzip(BaseTest):
                         f.read(1) # to set mtime attribute
                         self.assertEqual(f.mtime, mtime)
 
+    def test_compress_correct_level(self):
+        # gzip.compress calls with mtime == 0 take a different code path.
+        for mtime in (0, 42):
+            with self.subTest(mtime=mtime):
+                nocompress = gzip.compress(data1, compresslevel=0, mtime=mtime)
+                yescompress = gzip.compress(data1, compresslevel=1, mtime=mtime)
+                self.assertIn(data1, nocompress)
+                self.assertNotIn(data1, yescompress)
+
     def test_decompress(self):
         for data in (data1, data2):
             buf = io.BytesIO()
@@ -561,6 +570,14 @@ class TestGzip(BaseTest):
             # Roundtrip with compress
             datac = gzip.compress(data)
             self.assertEqual(gzip.decompress(datac), data)
+
+    def test_decompress_truncated_trailer(self):
+        compressed_data = gzip.compress(data1)
+        self.assertRaises(EOFError, gzip.decompress, compressed_data[:-4])
+
+    def test_decompress_missing_trailer(self):
+        compressed_data = gzip.compress(data1)
+        self.assertRaises(EOFError, gzip.decompress, compressed_data[:-8])
 
     def test_read_truncated(self):
         data = data1*50
@@ -708,6 +725,7 @@ class TestOpen(BaseTest):
         with self.assertRaises(ValueError):
             gzip.open(self.filename, "rb", newline="\n")
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_encoding(self):
         # Test non-default encoding.
         uncompressed = data1.decode("ascii") * 50
@@ -719,11 +737,6 @@ class TestOpen(BaseTest):
             self.assertEqual(file_data, uncompressed_raw)
         with gzip.open(self.filename, "rt", encoding="utf-16") as f:
             self.assertEqual(f.read(), uncompressed)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        test_encoding = unittest.expectedFailure(test_encoding)
-
 
     def test_encoding_error_handler(self):
         # Test with non-default encoding error handler.
@@ -760,6 +773,7 @@ def create_and_remove_directory(directory):
 class TestCommandLine(unittest.TestCase):
     data = b'This is a simple test with gzip'
 
+    @requires_subprocess()
     def test_decompress_stdin_stdout(self):
         with io.BytesIO() as bytes_io:
             with gzip.GzipFile(fileobj=bytes_io, mode='wb') as gzip_file:
@@ -795,6 +809,7 @@ class TestCommandLine(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertEqual(out, b'')
 
+    @requires_subprocess()
     @create_and_remove_directory(TEMPDIR)
     def test_compress_stdin_outfile(self):
         args = sys.executable, '-m', 'gzip'

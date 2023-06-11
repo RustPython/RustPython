@@ -706,12 +706,12 @@ impl<T> std::error::Error for CapacityError<T> {}
 
 impl<T> fmt::Display for CapacityError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", CAPERROR)
+        write!(f, "{CAPERROR}")
     }
 }
 
 impl<T> fmt::Debug for CapacityError<T> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "capacity error: {}", CAPERROR)
+        write!(f, "capacity error: {CAPERROR}")
     }
 }

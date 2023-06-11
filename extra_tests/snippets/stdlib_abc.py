@@ -13,9 +13,8 @@ class CustomInterface(abc.ABC):
         return NotImplemented
 
 
-# TODO raise an error if there are in any abstract methods not fulfilled
-# with assert_raises(TypeError):
-#     CustomInterface()
+with assert_raises(TypeError):
+    CustomInterface()
 
 
 class Concrete:

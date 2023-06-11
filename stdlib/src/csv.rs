@@ -4,11 +4,11 @@ pub(crate) use _csv::make_module;
 mod _csv {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        builtins::{PyStr, PyStrRef, PyTypeRef},
+        builtins::{PyStr, PyTypeRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs},
         match_class,
         protocol::{PyIter, PyIterReturn},
-        types::{IterNext, IterNextIterable},
+        types::{IterNext, Iterable, SelfIter},
         AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     };
     use itertools::{self, Itertools};
@@ -60,7 +60,7 @@ mod _csv {
     ) -> PyResult<Writer> {
         let write = match vm.get_attribute_opt(file.clone(), "write")? {
             Some(write_meth) => write_meth,
-            None if vm.is_callable(&file) => file,
+            None if file.is_callable() => file,
             None => {
                 return Err(vm.new_type_error("argument 1 must have a \"write\" method".to_owned()))
             }
@@ -97,8 +97,8 @@ mod _csv {
     impl FromArgs for FormatOptions {
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let delimiter = if let Some(delimiter) = args.kwargs.remove("delimiter") {
-                PyStrRef::try_from_object(vm, delimiter)?
-                    .as_str()
+                delimiter
+                    .try_to_value::<&str>(vm)?
                     .bytes()
                     .exactly_one()
                     .map_err(|_| {
@@ -110,8 +110,8 @@ mod _csv {
             };
 
             let quotechar = if let Some(quotechar) = args.kwargs.remove("quotechar") {
-                PyStrRef::try_from_object(vm, quotechar)?
-                    .as_str()
+                quotechar
+                    .try_to_value::<&str>(vm)?
                     .bytes()
                     .exactly_one()
                     .map_err(|_| {
@@ -152,10 +152,11 @@ mod _csv {
         reader: csv_core::Reader,
     }
 
-    #[pyclass(noattr, module = "_csv", name = "reader")]
+    #[pyclass(no_attr, module = "_csv", name = "reader", traverse)]
     #[derive(PyPayload)]
     pub(super) struct Reader {
         iter: PyIter,
+        #[pytraverse(skip)]
         state: PyMutex<ReadState>,
     }
 
@@ -165,9 +166,9 @@ mod _csv {
         }
     }
 
-    #[pyclass(with(IterNext))]
+    #[pyclass(with(IterNext, Iterable))]
     impl Reader {}
-    impl IterNextIterable for Reader {}
+    impl SelfIter for Reader {}
     impl IterNext for Reader {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let string = match zelf.iter.next(vm)? {
@@ -242,10 +243,11 @@ mod _csv {
         writer: csv_core::Writer,
     }
 
-    #[pyclass(noattr, module = "_csv", name = "writer")]
+    #[pyclass(no_attr, module = "_csv", name = "writer", traverse)]
     #[derive(PyPayload)]
     pub(super) struct Writer {
         write: PyObjectRef,
+        #[pytraverse(skip)]
         state: PyMutex<WriteState>,
     }
 
@@ -309,7 +311,7 @@ mod _csv {
             let s = std::str::from_utf8(&buffer[..buffer_offset])
                 .map_err(|_| vm.new_unicode_decode_error("csv not utf8".to_owned()))?;
 
-            vm.invoke(&self.write, (s.to_owned(),))
+            self.write.call((s,), vm)
         }
 
         #[pymethod]

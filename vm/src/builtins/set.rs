@@ -5,30 +5,30 @@ use super::{
     builtins_iter, IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef,
     PyType, PyTypeRef,
 };
-use crate::common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc};
 use crate::{
+    atomic_func,
     class::PyClassImpl,
+    common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
+    convert::ToPyResult,
     dictdatatype::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
-    protocol::{PyIterReturn, PySequenceMethods},
+    protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
+    types::AsNumber,
     types::{
-        AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible, Unhashable,
+        AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, Iterable,
+        PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
+use once_cell::sync::Lazy;
 use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
 
-/// set() -> new empty set object
-/// set(iterable) -> new set object
-///
-/// Build an unordered collection of unique elements.
-#[pyclass(module = false, name = "set")]
+#[pyclass(module = false, name = "set", unhashable = true, traverse)]
 #[derive(Default)]
 pub struct PySet {
     pub(super) inner: PySetInner,
@@ -70,11 +70,7 @@ impl PySet {
     }
 }
 
-/// frozenset() -> empty frozenset object
-/// frozenset(iterable) -> frozenset object
-///
-/// Build an immutable unordered collection of unique elements.
-#[pyclass(module = false, name = "frozenset")]
+#[pyclass(module = false, name = "frozenset", unhashable = true)]
 #[derive(Default)]
 pub struct PyFrozenSet {
     inner: PySetInner,
@@ -139,20 +135,27 @@ impl fmt::Debug for PyFrozenSet {
 }
 
 impl PyPayload for PySet {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.set_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.set_type
     }
 }
 
 impl PyPayload for PyFrozenSet {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.frozenset_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.frozenset_type
     }
 }
 
 #[derive(Default, Clone)]
 pub(super) struct PySetInner {
     content: PyRc<SetContentType>,
+}
+
+unsafe impl crate::object::Traverse for PySetInner {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn) {
+        // FIXME(discord9): Rc means shared ref, so should it be traced?
+        self.content.traverse(tracer_fn)
+    }
 }
 
 impl PySetInner {
@@ -359,7 +362,7 @@ impl PySetInner {
             self.merge_set(any_set, vm)
         // check Dict
         } else if let Ok(dict) = iterable.to_owned().downcast_exact::<PyDict>(vm) {
-            self.merge_dict(dict, vm)
+            self.merge_dict(dict.into_pyref(), vm)
         } else {
             // add iterable that is not AnySet or Dict
             for item in iterable.try_into_value::<ArgIterable>(vm)?.iter(vm)? {
@@ -484,7 +487,7 @@ fn reduce_set(
     vm: &VirtualMachine,
 ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
     Ok((
-        zelf.class().clone(),
+        zelf.class().to_owned(),
         vm.new_tuple((extract_set(zelf)
             .unwrap_or(&PySetInner::default())
             .elements(),)),
@@ -493,7 +496,15 @@ fn reduce_set(
 }
 
 #[pyclass(
-    with(Constructor, Initializer, AsSequence, Hashable, Comparable, Iterable),
+    with(
+        Constructor,
+        Initializer,
+        AsSequence,
+        Comparable,
+        Iterable,
+        AsNumber,
+        Representable
+    ),
     flags(BASETYPE)
 )]
 impl PySet {
@@ -600,8 +611,20 @@ impl PySet {
     }
 
     #[pymethod(magic)]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
-        self.sub(other, vm)
+    fn rsub(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
+        if let Ok(other) = AnySet::try_from_object(vm, other) {
+            Ok(PyArithmeticValue::Implemented(Self {
+                inner: other
+                    .as_inner()
+                    .difference(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
+            }))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(name = "__rxor__")]
@@ -616,26 +639,6 @@ impl PySet {
         } else {
             Ok(PyArithmeticValue::NotImplemented)
         }
-    }
-
-    #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let class = zelf.class();
-        let borrowed_name = class.name();
-        let class_name = borrowed_name.deref();
-        let s = if zelf.inner.len() == 0 {
-            format!("{}()", class_name)
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            let name = if class_name != "set" {
-                Some(class_name)
-            } else {
-                None
-            };
-            zelf.inner.repr(name, vm)?
-        } else {
-            format!("{}(...)", class_name)
-        };
-        Ok(s)
     }
 
     #[pymethod]
@@ -764,11 +767,16 @@ impl Initializer for PySet {
 }
 
 impl AsSequence for PySet {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        contains: Some(|seq, needle, vm| Self::sequence_downcast(seq).inner.contains(needle, vm)),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PySet::sequence_downcast(seq).len())),
+            contains: atomic_func!(|seq, needle, vm| PySet::sequence_downcast(seq)
+                .inner
+                .contains(needle, vm)),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        });
+        &AS_SEQUENCE
+    }
 }
 
 impl Comparable for PySet {
@@ -784,11 +792,100 @@ impl Comparable for PySet {
     }
 }
 
-impl Unhashable for PySet {}
-
 impl Iterable for PySet {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(zelf.inner.iter().into_pyobject(vm))
+    }
+}
+
+impl AsNumber for PySet {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            subtract: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PySet>() {
+                    a.sub(b.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            and: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PySet>() {
+                    a.and(b.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            xor: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PySet>() {
+                    a.xor(b.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            or: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PySet>() {
+                    a.or(b.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            inplace_subtract: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PySet>() {
+                    PySet::isub(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
+                        .to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            inplace_and: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PySet>() {
+                    PySet::iand(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
+                        .to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            inplace_xor: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PySet>() {
+                    PySet::ixor(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
+                        .to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            inplace_or: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PySet>() {
+                    PySet::ior(a.to_owned(), AnySet::try_from_object(vm, b.to_owned())?, vm)
+                        .to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
+}
+
+impl Representable for PySet {
+    #[inline]
+    fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let class = zelf.class();
+        let borrowed_name = class.name();
+        let class_name = borrowed_name.deref();
+        let s = if zelf.inner.len() == 0 {
+            format!("{class_name}()")
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            let name = if class_name != "set" {
+                Some(class_name)
+            } else {
+                None
+            };
+            zelf.inner.repr(name, vm)?
+        } else {
+            format!("{class_name}(...)")
+        };
+        Ok(s)
     }
 }
 
@@ -799,7 +896,7 @@ impl Constructor for PyFrozenSet {
         let elements = if let OptionalArg::Present(iterable) = iterable {
             let iterable = if cls.is(vm.ctx.types.frozenset_type) {
                 match iterable.downcast_exact::<Self>(vm) {
-                    Ok(fs) => return Ok(fs.into()),
+                    Ok(fs) => return Ok(fs.into_pyref().into()),
                     Err(iterable) => iterable,
                 }
             } else {
@@ -822,7 +919,15 @@ impl Constructor for PyFrozenSet {
 
 #[pyclass(
     flags(BASETYPE),
-    with(Constructor, AsSequence, Hashable, Comparable, Iterable)
+    with(
+        Constructor,
+        AsSequence,
+        Hashable,
+        Comparable,
+        Iterable,
+        AsNumber,
+        Representable
+    )
 )]
 impl PyFrozenSet {
     #[pymethod(magic)]
@@ -843,7 +948,7 @@ impl PyFrozenSet {
             Self {
                 inner: zelf.inner.copy(),
             }
-            .into_ref(vm)
+            .into_ref(&vm.ctx)
         }
     }
 
@@ -933,8 +1038,20 @@ impl PyFrozenSet {
     }
 
     #[pymethod(magic)]
-    fn rsub(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyArithmeticValue<Self>> {
-        self.sub(other, vm)
+    fn rsub(
+        zelf: PyRef<Self>,
+        other: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyArithmeticValue<Self>> {
+        if let Ok(other) = AnySet::try_from_object(vm, other) {
+            Ok(PyArithmeticValue::Implemented(Self {
+                inner: other
+                    .as_inner()
+                    .difference(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
+            }))
+        } else {
+            Ok(PyArithmeticValue::NotImplemented)
+        }
     }
 
     #[pymethod(name = "__rxor__")]
@@ -952,21 +1069,6 @@ impl PyFrozenSet {
     }
 
     #[pymethod(magic)]
-    fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let inner = &zelf.inner;
-        let class = zelf.class();
-        let class_name = class.name();
-        let s = if inner.len() == 0 {
-            format!("{}()", class_name)
-        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
-            inner.repr(Some(&class_name), vm)?
-        } else {
-            format!("{}(...)", class_name)
-        };
-        Ok(s)
-    }
-
-    #[pymethod(magic)]
     fn reduce(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
@@ -981,11 +1083,16 @@ impl PyFrozenSet {
 }
 
 impl AsSequence for PyFrozenSet {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        contains: Some(|seq, needle, vm| Self::sequence_downcast(seq).inner.contains(needle, vm)),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PyFrozenSet::sequence_downcast(seq).len())),
+            contains: atomic_func!(|seq, needle, vm| PyFrozenSet::sequence_downcast(seq)
+                .inner
+                .contains(needle, vm)),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        });
+        &AS_SEQUENCE
+    }
 }
 
 impl Hashable for PyFrozenSet {
@@ -1011,6 +1118,60 @@ impl Comparable for PyFrozenSet {
 impl Iterable for PyFrozenSet {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         Ok(zelf.inner.iter().into_pyobject(vm))
+    }
+}
+
+impl AsNumber for PyFrozenSet {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            subtract: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.sub(b.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            and: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.and(b.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            xor: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.xor(b.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            or: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
+                    a.or(b.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
+            }),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
+}
+
+impl Representable for PyFrozenSet {
+    #[inline]
+    fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        let inner = &zelf.inner;
+        let class = zelf.class();
+        let class_name = class.name();
+        let s = if inner.len() == 0 {
+            format!("{class_name}()")
+        } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
+            inner.repr(Some(&class_name), vm)?
+        } else {
+            format!("{class_name}(...)")
+        };
+        Ok(s)
     }
 }
 
@@ -1045,11 +1206,9 @@ impl TryFromObject for AnySet {
         if class.fast_issubclass(vm.ctx.types.set_type)
             || class.fast_issubclass(vm.ctx.types.frozenset_type)
         {
-            // the class lease needs to be drop to be able to return the object
-            drop(class);
             Ok(AnySet { object: obj })
         } else {
-            Err(vm.new_type_error(format!("{} is not a subtype of set or frozenset", class)))
+            Err(vm.new_type_error(format!("{class} is not a subtype of set or frozenset")))
         }
     }
 }
@@ -1068,12 +1227,12 @@ impl fmt::Debug for PySetIterator {
 }
 
 impl PyPayload for PySetIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.set_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.set_iterator_type
     }
 }
 
-#[pyclass(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext, Iterable))]
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -1098,7 +1257,7 @@ impl PySetIterator {
 }
 impl Unconstructible for PySetIterator {}
 
-impl IterNextIterable for PySetIterator {}
+impl SelfIter for PySetIterator {}
 impl IterNext for PySetIterator {
     fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();

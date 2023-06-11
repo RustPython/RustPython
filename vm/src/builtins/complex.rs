@@ -1,6 +1,5 @@
 use super::{float, PyStr, PyType, PyTypeRef};
 use crate::{
-    atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, ToPyResult},
     function::{
@@ -9,13 +8,13 @@ use crate::{
         PyComparisonValue,
     },
     identifier,
-    protocol::{PyNumber, PyNumberMethods},
-    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp},
+    protocol::PyNumberMethods,
+    types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
-use rustpython_common::{float_ops, hash};
+use rustpython_common::hash;
 use std::num::Wrapping;
 
 /// Create a complex number from a real part and an optional imaginary part.
@@ -27,9 +26,15 @@ pub struct PyComplex {
     value: Complex64,
 }
 
+impl PyComplex {
+    pub fn to_complex64(self) -> Complex64 {
+        self.value
+    }
+}
+
 impl PyPayload for PyComplex {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.complex_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.complex_type
     }
 }
 
@@ -53,7 +58,7 @@ impl PyObjectRef {
             return Ok(Some((complex.value, true)));
         }
         if let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) {
-            let result = vm.invoke(&method?, ())?;
+            let result = method?.call((), vm)?;
             // TODO: returning strict subclasses of complex in __complex__ is deprecated
             return match result.payload::<PyComplex>() {
                 Some(complex_obj) => Ok(Some((complex_obj.value, true))),
@@ -68,8 +73,8 @@ impl PyObjectRef {
         if let Some(complex) = self.payload_if_subclass::<PyComplex>(vm) {
             return Ok(Some((complex.value, true)));
         }
-        if let Some(float) = self.try_float_opt(vm)? {
-            return Ok(Some((Complex64::new(float.to_f64(), 0.0), false)));
+        if let Some(float) = self.try_float_opt(vm) {
+            return Ok(Some((Complex64::new(float?.to_f64(), 0.0), false)));
         }
         Ok(None)
     }
@@ -99,7 +104,7 @@ fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
 fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
     if v1.is_zero() {
         return if v2.im != 0.0 {
-            let msg = format!("{} cannot be raised to a negative or complex power", v1);
+            let msg = format!("{v1} cannot be raised to a negative or complex power");
             Err(vm.new_zero_division_error(msg))
         } else if v2.is_zero() {
             Ok(Complex64::new(1.0, 0.0))
@@ -127,7 +132,7 @@ impl Constructor for PyComplex {
                 let val = if cls.is(vm.ctx.types.complex_type) && imag_missing {
                     match val.downcast_exact::<PyComplex>(vm) {
                         Ok(c) => {
-                            return Ok(c.into());
+                            return Ok(c.into_pyref().into());
                         }
                         Err(val) => val,
                     }
@@ -206,14 +211,17 @@ impl PyComplex {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(Comparable, Hashable, Constructor, AsNumber))]
+#[pyclass(
+    flags(BASETYPE),
+    with(Comparable, Hashable, Constructor, AsNumber, Representable)
+)]
 impl PyComplex {
     #[pymethod(magic)]
     fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {
         if zelf.is(vm.ctx.types.complex_type) {
             zelf
         } else {
-            PyComplex::from(zelf.value).into_ref(vm)
+            PyComplex::from(zelf.value).into_ref(&vm.ctx)
         }
     }
 
@@ -327,44 +335,6 @@ impl PyComplex {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        // TODO: when you fix this, move it to rustpython_common::complex::repr and update
-        //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
-        let Complex64 { re, im } = self.value;
-        // integer => drop ., fractional => float_ops
-        let mut im_part = if im.fract() == 0.0 {
-            im.to_string()
-        } else {
-            float_ops::to_string(im)
-        };
-        im_part.push('j');
-
-        // positive empty => return im_part, integer => drop ., fractional => float_ops
-        let re_part = if re == 0.0 {
-            if re.is_sign_positive() {
-                return im_part;
-            } else {
-                re.to_string()
-            }
-        } else if re.fract() == 0.0 {
-            re.to_string()
-        } else {
-            float_ops::to_string(re)
-        };
-        let mut result = String::with_capacity(
-            re_part.len() + im_part.len() + 2 + if im.is_sign_positive() { 1 } else { 0 },
-        );
-        result.push('(');
-        result.push_str(&re_part);
-        if im.is_sign_positive() || im.is_nan() {
-            result.push('+');
-        }
-        result.push_str(&im_part);
-        result.push(')');
-        result
-    }
-
-    #[pymethod(magic)]
     fn pow(
         &self,
         other: PyObjectRef,
@@ -401,7 +371,7 @@ impl PyComplex {
 
 impl Comparable for PyComplex {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -431,7 +401,7 @@ impl Comparable for PyComplex {
 
 impl Hashable for PyComplex {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         let value = zelf.value;
 
         let re_hash =
@@ -448,79 +418,89 @@ impl Hashable for PyComplex {
 impl AsNumber for PyComplex {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            add: atomic_func!(|number, other, vm| PyComplex::number_complex_op(
-                number,
-                other,
-                |a, b| a + b,
-                vm
-            )),
-            subtract: atomic_func!(|number, other, vm| {
-                PyComplex::number_complex_op(number, other, |a, b| a - b, vm)
+            add: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a + b, vm)),
+            subtract: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a - b, vm)),
+            multiply: Some(|a, b, vm| PyComplex::number_op(a, b, |a, b, _vm| a * b, vm)),
+            power: Some(|a, b, c, vm| {
+                if vm.is_none(c) {
+                    PyComplex::number_op(a, b, inner_pow, vm)
+                } else {
+                    Err(vm.new_value_error(String::from("complex modulo")))
+                }
             }),
-            multiply: atomic_func!(|number, other, vm| {
-                PyComplex::number_complex_op(number, other, |a, b| a * b, vm)
-            }),
-            power: atomic_func!(|number, other, vm| PyComplex::number_general_op(
-                number, other, inner_pow, vm
-            )),
-            negative: atomic_func!(|number, vm| {
+            negative: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
                 (-value).to_pyresult(vm)
             }),
-            positive: atomic_func!(
-                |number, vm| PyComplex::number_complex(number, vm).to_pyresult(vm)
-            ),
-            absolute: atomic_func!(|number, vm| {
+            positive: Some(|number, vm| {
+                PyComplex::number_downcast_exact(number, vm).to_pyresult(vm)
+            }),
+            absolute: Some(|number, vm| {
                 let value = PyComplex::number_downcast(number).value;
                 value.norm().to_pyresult(vm)
             }),
-            boolean: atomic_func!(|number, _vm| Ok(PyComplex::number_downcast(number)
-                .value
-                .is_zero())),
-            true_divide: atomic_func!(|number, other, vm| {
-                PyComplex::number_general_op(number, other, inner_div, vm)
-            }),
+            boolean: Some(|number, _vm| Ok(PyComplex::number_downcast(number).value.is_zero())),
+            true_divide: Some(|a, b, vm| PyComplex::number_op(a, b, inner_div, vm)),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
     }
+
+    fn clone_exact(zelf: &Py<Self>, vm: &VirtualMachine) -> PyRef<Self> {
+        vm.ctx.new_complex(zelf.value)
+    }
+}
+
+impl Representable for PyComplex {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        // TODO: when you fix this, move it to rustpython_common::complex::repr and update
+        //       ast/src/unparse.rs + impl Display for Constant in ast/src/constant.rs
+        let Complex64 { re, im } = zelf.value;
+        // integer => drop ., fractional => float_ops
+        let mut im_part = if im.fract() == 0.0 {
+            im.to_string()
+        } else {
+            crate::literal::float::to_string(im)
+        };
+        im_part.push('j');
+
+        // positive empty => return im_part, integer => drop ., fractional => float_ops
+        let re_part = if re == 0.0 {
+            if re.is_sign_positive() {
+                return Ok(im_part);
+            } else {
+                re.to_string()
+            }
+        } else if re.fract() == 0.0 {
+            re.to_string()
+        } else {
+            crate::literal::float::to_string(re)
+        };
+        let mut result = String::with_capacity(
+            re_part.len() + im_part.len() + 2 + im.is_sign_positive() as usize,
+        );
+        result.push('(');
+        result.push_str(&re_part);
+        if im.is_sign_positive() || im.is_nan() {
+            result.push('+');
+        }
+        result.push_str(&im_part);
+        result.push(')');
+        Ok(result)
+    }
 }
 
 impl PyComplex {
-    fn number_general_op<F, R>(
-        number: &PyNumber,
-        other: &PyObject,
-        op: F,
-        vm: &VirtualMachine,
-    ) -> PyResult
+    fn number_op<F, R>(a: &PyObject, b: &PyObject, op: F, vm: &VirtualMachine) -> PyResult
     where
         F: FnOnce(Complex64, Complex64, &VirtualMachine) -> R,
         R: ToPyResult,
     {
-        if let (Some(a), Some(b)) = (number.obj.payload::<Self>(), other.payload::<Self>()) {
-            op(a.value, b.value, vm).to_pyresult(vm)
+        if let (Some(a), Some(b)) = (to_op_complex(a, vm)?, to_op_complex(b, vm)?) {
+            op(a, b, vm).to_pyresult(vm)
         } else {
             Ok(vm.ctx.not_implemented())
-        }
-    }
-
-    fn number_complex_op<F>(
-        number: &PyNumber,
-        other: &PyObject,
-        op: F,
-        vm: &VirtualMachine,
-    ) -> PyResult
-    where
-        F: FnOnce(Complex64, Complex64) -> Complex64,
-    {
-        Self::number_general_op(number, other, |a, b, _vm| op(a, b), vm)
-    }
-
-    fn number_complex(number: &PyNumber, vm: &VirtualMachine) -> PyRef<PyComplex> {
-        if let Some(zelf) = number.obj.downcast_ref_if_exact::<Self>(vm) {
-            zelf.to_owned()
-        } else {
-            vm.ctx.new_complex(Self::number_downcast(number).value)
         }
     }
 }
@@ -544,13 +524,13 @@ fn parse_str(s: &str) -> Option<Complex64> {
     };
 
     let value = match s.strip_suffix(|c| c == 'j' || c == 'J') {
-        None => Complex64::new(float_ops::parse_str(s)?, 0.0),
+        None => Complex64::new(crate::literal::float::parse_str(s)?, 0.0),
         Some(mut s) => {
             let mut real = 0.0;
             // Find the central +/- operator. If it exists, parse the real part.
             for (i, w) in s.as_bytes().windows(2).enumerate() {
                 if (w[1] == b'+' || w[1] == b'-') && !(w[0] == b'e' || w[0] == b'E') {
-                    real = float_ops::parse_str(&s[..=i])?;
+                    real = crate::literal::float::parse_str(&s[..=i])?;
                     s = &s[i + 1..];
                     break;
                 }
@@ -561,7 +541,7 @@ fn parse_str(s: &str) -> Option<Complex64> {
                 "" | "+" => 1.0,
                 // "-j"
                 "-" => -1.0,
-                s => float_ops::parse_str(s)?,
+                s => crate::literal::float::parse_str(s)?,
             };
 
             Complex64::new(real, imag)

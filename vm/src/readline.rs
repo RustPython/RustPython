@@ -41,7 +41,7 @@ mod basic_readline {
 
         pub fn readline(&mut self, prompt: &str) -> ReadlineResult {
             use std::io::prelude::*;
-            print!("{}", prompt);
+            print!("{prompt}");
             if let Err(e) = io::stdout().flush() {
                 return ReadlineResult::Io(e);
             }
@@ -66,7 +66,7 @@ mod rustyline_readline {
 
     /// Readline: the REPL
     pub struct Readline<H: Helper> {
-        repl: rustyline::Editor<H>,
+        repl: rustyline::Editor<H, rustyline::history::DefaultHistory>,
     }
 
     impl<H: Helper> Readline<H> {
@@ -100,7 +100,7 @@ mod rustyline_readline {
         }
 
         pub fn add_history_entry(&mut self, entry: &str) -> OtherResult<()> {
-            self.repl.add_history_entry(entry);
+            self.repl.add_history_entry(entry)?;
             Ok(())
         }
 

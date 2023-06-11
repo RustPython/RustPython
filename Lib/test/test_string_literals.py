@@ -78,8 +78,6 @@ class TestLiterals(unittest.TestCase):
         for c in TEMPLATE:
             assert c == '\n' or ' ' <= c <= '~', repr(c)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_eval_str_normal(self):
         self.assertEqual(eval(""" 'x' """), 'x')
         self.assertEqual(eval(r""" '\x01' """), chr(1))
@@ -133,8 +131,6 @@ class TestLiterals(unittest.TestCase):
         self.assertEqual(exc.lineno, 1)
         self.assertEqual(exc.offset, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_eval_str_raw(self):
         self.assertEqual(eval(""" r'x' """), 'x')
         self.assertEqual(eval(r""" r'\x01' """), '\\' + 'x01')
@@ -146,8 +142,6 @@ class TestLiterals(unittest.TestCase):
         self.assertEqual(eval(r""" r'\U0001d120' """), '\\' + 'U0001d120')
         self.assertEqual(eval(""" r'\U0001d120' """), chr(0x1d120))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_eval_bytes_normal(self):
         self.assertEqual(eval(""" b'x' """), b'x')
         self.assertEqual(eval(r""" b'\x01' """), byte(1))
@@ -188,8 +182,6 @@ class TestLiterals(unittest.TestCase):
         self.assertEqual(exc.filename, '<string>')
         self.assertEqual(exc.lineno, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_eval_bytes_raw(self):
         self.assertEqual(eval(""" br'x' """), b'x')
         self.assertEqual(eval(""" rb'x' """), b'x')
@@ -216,8 +208,6 @@ class TestLiterals(unittest.TestCase):
         self.assertRaises(SyntaxError, eval, """ rrb'' """)
         self.assertRaises(SyntaxError, eval, """ rbb'' """)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_eval_str_u(self):
         self.assertEqual(eval(""" u'x' """), 'x')
         self.assertEqual(eval(""" U'\u00e4' """), 'ä')

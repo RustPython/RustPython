@@ -155,8 +155,8 @@ class TestFcntl(unittest.TestCase):
         self.assertRaises(ValueError, fcntl.flock, -1, fcntl.LOCK_SH)
         self.assertRaises(TypeError, fcntl.flock, 'spam', fcntl.LOCK_SH)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'os' has no attribute 'fork'
-    @unittest.expectedFailure
+    # TODO RustPython
+    @unittest.skipUnless(sys.platform == 'linux', 'test requires Linux')
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
     def test_lockf_exclusive(self):
         self.f = open(TESTFN, 'wb+')
@@ -168,8 +168,8 @@ class TestFcntl(unittest.TestCase):
         fcntl.lockf(self.f, fcntl.LOCK_UN)
         self.assertEqual(p.exitcode, 0)
 
-    # TODO: RUSTPYTHON, AttributeError: module 'os' has no attribute 'fork'
-    @unittest.expectedFailure
+    # TODO RustPython
+    @unittest.skipUnless(sys.platform == 'linux', 'test requires Linux')
     @unittest.skipIf(platform.system() == "AIX", "AIX returns PermissionError")
     def test_lockf_share(self):
         self.f = open(TESTFN, 'wb+')

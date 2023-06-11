@@ -16,8 +16,6 @@ class TestPackages(unittest.TestCase):
         fullname = os.path.join(directory, filename)
         open(fullname, "wb").close()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_version(self):
         # Test version()
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -27,8 +25,6 @@ class TestPackages(unittest.TestCase):
                   unittest.mock.patch.object(ensurepip, '_WHEEL_PKG_DIR', tmpdir)):
                 self.assertEqual(ensurepip.version(), '1.2.3b1')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_packages_no_dir(self):
         # Test _get_packages() without a wheel package directory
         with (unittest.mock.patch.object(ensurepip, '_PACKAGES', None),
@@ -42,8 +38,6 @@ class TestPackages(unittest.TestCase):
         self.assertIsNotNone(packages['pip'].wheel_name)
         self.assertIsNotNone(packages['setuptools'].wheel_name)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_packages_with_dir(self):
         # Test _get_packages() with a wheel package directory
         setuptools_filename = "setuptools-49.1.3-py3-none-any.whl"

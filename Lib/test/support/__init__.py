@@ -5,6 +5,7 @@ if __name__ != 'test.support':
 
 import contextlib
 import functools
+import getpass
 import os
 import re
 import stat
@@ -39,18 +40,21 @@ __all__ = [
     "requires_gzip", "requires_bz2", "requires_lzma",
     "bigmemtest", "bigaddrspacetest", "cpython_only", "get_attribute",
     "requires_IEEE_754", "requires_zlib",
+    "has_fork_support", "requires_fork",
+    "has_subprocess_support", "requires_subprocess",
+    "has_socket_support", "requires_working_socket",
     "anticipate_failure", "load_package_tests", "detect_api_mismatch",
     "check__all__", "skip_if_buggy_ucrt_strfptime",
     "check_disallow_instantiation", "check_sanitizer", "skip_if_sanitizer",
     # sys
-    "is_jython", "is_android", "check_impl_detail", "unix_shell",
-    "setswitchinterval",
+    "is_jython", "is_android", "is_emscripten", "is_wasi",
+    "check_impl_detail", "unix_shell", "setswitchinterval",
     # network
     "open_urlresource",
     # processes
     "reap_children",
     # miscellaneous
-    "run_with_locale", "swap_item", "findfile",
+    "run_with_locale", "swap_item", "findfile", "infinite_recursion",
     "swap_attr", "Matcher", "set_memlimit", "SuppressCrashReport", "sortdict",
     "run_with_tz", "PGO", "missing_compiler_executable",
     "ALWAYS_EQ", "NEVER_EQ", "LARGEST", "SMALLEST",
@@ -98,6 +102,13 @@ SHORT_TIMEOUT = 30.0
 # "too long". The timeout value depends on the regrtest --timeout command line
 # option.
 LONG_TIMEOUT = 5 * 60.0
+
+# TEST_HOME_DIR refers to the top level directory of the "test" package
+# that contains Python's regression test suite
+TEST_SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
+TEST_HOME_DIR = os.path.dirname(TEST_SUPPORT_DIR)
+STDLIB_DIR = os.path.dirname(TEST_HOME_DIR)
+REPO_ROOT = os.path.dirname(STDLIB_DIR)
 
 
 class Error(Exception):
@@ -148,9 +159,7 @@ def load_package_tests(pkg_dir, loader, standard_tests, pattern):
     """
     if pattern is None:
         pattern = "test*"
-    top_dir = os.path.dirname(              # Lib
-                  os.path.dirname(              # test
-                      os.path.dirname(__file__)))   # support
+    top_dir = STDLIB_DIR
     package_tests = loader.discover(start_dir=pkg_dir,
                                     top_level_dir=top_dir,
                                     pattern=pattern)
@@ -190,6 +199,11 @@ def get_original_stdout():
 def _force_run(path, func, *args):
     try:
         return func(*args)
+    except FileNotFoundError as err:
+        # chmod() won't fix a missing file.
+        if verbose >= 2:
+            print('%s: %s' % (err.__class__.__name__, err))
+        raise
     except OSError as err:
         if verbose >= 2:
             print('%s: %s' % (err.__class__.__name__, err))
@@ -290,6 +304,8 @@ def requires(resource, msg=None):
         if msg is None:
             msg = "Use of the %r resource not enabled" % resource
         raise ResourceDenied(msg)
+    if resource in {"network", "urlfetch"} and not has_socket_support:
+        raise ResourceDenied("No socket support")
     if resource == 'gui' and not _is_gui_available():
         raise ResourceDenied(_is_gui_available.reason)
 
@@ -366,6 +382,17 @@ def requires_mac_ver(*min_version):
         return wrapper
     return decorator
 
+
+def skip_if_buildbot(reason=None):
+    """Decorator raising SkipTest if running on a buildbot."""
+    if not reason:
+        reason = 'not suitable for buildbots'
+    try:
+        isbuildbot = getpass.getuser().lower() == 'buildbot'
+    except (KeyError, EnvironmentError) as err:
+        warnings.warn(f'getpass.getuser() failed {err}.', RuntimeWarning)
+        isbuildbot = False
+    return unittest.skipIf(isbuildbot, reason)
 
 def check_sanitizer(*, address=False, memory=False, ub=False):
     """Returns True if Python is compiled with sanitizer support"""
@@ -462,6 +489,17 @@ def requires_lzma(reason='requires lzma'):
         lzma = None
     return unittest.skipUnless(lzma, reason)
 
+def has_no_debug_ranges():
+    try:
+        import _testinternalcapi
+    except ImportError:
+        raise unittest.SkipTest("_testinternalcapi required")
+    config = _testinternalcapi.get_config()
+    return not bool(config['code_debug_ranges'])
+
+def requires_debug_ranges(reason='requires co_positions / debug_ranges'):
+    return unittest.skipIf(has_no_debug_ranges(), reason)
+
 requires_legacy_unicode_capi = unittest.skipUnless(unicode_legacy_string,
                         'requires legacy Unicode C API')
 
@@ -474,6 +512,46 @@ if sys.platform not in ('win32', 'vxworks'):
 else:
     unix_shell = None
 
+# wasm32-emscripten and -wasi are POSIX-like but do not
+# have subprocess or fork support.
+is_emscripten = sys.platform == "emscripten"
+is_wasi = sys.platform == "wasi"
+
+has_fork_support = hasattr(os, "fork") and not is_emscripten and not is_wasi
+
+def requires_fork():
+    return unittest.skipUnless(has_fork_support, "requires working os.fork()")
+
+has_subprocess_support = not is_emscripten and not is_wasi
+
+def requires_subprocess():
+    """Used for subprocess, os.spawn calls, fd inheritance"""
+    return unittest.skipUnless(has_subprocess_support, "requires subprocess support")
+
+# Emscripten's socket emulation and WASI sockets have limitations.
+has_socket_support = not is_emscripten and not is_wasi
+
+def requires_working_socket(*, module=False):
+    """Skip tests or modules that require working sockets
+
+    Can be used as a function/class decorator or to skip an entire module.
+    """
+    msg = "requires socket support"
+    if module:
+        if not has_socket_support:
+            raise unittest.SkipTest(msg)
+    else:
+        return unittest.skipUnless(has_socket_support, msg)
+
+# Does strftime() support glibc extension like '%4Y'?
+has_strftime_extensions = False
+if sys.platform != "win32":
+    # bpo-47037: Windows debug builds crash with "Debug Assertion Failed"
+    try:
+        has_strftime_extensions = time.strftime("%4Y") != "%4Y"
+    except ValueError:
+        pass
+
 # Define the URL of a dedicated HTTP server for the network tests.
 # The URL must use clear-text HTTP: no redirection to encrypted HTTPS.
 TEST_HTTP_URL = "http://www.pythontest.net"
@@ -485,11 +563,6 @@ PGO = False
 # Set by libregrtest/main.py if we are running the extended (time consuming)
 # PGO task.  If this is True, PGO is also True.
 PGO_EXTENDED = False
-
-# TEST_HOME_DIR refers to the top level directory of the "test" package
-# that contains Python's regression test suite
-TEST_SUPPORT_DIR = os.path.dirname(os.path.abspath(__file__))
-TEST_HOME_DIR = os.path.dirname(TEST_SUPPORT_DIR)
 
 # TEST_DATA_DIR is used as a target download location for remote resources
 TEST_DATA_DIR = os.path.join(TEST_HOME_DIR, "data")
@@ -712,7 +785,10 @@ _TPFLAGS_HAVE_GC = 1<<14
 _TPFLAGS_HEAPTYPE = 1<<9
 
 def check_sizeof(test, o, size):
-    import _testinternalcapi
+    try:
+        import _testinternalcapi
+    except ImportError:
+        raise unittest.SkipTest("_testinternalcapi required")
     result = sys.getsizeof(o)
     # add GC header size
     if ((type(o) == type) and (o.__flags__ & _TPFLAGS_HEAPTYPE) or\
@@ -728,29 +804,29 @@ def check_sizeof(test, o, size):
 
 @contextlib.contextmanager
 def run_with_locale(catstr, *locales):
+    try:
+        import locale
+        category = getattr(locale, catstr)
+        orig_locale = locale.setlocale(category)
+    except AttributeError:
+        # if the test author gives us an invalid category string
+        raise
+    except:
+        # cannot retrieve original locale, so do nothing
+        locale = orig_locale = None
+    else:
+        for loc in locales:
             try:
-                import locale
-                category = getattr(locale, catstr)
-                orig_locale = locale.setlocale(category)
-            except AttributeError:
-                # if the test author gives us an invalid category string
-                raise
+                locale.setlocale(category, loc)
+                break
             except:
-                # cannot retrieve original locale, so do nothing
-                locale = orig_locale = None
-            else:
-                for loc in locales:
-                    try:
-                        locale.setlocale(category, loc)
-                        break
-                    except:
-                        pass
+                pass
 
-            try:
-                yield
-            finally:
-                if locale and orig_locale:
-                    locale.setlocale(category, orig_locale)
+    try:
+        yield
+    finally:
+        if locale and orig_locale:
+            locale.setlocale(category, orig_locale)
 
 #=======================================================================
 # Decorator for running a function in a specific timezone, correctly
@@ -1133,17 +1209,18 @@ def _compile_match_function(patterns):
 def run_unittest(*classes):
     """Run tests from unittest.TestCase-derived classes."""
     valid_types = (unittest.TestSuite, unittest.TestCase)
+    loader = unittest.TestLoader()
     suite = unittest.TestSuite()
     for cls in classes:
         if isinstance(cls, str):
             if cls in sys.modules:
-                suite.addTest(unittest.findTestCases(sys.modules[cls]))
+                suite.addTest(loader.loadTestsFromModule(sys.modules[cls]))
             else:
                 raise ValueError("str arguments must be keys in sys.modules")
         elif isinstance(cls, valid_types):
             suite.addTest(cls)
         else:
-            suite.addTest(unittest.makeSuite(cls))
+            suite.addTest(loader.loadTestsFromTestCase(cls))
     _filter_suite(suite, match_test)
     _run_suite(suite)
 
@@ -1197,11 +1274,24 @@ def run_doctest(module, verbosity=None, optionflags=0):
 #=======================================================================
 # Support for saving and restoring the imported modules.
 
+def flush_std_streams():
+    if sys.stdout is not None:
+        sys.stdout.flush()
+    if sys.stderr is not None:
+        sys.stderr.flush()
+
+
 def print_warning(msg):
-    # bpo-39983: Print into sys.__stderr__ to display the warning even
-    # when sys.stderr is captured temporarily by a test
+    # bpo-45410: Explicitly flush stdout to keep logs in order
+    flush_std_streams()
+    stream = print_warning.orig_stderr
     for line in msg.splitlines():
-        print(f"Warning -- {line}", file=sys.__stderr__, flush=True)
+        print(f"Warning -- {line}", file=stream)
+    stream.flush()
+
+# bpo-39983: Store the original sys.stderr at Python startup to be able to
+# log warnings even if sys.stderr is captured temporarily by a test.
+print_warning.orig_stderr = sys.stderr
 
 
 # Flag used by saved_test_environment of test.libregrtest.save_env,
@@ -1222,6 +1312,8 @@ def reap_children():
 
     # Need os.waitpid(-1, os.WNOHANG): Windows is not supported
     if not (hasattr(os, 'waitpid') and hasattr(os, 'WNOHANG')):
+        return
+    elif not has_subprocess_support:
         return
 
     # Reap all our dead child processes so we don't leave zombies around.
@@ -1364,7 +1456,7 @@ def skip_if_buggy_ucrt_strfptime(test):
     global _buggy_ucrt
     if _buggy_ucrt is None:
         if(sys.platform == 'win32' and
-                locale.getdefaultlocale()[1]  == 'cp65001' and
+                locale.getencoding() == 'cp65001' and
                 time.localtime().tm_zone == ''):
             _buggy_ucrt = True
         else:
@@ -1410,8 +1502,8 @@ class PythonSymlink:
 
             self._env = {k.upper(): os.getenv(k) for k in os.environ}
             self._env["PYTHONHOME"] = os.path.dirname(self.real)
-            if sysconfig.is_python_build(True):
-                self._env["PYTHONPATH"] = os.path.dirname(os.__file__)
+            if sysconfig.is_python_build():
+                self._env["PYTHONPATH"] = STDLIB_DIR
     else:
         def _platform_specific(self):
             pass
@@ -1683,6 +1775,16 @@ def patch(test_instance, object_to_patch, attr_name, new_value):
 
     # actually override the attribute
     setattr(object_to_patch, attr_name, new_value)
+
+
+@contextlib.contextmanager
+def patch_list(orig):
+    """Like unittest.mock.patch.dict, but for lists."""
+    try:
+        saved = orig[:]
+        yield
+    finally:
+        orig[:] = saved
 
 
 def run_in_subinterp(code):
@@ -1981,7 +2083,7 @@ def wait_process(pid, *, exitcode, timeout=None):
 
     Raise an AssertionError if the process exit code is not equal to exitcode.
 
-    If the process runs longer than timeout seconds (SHORT_TIMEOUT by default),
+    If the process runs longer than timeout seconds (LONG_TIMEOUT by default),
     kill the process (if signal.SIGKILL is available) and raise an
     AssertionError. The timeout feature is not available on Windows.
     """
@@ -1989,7 +2091,7 @@ def wait_process(pid, *, exitcode, timeout=None):
         import signal
 
         if timeout is None:
-            timeout = SHORT_TIMEOUT
+            timeout = LONG_TIMEOUT
         t0 = time.monotonic()
         sleep = 0.001
         max_sleep = 0.1
@@ -2000,7 +2102,7 @@ def wait_process(pid, *, exitcode, timeout=None):
             # process is still running
 
             dt = time.monotonic() - t0
-            if dt > SHORT_TIMEOUT:
+            if dt > timeout:
                 try:
                     os.kill(pid, signal.SIGKILL)
                     os.waitpid(pid, 0)
@@ -2051,16 +2153,6 @@ def skip_if_broken_multiprocessing_synchronize():
             raise unittest.SkipTest(f"broken multiprocessing SemLock: {exc!r}")
 
 
-@contextlib.contextmanager
-def infinite_recursion(max_depth=75):
-    original_depth = sys.getrecursionlimit()
-    try:
-        sys.setrecursionlimit(max_depth)
-        yield
-    finally:
-        sys.setrecursionlimit(original_depth)
-
-
 def check_disallow_instantiation(testcase, tp, *args, **kwds):
     """
     Check that given type cannot be instantiated using *args and **kwds.
@@ -2076,6 +2168,20 @@ def check_disallow_instantiation(testcase, tp, *args, **kwds):
     msg = f"cannot create '{re.escape(qualname)}' instances"
     testcase.assertRaisesRegex(TypeError, msg, tp, *args, **kwds)
 
+@contextlib.contextmanager
+def infinite_recursion(max_depth=75):
+    """Set a lower limit for tests that interact with infinite recursions
+    (e.g test_ast.ASTHelpers_Test.test_recursion_direct) since on some
+    debug windows builds, due to not enough functions being inlined the
+    stack size might not handle the default recursion limit (1000). See
+    bpo-11105 for details."""
+
+    original_depth = sys.getrecursionlimit()
+    try:
+        sys.setrecursionlimit(max_depth)
+        yield
+    finally:
+        sys.setrecursionlimit(original_depth)
 
 def ignore_deprecations_from(module: str, *, like: str) -> object:
     token = object()
@@ -2086,7 +2192,6 @@ def ignore_deprecations_from(module: str, *, like: str) -> object:
         message=like + fr"(?#support{id(token)})",
     )
     return token
-
 
 def clear_ignored_deprecations(*tokens: object) -> None:
     if not tokens:
@@ -2106,3 +2211,31 @@ def clear_ignored_deprecations(*tokens: object) -> None:
     if warnings.filters != new_filters:
         warnings.filters[:] = new_filters
         warnings._filters_mutated()
+
+
+# Skip a test if venv with pip is known to not work.
+def requires_venv_with_pip():
+    # ensurepip requires zlib to open ZIP archives (.whl binary wheel packages)
+    try:
+        import zlib
+    except ImportError:
+        return unittest.skipIf(True, "venv: ensurepip requires zlib")
+
+    # bpo-26610: pip/pep425tags.py requires ctypes.
+    # gh-92820: setuptools/windows_support.py uses ctypes (setuptools 58.1).
+    try:
+        import ctypes
+    except ImportError:
+        ctypes = None
+    return unittest.skipUnless(ctypes, 'venv: pip requires ctypes')
+
+
+@contextlib.contextmanager
+def adjust_int_max_str_digits(max_digits):
+    """Temporarily change the integer string conversion length limit."""
+    current = sys.get_int_max_str_digits()
+    try:
+        sys.set_int_max_str_digits(max_digits)
+        yield
+    finally:
+        sys.set_int_max_str_digits(current)

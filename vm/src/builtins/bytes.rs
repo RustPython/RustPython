@@ -11,8 +11,9 @@ use crate::{
     class::PyClassImpl,
     common::{hash::PyHash, lock::PyMutex},
     convert::{ToPyObject, ToPyResult},
-    function::Either,
-    function::{ArgBytesLike, ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{
+        ArgBytesLike, ArgIndex, ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue,
+    },
     protocol::{
         BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods,
         PySequenceMethods,
@@ -20,12 +21,13 @@ use crate::{
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
-        IterNext, IterNextIterable, Iterable, PyComparisonOp, Unconstructible,
+        IterNext, Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
+use once_cell::sync::Lazy;
 use std::{mem::size_of, ops::Deref};
 
 #[pyclass(module = false, name = "bytes")]
@@ -60,24 +62,24 @@ impl Deref for PyBytes {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        &self.inner.elements
+        self.as_bytes()
     }
 }
 
 impl AsRef<[u8]> for PyBytes {
     fn as_ref(&self) -> &[u8] {
-        &self.inner.elements
+        self.as_bytes()
     }
 }
 impl AsRef<[u8]> for PyBytesRef {
     fn as_ref(&self) -> &[u8] {
-        &self.inner.elements
+        self.as_bytes()
     }
 }
 
 impl PyPayload for PyBytes {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bytes_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytes_type
     }
 }
 
@@ -98,11 +100,39 @@ impl PyBytes {
     pub fn new_ref(data: Vec<u8>, ctx: &Context) -> PyRef<Self> {
         PyRef::new_ref(Self::from(data), ctx.types.bytes_type.to_owned(), None)
     }
+
+    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
+        match SequenceIndex::try_from_borrowed_object(vm, needle, "byte")? {
+            SequenceIndex::Int(i) => self
+                .getitem_by_index(vm, i)
+                .map(|x| vm.ctx.new_int(x).into()),
+            SequenceIndex::Slice(slice) => self
+                .getitem_by_slice(vm, slice)
+                .map(|x| vm.ctx.new_bytes(x).into()),
+        }
+    }
+}
+
+impl PyRef<PyBytes> {
+    fn repeat(self, count: isize, vm: &VirtualMachine) -> PyResult<PyRef<PyBytes>> {
+        if count == 1 && self.class().is(vm.ctx.types.bytes_type) {
+            // Special case: when some `bytes` is multiplied by `1`,
+            // nothing really happens, we need to return an object itself
+            // with the same `id()` to be compatible with CPython.
+            // This only works for `bytes` itself, not its subclasses.
+            return Ok(self);
+        }
+        self.inner
+            .mul(count, vm)
+            .map(|x| PyBytes::from(x).into_ref(&vm.ctx))
+    }
 }
 
 #[pyclass(
     flags(BASETYPE),
     with(
+        Py,
+        PyRef,
         AsMapping,
         AsSequence,
         Hashable,
@@ -110,15 +140,11 @@ impl PyBytes {
         AsBuffer,
         Iterable,
         Constructor,
-        AsNumber
+        AsNumber,
+        Representable,
     )
 )]
 impl PyBytes {
-    #[pymethod(magic)]
-    pub(crate) fn repr(&self) -> String {
-        self.inner.repr(None)
-    }
-
     #[pymethod(magic)]
     #[inline]
     pub fn len(&self) -> usize {
@@ -132,21 +158,12 @@ impl PyBytes {
 
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
-        &self.inner.elements
-    }
-
-    #[pymethod(magic)]
-    fn bytes(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<Self> {
-        if zelf.is(vm.ctx.types.bytes_type) {
-            zelf
-        } else {
-            PyBytes::from(zelf.inner.clone()).into_ref(vm)
-        }
+        self.inner.as_bytes()
     }
 
     #[pymethod(magic)]
     fn sizeof(&self) -> usize {
-        size_of::<Self>() + self.inner.elements.len() * size_of::<u8>()
+        size_of::<Self>() + self.len() * size_of::<u8>()
     }
 
     #[pymethod(magic)]
@@ -166,21 +183,6 @@ impl PyBytes {
     #[pystaticmethod]
     fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         PyBytesInner::maketrans(from, to, vm)
-    }
-
-    fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        match SequenceIndex::try_from_borrowed_object(vm, needle, "byte")? {
-            SequenceIndex::Int(i) => self
-                .inner
-                .elements
-                .getitem_by_index(vm, i)
-                .map(|x| vm.ctx.new_int(x).into()),
-            SequenceIndex::Slice(slice) => self
-                .inner
-                .elements
-                .getitem_by_slice(vm, slice)
-                .map(|x| vm.ctx.new_bytes(x).into()),
-        }
     }
 
     #[pymethod(magic)]
@@ -293,15 +295,15 @@ impl PyBytes {
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let (affix, substr) =
-            match options.prepare(&self.inner.elements[..], self.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
                 Some(x) => x,
                 None => return Ok(false),
             };
         substr.py_startsendswith(
-            affix,
+            &affix,
             "endswith",
             "bytes",
-            |s, x: &PyBytesInner| s.ends_with(&x.elements[..]),
+            |s, x: PyBytesInner| s.ends_with(x.as_bytes()),
             vm,
         )
     }
@@ -313,15 +315,15 @@ impl PyBytes {
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         let (affix, substr) =
-            match options.prepare(&self.inner.elements[..], self.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
                 Some(x) => x,
                 None => return Ok(false),
             };
         substr.py_startsendswith(
-            affix,
+            &affix,
             "startswith",
             "bytes",
-            |s, x: &PyBytesInner| s.starts_with(&x.elements[..]),
+            |s, x: PyBytesInner| s.starts_with(x.as_bytes()),
             vm,
         )
     }
@@ -365,34 +367,10 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn lstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner.lstrip(chars).into()
-    }
-
-    #[pymethod]
-    fn rstrip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner.rstrip(chars).into()
-    }
-
-    /// removeprefix($self, prefix, /)
-    ///
-    ///
-    /// Return a bytes object with the given prefix string removed if present.
-    ///
-    /// If the bytes starts with the prefix string, return string[len(prefix):]
-    /// Otherwise, return a copy of the original bytes.
-    #[pymethod]
     fn removeprefix(&self, prefix: PyBytesInner) -> Self {
         self.inner.removeprefix(prefix).into()
     }
 
-    /// removesuffix(self, prefix, /)
-    ///
-    ///
-    /// Return a bytes object with the given suffix string removed if present.
-    ///
-    /// If the bytes ends with the suffix string, return string[:len(suffix)]
-    /// Otherwise, return a copy of the original bytes.
     #[pymethod]
     fn removesuffix(&self, suffix: PyBytesInner) -> Self {
         self.inner.removesuffix(suffix).into()
@@ -482,17 +460,8 @@ impl PyBytes {
 
     #[pymethod(name = "__rmul__")]
     #[pymethod(magic)]
-    fn mul(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        if value == 1 && zelf.class().is(vm.ctx.types.bytes_type) {
-            // Special case: when some `bytes` is multiplied by `1`,
-            // nothing really happens, we need to return an object itself
-            // with the same `id()` to be compatible with CPython.
-            // This only works for `bytes` itself, not its subclasses.
-            return Ok(zelf);
-        }
-        zelf.inner
-            .mul(value, vm)
-            .map(|x| Self::from(x).into_ref(vm))
+    fn mul(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        zelf.repeat(value.try_to_primitive(vm)?, vm)
     }
 
     #[pymethod(name = "__mod__")]
@@ -506,6 +475,66 @@ impl PyBytes {
         vm.ctx.not_implemented()
     }
 
+    #[pymethod(magic)]
+    fn getnewargs(&self, vm: &VirtualMachine) -> PyTupleRef {
+        let param: Vec<PyObjectRef> = self.elements().map(|x| x.to_pyobject(vm)).collect();
+        PyTuple::new_ref(param, &vm.ctx)
+    }
+}
+
+#[pyclass]
+impl Py<PyBytes> {
+    #[pymethod(magic)]
+    fn reduce_ex(
+        &self,
+        _proto: usize,
+        vm: &VirtualMachine,
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        Self::reduce(self, vm)
+    }
+
+    #[pymethod(magic)]
+    fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+        let bytes = PyBytes::from(self.to_vec()).to_pyobject(vm);
+        (
+            self.class().to_owned(),
+            PyTuple::new_ref(vec![bytes], &vm.ctx),
+            self.as_object().dict(),
+        )
+    }
+}
+
+#[pyclass]
+impl PyRef<PyBytes> {
+    #[pymethod(magic)]
+    fn bytes(self, vm: &VirtualMachine) -> PyRef<PyBytes> {
+        if self.is(vm.ctx.types.bytes_type) {
+            self
+        } else {
+            PyBytes::from(self.inner.clone()).into_ref(&vm.ctx)
+        }
+    }
+
+    #[pymethod]
+    fn lstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<PyBytes> {
+        let stripped = self.inner.lstrip(chars);
+        if stripped == self.as_bytes() {
+            self
+        } else {
+            vm.ctx.new_bytes(stripped.to_vec())
+        }
+    }
+
+    #[pymethod]
+    fn rstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> PyRef<PyBytes> {
+        let stripped = self.inner.rstrip(chars);
+        if stripped == self.as_bytes() {
+            self
+        } else {
+            vm.ctx.new_bytes(stripped.to_vec())
+        }
+    }
+
     /// Return a string decoded from the given bytes.
     /// Default encoding is 'utf-8'.
     /// Default errors is 'strict', meaning that encoding errors raise a UnicodeError.
@@ -514,41 +543,8 @@ impl PyBytes {
     /// see https://docs.python.org/3/library/codecs.html#standard-encodings
     /// currently, only 'utf-8' and 'ascii' emplemented
     #[pymethod]
-    fn decode(zelf: PyRef<Self>, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        bytes_decode(zelf.into(), args, vm)
-    }
-
-    #[pymethod(magic)]
-    fn getnewargs(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let param: Vec<PyObjectRef> = self
-            .inner
-            .elements
-            .iter()
-            .map(|x| x.to_pyobject(vm))
-            .collect();
-        PyTuple::new_ref(param, &vm.ctx)
-    }
-
-    #[pymethod(magic)]
-    fn reduce_ex(
-        zelf: PyRef<Self>,
-        _proto: usize,
-        vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        Self::reduce(zelf, vm)
-    }
-
-    #[pymethod(magic)]
-    fn reduce(
-        zelf: PyRef<Self>,
-        vm: &VirtualMachine,
-    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
-        let bytes = PyBytes::from(zelf.inner.elements.clone()).to_pyobject(vm);
-        (
-            zelf.class().clone(),
-            PyTuple::new_ref(vec![bytes], &vm.ctx),
-            zelf.as_object().dict(),
-        )
+    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        bytes_decode(self.into(), args, vm)
     }
 }
 
@@ -571,50 +567,60 @@ impl AsBuffer for PyBytes {
 }
 
 impl AsMapping for PyBytes {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, _vm| Ok(Self::mapping_downcast(mapping).len())),
-        subscript: Some(|mapping, needle, vm| Self::mapping_downcast(mapping)._getitem(needle, vm)),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+            length: atomic_func!(|mapping, _vm| Ok(PyBytes::mapping_downcast(mapping).len())),
+            subscript: atomic_func!(
+                |mapping, needle, vm| PyBytes::mapping_downcast(mapping)._getitem(needle, vm)
+            ),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        });
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyBytes {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, _vm| Ok(Self::sequence_downcast(seq).len())),
-        concat: Some(|seq, other, vm| {
-            Self::sequence_downcast(seq)
-                .inner
-                .concat(other, vm)
-                .map(|x| vm.ctx.new_bytes(x).into())
-        }),
-        repeat: Some(|seq, n, vm| {
-            Ok(vm
-                .ctx
-                .new_bytes(Self::sequence_downcast(seq).repeat(n))
-                .into())
-        }),
-        item: Some(|seq, i, vm| {
-            Self::sequence_downcast(seq)
-                .inner
-                .elements
-                .getitem_by_index(vm, i)
-                .map(|x| vm.ctx.new_bytes(vec![x]).into())
-        }),
-        contains: Some(|seq, other, vm| {
-            let other = <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-            Self::sequence_downcast(seq).contains(other, vm)
-        }),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+            length: atomic_func!(|seq, _vm| Ok(PyBytes::sequence_downcast(seq).len())),
+            concat: atomic_func!(|seq, other, vm| {
+                PyBytes::sequence_downcast(seq)
+                    .inner
+                    .concat(other, vm)
+                    .map(|x| vm.ctx.new_bytes(x).into())
+            }),
+            repeat: atomic_func!(|seq, n, vm| {
+                let zelf = seq.obj.to_owned().downcast::<PyBytes>().map_err(|_| {
+                    vm.new_type_error("bad argument type for built-in operation".to_owned())
+                })?;
+                zelf.repeat(n, vm).to_pyresult(vm)
+            }),
+            item: atomic_func!(|seq, i, vm| {
+                PyBytes::sequence_downcast(seq)
+                    .as_bytes()
+                    .getitem_by_index(vm, i)
+                    .map(|x| vm.ctx.new_bytes(vec![x]).into())
+            }),
+            contains: atomic_func!(|seq, other, vm| {
+                let other =
+                    <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
+                PyBytes::sequence_downcast(seq).contains(other, vm)
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        });
+        &AS_SEQUENCE
+    }
 }
 
 impl AsNumber for PyBytes {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
-            remainder: atomic_func!(|number, other, vm| {
-                PyBytes::number_downcast(number)
-                    .mod_(other.to_owned(), vm)
-                    .to_pyresult(vm)
+            remainder: Some(|a, b, vm| {
+                if let Some(a) = a.downcast_ref::<PyBytes>() {
+                    a.mod_(b.to_owned(), vm).to_pyresult(vm)
+                } else {
+                    Ok(vm.ctx.not_implemented())
+                }
             }),
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
@@ -624,14 +630,14 @@ impl AsNumber for PyBytes {
 
 impl Hashable for PyBytes {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         Ok(zelf.inner.hash(vm))
     }
 }
 
 impl Comparable for PyBytes {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -663,6 +669,13 @@ impl Iterable for PyBytes {
     }
 }
 
+impl Representable for PyBytes {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.inner.repr_bytes(vm)
+    }
+}
+
 #[pyclass(module = false, name = "bytes_iterator")]
 #[derive(Debug)]
 pub struct PyBytesIterator {
@@ -670,12 +683,12 @@ pub struct PyBytesIterator {
 }
 
 impl PyPayload for PyBytesIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.bytes_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.bytes_iterator_type
     }
 }
 
-#[pyclass(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext, Iterable))]
 impl PyBytesIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -698,9 +711,9 @@ impl PyBytesIterator {
 }
 impl Unconstructible for PyBytesIterator {}
 
-impl IterNextIterable for PyBytesIterator {}
+impl SelfIter for PyBytesIterator {}
 impl IterNext for PyBytesIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         zelf.internal.lock().next(|bytes, pos| {
             Ok(PyIterReturn::from_result(
                 bytes
@@ -713,8 +726,8 @@ impl IterNext for PyBytesIterator {
     }
 }
 
-impl TryFromBorrowedObject for PyBytes {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
+impl<'a> TryFromBorrowedObject<'a> for PyBytes {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
         PyBytesInner::try_from_borrowed_object(vm, obj).map(|x| x.into())
     }
 }

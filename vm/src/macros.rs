@@ -1,10 +1,8 @@
 #[macro_export]
 macro_rules! extend_module {
     ( $vm:expr, $module:expr, { $($name:expr => $value:expr),* $(,)? }) => {{
-        #[allow(unused_variables)]
-        let module: &$crate::PyObject = &$module;
         $(
-            $vm.__module_set_attr(&module, $name, $value).unwrap();
+            $vm.__module_set_attr($module, $vm.ctx.intern_str($name), $value).unwrap();
         )*
     }};
 }
@@ -17,7 +15,8 @@ macro_rules! py_class {
     ( $ctx:expr, $class_name:expr, $class_base:expr, $flags:expr, { $($name:tt => $value:expr),* $(,)* }) => {
         {
             #[allow(unused_mut)]
-            let mut slots = $crate::types::PyTypeSlots::from_flags($crate::types::PyTypeFlags::DEFAULT | $flags);
+            let mut slots = $crate::types::PyTypeSlots::heap_default();
+            slots.flags = $flags;
             $($crate::py_class!(@extract_slots($ctx, &mut slots, $name, $value));)*
             let py_class = $ctx.new_class(None, $class_name, $class_base, slots);
             $($crate::py_class!(@extract_attrs($ctx, &py_class, $name, $value));)*
@@ -48,8 +47,9 @@ macro_rules! py_namespace {
     ( $vm:expr, { $($name:expr => $value:expr),* $(,)* }) => {
         {
             let namespace = $crate::builtins::PyNamespace::new_ref(&$vm.ctx);
+            let obj = $crate::object::AsObject::as_object(&namespace);
             $(
-                $vm.__module_set_attr($crate::object::AsObject::as_object(&namespace), $name, $value).unwrap();
+                obj.generic_setattr($vm.ctx.intern_str($name), $crate::function::PySetterValue::Assign($value.into()), $vm).unwrap();
             )*
             namespace
         }
@@ -58,13 +58,13 @@ macro_rules! py_namespace {
 
 /// Macro to match on the built-in class of a Python object.
 ///
-/// Like `match`, `match_class!` must be exhaustive, so a default arm with
-/// the uncasted object is required.
+/// Like `match`, `match_class!` must be exhaustive, so a default arm without
+/// casting is required.
 ///
 /// # Examples
 ///
 /// ```
-/// use num_bigint::ToBigInt;
+/// use malachite_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;
@@ -88,7 +88,7 @@ macro_rules! py_namespace {
 /// With a binding to the downcasted type:
 ///
 /// ```
-/// use num_bigint::ToBigInt;
+/// use malachite_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;
@@ -144,8 +144,8 @@ macro_rules! match_class {
     };
     (match ($obj:expr) { ref $binding:ident @ $class:ty => $expr:expr, $($rest:tt)* }) => {
         match $obj.payload::<$class>() {
-            Some($binding) => $expr,
-            None => $crate::match_class!(match ($obj) { $($rest)* }),
+            ::std::option::Option::Some($binding) => $expr,
+            ::std::option::Option::None => $crate::match_class!(match ($obj) { $($rest)* }),
         }
     };
 
@@ -184,7 +184,7 @@ macro_rules! identifier(
     };
 );
 
-/// Super detailed logging. Might soon overflow your logbuffers
+/// Super detailed logging. Might soon overflow your log buffers
 /// Default, this logging is discarded, except when a the `vm-tracing-logging`
 /// build feature is enabled.
 macro_rules! vm_trace {
@@ -218,12 +218,13 @@ macro_rules! named_function {
         #[allow(unused_variables)] // weird lint, something to do with paste probably
         let ctx: &$crate::Context = &$ctx;
         $crate::__exports::paste::expr! {
-            ctx.make_funcdef(
+            ctx.new_method_def(
                 stringify!($func),
                 [<$module _ $func>],
+                ::rustpython_vm::function::PyMethodFlags::empty(),
             )
-            .into_function()
-            .with_module(ctx.new_str(stringify!($module).to_owned()).into())
+            .to_function()
+            .with_module(ctx.intern_str(stringify!($module)).into())
             .into_ref(ctx)
         }
     }};

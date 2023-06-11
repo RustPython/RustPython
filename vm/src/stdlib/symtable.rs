@@ -5,36 +5,33 @@ mod symtable {
     use crate::{
         builtins::PyStrRef, compiler, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
-    use rustpython_codegen::symboltable::{Symbol, SymbolScope, SymbolTable, SymbolTableType};
+    use rustpython_codegen::symboltable::{
+        Symbol, SymbolFlags, SymbolScope, SymbolTable, SymbolTableType,
+    };
     use std::fmt;
 
-    /// symtable. Return top level SymbolTable.
-    /// See docs: https://docs.python.org/3/library/symtable.html?highlight=symtable#symtable.symtable
     #[pyfunction]
     fn symtable(
         source: PyStrRef,
         filename: PyStrRef,
         mode: PyStrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PySymbolTableRef> {
+    ) -> PyResult<PyRef<PySymbolTable>> {
         let mode = mode
             .as_str()
             .parse::<compiler::Mode>()
             .map_err(|err| vm.new_value_error(err.to_string()))?;
 
         let symtable = compiler::compile_symtable(source.as_str(), mode, filename.as_str())
-            .map_err(|err| vm.new_syntax_error(&err))?;
+            .map_err(|err| vm.new_syntax_error(&err, Some(source.as_str())))?;
 
         let py_symbol_table = to_py_symbol_table(symtable);
-        Ok(py_symbol_table.into_ref(vm))
+        Ok(py_symbol_table.into_ref(&vm.ctx))
     }
 
     fn to_py_symbol_table(symtable: SymbolTable) -> PySymbolTable {
         PySymbolTable { symtable }
     }
-
-    type PySymbolTableRef = PyRef<PySymbolTable>;
-    type PySymbolRef = PyRef<PySymbol>;
 
     #[pyattr]
     #[pyclass(name = "SymbolTable")]
@@ -62,7 +59,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn get_lineno(&self) -> usize {
+        fn get_lineno(&self) -> u32 {
             self.symtable.line_number
         }
 
@@ -77,7 +74,7 @@ mod symtable {
         }
 
         #[pymethod]
-        fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PySymbolRef> {
+        fn lookup(&self, name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PySymbol>> {
             let name = name.as_str();
             if let Some(symbol) = self.symtable.symbols.get(name) {
                 Ok(PySymbol {
@@ -89,10 +86,11 @@ mod symtable {
                         .filter(|table| table.name == name)
                         .cloned()
                         .collect(),
+                    is_top_scope: self.symtable.name == "top",
                 }
-                .into_ref(vm))
+                .into_ref(&vm.ctx))
             } else {
-                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {} failed", name)).into()))
+                Err(vm.new_key_error(vm.ctx.new_str(format!("lookup {name} failed")).into()))
             }
         }
 
@@ -123,8 +121,9 @@ mod symtable {
                             .filter(|&table| table.name == s.name)
                             .cloned()
                             .collect(),
+                        is_top_scope: self.symtable.name == "top",
                     })
-                    .into_ref(vm)
+                    .into_ref(&vm.ctx)
                     .into()
                 })
                 .collect();
@@ -154,6 +153,7 @@ mod symtable {
     struct PySymbol {
         symbol: Symbol,
         namespaces: Vec<SymbolTable>,
+        is_top_scope: bool,
     }
 
     impl fmt::Debug for PySymbol {
@@ -171,17 +171,22 @@ mod symtable {
 
         #[pymethod]
         fn is_global(&self) -> bool {
-            self.symbol.is_global()
+            self.symbol.is_global() || (self.is_top_scope && self.symbol.is_bound())
+        }
+
+        #[pymethod]
+        fn is_declared_global(&self) -> bool {
+            matches!(self.symbol.scope, SymbolScope::GlobalExplicit)
         }
 
         #[pymethod]
         fn is_local(&self) -> bool {
-            self.symbol.is_local()
+            self.symbol.is_local() || (self.is_top_scope && self.symbol.is_bound())
         }
 
         #[pymethod]
         fn is_imported(&self) -> bool {
-            self.symbol.is_imported
+            self.symbol.flags.contains(SymbolFlags::IMPORTED)
         }
 
         #[pymethod]
@@ -192,22 +197,22 @@ mod symtable {
 
         #[pymethod]
         fn is_nonlocal(&self) -> bool {
-            self.symbol.is_nonlocal
+            self.symbol.flags.contains(SymbolFlags::NONLOCAL)
         }
 
         #[pymethod]
         fn is_referenced(&self) -> bool {
-            self.symbol.is_referenced
+            self.symbol.flags.contains(SymbolFlags::REFERENCED)
         }
 
         #[pymethod]
         fn is_assigned(&self) -> bool {
-            self.symbol.is_assigned
+            self.symbol.flags.contains(SymbolFlags::ASSIGNED)
         }
 
         #[pymethod]
         fn is_parameter(&self) -> bool {
-            self.symbol.is_parameter
+            self.symbol.flags.contains(SymbolFlags::PARAMETER)
         }
 
         #[pymethod]
@@ -222,7 +227,7 @@ mod symtable {
 
         #[pymethod]
         fn is_annotated(&self) -> bool {
-            self.symbol.is_annotated
+            self.symbol.flags.contains(SymbolFlags::ANNOTATED)
         }
 
         #[pymethod]
@@ -243,7 +248,7 @@ mod symtable {
                 );
             }
             Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into())
         }
     }

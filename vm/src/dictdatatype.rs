@@ -3,14 +3,17 @@
 //! And: https://www.youtube.com/watch?v=p33CVV29OG8
 //! And: http://code.activestate.com/recipes/578375/
 
-use crate::common::{
-    hash,
-    lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
-};
 use crate::{
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef},
     convert::ToPyObject,
     AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
+};
+use crate::{
+    common::{
+        hash,
+        lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
+    },
+    object::{Traverse, TraverseFn},
 };
 use num_traits::ToPrimitive;
 use std::{fmt, mem::size_of, ops::ControlFlow};
@@ -29,6 +32,12 @@ type EntryIndex = usize;
 
 pub struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
+}
+
+unsafe impl<T: Traverse> Traverse for Dict<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.inner.traverse(tracer_fn);
+    }
 }
 
 impl<T> fmt::Debug for Dict<T> {
@@ -67,6 +76,20 @@ struct DictInner<T> {
     filled: usize,
     indices: Vec<IndexEntry>,
     entries: Vec<Option<DictEntry<T>>>,
+}
+
+unsafe impl<T: Traverse> Traverse for DictInner<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.entries
+            .iter()
+            .map(|v| {
+                if let Some(v) = v {
+                    v.key.traverse(tracer_fn);
+                    v.value.traverse(tracer_fn);
+                }
+            })
+            .count();
+    }
 }
 
 impl<T: Clone> Clone for Dict<T> {
@@ -248,9 +271,13 @@ impl<T: Clone> Dict<T> {
             if let Some(index) = entry_index.index() {
                 // Update existing key
                 if let Some(entry) = inner.entries.get_mut(index) {
-                    let entry = entry
-                        .as_mut()
-                        .expect("The dict was changed since we did lookup.");
+                    let Some(entry) = entry.as_mut() else {
+                        // The dict was changed since we did lookup. Let's try again.
+                        // this is very rare to happen
+                        // (and seems only happen with very high freq gc, and about one time in 10000 iters)
+                        // but still possible
+                        continue;
+                    };
                     if entry.index == index_index {
                         let removed = std::mem::replace(&mut entry.value, value);
                         // defer dec RC
@@ -586,9 +613,7 @@ impl<T: Clone> Dict<T> {
         pred: impl Fn(&T) -> Result<bool, E>,
     ) -> Result<PopInnerResult<T>, E> {
         let (entry_index, index_index) = lookup;
-        let entry_index = if let Some(entry_index) = entry_index.index() {
-            entry_index
-        } else {
+        let Some(entry_index) = entry_index.index() else {
             return Ok(ControlFlow::Break(None));
         };
         let inner = &mut *self.write();
@@ -881,9 +906,8 @@ fn str_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a PyStr> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Dict, DictKey};
-    use crate::common::ascii;
-    use crate::Interpreter;
+    use super::*;
+    use crate::{common::ascii, Interpreter};
 
     #[test]
     fn test_insert() {
@@ -910,8 +934,8 @@ mod tests {
             dict.insert(vm, &*key1, value2.clone()).unwrap();
             assert_eq!(2, dict.len());
 
-            assert_eq!(true, dict.contains(vm, &*key1).unwrap());
-            assert_eq!(true, dict.contains(vm, "x").unwrap());
+            assert!(dict.contains(vm, &*key1).unwrap());
+            assert!(dict.contains(vm, "x").unwrap());
 
             let val = dict.get(vm, "x").unwrap().unwrap();
             vm.bool_eq(&val, &value2)

@@ -12,8 +12,7 @@ assert z == [
     (3, 2), (3, 5), (3, 10)]
 
 v = {b * 2 for b in x}
-# TODO: how to check set equality?
-# assert v == {2, 6, 4}
+assert v == {2, 6, 4}
 
 u = {str(b): b-2 for b in x}
 assert u['3'] == 1
@@ -41,3 +40,8 @@ assert 'b' not in locals()
 assert 'c' not in locals()
 assert 'b' not in globals()
 assert 'c' not in globals()
+
+
+def f():
+    # Test no panic occured.
+    [[x := 1 for j in range(5)] for i in range(5)]

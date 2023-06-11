@@ -33,9 +33,7 @@ mod _scproxy {
 
     #[pyfunction]
     fn _get_proxy_settings(vm: &VirtualMachine) -> PyResult<Option<PyDictRef>> {
-        let proxy_dict = if let Some(p) = proxy_dict() {
-            p
-        } else {
+        let Some(proxy_dict) = proxy_dict() else {
             return Ok(None);
         };
 
@@ -73,9 +71,7 @@ mod _scproxy {
 
     #[pyfunction]
     fn _get_proxies(vm: &VirtualMachine) -> PyResult<Option<PyDictRef>> {
-        let proxy_dict = if let Some(p) = proxy_dict() {
-            p
-        } else {
+        let Some(proxy_dict) = proxy_dict() else {
             return Ok(None);
         };
 
@@ -104,9 +100,9 @@ mod _scproxy {
                         .and_then(|v| v.downcast::<CFNumber>())
                         .and_then(|v| v.to_i32())
                     {
-                        format!("http://{}:{}", h, port)
+                        format!("http://{h}:{port}")
                     } else {
-                        format!("http://{}", h)
+                        format!("http://{h}")
                     };
                     result.set_item(proto, vm.new_pyobj(v), vm)?;
                 }

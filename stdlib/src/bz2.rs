@@ -1,3 +1,5 @@
+// spell-checker:ignore compresslevel
+
 pub(crate) use _bz2::make_module;
 
 #[pymodule]

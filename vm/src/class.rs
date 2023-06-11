@@ -1,13 +1,14 @@
 //! Utilities to define a new Python class
 
 use crate::{
-    builtins::{PyBaseObject, PyBoundMethod, PyType, PyTypeRef},
+    builtins::{PyBaseObject, PyType, PyTypeRef},
+    function::PyMethodDef,
     identifier,
-    object::{Py, PyObjectPayload, PyObjectRef, PyRef},
-    types::{PyTypeFlags, PyTypeSlots},
+    object::Py,
+    types::{hash_not_implemented, PyTypeFlags, PyTypeSlots},
     vm::Context,
 };
-use rustpython_common::{lock::PyRwLock, static_cell};
+use rustpython_common::static_cell;
 
 pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
@@ -29,23 +30,22 @@ pub trait StaticType {
             .unwrap_or_else(|_| panic!("double initialization from init_manually"));
         cell.get().unwrap()
     }
-    fn init_bare_type() -> &'static Py<PyType>
+    fn init_builtin_type() -> &'static Py<PyType>
     where
         Self: PyClassImpl,
     {
-        let typ = Self::create_bare_type();
+        let typ = Self::create_static_type();
         let cell = Self::static_cell();
         cell.set(typ)
             .unwrap_or_else(|_| panic!("double initialization of {}", Self::NAME));
         cell.get().unwrap()
     }
-    fn create_bare_type() -> PyTypeRef
+    fn create_static_type() -> PyTypeRef
     where
         Self: PyClassImpl,
     {
-        PyType::new_ref(
-            Self::NAME,
-            vec![Self::static_baseclass().to_owned()],
+        PyType::new_static(
+            Self::static_baseclass().to_owned(),
             Default::default(),
             Self::make_slots(),
             Self::static_metaclass().to_owned(),
@@ -60,29 +60,24 @@ pub trait PyClassDef {
     const TP_NAME: &'static str;
     const DOC: Option<&'static str> = None;
     const BASICSIZE: usize;
-}
+    const UNHASHABLE: bool = false;
 
-impl<T> PyClassDef for PyRef<T>
-where
-    T: PyObjectPayload + PyClassDef,
-{
-    const NAME: &'static str = T::NAME;
-    const MODULE_NAME: Option<&'static str> = T::MODULE_NAME;
-    const TP_NAME: &'static str = T::TP_NAME;
-    const DOC: Option<&'static str> = T::DOC;
-    const BASICSIZE: usize = T::BASICSIZE;
+    // due to restriction of rust trait system, object.__base__ is None
+    // but PyBaseObject::Base will be PyBaseObject.
+    type Base: PyClassDef;
 }
 
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
-
-    fn impl_extend_class(ctx: &Context, class: &'static Py<PyType>);
 
     fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
         #[cfg(debug_assertions)]
         {
             assert!(class.slots.flags.is_created_with_flags());
         }
+
+        let _ = ctx.intern_str(Self::NAME); // intern type name
+
         if Self::TP_FLAGS.has_feature(PyTypeFlags::HAS_DICT) {
             let __dict__ = identifier!(ctx, __dict__);
             class.set_attr(
@@ -106,12 +101,21 @@ pub trait PyClassImpl: PyClassDef {
                 ctx.new_str(module_name).into(),
             );
         }
+
         if class.slots.new.load().is_some() {
-            let bound: PyObjectRef =
-                PyBoundMethod::new_ref(class.to_owned().into(), ctx.slot_new_wrapper.clone(), ctx)
-                    .into();
-            class.set_attr(identifier!(ctx, __new__), bound);
+            let bound_new = Context::genesis().slot_new_wrapper.build_bound_method(
+                ctx,
+                class.to_owned().into(),
+                class,
+            );
+            class.set_attr(identifier!(ctx, __new__), bound_new.into());
         }
+
+        if class.slots.hash.load().map_or(0, |h| h as usize) == hash_not_implemented as usize {
+            class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
+        }
+
+        class.extend_methods(class.slots.methods, ctx);
     }
 
     fn make_class(ctx: &Context) -> PyTypeRef
@@ -119,7 +123,7 @@ pub trait PyClassImpl: PyClassDef {
         Self: StaticType,
     {
         (*Self::static_cell().get_or_init(|| {
-            let typ = Self::create_bare_type();
+            let typ = Self::create_static_type();
             Self::extend_class(ctx, unsafe {
                 // typ will be saved in static_cell
                 let r: &Py<PyType> = &typ;
@@ -130,16 +134,27 @@ pub trait PyClassImpl: PyClassDef {
         .to_owned()
     }
 
+    fn impl_extend_class(ctx: &Context, class: &'static Py<PyType>);
+    fn impl_extend_method_def(method_defs: &mut Vec<PyMethodDef>);
     fn extend_slots(slots: &mut PyTypeSlots);
 
     fn make_slots() -> PyTypeSlots {
+        let mut method_defs = Vec::new();
+        Self::impl_extend_method_def(&mut method_defs);
+
         let mut slots = PyTypeSlots {
             flags: Self::TP_FLAGS,
-            name: PyRwLock::new(Some(Self::TP_NAME.to_owned())),
+            name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             doc: Self::DOC,
+            methods: Box::leak(method_defs.into_boxed_slice()),
             ..Default::default()
         };
+
+        if Self::UNHASHABLE {
+            slots.hash.store(Some(hash_not_implemented));
+        }
+
         Self::extend_slots(&mut slots);
         slots
     }

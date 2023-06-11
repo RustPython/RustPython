@@ -1,3 +1,6 @@
+#[cfg(feature = "flame-it")]
+use std::ffi::OsString;
+
 /// Struct containing all kind of settings for the python vm.
 #[non_exhaustive]
 pub struct Settings {
@@ -12,6 +15,9 @@ pub struct Settings {
 
     /// -O optimization switch counter
     pub optimize: u8,
+
+    /// Not set SIGINT handler(i.e. for embedded mode)
+    pub no_sig_int: bool,
 
     /// -s
     pub no_user_site: bool,
@@ -67,6 +73,21 @@ pub struct Settings {
 
     /// false for wasm. Not a command-line option
     pub allow_external_library: bool,
+
+    pub utf8_mode: u8,
+
+    #[cfg(feature = "flame-it")]
+    pub profile_output: Option<OsString>,
+    #[cfg(feature = "flame-it")]
+    pub profile_format: Option<String>,
+}
+
+impl Settings {
+    pub fn with_path(path: String) -> Self {
+        let mut settings = Self::default();
+        settings.path_list.push(path);
+        settings
+    }
 }
 
 /// Sensible default settings.
@@ -77,6 +98,7 @@ impl Default for Settings {
             inspect: false,
             interactive: false,
             optimize: 0,
+            no_sig_int: false,
             no_user_site: false,
             no_site: false,
             ignore_environment: false,
@@ -95,6 +117,11 @@ impl Default for Settings {
             stdio_unbuffered: false,
             check_hash_based_pycs: "default".to_owned(),
             allow_external_library: cfg!(feature = "importlib"),
+            utf8_mode: 1,
+            #[cfg(feature = "flame-it")]
+            profile_output: None,
+            #[cfg(feature = "flame-it")]
+            profile_format: None,
         }
     }
 }

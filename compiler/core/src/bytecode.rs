@@ -1,14 +1,15 @@
-//! Implement python as a virtual machine with bytecodes. This module
+//! Implement python as a virtual machine with bytecode. This module
 //! implements bytecode structure.
 
-use crate::Location;
 use bitflags::bitflags;
-use bstr::ByteSlice;
 use itertools::Itertools;
-use num_bigint::BigInt;
+use malachite_bigint::BigInt;
 use num_complex::Complex64;
-use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, fmt, hash};
+use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
+use std::marker::PhantomData;
+use std::{collections::BTreeSet, fmt, hash, mem};
+
+pub use rustpython_parser_core::ConversionFlag;
 
 pub trait Constant: Sized {
     type Name: AsRef<str>;
@@ -29,9 +30,7 @@ impl Constant for ConstantData {
             ConstantData::Str { value } => Str { value },
             ConstantData::Bytes { value } => Bytes { value },
             ConstantData::Code { code } => Code { code },
-            ConstantData::Tuple { elements } => Tuple {
-                elements: Box::new(elements.iter().map(|e| e.borrow_constant())),
-            },
+            ConstantData::Tuple { elements } => Tuple { elements },
             ConstantData::None => None,
             ConstantData::Ellipsis => Ellipsis,
         }
@@ -42,7 +41,23 @@ impl Constant for ConstantData {
 pub trait ConstantBag: Sized + Copy {
     type Constant: Constant;
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant;
+    fn make_int(&self, value: BigInt) -> Self::Constant;
+    fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant;
+    fn make_code(&self, code: CodeObject<Self::Constant>) -> Self::Constant;
     fn make_name(&self, name: &str) -> <Self::Constant as Constant>::Name;
+}
+
+pub trait AsBag {
+    type Bag: ConstantBag;
+    #[allow(clippy::wrong_self_convention)]
+    fn as_bag(self) -> Self::Bag;
+}
+
+impl<Bag: ConstantBag> AsBag for Bag {
+    type Bag = Self;
+    fn as_bag(self) -> Self {
+        self
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -53,33 +68,42 @@ impl ConstantBag for BasicBag {
     fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
         constant.to_owned()
     }
+    fn make_int(&self, value: BigInt) -> Self::Constant {
+        ConstantData::Integer { value }
+    }
+    fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant {
+        ConstantData::Tuple {
+            elements: elements.collect(),
+        }
+    }
+    fn make_code(&self, code: CodeObject<Self::Constant>) -> Self::Constant {
+        ConstantData::Code {
+            code: Box::new(code),
+        }
+    }
     fn make_name(&self, name: &str) -> <Self::Constant as Constant>::Name {
         name.to_owned()
     }
 }
 
 /// Primary container of a single code object. Each python function has
-/// a codeobject. Also a module has a codeobject.
-#[derive(Clone, Serialize, Deserialize)]
+/// a code object. Also a module has a code object.
+#[derive(Clone)]
 pub struct CodeObject<C: Constant = ConstantData> {
-    pub instructions: Box<[Instruction]>,
-    pub locations: Box<[Location]>,
+    pub instructions: Box<[CodeUnit]>,
+    pub locations: Box<[SourceLocation]>,
     pub flags: CodeFlags,
-    pub posonlyarg_count: usize,
+    pub posonlyarg_count: u32,
     // Number of positional-only arguments
-    pub arg_count: usize,
-    pub kwonlyarg_count: usize,
+    pub arg_count: u32,
+    pub kwonlyarg_count: u32,
     pub source_path: C::Name,
-    pub first_line_number: usize,
+    pub first_line_number: Option<OneIndexed>,
     pub max_stackdepth: u32,
     pub obj_name: C::Name,
     // Name of the object that created this code object
-    pub cell2arg: Option<Box<[isize]>>,
+    pub cell2arg: Option<Box<[i32]>>,
     pub constants: Box<[C]>,
-    #[serde(bound(
-        deserialize = "C::Name: serde::Deserialize<'de>",
-        serialize = "C::Name: serde::Serialize"
-    ))]
     pub names: Box<[C::Name]>,
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
@@ -87,7 +111,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
 }
 
 bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct CodeFlags: u16 {
         const NEW_LOCALS = 0x01;
         const IS_GENERATOR = 0x02;
@@ -104,18 +128,207 @@ impl CodeFlags {
         ("COROUTINE", CodeFlags::IS_COROUTINE),
         (
             "ASYNC_GENERATOR",
-            Self::from_bits_truncate(Self::IS_GENERATOR.bits | Self::IS_COROUTINE.bits),
+            Self::from_bits_truncate(Self::IS_GENERATOR.bits() | Self::IS_COROUTINE.bits()),
         ),
         ("VARARGS", CodeFlags::HAS_VARARGS),
         ("VARKEYWORDS", CodeFlags::HAS_VARKEYWORDS),
     ];
 }
 
-#[derive(Serialize, Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+/// an opcode argument that may be extended by a prior ExtendedArg
+#[derive(Copy, Clone, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct OpArgByte(pub u8);
+impl OpArgByte {
+    pub const fn null() -> Self {
+        OpArgByte(0)
+    }
+}
+impl fmt::Debug for OpArgByte {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// a full 32-bit op_arg, including any possible ExtendedArg extension
+#[derive(Copy, Clone, Debug)]
+#[repr(transparent)]
+pub struct OpArg(pub u32);
+impl OpArg {
+    pub const fn null() -> Self {
+        OpArg(0)
+    }
+
+    /// Returns how many CodeUnits a instruction with this op_arg will be encoded as
+    #[inline]
+    pub fn instr_size(self) -> usize {
+        (self.0 > 0xff) as usize + (self.0 > 0xff_ff) as usize + (self.0 > 0xff_ff_ff) as usize + 1
+    }
+
+    /// returns the arg split into any necessary ExtendedArg components (in big-endian order) and
+    /// the arg for the real opcode itself
+    #[inline(always)]
+    pub fn split(self) -> (impl ExactSizeIterator<Item = OpArgByte>, OpArgByte) {
+        let mut it = self
+            .0
+            .to_le_bytes()
+            .map(OpArgByte)
+            .into_iter()
+            .take(self.instr_size());
+        let lo = it.next().unwrap();
+        (it.rev(), lo)
+    }
+}
+
+#[derive(Default, Copy, Clone)]
+#[repr(transparent)]
+pub struct OpArgState {
+    state: u32,
+}
+
+impl OpArgState {
+    #[inline(always)]
+    pub fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
+        let arg = self.extend(ins.arg);
+        if ins.op != Instruction::ExtendedArg {
+            self.reset();
+        }
+        (ins.op, arg)
+    }
+    #[inline(always)]
+    pub fn extend(&mut self, arg: OpArgByte) -> OpArg {
+        self.state = self.state << 8 | u32::from(arg.0);
+        OpArg(self.state)
+    }
+    #[inline(always)]
+    pub fn reset(&mut self) {
+        self.state = 0
+    }
+}
+
+pub trait OpArgType: Copy {
+    fn from_op_arg(x: u32) -> Option<Self>;
+    fn to_op_arg(self) -> u32;
+}
+
+impl OpArgType for u32 {
+    #[inline(always)]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        Some(x)
+    }
+    #[inline(always)]
+    fn to_op_arg(self) -> u32 {
+        self
+    }
+}
+
+impl OpArgType for bool {
+    #[inline(always)]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        Some(x != 0)
+    }
+    #[inline(always)]
+    fn to_op_arg(self) -> u32 {
+        self as u32
+    }
+}
+
+macro_rules! op_arg_enum_impl {
+    (enum $name:ident { $($(#[$var_attr:meta])* $var:ident = $value:literal,)* }) => {
+        impl OpArgType for $name {
+            fn to_op_arg(self) -> u32 {
+                self as u32
+            }
+            fn from_op_arg(x: u32) -> Option<Self> {
+                Some(match u8::try_from(x).ok()? {
+                    $($value => Self::$var,)*
+                    _ => return None,
+                })
+            }
+        }
+    };
+}
+
+macro_rules! op_arg_enum {
+    ($(#[$attr:meta])* $vis:vis enum $name:ident { $($(#[$var_attr:meta])* $var:ident = $value:literal,)* }) => {
+        $(#[$attr])*
+        $vis enum $name {
+            $($(#[$var_attr])* $var = $value,)*
+        }
+
+        op_arg_enum_impl!(enum $name {
+            $($(#[$var_attr])* $var = $value,)*
+        });
+    };
+}
+
+#[derive(Copy, Clone)]
+pub struct Arg<T: OpArgType>(PhantomData<T>);
+
+impl<T: OpArgType> Arg<T> {
+    #[inline]
+    pub fn marker() -> Self {
+        Arg(PhantomData)
+    }
+    #[inline]
+    pub fn new(arg: T) -> (Self, OpArg) {
+        (Self(PhantomData), OpArg(arg.to_op_arg()))
+    }
+    #[inline]
+    pub fn new_single(arg: T) -> (Self, OpArgByte)
+    where
+        T: Into<u8>,
+    {
+        (Self(PhantomData), OpArgByte(arg.into()))
+    }
+    #[inline(always)]
+    pub fn get(self, arg: OpArg) -> T {
+        self.try_get(arg).unwrap()
+    }
+    #[inline(always)]
+    pub fn try_get(self, arg: OpArg) -> Option<T> {
+        T::from_op_arg(arg.0)
+    }
+    #[inline(always)]
+    /// # Safety
+    /// T::from_op_arg(self) must succeed
+    pub unsafe fn get_unchecked(self, arg: OpArg) -> T {
+        match T::from_op_arg(arg.0) {
+            Some(t) => t,
+            None => std::hint::unreachable_unchecked(),
+        }
+    }
+}
+
+impl<T: OpArgType> PartialEq for Arg<T> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl<T: OpArgType> Eq for Arg<T> {}
+
+impl<T: OpArgType> fmt::Debug for Arg<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Arg<{}>", std::any::type_name::<T>())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 #[repr(transparent)]
 // XXX: if you add a new instruction that stores a Label, make sure to add it in
-// Instruction::label_arg{,_mut}
+// Instruction::label_arg
 pub struct Label(pub u32);
+
+impl OpArgType for Label {
+    #[inline(always)]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        Some(Label(x))
+    }
+    #[inline(always)]
+    fn to_op_arg(self) -> u32 {
+        self.0
+    }
+}
 
 impl fmt::Display for Label {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -123,50 +336,43 @@ impl fmt::Display for Label {
     }
 }
 
-/// Transforms a value prior to formatting it.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(u8)]
-pub enum ConversionFlag {
-    /// No conversion
-    None = 0, // CPython uses -1 but not pleasure for us
-    /// Converts by calling `str(<value>)`.
-    Str = b's',
-    /// Converts by calling `ascii(<value>)`.
-    Ascii = b'a',
-    /// Converts by calling `repr(<value>)`.
-    Repr = b'r',
-}
-
-impl TryFrom<usize> for ConversionFlag {
-    type Error = usize;
-    fn try_from(b: usize) -> Result<Self, Self::Error> {
-        let b = b.try_into().map_err(|_| b)?;
-        match b {
-            0 => Ok(Self::None),
-            b's' => Ok(Self::Str),
-            b'a' => Ok(Self::Ascii),
-            b'r' => Ok(Self::Repr),
-            b => Err(b as usize),
+impl OpArgType for ConversionFlag {
+    #[inline]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        match x as u8 {
+            b's' => Some(ConversionFlag::Str),
+            b'a' => Some(ConversionFlag::Ascii),
+            b'r' => Some(ConversionFlag::Repr),
+            std::u8::MAX => Some(ConversionFlag::None),
+            _ => None,
         }
+    }
+    #[inline]
+    fn to_op_arg(self) -> u32 {
+        self as i8 as u8 as u32
     }
 }
 
-/// The kind of Raise that occurred.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum RaiseKind {
-    Reraise,
-    Raise,
-    RaiseCause,
-}
+op_arg_enum!(
+    /// The kind of Raise that occurred.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum RaiseKind {
+        Reraise = 0,
+        Raise = 1,
+        RaiseCause = 2,
+    }
+);
 
 pub type NameIdx = u32;
 
 /// A Single bytecode instruction.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(u8)]
 pub enum Instruction {
     /// Importing by name
     ImportName {
-        idx: NameIdx,
+        idx: Arg<NameIdx>,
     },
     /// Importing without name
     ImportNameless,
@@ -174,52 +380,52 @@ pub enum Instruction {
     ImportStar,
     /// from ... import ...
     ImportFrom {
-        idx: NameIdx,
+        idx: Arg<NameIdx>,
     },
-    LoadFast(NameIdx),
-    LoadNameAny(NameIdx),
-    LoadGlobal(NameIdx),
-    LoadDeref(NameIdx),
-    LoadClassDeref(NameIdx),
-    StoreFast(NameIdx),
-    StoreLocal(NameIdx),
-    StoreGlobal(NameIdx),
-    StoreDeref(NameIdx),
-    DeleteFast(NameIdx),
-    DeleteLocal(NameIdx),
-    DeleteGlobal(NameIdx),
-    DeleteDeref(NameIdx),
-    LoadClosure(NameIdx),
+    LoadFast(Arg<NameIdx>),
+    LoadNameAny(Arg<NameIdx>),
+    LoadGlobal(Arg<NameIdx>),
+    LoadDeref(Arg<NameIdx>),
+    LoadClassDeref(Arg<NameIdx>),
+    StoreFast(Arg<NameIdx>),
+    StoreLocal(Arg<NameIdx>),
+    StoreGlobal(Arg<NameIdx>),
+    StoreDeref(Arg<NameIdx>),
+    DeleteFast(Arg<NameIdx>),
+    DeleteLocal(Arg<NameIdx>),
+    DeleteGlobal(Arg<NameIdx>),
+    DeleteDeref(Arg<NameIdx>),
+    LoadClosure(Arg<NameIdx>),
     Subscript,
     StoreSubscript,
     DeleteSubscript,
     StoreAttr {
-        idx: NameIdx,
+        idx: Arg<NameIdx>,
     },
     DeleteAttr {
-        idx: NameIdx,
+        idx: Arg<NameIdx>,
     },
     LoadConst {
         /// index into constants vec
-        idx: u32,
+        idx: Arg<u32>,
     },
     UnaryOperation {
-        op: UnaryOperator,
+        op: Arg<UnaryOperator>,
     },
     BinaryOperation {
-        op: BinaryOperator,
+        op: Arg<BinaryOperator>,
     },
     BinaryOperationInplace {
-        op: BinaryOperator,
+        op: Arg<BinaryOperator>,
     },
     LoadAttr {
-        idx: NameIdx,
+        idx: Arg<NameIdx>,
     },
     TestOperation {
-        op: TestOperator,
+        op: Arg<TestOperator>,
     },
     CompareOperation {
-        op: ComparisonOperator,
+        op: Arg<ComparisonOperator>,
     },
     Pop,
     Rotate2,
@@ -228,71 +434,69 @@ pub enum Instruction {
     Duplicate2,
     GetIter,
     Continue {
-        target: Label,
+        target: Arg<Label>,
     },
     Break {
-        target: Label,
+        target: Arg<Label>,
     },
     Jump {
-        target: Label,
+        target: Arg<Label>,
     },
     /// Pop the top of the stack, and jump if this value is true.
     JumpIfTrue {
-        target: Label,
+        target: Arg<Label>,
     },
     /// Pop the top of the stack, and jump if this value is false.
     JumpIfFalse {
-        target: Label,
+        target: Arg<Label>,
     },
     /// Peek at the top of the stack, and jump if this value is true.
     /// Otherwise, pop top of stack.
     JumpIfTrueOrPop {
-        target: Label,
+        target: Arg<Label>,
     },
     /// Peek at the top of the stack, and jump if this value is false.
     /// Otherwise, pop top of stack.
     JumpIfFalseOrPop {
-        target: Label,
+        target: Arg<Label>,
     },
-    MakeFunction(MakeFunctionFlags),
+    MakeFunction(Arg<MakeFunctionFlags>),
     CallFunctionPositional {
-        nargs: u32,
+        nargs: Arg<u32>,
     },
     CallFunctionKeyword {
-        nargs: u32,
+        nargs: Arg<u32>,
     },
     CallFunctionEx {
-        has_kwargs: bool,
+        has_kwargs: Arg<bool>,
     },
     LoadMethod {
-        idx: NameIdx,
+        idx: Arg<NameIdx>,
     },
     CallMethodPositional {
-        nargs: u32,
+        nargs: Arg<u32>,
     },
     CallMethodKeyword {
-        nargs: u32,
+        nargs: Arg<u32>,
     },
     CallMethodEx {
-        has_kwargs: bool,
+        has_kwargs: Arg<bool>,
     },
     ForIter {
-        target: Label,
+        target: Arg<Label>,
     },
     ReturnValue,
     YieldValue,
     YieldFrom,
     SetupAnnotation,
-    SetupLoop {
-        break_target: Label,
-    },
+    SetupLoop,
 
     /// Setup a finally handler, which will be called whenever one of this events occurs:
     /// - the block is popped
     /// - the function returns
     /// - an exception is returned
     SetupFinally {
-        handler: Label,
+        handler: Arg<Label>,
     },
 
     /// Enter a finally block, without returning, excepting, just because we are there.
@@ -307,83 +511,126 @@ pub enum Instruction {
     EndFinally,
 
     SetupExcept {
-        handler: Label,
+        handler: Arg<Label>,
     },
     SetupWith {
-        end: Label,
+        end: Arg<Label>,
     },
     WithCleanupStart,
     WithCleanupFinish,
     PopBlock,
     Raise {
-        kind: RaiseKind,
+        kind: Arg<RaiseKind>,
     },
     BuildString {
-        size: u32,
+        size: Arg<u32>,
     },
     BuildTuple {
-        unpack: bool,
-        size: u32,
+        size: Arg<u32>,
+    },
+    BuildTupleUnpack {
+        size: Arg<u32>,
     },
     BuildList {
-        unpack: bool,
-        size: u32,
+        size: Arg<u32>,
+    },
+    BuildListUnpack {
+        size: Arg<u32>,
     },
     BuildSet {
-        unpack: bool,
-        size: u32,
+        size: Arg<u32>,
+    },
+    BuildSetUnpack {
+        size: Arg<u32>,
     },
     BuildMap {
-        unpack: bool,
-        for_call: bool,
-        size: u32,
+        size: Arg<u32>,
+    },
+    BuildMapForCall {
+        size: Arg<u32>,
     },
     DictUpdate,
     BuildSlice {
         /// whether build a slice with a third step argument
-        step: bool,
+        step: Arg<bool>,
     },
     ListAppend {
-        i: u32,
+        i: Arg<u32>,
     },
     SetAdd {
-        i: u32,
+        i: Arg<u32>,
     },
     MapAdd {
-        i: u32,
+        i: Arg<u32>,
     },
 
     PrintExpr,
     LoadBuildClass,
     UnpackSequence {
-        size: u32,
+        size: Arg<u32>,
     },
     UnpackEx {
-        before: u8,
-        after: u8,
+        args: Arg<UnpackExArgs>,
     },
     FormatValue {
-        conversion: ConversionFlag,
+        conversion: Arg<ConversionFlag>,
     },
     PopException,
     Reverse {
-        amount: u32,
+        amount: Arg<u32>,
     },
     GetAwaitable,
     BeforeAsyncWith,
     SetupAsyncWith {
-        end: Label,
+        end: Arg<Label>,
     },
     GetAIter,
     GetANext,
     EndAsyncFor,
+    ExtendedArg,
 }
-static_assertions::assert_eq_size!(Instruction, u64);
+const _: () = assert!(mem::size_of::<Instruction>() == 1);
+
+impl From<Instruction> for u8 {
+    #[inline]
+    fn from(ins: Instruction) -> u8 {
+        // SAFETY: there's no padding bits
+        unsafe { std::mem::transmute::<Instruction, u8>(ins) }
+    }
+}
+
+impl TryFrom<u8> for Instruction {
+    type Error = crate::marshal::MarshalError;
+
+    #[inline]
+    fn try_from(value: u8) -> Result<Self, crate::marshal::MarshalError> {
+        if value <= u8::from(Instruction::ExtendedArg) {
+            Ok(unsafe { std::mem::transmute::<u8, Instruction>(value) })
+        } else {
+            Err(crate::marshal::MarshalError::InvalidBytecode)
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+#[repr(C)]
+pub struct CodeUnit {
+    pub op: Instruction,
+    pub arg: OpArgByte,
+}
+
+const _: () = assert!(mem::size_of::<CodeUnit>() == 2);
+
+impl CodeUnit {
+    pub fn new(op: Instruction, arg: OpArgByte) -> Self {
+        Self { op, arg }
+    }
+}
 
 use self::Instruction::*;
 
 bitflags! {
-    #[derive(Serialize, Deserialize)]
+    #[derive(Copy, Clone, Debug, PartialEq)]
     pub struct MakeFunctionFlags: u8 {
         const CLOSURE = 0x01;
         const ANNOTATIONS = 0x02;
@@ -391,17 +638,27 @@ bitflags! {
         const DEFAULTS = 0x08;
     }
 }
+impl OpArgType for MakeFunctionFlags {
+    #[inline(always)]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        MakeFunctionFlags::from_bits(x as u8)
+    }
+    #[inline(always)]
+    fn to_op_arg(self) -> u32 {
+        self.bits().into()
+    }
+}
 
 /// A Constant (which usually encapsulates data within it)
 ///
 /// # Examples
 /// ```
-/// use rustpython_compiler_core::ConstantData;
+/// use rustpython_compiler_core::bytecode::ConstantData;
 /// let a = ConstantData::Float {value: 120f64};
 /// let b = ConstantData::Boolean {value: false};
 /// assert_ne!(a, b);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum ConstantData {
     Tuple { elements: Vec<ConstantData> },
     Integer { value: BigInt },
@@ -443,7 +700,7 @@ impl Eq for ConstantData {}
 impl hash::Hash for ConstantData {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         use ConstantData::*;
-        std::mem::discriminant(self).hash(state);
+        mem::discriminant(self).hash(state);
         match self {
             Integer { value } => value.hash(state),
             Float { value } => value.to_bits().hash(state),
@@ -471,36 +728,40 @@ pub enum BorrowedConstant<'a, C: Constant> {
     Str { value: &'a str },
     Bytes { value: &'a [u8] },
     Code { code: &'a CodeObject<C> },
-    Tuple { elements: BorrowedTupleIter<'a, C> },
+    Tuple { elements: &'a [C] },
     None,
     Ellipsis,
 }
 
-type BorrowedTupleIter<'a, C> = Box<dyn Iterator<Item = BorrowedConstant<'a, C>> + 'a>;
+impl<C: Constant> Copy for BorrowedConstant<'_, C> {}
+impl<C: Constant> Clone for BorrowedConstant<'_, C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
 
 impl<C: Constant> BorrowedConstant<'_, C> {
-    // takes `self` because we need to consume the iterator
-    pub fn fmt_display(self, f: &mut fmt::Formatter) -> fmt::Result {
+    pub fn fmt_display(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            BorrowedConstant::Integer { value } => write!(f, "{}", value),
-            BorrowedConstant::Float { value } => write!(f, "{}", value),
-            BorrowedConstant::Complex { value } => write!(f, "{}", value),
+            BorrowedConstant::Integer { value } => write!(f, "{value}"),
+            BorrowedConstant::Float { value } => write!(f, "{value}"),
+            BorrowedConstant::Complex { value } => write!(f, "{value}"),
             BorrowedConstant::Boolean { value } => {
-                write!(f, "{}", if value { "True" } else { "False" })
+                write!(f, "{}", if *value { "True" } else { "False" })
             }
-            BorrowedConstant::Str { value } => write!(f, "{:?}", value),
-            BorrowedConstant::Bytes { value } => write!(f, "b{:?}", value.as_bstr()),
-            BorrowedConstant::Code { code } => write!(f, "{:?}", code),
+            BorrowedConstant::Str { value } => write!(f, "{value:?}"),
+            BorrowedConstant::Bytes { value } => write!(f, "b\"{}\"", value.escape_ascii()),
+            BorrowedConstant::Code { code } => write!(f, "{code:?}"),
             BorrowedConstant::Tuple { elements } => {
                 write!(f, "(")?;
                 let mut first = true;
-                for c in elements {
+                for c in *elements {
                     if first {
                         first = false
                     } else {
                         write!(f, ", ")?;
                     }
-                    c.fmt_display(f)?;
+                    c.borrow_constant().fmt_display(f)?;
                 }
                 write!(f, ")")
             }
@@ -527,7 +788,10 @@ impl<C: Constant> BorrowedConstant<'_, C> {
                 code: Box::new(code.map_clone_bag(&BasicBag)),
             },
             BorrowedConstant::Tuple { elements } => Tuple {
-                elements: elements.map(BorrowedConstant::to_owned).collect(),
+                elements: elements
+                    .iter()
+                    .map(|c| c.borrow_constant().to_owned())
+                    .collect(),
             },
             BorrowedConstant::None => None,
             BorrowedConstant::Ellipsis => Ellipsis,
@@ -535,61 +799,96 @@ impl<C: Constant> BorrowedConstant<'_, C> {
     }
 }
 
-/// The possible comparison operators
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ComparisonOperator {
-    // be intentional with bits so that we can do eval_ord with just a bitwise and
-    // bits: | Equal | Greater | Less |
-    Less = 0b001,
-    Greater = 0b010,
-    NotEqual = 0b011,
-    Equal = 0b100,
-    LessOrEqual = 0b101,
-    GreaterOrEqual = 0b110,
+op_arg_enum!(
+    /// The possible comparison operators
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum ComparisonOperator {
+        // be intentional with bits so that we can do eval_ord with just a bitwise and
+        // bits: | Equal | Greater | Less |
+        Less = 0b001,
+        Greater = 0b010,
+        NotEqual = 0b011,
+        Equal = 0b100,
+        LessOrEqual = 0b101,
+        GreaterOrEqual = 0b110,
+    }
+);
+
+op_arg_enum!(
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum TestOperator {
+        In = 0,
+        NotIn = 1,
+        Is = 2,
+        IsNot = 3,
+        /// two exceptions that match?
+        ExceptionMatch = 4,
+    }
+);
+
+op_arg_enum!(
+    /// The possible Binary operators
+    /// # Examples
+    ///
+    /// ```ignore
+    /// use rustpython_compiler_core::Instruction::BinaryOperation;
+    /// use rustpython_compiler_core::BinaryOperator::Add;
+    /// let op = BinaryOperation {op: Add};
+    /// ```
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum BinaryOperator {
+        Power = 0,
+        Multiply = 1,
+        MatrixMultiply = 2,
+        Divide = 3,
+        FloorDivide = 4,
+        Modulo = 5,
+        Add = 6,
+        Subtract = 7,
+        Lshift = 8,
+        Rshift = 9,
+        And = 10,
+        Xor = 11,
+        Or = 12,
+    }
+);
+
+op_arg_enum!(
+    /// The possible unary operators
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum UnaryOperator {
+        Not = 0,
+        Invert = 1,
+        Minus = 2,
+        Plus = 3,
+    }
+);
+
+#[derive(Copy, Clone)]
+pub struct UnpackExArgs {
+    pub before: u8,
+    pub after: u8,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum TestOperator {
-    In,
-    NotIn,
-    Is,
-    IsNot,
-    /// two exceptions that match?
-    ExceptionMatch,
+impl OpArgType for UnpackExArgs {
+    #[inline(always)]
+    fn from_op_arg(x: u32) -> Option<Self> {
+        let [before, after, ..] = x.to_le_bytes();
+        Some(Self { before, after })
+    }
+    #[inline(always)]
+    fn to_op_arg(self) -> u32 {
+        u32::from_le_bytes([self.before, self.after, 0, 0])
+    }
 }
-
-/// The possible Binary operators
-/// # Examples
-///
-/// ```
-/// use rustpython_compiler_core::Instruction::BinaryOperation;
-/// use rustpython_compiler_core::BinaryOperator::Add;
-/// let op = BinaryOperation {op: Add};
-/// ```
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BinaryOperator {
-    Power,
-    Multiply,
-    MatrixMultiply,
-    Divide,
-    FloorDivide,
-    Modulo,
-    Add,
-    Subtract,
-    Lshift,
-    Rshift,
-    And,
-    Xor,
-    Or,
-}
-
-/// The possible unary operators
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum UnaryOperator {
-    Not,
-    Invert,
-    Minus,
-    Plus,
+impl fmt::Display for UnpackExArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "before: {}, after: {}", self.before, self.after)
+    }
 }
 
 /*
@@ -630,22 +929,22 @@ impl<C: Constant> CodeObject<C> {
     /// Get all arguments of the code object
     /// like inspect.getargs
     pub fn arg_names(&self) -> Arguments<C::Name> {
-        let nargs = self.arg_count;
-        let nkwargs = self.kwonlyarg_count;
-        let mut varargspos = nargs + nkwargs;
-        let posonlyargs = &self.varnames[..self.posonlyarg_count];
+        let nargs = self.arg_count as usize;
+        let nkwargs = self.kwonlyarg_count as usize;
+        let mut varargs_pos = nargs + nkwargs;
+        let posonlyargs = &self.varnames[..self.posonlyarg_count as usize];
         let args = &self.varnames[..nargs];
-        let kwonlyargs = &self.varnames[nargs..varargspos];
+        let kwonlyargs = &self.varnames[nargs..varargs_pos];
 
         let vararg = if self.flags.contains(CodeFlags::HAS_VARARGS) {
-            let vararg = &self.varnames[varargspos];
-            varargspos += 1;
+            let vararg = &self.varnames[varargs_pos];
+            varargs_pos += 1;
             Some(vararg)
         } else {
             None
         };
         let varkwarg = if self.flags.contains(CodeFlags::HAS_VARKEYWORDS) {
-            Some(&self.varnames[varargspos])
+            Some(&self.varnames[varargs_pos])
         } else {
             None
         };
@@ -662,9 +961,11 @@ impl<C: Constant> CodeObject<C> {
     /// Return the labels targeted by the instructions of this CodeObject
     pub fn label_targets(&self) -> BTreeSet<Label> {
         let mut label_targets = BTreeSet::new();
+        let mut arg_state = OpArgState::default();
         for instruction in &*self.instructions {
+            let (instruction, arg) = arg_state.get(*instruction);
             if let Some(l) = instruction.label_arg() {
-                label_targets.insert(*l);
+                label_targets.insert(l.get(arg));
             }
         }
         label_targets
@@ -673,18 +974,20 @@ impl<C: Constant> CodeObject<C> {
     fn display_inner(
         &self,
         f: &mut fmt::Formatter,
-        expand_codeobjects: bool,
+        expand_code_objects: bool,
         level: usize,
     ) -> fmt::Result {
         let label_targets = self.label_targets();
         let line_digits = (3).max(self.locations.last().unwrap().row.to_string().len());
         let offset_digits = (4).max(self.instructions.len().to_string().len());
-        let mut last_line = u32::MAX;
-        for (offset, instruction) in self.instructions.iter().enumerate() {
+        let mut last_line = OneIndexed::MAX;
+        let mut arg_state = OpArgState::default();
+        for (offset, &instruction) in self.instructions.iter().enumerate() {
+            let (instruction, arg) = arg_state.get(instruction);
             // optional line number
             let line = self.locations[offset].row;
             if line != last_line {
-                if last_line != u32::MAX {
+                if last_line != OneIndexed::MAX {
                     writeln!(f)?;
                 }
                 last_line = line;
@@ -710,22 +1013,14 @@ impl<C: Constant> CodeObject<C> {
             write!(f, "{arrow} {offset:offset_digits$} ")?;
 
             // instruction
-            instruction.fmt_dis(
-                f,
-                &self.constants,
-                &self.names,
-                &self.varnames,
-                &self.cellvars,
-                &self.freevars,
-                expand_codeobjects,
-                level,
-            )?;
+            instruction.fmt_dis(arg, f, self, expand_code_objects, 21, level)?;
+            writeln!(f)?;
         }
         Ok(())
     }
 
     /// Recursively display this CodeObject
-    pub fn display_expand_codeobjects(&self) -> impl fmt::Display + '_ {
+    pub fn display_expand_code_objects(&self) -> impl fmt::Display + '_ {
         struct Display<'a, C: Constant>(&'a CodeObject<C>);
         impl<C: Constant> fmt::Display for Display<'_, C> {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -800,59 +1095,12 @@ impl<C: Constant> CodeObject<C> {
     }
 }
 
-/// Error that occurs during code deserialization
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum CodeDeserializeError {
-    /// Unexpected End Of File
-    Eof,
-    /// Invalid Bytecode
-    Other,
-}
-
-impl fmt::Display for CodeDeserializeError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Eof => f.write_str("unexpected end of data"),
-            Self::Other => f.write_str("invalid bytecode"),
-        }
-    }
-}
-
-impl std::error::Error for CodeDeserializeError {}
-
-impl CodeObject<ConstantData> {
-    /// Load a code object from bytes
-    pub fn from_bytes(data: &[u8]) -> Result<Self, CodeDeserializeError> {
-        use lz4_flex::block::DecompressError;
-        let raw_bincode = lz4_flex::decompress_size_prepended(data).map_err(|e| match e {
-            DecompressError::OutputTooSmall { .. } | DecompressError::ExpectedAnotherByte => {
-                CodeDeserializeError::Eof
-            }
-            _ => CodeDeserializeError::Other,
-        })?;
-        let data = bincode::deserialize(&raw_bincode).map_err(|e| match *e {
-            bincode::ErrorKind::Io(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                CodeDeserializeError::Eof
-            }
-            _ => CodeDeserializeError::Other,
-        })?;
-        Ok(data)
-    }
-
-    /// Serialize this bytecode to bytes.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let data = bincode::serialize(&self).expect("CodeObject is not serializable");
-        lz4_flex::compress_prepend_size(&data)
-    }
-}
-
 impl<C: Constant> fmt::Display for CodeObject<C> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         self.display_inner(f, false, 1)?;
         for constant in &*self.constants {
             if let BorrowedConstant::Code { code } = constant.borrow_constant() {
-                writeln!(f, "\nDisassembly of {:?}", code)?;
+                writeln!(f, "\nDisassembly of {code:?}")?;
                 code.fmt(f)?;
             }
         }
@@ -863,7 +1111,7 @@ impl<C: Constant> fmt::Display for CodeObject<C> {
 impl Instruction {
     /// Gets the label stored inside this instruction, if it exists
     #[inline]
-    pub fn label_arg(&self) -> Option<&Label> {
+    pub fn label_arg(&self) -> Option<Arg<Label>> {
         match self {
             Jump { target: l }
             | JumpIfTrue { target: l }
@@ -875,28 +1123,8 @@ impl Instruction {
             | SetupExcept { handler: l }
             | SetupWith { end: l }
             | SetupAsyncWith { end: l }
-            | SetupLoop { break_target: l }
-            | Continue { target: l } => Some(l),
-            _ => None,
-        }
-    }
-
-    /// Gets a mutable reference to the label stored inside this instruction, if it exists
-    #[inline]
-    pub fn label_arg_mut(&mut self) -> Option<&mut Label> {
-        match self {
-            Jump { target: l }
-            | JumpIfTrue { target: l }
-            | JumpIfFalse { target: l }
-            | JumpIfTrueOrPop { target: l }
-            | JumpIfFalseOrPop { target: l }
-            | ForIter { target: l }
-            | SetupFinally { handler: l }
-            | SetupExcept { handler: l }
-            | SetupWith { end: l }
-            | SetupAsyncWith { end: l }
-            | SetupLoop { break_target: l }
-            | Continue { target: l } => Some(l),
+            | Break { target: l }
+            | Continue { target: l } => Some(*l),
             _ => None,
         }
     }
@@ -906,9 +1134,8 @@ impl Instruction {
     /// # Examples
     ///
     /// ```
-    /// use rustpython_compiler_core::{Instruction, Label};
-    /// let label = Label(0xF);
-    /// let jump_inst = Instruction::Jump {target: label};
+    /// use rustpython_compiler_core::bytecode::{Arg, Instruction};
+    /// let jump_inst = Instruction::Jump { target: Arg::marker() };
     /// assert!(jump_inst.unconditional_branch())
     /// ```
     pub fn unconditional_branch(&self) -> bool {
@@ -923,14 +1150,16 @@ impl Instruction {
     /// # Examples
     ///
     /// ```
-    /// use rustpython_compiler_core::{Instruction, Label, UnaryOperator};
-    /// let jump_instruction = Instruction::Jump {target: Label(0xF)};
-    /// let invert_instruction = Instruction::UnaryOperation {op: UnaryOperator::Invert};
-    /// assert_eq!(jump_instruction.stack_effect(true), 0);
-    /// assert_eq!(invert_instruction.stack_effect(false), 0);
+    /// use rustpython_compiler_core::bytecode::{Arg, Instruction, Label, UnaryOperator};
+    /// let (target, jump_arg) = Arg::new(Label(0xF));
+    /// let jump_instruction = Instruction::Jump { target };
+    /// let (op, invert_arg) = Arg::new(UnaryOperator::Invert);
+    /// let invert_instruction = Instruction::UnaryOperation { op };
+    /// assert_eq!(jump_instruction.stack_effect(jump_arg, true), 0);
+    /// assert_eq!(invert_instruction.stack_effect(invert_arg, false), 0);
     /// ```
     ///
-    pub fn stack_effect(&self, jump: bool) -> i32 {
+    pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
             ImportName { .. } | ImportNameless => -1,
             ImportStar => -1,
@@ -968,18 +1197,19 @@ impl Instruction {
                 }
             }
             MakeFunction(flags) => {
+                let flags = flags.get(arg);
                 -2 - flags.contains(MakeFunctionFlags::CLOSURE) as i32
                     - flags.contains(MakeFunctionFlags::ANNOTATIONS) as i32
                     - flags.contains(MakeFunctionFlags::KW_ONLY_DEFAULTS) as i32
                     - flags.contains(MakeFunctionFlags::DEFAULTS) as i32
                     + 1
             }
-            CallFunctionPositional { nargs } => -(*nargs as i32) - 1 + 1,
-            CallMethodPositional { nargs } => -(*nargs as i32) - 3 + 1,
-            CallFunctionKeyword { nargs } => -1 - (*nargs as i32) - 1 + 1,
-            CallMethodKeyword { nargs } => -1 - (*nargs as i32) - 3 + 1,
-            CallFunctionEx { has_kwargs } => -1 - (*has_kwargs as i32) - 1 + 1,
-            CallMethodEx { has_kwargs } => -1 - (*has_kwargs as i32) - 3 + 1,
+            CallFunctionPositional { nargs } => -(nargs.get(arg) as i32) - 1 + 1,
+            CallMethodPositional { nargs } => -(nargs.get(arg) as i32) - 3 + 1,
+            CallFunctionKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 1 + 1,
+            CallMethodKeyword { nargs } => -1 - (nargs.get(arg) as i32) - 3 + 1,
+            CallFunctionEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 1 + 1,
+            CallMethodEx { has_kwargs } => -1 - (has_kwargs.get(arg) as i32) - 3 + 1,
             LoadMethod { .. } => -1 + 3,
             ForIter { .. } => {
                 if jump {
@@ -991,45 +1221,39 @@ impl Instruction {
             ReturnValue => -1,
             YieldValue => 0,
             YieldFrom => -1,
-            SetupAnnotation
-            | SetupLoop { .. }
-            | SetupFinally { .. }
-            | EnterFinally
-            | EndFinally => 0,
-            SetupExcept { .. } => {
-                if jump {
-                    1
-                } else {
-                    0
-                }
-            }
-            SetupWith { .. } => {
-                if jump {
-                    0
-                } else {
-                    1
-                }
-            }
+            SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
+            SetupExcept { .. } => jump as i32,
+            SetupWith { .. } => (!jump) as i32,
             WithCleanupStart => 0,
             WithCleanupFinish => -1,
             PopBlock => 0,
-            Raise { kind } => -(*kind as u8 as i32),
+            Raise { kind } => -(kind.get(arg) as u8 as i32),
             BuildString { size }
             | BuildTuple { size, .. }
+            | BuildTupleUnpack { size, .. }
             | BuildList { size, .. }
-            | BuildSet { size, .. } => -(*size as i32) + 1,
-            BuildMap { unpack, size, .. } => {
-                let nargs = if *unpack { *size } else { *size * 2 };
+            | BuildListUnpack { size, .. }
+            | BuildSet { size, .. }
+            | BuildSetUnpack { size, .. } => -(size.get(arg) as i32) + 1,
+            BuildMap { size } => {
+                let nargs = size.get(arg) * 2;
+                -(nargs as i32) + 1
+            }
+            BuildMapForCall { size } => {
+                let nargs = size.get(arg);
                 -(nargs as i32) + 1
             }
             DictUpdate => -1,
-            BuildSlice { step } => -2 - (*step as i32) + 1,
+            BuildSlice { step } => -2 - (step.get(arg) as i32) + 1,
             ListAppend { .. } | SetAdd { .. } => -1,
             MapAdd { .. } => -2,
             PrintExpr => -1,
             LoadBuildClass => 1,
-            UnpackSequence { size } => -1 + *size as i32,
-            UnpackEx { before, after } => -1 + *before as i32 + 1 + *after as i32,
+            UnpackSequence { size } => -1 + size.get(arg) as i32,
+            UnpackEx { args } => {
+                let UnpackExArgs { before, after } = args.get(arg);
+                -1 + before as i32 + 1 + after as i32
+            }
             FormatValue { .. } => -1,
             PopException => 0,
             Reverse { .. } => 0,
@@ -1045,99 +1269,104 @@ impl Instruction {
             GetAIter => 0,
             GetANext => 1,
             EndAsyncFor => -2,
+            ExtendedArg => 0,
         }
     }
 
+    pub fn display<'a>(
+        &'a self,
+        arg: OpArg,
+        ctx: &'a impl InstrDisplayContext,
+    ) -> impl fmt::Display + 'a {
+        struct FmtFn<F>(F);
+        impl<F: Fn(&mut fmt::Formatter) -> fmt::Result> fmt::Display for FmtFn<F> {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                (self.0)(f)
+            }
+        }
+        FmtFn(move |f: &mut fmt::Formatter| self.fmt_dis(arg, f, ctx, false, 0, 0))
+    }
+
     #[allow(clippy::too_many_arguments)]
-    fn fmt_dis<C: Constant>(
+    fn fmt_dis(
         &self,
+        arg: OpArg,
         f: &mut fmt::Formatter,
-        constants: &[C],
-        names: &[C::Name],
-        varnames: &[C::Name],
-        cellvars: &[C::Name],
-        freevars: &[C::Name],
-        expand_codeobjects: bool,
+        ctx: &impl InstrDisplayContext,
+        expand_code_objects: bool,
+        pad: usize,
         level: usize,
     ) -> fmt::Result {
         macro_rules! w {
             ($variant:ident) => {
-                writeln!(f, stringify!($variant))
+                write!(f, stringify!($variant))
             };
-            ($variant:ident, $var:expr) => {
-                writeln!(f, "{:20} ({})", stringify!($variant), $var)
+            ($variant:ident, $map:ident = $arg_marker:expr) => {{
+                let arg = $arg_marker.get(arg);
+                write!(f, "{:pad$}({}, {})", stringify!($variant), arg, $map(arg))
+            }};
+            ($variant:ident, $arg_marker:expr) => {
+                write!(f, "{:pad$}({})", stringify!($variant), $arg_marker.get(arg))
             };
-            ($variant:ident, $var1:expr, $var2:expr) => {
-                writeln!(f, "{:20} ({}, {})", stringify!($variant), $var1, $var2)
-            };
-            ($variant:ident, $var1:expr, $var2:expr, $var3:expr) => {
-                writeln!(
+            ($variant:ident, ?$arg_marker:expr) => {
+                write!(
                     f,
-                    "{:20} ({}, {}, {})",
+                    "{:pad$}({:?})",
                     stringify!($variant),
-                    $var1,
-                    $var2,
-                    $var3
+                    $arg_marker.get(arg)
                 )
             };
         }
 
-        let varname = |i: u32| varnames[i as usize].as_ref();
-        let name = |i: u32| names[i as usize].as_ref();
-        let cellname = |i: u32| {
-            cellvars
-                .get(i as usize)
-                .unwrap_or_else(|| &freevars[i as usize - cellvars.len()])
-                .as_ref()
-        };
+        let varname = |i: u32| ctx.get_varname(i as usize);
+        let name = |i: u32| ctx.get_name(i as usize);
+        let cell_name = |i: u32| ctx.get_cell_name(i as usize);
 
         match self {
-            ImportName { idx } => w!(ImportName, name(*idx)),
+            ImportName { idx } => w!(ImportName, name = idx),
             ImportNameless => w!(ImportNameless),
             ImportStar => w!(ImportStar),
-            ImportFrom { idx } => w!(ImportFrom, name(*idx)),
-            LoadFast(idx) => w!(LoadFast, *idx, varname(*idx)),
-            LoadNameAny(idx) => w!(LoadNameAny, *idx, name(*idx)),
-            LoadGlobal(idx) => w!(LoadGlobal, *idx, name(*idx)),
-            LoadDeref(idx) => w!(LoadDeref, *idx, cellname(*idx)),
-            LoadClassDeref(idx) => w!(LoadClassDeref, *idx, cellname(*idx)),
-            StoreFast(idx) => w!(StoreFast, *idx, varname(*idx)),
-            StoreLocal(idx) => w!(StoreLocal, *idx, name(*idx)),
-            StoreGlobal(idx) => w!(StoreGlobal, *idx, name(*idx)),
-            StoreDeref(idx) => w!(StoreDeref, *idx, cellname(*idx)),
-            DeleteFast(idx) => w!(DeleteFast, *idx, varname(*idx)),
-            DeleteLocal(idx) => w!(DeleteLocal, *idx, name(*idx)),
-            DeleteGlobal(idx) => w!(DeleteGlobal, *idx, name(*idx)),
-            DeleteDeref(idx) => w!(DeleteDeref, *idx, cellname(*idx)),
-            LoadClosure(i) => w!(LoadClosure, *i, cellname(*i)),
+            ImportFrom { idx } => w!(ImportFrom, name = idx),
+            LoadFast(idx) => w!(LoadFast, varname = idx),
+            LoadNameAny(idx) => w!(LoadNameAny, name = idx),
+            LoadGlobal(idx) => w!(LoadGlobal, name = idx),
+            LoadDeref(idx) => w!(LoadDeref, cell_name = idx),
+            LoadClassDeref(idx) => w!(LoadClassDeref, cell_name = idx),
+            StoreFast(idx) => w!(StoreFast, varname = idx),
+            StoreLocal(idx) => w!(StoreLocal, name = idx),
+            StoreGlobal(idx) => w!(StoreGlobal, name = idx),
+            StoreDeref(idx) => w!(StoreDeref, cell_name = idx),
+            DeleteFast(idx) => w!(DeleteFast, varname = idx),
+            DeleteLocal(idx) => w!(DeleteLocal, name = idx),
+            DeleteGlobal(idx) => w!(DeleteGlobal, name = idx),
+            DeleteDeref(idx) => w!(DeleteDeref, cell_name = idx),
+            LoadClosure(i) => w!(LoadClosure, cell_name = i),
             Subscript => w!(Subscript),
             StoreSubscript => w!(StoreSubscript),
             DeleteSubscript => w!(DeleteSubscript),
-            StoreAttr { idx } => w!(StoreAttr, name(*idx)),
-            DeleteAttr { idx } => w!(DeleteAttr, name(*idx)),
+            StoreAttr { idx } => w!(StoreAttr, name = idx),
+            DeleteAttr { idx } => w!(DeleteAttr, name = idx),
             LoadConst { idx } => {
-                let value = &constants[*idx as usize];
+                let value = ctx.get_constant(idx.get(arg) as usize);
                 match value.borrow_constant() {
-                    BorrowedConstant::Code { code } if expand_codeobjects => {
-                        writeln!(f, "{:20} ({:?}):", "LoadConst", code)?;
+                    BorrowedConstant::Code { code } if expand_code_objects => {
+                        write!(f, "{:pad$}({:?}):", "LoadConst", code)?;
                         code.display_inner(f, true, level + 1)?;
                         Ok(())
                     }
                     c => {
-                        write!(f, "{:20} (", "LoadConst")?;
+                        write!(f, "{:pad$}(", "LoadConst")?;
                         c.fmt_display(f)?;
-                        writeln!(f, ")")
+                        write!(f, ")")
                     }
                 }
             }
-            UnaryOperation { op } => w!(UnaryOperation, format_args!("{:?}", op)),
-            BinaryOperation { op } => w!(BinaryOperation, format_args!("{:?}", op)),
-            BinaryOperationInplace { op } => {
-                w!(BinaryOperationInplace, format_args!("{:?}", op))
-            }
-            LoadAttr { idx } => w!(LoadAttr, name(*idx)),
-            TestOperation { op } => w!(TestOperation, format_args!("{:?}", op)),
-            CompareOperation { op } => w!(CompareOperation, format_args!("{:?}", op)),
+            UnaryOperation { op } => w!(UnaryOperation, ?op),
+            BinaryOperation { op } => w!(BinaryOperation, ?op),
+            BinaryOperationInplace { op } => w!(BinaryOperationInplace, ?op),
+            LoadAttr { idx } => w!(LoadAttr, name = idx),
+            TestOperation { op } => w!(TestOperation, ?op),
+            CompareOperation { op } => w!(CompareOperation, ?op),
             Pop => w!(Pop),
             Rotate2 => w!(Rotate2),
             Rotate3 => w!(Rotate3),
@@ -1151,11 +1380,11 @@ impl Instruction {
             JumpIfFalse { target } => w!(JumpIfFalse, target),
             JumpIfTrueOrPop { target } => w!(JumpIfTrueOrPop, target),
             JumpIfFalseOrPop { target } => w!(JumpIfFalseOrPop, target),
-            MakeFunction(flags) => w!(MakeFunction, format_args!("{:?}", flags)),
+            MakeFunction(flags) => w!(MakeFunction, ?flags),
             CallFunctionPositional { nargs } => w!(CallFunctionPositional, nargs),
             CallFunctionKeyword { nargs } => w!(CallFunctionKeyword, nargs),
             CallFunctionEx { has_kwargs } => w!(CallFunctionEx, has_kwargs),
-            LoadMethod { idx } => w!(LoadMethod, name(*idx)),
+            LoadMethod { idx } => w!(LoadMethod, name = idx),
             CallMethodPositional { nargs } => w!(CallMethodPositional, nargs),
             CallMethodKeyword { nargs } => w!(CallMethodKeyword, nargs),
             CallMethodEx { has_kwargs } => w!(CallMethodEx, has_kwargs),
@@ -1164,7 +1393,7 @@ impl Instruction {
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop { break_target } => w!(SetupLoop, break_target),
+            SetupLoop => w!(SetupLoop),
             SetupExcept { handler } => w!(SetupExcept, handler),
             SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),
@@ -1175,16 +1404,16 @@ impl Instruction {
             BeforeAsyncWith => w!(BeforeAsyncWith),
             SetupAsyncWith { end } => w!(SetupAsyncWith, end),
             PopBlock => w!(PopBlock),
-            Raise { kind } => w!(Raise, format_args!("{:?}", kind)),
+            Raise { kind } => w!(Raise, ?kind),
             BuildString { size } => w!(BuildString, size),
-            BuildTuple { size, unpack } => w!(BuildTuple, size, unpack),
-            BuildList { size, unpack } => w!(BuildList, size, unpack),
-            BuildSet { size, unpack } => w!(BuildSet, size, unpack),
-            BuildMap {
-                size,
-                unpack,
-                for_call,
-            } => w!(BuildMap, size, unpack, for_call),
+            BuildTuple { size } => w!(BuildTuple, size),
+            BuildTupleUnpack { size } => w!(BuildTupleUnpack, size),
+            BuildList { size } => w!(BuildList, size),
+            BuildListUnpack { size } => w!(BuildListUnpack, size),
+            BuildSet { size } => w!(BuildSet, size),
+            BuildSetUnpack { size } => w!(BuildSetUnpack, size),
+            BuildMap { size } => w!(BuildMap, size),
+            BuildMapForCall { size } => w!(BuildMap, size),
             DictUpdate => w!(DictUpdate),
             BuildSlice { step } => w!(BuildSlice, step),
             ListAppend { i } => w!(ListAppend, i),
@@ -1193,15 +1422,43 @@ impl Instruction {
             PrintExpr => w!(PrintExpr),
             LoadBuildClass => w!(LoadBuildClass),
             UnpackSequence { size } => w!(UnpackSequence, size),
-            UnpackEx { before, after } => w!(UnpackEx, before, after),
-            FormatValue { conversion } => w!(FormatValue, format_args!("{:?}", conversion)),
+            UnpackEx { args } => w!(UnpackEx, args),
+            FormatValue { conversion } => w!(FormatValue, ?conversion),
             PopException => w!(PopException),
             Reverse { amount } => w!(Reverse, amount),
             GetAwaitable => w!(GetAwaitable),
             GetAIter => w!(GetAIter),
             GetANext => w!(GetANext),
             EndAsyncFor => w!(EndAsyncFor),
+            ExtendedArg => w!(ExtendedArg, Arg::<u32>::marker()),
         }
+    }
+}
+
+pub trait InstrDisplayContext {
+    type Constant: Constant;
+    fn get_constant(&self, i: usize) -> &Self::Constant;
+    fn get_name(&self, i: usize) -> &str;
+    fn get_varname(&self, i: usize) -> &str;
+    fn get_cell_name(&self, i: usize) -> &str;
+}
+
+impl<C: Constant> InstrDisplayContext for CodeObject<C> {
+    type Constant = C;
+    fn get_constant(&self, i: usize) -> &C {
+        &self.constants[i]
+    }
+    fn get_name(&self, i: usize) -> &str {
+        self.names[i].as_ref()
+    }
+    fn get_varname(&self, i: usize) -> &str {
+        self.varnames[i].as_ref()
+    }
+    fn get_cell_name(&self, i: usize) -> &str {
+        self.cellvars
+            .get(i)
+            .unwrap_or_else(|| &self.freevars[i - self.cellvars.len()])
+            .as_ref()
     }
 }
 
@@ -1218,144 +1475,7 @@ impl<C: Constant> fmt::Debug for CodeObject<C> {
             "<code object {} at ??? file {:?}, line {}>",
             self.obj_name.as_ref(),
             self.source_path.as_ref(),
-            self.first_line_number
+            self.first_line_number.map_or(-1, |x| x.get() as i32)
         )
-    }
-}
-
-/// A frozen module. Holds a code object and whether it is part of a package
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FrozenModule {
-    pub code: CodeObject<ConstantData>,
-    pub package: bool,
-}
-
-pub mod frozen_lib {
-    use super::*;
-    use bincode::{options, Options};
-    use std::io;
-
-    /// Decode a library to a iterable of frozen modules
-    pub fn decode_lib(bytes: &[u8]) -> FrozenModulesIter {
-        let data = lz4_flex::decompress_size_prepended(bytes).unwrap();
-        let r = VecReader { data, pos: 0 };
-        let mut de = bincode::Deserializer::with_bincode_read(r, options());
-        let len = u64::deserialize(&mut de).unwrap().try_into().unwrap();
-        FrozenModulesIter { len, de }
-    }
-
-    pub struct FrozenModulesIter {
-        len: usize,
-        // ideally this could be a SeqAccess, but I think that would require existential types
-        de: bincode::Deserializer<VecReader, bincode::DefaultOptions>,
-    }
-
-    impl Iterator for FrozenModulesIter {
-        type Item = (String, FrozenModule);
-
-        fn next(&mut self) -> Option<Self::Item> {
-            // manually mimic bincode's seq encoding, which is <len:u64> <element*len>
-            // This probably won't change (bincode doesn't require padding or anything), but
-            // it's not guaranteed by semver as far as I can tell
-            if self.len > 0 {
-                let entry = Deserialize::deserialize(&mut self.de).unwrap();
-                self.len -= 1;
-                Some(entry)
-            } else {
-                None
-            }
-        }
-
-        fn size_hint(&self) -> (usize, Option<usize>) {
-            (self.len, Some(self.len))
-        }
-    }
-
-    impl ExactSizeIterator for FrozenModulesIter {}
-
-    /// Encode the given iterator of frozen modules into a compressed vector of bytes
-    pub fn encode_lib<'a, I>(lib: I) -> Vec<u8>
-    where
-        I: IntoIterator<Item = (&'a str, &'a FrozenModule)>,
-        I::IntoIter: ExactSizeIterator + Clone,
-    {
-        let iter = lib.into_iter();
-        let data = options().serialize(&SerializeLib { iter }).unwrap();
-        lz4_flex::compress_prepend_size(&data)
-    }
-
-    struct SerializeLib<I> {
-        iter: I,
-    }
-
-    impl<'a, I> Serialize for SerializeLib<I>
-    where
-        I: ExactSizeIterator<Item = (&'a str, &'a FrozenModule)> + Clone,
-    {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            serializer.collect_seq(self.iter.clone())
-        }
-    }
-
-    /// Owned version of bincode::de::read::SliceReader<'a>
-    struct VecReader {
-        data: Vec<u8>,
-        pos: usize,
-    }
-
-    impl io::Read for VecReader {
-        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            let mut subslice = &self.data[self.pos..];
-            let n = io::Read::read(&mut subslice, buf)?;
-            self.pos += n;
-            Ok(n)
-        }
-        fn read_exact(&mut self, buf: &mut [u8]) -> io::Result<()> {
-            self.get_byte_slice(buf.len())
-                .map(|data| buf.copy_from_slice(data))
-        }
-    }
-
-    impl VecReader {
-        #[inline(always)]
-        fn get_byte_slice(&mut self, length: usize) -> io::Result<&[u8]> {
-            let subslice = &self.data[self.pos..];
-            match subslice.get(..length) {
-                Some(ret) => {
-                    self.pos += length;
-                    Ok(ret)
-                }
-                None => Err(io::ErrorKind::UnexpectedEof.into()),
-            }
-        }
-    }
-
-    impl<'storage> bincode::BincodeRead<'storage> for VecReader {
-        fn forward_read_str<V>(&mut self, length: usize, visitor: V) -> bincode::Result<V::Value>
-        where
-            V: serde::de::Visitor<'storage>,
-        {
-            let bytes = self.get_byte_slice(length)?;
-            match ::std::str::from_utf8(bytes) {
-                Ok(s) => visitor.visit_str(s),
-                Err(e) => Err(bincode::ErrorKind::InvalidUtf8Encoding(e).into()),
-            }
-        }
-
-        fn get_byte_buffer(&mut self, length: usize) -> bincode::Result<Vec<u8>> {
-            self.get_byte_slice(length)
-                .map(|x| x.to_vec())
-                .map_err(Into::into)
-        }
-
-        fn forward_read_bytes<V>(&mut self, length: usize, visitor: V) -> bincode::Result<V::Value>
-        where
-            V: serde::de::Visitor<'storage>,
-        {
-            visitor.visit_bytes(self.get_byte_slice(length)?)
-        }
     }
 }

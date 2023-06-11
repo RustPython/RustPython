@@ -1,12 +1,15 @@
+// spell-checker:ignore compressobj decompressobj zdict chunksize zlibmodule miniz
+
 pub(crate) use zlib::make_module;
 
 #[pymodule]
 mod zlib {
-    use crate::common::lock::PyMutex;
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
-        function::{ArgBytesLike, OptionalArg, OptionalOption},
-        PyPayload, PyResult, VirtualMachine,
+        common::lock::PyMutex,
+        convert::TryFromBorrowedObject,
+        function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
+        PyObject, PyPayload, PyResult, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
     use crossbeam_utils::atomic::AtomicCell;
@@ -47,7 +50,7 @@ mod zlib {
 
     // copied from zlibmodule.c (commit 530f506ac91338)
     #[pyattr]
-    const MAX_WBITS: u8 = 15;
+    const MAX_WBITS: i8 = 15;
     #[pyattr]
     const DEF_BUF_SIZE: usize = 16 * 1024;
     #[pyattr]
@@ -62,7 +65,6 @@ mod zlib {
         )
     }
 
-    /// Compute an Adler-32 checksum of data.
     #[pyfunction]
     fn adler32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         data.with_ref(|data| {
@@ -74,43 +76,40 @@ mod zlib {
         })
     }
 
-    /// Compute a CRC-32 checksum of data.
     #[pyfunction]
     fn crc32(data: ArgBytesLike, begin_state: OptionalArg<PyIntRef>) -> u32 {
         crate::binascii::crc32(data, begin_state)
-    }
-
-    fn compression_from_int(level: Option<i32>) -> Option<Compression> {
-        match level.unwrap_or(Z_DEFAULT_COMPRESSION) {
-            Z_DEFAULT_COMPRESSION => Some(Compression::default()),
-            valid_level @ Z_NO_COMPRESSION..=Z_BEST_COMPRESSION => {
-                Some(Compression::new(valid_level as u32))
-            }
-            _ => None,
-        }
     }
 
     #[derive(FromArgs)]
     struct PyFuncCompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(any, optional)]
-        level: OptionalOption<i32>,
+        #[pyarg(any, default = "Level::new(Z_DEFAULT_COMPRESSION)")]
+        level: Level,
+        #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
+        wbits: ArgPrimitiveIndex<i8>,
     }
 
     /// Returns a bytes object containing compressed data.
     #[pyfunction]
     fn compress(args: PyFuncCompressArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        let data = args.data;
-        let level = args.level;
+        let PyFuncCompressArgs {
+            data,
+            level,
+            ref wbits,
+        } = args;
+        let level = level.ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
 
-        let compression = compression_from_int(level.flatten())
-            .ok_or_else(|| new_zlib_error("Bad compression level", vm))?;
-
-        let mut encoder = ZlibEncoder::new(Vec::new(), compression);
-        data.with_ref(|input_bytes| encoder.write_all(input_bytes).unwrap());
-        let encoded_bytes = encoder.finish().unwrap();
-
+        let encoded_bytes = if args.wbits.value == MAX_WBITS {
+            let mut encoder = ZlibEncoder::new(Vec::new(), level);
+            data.with_ref(|input_bytes| encoder.write_all(input_bytes).unwrap());
+            encoder.finish().unwrap()
+        } else {
+            let mut inner = CompressInner::new(InitOptions::new(wbits.value, vm)?.compress(level));
+            data.with_ref(|input_bytes| inner.compress(input_bytes, vm))?;
+            inner.flush(vm)?
+        };
         Ok(vm.ctx.new_bytes(encoded_bytes))
     }
 
@@ -127,6 +126,21 @@ mod zlib {
     }
 
     impl InitOptions {
+        fn new(wbits: i8, vm: &VirtualMachine) -> PyResult<InitOptions> {
+            let header = wbits > 0;
+            let wbits = wbits.unsigned_abs();
+            match wbits {
+                9..=15 => Ok(InitOptions::Standard {
+                    header,
+                    #[cfg(feature = "zlib")]
+                    wbits,
+                }),
+                #[cfg(feature = "zlib")]
+                25..=31 => Ok(InitOptions::Gzip { wbits: wbits - 16 }),
+                _ => Err(vm.new_value_error("Invalid initialization option".to_owned())),
+            }
+        }
+
         fn decompress(self) -> Decompress {
             match self {
                 #[cfg(not(feature = "zlib"))]
@@ -148,22 +162,6 @@ mod zlib {
                 #[cfg(feature = "zlib")]
                 Self::Gzip { wbits } => Compress::new_gzip(level, wbits),
             }
-        }
-    }
-
-    fn header_from_wbits(wbits: OptionalArg<i8>, vm: &VirtualMachine) -> PyResult<InitOptions> {
-        let wbits = wbits.unwrap_or(MAX_WBITS as i8);
-        let header = wbits > 0;
-        let wbits = wbits.unsigned_abs();
-        match wbits {
-            9..=15 => Ok(InitOptions::Standard {
-                header,
-                #[cfg(feature = "zlib")]
-                wbits,
-            }),
-            #[cfg(feature = "zlib")]
-            25..=31 => Ok(InitOptions::Gzip { wbits: wbits - 16 }),
-            _ => Err(vm.new_value_error("Invalid initialization option".to_owned())),
         }
     }
 
@@ -234,49 +232,56 @@ mod zlib {
     struct PyFuncDecompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(any, optional)]
-        wbits: OptionalArg<i8>,
-        #[pyarg(any, optional)]
-        bufsize: OptionalArg<usize>,
+        #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
+        wbits: ArgPrimitiveIndex<i8>,
+        #[pyarg(any, default = "ArgPrimitiveIndex { value: DEF_BUF_SIZE }")]
+        bufsize: ArgPrimitiveIndex<usize>,
     }
 
     /// Returns a bytes object containing the uncompressed data.
     #[pyfunction]
-    fn decompress(arg: PyFuncDecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let data = arg.data;
-        let wbits = arg.wbits;
-        let bufsize = arg.bufsize;
+    fn decompress(args: PyFuncDecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let PyFuncDecompressArgs {
+            data,
+            wbits,
+            bufsize,
+        } = args;
         data.with_ref(|data| {
-            let bufsize = bufsize.unwrap_or(DEF_BUF_SIZE);
-
-            let mut d = header_from_wbits(wbits, vm)?.decompress();
-
-            _decompress(data, &mut d, bufsize, None, false, vm).and_then(|(buf, stream_end)| {
-                if stream_end {
-                    Ok(buf)
-                } else {
-                    Err(new_zlib_error(
-                        "Error -5 while decompressing data: incomplete or truncated stream",
-                        vm,
-                    ))
-                }
-            })
+            let mut d = InitOptions::new(wbits.value, vm)?.decompress();
+            let (buf, stream_end) = _decompress(data, &mut d, bufsize.value, None, false, vm)?;
+            if !stream_end {
+                return Err(new_zlib_error(
+                    "Error -5 while decompressing data: incomplete or truncated stream",
+                    vm,
+                ));
+            }
+            Ok(buf)
         })
+    }
+
+    #[derive(FromArgs)]
+    struct DecompressobjArgs {
+        #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
+        wbits: ArgPrimitiveIndex<i8>,
+        #[cfg(feature = "zlib")]
+        #[pyarg(any, optional)]
+        _zdict: OptionalArg<ArgBytesLike>,
     }
 
     #[pyfunction]
     fn decompressobj(args: DecompressobjArgs, vm: &VirtualMachine) -> PyResult<PyDecompress> {
         #[allow(unused_mut)]
-        let mut decompress = header_from_wbits(args.wbits, vm)?.decompress();
+        let mut decompress = InitOptions::new(args.wbits.value, vm)?.decompress();
         #[cfg(feature = "zlib")]
-        if let OptionalArg::Present(dict) = args.zdict {
-            dict.with_ref(|d| decompress.set_dictionary(d).unwrap());
+        if let OptionalArg::Present(_dict) = args._zdict {
+            // FIXME: always fails
+            // dict.with_ref(|d| decompress.set_dictionary(d));
         }
         Ok(PyDecompress {
             decompress: PyMutex::new(decompress),
             eof: AtomicCell::new(false),
-            unused_data: PyMutex::new(PyBytes::from(vec![]).into_ref(vm)),
-            unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(vm)),
+            unused_data: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
+            unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
         })
     }
     #[pyattr]
@@ -321,17 +326,14 @@ mod zlib {
                     .chain(leftover)
                     .copied()
                     .collect();
-                *unused_data = vm.new_pyref(unused);
+                *unused_data = vm.ctx.new_pyref(unused);
             }
         }
 
         #[pymethod]
         fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let max_length = if args.max_length == 0 {
-                None
-            } else {
-                Some(args.max_length)
-            };
+            let max_length = args.max_length.value;
+            let max_length = (max_length != 0).then_some(max_length);
             let data = args.data.borrow_buf();
             let data = &*data;
 
@@ -357,19 +359,25 @@ mod zlib {
 
             let mut unconsumed_tail = self.unconsumed_tail.lock();
             if !leftover.is_empty() || !unconsumed_tail.is_empty() {
-                *unconsumed_tail = PyBytes::from(leftover.to_owned()).into_ref(vm);
+                *unconsumed_tail = PyBytes::from(leftover.to_owned()).into_ref(&vm.ctx);
             }
 
             ret
         }
 
         #[pymethod]
-        fn flush(&self, length: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        fn flush(&self, length: OptionalArg<ArgSize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let length = match length {
-                OptionalArg::Present(l) if l <= 0 => {
-                    return Err(vm.new_value_error("length must be greater than zero".to_owned()));
+                OptionalArg::Present(l) => {
+                    let l: isize = l.into();
+                    if l <= 0 {
+                        return Err(
+                            vm.new_value_error("length must be greater than zero".to_owned())
+                        );
+                    } else {
+                        l as usize
+                    }
                 }
-                OptionalArg::Present(l) => l as usize,
                 OptionalArg::Missing => DEF_BUF_SIZE,
             };
 
@@ -384,7 +392,7 @@ mod zlib {
             };
             self.save_unused_input(&mut d, &data, stream_end, orig_in, vm);
 
-            *data = PyBytes::from(Vec::new()).into_ref(vm);
+            *data = PyBytes::from(Vec::new()).into_ref(&vm.ctx);
 
             // TODO: drop the inner decompressor, somehow
             // if stream_end {
@@ -398,39 +406,52 @@ mod zlib {
     struct DecompressArgs {
         #[pyarg(positional)]
         data: ArgBytesLike,
-        #[pyarg(any, default = "0")]
-        max_length: usize,
+        #[pyarg(
+            any,
+            default = "rustpython_vm::function::ArgPrimitiveIndex { value: 0 }"
+        )]
+        max_length: ArgPrimitiveIndex<usize>,
     }
 
     #[derive(FromArgs)]
-    struct DecompressobjArgs {
-        #[pyarg(any, optional)]
-        wbits: OptionalArg<i8>,
+    #[allow(dead_code)] // FIXME: use args
+    struct CompressobjArgs {
+        #[pyarg(any, default = "Level::new(Z_DEFAULT_COMPRESSION)")]
+        level: Level,
+        // only DEFLATED is valid right now, it's w/e
+        #[pyarg(any, default = "DEFLATED")]
+        _method: i32,
+        #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
+        wbits: ArgPrimitiveIndex<i8>,
+        #[pyarg(any, name = "_memLevel", default = "DEF_MEM_LEVEL")]
+        _mem_level: u8,
+        #[cfg(feature = "zlib")]
+        #[pyarg(any, default = "Z_DEFAULT_STRATEGY")]
+        _strategy: i32,
         #[cfg(feature = "zlib")]
         #[pyarg(any, optional)]
-        zdict: OptionalArg<ArgBytesLike>,
+        zdict: Option<ArgBytesLike>,
     }
 
     #[pyfunction]
-    fn compressobj(
-        level: OptionalArg<i32>,
-        // only DEFLATED is valid right now, it's w/e
-        _method: OptionalArg<i32>,
-        wbits: OptionalArg<i8>,
-        // these aren't used.
-        _mem_level: OptionalArg<i32>, // this is memLevel in CPython
-        _strategy: OptionalArg<i32>,
-        _zdict: OptionalArg<ArgBytesLike>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyCompress> {
-        let level = compression_from_int(level.into_option())
-            .ok_or_else(|| vm.new_value_error("invalid initialization option".to_owned()))?;
-        let compress = header_from_wbits(wbits, vm)?.compress(level);
+    fn compressobj(args: CompressobjArgs, vm: &VirtualMachine) -> PyResult<PyCompress> {
+        let CompressobjArgs {
+            level,
+            wbits,
+            #[cfg(feature = "zlib")]
+            zdict,
+            ..
+        } = args;
+        let level =
+            level.ok_or_else(|| vm.new_value_error("invalid initialization option".to_owned()))?;
+        #[allow(unused_mut)]
+        let mut compress = InitOptions::new(wbits.value, vm)?.compress(level);
+        #[cfg(feature = "zlib")]
+        if let Some(zdict) = zdict {
+            zdict.with_ref(|zdict| compress.set_dictionary(zdict).unwrap());
+        }
         Ok(PyCompress {
-            inner: PyMutex::new(CompressInner {
-                compress,
-                unconsumed: Vec::new(),
-            }),
+            inner: PyMutex::new(CompressInner::new(compress)),
         })
     }
 
@@ -473,6 +494,12 @@ mod zlib {
     const CHUNKSIZE: usize = u32::MAX as usize;
 
     impl CompressInner {
+        fn new(compress: Compress) -> Self {
+            Self {
+                compress,
+                unconsumed: Vec::new(),
+            }
+        }
         fn compress(&mut self, data: &[u8], vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let orig_in = self.compress.total_in() as usize;
             let mut cur_in = 0;
@@ -531,5 +558,33 @@ mod zlib {
 
     fn new_zlib_error(message: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception_msg(vm.class("zlib", "error"), message.to_owned())
+    }
+
+    struct Level(Option<flate2::Compression>);
+
+    impl Level {
+        fn new(level: i32) -> Self {
+            let compression = match level {
+                Z_DEFAULT_COMPRESSION => Compression::default(),
+                valid_level @ Z_NO_COMPRESSION..=Z_BEST_COMPRESSION => {
+                    Compression::new(valid_level as u32)
+                }
+                _ => return Self(None),
+            };
+            Self(Some(compression))
+        }
+        fn ok_or_else(
+            self,
+            f: impl FnOnce() -> PyBaseExceptionRef,
+        ) -> PyResult<flate2::Compression> {
+            self.0.ok_or_else(f)
+        }
+    }
+
+    impl<'a> TryFromBorrowedObject<'a> for Level {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+            let int: i32 = obj.try_index(vm)?.try_to_primitive(vm)?;
+            Ok(Self::new(int))
+        }
     }
 }

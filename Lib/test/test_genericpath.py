@@ -242,13 +242,10 @@ class GenericTest:
         create_file(test_fn2)
         self.assertFalse(self.pathmodule.samefile(test_fn1, test_fn2))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; properly implement stat st_dev/st_ino")
     @os_helper.skip_unless_symlink
     def test_samefile_on_symlink(self):
         self._test_samefile_on_link_func(os.symlink)
-
-    if sys.platform == 'win32':
-        # TODO: RUSTPYTHON, properly implement stat st_dev/st_ino
-        test_samefile_on_symlink = unittest.expectedFailure(test_samefile_on_symlink)
 
     def test_samefile_on_link(self):
         try:
@@ -288,13 +285,10 @@ class GenericTest:
         self.assertFalse(self.pathmodule.samestat(os.stat(test_fn1),
                                                   os.stat(test_fn2)))
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; properly implement stat st_dev/st_ino")
     @os_helper.skip_unless_symlink
     def test_samestat_on_symlink(self):
         self._test_samestat_on_link_func(os.symlink)
-
-    if sys.platform == 'win32':
-        # TODO: RUSTPYTHON, properly implement stat st_dev/st_ino
-        test_samestat_on_symlink = unittest.expectedFailure(test_samestat_on_symlink)
 
     def test_samestat_on_link(self):
         try:

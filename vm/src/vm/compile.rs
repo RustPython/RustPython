@@ -31,10 +31,7 @@ impl VirtualMachine {
             self.insert_sys_path(self.new_pyobj(path))?;
             let runpy = self.import("runpy", None, 0)?;
             let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
-            self.invoke(
-                &run_module_as_main,
-                (identifier!(self, __main__).to_owned(), false),
-            )?;
+            run_module_as_main.call((identifier!(self, __main__).to_owned(), false), self)?;
             return Ok(());
         }
 
@@ -61,7 +58,7 @@ impl VirtualMachine {
     pub fn run_code_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::Exec, source_path.clone())
-            .map_err(|err| self.new_syntax_error(&err))?;
+            .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
         // trace!("Code object: {:?}", code_obj.borrow());
         scope.globals.set_item(
             identifier!(self, __file__),
@@ -74,7 +71,7 @@ impl VirtualMachine {
     pub fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::BlockExpr, "<embedded>".to_owned())
-            .map_err(|err| self.new_syntax_error(&err))?;
+            .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
         // trace!("Code object: {:?}", code_obj.borrow());
         self.run_code_obj(code_obj, scope)
     }
@@ -91,7 +88,7 @@ fn get_importer(path: &str, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>
     let mut importer = None;
     let path_hooks: Vec<PyObjectRef> = path_hooks.try_into_value(vm)?;
     for path_hook in path_hooks {
-        match vm.invoke(&path_hook, (path.clone(),)) {
+        match path_hook.call((path.clone(),), vm) {
             Ok(imp) => {
                 importer = Some(imp);
                 break;

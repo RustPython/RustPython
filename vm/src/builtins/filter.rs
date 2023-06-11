@@ -2,15 +2,11 @@ use super::{PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     protocol::{PyIter, PyIterReturn},
-    types::{Constructor, IterNext, IterNextIterable},
+    types::{Constructor, IterNext, Iterable, SelfIter},
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
-/// filter(function or None, iterable) --> filter object
-///
-/// Return an iterator yielding those items of iterable for which function(item)
-/// is true. If function is None, return the items that are true.
-#[pyclass(module = false, name = "filter")]
+#[pyclass(module = false, name = "filter", traverse)]
 #[derive(Debug)]
 pub struct PyFilter {
     predicate: PyObjectRef,
@@ -18,8 +14,8 @@ pub struct PyFilter {
 }
 
 impl PyPayload for PyFilter {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.filter_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.filter_type
     }
 }
 
@@ -36,7 +32,7 @@ impl Constructor for PyFilter {
     }
 }
 
-#[pyclass(with(IterNext, Constructor), flags(BASETYPE))]
+#[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyFilter {
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, (PyObjectRef, PyIter)) {
@@ -47,9 +43,9 @@ impl PyFilter {
     }
 }
 
-impl IterNextIterable for PyFilter {}
+impl SelfIter for PyFilter {}
 impl IterNext for PyFilter {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let predicate = &zelf.predicate;
         loop {
             let next_obj = match zelf.iterator.next(vm)? {
@@ -61,7 +57,7 @@ impl IterNext for PyFilter {
             } else {
                 // the predicate itself can raise StopIteration which does stop the filter
                 // iteration
-                match PyIterReturn::from_pyresult(vm.invoke(predicate, (next_obj.clone(),)), vm)? {
+                match PyIterReturn::from_pyresult(predicate.call((next_obj.clone(),), vm), vm)? {
                     PyIterReturn::Return(obj) => obj,
                     PyIterReturn::StopIteration(v) => return Ok(PyIterReturn::StopIteration(v)),
                 }

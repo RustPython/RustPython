@@ -1,8 +1,6 @@
 // TODO: Keep track of rust-num/num-complex/issues/2. A common trait could help with duplication
 //       that exists between cmath and math.
 pub(crate) use cmath::make_module;
-
-/// This module provides access to mathematical functions for complex numbers.
 #[pymodule]
 mod cmath {
     use crate::vm::{
@@ -21,57 +19,48 @@ mod cmath {
     #[pyattr(name = "nanj")]
     const NANJ: Complex64 = Complex64::new(0., std::f64::NAN);
 
-    /// Return argument, also known as the phase angle, of a complex.
     #[pyfunction]
     fn phase(z: ArgIntoComplex) -> f64 {
         z.arg()
     }
 
-    /// Convert a complex from rectangular coordinates to polar coordinates.
-    ///
-    /// r is the distance from 0 and phi the phase angle.
     #[pyfunction]
     fn polar(x: ArgIntoComplex) -> (f64, f64) {
         x.to_polar()
     }
 
-    /// Convert from polar coordinates to rectangular coordinates.
     #[pyfunction]
     fn rect(r: ArgIntoFloat, phi: ArgIntoFloat) -> Complex64 {
         Complex64::from_polar(*r, *phi)
     }
 
-    /// Checks if the real or imaginary part of z is infinite.
     #[pyfunction]
     fn isinf(z: ArgIntoComplex) -> bool {
         let Complex64 { re, im } = *z;
         re.is_infinite() || im.is_infinite()
     }
 
-    /// Return True if both the real and imaginary parts of z are finite, else False.
     #[pyfunction]
     fn isfinite(z: ArgIntoComplex) -> bool {
         z.is_finite()
     }
 
-    /// Checks if the real or imaginary part of z not a number (NaN)..
     #[pyfunction]
     fn isnan(z: ArgIntoComplex) -> bool {
         z.is_nan()
     }
 
-    /// Return the exponential value e**z.
     #[pyfunction]
     fn exp(z: ArgIntoComplex, vm: &VirtualMachine) -> PyResult<Complex64> {
         let z = *z;
         result_or_overflow(z, z.exp(), vm)
     }
-    /// Return the square root of z.
+
     #[pyfunction]
     fn sqrt(z: ArgIntoComplex) -> Complex64 {
         z.sqrt()
     }
-    /// Return the sine of z
+
     #[pyfunction]
     fn sin(z: ArgIntoComplex) -> Complex64 {
         z.sin()
@@ -82,7 +71,6 @@ mod cmath {
         z.asin()
     }
 
-    /// Return the cosine of z
     #[pyfunction]
     fn cos(z: ArgIntoComplex) -> Complex64 {
         z.cos()
@@ -93,9 +81,6 @@ mod cmath {
         z.acos()
     }
 
-    /// log(z[, base]) -> the logarithm of z to the given base.
-    ///
-    /// If the base not specified, returns the natural logarithm (base e) of z.
     #[pyfunction]
     fn log(z: ArgIntoComplex, base: OptionalArg<ArgIntoComplex>) -> Complex64 {
         // TODO: Complex64.log with a negative base yields wrong results.
@@ -110,55 +95,46 @@ mod cmath {
         )
     }
 
-    /// Return the base-10 logarithm of z.
     #[pyfunction]
     fn log10(z: ArgIntoComplex) -> Complex64 {
         z.log(10.0)
     }
 
-    /// Return the inverse hyperbolic cosine of z.
     #[pyfunction]
     fn acosh(z: ArgIntoComplex) -> Complex64 {
         z.acosh()
     }
 
-    /// Return the inverse tangent of z.
     #[pyfunction]
     fn atan(z: ArgIntoComplex) -> Complex64 {
         z.atan()
     }
 
-    /// Return the inverse hyperbolic tangent of z.
     #[pyfunction]
     fn atanh(z: ArgIntoComplex) -> Complex64 {
         z.atanh()
     }
 
-    /// Return the tangent of z.
     #[pyfunction]
     fn tan(z: ArgIntoComplex) -> Complex64 {
         z.tan()
     }
 
-    /// Return the hyperbolic tangent of z.
     #[pyfunction]
     fn tanh(z: ArgIntoComplex) -> Complex64 {
         z.tanh()
     }
 
-    /// Return the hyperbolic sin of z.
     #[pyfunction]
     fn sinh(z: ArgIntoComplex) -> Complex64 {
         z.sinh()
     }
 
-    /// Return the hyperbolic cosine of z.
     #[pyfunction]
     fn cosh(z: ArgIntoComplex) -> Complex64 {
         z.cosh()
     }
 
-    /// Return the inverse hyperbolic sine of z.
     #[pyfunction]
     fn asinh(z: ArgIntoComplex) -> Complex64 {
         z.asinh()
@@ -176,22 +152,6 @@ mod cmath {
         abs_tol: OptionalArg<ArgIntoFloat>,
     }
 
-    /// Determine whether two complex numbers are close in value.
-    ///
-    ///   rel_tol
-    ///     maximum difference for being considered "close", relative to the
-    ///     magnitude of the input values
-    ///   abs_tol
-    ///     maximum difference for being considered "close", regardless of the
-    ///     magnitude of the input values
-    ///
-    /// Return True if a is close in value to b, and False otherwise.
-    ///
-    /// For the values to be considered close, the difference between them must be
-    /// smaller than at least one of the tolerances.
-    ///
-    /// -inf, inf and NaN behave similarly to the IEEE 754 Standard. That is, NaN is
-    /// not close to anything, even itself. inf and -inf are only close to themselves.
     #[pyfunction]
     fn isclose(args: IsCloseArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let a = *args.a;

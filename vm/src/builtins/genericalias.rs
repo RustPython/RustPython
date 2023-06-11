@@ -1,12 +1,18 @@
+use once_cell::sync::Lazy;
+
 use super::type_;
 use crate::{
-    builtins::{PyList, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    atomic_func,
+    builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::PyClassImpl,
     common::hash,
     convert::ToPyObject,
     function::{FuncArgs, PyComparisonValue},
-    protocol::PyMappingMethods,
-    types::{AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp},
+    protocol::{PyMappingMethods, PyNumberMethods},
+    types::{
+        AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp,
+        Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -37,8 +43,8 @@ impl fmt::Debug for PyGenericAlias {
 }
 
 impl PyPayload for PyGenericAlias {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.generic_alias_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.generic_alias_type
     }
 }
 
@@ -57,13 +63,22 @@ impl Constructor for PyGenericAlias {
 }
 
 #[pyclass(
-    with(AsMapping, Callable, Comparable, Constructor, GetAttr, Hashable),
+    with(
+        AsNumber,
+        AsMapping,
+        Callable,
+        Comparable,
+        Constructor,
+        GetAttr,
+        Hashable,
+        Representable
+    ),
     flags(BASETYPE)
 )]
 impl PyGenericAlias {
     pub fn new(origin: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> Self {
-        let args: PyTupleRef = if let Ok(tuple) = PyTupleRef::try_from_object(vm, args.clone()) {
-            tuple
+        let args = if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
+            tuple.to_owned()
         } else {
             PyTuple::new_ref(vec![args], &vm.ctx)
         };
@@ -76,7 +91,6 @@ impl PyGenericAlias {
         }
     }
 
-    #[pymethod(magic)]
     fn repr(&self, vm: &VirtualMachine) -> PyResult<String> {
         fn repr_item(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
             if obj.is(&vm.ctx.ellipsis) {
@@ -103,7 +117,7 @@ impl PyGenericAlias {
                 (Some(qualname), Some(module)) => Ok(if module == "builtins" {
                     qualname
                 } else {
-                    format!("{}.{}", module, qualname)
+                    format!("{module}.{qualname}")
                 }),
             }
         }
@@ -166,7 +180,7 @@ impl PyGenericAlias {
     }
 
     #[pymethod(magic)]
-    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, (PyTypeRef, PyTupleRef)) {
+    fn reduce(zelf: &Py<Self>, vm: &VirtualMachine) -> (PyTypeRef, (PyTypeRef, PyTupleRef)) {
         (
             vm.ctx.types.generic_alias_type.to_owned(),
             (zelf.origin.clone(), zelf.args.clone()),
@@ -201,30 +215,28 @@ impl PyGenericAlias {
     }
 }
 
-fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
+pub(crate) fn is_typevar(obj: &PyObjectRef, vm: &VirtualMachine) -> bool {
     let class = obj.class();
-    class.slot_name() == "TypeVar"
+    "TypeVar" == &*class.slot_name()
         && class
             .get_attr(identifier!(vm, __module__))
             .and_then(|o| o.downcast_ref::<PyStr>().map(|s| s.as_str() == "typing"))
             .unwrap_or(false)
 }
 
-fn make_parameters(args: &PyTupleRef, vm: &VirtualMachine) -> PyTupleRef {
+pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
     let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
     for arg in args {
         if is_typevar(arg, vm) {
             if !parameters.iter().any(|param| param.is(arg)) {
                 parameters.push(arg.clone());
             }
-        } else if let Ok(subparams) = arg
-            .clone()
-            .get_attr(identifier!(vm, __parameters__), vm)
-            .and_then(|obj| PyTupleRef::try_from_object(vm, obj))
-        {
-            for subparam in &subparams {
-                if !parameters.iter().any(|param| param.is(subparam)) {
-                    parameters.push(subparam.clone());
+        } else if let Ok(obj) = arg.get_attr(identifier!(vm, __parameters__), vm) {
+            if let Ok(sub_params) = obj.try_to_ref::<PyTuple>(vm) {
+                for sub_param in sub_params {
+                    if !parameters.iter().any(|param| param.is(sub_param)) {
+                        parameters.push(sub_param.clone());
+                    }
                 }
             }
         }
@@ -245,13 +257,12 @@ fn subs_tvars(
     argitems: &[PyObjectRef],
     vm: &VirtualMachine,
 ) -> PyResult {
-    obj.clone()
-        .get_attr(identifier!(vm, __parameters__), vm)
+    obj.get_attr(identifier!(vm, __parameters__), vm)
         .ok()
         .and_then(|sub_params| {
             PyTupleRef::try_from_object(vm, sub_params)
                 .ok()
-                .map(|sub_params| {
+                .and_then(|sub_params| {
                     if sub_params.len() > 0 {
                         let sub_args = sub_params
                             .iter()
@@ -270,7 +281,6 @@ fn subs_tvars(
                     }
                 })
         })
-        .flatten()
         .unwrap_or(Ok(obj))
 }
 
@@ -286,9 +296,9 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
         return Err(vm.new_type_error(format!("There are no type variables left in {}", repr(vm)?)));
     }
 
-    let items = PyTupleRef::try_from_object(vm, needle.clone());
+    let items = needle.try_to_ref::<PyTuple>(vm);
     let arg_items = match items {
-        Ok(ref tuple) => tuple.as_slice(),
+        Ok(tuple) => tuple.as_slice(),
         Err(_) => std::slice::from_ref(&needle),
     };
 
@@ -318,18 +328,30 @@ pub fn subs_parameters<F: Fn(&VirtualMachine) -> PyResult<String>>(
 }
 
 impl AsMapping for PyGenericAlias {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: None,
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+            subscript: atomic_func!(|mapping, needle, vm| {
+                PyGenericAlias::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+            }),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        });
+        &AS_MAPPING
+    }
+}
+
+impl AsNumber for PyGenericAlias {
+    fn as_number() -> &'static PyNumberMethods {
+        static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+            or: Some(|a, b, vm| Ok(PyGenericAlias::or(a.to_owned(), b.to_owned(), vm))),
+            ..PyNumberMethods::NOT_IMPLEMENTED
+        };
+        &AS_NUMBER
+    }
 }
 
 impl Callable for PyGenericAlias {
     type Args = FuncArgs;
-    fn call(zelf: &crate::Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         PyType::call(&zelf.origin, args, vm).map(|obj| {
             if let Err(exc) = obj.set_attr(identifier!(vm, __orig_class__), zelf.to_owned(), vm) {
                 if !exc.fast_isinstance(vm.ctx.exceptions.attribute_error)
@@ -345,7 +367,7 @@ impl Callable for PyGenericAlias {
 
 impl Comparable for PyGenericAlias {
     fn cmp(
-        zelf: &crate::Py<Self>,
+        zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
@@ -369,19 +391,26 @@ impl Comparable for PyGenericAlias {
 
 impl Hashable for PyGenericAlias {
     #[inline]
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<hash::PyHash> {
         Ok(zelf.origin.as_object().hash(vm)? ^ zelf.args.as_object().hash(vm)?)
     }
 }
 
 impl GetAttr for PyGenericAlias {
-    fn getattro(zelf: &Py<Self>, attr: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         for exc in ATTR_EXCEPTIONS.iter() {
             if *(*exc) == attr.to_string() {
                 return zelf.as_object().generic_getattr(attr, vm);
             }
         }
         zelf.origin().get_attr(attr, vm)
+    }
+}
+
+impl Representable for PyGenericAlias {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+        zelf.repr(vm)
     }
 }
 

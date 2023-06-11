@@ -6,6 +6,7 @@
 # randrange, and then Python hangs.
 
 import _imp as imp
+import _multiprocessing  # TODO: RUSTPYTHON
 import os
 import importlib
 import sys
@@ -18,6 +19,8 @@ from test.support import verbose
 from test.support.import_helper import forget
 from test.support.os_helper import (TESTFN, unlink, rmtree)
 from test.support import script_helper, threading_helper
+
+threading_helper.requires_working_threading(module=True)
 
 def task(N, done, done_tasks, errors):
     try:
@@ -156,7 +159,7 @@ class ThreadedImportTests(unittest.TestCase):
         finally:
             sys.meta_path.remove(finder)
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON; maybe hang?
     @unittest.expectedFailure
     def test_parallel_path_hooks(self):
         # Here the Finder instance is only used to check concurrent calls
@@ -258,15 +261,13 @@ class ThreadedImportTests(unittest.TestCase):
                           'partial', 'cfimport.py')
         script_helper.assert_python_ok(fn)
 
+    @unittest.skipUnless(hasattr(_multiprocessing, "SemLock"), "TODO: RUSTPYTHON, pool_in_threads.py needs _multiprocessing.SemLock")                                                                                      
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_multiprocessing_pool_circular_import(self):
         # Regression test for bpo-41567
         fn = os.path.join(os.path.dirname(__file__),
                           'partial', 'pool_in_threads.py')
         script_helper.assert_python_ok(fn)
-
-    # TODO: RUSTPYTHON
-    if sys.platform == 'win32':
-        test_multiprocessing_pool_circular_import = unittest.expectedFailure(test_multiprocessing_pool_circular_import)
 
 
 def setUpModule():

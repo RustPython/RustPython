@@ -223,8 +223,6 @@ class TypesTests(unittest.TestCase):
         self.assertRaises(TypeError, type, 1, 2)
         self.assertRaises(TypeError, type, 1, 2, 3, 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_int__format__(self):
         def test(i, format_spec, result):
             # just make sure we have the unified type for integers
@@ -423,9 +421,10 @@ class TypesTests(unittest.TestCase):
             self.assertEqual(len(format(0, rfmt)), len(format(x, rfmt)))
             self.assertEqual(len(format(0, lfmt)), len(format(x, lfmt)))
             self.assertEqual(len(format(0, cfmt)), len(format(x, cfmt)))
+    
+    if sys.platform != "darwin":
+        test_int__format__locale = unittest.expectedFailure(test_int__format__locale)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_float__format__(self):
         def test(f, format_spec, result):
             self.assertEqual(f.__format__(format_spec), result)
@@ -530,18 +529,16 @@ class TypesTests(unittest.TestCase):
         self.assertRaises(TypeError, 3.0.__format__, None)
         self.assertRaises(TypeError, 3.0.__format__, 0)
 
-        # other format specifiers shouldn't work on floats,
-        #  in particular int specifiers
-        for format_spec in ([chr(x) for x in range(ord('a'), ord('z')+1)] +
-                            [chr(x) for x in range(ord('A'), ord('Z')+1)]):
-            if not format_spec in 'eEfFgGn%':
-                self.assertRaises(ValueError, format, 0.0, format_spec)
-                self.assertRaises(ValueError, format, 1.0, format_spec)
-                self.assertRaises(ValueError, format, -1.0, format_spec)
-                self.assertRaises(ValueError, format, 1e100, format_spec)
-                self.assertRaises(ValueError, format, -1e100, format_spec)
-                self.assertRaises(ValueError, format, 1e-100, format_spec)
-                self.assertRaises(ValueError, format, -1e-100, format_spec)
+        # confirm format options expected to fail on floats, such as integer
+        # presentation types
+        for format_spec in 'sbcdoxX':
+            self.assertRaises(ValueError, format, 0.0, format_spec)
+            self.assertRaises(ValueError, format, 1.0, format_spec)
+            self.assertRaises(ValueError, format, -1.0, format_spec)
+            self.assertRaises(ValueError, format, 1e100, format_spec)
+            self.assertRaises(ValueError, format, -1e100, format_spec)
+            self.assertRaises(ValueError, format, 1e-100, format_spec)
+            self.assertRaises(ValueError, format, -1e-100, format_spec)
 
         # Alternate float formatting
         test(1.0, '.0e', '1e+00')
@@ -576,8 +573,6 @@ class TypesTests(unittest.TestCase):
         test(12345.6, "1=20", '111111111111112345.6')
         test(12345.6, "*=20", '*************12345.6')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_spec_errors(self):
         # int, float, and string all share the same format spec
         # mini-language parser.
@@ -609,6 +604,14 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(object.__lt__, types.WrapperDescriptorType)
         self.assertIsInstance(int.__lt__, types.WrapperDescriptorType)
 
+    # TODO: RUSTPYTHON No signature found in builtin method __get__ of 'method_descriptor' objects.
+    @unittest.expectedFailure
+    def test_dunder_get_signature(self):
+        sig = inspect.signature(object.__init__.__get__)
+        self.assertEqual(list(sig.parameters), ["instance", "owner"])
+        # gh-93021: Second parameter is optional
+        self.assertIs(sig.parameters["owner"].default, None)
+
     def test_method_wrapper_types(self):
         self.assertIsInstance(object().__init__, types.MethodWrapperType)
         self.assertIsInstance(object().__str__, types.MethodWrapperType)
@@ -633,6 +636,14 @@ class TypesTests(unittest.TestCase):
 
     def test_none_type(self):
         self.assertIsInstance(None, types.NoneType)
+
+    def test_traceback_and_frame_types(self):
+        try:
+            raise OSError
+        except OSError as e:
+            exc = e
+        self.assertIsInstance(exc.__traceback__, types.TracebackType)
+        self.assertIsInstance(exc.__traceback__.tb_frame, types.FrameType)
 
 
 class UnionTests(unittest.TestCase):
@@ -883,7 +894,7 @@ class UnionTests(unittest.TestCase):
         T = typing.TypeVar("T")
         x = int | T
         with self.assertRaises(TypeError):
-            x[42]
+            x[int, str]
 
     def test_or_type_operator_with_forward(self):
         T = typing.TypeVar('T')
@@ -929,8 +940,6 @@ class UnionTests(unittest.TestCase):
         assert typing.Optional[int] | str == typing.Union[int, str, None]
         assert typing.Union[int, bool] | str == typing.Union[int, bool, str]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_or_type_repr(self):
         assert repr(int | str) == "int | str"
         assert repr((int | str) | list) == "int | str | list"
@@ -965,9 +974,9 @@ class UnionTests(unittest.TestCase):
         with self.assertRaises(ZeroDivisionError):
             list[int] | list[bt]
 
-        union_ga = (int | list[str], int | collections.abc.Callable[..., str],
-                    int | d)
-        # Raise error when isinstance(type, type | genericalias)
+        union_ga = (list[str] | int, collections.abc.Callable[..., str] | int,
+                    d | int)
+        # Raise error when isinstance(type, genericalias | type)
         for type_ in union_ga:
             with self.subTest(f"check isinstance/issubclass is invalid for {type_}"):
                 with self.assertRaises(TypeError):
@@ -1784,8 +1793,6 @@ class SimpleNamespaceTests(unittest.TestCase):
         self.assertIs(type(spam), Spam)
         self.assertEqual(vars(spam), {'ham': 8, 'eggs': 9})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle(self):
         ns = types.SimpleNamespace(breakfast="spam", lunch="spam")
 

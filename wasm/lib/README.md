@@ -4,8 +4,6 @@ A Python-3 (CPython >= 3.8.0) Interpreter written in Rust.
 
 [![Build Status](https://travis-ci.org/RustPython/RustPython.svg?branch=main)](https://travis-ci.org/RustPython/RustPython)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Contributors](https://img.shields.io/github/contributors/RustPython/RustPython.svg)](https://github.com/RustPython/RustPython/graphs/contributors)
-[![Gitter](https://badges.gitter.im/RustPython/Lobby.svg)](https://gitter.im/rustpython/Lobby)
 
 # WARNING: this project is still in a pre-alpha state!
 

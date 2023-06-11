@@ -765,16 +765,6 @@ class StrTest(unittest.TestCase, BaseStrTest):
         self.assertEqual(s.count(_('!')), repeats * 2)
         self.assertEqual(s.count(_('z')), repeats * 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_lstrip(self, size):
-        super().test_lstrip(size)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_rstrip(self, size):
-        super().test_rstrip(size)
-
 
 class BytesTest(unittest.TestCase, BaseStrTest):
 
@@ -800,24 +790,15 @@ class BytesTest(unittest.TestCase, BaseStrTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @bigmemtest(size=_2G, memuse=2)
     def test_isspace(self, size):
         super().test_isspace(size)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @bigmemtest(size=_2G, memuse=2)
     def test_istitle(self, size):
         super().test_istitle(size)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_lstrip(self, size):
-        super().test_lstrip(size)
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_rstrip(self, size):
-        super().test_rstrip(size)
-
 
 class BytearrayTest(unittest.TestCase, BaseStrTest):
 
@@ -846,11 +827,13 @@ class BytearrayTest(unittest.TestCase, BaseStrTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @bigmemtest(size=_2G, memuse=2)
     def test_isspace(self, size):
         super().test_isspace(size)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @bigmemtest(size=_2G, memuse=2)
     def test_istitle(self, size):
         super().test_istitle(size)
 
@@ -1291,11 +1274,8 @@ class ListTest(unittest.TestCase):
         self.assertEqual(l[:10], [1] * 10)
         self.assertEqual(l[-10:], [5] * 10)
 
-def test_main():
-    support.run_unittest(StrTest, BytesTest, BytearrayTest,
-        TupleTest, ListTest)
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
         support.set_memlimit(sys.argv[1])
-    test_main()
+    unittest.main()

@@ -78,7 +78,7 @@ assert (10).denominator == 1
 assert (-10).numerator == -10
 assert (-10).denominator == 1
 
-assert_raises(OverflowError, lambda: 1 << 10 ** 100000)
+assert_raises(OverflowError, lambda: 1 << 10**100000)
 
 assert (1).__eq__(1.0) == NotImplemented
 assert (1).__ne__(1.0) == NotImplemented
@@ -110,34 +110,34 @@ assert int("101", 2) == 5
 assert int("101", base=2) == 5
 
 # implied base
-assert int('1', base=0) == 1
-assert int('123', base=0) == 123
-assert int('0b101', base=0) == 5
-assert int('0B101', base=0) == 5
-assert int('0o100', base=0) == 64
-assert int('0O100', base=0) == 64
-assert int('0xFF', base=0) == 255
-assert int('0XFF', base=0) == 255
+assert int("1", base=0) == 1
+assert int("123", base=0) == 123
+assert int("0b101", base=0) == 5
+assert int("0B101", base=0) == 5
+assert int("0o100", base=0) == 64
+assert int("0O100", base=0) == 64
+assert int("0xFF", base=0) == 255
+assert int("0XFF", base=0) == 255
 with assert_raises(ValueError):
-    int('0xFF', base=10)
+    int("0xFF", base=10)
 with assert_raises(ValueError):
-    int('0oFF', base=10)
+    int("0oFF", base=10)
 with assert_raises(ValueError):
-    int('0bFF', base=10)
+    int("0bFF", base=10)
 with assert_raises(ValueError):
-    int('0bFF', base=10)
+    int("0bFF", base=10)
 with assert_raises(ValueError):
     int(b"F\xc3\xb8\xc3\xb6\xbbB\xc3\xa5r")
 with assert_raises(ValueError):
     int(b"F\xc3\xb8\xc3\xb6\xbbB\xc3\xa5r")
 
 # string looks like radix
-assert int('0b1', base=12) == 133
-assert int('0o1', base=25) == 601
-assert int('0x1', base=34) == 1123
+assert int("0b1", base=12) == 133
+assert int("0o1", base=25) == 601
+assert int("0x1", base=34) == 1123
 
 # underscore
-assert int('0xFF_FF_FF', base=16) == 16_777_215
+assert int("0xFF_FF_FF", base=16) == 16_777_215
 with assert_raises(ValueError):
     int("_123_")
 with assert_raises(ValueError):
@@ -147,93 +147,105 @@ with assert_raises(ValueError):
 with assert_raises(ValueError):
     int("1__23")
 
-assert int('0x_10', base=0) == 16
+assert int("0x_10", base=0) == 16
 
 # signed
-assert int('-123') == -123
-assert int('+0b101', base=2) == +5
+assert int("-123") == -123
+assert int("+0b101", base=2) == +5
 
 # trailing spaces
-assert int(' 1') == 1
-assert int('1 ') == 1
-assert int(' 1 ') == 1
-assert int('10', base=0) == 10
+assert int(" 1") == 1
+assert int("1 ") == 1
+assert int(" 1 ") == 1
+assert int("10", base=0) == 10
 
 # type byte, signed, implied base
-assert int(b'     -0XFF ', base=0) == -255
+assert int(b"     -0XFF ", base=0) == -255
 
-assert int.from_bytes(b'\x00\x10', 'big') == 16
-assert int.from_bytes(b'\x00\x10', 'little') == 4096
-assert int.from_bytes(b'\x00\x10', byteorder='big') == 16
-assert int.from_bytes(b'\x00\x10', byteorder='little') == 4096
-assert int.from_bytes(bytes=b'\x00\x10', byteorder='big') == 16
-assert int.from_bytes(bytes=b'\x00\x10', byteorder='little') == 4096
+assert int.from_bytes(b"\x00\x10", "big") == 16
+assert int.from_bytes(b"\x00\x10", "little") == 4096
+assert int.from_bytes(b"\x00\x10", byteorder="big") == 16
+assert int.from_bytes(b"\x00\x10", byteorder="little") == 4096
+assert int.from_bytes(bytes=b"\x00\x10", byteorder="big") == 16
+assert int.from_bytes(bytes=b"\x00\x10", byteorder="little") == 4096
 
-assert int.from_bytes(b'\xfc\x00', 'big', signed=True) == -1024
-assert int.from_bytes(b'\xfc\x00', 'big', signed=False) == 64512
-assert int.from_bytes(b'\xfc\x00', byteorder='big', signed=True) == -1024
-assert int.from_bytes(b'\xfc\x00', byteorder='big', signed=False) == 64512
-assert int.from_bytes(bytes=b'\xfc\x00', byteorder='big', signed=True) == -1024
-assert int.from_bytes(bytes=b'\xfc\x00', byteorder='big', signed=False) == 64512
+assert int.from_bytes(b"\xfc\x00", "big", signed=True) == -1024
+assert int.from_bytes(b"\xfc\x00", "big", signed=False) == 64512
+assert int.from_bytes(b"\xfc\x00", byteorder="big", signed=True) == -1024
+assert int.from_bytes(b"\xfc\x00", byteorder="big", signed=False) == 64512
+assert int.from_bytes(bytes=b"\xfc\x00", byteorder="big", signed=True) == -1024
+assert int.from_bytes(bytes=b"\xfc\x00", byteorder="big", signed=False) == 64512
 
-assert int.from_bytes([255, 0, 0], 'big') == 16711680
-assert int.from_bytes([255, 0, 0], 'little') == 255
-assert int.from_bytes([255, 0, 0], 'big', signed=False) == 16711680
-assert int.from_bytes([255, 0, 0], 'big', signed=True) == -65536
-
-with assert_raises(ValueError):
-    int.from_bytes(b'\x00\x10', 'something')
+assert int.from_bytes([255, 0, 0], "big") == 16711680
+assert int.from_bytes([255, 0, 0], "little") == 255
+assert int.from_bytes([255, 0, 0], "big", signed=False) == 16711680
+assert int.from_bytes([255, 0, 0], "big", signed=True) == -65536
 
 with assert_raises(ValueError):
-    int.from_bytes([256, 0, 0], 'big')
+    int.from_bytes(b"\x00\x10", "something")
+
+with assert_raises(ValueError):
+    int.from_bytes([256, 0, 0], "big")
 
 with assert_raises(TypeError):
-    int.from_bytes(['something', 0, 0], 'big')
+    int.from_bytes(["something", 0, 0], "big")
 
-assert (1024).to_bytes(4, 'big') == b'\x00\x00\x04\x00'
-assert (1024).to_bytes(2, 'little') == b'\x00\x04'
-assert (1024).to_bytes(4, byteorder='big') == b'\x00\x00\x04\x00'
-assert (1024).to_bytes(2, byteorder='little') == b'\x00\x04'
-assert (1024).to_bytes(length=4, byteorder='big') == b'\x00\x00\x04\x00'
-assert (1024).to_bytes(length=2, byteorder='little') == b'\x00\x04'
+assert (1024).to_bytes(4, "big") == b"\x00\x00\x04\x00"
+assert (1024).to_bytes(2, "little") == b"\x00\x04"
+assert (1024).to_bytes(4, byteorder="big") == b"\x00\x00\x04\x00"
+assert (1024).to_bytes(2, byteorder="little") == b"\x00\x04"
+assert (1024).to_bytes(length=4, byteorder="big") == b"\x00\x00\x04\x00"
+assert (1024).to_bytes(length=2, byteorder="little") == b"\x00\x04"
 
-assert (-1024).to_bytes(4, 'big', signed=True) == b'\xff\xff\xfc\x00'
-assert (-1024).to_bytes(4, 'little', signed=True) == b'\x00\xfc\xff\xff'
+assert (-1024).to_bytes(4, "big", signed=True) == b"\xff\xff\xfc\x00"
+assert (-1024).to_bytes(4, "little", signed=True) == b"\x00\xfc\xff\xff"
 
-assert (2147483647).to_bytes(8, 'big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
-assert (-2147483648).to_bytes(8, 'little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
-assert (2147483647).to_bytes(8, byteorder='big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
-assert (-2147483648).to_bytes(8, byteorder='little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
-assert (2147483647).to_bytes(length=8, byteorder='big', signed=False) == b'\x00\x00\x00\x00\x7f\xff\xff\xff'
-assert (-2147483648).to_bytes(length=8, byteorder='little', signed=True) == b'\x00\x00\x00\x80\xff\xff\xff\xff'
+assert (2147483647).to_bytes(
+    8, "big", signed=False
+) == b"\x00\x00\x00\x00\x7f\xff\xff\xff"
+assert (-2147483648).to_bytes(
+    8, "little", signed=True
+) == b"\x00\x00\x00\x80\xff\xff\xff\xff"
+assert (2147483647).to_bytes(
+    8, byteorder="big", signed=False
+) == b"\x00\x00\x00\x00\x7f\xff\xff\xff"
+assert (-2147483648).to_bytes(
+    8, byteorder="little", signed=True
+) == b"\x00\x00\x00\x80\xff\xff\xff\xff"
+assert (2147483647).to_bytes(
+    length=8, byteorder="big", signed=False
+) == b"\x00\x00\x00\x00\x7f\xff\xff\xff"
+assert (-2147483648).to_bytes(
+    length=8, byteorder="little", signed=True
+) == b"\x00\x00\x00\x80\xff\xff\xff\xff"
 
 with assert_raises(ValueError):
-    (1024).to_bytes(4, 'something')
+    (1024).to_bytes(4, "something")
 
 with assert_raises(OverflowError):
-    (-1024).to_bytes(4, 'big')
+    (-1024).to_bytes(4, "big")
 
 with assert_raises(OverflowError):
-    (1024).to_bytes(10000000000000000000000, 'big')
+    (1024).to_bytes(10000000000000000000000, "big")
 
 with assert_raises(OverflowError):
-    (1024).to_bytes(1, 'big')
+    (1024).to_bytes(1, "big")
 
 with assert_raises(ValueError):
     # check base first
-    int(' 1 ', base=1)
+    int(" 1 ", base=1)
 
 with assert_raises(ValueError):
-    int(' 1 ', base=37)
+    int(" 1 ", base=37)
 
 with assert_raises(ValueError):
-    int(' 1 ', base=-1)
+    int(" 1 ", base=-1)
 
 with assert_raises(ValueError):
-    int(' 1 ', base=1000000000000000)
+    int(" 1 ", base=1000000000000000)
 
 with assert_raises(ValueError):
-    int(' 1 ', base=-1000000000000000)
+    int(" 1 ", base=-1000000000000000)
 
 with assert_raises(TypeError):
     int(base=2)
@@ -245,14 +257,18 @@ with assert_raises(TypeError):
     # check that first parameter is truly positional only
     int(val_options=1)
 
+
 class A(object):
     def __int__(self):
         return 10
 
+
 assert int(A()) == 10
+
 
 class B(object):
     pass
+
 
 b = B()
 b.__int__ = lambda: 20
@@ -260,28 +276,36 @@ b.__int__ = lambda: 20
 with assert_raises(TypeError):
     assert int(b) == 20
 
+
 class C(object):
     def __int__(self):
-        return 'str'
+        return "str"
+
 
 with assert_raises(TypeError):
     int(C())
+
 
 class I(int):
     def __int__(self):
         return 3
 
+
 assert int(I(1)) == 3
+
 
 class F(float):
     def __int__(self):
         return 3
 
+
 assert int(F(1.2)) == 3
+
 
 class BadInt(int):
     def __int__(self):
         return 42.0
+
 
 with assert_raises(TypeError):
     int(BadInt())
@@ -301,8 +325,6 @@ assert_raises(TypeError, lambda: (1).__round__(0.0))
 
 assert 00 == 0
 assert 0_0 == 0
-assert 03.2 == 3.2
-assert 3+02j == 3+2j
 
 # Invalid syntax:
 src = """
@@ -312,22 +334,15 @@ b = 02
 with assert_raises(SyntaxError):
     exec(src)
 
-# Invalid syntax:
-src = """
-b = 03 + 2j
-"""
-
-with assert_raises(SyntaxError):
-    exec(src)
-
 # Small int cache in [-5..256]
 assert 1 is 1  # noqa
 x = 6
-assert 5 is (x-1)  # noqa
+assert 5 is (x - 1)  # noqa
 
 
 # test issue3687
 import math
+
 big_int = 1000000
 small_int = 3
 assert big_int.real is big_int
@@ -341,8 +356,12 @@ assert math.trunc(small_int) is small_int
 assert math.floor(small_int) is small_int
 assert math.ceil(small_int) is small_int
 
+
 # test subclassing int
-class SubInt(int): pass
+class SubInt(int):
+    pass
+
+
 subint = int.__new__(SubInt, 11)
 assert subint.real is not subint
 assert type(subint.real) is int

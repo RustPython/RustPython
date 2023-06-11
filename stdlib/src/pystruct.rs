@@ -15,11 +15,12 @@ pub(crate) mod _struct {
         function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
         match_class,
         protocol::PyIterReturn,
-        types::{Constructor, IterNext, IterNextIterable},
+        types::{Constructor, IterNext, Iterable, SelfIter},
         AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
 
+    #[derive(Traverse)]
     struct IntoStructFormatBytes(PyStrRef);
 
     impl TryFromObject for IntoStructFormatBytes {
@@ -36,7 +37,7 @@ pub(crate) mod _struct {
                     b @ PyBytes => if b.is_ascii() {
                         Some(unsafe {
                             PyStr::new_ascii_unchecked(b.as_bytes().to_vec())
-                        }.into_ref(vm))
+                        }.into_ref(&vm.ctx))
                     } else {
                         None
                     },
@@ -64,10 +65,7 @@ pub(crate) mod _struct {
             if (-offset) as usize > buffer_len {
                 return Err(new_struct_error(
                     vm,
-                    format!(
-                        "offset {} out of range for {}-byte buffer",
-                        offset, buffer_len
-                    ),
+                    format!("offset {offset} out of range for {buffer_len}-byte buffer"),
                 ));
             }
             buffer_len - (-offset as usize)
@@ -84,7 +82,7 @@ pub(crate) mod _struct {
                     bytes at offset {offset} (actual buffer size is {buffer_len})",
                     op = op,
                     op_action = op_action,
-                    required = needed + offset as usize,
+                    required = needed + offset,
                     needed = needed,
                     offset = offset,
                     buffer_len = buffer_len
@@ -98,12 +96,9 @@ pub(crate) mod _struct {
             Err(new_struct_error(
                 vm,
                 if is_pack {
-                    format!("no space to pack {} bytes at offset {}", needed, offset)
+                    format!("no space to pack {needed} bytes at offset {offset}")
                 } else {
-                    format!(
-                        "not enough data to unpack {} bytes at offset {}",
-                        needed, offset
-                    )
+                    format!("not enough data to unpack {needed} bytes at offset {offset}")
                 },
             ))
         } else {
@@ -160,11 +155,13 @@ pub(crate) mod _struct {
     }
 
     #[pyattr]
-    #[pyclass(name = "unpack_iterator")]
+    #[pyclass(name = "unpack_iterator", traverse)]
     #[derive(Debug, PyPayload)]
     struct UnpackIterator {
+        #[pytraverse(skip)]
         format_spec: FormatSpec,
         buffer: ArgBytesLike,
+        #[pytraverse(skip)]
         offset: AtomicCell<usize>,
     }
 
@@ -197,14 +194,14 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyclass(with(IterNext))]
+    #[pyclass(with(IterNext, Iterable))]
     impl UnpackIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
             self.buffer.len().saturating_sub(self.offset.load()) / self.format_spec.size
         }
     }
-    impl IterNextIterable for UnpackIterator {}
+    impl SelfIter for UnpackIterator {}
     impl IterNext for UnpackIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let size = zelf.format_spec.size;
@@ -237,9 +234,10 @@ pub(crate) mod _struct {
     }
 
     #[pyattr]
-    #[pyclass(name = "Struct")]
+    #[pyclass(name = "Struct", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyStruct {
+        #[pytraverse(skip)]
         spec: FormatSpec,
         format: PyStrRef,
     }

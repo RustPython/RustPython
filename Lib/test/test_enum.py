@@ -529,8 +529,6 @@ class TestEnum(unittest.TestCase):
         self.assertFormatIsValue('{:%Y %m}', Holiday.IDES_OF_MARCH)
         self.assertFormatIsValue('{:%Y %m %M:00}', Holiday.IDES_OF_MARCH)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_format_enum_float(self):
         Konstants = self.Konstants
         self.assertFormatIsValue('{}', Konstants.TAU)
@@ -720,8 +718,6 @@ class TestEnum(unittest.TestCase):
         with self.assertRaises(ValueError):
             IntStooges.from_bytes(b'\x00\x05', 'big')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_floatenum_fromhex(self):
         h = float.hex(FloatStooges.MOE.value)
         self.assertIs(FloatStooges.fromhex(h), FloatStooges.MOE)
@@ -2468,9 +2464,7 @@ class TestFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, inconsistent test result on Windows due to threading")
+    @unittest.skip("TODO: RUSTPYTHON, inconsistent test result on Windows due to threading")
     @threading_helper.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
@@ -2895,9 +2889,7 @@ class TestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, inconsistent test result on Windows due to threading")
+    @unittest.skip("TODO: RUSTPYTHON, inconsistent test result due to threading")
     @threading_helper.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only

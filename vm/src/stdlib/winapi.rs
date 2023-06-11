@@ -431,6 +431,6 @@ mod _winapi {
         }
 
         let (path, _) = path.split_at(length as usize);
-        Ok(String::from_utf16(&path).unwrap())
+        Ok(String::from_utf16(path).unwrap())
     }
 }

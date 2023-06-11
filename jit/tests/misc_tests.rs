@@ -101,3 +101,15 @@ fn test_while_loop() {
     assert_eq!(while_loop(1), Ok(1));
     assert_eq!(while_loop(10), Ok(10));
 }
+
+#[test]
+fn test_unpack_tuple() {
+    let unpack_tuple = jit_function! { unpack_tuple(a:i64, b:i64) -> i64 => r##"
+        def unpack_tuple(a: int, b: int):
+            a, b = b, a
+            return a
+    "## };
+
+    assert_eq!(unpack_tuple(0, 1), Ok(1));
+    assert_eq!(unpack_tuple(1, 2), Ok(2));
+}

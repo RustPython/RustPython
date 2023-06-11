@@ -3,21 +3,34 @@ use crate::{
     builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
     convert::ToPyObject,
     identifier,
+    object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
-    types::AsMapping,
+    types::{AsMapping, GenericMethod},
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Traverse)]
 pub struct ArgCallable {
     obj: PyObjectRef,
+    #[pytraverse(skip)]
+    call: GenericMethod,
 }
 
 impl ArgCallable {
     #[inline(always)]
     pub fn invoke(&self, args: impl IntoFuncArgs, vm: &VirtualMachine) -> PyResult {
-        vm.invoke(&self.obj, args)
+        let args = args.into_args(vm);
+        (self.call)(&self.obj, args, vm)
+    }
+}
+
+impl std::fmt::Debug for ArgCallable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ArgCallable")
+            .field("obj", &self.obj)
+            .field("call", &format!("{:08x}", self.call as usize))
+            .finish()
     }
 }
 
@@ -44,11 +57,11 @@ impl From<ArgCallable> for PyObjectRef {
 
 impl TryFromObject for ArgCallable {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        if vm.is_callable(&obj) {
-            Ok(ArgCallable { obj })
-        } else {
-            Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name())))
-        }
+        let Some(callable) = obj.to_callable() else {
+            return Err(vm.new_type_error(format!("'{}' object is not callable", obj.class().name())));
+        };
+        let call = callable.call;
+        Ok(ArgCallable { obj, call })
     }
 }
 
@@ -63,6 +76,12 @@ pub struct ArgIterable<T = PyObjectRef> {
     iterable: PyObjectRef,
     iterfn: Option<crate::types::IterFunc>,
     _item: PhantomData<T>,
+}
+
+unsafe impl<T: Traverse> Traverse for ArgIterable<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.iterable.traverse(tracer_fn)
+    }
 }
 
 impl<T> ArgIterable<T> {
@@ -100,9 +119,10 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Traverse)]
 pub struct ArgMapping {
     obj: PyObjectRef,
+    #[pytraverse(skip)]
     methods: &'static PyMappingMethods,
 }
 
@@ -116,13 +136,16 @@ impl ArgMapping {
     pub fn from_dict_exact(dict: PyDictRef) -> Self {
         Self {
             obj: dict.into(),
-            methods: &PyDict::AS_MAPPING,
+            methods: PyDict::as_mapping(),
         }
     }
 
     #[inline(always)]
     pub fn mapping(&self) -> PyMapping {
-        PyMapping::with_methods(&self.obj, self.methods)
+        PyMapping {
+            obj: &self.obj,
+            methods: self.methods,
+        }
     }
 }
 
@@ -173,6 +196,12 @@ impl TryFromObject for ArgMapping {
 // this is not strictly related to PySequence protocol.
 #[derive(Clone)]
 pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
+
+unsafe impl<T: Traverse> Traverse for ArgSequence<T> {
+    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        self.0.traverse(tracer_fn);
+    }
+}
 
 impl<T> ArgSequence<T> {
     #[inline(always)]

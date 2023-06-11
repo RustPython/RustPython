@@ -1,13 +1,13 @@
 #![allow(non_snake_case)]
 
-use crate::{PyObjectRef, VirtualMachine};
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = winreg::make_module(vm);
 
     macro_rules! add_constants {
         ($($name:ident),*$(,)?) => {
-            extend_module!(vm, module, {
+            extend_module!(vm, &module, {
                 $((stringify!($name)) => vm.new_pyobj(::winreg::enums::$name as usize)),*
             })
         };
@@ -188,12 +188,12 @@ mod winreg {
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, usize)> {
         let subkey = subkey.as_ref().map_or("", |s| s.as_str());
-        key.with_key(|k| k.get_raw_value(subkey))
-            .map_err(|e| e.to_pyexception(vm))
-            .and_then(|regval| {
-                let ty = regval.vtype.clone() as usize;
-                Ok((reg_to_py(regval, vm)?, ty))
-            })
+        let regval = key
+            .with_key(|k| k.get_raw_value(subkey))
+            .map_err(|e| e.to_pyexception(vm))?;
+        #[allow(clippy::redundant_clone)]
+        let ty = regval.vtype.clone() as usize;
+        Ok((reg_to_py(regval, vm)?, ty))
     }
 
     #[pyfunction]
@@ -213,17 +213,17 @@ mod winreg {
         index: u32,
         vm: &VirtualMachine,
     ) -> PyResult<(String, PyObjectRef, usize)> {
-        key.with_key(|k| k.enum_values().nth(index as usize))
+        let (name, value) = key
+            .with_key(|k| k.enum_values().nth(index as usize))
             .unwrap_or_else(|| {
                 Err(io::Error::from_raw_os_error(
                     winerror::ERROR_NO_MORE_ITEMS as i32,
                 ))
             })
-            .map_err(|e| e.to_pyexception(vm))
-            .and_then(|(name, value)| {
-                let ty = value.vtype.clone() as usize;
-                Ok((name, reg_to_py(value, vm)?, ty))
-            })
+            .map_err(|e| e.to_pyexception(vm))?;
+        #[allow(clippy::redundant_clone)]
+        let ty = value.vtype.clone() as usize;
+        Ok((name, reg_to_py(value, vm)?, ty))
     }
 
     #[pyfunction]
@@ -256,7 +256,7 @@ mod winreg {
         value: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if typ != REG_SZ as u32 {
+        if typ != REG_SZ {
             return Err(vm.new_type_error("type must be winreg.REG_SZ".to_owned()));
         }
         let subkey = subkey.as_ref().map_or("", |s| s.as_str());

@@ -103,6 +103,9 @@ assert set([1,2,3]) - set([4,5]) == set([1,2,3])
 assert set([1,2,3]) - set([1,2,3,4,5]) == set([])
 assert_raises(TypeError, lambda: set([1,2,3]) - [1,2,3,4,5])
 
+assert set([1,2]).__sub__(set([2,3])) == set([1])
+assert set([1,2]).__rsub__(set([2,3])) == set([3])
+
 assert set([1,2,3]).symmetric_difference(set([1,2])) == set([3])
 assert set([1,2,3]).symmetric_difference(set([5,6])) == set([1,2,3,5,6])
 assert set([1,2,3]).symmetric_difference([1,2]) == set([3])
@@ -271,6 +274,9 @@ assert frozenset([1,2,3]) - frozenset([4,5]) == frozenset([1,2,3])
 assert frozenset([1,2,3]) - frozenset([1,2,3,4,5]) == frozenset([])
 assert_raises(TypeError, lambda: frozenset([1,2,3]) - [1,2,3,4,5])
 
+assert frozenset([1,2]).__sub__(frozenset([2,3])) == frozenset([1])
+assert frozenset([1,2]).__rsub__(frozenset([2,3])) == frozenset([3])
+
 assert frozenset([1,2,3]).symmetric_difference(frozenset([1,2])) == frozenset([3])
 assert frozenset([1,2,3]).symmetric_difference(frozenset([5,6])) == frozenset([1,2,3,5,6])
 assert frozenset([1,2,3]).symmetric_difference([1,2]) == frozenset([3])
@@ -310,6 +316,11 @@ assert set([1,2,3]).difference(frozenset([5,6])) == set([1,2,3])
 
 assert frozenset([1,2,3]) - set([4,5]) == frozenset([1,2,3])
 assert set([1,2,3]) - frozenset([4,5]) == frozenset([1,2,3])
+
+assert frozenset([1,2]).__sub__(set([2,3])) == frozenset([1])
+assert frozenset([1,2]).__rsub__(set([2,3])) == set([3])
+assert set([1,2]).__sub__(frozenset([2,3])) == set([1])
+assert set([1,2]).__rsub__(frozenset([2,3])) == frozenset([3])
 
 assert frozenset([1,2,3]).symmetric_difference(set([1,2])) == frozenset([3])
 assert set([1,2,3]).symmetric_difference(frozenset([1,2])) == set([3])

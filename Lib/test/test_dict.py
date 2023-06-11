@@ -8,6 +8,7 @@ import sys
 import unittest
 import weakref
 from test import support
+from test.support import import_helper
 
 
 class DictTest(unittest.TestCase):
@@ -896,6 +897,14 @@ class DictTest(unittest.TestCase):
         gc.collect()
         self.assertTrue(gc.is_tracked(t), t)
 
+    def test_string_keys_can_track_values(self):
+        # Test that this doesn't leak.
+        for i in range(10):
+            d = {}
+            for j in range(10):
+                d[str(j)] = j
+            d["foo"] = d
+
     @support.cpython_only
     def test_track_literals(self):
         # Test GC-optimization of dict literals
@@ -999,8 +1008,8 @@ class DictTest(unittest.TestCase):
 
     @support.cpython_only
     def test_splittable_setdefault(self):
-        """split table must be combined when setdefault()
-        breaks insertion order"""
+        """split table must keep correct insertion
+        order when attributes are adding using setdefault()"""
         a, b = self.make_shared_key_dict(2)
 
         a['a'] = 1
@@ -1010,7 +1019,6 @@ class DictTest(unittest.TestCase):
         size_b = sys.getsizeof(b)
         b['a'] = 1
 
-        self.assertGreater(size_b, size_a)
         self.assertEqual(list(a), ['x', 'y', 'z', 'a', 'b'])
         self.assertEqual(list(b), ['x', 'y', 'z', 'b', 'a'])
 
@@ -1025,7 +1033,6 @@ class DictTest(unittest.TestCase):
         with self.assertRaises(KeyError):
             del a['y']
 
-        self.assertGreater(sys.getsizeof(a), orig_size)
         self.assertEqual(list(a), ['x', 'z'])
         self.assertEqual(list(b), ['x', 'y', 'z'])
 
@@ -1036,16 +1043,12 @@ class DictTest(unittest.TestCase):
 
     @support.cpython_only
     def test_splittable_pop(self):
-        """split table must be combined when d.pop(k)"""
         a, b = self.make_shared_key_dict(2)
 
-        orig_size = sys.getsizeof(a)
-
-        a.pop('y')  # split table is combined
+        a.pop('y')
         with self.assertRaises(KeyError):
             a.pop('y')
 
-        self.assertGreater(sys.getsizeof(a), orig_size)
         self.assertEqual(list(a), ['x', 'z'])
         self.assertEqual(list(b), ['x', 'y', 'z'])
 
@@ -1080,34 +1083,21 @@ class DictTest(unittest.TestCase):
         self.assertEqual(list(b), ['x', 'y', 'z'])
 
     @support.cpython_only
-    def test_splittable_setattr_after_pop(self):
-        """setattr() must not convert combined table into split table."""
-        # Issue 28147
-        import _testcapi
-
+    def test_splittable_update(self):
+        """dict.update(other) must preserve order in other."""
         class C:
-            pass
-        a = C()
+            def __init__(self, order):
+                if order:
+                    self.a, self.b, self.c = 1, 2, 3
+                else:
+                    self.c, self.b, self.a = 1, 2, 3
+        o = C(True)
+        o = C(False)  # o.__dict__ has reversed order.
+        self.assertEqual(list(o.__dict__), ["c", "b", "a"])
 
-        a.a = 1
-        self.assertTrue(_testcapi.dict_hassplittable(a.__dict__))
-
-        # dict.pop() convert it to combined table
-        a.__dict__.pop('a')
-        self.assertFalse(_testcapi.dict_hassplittable(a.__dict__))
-
-        # But C should not convert a.__dict__ to split table again.
-        a.a = 1
-        self.assertFalse(_testcapi.dict_hassplittable(a.__dict__))
-
-        # Same for popitem()
-        a = C()
-        a.a = 2
-        self.assertTrue(_testcapi.dict_hassplittable(a.__dict__))
-        a.__dict__.popitem()
-        self.assertFalse(_testcapi.dict_hassplittable(a.__dict__))
-        a.a = 3
-        self.assertFalse(_testcapi.dict_hassplittable(a.__dict__))
+        d = {}
+        d.update(o.__dict__)
+        self.assertEqual(list(d), ["c", "b", "a"])
 
     def test_iterator_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -1586,7 +1576,8 @@ class CAPITest(unittest.TestCase):
     # Test _PyDict_GetItem_KnownHash()
     @support.cpython_only
     def test_getitem_knownhash(self):
-        from _testcapi import dict_getitem_knownhash
+        _testcapi = import_helper.import_module('_testcapi')
+        dict_getitem_knownhash = _testcapi.dict_getitem_knownhash
 
         d = {'x': 1, 'y': 2, 'z': 3}
         self.assertEqual(dict_getitem_knownhash(d, 'x', hash('x')), 1)

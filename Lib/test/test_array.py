@@ -5,6 +5,7 @@
 import collections.abc
 import unittest
 from test import support
+from test.support import import_helper
 from test.support import os_helper
 from test.support import _2G
 import weakref
@@ -30,8 +31,6 @@ typecodes = 'ubBhHiIlLfdqQ'
 
 class MiscTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_array_is_sequence(self):
         self.assertIsInstance(array.array("B"), collections.abc.MutableSequence)
         self.assertIsInstance(array.array("B"), collections.abc.Reversible)
@@ -1116,8 +1115,6 @@ class BaseTest:
             b = array.array('B', range(64))
         self.assertEqual(rc, sys.getrefcount(10))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass_with_kwargs(self):
         # SF bug #1486663 -- this used to erroneously raise a TypeError
         ArraySubclassWithKwargs('b', newarg=1)
@@ -1155,9 +1152,9 @@ class BaseTest:
 
     @support.cpython_only
     def test_obsolete_write_lock(self):
-        from _testcapi import getbuffer_with_null_view
+        _testcapi = import_helper.import_module('_testcapi')
         a = array.array('B', b"")
-        self.assertRaises(BufferError, getbuffer_with_null_view, a)
+        self.assertRaises(BufferError, _testcapi.getbuffer_with_null_view, a)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure

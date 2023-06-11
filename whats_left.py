@@ -34,8 +34,9 @@ GENERATED_FILE = "extra_tests/not_impl.py"
 
 implementation = platform.python_implementation()
 if implementation != "CPython":
-    sys.exit("whats_left.py must be run under CPython, got {implementation} instead")
-
+    sys.exit(f"whats_left.py must be run under CPython, got {implementation} instead")
+if sys.version_info[:2] < (3, 11):
+    sys.exit(f"whats_left.py must be run under CPython 3.11 or newer, got {implementation} {sys.version} instead")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Process some integers.")
@@ -345,7 +346,7 @@ def compare():
     import json
     import platform
 
-    def method_incompatability_reason(typ, method_name, real_method_value):
+    def method_incompatibility_reason(typ, method_name, real_method_value):
         has_method = hasattr(typ, method_name)
         if not has_method:
             return ""
@@ -364,7 +365,7 @@ def compare():
     for name, (typ, real_value, methods) in expected_methods.items():
         missing_methods = {}
         for method, real_method_value in methods:
-            reason = method_incompatability_reason(typ, method, real_method_value)
+            reason = method_incompatibility_reason(typ, method, real_method_value)
             if reason is not None:
                 missing_methods[method] = reason
         if missing_methods:
@@ -441,7 +442,7 @@ def remove_one_indent(s):
 compare_src = inspect.getsourcelines(compare)[0][1:]
 output += "".join(remove_one_indent(line) for line in compare_src)
 
-with open(GENERATED_FILE, "w") as f:
+with open(GENERATED_FILE, "w", encoding='utf-8') as f:
     f.write(output + "\n")
 
 
@@ -483,11 +484,17 @@ for modname, missing in result["missing_items"].items():
 if args.signature:
     print("\n# mismatching signatures (warnings)")
     for modname, mismatched in result["mismatched_items"].items():
-        for (item, rustpy_value, cpython_value) in mismatched:
-            if cpython_value == "ValueError('no signature found')":
-                continue # these items will never match
-
-            print(f"{item} {rustpy_value} != {cpython_value}")
+        for i, (item, rustpy_value, cpython_value) in enumerate(mismatched):
+            if cpython_value and cpython_value.startswith("ValueError("):
+                continue  # these items will never match
+            if rustpy_value is None or rustpy_value.startswith("ValueError("):
+                rustpy_value = f" {rustpy_value}"
+            print(f"{item}{rustpy_value}")
+            if cpython_value is None:
+                cpython_value = f" {cpython_value}"
+            print(f"{' ' * len(item)}{cpython_value}")
+            if i < len(mismatched) - 1:
+                print()
 
 if args.doc:
     print("\n# mismatching `__doc__`s (warnings)")

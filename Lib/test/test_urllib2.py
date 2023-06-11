@@ -782,8 +782,6 @@ class HandlerTests(unittest.TestCase):
             self.assertEqual(headers.get("Content-type"), mimetype)
             self.assertEqual(int(headers["Content-length"]), len(data))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_file(self):
         import email.utils
         h = urllib.request.FileHandler()

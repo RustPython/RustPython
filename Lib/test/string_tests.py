@@ -4,7 +4,9 @@ Common tests shared by test_unicode, test_userstring and test_bytes.
 
 import unittest, string, sys, struct
 from test import support
+from test.support import import_helper
 from collections import UserList
+import random
 
 class Sequence:
     def __init__(self, seq='wxyz'): self.seq = seq
@@ -79,12 +81,14 @@ class BaseTest:
                 self.assertIsNot(obj, realresult)
 
     # check that obj.method(*args) raises exc
-    def checkraises(self, exc, obj, methodname, *args):
+    def checkraises(self, exc, obj, methodname, *args, expected_msg=None):
         obj = self.fixtype(obj)
         args = self.fixtype(args)
         with self.assertRaises(exc) as cm:
             getattr(obj, methodname)(*args)
         self.assertNotEqual(str(cm.exception), '')
+        if expected_msg is not None:
+            self.assertEqual(str(cm.exception), expected_msg)
 
     # call obj.method(*args) without any checks
     def checkcall(self, obj, methodname, *args):
@@ -317,6 +321,44 @@ class BaseTest:
         else:
             self.checkraises(TypeError, 'hello', 'rindex', 42)
 
+    def test_find_periodic_pattern(self):
+        """Cover the special path for periodic patterns."""
+        def reference_find(p, s):
+            for i in range(len(s)):
+                if s.startswith(p, i):
+                    return i
+            return -1
+
+        rr = random.randrange
+        choices = random.choices
+        for _ in range(1000):
+            p0 = ''.join(choices('abcde', k=rr(10))) * rr(10, 20)
+            p = p0[:len(p0) - rr(10)] # pop off some characters
+            left = ''.join(choices('abcdef', k=rr(2000)))
+            right = ''.join(choices('abcdef', k=rr(2000)))
+            text = left + p + right
+            with self.subTest(p=p, text=text):
+                self.checkequal(reference_find(p, text),
+                                text, 'find', p)
+
+    def test_find_shift_table_overflow(self):
+        """When the table of 8-bit shifts overflows."""
+        N = 2**8 + 100
+
+        # first check the periodic case
+        # here, the shift for 'b' is N + 1.
+        pattern1 = 'a' * N + 'b' + 'a' * N
+        text1 = 'babbaa' * N + pattern1
+        self.checkequal(len(text1)-len(pattern1),
+                        text1, 'find', pattern1)
+
+        # now check the non-periodic case
+        # here, the shift for 'd' is 3*(N+1)+1
+        pattern2 = 'ddd' + 'abc' * N + "eee"
+        text2 = pattern2[:-1] + "ddeede" * 2 * N + pattern2 + "de" * N
+        self.checkequal(len(text2) - N*len("de") - len(pattern2),
+                        text2, 'find', pattern2)
+
     def test_lower(self):
         self.checkequal('hello', 'HeLLo', 'lower')
         self.checkequal('hello', 'hello', 'lower')
@@ -428,6 +470,11 @@ class BaseTest:
         self.checkraises(ValueError, 'hello', 'split', '', 0)
 
     def test_rsplit(self):
+        # without arg
+        self.checkequal(['a', 'b', 'c', 'd'], 'a b c d', 'rsplit')
+        self.checkequal(['a', 'b', 'c', 'd'], 'a  b  c d', 'rsplit')
+        self.checkequal([], '', 'rsplit')
+
         # by a char
         self.checkequal(['a', 'b', 'c', 'd'], 'a|b|c|d', 'rsplit', '|')
         self.checkequal(['a|b|c', 'd'], 'a|b|c|d', 'rsplit', '|', 1)
@@ -481,6 +528,9 @@ class BaseTest:
 
         # with keyword args
         self.checkequal(['a', 'b', 'c', 'd'], 'a|b|c|d', 'rsplit', sep='|')
+        self.checkequal(['a', 'b', 'c', 'd'], 'a b c d', 'rsplit', sep=None)
+        self.checkequal(['a b c', 'd'],
+                        'a b c d', 'rsplit', sep=None, maxsplit=1)
         self.checkequal(['a|b|c', 'd'],
                         'a|b|c|d', 'rsplit', '|', maxsplit=1)
         self.checkequal(['a|b|c', 'd'],
@@ -506,6 +556,7 @@ class BaseTest:
         EQ("", "", "replace", "A", "")
         EQ("", "", "replace", "A", "A")
         EQ("", "", "replace", "", "", 100)
+        EQ("A", "", "replace", "", "A", 100)
         EQ("", "", "replace", "", "", sys.maxsize)
 
         # interleave (from=="", 'to' gets inserted everywhere)
@@ -1151,6 +1202,9 @@ class MixinStrUnicodeUserStringTest:
         self.checkequal(False, 'asd', '__contains__', 'asdf')
         self.checkequal(False, '', '__contains__', 'asdf')
 
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_subscript(self):
         self.checkequal('a', 'abc', '__getitem__', 0)
         self.checkequal('c', 'abc', '__getitem__', -1)
@@ -1161,6 +1215,10 @@ class MixinStrUnicodeUserStringTest:
         self.checkequal('', 'abc', '__getitem__', slice(0, 0))
 
         self.checkraises(TypeError, 'abc', '__getitem__', 'def')
+
+        for idx_type in ('def', object()):
+            expected_msg = "string indices must be integers, not '{}'".format(type(idx_type).__name__)
+            self.checkraises(TypeError, 'abc', '__getitem__', idx_type, expected_msg=expected_msg)
 
     def test_slice(self):
         self.checkequal('abc', 'abc', '__getitem__', slice(0, 1000))
@@ -1188,8 +1246,6 @@ class MixinStrUnicodeUserStringTest:
                                     slice(start, stop, step))
 
     def test_mul(self):
-        self.assertTrue("('' * 3) is ''");
-        self.assertTrue("('a' * 0) is ''");
         self.checkequal('', 'abc', '__mul__', -1)
         self.checkequal('', 'abc', '__mul__', 0)
         self.checkequal('abc', 'abc', '__mul__', 1)
@@ -1291,17 +1347,17 @@ class MixinStrUnicodeUserStringTest:
 
     @support.cpython_only
     def test_formatting_c_limits(self):
-        from _testcapi import PY_SSIZE_T_MAX, INT_MAX, UINT_MAX
-        SIZE_MAX = (1 << (PY_SSIZE_T_MAX.bit_length() + 1)) - 1
+        _testcapi = import_helper.import_module('_testcapi')
+        SIZE_MAX = (1 << (_testcapi.PY_SSIZE_T_MAX.bit_length() + 1)) - 1
         self.checkraises(OverflowError, '%*s', '__mod__',
-                         (PY_SSIZE_T_MAX + 1, ''))
+                         (_testcapi.PY_SSIZE_T_MAX + 1, ''))
         self.checkraises(OverflowError, '%.*f', '__mod__',
-                         (INT_MAX + 1, 1. / 7))
+                         (_testcapi.INT_MAX + 1, 1. / 7))
         # Issue 15989
         self.checkraises(OverflowError, '%*s', '__mod__',
                          (SIZE_MAX + 1, ''))
         self.checkraises(OverflowError, '%.*f', '__mod__',
-                         (UINT_MAX + 1, 1. / 7))
+                         (_testcapi.UINT_MAX + 1, 1. / 7))
 
     def test_floatformatting(self):
         # float formatting
@@ -1427,8 +1483,6 @@ class MixinStrUnicodeUserStringTest:
 class MixinStrUnicodeTest:
     # Additional tests that only work with str.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug1001011(self):
         # Make sure join returns a NEW object for single item sequences
         # involving a subclass.

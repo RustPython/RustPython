@@ -26,6 +26,7 @@ codecs.register(codec_search_function)
 codecname = 'testcodec'
 
 class CharmapCodecTest(unittest.TestCase):
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_constructorx(self):
         self.assertEqual(str(b'abc', codecname), 'abc')
         self.assertEqual(str(b'xdef', codecname), 'abcdef')
@@ -42,24 +43,16 @@ class CharmapCodecTest(unittest.TestCase):
         self.assertEqual('dxf'.encode(codecname), b'dabcf')
         self.assertEqual('dxfx'.encode(codecname), b'dabcfabc')
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_constructory(self):
         self.assertEqual(str(b'ydef', codecname), 'def')
         self.assertEqual(str(b'defy', codecname), 'def')
         self.assertEqual(str(b'dyf', codecname), 'df')
         self.assertEqual(str(b'dyfy', codecname), 'df')
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_maptoundefined(self):
         self.assertRaises(UnicodeError, str, b'abc\001', codecname)
-
-    # TODO: RUSTPYTHON
-    import sys
-    if sys.platform == "win32":
-        # TODO: RUSTPYTHON
-        test_constructorx = unittest.expectedFailure(test_constructorx)
-        # TODO: RUSTPYTHON
-        test_constructory = unittest.expectedFailure(test_constructory)
-        # TODO: RUSTPYTHON
-        test_maptoundefined = unittest.expectedFailure(test_maptoundefined)
 
 if __name__ == "__main__":
     unittest.main()

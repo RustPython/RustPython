@@ -1,3 +1,5 @@
+// spell-checker:ignore logoption openlog setlogmask upto
+
 pub(crate) use syslog::make_module;
 
 #[pymodule(name = "syslog")]
@@ -31,7 +33,7 @@ mod syslog {
                         Some(value) => &argv[value..],
                         None => argv,
                     })
-                    .into_ref(vm),
+                    .into_ref(&vm.ctx),
                 );
             }
         }

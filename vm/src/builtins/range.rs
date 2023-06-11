@@ -1,21 +1,24 @@
-use super::{PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef};
-use crate::common::hash::PyHash;
+use super::{
+    builtins_iter, tuple::tuple_hash, PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef,
+};
 use crate::{
-    builtins::builtins_iter,
+    atomic_func,
     class::PyClassImpl,
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    common::hash::PyHash,
+    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, IterNextIterable,
-        Iterable, PyComparisonOp, Unconstructible,
+        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
+        PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
-use num_bigint::{BigInt, Sign};
+use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Signed, ToPrimitive, Zero};
+use once_cell::sync::Lazy;
 use std::cmp::max;
 
 // Search flag passed to iter_search
@@ -58,14 +61,6 @@ fn iter_search(
     }
 }
 
-/// range(stop) -> range object
-/// range(start, stop[, step]) -> range object
-///
-/// Return an object that produces a sequence of integers from start (inclusive)
-/// to stop (exclusive) by step.  range(i, j) produces i, i+1, i+2, ..., j-1.
-/// start defaults to 0, and stop is omitted!  range(4) produces 0, 1, 2, 3.
-/// These are exactly the valid indices for a list of 4 elements.
-/// When step is given, it specifies the increment (or decrement).
 #[pyclass(module = false, name = "range")]
 #[derive(Debug, Clone)]
 pub struct PyRange {
@@ -75,8 +70,8 @@ pub struct PyRange {
 }
 
 impl PyPayload for PyRange {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.range_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.range_type
     }
 }
 
@@ -175,17 +170,17 @@ impl PyRange {
 
 pub fn init(context: &Context) {
     PyRange::extend_class(context, context.types.range_type);
-    PyLongRangeIterator::extend_class(context, context.types.longrange_iterator_type);
+    PyLongRangeIterator::extend_class(context, context.types.long_range_iterator_type);
     PyRangeIterator::extend_class(context, context.types.range_iterator_type);
 }
 
-#[pyclass(with(AsMapping, AsSequence, Hashable, Comparable, Iterable))]
+#[pyclass(with(AsMapping, AsSequence, Hashable, Comparable, Iterable, Representable))]
 impl PyRange {
-    fn new(cls: PyTypeRef, stop: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+    fn new(cls: PyTypeRef, stop: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         PyRange {
-            start: vm.new_pyref(0),
-            stop: stop.try_index(vm)?,
-            step: vm.new_pyref(1),
+            start: vm.ctx.new_pyref(0),
+            stop: stop.into(),
+            step: vm.ctx.new_pyref(1),
         }
         .into_ref_with_type(vm, cls)
     }
@@ -194,10 +189,10 @@ impl PyRange {
         cls: PyTypeRef,
         start: PyObjectRef,
         stop: PyObjectRef,
-        step: OptionalArg<PyObjectRef>,
+        step: OptionalArg<ArgIndex>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let step = step.unwrap_or_else(|| vm.new_pyobj(1)).try_index(vm)?;
+        let step = step.map_or_else(|| vm.ctx.new_int(1), |step| step.into());
         if step.as_bigint().is_zero() {
             return Err(vm.new_value_error("range() arg 3 must not be zero".to_owned()));
         }
@@ -266,15 +261,6 @@ impl PyRange {
     }
 
     #[pymethod(magic)]
-    fn repr(&self) -> String {
-        if self.step.as_bigint().is_one() {
-            format!("range({}, {})", self.start, self.stop)
-        } else {
-            format!("range({}, {}, {})", self.start, self.stop, self.step)
-        }
-    }
-
-    #[pymethod(magic)]
     fn bool(&self) -> bool {
         !self.is_empty()
     }
@@ -301,12 +287,12 @@ impl PyRange {
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
-        let range_paramters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
+        let range_parameters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
             .iter()
             .map(|x| x.as_object().to_owned())
             .collect();
-        let range_paramters_tuple = vm.ctx.new_tuple(range_paramters);
-        (vm.ctx.types.range_type.to_owned(), range_paramters_tuple)
+        let range_parameters_tuple = vm.ctx.new_tuple(range_parameters);
+        (vm.ctx.types.range_type.to_owned(), range_parameters_tuple)
     }
 
     #[pymethod]
@@ -314,7 +300,7 @@ impl PyRange {
         if let Ok(int) = needle.clone().downcast::<PyInt>() {
             match self.index_of(int.as_bigint()) {
                 Some(idx) => Ok(idx),
-                None => Err(vm.new_value_error(format!("{} is not in range", int))),
+                None => Err(vm.new_value_error(format!("{int} is not in range"))),
             }
         } else {
             // Fallback to iteration.
@@ -350,21 +336,21 @@ impl PyRange {
     fn getitem(&self, subscript: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         match RangeIndex::try_from_object(vm, subscript)? {
             RangeIndex::Slice(slice) => {
-                let (mut substart, mut substop, mut substep) =
+                let (mut sub_start, mut sub_stop, mut sub_step) =
                     slice.inner_indices(&self.compute_length(), vm)?;
                 let range_step = &self.step;
                 let range_start = &self.start;
 
-                substep *= range_step.as_bigint();
-                substart = (substart * range_step.as_bigint()) + range_start.as_bigint();
-                substop = (substop * range_step.as_bigint()) + range_start.as_bigint();
+                sub_step *= range_step.as_bigint();
+                sub_start = (sub_start * range_step.as_bigint()) + range_start.as_bigint();
+                sub_stop = (sub_stop * range_step.as_bigint()) + range_start.as_bigint();
 
                 Ok(PyRange {
-                    start: vm.new_pyref(substart),
-                    stop: vm.new_pyref(substop),
-                    step: vm.new_pyref(substep),
+                    start: vm.ctx.new_pyref(sub_start),
+                    stop: vm.ctx.new_pyref(sub_stop),
+                    step: vm.ctx.new_pyref(sub_step),
                 }
-                .into_ref(vm)
+                .into_ref(&vm.ctx)
                 .into())
             }
             RangeIndex::Int(index) => match self.get(index.as_bigint()) {
@@ -397,33 +383,41 @@ impl PyRange {
 }
 
 impl AsMapping for PyRange {
-    const AS_MAPPING: PyMappingMethods = PyMappingMethods {
-        length: Some(|mapping, vm| Self::mapping_downcast(mapping).protocol_length(vm)),
-        subscript: Some(|mapping, needle, vm| {
-            Self::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
-        }),
-        ass_subscript: None,
-    };
+    fn as_mapping() -> &'static PyMappingMethods {
+        static AS_MAPPING: Lazy<PyMappingMethods> = Lazy::new(|| PyMappingMethods {
+            length: atomic_func!(
+                |mapping, vm| PyRange::mapping_downcast(mapping).protocol_length(vm)
+            ),
+            subscript: atomic_func!(|mapping, needle, vm| {
+                PyRange::mapping_downcast(mapping).getitem(needle.to_owned(), vm)
+            }),
+            ..PyMappingMethods::NOT_IMPLEMENTED
+        });
+        &AS_MAPPING
+    }
 }
 
 impl AsSequence for PyRange {
-    const AS_SEQUENCE: PySequenceMethods = PySequenceMethods {
-        length: Some(|seq, vm| Self::sequence_downcast(seq).protocol_length(vm)),
-        item: Some(|seq, i, vm| {
-            Self::sequence_downcast(seq)
-                .get(&i.into())
-                .map(|x| PyInt::from(x).into_ref(vm).into())
-                .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
-        }),
-        contains: Some(|seq, needle, vm| {
-            Ok(Self::sequence_downcast(seq).contains(needle.to_owned(), vm))
-        }),
-        ..PySequenceMethods::NOT_IMPLEMENTED
-    };
+    fn as_sequence() -> &'static PySequenceMethods {
+        static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
+            length: atomic_func!(|seq, vm| PyRange::sequence_downcast(seq).protocol_length(vm)),
+            item: atomic_func!(|seq, i, vm| {
+                PyRange::sequence_downcast(seq)
+                    .get(&i.into())
+                    .map(|x| PyInt::from(x).into_ref(&vm.ctx).into())
+                    .ok_or_else(|| vm.new_index_error("index out of range".to_owned()))
+            }),
+            contains: atomic_func!(|seq, needle, vm| {
+                Ok(PyRange::sequence_downcast(seq).contains(needle.to_owned(), vm))
+            }),
+            ..PySequenceMethods::NOT_IMPLEMENTED
+        });
+        &AS_SEQUENCE
+    }
 }
 
 impl Hashable for PyRange {
-    fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
         let length = zelf.compute_length();
         let elements = if length.is_zero() {
             [vm.ctx.new_int(length).into(), vm.ctx.none(), vm.ctx.none()]
@@ -440,7 +434,7 @@ impl Hashable for PyRange {
                 zelf.step().into(),
             ]
         };
-        crate::utils::hash_iter(elements.iter(), vm)
+        tuple_hash(&elements, vm)
     }
 }
 
@@ -508,6 +502,18 @@ impl Iterable for PyRange {
     }
 }
 
+impl Representable for PyRange {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let repr = if zelf.step.as_bigint().is_one() {
+            format!("range({}, {})", zelf.start, zelf.stop)
+        } else {
+            format!("range({}, {}, {})", zelf.start, zelf.stop, zelf.step)
+        };
+        Ok(repr)
+    }
+}
+
 // Semantically, this is the same as the previous representation.
 //
 // Unfortunately, since AtomicCell requires a Copy type, no BigInt implementations can
@@ -526,12 +532,12 @@ pub struct PyLongRangeIterator {
 }
 
 impl PyPayload for PyLongRangeIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.longrange_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.long_range_iterator_type
     }
 }
 
-#[pyclass(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext, Iterable))]
 impl PyLongRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> BigInt {
@@ -562,9 +568,9 @@ impl PyLongRangeIterator {
 }
 impl Unconstructible for PyLongRangeIterator {}
 
-impl IterNextIterable for PyLongRangeIterator {}
+impl SelfIter for PyLongRangeIterator {}
 impl IterNext for PyLongRangeIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
@@ -579,8 +585,8 @@ impl IterNext for PyLongRangeIterator {
     }
 }
 
-// When start, stop, step are isizes, we can use a faster more compact representation
-// that only operates using isizes to track values.
+// When start, stop, step are isize, we can use a faster more compact representation
+// that only operates using isize to track values.
 #[pyclass(module = false, name = "range_iterator")]
 #[derive(Debug)]
 pub struct PyRangeIterator {
@@ -591,12 +597,12 @@ pub struct PyRangeIterator {
 }
 
 impl PyPayload for PyRangeIterator {
-    fn class(vm: &VirtualMachine) -> &'static Py<PyType> {
-        vm.ctx.types.range_iterator_type
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        ctx.types.range_iterator_type
     }
 }
 
-#[pyclass(with(Constructor, IterNext))]
+#[pyclass(with(Constructor, IterNext, Iterable))]
 impl PyRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -628,9 +634,9 @@ impl PyRangeIterator {
 }
 impl Unconstructible for PyRangeIterator {}
 
-impl IterNextIterable for PyRangeIterator {}
+impl SelfIter for PyRangeIterator {}
 impl IterNext for PyRangeIterator {
-    fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+    fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         // TODO: In pathological case (index == usize::MAX) this can wrap around
         // (since fetch_add wraps). This would result in the iterator spinning again
         // from the beginning.
@@ -655,9 +661,9 @@ fn range_iter_reduce(
     let iter = builtins_iter(vm).to_owned();
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
-        start: PyInt::from(start).into_ref(vm),
-        stop: PyInt::from(stop).into_ref(vm),
-        step: PyInt::from(step).into_ref(vm),
+        start: PyInt::from(start).into_ref(&vm.ctx),
+        stop: PyInt::from(stop).into_ref(&vm.ctx),
+        step: PyInt::from(step).into_ref(&vm.ctx),
     };
     Ok(vm.new_tuple((iter, (range,), index)))
 }

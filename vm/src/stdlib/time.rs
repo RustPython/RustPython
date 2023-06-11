@@ -2,21 +2,9 @@
 
 // See also:
 // https://docs.python.org/3/library/time.html
-use crate::{PyObjectRef, VirtualMachine};
-
 pub use time::*;
 
-pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {
-    let module = time::make_module(vm);
-    #[cfg(unix)]
-    unix::extend_module(vm, &module);
-    #[cfg(windows)]
-    windows::extend_module(vm, &module);
-
-    module
-}
-
-#[pymodule(name = "time")]
+#[pymodule(name = "time", with(platform))]
 mod time {
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
@@ -52,7 +40,7 @@ mod time {
 
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| vm.new_value_error(format!("Time error: {:?}", e)))
+            .map_err(|e| vm.new_value_error(format!("Time error: {e:?}")))
     }
 
     // TODO: implement proper monotonic time for wasm/wasi.
@@ -207,8 +195,18 @@ mod time {
 
     #[pyfunction]
     fn strftime(format: PyStrRef, t: OptionalArg<PyStructTime>, vm: &VirtualMachine) -> PyResult {
+        use std::fmt::Write;
+
         let instant = t.naive_or_local(vm)?;
-        let formatted_time = instant.format(format.as_str()).to_string();
+        let mut formatted_time = String::new();
+
+        /*
+         * chrono doesn't support all formats and it
+         * raises an error if unsupported format is supplied.
+         * If error happens, we set result as input arg.
+         */
+        write!(&mut formatted_time, "{}", instant.format(format.as_str()))
+            .unwrap_or_else(|_| formatted_time = format.to_string());
         Ok(vm.ctx.new_str(formatted_time).into())
     }
 
@@ -220,7 +218,7 @@ mod time {
     ) -> PyResult<PyStructTime> {
         let format = format.as_ref().map_or("%a %b %H:%M:%S %Y", |s| s.as_str());
         let instant = NaiveDateTime::parse_from_str(string.as_str(), format)
-            .map_err(|e| vm.new_value_error(format!("Parse error: {:?}", e)))?;
+            .map_err(|e| vm.new_value_error(format!("Parse error: {e:?}")))?;
         Ok(PyStructTime::new(vm, instant, -1))
     }
 
@@ -352,7 +350,10 @@ mod time {
         }
 
         fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
-            let invalid = || vm.new_value_error("invalid struct_time parameter".to_owned());
+            let invalid_overflow =
+                || vm.new_overflow_error("mktime argument out of range".to_owned());
+            let invalid_value = || vm.new_value_error("invalid struct_time parameter".to_owned());
+
             macro_rules! field {
                 ($field:ident) => {
                     self.$field.clone().try_into_value(vm)?
@@ -360,9 +361,9 @@ mod time {
             }
             let dt = NaiveDateTime::new(
                 NaiveDate::from_ymd_opt(field!(tm_year), field!(tm_mon), field!(tm_mday))
-                    .ok_or_else(invalid)?,
+                    .ok_or_else(invalid_value)?,
                 NaiveTime::from_hms_opt(field!(tm_hour), field!(tm_min), field!(tm_sec))
-                    .ok_or_else(invalid)?,
+                    .ok_or_else(invalid_overflow)?,
             );
             Ok(dt)
         }
@@ -376,24 +377,21 @@ mod time {
     }
 
     #[allow(unused_imports)]
-    #[cfg(unix)]
-    use super::unix::*;
-    #[cfg(windows)]
-    use super::windows::*;
+    use super::platform::*;
 }
 
 #[cfg(unix)]
-#[pymodule(name = "time")]
-mod unix {
+#[pymodule(sub)]
+mod platform {
     #[allow(unused_imports)]
     use super::{SEC_TO_NS, US_TO_NS};
     #[cfg_attr(target_os = "macos", allow(unused_imports))]
     use crate::{
-        builtins::{try_bigint_to_f64, PyFloat, PyIntRef, PyNamespace, PyStrRef},
-        function::Either,
-        stdlib::os,
-        PyRef, PyResult, VirtualMachine,
+        builtins::{PyNamespace, PyStrRef},
+        convert::IntoPyException,
+        PyObject, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
+    use nix::{sys::time::TimeSpec, time::ClockId};
     use std::time::Duration;
 
     #[cfg(target_os = "solaris")]
@@ -425,83 +423,62 @@ mod unix {
     #[pyattr]
     use libc::{CLOCK_PROF, CLOCK_UPTIME};
 
-    fn get_clock_time(clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<Duration> {
-        let mut timespec = std::mem::MaybeUninit::uninit();
-        let ts: libc::timespec = unsafe {
-            if libc::clock_gettime(clk_id.try_to_primitive(vm)?, timespec.as_mut_ptr()) == -1 {
-                return Err(os::errno_err(vm));
-            }
-            timespec.assume_init()
-        };
-        Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
+    impl<'a> TryFromBorrowedObject<'a> for ClockId {
+        fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+            obj.try_to_value(vm).map(ClockId::from_raw)
+        }
+    }
+
+    fn get_clock_time(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<Duration> {
+        let ts = nix::time::clock_gettime(clk_id).map_err(|e| e.into_pyexception(vm))?;
+        Ok(ts.into())
     }
 
     #[pyfunction]
-    fn clock_gettime(clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<f64> {
+    fn clock_gettime(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
         get_clock_time(clk_id, vm).map(|d| d.as_secs_f64())
     }
 
     #[pyfunction]
-    fn clock_gettime_ns(clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<u128> {
+    fn clock_gettime_ns(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<u128> {
         get_clock_time(clk_id, vm).map(|d| d.as_nanos())
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn clock_getres(clk_id: PyIntRef, vm: &VirtualMachine) -> PyResult<f64> {
-        let mut timespec = std::mem::MaybeUninit::uninit();
-        let ts: libc::timespec = unsafe {
-            if libc::clock_getres(clk_id.try_to_primitive(vm)?, timespec.as_mut_ptr()) == -1 {
-                return Err(os::errno_err(vm));
-            }
-            timespec.assume_init()
-        };
-        Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32).as_secs_f64())
+    fn clock_getres(clk_id: ClockId, vm: &VirtualMachine) -> PyResult<f64> {
+        let ts = nix::time::clock_getres(clk_id).map_err(|e| e.into_pyexception(vm))?;
+        Ok(Duration::from(ts).as_secs_f64())
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
-    fn set_clock_time(
-        clk_id: PyIntRef,
-        timespec: libc::timespec,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let res = unsafe { libc::clock_settime(clk_id.try_to_primitive(vm)?, &timespec) };
-        if res == -1 {
-            return Err(os::errno_err(vm));
-        }
-        Ok(())
+    #[cfg(not(target_vendor = "apple"))]
+    fn set_clock_time(clk_id: ClockId, timespec: TimeSpec, vm: &VirtualMachine) -> PyResult<()> {
+        nix::time::clock_settime(clk_id, timespec).map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
-    #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
-    #[pyfunction]
-    fn clock_settime(
-        clk_id: PyIntRef,
-        time: Either<PyRef<PyFloat>, PyIntRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let time = match time {
-            Either::A(f) => f.to_f64(),
-            Either::B(z) => try_bigint_to_f64(z.as_bigint(), vm)?,
-        };
-        let nanos = time.fract() * (SEC_TO_NS as f64);
-        let ts = libc::timespec {
-            tv_sec: time.floor() as libc::time_t,
-            tv_nsec: nanos as _,
-        };
-        set_clock_time(clk_id, ts, vm)
+    #[cfg(target_os = "macos")]
+    fn set_clock_time(clk_id: ClockId, timespec: TimeSpec, vm: &VirtualMachine) -> PyResult<()> {
+        // idk why nix disables clock_settime on macos
+        let ret = unsafe { libc::clock_settime(clk_id.as_raw(), timespec.as_ref()) };
+        nix::Error::result(ret)
+            .map(drop)
+            .map_err(|e| e.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
     #[pyfunction]
-    fn clock_settime_ns(clk_id: PyIntRef, time: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
-        let time: libc::time_t = time.try_to_primitive(vm)?;
-        let ts = libc::timespec {
-            tv_sec: time / (SEC_TO_NS as libc::time_t),
-            tv_nsec: time.rem_euclid(SEC_TO_NS as libc::time_t) as _,
-        };
+    fn clock_settime(clk_id: ClockId, time: Duration, vm: &VirtualMachine) -> PyResult<()> {
+        set_clock_time(clk_id, time.into(), vm)
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
+    #[pyfunction]
+    fn clock_settime_ns(clk_id: ClockId, time: libc::time_t, vm: &VirtualMachine) -> PyResult<()> {
+        let ts = Duration::from_nanos(time as _).into();
         set_clock_time(clk_id, ts, vm)
     }
 
@@ -522,25 +499,25 @@ mod unix {
                 false,
                 "time.clock_gettime(CLOCK_MONOTONIC)",
                 true,
-                clock_getres(vm.ctx.new_int(CLOCK_MONOTONIC), vm)?,
+                clock_getres(ClockId::CLOCK_MONOTONIC, vm)?,
             ),
             "process_time" => (
                 false,
                 "time.clock_gettime(CLOCK_PROCESS_CPUTIME_ID)",
                 true,
-                clock_getres(vm.ctx.new_int(CLOCK_PROCESS_CPUTIME_ID), vm)?,
+                clock_getres(ClockId::CLOCK_PROCESS_CPUTIME_ID, vm)?,
             ),
             "thread_time" => (
                 false,
                 "time.clock_gettime(CLOCK_THREAD_CPUTIME_ID)",
                 true,
-                clock_getres(vm.ctx.new_int(CLOCK_THREAD_CPUTIME_ID), vm)?,
+                clock_getres(ClockId::CLOCK_THREAD_CPUTIME_ID, vm)?,
             ),
             "time" => (
                 true,
                 "time.clock_gettime(CLOCK_REALTIME)",
                 false,
-                clock_getres(vm.ctx.new_int(CLOCK_REALTIME), vm)?,
+                clock_getres(ClockId::CLOCK_REALTIME, vm)?,
             ),
             _ => return Err(vm.new_value_error("unknown clock".to_owned())),
         };
@@ -563,27 +540,24 @@ mod unix {
         target_os = "linux",
     )))]
     #[pyfunction]
-    fn get_clock_info(_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyNamespace> {
+    fn get_clock_info(_name: PyStrRef, vm: &VirtualMachine) -> PyResult<PyRef<PyNamespace>> {
         Err(vm.new_not_implemented_error("get_clock_info unsupported on this system".to_owned()))
     }
 
     pub(super) fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        get_clock_time(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
+        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
     }
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        get_clock_time(vm.ctx.new_int(CLOCK_MONOTONIC), vm)
+        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
     }
 
     #[pyfunction]
     fn sleep(dur: Duration, vm: &VirtualMachine) -> PyResult<()> {
         // this is basically std::thread::sleep, but that catches interrupts and we don't want to;
 
-        let mut ts = libc::timespec {
-            tv_sec: std::cmp::min(libc::time_t::max_value() as u64, dur.as_secs()) as libc::time_t,
-            tv_nsec: dur.subsec_nanos() as _,
-        };
-        let res = unsafe { libc::nanosleep(&ts, &mut ts) };
+        let ts = TimeSpec::from(dur);
+        let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
         let interrupted = res == -1 && nix::errno::errno() == libc::EINTR;
 
         if interrupted {
@@ -600,14 +574,7 @@ mod unix {
         target_os = "redox"
     )))]
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let time: libc::timespec = unsafe {
-            let mut time = std::mem::MaybeUninit::uninit();
-            if libc::clock_gettime(CLOCK_THREAD_CPUTIME_ID, time.as_mut_ptr()) == -1 {
-                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-            }
-            time.assume_init()
-        };
-        Ok(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
+        get_clock_time(ClockId::CLOCK_THREAD_CPUTIME_ID, vm)
     }
 
     #[cfg(target_os = "solaris")]
@@ -622,14 +589,7 @@ mod unix {
         target_os = "openbsd",
     )))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let time: libc::timespec = unsafe {
-            let mut time = std::mem::MaybeUninit::uninit();
-            if libc::clock_gettime(CLOCK_PROCESS_CPUTIME_ID, time.as_mut_ptr()) == -1 {
-                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-            }
-            time.assume_init()
-        };
-        Ok(Duration::new(time.tv_sec as u64, time.tv_nsec as u32))
+        get_clock_time(ClockId::CLOCK_PROCESS_CPUTIME_ID, vm)
     }
 
     #[cfg(any(
@@ -639,6 +599,7 @@ mod unix {
         target_os = "openbsd",
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        use nix::sys::resource::{getrusage, UsageWho};
         fn from_timeval(tv: libc::timeval, vm: &VirtualMachine) -> PyResult<i64> {
             (|tv: libc::timeval| {
                 let t = tv.tv_sec.checked_mul(SEC_TO_NS)?;
@@ -649,23 +610,17 @@ mod unix {
                 vm.new_overflow_error("timestamp too large to convert to i64".to_owned())
             })
         }
-        let ru: libc::rusage = unsafe {
-            let mut ru = std::mem::MaybeUninit::uninit();
-            if libc::getrusage(libc::RUSAGE_SELF, ru.as_mut_ptr()) == -1 {
-                return Err(vm.new_os_error("Failed to get clock time".to_owned()));
-            }
-            ru.assume_init()
-        };
-        let utime = from_timeval(ru.ru_utime, vm)?;
-        let stime = from_timeval(ru.ru_stime, vm)?;
+        let ru = getrusage(UsageWho::RUSAGE_SELF).map_err(|e| e.into_pyexception(vm))?;
+        let utime = from_timeval(ru.user_time().into(), vm)?;
+        let stime = from_timeval(ru.system_time().into(), vm)?;
 
         Ok(Duration::from_nanos((utime + stime) as u64))
     }
 }
 
 #[cfg(windows)]
-#[pymodule(name = "time")]
-mod windows {
+#[pymodule]
+mod platform {
     use super::{time_muldiv, MS_TO_NS, SEC_TO_NS};
     use crate::{
         builtins::{PyNamespace, PyStrRef},
@@ -818,9 +773,9 @@ mod windows {
             }
             (kernel_time.assume_init(), user_time.assume_init())
         };
-        let ktime = u64_from_filetime(kernel_time);
-        let utime = u64_from_filetime(user_time);
-        Ok(Duration::from_nanos((ktime + utime) * 100))
+        let k_time = u64_from_filetime(kernel_time);
+        let u_time = u64_from_filetime(user_time);
+        Ok(Duration::from_nanos((k_time + u_time) * 100))
     }
 
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
@@ -843,8 +798,13 @@ mod windows {
             }
             (kernel_time.assume_init(), user_time.assume_init())
         };
-        let ktime = u64_from_filetime(kernel_time);
-        let utime = u64_from_filetime(user_time);
-        Ok(Duration::from_nanos((ktime + utime) * 100))
+        let k_time = u64_from_filetime(kernel_time);
+        let u_time = u64_from_filetime(user_time);
+        Ok(Duration::from_nanos((k_time + u_time) * 100))
     }
 }
+
+// mostly for wasm32
+#[cfg(not(any(unix, windows)))]
+#[pymodule(sub)]
+mod platform {}

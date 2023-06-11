@@ -1,27 +1,11 @@
 use super::PyMethod;
 use crate::{
-    builtins::{PyBaseExceptionRef, PyList, PyStr, PyStrInterned},
-    function::{FuncArgs, IntoFuncArgs},
+    builtins::{pystr::AsPyStr, PyBaseExceptionRef, PyList, PyStrInterned},
+    function::IntoFuncArgs,
     identifier,
-    object::{AsObject, PyObject, PyObjectRef, PyPayload, PyResult},
+    object::{AsObject, PyObject, PyObjectRef, PyResult},
     vm::VirtualMachine,
 };
-
-/// Trace events for sys.settrace and sys.setprofile.
-enum TraceEvent {
-    Call,
-    Return,
-}
-
-impl std::fmt::Display for TraceEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        use TraceEvent::*;
-        match self {
-            Call => write!(f, "call"),
-            Return => write!(f, "return"),
-        }
-    }
-}
 
 /// PyObject support
 impl VirtualMachine {
@@ -38,7 +22,7 @@ impl VirtualMachine {
             } else {
                 "run with RUST_BACKTRACE=1 to see Python backtrace"
             };
-            panic!("{}; {}", msg, after)
+            panic!("{msg}; {after}")
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
         {
@@ -89,28 +73,24 @@ impl VirtualMachine {
 
     pub fn call_get_descriptor_specific(
         &self,
-        descr: PyObjectRef,
+        descr: &PyObject,
         obj: Option<PyObjectRef>,
         cls: Option<PyObjectRef>,
-    ) -> Result<PyResult, PyObjectRef> {
-        let descr_get = descr.class().mro_find_map(|cls| cls.slots.descr_get.load());
-        match descr_get {
-            Some(descr_get) => Ok(descr_get(descr, obj, cls, self)),
-            None => Err(descr),
-        }
+    ) -> Option<PyResult> {
+        let descr_get = descr
+            .class()
+            .mro_find_map(|cls| cls.slots.descr_get.load())?;
+        Some(descr_get(descr.to_owned(), obj, cls, self))
     }
 
-    pub fn call_get_descriptor(
-        &self,
-        descr: PyObjectRef,
-        obj: PyObjectRef,
-    ) -> Result<PyResult, PyObjectRef> {
-        let cls = obj.class().clone().into();
+    pub fn call_get_descriptor(&self, descr: &PyObject, obj: PyObjectRef) -> Option<PyResult> {
+        let cls = obj.class().to_owned().into();
         self.call_get_descriptor_specific(descr, Some(obj), Some(cls))
     }
 
-    pub fn call_if_get_descriptor(&self, attr: PyObjectRef, obj: PyObjectRef) -> PyResult {
-        self.call_get_descriptor(attr, obj).unwrap_or_else(Ok)
+    pub fn call_if_get_descriptor(&self, attr: &PyObject, obj: PyObjectRef) -> PyResult {
+        self.call_get_descriptor(attr, obj)
+            .unwrap_or_else(|| Ok(attr.to_owned()))
     }
 
     #[inline]
@@ -120,18 +100,22 @@ impl VirtualMachine {
     {
         flame_guard!(format!("call_method({:?})", method_name));
 
-        let name = self
-            .ctx
-            .interned_str(method_name)
-            .map_or_else(|| PyStr::from(method_name).into_ref(self), |s| s.to_owned());
+        let dynamic_name;
+        let name = match self.ctx.interned_str(method_name) {
+            Some(name) => name.as_pystr(&self.ctx),
+            None => {
+                dynamic_name = self.ctx.new_str(method_name);
+                &dynamic_name
+            }
+        };
         PyMethod::get(obj.to_owned(), name, self)?.invoke(args, self)
     }
 
     pub fn dir(&self, obj: Option<PyObjectRef>) -> PyResult<PyList> {
         let seq = match obj {
             Some(obj) => self
-                .get_special_method(obj, identifier!(self, __dir__))?
-                .map_err(|_obj| self.new_type_error("object does not provide __dir__".to_owned()))?
+                .get_special_method(&obj, identifier!(self, __dir__))?
+                .ok_or_else(|| self.new_type_error("object does not provide __dir__".to_owned()))?
                 .invoke((), self)?,
             None => self.call_method(
                 self.current_locals()?.as_object(),
@@ -148,87 +132,27 @@ impl VirtualMachine {
     #[inline]
     pub(crate) fn get_special_method(
         &self,
-        obj: PyObjectRef,
+        obj: &PyObject,
         method: &'static PyStrInterned,
-    ) -> PyResult<Result<PyMethod, PyObjectRef>> {
-        PyMethod::get_special(obj, method, self)
+    ) -> PyResult<Option<PyMethod>> {
+        PyMethod::get_special::<false>(obj, method, self)
     }
 
     /// NOT PUBLIC API
     #[doc(hidden)]
     pub fn call_special_method(
         &self,
-        obj: PyObjectRef,
+        obj: &PyObject,
         method: &'static PyStrInterned,
         args: impl IntoFuncArgs,
     ) -> PyResult {
         self.get_special_method(obj, method)?
-            .map_err(|_obj| self.new_attribute_error(method.as_str().to_owned()))?
+            .ok_or_else(|| self.new_attribute_error(method.as_str().to_owned()))?
             .invoke(args, self)
     }
 
-    fn _invoke(&self, callable: &PyObject, args: FuncArgs) -> PyResult {
-        vm_trace!("Invoke: {:?} {:?}", callable, args);
-        let slot_call = callable.class().mro_find_map(|cls| cls.slots.call.load());
-        match slot_call {
-            Some(slot_call) => {
-                self.trace_event(TraceEvent::Call)?;
-                let result = slot_call(callable, args, self);
-                self.trace_event(TraceEvent::Return)?;
-                result
-            }
-            None => Err(self.new_type_error(format!(
-                "'{}' object is not callable",
-                callable.class().name()
-            ))),
-        }
-    }
-
-    #[inline(always)]
-    pub fn invoke(&self, func: &impl AsObject, args: impl IntoFuncArgs) -> PyResult {
-        self._invoke(func.as_object(), args.into_args(self))
-    }
-
-    /// Call registered trace function.
-    #[inline]
-    fn trace_event(&self, event: TraceEvent) -> PyResult<()> {
-        if self.use_tracing.get() {
-            self._trace_event_inner(event)
-        } else {
-            Ok(())
-        }
-    }
-    fn _trace_event_inner(&self, event: TraceEvent) -> PyResult<()> {
-        let trace_func = self.trace_func.borrow().to_owned();
-        let profile_func = self.profile_func.borrow().to_owned();
-        if self.is_none(&trace_func) && self.is_none(&profile_func) {
-            return Ok(());
-        }
-
-        let frame_ref = self.current_frame();
-        if frame_ref.is_none() {
-            return Ok(());
-        }
-
-        let frame = frame_ref.unwrap().as_object().to_owned();
-        let event = self.ctx.new_str(event.to_string()).into();
-        let args = vec![frame, event, self.ctx.none()];
-
-        // temporarily disable tracing, during the call to the
-        // tracing function itself.
-        if !self.is_none(&trace_func) {
-            self.use_tracing.set(false);
-            let res = self.invoke(&trace_func, args.clone());
-            self.use_tracing.set(true);
-            res?;
-        }
-
-        if !self.is_none(&profile_func) {
-            self.use_tracing.set(false);
-            let res = self.invoke(&profile_func, args);
-            self.use_tracing.set(true);
-            res?;
-        }
-        Ok(())
+    #[deprecated(note = "in favor of `obj.call(args, vm)`")]
+    pub fn invoke(&self, obj: &impl AsObject, args: impl IntoFuncArgs) -> PyResult {
+        obj.as_object().call(args, self)
     }
 }

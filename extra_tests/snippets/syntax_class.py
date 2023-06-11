@@ -193,22 +193,20 @@ class B:
 
 assert B.__doc__ == "Docstring"
 
-# TODO: uncomment once free vars/cells are working
 # The symboltable sees that b() is referring to a in the nested scope,
 # so it marks it as non local. When it's executed, it walks up the scopes
 # and still finds the a from the class scope.
-# a = 1
-# def nested_scope():
-#     a = 2
-#     class A:
-#         a = 3
-#         def b():
-#             assert a == 2
-#         b()
-#         assert a == 3
-#     A.b()
-# nested_scope()
-
+a = 1
+def nested_scope():
+    a = 2
+    class A:
+        a = 3
+        def b():
+            assert a == 2
+        b()
+        assert a == 3
+    A.b()
+nested_scope()
 
 
 # Multiple inheritance and mro tests.
@@ -271,19 +269,19 @@ class A(type):
     def __new__(mcls):
         assert type(mcls.__new__).__name__ == 'function'
         assert type(mcls.mro).__name__ == 'method_descriptor'
-        assert type(super().__new__).__name__ in ['builtin_function_or_method', 'method']
+        assert type(super().__new__).__name__ in ['builtin_function_or_method', 'builtin_method']
         assert type(super().mro).__name__ == 'method_descriptor'
 
 class B(type):
     def x(self):
-        assert type(self.__new__).__name__ in ['builtin_function_or_method', 'method']
-        assert type(self.mro).__name__ in  ['builtin_function_or_method', 'method']
-        assert type(super().__new__).__name__ in ['builtin_function_or_method', 'method']
-        assert type(super().mro).__name__ in  ['builtin_function_or_method', 'method']
+        assert type(self.__new__).__name__ in ['builtin_function_or_method', 'builtin_method']
+        assert type(self.mro).__name__ in  ['builtin_function_or_method', 'builtin_method']
+        assert type(super().__new__).__name__ in ['builtin_function_or_method', 'builtin_method']
+        assert type(super().mro).__name__ in  ['builtin_function_or_method', 'builtin_method']
 
-assert type(tuple.__new__).__name__ in ['builtin_function_or_method', 'method']
-assert type(tuple.mro).__name__ in  ['builtin_function_or_method', 'method']
-assert type(type.__new__).__name__ in ['builtin_function_or_method', 'method'], type.__new__
+assert type(tuple.__new__).__name__ in ['builtin_function_or_method', 'builtin_method']
+assert type(tuple.mro).__name__ in  ['builtin_function_or_method', 'builtin_method']
+assert type(type.__new__).__name__ in ['builtin_function_or_method', 'builtin_method'], type.__new__
 assert type(type.mro).__name__ == 'method_descriptor'
 
 B('x', (int,), {}).x()

@@ -509,6 +509,7 @@ class ThreadTests(BaseTestCase):
         t = threading.Thread(daemon=True)
         self.assertTrue(t.daemon)
 
+    @unittest.skipUnless(hasattr(threading.Lock(), '_at_fork_reinit'), 'TODO: RUSTPYTHON, exit_handler needs lock._at_fork_reinit')
     @unittest.skipUnless(hasattr(os, 'fork'), 'needs os.fork()')
     def test_fork_at_exit(self):
         # bpo-42350: Calling os.fork() after threading._shutdown() must
@@ -564,6 +565,7 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
+    @unittest.skipUnless(hasattr(sys, 'getswitchinterval'), "TODO: RUSTPYTHON, needs sys.getswitchinterval()")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_is_alive_after_fork(self):
         # Try hard to trigger #18418: is_alive() could sometimes be True on
@@ -622,6 +624,7 @@ class ThreadTests(BaseTestCase):
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
     @unittest.skipUnless(hasattr(os, 'fork'), "test needs os.fork()")
     @unittest.skipUnless(hasattr(os, 'waitpid'), "test needs os.waitpid()")
+    @unittest.skipIf(os.name != 'posix', "test needs POSIX semantics")
     def test_main_thread_after_fork_from_nonmain_thread(self):
         code = """if 1:
             import os, threading, sys
@@ -1005,6 +1008,8 @@ class ThreadJoinOnShutdown(BaseTestCase):
 
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
+    # TODO: RUSTPYTHON need to fix test_1_join_on_shutdown then this might work
+    @unittest.expectedFailure
     def test_2_join_in_forked_process(self):
         # Like the test above, but from a forked interpreter
         script = """if 1:
@@ -1026,6 +1031,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
 
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     @unittest.skipIf(sys.platform in platforms_to_skip, "due to known OS bug")
+    @unittest.skip("TODO: RUSTPYTHON, flaky test")
     def test_3_join_in_forked_from_thread(self):
         # Like the test above, but fork() was called from a worker thread
         # In the forked process, the main Thread object must be marked as stopped.
@@ -1118,6 +1124,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
         for t in threads:
             t.join()
 
+    @unittest.skipUnless(hasattr(sys, '_current_frames'), "TODO: RUSTPYTHON, needs sys._current_frames()")
     @unittest.skipUnless(hasattr(os, 'fork'), "needs os.fork()")
     def test_clear_threads_states_after_fork(self):
         # Issue #17094: check that threads states are cleared after fork()

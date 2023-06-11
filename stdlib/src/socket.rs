@@ -1,8 +1,8 @@
-use crate::vm::{PyObjectRef, VirtualMachine};
+use crate::vm::{builtins::PyModule, PyRef, VirtualMachine};
 #[cfg(feature = "ssl")]
 pub(super) use _socket::{sock_select, timeout_error_msg, PySocket, SelectKind};
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(windows)]
     crate::vm::stdlib::nt::init_winsock();
     _socket::make_module(vm)
@@ -14,10 +14,10 @@ mod _socket {
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
-        function::{ArgBytesLike, ArgMemoryBuffer, Either, OptionalArg, OptionalOption},
-        types::{DefaultConstructor, Initializer},
+        function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, OptionalArg, OptionalOption},
+        types::{DefaultConstructor, Initializer, Representable},
         utils::ToCString,
-        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
@@ -53,15 +53,20 @@ mod _socket {
     #[pyattr]
     // put IPPROTO_MAX later
     use c::{
-        AF_DECnet, AF_APPLETALK, AF_INET, AF_INET6, AF_IPX, AF_UNSPEC, INADDR_ANY, INADDR_LOOPBACK,
-        INADDR_NONE, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP, IPPROTO_FRAGMENT,
-        IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP,
-        IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV6, IPPROTO_NONE, IPPROTO_PIM, IPPROTO_PUP,
-        IPPROTO_RAW, IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP, MSG_CTRUNC,
-        MSG_DONTROUTE, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST,
-        NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR,
-        SOCK_DGRAM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE,
-        SO_REUSEADDR, SO_TYPE, TCP_NODELAY,
+        AF_INET, AF_INET6, AF_UNSPEC, INADDR_ANY, INADDR_LOOPBACK, INADDR_NONE, IPPROTO_ICMP,
+        IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV6, IPPROTO_TCP,
+        IPPROTO_TCP as SOL_TCP, IPPROTO_UDP, MSG_CTRUNC, MSG_DONTROUTE, MSG_OOB, MSG_PEEK,
+        MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST,
+        NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR, SOCK_DGRAM, SOCK_STREAM, SOL_SOCKET,
+        SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, TCP_NODELAY,
+    };
+
+    #[cfg(not(target_os = "redox"))]
+    #[pyattr]
+    use c::{
+        AF_DECnet, AF_APPLETALK, AF_IPX, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
+        IPPROTO_FRAGMENT, IPPROTO_HOPOPTS, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_NONE, IPPROTO_PIM,
+        IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING,
     };
 
     #[cfg(unix)]
@@ -304,6 +309,7 @@ mod _socket {
             any(
                 target_arch = "aarch64",
                 target_arch = "i686",
+                target_arch = "loongarch64",
                 target_arch = "mips",
                 target_arch = "powerpc",
                 target_arch = "powerpc64",
@@ -354,6 +360,7 @@ mod _socket {
             any(
                 target_arch = "aarch64",
                 target_arch = "i686",
+                target_arch = "loongarch64",
                 target_arch = "mips",
                 target_arch = "powerpc",
                 target_arch = "powerpc64",
@@ -891,53 +898,8 @@ mod _socket {
                     use std::os::unix::ffi::OsStrExt;
                     let buf = crate::vm::function::ArgStrOrBytesLike::try_from_object(vm, addr)?;
                     let path = &*buf.borrow_bytes();
-                    if cfg!(any(target_os = "linux", target_os = "android"))
-                        && path.first() == Some(&0)
-                    {
-                        use libc::{sa_family_t, socklen_t};
-                        use {socket2::SockAddr, std::ptr};
-                        unsafe {
-                            // based on SockAddr::unix
-                            // TODO: upstream or fix socklen check for SockAddr::unix()?
-                            SockAddr::init(|storage, len| {
-                                // Safety: `SockAddr::init` zeros the address, which is a valid
-                                // representation.
-                                let storage: &mut libc::sockaddr_un = &mut *storage.cast();
-                                let len: &mut socklen_t = &mut *len;
-
-                                let bytes = path;
-                                if bytes.len() > storage.sun_path.len() {
-                                    return Err(io::Error::new(
-                                        io::ErrorKind::InvalidInput,
-                                        "path must be shorter than SUN_LEN",
-                                    ));
-                                }
-
-                                storage.sun_family = libc::AF_UNIX as sa_family_t;
-                                // Safety: `bytes` and `addr.sun_path` are not overlapping and
-                                // both point to valid memory.
-                                // `SockAddr::init` zeroes the memory, so the path is already
-                                // null terminated.
-                                ptr::copy_nonoverlapping(
-                                    bytes.as_ptr(),
-                                    storage.sun_path.as_mut_ptr() as *mut u8,
-                                    bytes.len(),
-                                );
-
-                                let base = storage as *const _ as usize;
-                                let path = &storage.sun_path as *const _ as usize;
-                                let sun_path_offset = path - base;
-                                let length = sun_path_offset + bytes.len();
-                                *len = length as socklen_t;
-
-                                Ok(())
-                            })
-                        }
-                        .map(|(_, addr)| addr)
-                    } else {
-                        socket2::SockAddr::unix(ffi::OsStr::from_bytes(path))
-                    }
-                    .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()).into())
+                    socket2::SockAddr::unix(ffi::OsStr::from_bytes(path))
+                        .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()).into())
                 }
                 c::AF_INET => {
                     let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
@@ -991,7 +953,7 @@ mod _socket {
                     }
                     Ok(addr6.into())
                 }
-                _ => Err(vm.new_os_error(format!("{}(): bad family", caller)).into()),
+                _ => Err(vm.new_os_error(format!("{caller}(): bad family")).into()),
             }
         }
 
@@ -1055,7 +1017,21 @@ mod _socket {
         }
     }
 
-    #[pyclass(with(DefaultConstructor, Initializer), flags(BASETYPE))]
+    impl Representable for PySocket {
+        #[inline]
+        fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            Ok(format!(
+                "<socket object, fd={}, family={}, type={}, proto={}>",
+                // cast because INVALID_SOCKET is unsigned, so would show usize::MAX instead of -1
+                zelf.fileno() as i64,
+                zelf.family.load(),
+                zelf.kind.load(),
+                zelf.proto.load(),
+            ))
+        }
+    }
+
+    #[pyclass(with(DefaultConstructor, Initializer, Representable), flags(BASETYPE))]
     impl PySocket {
         fn _init(
             zelf: PyRef<Self>,
@@ -1087,20 +1063,7 @@ mod _socket {
                     _ => {}
                 }
                 if socket_kind == -1 {
-                    // TODO: when socket2 cuts a new release, type will be available on all os
-                    // socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
-                    let res = unsafe {
-                        c::getsockopt(
-                            sock_fileno(&sock) as _,
-                            c::SOL_SOCKET,
-                            c::SO_TYPE,
-                            &mut socket_kind as *mut libc::c_int as *mut _,
-                            &mut (std::mem::size_of::<i32>() as _),
-                        )
-                    };
-                    if res < 0 {
-                        return Err(crate::common::os::errno().into());
-                    }
+                    socket_kind = sock.r#type().map_err(|e| e.into_pyexception(vm))?.into();
                 }
                 cfg_if::cfg_if! {
                     if #[cfg(any(
@@ -1118,7 +1081,7 @@ mod _socket {
                 }
             } else {
                 if family == -1 {
-                    family = c::AF_INET as i32
+                    family = c::AF_INET as _
                 }
                 if socket_kind == -1 {
                     socket_kind = c::SOCK_STREAM
@@ -1516,18 +1479,6 @@ mod _socket {
         fn proto(&self) -> i32 {
             self.proto.load()
         }
-
-        #[pymethod(magic)]
-        fn repr(&self) -> String {
-            format!(
-                "<socket object, fd={}, family={}, type={}, proto={}>",
-                // cast because INVALID_SOCKET is unsigned, so would show usize::MAX instead of -1
-                self.fileno() as i64,
-                self.family.load(),
-                self.kind.load(),
-                self.proto.load(),
-            )
-        }
     }
 
     struct Address {
@@ -1601,30 +1552,23 @@ mod _socket {
         if let Some(addr) = addr.as_socket() {
             return get_ip_addr_tuple(&addr, vm);
         }
-        match addr.family() as i32 {
-            #[cfg(unix)]
-            libc::AF_UNIX => {
-                let addr_len = addr.len() as usize;
-                let unix_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_un) };
-                let path_u8 = unsafe { &*(&unix_addr.sun_path[..] as *const [_] as *const [u8]) };
-                let sun_path_offset =
-                    &unix_addr.sun_path as *const _ as usize - unix_addr as *const _ as usize;
-                if cfg!(any(target_os = "linux", target_os = "android"))
-                    && addr_len > sun_path_offset
-                    && unix_addr.sun_path[0] == 0
-                {
-                    let abstractaddrlen = addr_len - sun_path_offset;
-                    let abstractpath = &path_u8[..abstractaddrlen];
-                    vm.ctx.new_bytes(abstractpath.to_vec()).into()
-                } else {
-                    let len = memchr::memchr(b'\0', path_u8).unwrap_or(path_u8.len());
-                    let path = &path_u8[..len];
-                    vm.ctx.new_str(String::from_utf8_lossy(path)).into()
-                }
+        #[cfg(unix)]
+        use nix::sys::socket::{SockaddrLike, UnixAddr};
+        #[cfg(unix)]
+        if let Some(unix_addr) = unsafe { UnixAddr::from_raw(addr.as_ptr(), Some(addr.len())) } {
+            use std::os::unix::ffi::OsStrExt;
+            #[cfg(any(target_os = "android", target_os = "linux"))]
+            if let Some(abstractpath) = unix_addr.as_abstract() {
+                return vm.ctx.new_bytes([b"\0", abstractpath].concat()).into();
             }
-            // TODO: support more address families
-            _ => (String::new(), 0).to_pyobject(vm),
+            // necessary on macos
+            let path = ffi::OsStr::as_bytes(unix_addr.path().unwrap_or("".as_ref()).as_ref());
+            let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
+            let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
+            return vm.ctx.new_str(path.to_string_lossy()).into();
         }
+        // TODO: support more address families
+        (String::new(), 0).to_pyobject(vm)
     }
 
     #[pyfunction]
@@ -1764,25 +1708,19 @@ mod _socket {
         let fd = sock_fileno(sock);
         #[cfg(unix)]
         {
-            let mut pollfd = libc::pollfd {
-                fd,
-                events: match kind {
-                    SelectKind::Read => libc::POLLIN,
-                    SelectKind::Write => libc::POLLOUT,
-                    SelectKind::Connect => libc::POLLOUT | libc::POLLERR,
-                },
-                revents: 0,
+            use nix::poll::*;
+            let events = match kind {
+                SelectKind::Read => PollFlags::POLLIN,
+                SelectKind::Write => PollFlags::POLLOUT,
+                SelectKind::Connect => PollFlags::POLLOUT | PollFlags::POLLERR,
             };
+            let mut pollfd = [PollFd::new(fd, events)];
             let timeout = match interval {
                 Some(d) => d.as_millis() as _,
                 None => -1,
             };
-            let ret = unsafe { libc::poll(&mut pollfd, 1, timeout) };
-            if ret < 0 {
-                Err(io::Error::last_os_error())
-            } else {
-                Ok(ret == 0)
-            }
+            let ret = poll(&mut pollfd, timeout)?;
+            Ok(ret == 0)
         }
         #[cfg(windows)]
         {
@@ -1906,7 +1844,7 @@ mod _socket {
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
-        let addr = get_addr(vm, name, c::AF_UNSPEC)?;
+        let addr = get_addr(vm, name, c::AF_INET)?;
         let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
         Ok((
@@ -1954,7 +1892,7 @@ mod _socket {
                 })?;
                 Ok(get_ipv6_addr_str(Ipv6Addr::from(*packed_ip)))
             }
-            _ => Err(vm.new_value_error(format!("unknown address family {}", af_inet))),
+            _ => Err(vm.new_value_error(format!("unknown address family {af_inet}"))),
         }
     }
 
@@ -2043,12 +1981,10 @@ mod _socket {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn if_nametoindex(name: PyObjectRef, vm: &VirtualMachine) -> PyResult<IfIndex> {
-        let name = crate::vm::stdlib::os::FsPath::try_from(name, true, vm)?;
-        let name = ffi::CString::new(name.as_bytes()).map_err(|err| err.into_pyexception(vm))?;
+    fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
+        let name = name.to_cstring(vm)?;
 
         let ret = unsafe { c::if_nametoindex(name.as_ptr()) };
-
         if ret == 0 {
             Err(vm.new_os_error("no interface with this name".to_owned()))
         } else {

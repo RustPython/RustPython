@@ -141,7 +141,7 @@ impl Scope {
 //     impl Sealed for super::PyStrRef {}
 // }
 // pub trait PyName:
-//     sealed::Sealed + crate::dictdatatype::DictKey + Clone + ToPyObject + IntoPyStrRef
+//     sealed::Sealed + crate::dictdatatype::DictKey + Clone + ToPyObject
 // {
 // }
 // impl PyName for str {}

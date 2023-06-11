@@ -36,7 +36,7 @@ mod atexit {
     pub fn _run_exitfuncs(vm: &VirtualMachine) {
         let funcs: Vec<_> = std::mem::take(&mut *vm.state.atexit_funcs.lock());
         for (func, args) in funcs.into_iter().rev() {
-            if let Err(e) = vm.invoke(&func, args) {
+            if let Err(e) = func.call(args, vm) {
                 let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
                 vm.run_unraisable(e, Some("Error in atexit._run_exitfuncs".to_owned()), func);
                 if exit {

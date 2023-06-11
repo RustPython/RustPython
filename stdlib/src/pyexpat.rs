@@ -3,12 +3,12 @@
 *
 */
 
-use crate::vm::{extend_module, PyObjectRef, VirtualMachine};
+use crate::vm::{builtins::PyModule, extend_module, PyRef, VirtualMachine};
 
-pub fn make_module(vm: &VirtualMachine) -> PyObjectRef {
+pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _pyexpat::make_module(vm);
 
-    extend_module!(vm, module, {
+    extend_module!(vm, &module, {
          "errors" => _errors::make_module(vm),
          "model" => _model::make_module(vm),
     });
@@ -43,7 +43,7 @@ mod _pyexpat {
     type MutableObject = PyRwLock<PyObjectRef>;
 
     #[pyattr]
-    #[pyclass(name = "xmlparser", module = false)]
+    #[pyclass(name = "xmlparser", module = false, traverse)]
     #[derive(Debug, PyPayload)]
     pub struct PyExpatLikeXmlParser {
         start_element: MutableObject,
@@ -59,7 +59,7 @@ mod _pyexpat {
     where
         T: IntoFuncArgs,
     {
-        vm.invoke(&handler.read().clone(), args).ok();
+        handler.read().call(args, vm).ok();
     }
 
     #[pyclass]
@@ -72,7 +72,7 @@ mod _pyexpat {
                 entity_decl: MutableObject::new(vm.ctx.none()),
                 buffer_text: MutableObject::new(vm.ctx.new_bool(false).into()),
             }
-            .into_ref(vm))
+            .into_ref(&vm.ctx))
         }
 
         #[extend_class]
@@ -118,15 +118,15 @@ mod _pyexpat {
                             .unwrap();
                         }
 
-                        let name_str = PyStr::from(name.local_name).into_ref(vm);
+                        let name_str = PyStr::from(name.local_name).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.start_element, (name_str, dict));
                     }
                     Ok(XmlEvent::EndElement { name, .. }) => {
-                        let name_str = PyStr::from(name.local_name).into_ref(vm);
+                        let name_str = PyStr::from(name.local_name).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.end_element, (name_str,));
                     }
                     Ok(XmlEvent::Characters(chars)) => {
-                        let str = PyStr::from(chars).into_ref(vm);
+                        let str = PyStr::from(chars).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.character_data, (str,));
                     }
                     _ => {}

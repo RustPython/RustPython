@@ -352,16 +352,73 @@ _code_type = type(_write_atomic.__code__)
 #     Python 3.10b1 3437 (Undo making 'annotations' future by default - We like to dance among core devs!)
 #     Python 3.10b1 3438 Safer line number table handling.
 #     Python 3.10b1 3439 (Add ROT_N)
+#     Python 3.11a1 3450 Use exception table for unwinding ("zero cost" exception handling)
+#     Python 3.11a1 3451 (Add CALL_METHOD_KW)
+#     Python 3.11a1 3452 (drop nlocals from marshaled code objects)
+#     Python 3.11a1 3453 (add co_fastlocalnames and co_fastlocalkinds)
+#     Python 3.11a1 3454 (compute cell offsets relative to locals bpo-43693)
+#     Python 3.11a1 3455 (add MAKE_CELL bpo-43693)
+#     Python 3.11a1 3456 (interleave cell args bpo-43693)
+#     Python 3.11a1 3457 (Change localsplus to a bytes object bpo-43693)
+#     Python 3.11a1 3458 (imported objects now don't use LOAD_METHOD/CALL_METHOD)
+#     Python 3.11a1 3459 (PEP 657: add end line numbers and column offsets for instructions)
+#     Python 3.11a1 3460 (Add co_qualname field to PyCodeObject bpo-44530)
+#     Python 3.11a1 3461 (JUMP_ABSOLUTE must jump backwards)
+#     Python 3.11a2 3462 (bpo-44511: remove COPY_DICT_WITHOUT_KEYS, change
+#                         MATCH_CLASS and MATCH_KEYS, and add COPY)
+#     Python 3.11a3 3463 (bpo-45711: JUMP_IF_NOT_EXC_MATCH no longer pops the
+#                         active exception)
+#     Python 3.11a3 3464 (bpo-45636: Merge numeric BINARY_*/INPLACE_* into
+#                         BINARY_OP)
+#     Python 3.11a3 3465 (Add COPY_FREE_VARS opcode)
+#     Python 3.11a4 3466 (bpo-45292: PEP-654 except*)
+#     Python 3.11a4 3467 (Change CALL_xxx opcodes)
+#     Python 3.11a4 3468 (Add SEND opcode)
+#     Python 3.11a4 3469 (bpo-45711: remove type, traceback from exc_info)
+#     Python 3.11a4 3470 (bpo-46221: PREP_RERAISE_STAR no longer pushes lasti)
+#     Python 3.11a4 3471 (bpo-46202: remove pop POP_EXCEPT_AND_RERAISE)
+#     Python 3.11a4 3472 (bpo-46009: replace GEN_START with POP_TOP)
+#     Python 3.11a4 3473 (Add POP_JUMP_IF_NOT_NONE/POP_JUMP_IF_NONE opcodes)
+#     Python 3.11a4 3474 (Add RESUME opcode)
+#     Python 3.11a5 3475 (Add RETURN_GENERATOR opcode)
+#     Python 3.11a5 3476 (Add ASYNC_GEN_WRAP opcode)
+#     Python 3.11a5 3477 (Replace DUP_TOP/DUP_TOP_TWO with COPY and
+#                         ROT_TWO/ROT_THREE/ROT_FOUR/ROT_N with SWAP)
+#     Python 3.11a5 3478 (New CALL opcodes)
+#     Python 3.11a5 3479 (Add PUSH_NULL opcode)
+#     Python 3.11a5 3480 (New CALL opcodes, second iteration)
+#     Python 3.11a5 3481 (Use inline cache for BINARY_OP)
+#     Python 3.11a5 3482 (Use inline caching for UNPACK_SEQUENCE and LOAD_GLOBAL)
+#     Python 3.11a5 3483 (Use inline caching for COMPARE_OP and BINARY_SUBSCR)
+#     Python 3.11a5 3484 (Use inline caching for LOAD_ATTR, LOAD_METHOD, and
+#                         STORE_ATTR)
+#     Python 3.11a5 3485 (Add an oparg to GET_AWAITABLE)
+#     Python 3.11a6 3486 (Use inline caching for PRECALL and CALL)
+#     Python 3.11a6 3487 (Remove the adaptive "oparg counter" mechanism)
+#     Python 3.11a6 3488 (LOAD_GLOBAL can push additional NULL)
+#     Python 3.11a6 3489 (Add JUMP_BACKWARD, remove JUMP_ABSOLUTE)
+#     Python 3.11a6 3490 (remove JUMP_IF_NOT_EXC_MATCH, add CHECK_EXC_MATCH)
+#     Python 3.11a6 3491 (remove JUMP_IF_NOT_EG_MATCH, add CHECK_EG_MATCH,
+#                         add JUMP_BACKWARD_NO_INTERRUPT, make JUMP_NO_INTERRUPT virtual)
+#     Python 3.11a7 3492 (make POP_JUMP_IF_NONE/NOT_NONE/TRUE/FALSE relative)
+#     Python 3.11a7 3493 (Make JUMP_IF_TRUE_OR_POP/JUMP_IF_FALSE_OR_POP relative)
+#     Python 3.11a7 3494 (New location info table)
+#     Python 3.11b4 3495 (Set line number of module's RESUME instr to 0 per PEP 626)
+#     Python 3.12 will start with magic number 3500
+
 
 #
 # MAGIC must change whenever the bytecode emitted by the compiler may no
 # longer be understood by older implementations of the eval loop (usually
 # due to the addition of new opcodes).
 #
+# Starting with Python 3.11, Python 3.n starts with magic number 2900+50n.
+#
 # Whenever MAGIC_NUMBER is changed, the ranges in the magic_values array
 # in PC/launcher.c must also be updated.
 
-MAGIC_NUMBER = (3439).to_bytes(2, 'little') + b'\r\n'
+MAGIC_NUMBER = (3495).to_bytes(2, 'little') + b'\r\n'
+
 _RAW_MAGIC_NUMBER = int.from_bytes(MAGIC_NUMBER, 'little')  # For import.c
 
 _PYCACHE = '__pycache__'
@@ -1172,7 +1229,7 @@ class ExtensionFileLoader(FileLoader, _LoaderBasics):
         return hash(self.name) ^ hash(self.path)
 
     def create_module(self, spec):
-        """Create an unitialized extension module"""
+        """Create an uninitialized extension module"""
         module = _bootstrap._call_with_frames_removed(
             _imp.create_dynamic, spec)
         _bootstrap._verbose_message('extension module {!r} loaded from {!r}',
@@ -1273,8 +1330,10 @@ class _NamespacePath:
         self._path.append(item)
 
 
-# We use this exclusively in module_from_spec() for backward-compatibility.
-class _NamespaceLoader:
+# This class is actually exposed publicly in a namespace package's __loader__
+# attribute, so it should be available through a non-private name.
+# https://bugs.python.org/issue35673
+class NamespaceLoader:
     def __init__(self, name, path, path_finder):
         self._path = _NamespacePath(name, path, path_finder)
 
@@ -1285,7 +1344,7 @@ class _NamespaceLoader:
         The method is deprecated.  The import machinery does the job itself.
 
         """
-        _warnings.warn("_NamespaceLoader.module_repr() is deprecated and "
+        _warnings.warn("NamespaceLoader.module_repr() is deprecated and "
                        "slated for removal in Python 3.12", DeprecationWarning)
         return '<module {!r} (namespace)>'.format(module.__name__)
 
@@ -1321,6 +1380,10 @@ class _NamespaceLoader:
         return NamespaceReader(self._path)
 
 
+# We use this exclusively in module_from_spec() for backward-compatibility.
+_NamespaceLoader = NamespaceLoader
+
+
 # Finders #####################################################################
 
 class PathFinder:
@@ -1332,7 +1395,9 @@ class PathFinder:
         """Call the invalidate_caches() method on all path entry finders
         stored in sys.path_importer_caches (where implemented)."""
         for name, finder in list(sys.path_importer_cache.items()):
-            if finder is None:
+            # Drop entry if finder name is a relative path. The current
+            # working directory may have changed.
+            if finder is None or not _path_isabs(name):
                 del sys.path_importer_cache[name]
             elif hasattr(finder, 'invalidate_caches'):
                 finder.invalidate_caches()
@@ -1403,7 +1468,7 @@ class PathFinder:
         #  the list of paths that will become its __path__
         namespace_path = []
         for entry in path:
-            if not isinstance(entry, (str, bytes)):
+            if not isinstance(entry, str):
                 continue
             finder = cls._path_importer_cache(entry)
             if finder is not None:
@@ -1500,9 +1565,12 @@ class FileFinder:
             loaders.extend((suffix, loader) for suffix in suffixes)
         self._loaders = loaders
         # Base (directory) path
-        self.path = path or '.'
-        if not _path_isabs(self.path):
-            self.path = _path_join(_os.getcwd(), self.path)
+        if not path or path == '.':
+            self.path = _os.getcwd()
+        elif not _path_isabs(path):
+            self.path = _path_join(_os.getcwd(), path)
+        else:
+            self.path = path
         self._path_mtime = -1
         self._path_cache = set()
         self._relaxed_path_cache = set()
