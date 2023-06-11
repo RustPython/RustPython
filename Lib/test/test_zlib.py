@@ -51,7 +51,6 @@ skip_on_s390x = unittest.skipIf(hasattr(os, 'uname') and os.uname().machine == '
 
 class VersionTestCase(unittest.TestCase):
 
-
     def test_library_version(self):
         # Test that the major version of the actual library in use matches the
         # major version that we were compiled against. We can't guarantee that

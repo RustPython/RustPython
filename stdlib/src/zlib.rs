@@ -67,16 +67,6 @@ mod zlib {
         }
     }
 
-    #[cfg(feature = "zlib")]
-    #[pyattr(name = "ZLIB_VERSION", once)]
-    fn zlib_version(_vm: &VirtualMachine) -> String {
-        unsafe {
-            CStr::from_ptr(libz_sys::zlibVersion())
-                .to_string_lossy()
-                .into_owned()
-        }
-    }
-
     #[pyattr(once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
