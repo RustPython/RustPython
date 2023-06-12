@@ -656,8 +656,6 @@ class RunPathTestCase(unittest.TestCase, CodeExecutionMixin):
             self._check_script(script_name, "<run_path>", script_name,
                                script_name, expect_spec=False)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_script_with_path_object(self):
         with temp_dir() as script_dir:
             mod_name = 'script'
