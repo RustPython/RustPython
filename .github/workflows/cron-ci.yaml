@@ -31,7 +31,7 @@ jobs:
         run: cargo llvm-cov --no-report run -- -m test -u all --slowest --fail-env-changed 
         continue-on-error: true
       - name: Prepare code coverage data
-        run: cargo llvm-cov report --lcov --output-path='codecov.cov'
+        run: cargo llvm-cov report --lcov --output-path='codecov.lcov'
       - name: Upload to Codecov
         uses: codecov/codecov-action@v3
         with:
