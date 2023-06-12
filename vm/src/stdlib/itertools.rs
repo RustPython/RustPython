@@ -1092,7 +1092,54 @@ mod decl {
     }
 
     #[pyclass(with(IterNext, Iterable, Constructor))]
-    impl PyItertoolsAccumulate {}
+    impl PyItertoolsAccumulate {
+        #[pymethod(magic)]
+        fn setstate(zelf: PyRef<Self>, state: PyObjectRef, _vm: &VirtualMachine) -> PyResult<()> {
+            *zelf.acc_value.write() = Some(state);
+            Ok(())
+        }
+
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
+            let class = zelf.class().to_owned();
+            let binop = zelf.binop.clone();
+            let it = zelf.iterable.clone();
+            let acc_value = zelf.acc_value.read().clone();
+            if let Some(initial) = &zelf.initial {
+                let chain_args = PyList::from(vec![initial.clone(), it.to_pyobject(vm)]);
+                let chain = PyItertoolsChain {
+                    source: PyRwLock::new(Some(chain_args.to_pyobject(vm).get_iter(vm).unwrap())),
+                    active: PyRwLock::new(None),
+                };
+                let tup = vm.new_tuple((chain, binop));
+                return vm.new_tuple((class, tup, acc_value));
+            }
+            match acc_value {
+                Some(obj) if obj.is(&vm.ctx.none) => {
+                    let chain_args = PyList::from(vec![]);
+                    let chain = PyItertoolsChain {
+                        source: PyRwLock::new(Some(
+                            chain_args.to_pyobject(vm).get_iter(vm).unwrap(),
+                        )),
+                        active: PyRwLock::new(None),
+                    }
+                    .into_pyobject(vm);
+                    let acc = Self {
+                        iterable: PyIter::new(chain),
+                        binop,
+                        initial: None,
+                        acc_value: PyRwLock::new(None),
+                    };
+                    let tup = vm.new_tuple((acc, 1, None::<PyObjectRef>));
+                    let islice_cls = PyItertoolsIslice::class(&vm.ctx).to_owned();
+                    return vm.new_tuple((islice_cls, tup));
+                }
+                _ => {}
+            }
+            let tup = vm.new_tuple((it, binop));
+            vm.new_tuple((class, tup, acc_value))
+        }
+    }
 
     impl SelfIter for PyItertoolsAccumulate {}
     impl IterNext for PyItertoolsAccumulate {
