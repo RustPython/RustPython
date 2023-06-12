@@ -21,8 +21,8 @@ mod builtins {
         convert::ToPyException,
         function::{
             ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
-            ArgStrOrBytesLike, Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
-            FsPath,
+            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+            PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
