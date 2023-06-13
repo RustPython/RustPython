@@ -128,7 +128,6 @@ mod _io {
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
-    use malachite_bigint::{BigInt, BigUint};
     use num_traits::ToPrimitive;
     use std::{
         io::{self, prelude::*, Cursor, SeekFrom},
@@ -2117,7 +2116,7 @@ mod _io {
         const NEED_EOF_OFF: usize = Self::CHARS_TO_SKIP_OFF + 4;
         const BYTES_TO_SKIP_OFF: usize = Self::NEED_EOF_OFF + 1;
         const BYTE_LEN: usize = Self::BYTES_TO_SKIP_OFF + 4;
-        fn parse(cookie: &BigInt) -> Option<Self> {
+        fn parse(cookie: &num_bigint::BigInt) -> Option<Self> {
             let (_, mut buf) = cookie.to_bytes_le();
             if buf.len() > Self::BYTE_LEN {
                 return None;
@@ -2142,7 +2141,7 @@ mod _io {
                 bytes_to_skip: get_field!(i32, BYTES_TO_SKIP_OFF),
             })
         }
-        fn build(&self) -> BigInt {
+        fn build(&self) -> num_bigint::BigInt {
             let mut buf = [0; Self::BYTE_LEN];
             macro_rules! set_field {
                 ($field:expr, $off:ident) => {{
@@ -2157,7 +2156,7 @@ mod _io {
             set_field!(self.chars_to_skip, CHARS_TO_SKIP_OFF);
             set_field!(self.need_eof as u8, NEED_EOF_OFF);
             set_field!(self.bytes_to_skip, BYTES_TO_SKIP_OFF);
-            BigUint::from_bytes_le(&buf).into()
+            num_bigint::BigUint::from_bytes_le(&buf).into()
         }
         fn set_decoder_state(&self, decoder: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
             if self.start_pos == 0 && self.dec_flags == 0 {

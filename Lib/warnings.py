@@ -33,8 +33,9 @@ def _showwarnmsg_impl(msg):
         pass
 
 def _formatwarnmsg_impl(msg):
-    category = msg.category.__name__
-    s =  f"{msg.filename}:{msg.lineno}: {category}: {msg.message}\n"
+    s =  ("%s:%s: %s: %s\n"
+          % (msg.filename, msg.lineno, msg.category.__name__,
+             msg.message))
 
     if msg.line is None:
         try:
@@ -54,20 +55,11 @@ def _formatwarnmsg_impl(msg):
     if msg.source is not None:
         try:
             import tracemalloc
-        # Logging a warning should not raise a new exception:
-        # catch Exception, not only ImportError and RecursionError.
+            tb = tracemalloc.get_object_traceback(msg.source)
         except Exception:
-            # don't suggest to enable tracemalloc if it's not available
-            tracing = True
+            # When a warning is logged during Python shutdown, tracemalloc
+            # and the import machinery don't work anymore
             tb = None
-        else:
-            tracing = tracemalloc.is_tracing()
-            try:
-                tb = tracemalloc.get_object_traceback(msg.source)
-            except Exception:
-                # When a warning is logged during Python shutdown, tracemalloc
-                # and the import machinery don't work anymore
-                tb = None
 
         if tb is not None:
             s += 'Object allocated at (most recent call last):\n'
@@ -85,9 +77,6 @@ def _formatwarnmsg_impl(msg):
                 if line:
                     line = line.strip()
                     s += '    %s\n' % line
-        elif not tracing:
-            s += (f'{category}: Enable tracemalloc to get the object '
-                  f'allocation traceback\n')
     return s
 
 # Keep a reference to check if the function was replaced
@@ -124,7 +113,7 @@ def _formatwarnmsg(msg):
         if fw is not _formatwarning_orig:
             # warnings.formatwarning() was replaced
             return fw(msg.message, msg.category,
-                      msg.filename, msg.lineno, msg.line)
+                      msg.filename, msg.lineno, line=msg.line)
     return _formatwarnmsg_impl(msg)
 
 def filterwarnings(action, message="", category=Warning, module="", lineno=0,
@@ -211,6 +200,7 @@ def _processoptions(args):
 
 # Helper for _processoptions()
 def _setoption(arg):
+    import re
     parts = arg.split(':')
     if len(parts) > 5:
         raise _OptionError("too many fields (max 5): %r" % (arg,))
@@ -219,13 +209,11 @@ def _setoption(arg):
     action, message, category, module, lineno = [s.strip()
                                                  for s in parts]
     action = _getaction(action)
+    message = re.escape(message)
     category = _getcategory(category)
-    if message or module:
-        import re
-    if message:
-        message = re.escape(message)
+    module = re.escape(module)
     if module:
-        module = re.escape(module) + r'\Z'
+        module = module + '$'
     if lineno:
         try:
             lineno = int(lineno)
@@ -249,21 +237,26 @@ def _getaction(action):
 
 # Helper for _setoption()
 def _getcategory(category):
+    import re
     if not category:
         return Warning
-    if '.' not in category:
-        import builtins as m
-        klass = category
+    if re.match("^[a-zA-Z0-9_]+$", category):
+        try:
+            cat = eval(category)
+        except NameError:
+            raise _OptionError("unknown warning category: %r" % (category,)) from None
     else:
-        module, _, klass = category.rpartition('.')
+        i = category.rfind(".")
+        module = category[:i]
+        klass = category[i+1:]
         try:
             m = __import__(module, None, None, [klass])
         except ImportError:
             raise _OptionError("invalid module name: %r" % (module,)) from None
-    try:
-        cat = getattr(m, klass)
-    except AttributeError:
-        raise _OptionError("unknown warning category: %r" % (category,)) from None
+        try:
+            cat = getattr(m, klass)
+        except AttributeError:
+            raise _OptionError("unknown warning category: %r" % (category,)) from None
     if not issubclass(cat, Warning):
         raise _OptionError("invalid warning category: %r" % (category,))
     return cat
@@ -310,16 +303,28 @@ def warn(message, category=None, stacklevel=1, source=None):
                     raise ValueError
     except ValueError:
         globals = sys.__dict__
-        filename = "sys"
         lineno = 1
     else:
         globals = frame.f_globals
-        filename = frame.f_code.co_filename
         lineno = frame.f_lineno
     if '__name__' in globals:
         module = globals['__name__']
     else:
         module = "<string>"
+    filename = globals.get('__file__')
+    if filename:
+        fnl = filename.lower()
+        if fnl.endswith(".pyc"):
+            filename = filename[:-1]
+    else:
+        if module == "__main__":
+            try:
+                filename = sys.argv[0]
+            except AttributeError:
+                # embedded interpreters don't have sys.argv, see bug #839151
+                filename = '__main__'
+        if not filename:
+            filename = module
     registry = globals.setdefault("__warningregistry__", {})
     warn_explicit(message, category, filename, lineno, module, registry,
                   globals, source)
@@ -432,13 +437,9 @@ class catch_warnings(object):
     named 'warnings' and imported under that name. This argument is only useful
     when testing the warnings module itself.
 
-    If the 'action' argument is not None, the remaining arguments are passed
-    to warnings.simplefilter() as if it were called immediately on entering the
-    context.
     """
 
-    def __init__(self, *, record=False, module=None,
-                 action=None, category=Warning, lineno=0, append=False):
+    def __init__(self, *, record=False, module=None):
         """Specify whether to record warnings and if an alternative module
         should be used other than sys.modules['warnings'].
 
@@ -449,10 +450,6 @@ class catch_warnings(object):
         self._record = record
         self._module = sys.modules['warnings'] if module is None else module
         self._entered = False
-        if action is None:
-            self._filter = None
-        else:
-            self._filter = (action, category, lineno, append)
 
     def __repr__(self):
         args = []
@@ -472,8 +469,6 @@ class catch_warnings(object):
         self._module._filters_mutated()
         self._showwarning = self._module.showwarning
         self._showwarnmsg_impl = self._module._showwarnmsg_impl
-        if self._filter is not None:
-            simplefilter(*self._filter)
         if self._record:
             log = []
             self._module._showwarnmsg_impl = log.append
@@ -491,27 +486,6 @@ class catch_warnings(object):
         self._module._filters_mutated()
         self._module.showwarning = self._showwarning
         self._module._showwarnmsg_impl = self._showwarnmsg_impl
-
-
-_DEPRECATED_MSG = "{name!r} is deprecated and slated for removal in Python {remove}"
-
-def _deprecated(name, message=_DEPRECATED_MSG, *, remove, _version=sys.version_info):
-    """Warn that *name* is deprecated or should be removed.
-
-    RuntimeError is raised if *remove* specifies a major/minor tuple older than
-    the current Python version or the same version but past the alpha.
-
-    The *message* argument is formatted with *name* and *remove* as a Python
-    version (e.g. "3.11").
-
-    """
-    remove_formatted = f"{remove[0]}.{remove[1]}"
-    if (_version[:2] > remove) or (_version[:2] == remove and _version[3] != "alpha"):
-        msg = f"{name!r} was slated for removal after Python {remove_formatted} alpha"
-        raise RuntimeError(msg)
-    else:
-        msg = message.format(name=name, remove=remove_formatted)
-        warn(msg, DeprecationWarning, stacklevel=3)
 
 
 # Private utility function called by _PyErr_WarnUnawaitedCoroutine

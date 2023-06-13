@@ -1,14 +1,10 @@
 """Conversion functions between RGB and other color systems.
-
 This modules provides two functions for each color system ABC:
-
   rgb_to_abc(r, g, b) --> a, b, c
   abc_to_rgb(a, b, c) --> r, g, b
-
 All inputs and outputs are triples of floats in the range [0.0...1.0]
 (with the exception of I and Q, which covers a slightly larger range).
 Inputs outside the valid range may cause exceptions or invalid outputs.
-
 Supported color systems:
 RGB: Red, Green, Blue components
 YIQ: Luminance, Chrominance (used by composite video signals)
@@ -75,18 +71,17 @@ def yiq_to_rgb(y, i, q):
 def rgb_to_hls(r, g, b):
     maxc = max(r, g, b)
     minc = min(r, g, b)
-    sumc = (maxc+minc)
-    rangec = (maxc-minc)
-    l = sumc/2.0
+    # XXX Can optimize (maxc+minc) and (maxc-minc)
+    l = (minc+maxc)/2.0
     if minc == maxc:
         return 0.0, l, 0.0
     if l <= 0.5:
-        s = rangec / sumc
+        s = (maxc-minc) / (maxc+minc)
     else:
-        s = rangec / (2.0-sumc)
-    rc = (maxc-r) / rangec
-    gc = (maxc-g) / rangec
-    bc = (maxc-b) / rangec
+        s = (maxc-minc) / (2.0-maxc-minc)
+    rc = (maxc-r) / (maxc-minc)
+    gc = (maxc-g) / (maxc-minc)
+    bc = (maxc-b) / (maxc-minc)
     if r == maxc:
         h = bc-gc
     elif g == maxc:
@@ -125,14 +120,13 @@ def _v(m1, m2, hue):
 def rgb_to_hsv(r, g, b):
     maxc = max(r, g, b)
     minc = min(r, g, b)
-    rangec = (maxc-minc)
     v = maxc
     if minc == maxc:
         return 0.0, 0.0, v
-    s = rangec / maxc
-    rc = (maxc-r) / rangec
-    gc = (maxc-g) / rangec
-    bc = (maxc-b) / rangec
+    s = (maxc-minc) / maxc
+    rc = (maxc-r) / (maxc-minc)
+    gc = (maxc-g) / (maxc-minc)
+    bc = (maxc-b) / (maxc-minc)
     if r == maxc:
         h = bc-gc
     elif g == maxc:

@@ -11,7 +11,7 @@ use crate::{
     compiler::core::bytecode::OpArgType,
     compiler::CompileError,
     convert::ToPyException,
-    source_code::{LinearLocator, OneIndexed, SourceLocation, SourceRange},
+    source_code::{OneIndexed, SourceLocation, SourceLocator, SourceRange},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -97,6 +97,10 @@ fn get_node_field_opt(
 trait Node: Sized {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef;
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self>;
+}
+
+trait NamedNode: Node {
+    const NAME: &'static str;
 }
 
 impl<T: Node> Node for Vec<T> {
@@ -313,23 +317,13 @@ impl Node for ast::ConversionFlag {
     }
 }
 
-impl Node for ast::located::Arguments {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.into_python_arguments().ast_to_object(vm)
-    }
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        ast::located::PythonArguments::ast_from_object(vm, object)
-            .map(ast::located::PythonArguments::into_arguments)
-    }
-}
-
 #[cfg(feature = "rustpython-parser")]
 pub(crate) fn parse(
     vm: &VirtualMachine,
     source: &str,
     mode: parser::Mode,
 ) -> Result<PyObjectRef, CompileError> {
-    let mut locator = LinearLocator::new(source);
+    let mut locator = SourceLocator::new(source);
     let top = parser::parse(source, mode, "<unknown>").map_err(|e| locator.locate_error(e))?;
     let top = locator.fold_mod(top).unwrap();
     Ok(top.ast_to_object(vm))

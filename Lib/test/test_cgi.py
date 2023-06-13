@@ -1,3 +1,4 @@
+import cgi
 import os
 import sys
 import tempfile
@@ -5,10 +6,6 @@ import unittest
 from collections import namedtuple
 from io import StringIO, BytesIO
 from test import support
-from test.support import warnings_helper
-
-cgi = warnings_helper.import_deprecated("cgi")
-
 
 class HackedSysModule:
     # The regression test will have real values in sys.argv, which
@@ -53,7 +50,7 @@ def do_test(buf, method):
         return ComparableException(err)
 
 parse_strict_test_cases = [
-    ("", {}),
+    ("", ValueError("bad query field: ''")),
     ("&", ValueError("bad query field: ''")),
     ("&&", ValueError("bad query field: ''")),
     # Should the next few really be valid?
@@ -126,6 +123,8 @@ class CgiTests(unittest.TestCase):
                     'file': [b'Testing 123.\n'], 'title': ['']}
         self.assertEqual(result, expected)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_parse_multipart_without_content_length(self):
         POSTDATA = '''--JfISa01
 Content-Disposition: form-data; name="submit-name"
@@ -175,8 +174,6 @@ Content-Length: 3
         fs = cgi.FieldStorage(headers={'content-type':'text/plain'})
         self.assertRaises(TypeError, bool, fs)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_strict(self):
         for orig, expect in parse_strict_test_cases:
             # Test basic parsing
@@ -203,6 +200,8 @@ Content-Length: 3
                     else:
                         self.assertEqual(fs.getvalue(key), expect_val[0])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_separator(self):
         parse_semicolon = [
             ("x=1;y=2.0", {'x': ['1'], 'y': ['2.0']}),
@@ -227,7 +226,6 @@ Content-Length: 3
                     else:
                         self.assertEqual(fs.getvalue(key), expect_val[0])
 
-    @warnings_helper.ignore_warnings(category=DeprecationWarning)
     def test_log(self):
         cgi.log("Testing")
 
@@ -580,9 +578,8 @@ this is the content of the fake file
             ("form-data", {"name": "files", "filename": 'fo"o;bar'}))
 
     def test_all(self):
-        not_exported = {
-            "logfile", "logfp", "initlog", "dolog", "nolog", "closelog", "log",
-            "maxlen", "valid_boundary"}
+        not_exported = {"logfile", "logfp", "initlog", "dolog", "nolog",
+                     "closelog", "log", "maxlen", "valid_boundary"}
         support.check__all__(self, cgi, not_exported=not_exported)
 
 

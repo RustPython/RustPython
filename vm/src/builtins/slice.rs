@@ -9,7 +9,7 @@ use crate::{
     types::{Comparable, Constructor, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
-use malachite_bigint::{BigInt, ToBigInt};
+use num_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
 
 #[pyclass(module = false, name = "slice", unhashable = true, traverse)]

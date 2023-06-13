@@ -233,8 +233,10 @@ pub(crate) mod _thread {
             }
             let new_mut = RawRMutex::INIT;
 
-            let old_mutex: AtomicCell<&RawRMutex> = AtomicCell::new(&self.mu);
-            old_mutex.swap(&new_mut);
+            unsafe {
+                let old_mutex: AtomicCell<&RawRMutex> = AtomicCell::new(&self.mu);
+                old_mutex.swap(&new_mut);
+            }
 
             Ok(())
         }

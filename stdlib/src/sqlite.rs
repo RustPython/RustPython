@@ -45,7 +45,6 @@ mod _sqlite {
         SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT,
         SQLITE_TRACE_STMT, SQLITE_TRANSIENT, SQLITE_UTF8,
     };
-    use malachite_bigint::Sign;
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
         hash::PyHash,
@@ -481,9 +480,9 @@ mod _sqlite {
                 };
 
                 let val = match val?.as_bigint().sign() {
-                    Sign::Plus => 1,
-                    Sign::Minus => -1,
-                    Sign::NoSign => 0,
+                    num_bigint::Sign::Plus => 1,
+                    num_bigint::Sign::Minus => -1,
+                    num_bigint::Sign::NoSign => 0,
                 };
 
                 Ok(val)

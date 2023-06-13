@@ -5,7 +5,6 @@ use crate::{
     function::{ArgumentError, FromArgs, FsPath, FuncArgs},
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
-
 use std::{
     ffi, fs, io,
     path::{Path, PathBuf},

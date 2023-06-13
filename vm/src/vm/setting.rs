@@ -82,14 +82,6 @@ pub struct Settings {
     pub profile_format: Option<String>,
 }
 
-impl Settings {
-    pub fn with_path(path: String) -> Self {
-        let mut settings = Self::default();
-        settings.path_list.push(path);
-        settings
-    }
-}
-
 /// Sensible default settings.
 impl Default for Settings {
     fn default() -> Self {

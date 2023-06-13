@@ -17,10 +17,10 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
-use malachite_bigint::{BigInt, ToBigInt};
+use num_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
+use num_rational::Ratio;
 use num_traits::{Signed, ToPrimitive, Zero};
-use rustpython_common::int::float_to_ratio;
 use rustpython_format::FormatSpec;
 
 #[pyclass(module = false, name = "float")]
@@ -458,18 +458,20 @@ impl PyFloat {
     #[pymethod]
     fn as_integer_ratio(&self, vm: &VirtualMachine) -> PyResult<(PyIntRef, PyIntRef)> {
         let value = self.value;
+        if !value.is_finite() {
+            return Err(if value.is_infinite() {
+                vm.new_overflow_error("cannot convert Infinity to integer ratio".to_owned())
+            } else if value.is_nan() {
+                vm.new_value_error("cannot convert NaN to integer ratio".to_owned())
+            } else {
+                unreachable!("it must be finite")
+            });
+        }
 
-        float_to_ratio(value)
-            .map(|(numer, denom)| (vm.ctx.new_bigint(&numer), vm.ctx.new_bigint(&denom)))
-            .ok_or_else(|| {
-                if value.is_infinite() {
-                    vm.new_overflow_error("cannot convert Infinity to integer ratio".to_owned())
-                } else if value.is_nan() {
-                    vm.new_value_error("cannot convert NaN to integer ratio".to_owned())
-                } else {
-                    unreachable!("finite float must able to convert to integer ratio")
-                }
-            })
+        let ratio = Ratio::from_float(value).unwrap();
+        let numer = vm.ctx.new_bigint(ratio.numer());
+        let denom = vm.ctx.new_bigint(ratio.denom());
+        Ok((numer, denom))
     }
 
     #[pyclassmethod]

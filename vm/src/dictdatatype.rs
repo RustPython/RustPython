@@ -655,7 +655,7 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn pop_back(&self) -> Option<(PyObjectRef, T)> {
-        let inner = &mut *self.write();
+        let mut inner = &mut *self.write();
         let entry = loop {
             let entry = inner.entries.pop()?;
             if let Some(entry) = entry {

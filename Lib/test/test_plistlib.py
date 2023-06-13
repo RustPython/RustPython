@@ -801,6 +801,8 @@ class TestPlistlib(unittest.TestCase):
         value = plistlib.loads(pl)
         self.assertEqual(value, 123)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xml_encodings(self):
         base = TESTDATA[plistlib.FMT_XML]
 

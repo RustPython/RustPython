@@ -3,7 +3,7 @@
 
 use bitflags::bitflags;
 use itertools::Itertools;
-use malachite_bigint::BigInt;
+use num_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
 use std::marker::PhantomData;

@@ -599,17 +599,9 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    fn scan_parameters(
-        &mut self,
-        parameters: &[ast::located::ArgWithDefault],
-    ) -> SymbolTableResult {
+    fn scan_parameters(&mut self, parameters: &[ast::located::Arg]) -> SymbolTableResult {
         for parameter in parameters {
-            let usage = if parameter.def.annotation.is_some() {
-                SymbolUsage::AnnotationParameter
-            } else {
-                SymbolUsage::Parameter
-            };
-            self.register_name(parameter.def.arg.as_str(), usage, parameter.def.location())?;
+            self.scan_parameter(parameter)?;
         }
         Ok(())
     }
@@ -621,6 +613,23 @@ impl SymbolTableBuilder {
             SymbolUsage::Parameter
         };
         self.register_name(parameter.arg.as_str(), usage, parameter.location())
+    }
+
+    fn scan_parameters_annotations(
+        &mut self,
+        parameters: &[ast::located::Arg],
+    ) -> SymbolTableResult {
+        for parameter in parameters {
+            self.scan_parameter_annotation(parameter)?;
+        }
+        Ok(())
+    }
+
+    fn scan_parameter_annotation(&mut self, parameter: &ast::located::Arg) -> SymbolTableResult {
+        if let Some(annotation) = &parameter.annotation {
+            self.scan_annotation(annotation)?;
+        }
+        Ok(())
     }
 
     fn scan_annotation(&mut self, annotation: &ast::located::Expr) -> SymbolTableResult {
@@ -1192,31 +1201,20 @@ impl SymbolTableBuilder {
         line_number: LineNumber,
     ) -> SymbolTableResult {
         // Evaluate eventual default parameters:
-        for default in args
-            .posonlyargs
-            .iter()
-            .chain(args.args.iter())
-            .chain(args.kwonlyargs.iter())
-            .filter_map(|arg| arg.default.as_ref())
-        {
-            self.scan_expression(default, ExpressionContext::Load)?; // not ExprContext?
+        self.scan_expressions(&args.defaults, ExpressionContext::Load)?;
+        for expression in args.kw_defaults.iter() {
+            self.scan_expression(expression, ExpressionContext::Load)?;
         }
 
         // Annotations are scanned in outer scope:
-        for annotation in args
-            .posonlyargs
-            .iter()
-            .chain(args.args.iter())
-            .chain(args.kwonlyargs.iter())
-            .filter_map(|arg| arg.def.annotation.as_ref())
-        {
-            self.scan_annotation(annotation)?;
+        self.scan_parameters_annotations(&args.posonlyargs)?;
+        self.scan_parameters_annotations(&args.args)?;
+        self.scan_parameters_annotations(&args.kwonlyargs)?;
+        if let Some(name) = &args.vararg {
+            self.scan_parameter_annotation(name)?;
         }
-        if let Some(annotation) = args.vararg.as_ref().and_then(|arg| arg.annotation.as_ref()) {
-            self.scan_annotation(annotation)?;
-        }
-        if let Some(annotation) = args.kwarg.as_ref().and_then(|arg| arg.annotation.as_ref()) {
-            self.scan_annotation(annotation)?;
+        if let Some(name) = &args.kwarg {
+            self.scan_parameter_annotation(name)?;
         }
 
         self.enter_scope(name, SymbolTableType::Function, line_number.get());

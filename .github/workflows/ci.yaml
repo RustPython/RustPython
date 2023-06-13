@@ -16,23 +16,6 @@ concurrency:
 
 env:
   CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
-  # Skip additional tests on Windows. They are checked on Linux and MacOS.
-  WINDOWS_SKIPS: >-
-    test_glob
-    test_importlib
-    test_io
-    test_os
-    test_pathlib
-    test_posixpath
-    test_shutil
-    test_venv
-  # configparser: https://github.com/RustPython/RustPython/issues/4995#issuecomment-1582397417
-  # socketserver: seems related to configparser crash.
-  MACOS_SKIPS: >-
-    test_configparser
-    test_socketserver
-  # PLATFORM_INDEPENDENT_TESTS are tests that do not depend on the underlying OS. They are currently
-  # only run on Linux to speed up the CI.
   PLATFORM_INDEPENDENT_TESTS: >-
     test_argparse
     test_array
@@ -269,16 +252,21 @@ jobs:
         name: run cpython platform-independent tests
         run:
           target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-      - if: runner.os == 'Linux'
-        name: run cpython platform-dependent tests (Linux)
+      - if: runner.os != 'Windows'
+        name: run cpython platform-dependent tests
         run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-      - if: runner.os == 'macOS'
-        name: run cpython platform-dependent tests (MacOS)
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.MACOS_SKIPS }}
       - if: runner.os == 'Windows'
         name: run cpython platform-dependent tests (windows partial - fixme)
         run:
-          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
+          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+            test_glob
+            test_importlib
+            test_io
+            test_os
+            test_pathlib
+            test_posixpath
+            test_shutil
+            test_venv
       - if: runner.os != 'Windows'
         name: check that --install-pip succeeds
         run: |

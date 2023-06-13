@@ -11,7 +11,7 @@ mod _random {
         types::Constructor,
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
-    use malachite_bigint::{BigInt, BigUint, Sign};
+    use num_bigint::{BigInt, Sign};
     use num_traits::{Signed, Zero};
     use rand::{rngs::StdRng, RngCore, SeedableRng};
 
@@ -140,7 +140,7 @@ mod _random {
                         })
                         .collect::<Vec<_>>();
 
-                    let uint = BigUint::new(wordarray);
+                    let uint = num_bigint::BigUint::new(wordarray);
                     // very unlikely but might as well check
                     let sign = if uint.is_zero() {
                         Sign::NoSign

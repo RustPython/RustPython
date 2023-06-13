@@ -149,8 +149,7 @@ mod resource {
 
     #[pyfunction]
     fn getrlimit(resource: i32, vm: &VirtualMachine) -> PyResult<Limits> {
-        #[allow(clippy::unnecessary_cast)]
-        if resource < 0 || resource >= RLIM_NLIMITS as i32 {
+        if resource < 0 || resource >= RLIM_NLIMITS as _ {
             return Err(vm.new_value_error("invalid resource specified".to_owned()));
         }
         let rlimit = unsafe {
@@ -165,8 +164,7 @@ mod resource {
 
     #[pyfunction]
     fn setrlimit(resource: i32, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
-        #[allow(clippy::unnecessary_cast)]
-        if resource < 0 || resource >= RLIM_NLIMITS as i32 {
+        if resource < 0 || resource >= RLIM_NLIMITS as _ {
             return Err(vm.new_value_error("invalid resource specified".to_owned()));
         }
         let res = unsafe {

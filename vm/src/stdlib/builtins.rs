@@ -21,8 +21,7 @@ mod builtins {
         convert::ToPyException,
         function::{
             ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
-            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            ArgStrOrBytesLike, Either, FuncArgs, KwArgs, OptionalArg, OptionalOption, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -98,7 +97,7 @@ mod builtins {
     #[allow(dead_code)]
     struct CompileArgs {
         source: PyObjectRef,
-        filename: FsPath,
+        filename: PyStrRef,
         mode: PyStrRef,
         #[pyarg(any, optional)]
         flags: OptionalArg<PyIntRef>,

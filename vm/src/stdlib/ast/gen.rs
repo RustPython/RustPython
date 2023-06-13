@@ -2215,6 +2215,9 @@ impl NodeTypeIgnoreTypeIgnore {
     }
 }
 
+impl NamedNode for ast::located::Mod {
+    const NAME: &'static str = "mod";
+}
 // sum
 impl Node for ast::located::Mod {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -2250,6 +2253,9 @@ impl Node for ast::located::Mod {
     }
 }
 // constructor
+impl NamedNode for ast::located::ModModule {
+    const NAME: &'static str = "Module";
+}
 impl Node for ast::located::ModModule {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ModModule {
@@ -2278,6 +2284,9 @@ impl Node for ast::located::ModModule {
     }
 }
 // constructor
+impl NamedNode for ast::located::ModInteractive {
+    const NAME: &'static str = "Interactive";
+}
 impl Node for ast::located::ModInteractive {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ModInteractive {
@@ -2302,6 +2311,9 @@ impl Node for ast::located::ModInteractive {
     }
 }
 // constructor
+impl NamedNode for ast::located::ModExpression {
+    const NAME: &'static str = "Expression";
+}
 impl Node for ast::located::ModExpression {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ModExpression {
@@ -2323,6 +2335,9 @@ impl Node for ast::located::ModExpression {
     }
 }
 // constructor
+impl NamedNode for ast::located::ModFunctionType {
+    const NAME: &'static str = "FunctionType";
+}
 impl Node for ast::located::ModFunctionType {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ModFunctionType {
@@ -2353,6 +2368,9 @@ impl Node for ast::located::ModFunctionType {
             range: Default::default(),
         })
     }
+}
+impl NamedNode for ast::located::Stmt {
+    const NAME: &'static str = "stmt";
 }
 // sum
 impl Node for ast::located::Stmt {
@@ -2464,6 +2482,9 @@ impl Node for ast::located::Stmt {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtFunctionDef {
+    const NAME: &'static str = "FunctionDef";
+}
 impl Node for ast::located::StmtFunctionDef {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtFunctionDef {
@@ -2520,6 +2541,9 @@ impl Node for ast::located::StmtFunctionDef {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtAsyncFunctionDef {
+    const NAME: &'static str = "AsyncFunctionDef";
+}
 impl Node for ast::located::StmtAsyncFunctionDef {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtAsyncFunctionDef {
@@ -2576,6 +2600,9 @@ impl Node for ast::located::StmtAsyncFunctionDef {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtClassDef {
+    const NAME: &'static str = "ClassDef";
+}
 impl Node for ast::located::StmtClassDef {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtClassDef {
@@ -2619,6 +2646,9 @@ impl Node for ast::located::StmtClassDef {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtReturn {
+    const NAME: &'static str = "Return";
+}
 impl Node for ast::located::StmtReturn {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtReturn {
@@ -2644,6 +2674,9 @@ impl Node for ast::located::StmtReturn {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtDelete {
+    const NAME: &'static str = "Delete";
+}
 impl Node for ast::located::StmtDelete {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtDelete {
@@ -2670,6 +2703,9 @@ impl Node for ast::located::StmtDelete {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtAssign {
+    const NAME: &'static str = "Assign";
+}
 impl Node for ast::located::StmtAssign {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtAssign {
@@ -2706,6 +2742,9 @@ impl Node for ast::located::StmtAssign {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtAugAssign {
+    const NAME: &'static str = "AugAssign";
+}
 impl Node for ast::located::StmtAugAssign {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtAugAssign {
@@ -2742,6 +2781,9 @@ impl Node for ast::located::StmtAugAssign {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtAnnAssign {
+    const NAME: &'static str = "AnnAssign";
+}
 impl Node for ast::located::StmtAnnAssign {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtAnnAssign {
@@ -2788,6 +2830,9 @@ impl Node for ast::located::StmtAnnAssign {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtFor {
+    const NAME: &'static str = "For";
+}
 impl Node for ast::located::StmtFor {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtFor {
@@ -2827,6 +2872,9 @@ impl Node for ast::located::StmtFor {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtAsyncFor {
+    const NAME: &'static str = "AsyncFor";
+}
 impl Node for ast::located::StmtAsyncFor {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtAsyncFor {
@@ -2872,6 +2920,9 @@ impl Node for ast::located::StmtAsyncFor {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtWhile {
+    const NAME: &'static str = "While";
+}
 impl Node for ast::located::StmtWhile {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtWhile {
@@ -2901,6 +2952,9 @@ impl Node for ast::located::StmtWhile {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtIf {
+    const NAME: &'static str = "If";
+}
 impl Node for ast::located::StmtIf {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtIf {
@@ -2930,6 +2984,9 @@ impl Node for ast::located::StmtIf {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtWith {
+    const NAME: &'static str = "With";
+}
 impl Node for ast::located::StmtWith {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtWith {
@@ -2962,6 +3019,9 @@ impl Node for ast::located::StmtWith {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtAsyncWith {
+    const NAME: &'static str = "AsyncWith";
+}
 impl Node for ast::located::StmtAsyncWith {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtAsyncWith {
@@ -2997,6 +3057,9 @@ impl Node for ast::located::StmtAsyncWith {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtMatch {
+    const NAME: &'static str = "Match";
+}
 impl Node for ast::located::StmtMatch {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtMatch {
@@ -3027,6 +3090,9 @@ impl Node for ast::located::StmtMatch {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtRaise {
+    const NAME: &'static str = "Raise";
+}
 impl Node for ast::located::StmtRaise {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtRaise {
@@ -3057,6 +3123,9 @@ impl Node for ast::located::StmtRaise {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtTry {
+    const NAME: &'static str = "Try";
+}
 impl Node for ast::located::StmtTry {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtTry {
@@ -3097,6 +3166,9 @@ impl Node for ast::located::StmtTry {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtTryStar {
+    const NAME: &'static str = "TryStar";
+}
 impl Node for ast::located::StmtTryStar {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtTryStar {
@@ -3140,6 +3212,9 @@ impl Node for ast::located::StmtTryStar {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtAssert {
+    const NAME: &'static str = "Assert";
+}
 impl Node for ast::located::StmtAssert {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtAssert {
@@ -3167,6 +3242,9 @@ impl Node for ast::located::StmtAssert {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtImport {
+    const NAME: &'static str = "Import";
+}
 impl Node for ast::located::StmtImport {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtImport {
@@ -3190,6 +3268,9 @@ impl Node for ast::located::StmtImport {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtImportFrom {
+    const NAME: &'static str = "ImportFrom";
+}
 impl Node for ast::located::StmtImportFrom {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtImportFrom {
@@ -3228,6 +3309,9 @@ impl Node for ast::located::StmtImportFrom {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtGlobal {
+    const NAME: &'static str = "Global";
+}
 impl Node for ast::located::StmtGlobal {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtGlobal {
@@ -3251,6 +3335,9 @@ impl Node for ast::located::StmtGlobal {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtNonlocal {
+    const NAME: &'static str = "Nonlocal";
+}
 impl Node for ast::located::StmtNonlocal {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtNonlocal {
@@ -3274,6 +3361,9 @@ impl Node for ast::located::StmtNonlocal {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtExpr {
+    const NAME: &'static str = "Expr";
+}
 impl Node for ast::located::StmtExpr {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtExpr {
@@ -3297,6 +3387,9 @@ impl Node for ast::located::StmtExpr {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtPass {
+    const NAME: &'static str = "Pass";
+}
 impl Node for ast::located::StmtPass {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtPass { range: _range } = self;
@@ -3314,6 +3407,9 @@ impl Node for ast::located::StmtPass {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtBreak {
+    const NAME: &'static str = "Break";
+}
 impl Node for ast::located::StmtBreak {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtBreak { range: _range } = self;
@@ -3331,6 +3427,9 @@ impl Node for ast::located::StmtBreak {
     }
 }
 // constructor
+impl NamedNode for ast::located::StmtContinue {
+    const NAME: &'static str = "Continue";
+}
 impl Node for ast::located::StmtContinue {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::StmtContinue { range: _range } = self;
@@ -3346,6 +3445,9 @@ impl Node for ast::located::StmtContinue {
             range: range_from_object(_vm, _object, "Continue")?,
         })
     }
+}
+impl NamedNode for ast::located::Expr {
+    const NAME: &'static str = "expr";
 }
 // sum
 impl Node for ast::located::Expr {
@@ -3459,6 +3561,9 @@ impl Node for ast::located::Expr {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprBoolOp {
+    const NAME: &'static str = "BoolOp";
+}
 impl Node for ast::located::ExprBoolOp {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprBoolOp {
@@ -3485,6 +3590,9 @@ impl Node for ast::located::ExprBoolOp {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprNamedExpr {
+    const NAME: &'static str = "NamedExpr";
+}
 impl Node for ast::located::ExprNamedExpr {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprNamedExpr {
@@ -3518,6 +3626,9 @@ impl Node for ast::located::ExprNamedExpr {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprBinOp {
+    const NAME: &'static str = "BinOp";
+}
 impl Node for ast::located::ExprBinOp {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprBinOp {
@@ -3547,6 +3658,9 @@ impl Node for ast::located::ExprBinOp {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprUnaryOp {
+    const NAME: &'static str = "UnaryOp";
+}
 impl Node for ast::located::ExprUnaryOp {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprUnaryOp {
@@ -3576,6 +3690,9 @@ impl Node for ast::located::ExprUnaryOp {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprLambda {
+    const NAME: &'static str = "Lambda";
+}
 impl Node for ast::located::ExprLambda {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprLambda {
@@ -3601,6 +3718,9 @@ impl Node for ast::located::ExprLambda {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprIfExp {
+    const NAME: &'static str = "IfExp";
+}
 impl Node for ast::located::ExprIfExp {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprIfExp {
@@ -3630,6 +3750,9 @@ impl Node for ast::located::ExprIfExp {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprDict {
+    const NAME: &'static str = "Dict";
+}
 impl Node for ast::located::ExprDict {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprDict {
@@ -3656,6 +3779,9 @@ impl Node for ast::located::ExprDict {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprSet {
+    const NAME: &'static str = "Set";
+}
 impl Node for ast::located::ExprSet {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprSet {
@@ -3678,6 +3804,9 @@ impl Node for ast::located::ExprSet {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprListComp {
+    const NAME: &'static str = "ListComp";
+}
 impl Node for ast::located::ExprListComp {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprListComp {
@@ -3707,6 +3836,9 @@ impl Node for ast::located::ExprListComp {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprSetComp {
+    const NAME: &'static str = "SetComp";
+}
 impl Node for ast::located::ExprSetComp {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprSetComp {
@@ -3736,6 +3868,9 @@ impl Node for ast::located::ExprSetComp {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprDictComp {
+    const NAME: &'static str = "DictComp";
+}
 impl Node for ast::located::ExprDictComp {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprDictComp {
@@ -3769,6 +3904,9 @@ impl Node for ast::located::ExprDictComp {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprGeneratorExp {
+    const NAME: &'static str = "GeneratorExp";
+}
 impl Node for ast::located::ExprGeneratorExp {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprGeneratorExp {
@@ -3798,6 +3936,9 @@ impl Node for ast::located::ExprGeneratorExp {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprAwait {
+    const NAME: &'static str = "Await";
+}
 impl Node for ast::located::ExprAwait {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprAwait {
@@ -3821,6 +3962,9 @@ impl Node for ast::located::ExprAwait {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprYield {
+    const NAME: &'static str = "Yield";
+}
 impl Node for ast::located::ExprYield {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprYield {
@@ -3846,6 +3990,9 @@ impl Node for ast::located::ExprYield {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprYieldFrom {
+    const NAME: &'static str = "YieldFrom";
+}
 impl Node for ast::located::ExprYieldFrom {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprYieldFrom {
@@ -3872,6 +4019,9 @@ impl Node for ast::located::ExprYieldFrom {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprCompare {
+    const NAME: &'static str = "Compare";
+}
 impl Node for ast::located::ExprCompare {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprCompare {
@@ -3904,6 +4054,9 @@ impl Node for ast::located::ExprCompare {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprCall {
+    const NAME: &'static str = "Call";
+}
 impl Node for ast::located::ExprCall {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprCall {
@@ -3936,6 +4089,9 @@ impl Node for ast::located::ExprCall {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprFormattedValue {
+    const NAME: &'static str = "FormattedValue";
+}
 impl Node for ast::located::ExprFormattedValue {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprFormattedValue {
@@ -3975,6 +4131,9 @@ impl Node for ast::located::ExprFormattedValue {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprJoinedStr {
+    const NAME: &'static str = "JoinedStr";
+}
 impl Node for ast::located::ExprJoinedStr {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprJoinedStr {
@@ -4001,6 +4160,9 @@ impl Node for ast::located::ExprJoinedStr {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprConstant {
+    const NAME: &'static str = "Constant";
+}
 impl Node for ast::located::ExprConstant {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprConstant {
@@ -4029,6 +4191,9 @@ impl Node for ast::located::ExprConstant {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprAttribute {
+    const NAME: &'static str = "Attribute";
+}
 impl Node for ast::located::ExprAttribute {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprAttribute {
@@ -4061,6 +4226,9 @@ impl Node for ast::located::ExprAttribute {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprSubscript {
+    const NAME: &'static str = "Subscript";
+}
 impl Node for ast::located::ExprSubscript {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprSubscript {
@@ -4097,6 +4265,9 @@ impl Node for ast::located::ExprSubscript {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprStarred {
+    const NAME: &'static str = "Starred";
+}
 impl Node for ast::located::ExprStarred {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprStarred {
@@ -4123,6 +4294,9 @@ impl Node for ast::located::ExprStarred {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprName {
+    const NAME: &'static str = "Name";
+}
 impl Node for ast::located::ExprName {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprName {
@@ -4148,6 +4322,9 @@ impl Node for ast::located::ExprName {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprList {
+    const NAME: &'static str = "List";
+}
 impl Node for ast::located::ExprList {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprList {
@@ -4173,6 +4350,9 @@ impl Node for ast::located::ExprList {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprTuple {
+    const NAME: &'static str = "Tuple";
+}
 impl Node for ast::located::ExprTuple {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprTuple {
@@ -4198,6 +4378,9 @@ impl Node for ast::located::ExprTuple {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExprSlice {
+    const NAME: &'static str = "Slice";
+}
 impl Node for ast::located::ExprSlice {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExprSlice {
@@ -4233,6 +4416,9 @@ impl Node for ast::located::ExprSlice {
         })
     }
 }
+impl NamedNode for ast::located::ExprContext {
+    const NAME: &'static str = "expr_context";
+}
 // sum
 impl Node for ast::located::ExprContext {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -4262,6 +4448,9 @@ impl Node for ast::located::ExprContext {
         })
     }
 }
+impl NamedNode for ast::located::Boolop {
+    const NAME: &'static str = "boolop";
+}
 // sum
 impl Node for ast::located::Boolop {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -4287,6 +4476,9 @@ impl Node for ast::located::Boolop {
             )));
         })
     }
+}
+impl NamedNode for ast::located::Operator {
+    const NAME: &'static str = "operator";
 }
 // sum
 impl Node for ast::located::Operator {
@@ -4347,6 +4539,9 @@ impl Node for ast::located::Operator {
         })
     }
 }
+impl NamedNode for ast::located::Unaryop {
+    const NAME: &'static str = "unaryop";
+}
 // sum
 impl Node for ast::located::Unaryop {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -4378,6 +4573,9 @@ impl Node for ast::located::Unaryop {
             )));
         })
     }
+}
+impl NamedNode for ast::located::Cmpop {
+    const NAME: &'static str = "cmpop";
 }
 // sum
 impl Node for ast::located::Cmpop {
@@ -4430,6 +4628,9 @@ impl Node for ast::located::Cmpop {
     }
 }
 // product
+impl NamedNode for ast::located::Comprehension {
+    const NAME: &'static str = "comprehension";
+}
 impl Node for ast::located::Comprehension {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::Comprehension {
@@ -4473,6 +4674,9 @@ impl Node for ast::located::Comprehension {
         })
     }
 }
+impl NamedNode for ast::located::Excepthandler {
+    const NAME: &'static str = "excepthandler";
+}
 // sum
 impl Node for ast::located::Excepthandler {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -4495,6 +4699,9 @@ impl Node for ast::located::Excepthandler {
     }
 }
 // constructor
+impl NamedNode for ast::located::ExcepthandlerExceptHandler {
+    const NAME: &'static str = "ExceptHandler";
+}
 impl Node for ast::located::ExcepthandlerExceptHandler {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::ExcepthandlerExceptHandler {
@@ -4534,9 +4741,12 @@ impl Node for ast::located::ExcepthandlerExceptHandler {
     }
 }
 // product
-impl Node for ast::located::PythonArguments {
+impl NamedNode for ast::located::Arguments {
+    const NAME: &'static str = "arguments";
+}
+impl Node for ast::located::Arguments {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::located::PythonArguments {
+        let ast::located::Arguments {
             posonlyargs,
             args,
             vararg,
@@ -4566,7 +4776,7 @@ impl Node for ast::located::PythonArguments {
         node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::located::PythonArguments {
+        Ok(ast::located::Arguments {
             posonlyargs: Node::ast_from_object(
                 _vm,
                 get_node_field(_vm, &_object, "posonlyargs", "arguments")?,
@@ -4595,6 +4805,9 @@ impl Node for ast::located::PythonArguments {
     }
 }
 // product
+impl NamedNode for ast::located::Arg {
+    const NAME: &'static str = "arg";
+}
 impl Node for ast::located::Arg {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::Arg {
@@ -4629,6 +4842,9 @@ impl Node for ast::located::Arg {
     }
 }
 // product
+impl NamedNode for ast::located::Keyword {
+    const NAME: &'static str = "keyword";
+}
 impl Node for ast::located::Keyword {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::Keyword {
@@ -4657,6 +4873,9 @@ impl Node for ast::located::Keyword {
     }
 }
 // product
+impl NamedNode for ast::located::Alias {
+    const NAME: &'static str = "alias";
+}
 impl Node for ast::located::Alias {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::Alias {
@@ -4685,6 +4904,9 @@ impl Node for ast::located::Alias {
     }
 }
 // product
+impl NamedNode for ast::located::Withitem {
+    const NAME: &'static str = "withitem";
+}
 impl Node for ast::located::Withitem {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::Withitem {
@@ -4716,6 +4938,9 @@ impl Node for ast::located::Withitem {
     }
 }
 // product
+impl NamedNode for ast::located::MatchCase {
+    const NAME: &'static str = "match_case";
+}
 impl Node for ast::located::MatchCase {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::MatchCase {
@@ -4748,6 +4973,9 @@ impl Node for ast::located::MatchCase {
             range: Default::default(),
         })
     }
+}
+impl NamedNode for ast::located::Pattern {
+    const NAME: &'static str = "pattern";
 }
 // sum
 impl Node for ast::located::Pattern {
@@ -4806,6 +5034,9 @@ impl Node for ast::located::Pattern {
     }
 }
 // constructor
+impl NamedNode for ast::located::PatternMatchValue {
+    const NAME: &'static str = "MatchValue";
+}
 impl Node for ast::located::PatternMatchValue {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::PatternMatchValue {
@@ -4832,6 +5063,9 @@ impl Node for ast::located::PatternMatchValue {
     }
 }
 // constructor
+impl NamedNode for ast::located::PatternMatchSingleton {
+    const NAME: &'static str = "MatchSingleton";
+}
 impl Node for ast::located::PatternMatchSingleton {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::PatternMatchSingleton {
@@ -4858,6 +5092,9 @@ impl Node for ast::located::PatternMatchSingleton {
     }
 }
 // constructor
+impl NamedNode for ast::located::PatternMatchSequence {
+    const NAME: &'static str = "MatchSequence";
+}
 impl Node for ast::located::PatternMatchSequence {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::PatternMatchSequence {
@@ -4884,6 +5121,9 @@ impl Node for ast::located::PatternMatchSequence {
     }
 }
 // constructor
+impl NamedNode for ast::located::PatternMatchMapping {
+    const NAME: &'static str = "MatchMapping";
+}
 impl Node for ast::located::PatternMatchMapping {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::PatternMatchMapping {
@@ -4921,6 +5161,9 @@ impl Node for ast::located::PatternMatchMapping {
     }
 }
 // constructor
+impl NamedNode for ast::located::PatternMatchClass {
+    const NAME: &'static str = "MatchClass";
+}
 impl Node for ast::located::PatternMatchClass {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::PatternMatchClass {
@@ -4964,6 +5207,9 @@ impl Node for ast::located::PatternMatchClass {
     }
 }
 // constructor
+impl NamedNode for ast::located::PatternMatchStar {
+    const NAME: &'static str = "MatchStar";
+}
 impl Node for ast::located::PatternMatchStar {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::PatternMatchStar {
@@ -4988,6 +5234,9 @@ impl Node for ast::located::PatternMatchStar {
     }
 }
 // constructor
+impl NamedNode for ast::located::PatternMatchAs {
+    const NAME: &'static str = "MatchAs";
+}
 impl Node for ast::located::PatternMatchAs {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::PatternMatchAs {
@@ -5018,6 +5267,9 @@ impl Node for ast::located::PatternMatchAs {
     }
 }
 // constructor
+impl NamedNode for ast::located::PatternMatchOr {
+    const NAME: &'static str = "MatchOr";
+}
 impl Node for ast::located::PatternMatchOr {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::PatternMatchOr {
@@ -5043,6 +5295,9 @@ impl Node for ast::located::PatternMatchOr {
         })
     }
 }
+impl NamedNode for ast::located::TypeIgnore {
+    const NAME: &'static str = "type_ignore";
+}
 // sum
 impl Node for ast::located::TypeIgnore {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -5065,6 +5320,9 @@ impl Node for ast::located::TypeIgnore {
     }
 }
 // constructor
+impl NamedNode for ast::located::TypeIgnoreTypeIgnore {
+    const NAME: &'static str = "TypeIgnore";
+}
 impl Node for ast::located::TypeIgnoreTypeIgnore {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         let ast::located::TypeIgnoreTypeIgnore {

@@ -9,25 +9,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-// List of microbenchmarks to skip.
-//
-// These result in excessive memory usage, some more so than others. For example, while
-// exception_context.py consumes a lot of memory, it still finishes. On the other hand,
-// call_kwargs.py seems like it performs an excessive amount of allocations and results in
-// a system freeze.
-// In addition, the fact that we don't yet have a GC means that benchmarks which might consume
-// a bearable amount of memory accumulate. As such, best to skip them for now.
-const SKIP_MICROBENCHMARKS: [&str; 8] = [
-    "call_simple.py",
-    "call_kwargs.py",
-    "construct_object.py",
-    "define_function.py",
-    "define_class.py",
-    "exception_nested.py",
-    "exception_simple.py",
-    "exception_context.py",
-];
-
 pub struct MicroBenchmark {
     name: String,
     setup: String,
@@ -230,9 +211,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .collect();
 
     for benchmark in benchmarks {
-        if SKIP_MICROBENCHMARKS.contains(&benchmark.name.as_str()) {
-            continue;
-        }
         run_micro_benchmark(c, benchmark);
     }
 }
