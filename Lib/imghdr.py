@@ -1,11 +1,14 @@
 """Recognize image file formats based on their first few bytes."""
 
 from os import PathLike
+import warnings
 
 __all__ = ["what"]
 
-# should replace using FileIO into file
-from io import FileIO
+
+warnings._deprecated(__name__, remove=(3, 13))
+
+
 #-------------------------#
 # Recognize image headers #
 #-------------------------#
@@ -15,7 +18,7 @@ def what(file, h=None):
     try:
         if h is None:
             if isinstance(file, (str, PathLike)):
-                f = FileIO(file, 'rb')
+                f = open(file, 'rb')
                 h = f.read(32)
             else:
                 location = file.tell()
@@ -37,8 +40,10 @@ def what(file, h=None):
 tests = []
 
 def test_jpeg(h, f):
-    """JPEG data in JFIF or Exif format"""
+    """JPEG data with JFIF or Exif markers; and raw JPEG"""
     if h[6:10] in (b'JFIF', b'Exif'):
+        return 'jpeg'
+    elif h[:4] == b'\xff\xd8\xff\xdb':
         return 'jpeg'
 
 tests.append(test_jpeg)
@@ -154,7 +159,7 @@ def testall(list, recursive, toplevel):
             if recursive or toplevel:
                 print('recursing down:')
                 import glob
-                names = glob.glob(os.path.join(filename, '*'))
+                names = glob.glob(os.path.join(glob.escape(filename), '*'))
                 testall(names, recursive, 0)
             else:
                 print('*** directory (use -r) ***')
