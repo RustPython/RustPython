@@ -7,10 +7,7 @@ that name.
 
 import functools
 import sys
-try:
-    import os
-except ImportError:
-    import _dummy_os as os
+import os
 import tokenize
 
 __all__ = ["getline", "clearcache", "checkcache", "lazycache"]
