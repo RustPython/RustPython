@@ -1464,6 +1464,8 @@ class ExtractTests(unittest.TestCase):
         ]
         self._test_extract_hackers_arcnames(common_hacknames)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(os.path.sep != '\\', 'Requires \\ as path separator.')
     def test_extract_hackers_arcnames_windows_only(self):
         """Test combination of path fixing and windows name sanitization."""

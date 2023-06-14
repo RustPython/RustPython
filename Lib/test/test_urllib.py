@@ -1526,8 +1526,6 @@ class Pathname_Tests(unittest.TestCase):
                          "url2pathname() failed; %s != %s" %
                          (expect, result))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == 'win32',
                          'test specific to the nturl2path functions.')
     def test_prefixes(self):

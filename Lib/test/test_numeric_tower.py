@@ -134,8 +134,6 @@ class HashTest(unittest.TestCase):
         self.check_equal_hash(D('12300.00'), D(12300))
         self.check_equal_hash(D('12300.000'), D(12300))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fractions(self):
         # check special case for fractions where either the numerator
         # or the denominator is a multiple of _PyHASH_MODULUS
