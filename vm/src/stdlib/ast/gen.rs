@@ -1502,23 +1502,23 @@ impl NodeExprContextDel {
     }
 }
 #[pyclass(module = "_ast", name = "boolop", base = "NodeAst")]
-struct NodeBoolop;
+struct NodeBoolOp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeBoolop {}
-#[pyclass(module = "_ast", name = "And", base = "NodeBoolop")]
-struct NodeBoolopAnd;
+impl NodeBoolOp {}
+#[pyclass(module = "_ast", name = "And", base = "NodeBoolOp")]
+struct NodeBoolOpAnd;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeBoolopAnd {
+impl NodeBoolOpAnd {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Or", base = "NodeBoolop")]
-struct NodeBoolopOr;
+#[pyclass(module = "_ast", name = "Or", base = "NodeBoolOp")]
+struct NodeBoolOpOr;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeBoolopOr {
+impl NodeBoolOpOr {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
@@ -1660,43 +1660,43 @@ impl NodeOperatorFloorDiv {
     }
 }
 #[pyclass(module = "_ast", name = "unaryop", base = "NodeAst")]
-struct NodeUnaryop;
+struct NodeUnaryOp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeUnaryop {}
-#[pyclass(module = "_ast", name = "Invert", base = "NodeUnaryop")]
-struct NodeUnaryopInvert;
+impl NodeUnaryOp {}
+#[pyclass(module = "_ast", name = "Invert", base = "NodeUnaryOp")]
+struct NodeUnaryOpInvert;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeUnaryopInvert {
+impl NodeUnaryOpInvert {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Not", base = "NodeUnaryop")]
-struct NodeUnaryopNot;
+#[pyclass(module = "_ast", name = "Not", base = "NodeUnaryOp")]
+struct NodeUnaryOpNot;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeUnaryopNot {
+impl NodeUnaryOpNot {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "UAdd", base = "NodeUnaryop")]
-struct NodeUnaryopUAdd;
+#[pyclass(module = "_ast", name = "UAdd", base = "NodeUnaryOp")]
+struct NodeUnaryOpUAdd;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeUnaryopUAdd {
+impl NodeUnaryOpUAdd {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "USub", base = "NodeUnaryop")]
-struct NodeUnaryopUSub;
+#[pyclass(module = "_ast", name = "USub", base = "NodeUnaryOp")]
+struct NodeUnaryOpUSub;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeUnaryopUSub {
+impl NodeUnaryOpUSub {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
@@ -1704,103 +1704,103 @@ impl NodeUnaryopUSub {
     }
 }
 #[pyclass(module = "_ast", name = "cmpop", base = "NodeAst")]
-struct NodeCmpop;
+struct NodeCmpOp;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpop {}
-#[pyclass(module = "_ast", name = "Eq", base = "NodeCmpop")]
-struct NodeCmpopEq;
+impl NodeCmpOp {}
+#[pyclass(module = "_ast", name = "Eq", base = "NodeCmpOp")]
+struct NodeCmpOpEq;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopEq {
+impl NodeCmpOpEq {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "NotEq", base = "NodeCmpop")]
-struct NodeCmpopNotEq;
+#[pyclass(module = "_ast", name = "NotEq", base = "NodeCmpOp")]
+struct NodeCmpOpNotEq;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopNotEq {
+impl NodeCmpOpNotEq {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Lt", base = "NodeCmpop")]
-struct NodeCmpopLt;
+#[pyclass(module = "_ast", name = "Lt", base = "NodeCmpOp")]
+struct NodeCmpOpLt;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopLt {
+impl NodeCmpOpLt {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "LtE", base = "NodeCmpop")]
-struct NodeCmpopLtE;
+#[pyclass(module = "_ast", name = "LtE", base = "NodeCmpOp")]
+struct NodeCmpOpLtE;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopLtE {
+impl NodeCmpOpLtE {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Gt", base = "NodeCmpop")]
-struct NodeCmpopGt;
+#[pyclass(module = "_ast", name = "Gt", base = "NodeCmpOp")]
+struct NodeCmpOpGt;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopGt {
+impl NodeCmpOpGt {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "GtE", base = "NodeCmpop")]
-struct NodeCmpopGtE;
+#[pyclass(module = "_ast", name = "GtE", base = "NodeCmpOp")]
+struct NodeCmpOpGtE;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopGtE {
+impl NodeCmpOpGtE {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "Is", base = "NodeCmpop")]
-struct NodeCmpopIs;
+#[pyclass(module = "_ast", name = "Is", base = "NodeCmpOp")]
+struct NodeCmpOpIs;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopIs {
+impl NodeCmpOpIs {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "IsNot", base = "NodeCmpop")]
-struct NodeCmpopIsNot;
+#[pyclass(module = "_ast", name = "IsNot", base = "NodeCmpOp")]
+struct NodeCmpOpIsNot;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopIsNot {
+impl NodeCmpOpIsNot {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "In", base = "NodeCmpop")]
-struct NodeCmpopIn;
+#[pyclass(module = "_ast", name = "In", base = "NodeCmpOp")]
+struct NodeCmpOpIn;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopIn {
+impl NodeCmpOpIn {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
-#[pyclass(module = "_ast", name = "NotIn", base = "NodeCmpop")]
-struct NodeCmpopNotIn;
+#[pyclass(module = "_ast", name = "NotIn", base = "NodeCmpOp")]
+struct NodeCmpOpNotIn;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeCmpopNotIn {
+impl NodeCmpOpNotIn {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(identifier!(ctx, _fields), ctx.new_tuple(vec![]).into());
@@ -1827,13 +1827,13 @@ impl NodeComprehension {
     }
 }
 #[pyclass(module = "_ast", name = "excepthandler", base = "NodeAst")]
-struct NodeExcepthandler;
+struct NodeExceptHandler;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeExcepthandler {}
-#[pyclass(module = "_ast", name = "ExceptHandler", base = "NodeExcepthandler")]
-struct NodeExcepthandlerExceptHandler;
+impl NodeExceptHandler {}
+#[pyclass(module = "_ast", name = "ExceptHandler", base = "NodeExceptHandler")]
+struct NodeExceptHandlerExceptHandler;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeExcepthandlerExceptHandler {
+impl NodeExceptHandlerExceptHandler {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
@@ -1959,9 +1959,9 @@ impl NodeAlias {
     }
 }
 #[pyclass(module = "_ast", name = "withitem", base = "NodeAst")]
-struct NodeWithitem;
+struct NodeWithItem;
 #[pyclass(flags(HAS_DICT, BASETYPE))]
-impl NodeWithitem {
+impl NodeWithItem {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
         class.set_attr(
@@ -4263,11 +4263,11 @@ impl Node for ast::located::ExprContext {
     }
 }
 // sum
-impl Node for ast::located::Boolop {
+impl Node for ast::located::BoolOp {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let node_type = match self {
-            ast::located::Boolop::And => NodeBoolopAnd::static_type(),
-            ast::located::Boolop::Or => NodeBoolopOr::static_type(),
+            ast::located::BoolOp::And => NodeBoolOpAnd::static_type(),
+            ast::located::BoolOp::Or => NodeBoolOpOr::static_type(),
         };
         NodeAst
             .into_ref_with_type(vm, node_type.to_owned())
@@ -4276,10 +4276,10 @@ impl Node for ast::located::Boolop {
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeBoolopAnd::static_type()) {
-            ast::located::Boolop::And
-        } else if _cls.is(NodeBoolopOr::static_type()) {
-            ast::located::Boolop::Or
+        Ok(if _cls.is(NodeBoolOpAnd::static_type()) {
+            ast::located::BoolOp::And
+        } else if _cls.is(NodeBoolOpOr::static_type()) {
+            ast::located::BoolOp::Or
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of boolop, but got {}",
@@ -4348,13 +4348,13 @@ impl Node for ast::located::Operator {
     }
 }
 // sum
-impl Node for ast::located::Unaryop {
+impl Node for ast::located::UnaryOp {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let node_type = match self {
-            ast::located::Unaryop::Invert => NodeUnaryopInvert::static_type(),
-            ast::located::Unaryop::Not => NodeUnaryopNot::static_type(),
-            ast::located::Unaryop::UAdd => NodeUnaryopUAdd::static_type(),
-            ast::located::Unaryop::USub => NodeUnaryopUSub::static_type(),
+            ast::located::UnaryOp::Invert => NodeUnaryOpInvert::static_type(),
+            ast::located::UnaryOp::Not => NodeUnaryOpNot::static_type(),
+            ast::located::UnaryOp::UAdd => NodeUnaryOpUAdd::static_type(),
+            ast::located::UnaryOp::USub => NodeUnaryOpUSub::static_type(),
         };
         NodeAst
             .into_ref_with_type(vm, node_type.to_owned())
@@ -4363,14 +4363,14 @@ impl Node for ast::located::Unaryop {
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeUnaryopInvert::static_type()) {
-            ast::located::Unaryop::Invert
-        } else if _cls.is(NodeUnaryopNot::static_type()) {
-            ast::located::Unaryop::Not
-        } else if _cls.is(NodeUnaryopUAdd::static_type()) {
-            ast::located::Unaryop::UAdd
-        } else if _cls.is(NodeUnaryopUSub::static_type()) {
-            ast::located::Unaryop::USub
+        Ok(if _cls.is(NodeUnaryOpInvert::static_type()) {
+            ast::located::UnaryOp::Invert
+        } else if _cls.is(NodeUnaryOpNot::static_type()) {
+            ast::located::UnaryOp::Not
+        } else if _cls.is(NodeUnaryOpUAdd::static_type()) {
+            ast::located::UnaryOp::UAdd
+        } else if _cls.is(NodeUnaryOpUSub::static_type()) {
+            ast::located::UnaryOp::USub
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of unaryop, but got {}",
@@ -4380,19 +4380,19 @@ impl Node for ast::located::Unaryop {
     }
 }
 // sum
-impl Node for ast::located::Cmpop {
+impl Node for ast::located::CmpOp {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let node_type = match self {
-            ast::located::Cmpop::Eq => NodeCmpopEq::static_type(),
-            ast::located::Cmpop::NotEq => NodeCmpopNotEq::static_type(),
-            ast::located::Cmpop::Lt => NodeCmpopLt::static_type(),
-            ast::located::Cmpop::LtE => NodeCmpopLtE::static_type(),
-            ast::located::Cmpop::Gt => NodeCmpopGt::static_type(),
-            ast::located::Cmpop::GtE => NodeCmpopGtE::static_type(),
-            ast::located::Cmpop::Is => NodeCmpopIs::static_type(),
-            ast::located::Cmpop::IsNot => NodeCmpopIsNot::static_type(),
-            ast::located::Cmpop::In => NodeCmpopIn::static_type(),
-            ast::located::Cmpop::NotIn => NodeCmpopNotIn::static_type(),
+            ast::located::CmpOp::Eq => NodeCmpOpEq::static_type(),
+            ast::located::CmpOp::NotEq => NodeCmpOpNotEq::static_type(),
+            ast::located::CmpOp::Lt => NodeCmpOpLt::static_type(),
+            ast::located::CmpOp::LtE => NodeCmpOpLtE::static_type(),
+            ast::located::CmpOp::Gt => NodeCmpOpGt::static_type(),
+            ast::located::CmpOp::GtE => NodeCmpOpGtE::static_type(),
+            ast::located::CmpOp::Is => NodeCmpOpIs::static_type(),
+            ast::located::CmpOp::IsNot => NodeCmpOpIsNot::static_type(),
+            ast::located::CmpOp::In => NodeCmpOpIn::static_type(),
+            ast::located::CmpOp::NotIn => NodeCmpOpNotIn::static_type(),
         };
         NodeAst
             .into_ref_with_type(vm, node_type.to_owned())
@@ -4401,26 +4401,26 @@ impl Node for ast::located::Cmpop {
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeCmpopEq::static_type()) {
-            ast::located::Cmpop::Eq
-        } else if _cls.is(NodeCmpopNotEq::static_type()) {
-            ast::located::Cmpop::NotEq
-        } else if _cls.is(NodeCmpopLt::static_type()) {
-            ast::located::Cmpop::Lt
-        } else if _cls.is(NodeCmpopLtE::static_type()) {
-            ast::located::Cmpop::LtE
-        } else if _cls.is(NodeCmpopGt::static_type()) {
-            ast::located::Cmpop::Gt
-        } else if _cls.is(NodeCmpopGtE::static_type()) {
-            ast::located::Cmpop::GtE
-        } else if _cls.is(NodeCmpopIs::static_type()) {
-            ast::located::Cmpop::Is
-        } else if _cls.is(NodeCmpopIsNot::static_type()) {
-            ast::located::Cmpop::IsNot
-        } else if _cls.is(NodeCmpopIn::static_type()) {
-            ast::located::Cmpop::In
-        } else if _cls.is(NodeCmpopNotIn::static_type()) {
-            ast::located::Cmpop::NotIn
+        Ok(if _cls.is(NodeCmpOpEq::static_type()) {
+            ast::located::CmpOp::Eq
+        } else if _cls.is(NodeCmpOpNotEq::static_type()) {
+            ast::located::CmpOp::NotEq
+        } else if _cls.is(NodeCmpOpLt::static_type()) {
+            ast::located::CmpOp::Lt
+        } else if _cls.is(NodeCmpOpLtE::static_type()) {
+            ast::located::CmpOp::LtE
+        } else if _cls.is(NodeCmpOpGt::static_type()) {
+            ast::located::CmpOp::Gt
+        } else if _cls.is(NodeCmpOpGtE::static_type()) {
+            ast::located::CmpOp::GtE
+        } else if _cls.is(NodeCmpOpIs::static_type()) {
+            ast::located::CmpOp::Is
+        } else if _cls.is(NodeCmpOpIsNot::static_type()) {
+            ast::located::CmpOp::IsNot
+        } else if _cls.is(NodeCmpOpIn::static_type()) {
+            ast::located::CmpOp::In
+        } else if _cls.is(NodeCmpOpNotIn::static_type()) {
+            ast::located::CmpOp::NotIn
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of cmpop, but got {}",
@@ -4474,17 +4474,17 @@ impl Node for ast::located::Comprehension {
     }
 }
 // sum
-impl Node for ast::located::Excepthandler {
+impl Node for ast::located::ExceptHandler {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ast::located::Excepthandler::ExceptHandler(cons) => cons.ast_to_object(vm),
+            ast::located::ExceptHandler::ExceptHandler(cons) => cons.ast_to_object(vm),
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(NodeExcepthandlerExceptHandler::static_type()) {
-            ast::located::Excepthandler::ExceptHandler(
-                ast::located::ExcepthandlerExceptHandler::ast_from_object(_vm, _object)?,
+        Ok(if _cls.is(NodeExceptHandlerExceptHandler::static_type()) {
+            ast::located::ExceptHandler::ExceptHandler(
+                ast::located::ExceptHandlerExceptHandler::ast_from_object(_vm, _object)?,
             )
         } else {
             return Err(_vm.new_type_error(format!(
@@ -4495,9 +4495,9 @@ impl Node for ast::located::Excepthandler {
     }
 }
 // constructor
-impl Node for ast::located::ExcepthandlerExceptHandler {
+impl Node for ast::located::ExceptHandlerExceptHandler {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::located::ExcepthandlerExceptHandler {
+        let ast::located::ExceptHandlerExceptHandler {
             type_,
             name,
             body,
@@ -4506,7 +4506,7 @@ impl Node for ast::located::ExcepthandlerExceptHandler {
         let node = NodeAst
             .into_ref_with_type(
                 _vm,
-                NodeExcepthandlerExceptHandler::static_type().to_owned(),
+                NodeExceptHandlerExceptHandler::static_type().to_owned(),
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
@@ -4518,7 +4518,7 @@ impl Node for ast::located::ExcepthandlerExceptHandler {
         node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::located::ExcepthandlerExceptHandler {
+        Ok(ast::located::ExceptHandlerExceptHandler {
             type_: get_node_field_opt(_vm, &_object, "type")?
                 .map(|obj| Node::ast_from_object(_vm, obj))
                 .transpose()?,
@@ -4685,15 +4685,15 @@ impl Node for ast::located::Alias {
     }
 }
 // product
-impl Node for ast::located::Withitem {
+impl Node for ast::located::WithItem {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ast::located::Withitem {
+        let ast::located::WithItem {
             context_expr,
             optional_vars,
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, NodeWithitem::static_type().to_owned())
+            .into_ref_with_type(_vm, NodeWithItem::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("context_expr", context_expr.ast_to_object(_vm), _vm)
@@ -4703,7 +4703,7 @@ impl Node for ast::located::Withitem {
         node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ast::located::Withitem {
+        Ok(ast::located::WithItem {
             context_expr: Node::ast_from_object(
                 _vm,
                 get_node_field(_vm, &_object, "context_expr", "withitem")?,
@@ -5160,9 +5160,9 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "Load" => NodeExprContextLoad::make_class(&vm.ctx),
         "Store" => NodeExprContextStore::make_class(&vm.ctx),
         "Del" => NodeExprContextDel::make_class(&vm.ctx),
-        "boolop" => NodeBoolop::make_class(&vm.ctx),
-        "And" => NodeBoolopAnd::make_class(&vm.ctx),
-        "Or" => NodeBoolopOr::make_class(&vm.ctx),
+        "boolop" => NodeBoolOp::make_class(&vm.ctx),
+        "And" => NodeBoolOpAnd::make_class(&vm.ctx),
+        "Or" => NodeBoolOpOr::make_class(&vm.ctx),
         "operator" => NodeOperator::make_class(&vm.ctx),
         "Add" => NodeOperatorAdd::make_class(&vm.ctx),
         "Sub" => NodeOperatorSub::make_class(&vm.ctx),
@@ -5177,30 +5177,30 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "BitXor" => NodeOperatorBitXor::make_class(&vm.ctx),
         "BitAnd" => NodeOperatorBitAnd::make_class(&vm.ctx),
         "FloorDiv" => NodeOperatorFloorDiv::make_class(&vm.ctx),
-        "unaryop" => NodeUnaryop::make_class(&vm.ctx),
-        "Invert" => NodeUnaryopInvert::make_class(&vm.ctx),
-        "Not" => NodeUnaryopNot::make_class(&vm.ctx),
-        "UAdd" => NodeUnaryopUAdd::make_class(&vm.ctx),
-        "USub" => NodeUnaryopUSub::make_class(&vm.ctx),
-        "cmpop" => NodeCmpop::make_class(&vm.ctx),
-        "Eq" => NodeCmpopEq::make_class(&vm.ctx),
-        "NotEq" => NodeCmpopNotEq::make_class(&vm.ctx),
-        "Lt" => NodeCmpopLt::make_class(&vm.ctx),
-        "LtE" => NodeCmpopLtE::make_class(&vm.ctx),
-        "Gt" => NodeCmpopGt::make_class(&vm.ctx),
-        "GtE" => NodeCmpopGtE::make_class(&vm.ctx),
-        "Is" => NodeCmpopIs::make_class(&vm.ctx),
-        "IsNot" => NodeCmpopIsNot::make_class(&vm.ctx),
-        "In" => NodeCmpopIn::make_class(&vm.ctx),
-        "NotIn" => NodeCmpopNotIn::make_class(&vm.ctx),
+        "unaryop" => NodeUnaryOp::make_class(&vm.ctx),
+        "Invert" => NodeUnaryOpInvert::make_class(&vm.ctx),
+        "Not" => NodeUnaryOpNot::make_class(&vm.ctx),
+        "UAdd" => NodeUnaryOpUAdd::make_class(&vm.ctx),
+        "USub" => NodeUnaryOpUSub::make_class(&vm.ctx),
+        "cmpop" => NodeCmpOp::make_class(&vm.ctx),
+        "Eq" => NodeCmpOpEq::make_class(&vm.ctx),
+        "NotEq" => NodeCmpOpNotEq::make_class(&vm.ctx),
+        "Lt" => NodeCmpOpLt::make_class(&vm.ctx),
+        "LtE" => NodeCmpOpLtE::make_class(&vm.ctx),
+        "Gt" => NodeCmpOpGt::make_class(&vm.ctx),
+        "GtE" => NodeCmpOpGtE::make_class(&vm.ctx),
+        "Is" => NodeCmpOpIs::make_class(&vm.ctx),
+        "IsNot" => NodeCmpOpIsNot::make_class(&vm.ctx),
+        "In" => NodeCmpOpIn::make_class(&vm.ctx),
+        "NotIn" => NodeCmpOpNotIn::make_class(&vm.ctx),
         "comprehension" => NodeComprehension::make_class(&vm.ctx),
-        "excepthandler" => NodeExcepthandler::make_class(&vm.ctx),
-        "ExceptHandler" => NodeExcepthandlerExceptHandler::make_class(&vm.ctx),
+        "excepthandler" => NodeExceptHandler::make_class(&vm.ctx),
+        "ExceptHandler" => NodeExceptHandlerExceptHandler::make_class(&vm.ctx),
         "arguments" => NodeArguments::make_class(&vm.ctx),
         "arg" => NodeArg::make_class(&vm.ctx),
         "keyword" => NodeKeyword::make_class(&vm.ctx),
         "alias" => NodeAlias::make_class(&vm.ctx),
-        "withitem" => NodeWithitem::make_class(&vm.ctx),
+        "withitem" => NodeWithItem::make_class(&vm.ctx),
         "match_case" => NodeMatchCase::make_class(&vm.ctx),
         "pattern" => NodePattern::make_class(&vm.ctx),
         "MatchValue" => NodePatternMatchValue::make_class(&vm.ctx),
