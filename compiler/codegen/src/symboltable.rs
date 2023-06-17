@@ -832,7 +832,7 @@ impl SymbolTableBuilder {
             }) => {
                 self.scan_statements(body)?;
                 for handler in handlers {
-                    let Excepthandler::ExceptHandler(ast::ExcepthandlerExceptHandler {
+                    let ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                         type_,
                         name,
                         body,

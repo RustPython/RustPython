@@ -1010,7 +1010,7 @@ impl Compiler {
     fn compile_try_statement(
         &mut self,
         body: &[located_ast::Stmt],
-        handlers: &[located_ast::Excepthandler],
+        handlers: &[located_ast::ExceptHandler],
         orelse: &[located_ast::Stmt],
         finalbody: &[located_ast::Stmt],
     ) -> CompileResult<()> {
@@ -1044,8 +1044,8 @@ impl Compiler {
         self.switch_to_block(handler_block);
         // Exception is on top of stack now
         for handler in handlers {
-            let located_ast::Excepthandler::ExceptHandler(
-                located_ast::ExcepthandlerExceptHandler {
+            let located_ast::ExceptHandler::ExceptHandler(
+                located_ast::ExceptHandlerExceptHandler {
                     type_, name, body, ..
                 },
             ) = &handler;
@@ -1142,7 +1142,7 @@ impl Compiler {
     fn compile_try_star_statement(
         &mut self,
         _body: &[located_ast::Stmt],
-        _handlers: &[located_ast::Excepthandler],
+        _handlers: &[located_ast::ExceptHandler],
         _orelse: &[located_ast::Stmt],
         _finalbody: &[located_ast::Stmt],
     ) -> CompileResult<()> {
@@ -1499,7 +1499,7 @@ impl Compiler {
 
     fn compile_with(
         &mut self,
-        items: &[located_ast::Withitem],
+        items: &[located_ast::WithItem],
         body: &[located_ast::Stmt],
         is_async: bool,
     ) -> CompileResult<()> {
@@ -1641,7 +1641,7 @@ impl Compiler {
     fn compile_chained_comparison(
         &mut self,
         left: &located_ast::Expr,
-        ops: &[located_ast::Cmpop],
+        ops: &[located_ast::CmpOp],
         exprs: &[located_ast::Expr],
     ) -> CompileResult<()> {
         assert!(!ops.is_empty());
@@ -1651,19 +1651,19 @@ impl Compiler {
 
         use bytecode::ComparisonOperator::*;
         use bytecode::TestOperator::*;
-        let compile_cmpop = |c: &mut Self, op: &located_ast::Cmpop| match op {
-            located_ast::Cmpop::Eq => emit!(c, Instruction::CompareOperation { op: Equal }),
-            located_ast::Cmpop::NotEq => emit!(c, Instruction::CompareOperation { op: NotEqual }),
-            located_ast::Cmpop::Lt => emit!(c, Instruction::CompareOperation { op: Less }),
-            located_ast::Cmpop::LtE => emit!(c, Instruction::CompareOperation { op: LessOrEqual }),
-            located_ast::Cmpop::Gt => emit!(c, Instruction::CompareOperation { op: Greater }),
-            located_ast::Cmpop::GtE => {
+        let compile_cmpop = |c: &mut Self, op: &located_ast::CmpOp| match op {
+            located_ast::CmpOp::Eq => emit!(c, Instruction::CompareOperation { op: Equal }),
+            located_ast::CmpOp::NotEq => emit!(c, Instruction::CompareOperation { op: NotEqual }),
+            located_ast::CmpOp::Lt => emit!(c, Instruction::CompareOperation { op: Less }),
+            located_ast::CmpOp::LtE => emit!(c, Instruction::CompareOperation { op: LessOrEqual }),
+            located_ast::CmpOp::Gt => emit!(c, Instruction::CompareOperation { op: Greater }),
+            located_ast::CmpOp::GtE => {
                 emit!(c, Instruction::CompareOperation { op: GreaterOrEqual })
             }
-            located_ast::Cmpop::In => emit!(c, Instruction::TestOperation { op: In }),
-            located_ast::Cmpop::NotIn => emit!(c, Instruction::TestOperation { op: NotIn }),
-            located_ast::Cmpop::Is => emit!(c, Instruction::TestOperation { op: Is }),
-            located_ast::Cmpop::IsNot => emit!(c, Instruction::TestOperation { op: IsNot }),
+            located_ast::CmpOp::In => emit!(c, Instruction::TestOperation { op: In }),
+            located_ast::CmpOp::NotIn => emit!(c, Instruction::TestOperation { op: NotIn }),
+            located_ast::CmpOp::Is => emit!(c, Instruction::TestOperation { op: Is }),
+            located_ast::CmpOp::IsNot => emit!(c, Instruction::TestOperation { op: IsNot }),
         };
 
         // a == b == c == d
@@ -1951,7 +1951,7 @@ impl Compiler {
         match &expression {
             located_ast::Expr::BoolOp(located_ast::ExprBoolOp { op, values, .. }) => {
                 match op {
-                    located_ast::Boolop::And => {
+                    located_ast::BoolOp::And => {
                         if condition {
                             // If all values are true.
                             let end_block = self.new_block();
@@ -1972,7 +1972,7 @@ impl Compiler {
                             }
                         }
                     }
-                    located_ast::Boolop::Or => {
+                    located_ast::BoolOp::Or => {
                         if condition {
                             // If any of the values is true.
                             for value in values {
@@ -1996,7 +1996,7 @@ impl Compiler {
                 }
             }
             located_ast::Expr::UnaryOp(located_ast::ExprUnaryOp {
-                op: located_ast::Unaryop::Not,
+                op: located_ast::UnaryOp::Not,
                 operand,
                 ..
             }) => {
@@ -2029,7 +2029,7 @@ impl Compiler {
     /// This means, that the last value remains on the stack.
     fn compile_bool_op(
         &mut self,
-        op: &located_ast::Boolop,
+        op: &located_ast::BoolOp,
         values: &[located_ast::Expr],
     ) -> CompileResult<()> {
         let after_block = self.new_block();
@@ -2039,7 +2039,7 @@ impl Compiler {
             self.compile_expression(value)?;
 
             match op {
-                located_ast::Boolop::And => {
+                located_ast::BoolOp::And => {
                     emit!(
                         self,
                         Instruction::JumpIfFalseOrPop {
@@ -2047,7 +2047,7 @@ impl Compiler {
                         }
                     );
                 }
-                located_ast::Boolop::Or => {
+                located_ast::BoolOp::Or => {
                     emit!(
                         self,
                         Instruction::JumpIfTrueOrPop {
@@ -2122,10 +2122,10 @@ impl Compiler {
 
                 // Perform operation:
                 let op = match op {
-                    Unaryop::UAdd => bytecode::UnaryOperator::Plus,
-                    Unaryop::USub => bytecode::UnaryOperator::Minus,
-                    Unaryop::Not => bytecode::UnaryOperator::Not,
-                    Unaryop::Invert => bytecode::UnaryOperator::Invert,
+                    UnaryOp::UAdd => bytecode::UnaryOperator::Plus,
+                    UnaryOp::USub => bytecode::UnaryOperator::Minus,
+                    UnaryOp::Not => bytecode::UnaryOperator::Not,
+                    UnaryOp::Invert => bytecode::UnaryOperator::Invert,
                 };
                 emit!(self, Instruction::UnaryOperation { op });
             }
