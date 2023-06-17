@@ -92,3 +92,17 @@ if sys.platform.startswith("win"):
     # assert winver.major == winver.platform_version[0]
     # assert winver.minor == winver.platform_version[1]
     # assert winver.build == winver.platform_version[2]
+
+# test int_max_str_digits getter and setter
+
+assert sys.get_int_max_str_digits() == 4300
+sys.set_int_max_str_digits(640)
+assert sys.get_int_max_str_digits() == 640
+sys.set_int_max_str_digits(0)
+assert sys.get_int_max_str_digits() == 0
+
+with assert_raises(ValueError):
+    sys.set_int_max_str_digits(1)
+
+sys.set_int_max_str_digits(1000)
+assert sys.get_int_max_str_digits() == 1000
