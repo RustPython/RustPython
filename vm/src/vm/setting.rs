@@ -76,6 +76,8 @@ pub struct Settings {
 
     pub utf8_mode: u8,
 
+    pub int_max_str_digits: i8,
+
     #[cfg(feature = "flame-it")]
     pub profile_output: Option<OsString>,
     #[cfg(feature = "flame-it")]
@@ -118,6 +120,7 @@ impl Default for Settings {
             check_hash_based_pycs: "default".to_owned(),
             allow_external_library: cfg!(feature = "importlib"),
             utf8_mode: 1,
+            int_max_str_digits: -1,
             #[cfg(feature = "flame-it")]
             profile_output: None,
             #[cfg(feature = "flame-it")]
