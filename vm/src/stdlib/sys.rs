@@ -623,13 +623,13 @@ mod sys {
 
     #[pyfunction]
     fn set_int_max_str_digits(maxdigits: usize, vm: &VirtualMachine) -> PyResult<()> {
-        let threshold = PyIntInfo::INFO.str_digits_check_threshold; 
+        let threshold = PyIntInfo::INFO.str_digits_check_threshold;
         if maxdigits == 0 || maxdigits >= threshold {
             vm.state.int_max_str_digits.store(maxdigits);
             Ok(())
         } else {
             let error = format!("maxdigits must be 0 or larger than {:?}", threshold);
-            return Err(vm.new_value_error(error));
+            Err(vm.new_value_error(error))
         }
     }
 
