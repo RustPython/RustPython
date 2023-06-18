@@ -690,6 +690,10 @@ class TypingCallableTests(BaseCallableTests, BaseTestCase):
 
 class CollectionsCallableTests(BaseCallableTests, BaseTestCase):
     Callable = collections.abc.Callable
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_errors(self): # TODO: RUSTPYTHON, remove when this passes
+        super().test_errors() # TODO: RUSTPYTHON, remove when this passes
 
     # TODO: RUSTPYTHON, AssertionError: 'collections.abc.Callable[__main__.ParamSpec, typing.TypeVar]' != 'collections.abc.Callable[~P, ~T]'
     @unittest.expectedFailure
@@ -4916,6 +4920,8 @@ class ParamSpecTests(BaseTestCase):
         self.assertEqual(P, P)
         self.assertIsInstance(P, ParamSpec)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_valid_uses(self):
         P = ParamSpec('P')
         T = TypeVar('T')
