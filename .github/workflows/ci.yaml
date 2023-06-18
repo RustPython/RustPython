@@ -245,7 +245,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: "3.11.4"
       - name: Set up the Windows environment
         shell: bash
         run: |

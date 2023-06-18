@@ -257,7 +257,8 @@ mod builtins {
             Either::A(either) => {
                 let source: &[u8] = &either.borrow_bytes();
                 if source.contains(&0) {
-                    return Err(vm.new_value_error(
+                    return Err(vm.new_exception_msg(
+                        vm.ctx.exceptions.syntax_error.to_owned(),
                         "source code string cannot contain null bytes".to_owned(),
                     ));
                 }
