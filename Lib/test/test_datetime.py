@@ -6,7 +6,7 @@ from test.support.import_helper import import_fresh_module
 
 TESTS = 'test.datetimetester'
 
-@unittest.skip("TODO: RUSTPYTHON")
+@unittest.skip("TODO: RUSTPYTHON, incorrect datetime struct implementation in time.rs")
 def load_tests(loader, tests, pattern):
     try:
         pure_tests = import_fresh_module(TESTS, fresh=['datetime', '_strptime'],
