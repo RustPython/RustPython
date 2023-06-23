@@ -227,6 +227,11 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
     {
         settings.dont_write_bytecode = true;
     }
+    if !ignore_environment {
+        if let Ok(digits) = get_env_var_value("int_max_str_digits") {
+            settings.int_max_str_digits = digits.into()
+        }
+    }
 
     settings.check_hash_based_pycs = matches
         .value_of("check-hash-based-pycs")

@@ -727,7 +727,7 @@ mod sys {
         /// -X utf8
         utf8_mode: u8,
         /// -X int_max_str_digits=number
-        int_max_str_digits: i8,
+        int_max_str_digits: usize,
         /// -P, `PYTHONSAFEPATH`
         safe_path: bool,
         /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
