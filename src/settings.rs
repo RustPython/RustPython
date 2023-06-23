@@ -239,6 +239,7 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         settings.xopts.extend(xopts.map(|s| {
             let mut parts = s.splitn(2, '=');
             let name = parts.next().unwrap().to_owned();
+            let value = parts.next().map(ToOwned::to_owned);
             if name == "dev" {
                 dev_mode = true
             }
@@ -248,7 +249,13 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
             if name == "no_sig_int" {
                 settings.no_sig_int = true;
             }
-            let value = parts.next().map(ToOwned::to_owned);
+            if name == "int_max_str_digits" {
+                settings.int_max_str_digits = value
+                    .as_ref()
+                    .unwrap()
+                    .parse()
+                    .expect("int_max_str_digits must be a valid number");
+            }
             (name, value)
         }));
     }

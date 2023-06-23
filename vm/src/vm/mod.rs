@@ -181,7 +181,7 @@ impl VirtualMachine {
                 before_forkers: PyMutex::default(),
                 after_forkers_child: PyMutex::default(),
                 after_forkers_parent: PyMutex::default(),
-                int_max_str_digits: AtomicCell::new(4300),
+                int_max_str_digits: AtomicCell::new(settings.int_max_str_digits.into()),
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
