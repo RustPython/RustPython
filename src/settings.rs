@@ -227,10 +227,14 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
     {
         settings.dont_write_bytecode = true;
     }
-    if !ignore_environment {
-        if let Ok(digits) = get_env_var_value("int_max_str_digits") {
-            settings.int_max_str_digits = digits.into()
-        }
+    if !ignore_environment && env::var_os("PYTHONINTMAXSTRDIGITS").is_some() {
+        settings.int_max_str_digits = match env::var("PYTHONINTMAXSTRDIGITS").unwrap().parse() {
+            Ok(digits) if digits == 0 || digits >= 640 => digits,
+            _ => {
+                error!("Fatal Python error: config_init_int_max_str_digits: PYTHONINTMAXSTRDIGITS: invalid limit; must be >= 640 or 0 for unlimited.\nPython runtime state: preinitialized");
+                std::process::exit(1);
+            }
+        };
     }
 
     settings.check_hash_based_pycs = matches
@@ -255,11 +259,14 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
                 settings.no_sig_int = true;
             }
             if name == "int_max_str_digits" {
-                settings.int_max_str_digits = value
-                    .as_ref()
-                    .unwrap()
-                    .parse()
-                    .expect("int_max_str_digits must be a valid number");
+                settings.int_max_str_digits = match value.as_ref().unwrap().parse() {
+                    Ok(digits) if digits == 0 || digits >= 640 => digits,
+                    _ => {
+
+                    error!("Fatal Python error: config_init_int_max_str_digits: -X int_max_str_digits: invalid limit; must be >= 640 or 0 for unlimited.\nPython runtime state: preinitialized");
+                    std::process::exit(1);
+                    },
+                };
             }
             (name, value)
         }));

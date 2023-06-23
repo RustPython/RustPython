@@ -151,7 +151,10 @@ impl VirtualMachine {
 
         let warnings = WarningsState::init_state(&ctx);
 
-        let int_max_str_digits = AtomicCell::new(settings.int_max_str_digits);
+        let int_max_str_digits = AtomicCell::new(match settings.int_max_str_digits {
+            -1 => 4300,
+            other => other,
+        } as usize);
         let mut vm = VirtualMachine {
             builtins,
             sys_module,
