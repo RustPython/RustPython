@@ -43,6 +43,9 @@ pub struct Settings {
     /// -Xfoo[=bar]
     pub xopts: Vec<(String, Option<String>)>,
 
+    /// -X int_max_str_digits
+    pub int_max_str_digits: i64,
+
     /// -I
     pub isolated: bool,
 
@@ -118,6 +121,7 @@ impl Default for Settings {
             check_hash_based_pycs: "default".to_owned(),
             allow_external_library: cfg!(feature = "importlib"),
             utf8_mode: 1,
+            int_max_str_digits: -1,
             #[cfg(feature = "flame-it")]
             profile_output: None,
             #[cfg(feature = "flame-it")]

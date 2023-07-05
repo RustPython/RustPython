@@ -151,6 +151,10 @@ impl VirtualMachine {
 
         let warnings = WarningsState::init_state(&ctx);
 
+        let int_max_str_digits = AtomicCell::new(match settings.int_max_str_digits {
+            -1 => 4300,
+            other => other,
+        } as usize);
         let mut vm = VirtualMachine {
             builtins,
             sys_module,
@@ -181,7 +185,7 @@ impl VirtualMachine {
                 before_forkers: PyMutex::default(),
                 after_forkers_child: PyMutex::default(),
                 after_forkers_parent: PyMutex::default(),
-                int_max_str_digits: AtomicCell::new(4300),
+                int_max_str_digits,
             }),
             initialized: false,
             recursion_depth: Cell::new(0),
