@@ -89,6 +89,7 @@ impl NodeStmtFunctionDef {
                 ctx.new_str(ascii!("decorator_list")).into(),
                 ctx.new_str(ascii!("returns")).into(),
                 ctx.new_str(ascii!("type_comment")).into(),
+                ctx.new_str(ascii!("type_params")).into(),
             ])
             .into(),
         );
@@ -119,6 +120,7 @@ impl NodeStmtAsyncFunctionDef {
                 ctx.new_str(ascii!("decorator_list")).into(),
                 ctx.new_str(ascii!("returns")).into(),
                 ctx.new_str(ascii!("type_comment")).into(),
+                ctx.new_str(ascii!("type_params")).into(),
             ])
             .into(),
         );
@@ -148,6 +150,7 @@ impl NodeStmtClassDef {
                 ctx.new_str(ascii!("keywords")).into(),
                 ctx.new_str(ascii!("body")).into(),
                 ctx.new_str(ascii!("decorator_list")).into(),
+                ctx.new_str(ascii!("type_params")).into(),
             ])
             .into(),
         );
@@ -221,6 +224,33 @@ impl NodeStmtAssign {
                 ctx.new_str(ascii!("targets")).into(),
                 ctx.new_str(ascii!("value")).into(),
                 ctx.new_str(ascii!("type_comment")).into(),
+            ])
+            .into(),
+        );
+        class.set_attr(
+            identifier!(ctx, _attributes),
+            ctx.new_list(vec![
+                ctx.new_str(ascii!("lineno")).into(),
+                ctx.new_str(ascii!("col_offset")).into(),
+                ctx.new_str(ascii!("end_lineno")).into(),
+                ctx.new_str(ascii!("end_col_offset")).into(),
+            ])
+            .into(),
+        );
+    }
+}
+#[pyclass(module = "_ast", name = "TypeAlias", base = "NodeStmt")]
+struct NodeStmtTypeAlias;
+#[pyclass(flags(HAS_DICT, BASETYPE))]
+impl NodeStmtTypeAlias {
+    #[extend_class]
+    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+        class.set_attr(
+            identifier!(ctx, _fields),
+            ctx.new_tuple(vec![
+                ctx.new_str(ascii!("name")).into(),
+                ctx.new_str(ascii!("type_params")).into(),
+                ctx.new_str(ascii!("value")).into(),
             ])
             .into(),
         );
@@ -2214,6 +2244,82 @@ impl NodeTypeIgnoreTypeIgnore {
         class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
     }
 }
+#[pyclass(module = "_ast", name = "type_param", base = "NodeAst")]
+struct NodeTypeParam;
+#[pyclass(flags(HAS_DICT, BASETYPE))]
+impl NodeTypeParam {}
+#[pyclass(module = "_ast", name = "TypeVar", base = "NodeTypeParam")]
+struct NodeTypeParamTypeVar;
+#[pyclass(flags(HAS_DICT, BASETYPE))]
+impl NodeTypeParamTypeVar {
+    #[extend_class]
+    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+        class.set_attr(
+            identifier!(ctx, _fields),
+            ctx.new_tuple(vec![
+                ctx.new_str(ascii!("name")).into(),
+                ctx.new_str(ascii!("bound")).into(),
+            ])
+            .into(),
+        );
+        class.set_attr(
+            identifier!(ctx, _attributes),
+            ctx.new_list(vec![
+                ctx.new_str(ascii!("lineno")).into(),
+                ctx.new_str(ascii!("col_offset")).into(),
+                ctx.new_str(ascii!("end_lineno")).into(),
+                ctx.new_str(ascii!("end_col_offset")).into(),
+            ])
+            .into(),
+        );
+    }
+}
+#[pyclass(module = "_ast", name = "ParamSpec", base = "NodeTypeParam")]
+struct NodeTypeParamParamSpec;
+#[pyclass(flags(HAS_DICT, BASETYPE))]
+impl NodeTypeParamParamSpec {
+    #[extend_class]
+    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+        class.set_attr(
+            identifier!(ctx, _fields),
+            ctx.new_tuple(vec![ctx.new_str(ascii!("name")).into()])
+                .into(),
+        );
+        class.set_attr(
+            identifier!(ctx, _attributes),
+            ctx.new_list(vec![
+                ctx.new_str(ascii!("lineno")).into(),
+                ctx.new_str(ascii!("col_offset")).into(),
+                ctx.new_str(ascii!("end_lineno")).into(),
+                ctx.new_str(ascii!("end_col_offset")).into(),
+            ])
+            .into(),
+        );
+    }
+}
+#[pyclass(module = "_ast", name = "TypeVarTuple", base = "NodeTypeParam")]
+struct NodeTypeParamTypeVarTuple;
+#[pyclass(flags(HAS_DICT, BASETYPE))]
+impl NodeTypeParamTypeVarTuple {
+    #[extend_class]
+    fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+        class.set_attr(
+            identifier!(ctx, _fields),
+            ctx.new_tuple(vec![ctx.new_str(ascii!("name")).into()])
+                .into(),
+        );
+        class.set_attr(
+            identifier!(ctx, _attributes),
+            ctx.new_list(vec![
+                ctx.new_str(ascii!("lineno")).into(),
+                ctx.new_str(ascii!("col_offset")).into(),
+                ctx.new_str(ascii!("end_lineno")).into(),
+                ctx.new_str(ascii!("end_col_offset")).into(),
+            ])
+            .into(),
+        );
+    }
+}
 
 // sum
 impl Node for ast::located::Mod {
@@ -2364,6 +2470,7 @@ impl Node for ast::located::Stmt {
             ast::located::Stmt::Return(cons) => cons.ast_to_object(vm),
             ast::located::Stmt::Delete(cons) => cons.ast_to_object(vm),
             ast::located::Stmt::Assign(cons) => cons.ast_to_object(vm),
+            ast::located::Stmt::TypeAlias(cons) => cons.ast_to_object(vm),
             ast::located::Stmt::AugAssign(cons) => cons.ast_to_object(vm),
             ast::located::Stmt::AnnAssign(cons) => cons.ast_to_object(vm),
             ast::located::Stmt::For(cons) => cons.ast_to_object(vm),
@@ -2405,6 +2512,10 @@ impl Node for ast::located::Stmt {
             ast::located::Stmt::Delete(ast::located::StmtDelete::ast_from_object(_vm, _object)?)
         } else if _cls.is(NodeStmtAssign::static_type()) {
             ast::located::Stmt::Assign(ast::located::StmtAssign::ast_from_object(_vm, _object)?)
+        } else if _cls.is(NodeStmtTypeAlias::static_type()) {
+            ast::located::Stmt::TypeAlias(ast::located::StmtTypeAlias::ast_from_object(
+                _vm, _object,
+            )?)
         } else if _cls.is(NodeStmtAugAssign::static_type()) {
             ast::located::Stmt::AugAssign(ast::located::StmtAugAssign::ast_from_object(
                 _vm, _object,
@@ -2473,6 +2584,7 @@ impl Node for ast::located::StmtFunctionDef {
             decorator_list,
             returns,
             type_comment,
+            type_params,
             range: _range,
         } = self;
         let node = NodeAst
@@ -2487,6 +2599,8 @@ impl Node for ast::located::StmtFunctionDef {
         dict.set_item("returns", returns.ast_to_object(_vm), _vm)
             .unwrap();
         dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
+            .unwrap();
+        dict.set_item("type_params", type_params.ast_to_object(_vm), _vm)
             .unwrap();
         node_add_location(&dict, _range, _vm);
         node.into()
@@ -2515,6 +2629,10 @@ impl Node for ast::located::StmtFunctionDef {
             type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
                 .map(|obj| Node::ast_from_object(_vm, obj))
                 .transpose()?,
+            type_params: Node::ast_from_object(
+                _vm,
+                get_node_field(_vm, &_object, "type_params", "FunctionDef")?,
+            )?,
             range: range_from_object(_vm, _object, "FunctionDef")?,
         })
     }
@@ -2529,6 +2647,7 @@ impl Node for ast::located::StmtAsyncFunctionDef {
             decorator_list,
             returns,
             type_comment,
+            type_params,
             range: _range,
         } = self;
         let node = NodeAst
@@ -2543,6 +2662,8 @@ impl Node for ast::located::StmtAsyncFunctionDef {
         dict.set_item("returns", returns.ast_to_object(_vm), _vm)
             .unwrap();
         dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
+            .unwrap();
+        dict.set_item("type_params", type_params.ast_to_object(_vm), _vm)
             .unwrap();
         node_add_location(&dict, _range, _vm);
         node.into()
@@ -2571,6 +2692,10 @@ impl Node for ast::located::StmtAsyncFunctionDef {
             type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
                 .map(|obj| Node::ast_from_object(_vm, obj))
                 .transpose()?,
+            type_params: Node::ast_from_object(
+                _vm,
+                get_node_field(_vm, &_object, "type_params", "AsyncFunctionDef")?,
+            )?,
             range: range_from_object(_vm, _object, "AsyncFunctionDef")?,
         })
     }
@@ -2584,6 +2709,7 @@ impl Node for ast::located::StmtClassDef {
             keywords,
             body,
             decorator_list,
+            type_params,
             range: _range,
         } = self;
         let node = NodeAst
@@ -2597,6 +2723,8 @@ impl Node for ast::located::StmtClassDef {
             .unwrap();
         dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
         dict.set_item("decorator_list", decorator_list.ast_to_object(_vm), _vm)
+            .unwrap();
+        dict.set_item("type_params", type_params.ast_to_object(_vm), _vm)
             .unwrap();
         node_add_location(&dict, _range, _vm);
         node.into()
@@ -2613,6 +2741,10 @@ impl Node for ast::located::StmtClassDef {
             decorator_list: Node::ast_from_object(
                 _vm,
                 get_node_field(_vm, &_object, "decorator_list", "ClassDef")?,
+            )?,
+            type_params: Node::ast_from_object(
+                _vm,
+                get_node_field(_vm, &_object, "type_params", "ClassDef")?,
             )?,
             range: range_from_object(_vm, _object, "ClassDef")?,
         })
@@ -2702,6 +2834,42 @@ impl Node for ast::located::StmtAssign {
                 .map(|obj| Node::ast_from_object(_vm, obj))
                 .transpose()?,
             range: range_from_object(_vm, _object, "Assign")?,
+        })
+    }
+}
+// constructor
+impl Node for ast::located::StmtTypeAlias {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+        let ast::located::StmtTypeAlias {
+            name,
+            type_params,
+            value,
+            range: _range,
+        } = self;
+        let node = NodeAst
+            .into_ref_with_type(_vm, NodeStmtTypeAlias::static_type().to_owned())
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
+        dict.set_item("type_params", type_params.ast_to_object(_vm), _vm)
+            .unwrap();
+        dict.set_item("value", value.ast_to_object(_vm), _vm)
+            .unwrap();
+        node_add_location(&dict, _range, _vm);
+        node.into()
+    }
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+        Ok(ast::located::StmtTypeAlias {
+            name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "TypeAlias")?)?,
+            type_params: Node::ast_from_object(
+                _vm,
+                get_node_field(_vm, &_object, "type_params", "TypeAlias")?,
+            )?,
+            value: Node::ast_from_object(
+                _vm,
+                get_node_field(_vm, &_object, "value", "TypeAlias")?,
+            )?,
+            range: range_from_object(_vm, _object, "TypeAlias")?,
         })
     }
 }
@@ -5092,6 +5260,112 @@ impl Node for ast::located::TypeIgnoreTypeIgnore {
         })
     }
 }
+// sum
+impl Node for ast::located::TypeParam {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            ast::located::TypeParam::TypeVar(cons) => cons.ast_to_object(vm),
+            ast::located::TypeParam::ParamSpec(cons) => cons.ast_to_object(vm),
+            ast::located::TypeParam::TypeVarTuple(cons) => cons.ast_to_object(vm),
+        }
+    }
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+        let _cls = _object.class();
+        Ok(if _cls.is(NodeTypeParamTypeVar::static_type()) {
+            ast::located::TypeParam::TypeVar(ast::located::TypeParamTypeVar::ast_from_object(
+                _vm, _object,
+            )?)
+        } else if _cls.is(NodeTypeParamParamSpec::static_type()) {
+            ast::located::TypeParam::ParamSpec(ast::located::TypeParamParamSpec::ast_from_object(
+                _vm, _object,
+            )?)
+        } else if _cls.is(NodeTypeParamTypeVarTuple::static_type()) {
+            ast::located::TypeParam::TypeVarTuple(
+                ast::located::TypeParamTypeVarTuple::ast_from_object(_vm, _object)?,
+            )
+        } else {
+            return Err(_vm.new_type_error(format!(
+                "expected some sort of type_param, but got {}",
+                _object.repr(_vm)?
+            )));
+        })
+    }
+}
+// constructor
+impl Node for ast::located::TypeParamTypeVar {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+        let ast::located::TypeParamTypeVar {
+            name,
+            bound,
+            range: _range,
+        } = self;
+        let node = NodeAst
+            .into_ref_with_type(_vm, NodeTypeParamTypeVar::static_type().to_owned())
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
+        dict.set_item("bound", bound.ast_to_object(_vm), _vm)
+            .unwrap();
+        node_add_location(&dict, _range, _vm);
+        node.into()
+    }
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+        Ok(ast::located::TypeParamTypeVar {
+            name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "TypeVar")?)?,
+            bound: get_node_field_opt(_vm, &_object, "bound")?
+                .map(|obj| Node::ast_from_object(_vm, obj))
+                .transpose()?,
+            range: range_from_object(_vm, _object, "TypeVar")?,
+        })
+    }
+}
+// constructor
+impl Node for ast::located::TypeParamParamSpec {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+        let ast::located::TypeParamParamSpec {
+            name,
+            range: _range,
+        } = self;
+        let node = NodeAst
+            .into_ref_with_type(_vm, NodeTypeParamParamSpec::static_type().to_owned())
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
+        node_add_location(&dict, _range, _vm);
+        node.into()
+    }
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+        Ok(ast::located::TypeParamParamSpec {
+            name: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "name", "ParamSpec")?)?,
+            range: range_from_object(_vm, _object, "ParamSpec")?,
+        })
+    }
+}
+// constructor
+impl Node for ast::located::TypeParamTypeVarTuple {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+        let ast::located::TypeParamTypeVarTuple {
+            name,
+            range: _range,
+        } = self;
+        let node = NodeAst
+            .into_ref_with_type(_vm, NodeTypeParamTypeVarTuple::static_type().to_owned())
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        dict.set_item("name", name.ast_to_object(_vm), _vm).unwrap();
+        node_add_location(&dict, _range, _vm);
+        node.into()
+    }
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+        Ok(ast::located::TypeParamTypeVarTuple {
+            name: Node::ast_from_object(
+                _vm,
+                get_node_field(_vm, &_object, "name", "TypeVarTuple")?,
+            )?,
+            range: range_from_object(_vm, _object, "TypeVarTuple")?,
+        })
+    }
+}
 
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     extend_module!(vm, module, {
@@ -5107,6 +5381,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "Return" => NodeStmtReturn::make_class(&vm.ctx),
         "Delete" => NodeStmtDelete::make_class(&vm.ctx),
         "Assign" => NodeStmtAssign::make_class(&vm.ctx),
+        "TypeAlias" => NodeStmtTypeAlias::make_class(&vm.ctx),
         "AugAssign" => NodeStmtAugAssign::make_class(&vm.ctx),
         "AnnAssign" => NodeStmtAnnAssign::make_class(&vm.ctx),
         "For" => NodeStmtFor::make_class(&vm.ctx),
@@ -5213,5 +5488,9 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "MatchOr" => NodePatternMatchOr::make_class(&vm.ctx),
         "type_ignore" => NodeTypeIgnore::make_class(&vm.ctx),
         "TypeIgnore" => NodeTypeIgnoreTypeIgnore::make_class(&vm.ctx),
+        "type_param" => NodeTypeParam::make_class(&vm.ctx),
+        "TypeVar" => NodeTypeParamTypeVar::make_class(&vm.ctx),
+        "ParamSpec" => NodeTypeParamParamSpec::make_class(&vm.ctx),
+        "TypeVarTuple" => NodeTypeParamTypeVarTuple::make_class(&vm.ctx),
     })
 }
