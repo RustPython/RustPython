@@ -18,7 +18,7 @@ module.exports = (env = {}) => {
             alias: {
                 rustpython: path.resolve(
                     __dirname,
-                    env.rustpythonPkg || '../lib/pkg'
+                    env.rustpythonPkg || '../lib/pkg',
                 ),
             },
         },
@@ -39,11 +39,11 @@ module.exports = (env = {}) => {
                     snippets: fs
                         .readdirSync(path.join(__dirname, 'snippets'))
                         .map((filename) =>
-                            path.basename(filename, path.extname(filename))
+                            path.basename(filename, path.extname(filename)),
                         ),
                     defaultSnippetName: 'fibonacci',
                     defaultSnippet: fs.readFileSync(
-                        path.join(__dirname, 'snippets/fibonacci.py')
+                        path.join(__dirname, 'snippets/fibonacci.py'),
                     ),
                 },
             }),
@@ -56,7 +56,7 @@ module.exports = (env = {}) => {
         config.plugins.push(
             new WasmPackPlugin({
                 crateDirectory: path.join(__dirname, '../lib'),
-            })
+            }),
         );
     }
     return config;

@@ -68,7 +68,7 @@ const secondaryEditor = CodeMirror(
     {
         lineNumbers: true,
         lineWrapping: true,
-    }
+    },
 );
 
 const buffers = {};
@@ -88,7 +88,7 @@ openBuffer(
     '# python code or code blocks that start with %%py, %%md %%math.',
     'notebook',
     buffersDropDown,
-    buffersList
+    buffersList,
 );
 
 openBuffer(
@@ -97,7 +97,7 @@ openBuffer(
     '# Python code',
     'python',
     buffersDropDown,
-    buffersList
+    buffersList,
 );
 
 openBuffer(
@@ -106,7 +106,7 @@ openBuffer(
     '// Javascript code goes here',
     'javascript',
     buffersDropDown,
-    buffersList
+    buffersList,
 );
 
 openBuffer(
@@ -115,7 +115,7 @@ openBuffer(
     '/* CSS goes here */',
     'css',
     buffersDropDown,
-    buffersList
+    buffersList,
 );
 
 // select main buffer by default and set the main tab to active
@@ -286,7 +286,7 @@ CodeMirror.on(buffersDropDown, 'change', function () {
     selectBuffer(
         secondaryEditor,
         buffers,
-        buffersDropDown.options[buffersDropDown.selectedIndex].value
+        buffersDropDown.options[buffersDropDown.selectedIndex].value,
     );
 });
 
