@@ -18,7 +18,7 @@ module.exports = (env = {}) => {
             alias: {
                 rustpython: path.resolve(
                     __dirname,
-                    env.rustpythonPkg || '../lib/pkg'
+                    env.rustpythonPkg || '../lib/pkg',
                 ),
             },
         },
@@ -64,7 +64,7 @@ module.exports = (env = {}) => {
             new WasmPackPlugin({
                 crateDirectory: path.join(__dirname, '../lib'),
                 forceMode: 'release',
-            })
+            }),
         );
     }
     return config;
