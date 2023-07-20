@@ -686,6 +686,7 @@ impl SymbolTableBuilder {
                 bases,
                 keywords,
                 decorator_list,
+                type_params: _,
                 range,
             }) => {
                 self.enter_scope(name.as_str(), SymbolTableType::Class, range.start.row.get());
@@ -863,6 +864,7 @@ impl SymbolTableBuilder {
                     self.scan_expression(expression, ExpressionContext::Load)?;
                 }
             }
+            Stmt::TypeAlias(StmtTypeAlias { .. }) => {}
         }
         Ok(())
     }

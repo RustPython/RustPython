@@ -888,6 +888,7 @@ impl Compiler {
             Stmt::Pass(_) => {
                 // No need to emit any code here :)
             }
+            Stmt::TypeAlias(_) => {}
         }
         Ok(())
     }
