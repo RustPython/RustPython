@@ -81,6 +81,7 @@ widestring = "0.5.1"
 
 [features]
 default = ["threading", "stdlib", "zlib", "importlib", "encodings"]
+vm-tracing-logging = ["rustpython-vm/vm-tracing-logging"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
 stdlib = ["rustpython-stdlib", "rustpython-pylib"]
