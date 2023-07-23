@@ -1670,7 +1670,15 @@ mod decl {
     }
 
     #[pyclass(with(IterNext, Iterable, Constructor))]
-    impl PyItertoolsPermutations {}
+    impl PyItertoolsPermutations {
+        #[pymethod(magic)]
+        fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyTuple> {
+            vm.new_tuple((
+                zelf.class().to_owned(),
+                vm.new_tuple((zelf.pool.clone(), vm.ctx.new_int(zelf.r.load()))),
+            ))
+        }
+    }
     impl SelfIter for PyItertoolsPermutations {}
     impl IterNext for PyItertoolsPermutations {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
