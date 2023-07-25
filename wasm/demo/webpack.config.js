@@ -13,6 +13,9 @@ module.exports = (env = {}) => {
             path: path.join(__dirname, 'dist'),
             filename: 'index.js',
         },
+        experiments: {
+            asyncWebAssembly: true,
+        },
         mode: 'development',
         resolve: {
             alias: {
@@ -27,6 +30,10 @@ module.exports = (env = {}) => {
                 {
                     test: /\.css$/,
                     use: [MiniCssExtractPlugin.loader, 'css-loader'],
+                },
+                {
+                    test: /\.py$/,
+                    type: 'asset/source',
                 },
             ],
         },
