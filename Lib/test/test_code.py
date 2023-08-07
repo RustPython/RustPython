@@ -139,13 +139,14 @@ import doctest
 import unittest
 import textwrap
 import weakref
+import dis
 
 try:
     import ctypes
 except ImportError:
     ctypes = None
 from test.support import (cpython_only,
-                          check_impl_detail,
+                          check_impl_detail, requires_debug_ranges,
                           gc_collect)
 from test.support.script_helper import assert_python_ok
 from test.support import threading_helper
@@ -165,9 +166,8 @@ def consts(t):
 def dump(co):
     """Print out a text representation of a code object."""
     for attr in ["name", "argcount", "posonlyargcount",
-                 "kwonlyargcount", "names", "varnames",]:
-                # TODO: RUSTPYTHON
-                # "cellvars","freevars", "nlocals", "flags"]:
+                 "kwonlyargcount", "names", "varnames",
+                 "cellvars", "freevars", "nlocals", "flags"]:
         print("%s: %s" % (attr, getattr(co, "co_" + attr)))
     print("consts:", tuple(consts(co.co_consts)))
 
@@ -356,18 +356,6 @@ class CodeTest(unittest.TestCase):
             pass
         new_code = code = func.__code__.replace(co_linetable=b'')
         self.assertEqual(list(new_code.co_lines()), [])
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_invalid_bytecode(self):
-        def foo(): pass
-        foo.__code__ = co = foo.__code__.replace(co_code=b'\xee\x00d\x00S\x00')
-
-        with self.assertRaises(SystemError) as se:
-            foo()
-        self.assertEqual(
-            f"{co.co_filename}:{co.co_firstlineno}: unknown opcode 238",
-            str(se.exception))
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -717,6 +705,38 @@ class CodeLocationTest(unittest.TestCase):
         self.check_lines(misshappen)
         self.check_lines(bug93662)
 
+    @cpython_only
+    def test_code_new_empty(self):
+        # If this test fails, it means that the construction of PyCode_NewEmpty
+        # needs to be modified! Please update this test *and* PyCode_NewEmpty,
+        # so that they both stay in sync.
+        def f():
+            pass
+        PY_CODE_LOCATION_INFO_NO_COLUMNS = 13
+        f.__code__ = f.__code__.replace(
+            co_firstlineno=42,
+            co_code=bytes(
+                [
+                    dis.opmap["RESUME"], 0,
+                    dis.opmap["LOAD_ASSERTION_ERROR"], 0,
+                    dis.opmap["RAISE_VARARGS"], 1,
+                ]
+            ),
+            co_linetable=bytes(
+                [
+                    (1 << 7)
+                    | (PY_CODE_LOCATION_INFO_NO_COLUMNS << 3)
+                    | (3 - 1),
+                    0,
+                ]
+            ),
+        )
+        self.assertRaises(AssertionError, f)
+        self.assertEqual(
+            list(f.__code__.co_positions()),
+            3 * [(42, 42, None, None)],
+        )
+
 
 if check_impl_detail(cpython=True) and ctypes is not None:
     py = ctypes.pythonapi
@@ -810,6 +830,7 @@ if check_impl_detail(cpython=True) and ctypes is not None:
             tt.start()
             tt.join()
             self.assertEqual(LAST_FREED, 500)
+
 
 def load_tests(loader, tests, pattern):
     tests.addTest(doctest.DocTestSuite())
