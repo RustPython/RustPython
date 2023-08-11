@@ -231,7 +231,8 @@ impl VirtualMachine {
             } else {
                 "Could not import encodings. Try adding your path to Setting struct's path_list field. If you don't have \
                     access to a consistent external environment (e.g. if you're embedding \
-                    rustpython in another application), try enabling the freeze-stdlib feature".to_owned()
+                    rustpython in another application), try enabling the freeze-stdlib feature"
+                    .to_owned()
             };
 
             let err = self.new_runtime_error(msg);
