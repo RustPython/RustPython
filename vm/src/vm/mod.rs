@@ -224,7 +224,7 @@ impl VirtualMachine {
     fn import_encodings(&mut self) -> PyResult<()> {
         self.import("encodings", None, 0).map_err(|import_err| {
             let err = self.new_runtime_error(
-                "Could not import encodings. Is your RUSTPYTHONPATH set? If you don't have \
+                "Could not import encodings. Is your RUSTPYTHONPATH set? You can also try adding your path to Setting struct's field path_list. If you don't have \
                     access to a consistent external environment (e.g. if you're embedding \
                     rustpython in another application), try enabling the freeze-stdlib feature"
                     .to_owned(),
