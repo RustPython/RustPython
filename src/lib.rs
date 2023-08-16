@@ -63,6 +63,13 @@ pub use settings::{opts_with_clap, RunMode};
 pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     env_logger::init();
 
+    #[cfg(target_os = "wasi")]
+    {
+        if let Ok(pwd) = env::var("PWD") {
+            let _ = env::set_current_dir(pwd);
+        };
+    }
+
     let (settings, run_mode) = opts_with_clap();
 
     // Be quiet if "quiet" arg is set OR stdin is not connected to a terminal
