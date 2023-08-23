@@ -63,6 +63,7 @@ pub use settings::{opts_with_clap, RunMode};
 pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     env_logger::init();
 
+    // NOTE: This is not a WASI convention. But it will be convenient since POSIX shell always defines it.
     #[cfg(target_os = "wasi")]
     {
         if let Ok(pwd) = env::var("PWD") {
