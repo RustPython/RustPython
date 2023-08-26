@@ -636,11 +636,19 @@ mod _ssl {
                 );
             }
 
+            #[cold]
+            fn invalid_cadata(vm: &VirtualMachine) -> PyBaseExceptionRef {
+                vm.new_type_error(
+                    "cadata should be an ASCII string or a bytes-like object".to_owned(),
+                )
+            }
+
+            // validate cadata type and load cadata
             if let Some(cadata) = args.cadata {
                 let certs = match cadata {
                     Either::A(s) => {
                         if !s.is_ascii() {
-                            return Err(vm.new_type_error("Must be an ascii string".to_owned()));
+                            return Err(invalid_cadata(vm));
                         }
                         X509::stack_from_pem(s.as_str().as_bytes())
                     }
@@ -1191,6 +1199,7 @@ mod _ssl {
         vm.new_exception_msg(cls, msg.to_owned())
     }
 
+    // SSL_FILETYPE_ASN1 part of _add_ca_certs in CPython
     fn x509_stack_from_der(der: &[u8]) -> Result<Vec<X509>, ErrorStack> {
         unsafe {
             openssl::init();
@@ -1198,20 +1207,25 @@ mod _ssl {
 
             let mut certs = vec![];
             loop {
-                let r = sys::d2i_X509_bio(bio.as_ptr(), std::ptr::null_mut());
-                if r.is_null() {
-                    let err = sys::ERR_peek_last_error();
-                    if sys::ERR_GET_LIB(err) == sys::ERR_LIB_ASN1
-                        && sys::ERR_GET_REASON(err) == sys::ASN1_R_HEADER_TOO_LONG
-                    {
-                        sys::ERR_clear_error();
-                        break;
-                    }
-
-                    return Err(ErrorStack::get());
-                } else {
-                    certs.push(X509::from_ptr(r));
+                let cert = sys::d2i_X509_bio(bio.as_ptr(), std::ptr::null_mut());
+                if cert.is_null() {
+                    break;
                 }
+                certs.push(X509::from_ptr(cert));
+            }
+
+            let err = sys::ERR_peek_last_error();
+
+            if certs.is_empty() {
+                // let msg = if filetype == sys::SSL_FILETYPE_PEM {
+                //     "no start line: cadata does not contain a certificate"
+                // } else {
+                //     "not enough data: cadata does not contain a certificate"
+                // };
+                return Err(ErrorStack::get());
+            }
+            if err != 0 {
+                return Err(ErrorStack::get());
             }
 
             Ok(certs)
