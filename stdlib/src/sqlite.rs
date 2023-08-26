@@ -99,8 +99,11 @@ mod _sqlite {
                 )*
                 fn setup_module_exceptions(module: &PyObject, vm: &VirtualMachine) {
                     $(
-                        let exception = [<$x:snake:upper>].get_or_init(
-                            || vm.ctx.new_exception_type("_sqlite3", stringify!($x), Some(vec![$base(vm).to_owned()])));
+                        #[allow(clippy::redundant_closure_call)]
+                        let exception = [<$x:snake:upper>].get_or_init(|| {
+                            let base = $base(vm);
+                            vm.ctx.new_exception_type("_sqlite3", stringify!($x), Some(vec![base.to_owned()]))
+                        });
                         module.set_attr(stringify!($x), exception.clone().into_object(), vm).unwrap();
                     )*
                 }
@@ -455,7 +458,9 @@ mod _sqlite {
             let context = SqliteContext::from(context);
             let (_, vm) = (*context.user_data::<Self>()).retrieve();
             let instance = context.aggregate_context::<*const PyObject>();
-            let Some(instance) = (*instance).as_ref() else { return; };
+            let Some(instance) = (*instance).as_ref() else {
+                return;
+            };
 
             Self::callback_result_from_method(context, instance, "finalize", vm);
         }
@@ -895,7 +900,7 @@ mod _sqlite {
                 let cursor = cursor.downcast::<Cursor>().map_err(|x| {
                     vm.new_type_error(format!("factory must return a cursor, not {}", x.class()))
                 })?;
-                unsafe { cursor.row_factory.swap(zelf.row_factory.to_owned()) };
+                let _ = unsafe { cursor.row_factory.swap(zelf.row_factory.to_owned()) };
                 cursor
             } else {
                 let row_factory = zelf.row_factory.to_owned();
@@ -1077,7 +1082,17 @@ mod _sqlite {
             };
             let db = self.db_lock(vm)?;
             let Some(data) = CallbackData::new(args.func, vm) else {
-                return db.create_function(name.as_ptr(), args.narg, flags, null_mut(), None, None, None, None, vm);
+                return db.create_function(
+                    name.as_ptr(),
+                    args.narg,
+                    flags,
+                    null_mut(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    vm,
+                );
             };
 
             db.create_function(
@@ -1098,7 +1113,17 @@ mod _sqlite {
             let name = args.name.to_cstring(vm)?;
             let db = self.db_lock(vm)?;
             let Some(data) = CallbackData::new(args.aggregate_class, vm) else {
-                return db.create_function(name.as_ptr(), args.narg, SQLITE_UTF8, null_mut(), None, None, None, None, vm);
+                return db.create_function(
+                    name.as_ptr(),
+                    args.narg,
+                    SQLITE_UTF8,
+                    null_mut(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    vm,
+                );
             };
 
             db.create_function(
@@ -1125,7 +1150,14 @@ mod _sqlite {
             let db = self.db_lock(vm)?;
             let Some(data) = CallbackData::new(callable.clone(), vm) else {
                 unsafe {
-                    sqlite3_create_collation_v2(db.db, name.as_ptr(), SQLITE_UTF8, null_mut(), None, None);
+                    sqlite3_create_collation_v2(
+                        db.db,
+                        name.as_ptr(),
+                        SQLITE_UTF8,
+                        null_mut(),
+                        None,
+                        None,
+                    );
                 }
                 return Ok(());
             };
@@ -1149,7 +1181,7 @@ mod _sqlite {
             // TODO: replace with Result.inspect_err when stable
             if let Err(exc) = db.check(ret, vm) {
                 // create_collation do not call destructor if error occur
-                unsafe { Box::from_raw(data) };
+                let _ = unsafe { Box::from_raw(data) };
                 Err(exc)
             } else {
                 Ok(())
@@ -1168,7 +1200,18 @@ mod _sqlite {
             let db = self.db_lock(vm)?;
             let Some(data) = CallbackData::new(aggregate_class, vm) else {
                 unsafe {
-                    sqlite3_create_window_function(db.db, name.as_ptr(), narg, SQLITE_UTF8, null_mut(), None, None, None, None, None)
+                    sqlite3_create_window_function(
+                        db.db,
+                        name.as_ptr(),
+                        narg,
+                        SQLITE_UTF8,
+                        null_mut(),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
                 };
                 return Ok(());
             };
@@ -1214,10 +1257,8 @@ mod _sqlite {
         #[pymethod]
         fn set_trace_callback(&self, callable: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
-            let Some(data )= CallbackData::new(callable, vm) else {
-                unsafe {
-                    sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT as u32, None, null_mut())
-                };
+            let Some(data) = CallbackData::new(callable, vm) else {
+                unsafe { sqlite3_trace_v2(db.db, SQLITE_TRACE_STMT as u32, None, null_mut()) };
                 return Ok(());
             };
 
@@ -1241,7 +1282,7 @@ mod _sqlite {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let db = self.db_lock(vm)?;
-            let Some(data )= CallbackData::new(callable, vm) else {
+            let Some(data) = CallbackData::new(callable, vm) else {
                 unsafe { sqlite3_progress_handler(db.db, n, None, null_mut()) };
                 return Ok(());
             };
@@ -1310,7 +1351,7 @@ mod _sqlite {
             if let Some(val) = &val {
                 begin_statement_ptr_from_isolation_level(val, vm)?;
             }
-            unsafe { self.isolation_level.swap(val) };
+            let _ = unsafe { self.isolation_level.swap(val) };
             Ok(())
         }
 
@@ -1320,7 +1361,7 @@ mod _sqlite {
         }
         #[pygetset(setter)]
         fn set_text_factory(&self, val: PyObjectRef) {
-            unsafe { self.text_factory.swap(val) };
+            let _ = unsafe { self.text_factory.swap(val) };
         }
 
         #[pygetset]
@@ -1329,7 +1370,7 @@ mod _sqlite {
         }
         #[pygetset(setter)]
         fn set_row_factory(&self, val: Option<PyObjectRef>) {
-            unsafe { self.row_factory.swap(val) };
+            let _ = unsafe { self.row_factory.swap(val) };
         }
 
         fn check_thread(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -1841,7 +1882,9 @@ mod _sqlite {
             } else if let Some(name) = needle.payload::<PyStr>() {
                 for (obj, i) in self.description.iter().zip(0..) {
                     let obj = &obj.payload::<PyTuple>().unwrap().as_slice()[0];
-                    let Some(obj) = obj.payload::<PyStr>() else { break; };
+                    let Some(obj) = obj.payload::<PyStr>() else {
+                        break;
+                    };
                     let a_iter = name.as_str().chars().flat_map(|x| x.to_uppercase());
                     let b_iter = obj.as_str().chars().flat_map(|x| x.to_uppercase());
 
@@ -2153,7 +2196,10 @@ mod _sqlite {
 
             if let Some(index) = needle.try_index_opt(vm) {
                 let Some(value) = value.payload::<PyInt>() else {
-                    return Err(vm.new_type_error(format!("'{}' object cannot be interpreted as an integer", value.class())));
+                    return Err(vm.new_type_error(format!(
+                        "'{}' object cannot be interpreted as an integer",
+                        value.class()
+                    )));
                 };
                 let value = value.try_to_primitive::<u8>(vm)?;
                 let blob_len = inner.blob.bytes();

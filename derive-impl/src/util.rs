@@ -167,9 +167,16 @@ impl ItemMetaInner {
     pub fn _optional_str(&self, key: &str) -> Result<Option<String>> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             let Meta::NameValue(syn::MetaNameValue {
-                lit: syn::Lit::Str(lit), ..
-            }) = meta else {
-                bail_span!(meta, "#[{}({} = ...)] must exist as a string", self.meta_name(), key)
+                lit: syn::Lit::Str(lit),
+                ..
+            }) = meta
+            else {
+                bail_span!(
+                    meta,
+                    "#[{}({} = ...)] must exist as a string",
+                    self.meta_name(),
+                    key
+                )
             };
             Some(lit.value())
         } else {
@@ -203,7 +210,10 @@ impl ItemMetaInner {
         key: &str,
     ) -> Result<Option<impl std::iter::Iterator<Item = &'_ NestedMeta>>> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
-            let Meta::List(syn::MetaList { path: _, nested, .. }) = meta else {
+            let Meta::List(syn::MetaList {
+                path: _, nested, ..
+            }) = meta
+            else {
                 bail_span!(meta, "#[{}({}(...))] must be a list", self.meta_name(), key)
             };
             Some(nested.into_iter())
@@ -445,11 +455,11 @@ impl ExceptionItemMeta {
                     return Ok({
                         let type_name = inner.item_name();
                         let Some(py_name) = type_name.as_str().strip_prefix("Py") else {
-                        bail_span!(
+                            bail_span!(
                             inner.item_ident,
                             "#[pyexception] expects its underlying type to be named `Py` prefixed"
                         )
-                    };
+                        };
                         py_name.to_string()
                     })
                 }

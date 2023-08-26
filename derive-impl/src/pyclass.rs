@@ -1327,7 +1327,10 @@ impl ItemMeta for SlotItemMeta {
             Some(HashMap::default())
         };
         let (Some(meta_map), None) = (meta_map, nested.next()) else {
-            bail_span!(meta_ident, "#[pyslot] must be of the form #[pyslot] or #[pyslot(slot_name)]")
+            bail_span!(
+                meta_ident,
+                "#[pyslot] must be of the form #[pyslot] or #[pyslot(slot_name)]"
+            )
         };
         Ok(Self::from_inner(ItemMetaInner {
             item_ident,
