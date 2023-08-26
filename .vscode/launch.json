@@ -8,13 +8,19 @@
             "type": "lldb",
             "request": "launch",
             "name": "Debug executable 'rustpython'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--package=rustpython"
-                ],
-            },
             "preLaunchTask": "Build RustPython Debug",
+            "program": "target/debug/rustpython",
+            "args": [],
+            "env": {
+                "RUST_BACKTRACE": "1"
+            },
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'rustpython' without SSL",
+            "preLaunchTask": "Build RustPython Debug without SSL",
             "program": "target/debug/rustpython",
             "args": [],
             "env": {
