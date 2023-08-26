@@ -484,7 +484,9 @@ impl Write for Vec<u8> {
 }
 
 pub(crate) fn write_len<W: Write>(buf: &mut W, len: usize) {
-    let Ok(len) = len.try_into() else { panic!("too long to serialize") };
+    let Ok(len) = len.try_into() else {
+        panic!("too long to serialize")
+    };
     buf.write_u32(len);
 }
 

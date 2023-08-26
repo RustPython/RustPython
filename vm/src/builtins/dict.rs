@@ -784,6 +784,7 @@ macro_rules! dict_view {
                 &self.dict
             }
             fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef {
+                #[allow(clippy::redundant_closure_call)]
                 $result_fn(vm, key, value)
             }
             fn reversed(&self) -> Self::ReverseIter {

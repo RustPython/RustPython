@@ -15,7 +15,6 @@ pub use argument::{
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
-pub(self) use builtin::{BorrowedParam, OwnedParam, RefParam};
 pub use builtin::{IntoPyNativeFn, PyNativeFn};
 pub use either::Either;
 pub use fspath::FsPath;
@@ -26,6 +25,7 @@ pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimiti
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 
 use crate::{builtins::PyStr, convert::TryFromBorrowedObject, PyObject, PyResult, VirtualMachine};
+use builtin::{BorrowedParam, OwnedParam, RefParam};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ArgByteOrder {

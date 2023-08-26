@@ -287,7 +287,7 @@ impl PyRange {
 
     #[pymethod(magic)]
     fn reduce(&self, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
-        let range_parameters: Vec<PyObjectRef> = vec![&self.start, &self.stop, &self.step]
+        let range_parameters: Vec<PyObjectRef> = [&self.start, &self.stop, &self.step]
             .iter()
             .map(|x| x.as_object().to_owned())
             .collect();

@@ -1112,6 +1112,8 @@ macro_rules! partially_init {
         Uninit { $($uninit_field:ident),*$(,)? }$(,)?
     ) => {{
         // check all the fields are there but *don't* actually run it
+
+        #[allow(clippy::diverging_sub_expression)]  // FIXME: better way than using `if false`?
         if false {
             #[allow(invalid_value, dead_code, unreachable_code)]
             let _ = {$ty {
@@ -1185,10 +1187,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             Uninit { typ },
         )));
 
-        let object_type_ptr =
-            object_type_ptr as *mut MaybeUninit<PyInner<PyType>> as *mut PyInner<PyType>;
-        let type_type_ptr =
-            type_type_ptr as *mut MaybeUninit<PyInner<PyType>> as *mut PyInner<PyType>;
+        let object_type_ptr = object_type_ptr as *mut PyInner<PyType>;
+        let type_type_ptr = type_type_ptr as *mut PyInner<PyType>;
 
         unsafe {
             (*type_type_ptr).ref_count.inc();

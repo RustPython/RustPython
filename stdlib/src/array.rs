@@ -1484,14 +1484,14 @@ mod array {
                 _ => false,
             };
             match code {
-                0 | 1 => Ok(Self::Int8 { signed }),
-                2 | 3 | 4 | 5 => Ok(Self::Int16 { signed, big_endian }),
-                6 | 7 | 8 | 9 => Ok(Self::Int32 { signed, big_endian }),
-                10 | 11 | 12 | 13 => Ok(Self::Int64 { signed, big_endian }),
-                14 | 15 => Ok(Self::Ieee754Float { big_endian }),
-                16 | 17 => Ok(Self::Ieee754Double { big_endian }),
-                18 | 19 => Ok(Self::Utf16 { big_endian }),
-                20 | 21 => Ok(Self::Utf32 { big_endian }),
+                0..=1 => Ok(Self::Int8 { signed }),
+                2..=5 => Ok(Self::Int16 { signed, big_endian }),
+                6..=9 => Ok(Self::Int32 { signed, big_endian }),
+                10..=13 => Ok(Self::Int64 { signed, big_endian }),
+                14..=15 => Ok(Self::Ieee754Float { big_endian }),
+                16..=17 => Ok(Self::Ieee754Double { big_endian }),
+                18..=19 => Ok(Self::Utf16 { big_endian }),
+                20..=21 => Ok(Self::Utf32 { big_endian }),
                 _ => Err(code),
             }
         }

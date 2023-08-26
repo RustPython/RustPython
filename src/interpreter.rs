@@ -66,6 +66,6 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
                 .push(rustpython_pylib::LIB_PATH.to_owned())
         }
 
-        settings.path_list.extend(path_list.into_iter());
+        settings.path_list.extend(path_list);
     }
 }

@@ -935,7 +935,7 @@ mod _socket {
                         ))
                     })?;
                     match tuple.len() {
-                        2 | 3 | 4 => {}
+                        2..=4 => {}
                         _ => return Err(vm.new_type_error(
                             "AF_INET6 address must be a tuple (host, port[, flowinfo[, scopeid]])"
                                 .to_owned(),
@@ -1914,7 +1914,7 @@ mod _socket {
         vm: &VirtualMachine,
     ) -> Result<(String, String), IoOrPyException> {
         match address.len() {
-            2 | 3 | 4 => {}
+            2..=4 => {}
             _ => {
                 return Err(vm
                     .new_type_error("illegal sockaddr argument".to_owned())

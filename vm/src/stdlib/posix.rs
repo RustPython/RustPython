@@ -1343,7 +1343,7 @@ pub mod module {
             .to_vec();
 
         keys.into_iter()
-            .zip(values.into_iter())
+            .zip(values)
             .map(|(k, v)| {
                 let k = OsPath::try_from_object(vm, k)?.into_bytes();
                 let v = OsPath::try_from_object(vm, v)?.into_bytes();
