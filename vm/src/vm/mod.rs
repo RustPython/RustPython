@@ -223,12 +223,19 @@ impl VirtualMachine {
     #[cfg(feature = "encodings")]
     fn import_encodings(&mut self) -> PyResult<()> {
         self.import("encodings", None, 0).map_err(|import_err| {
-            let err = self.new_runtime_error(
-                "Could not import encodings. Is your RUSTPYTHONPATH set? If you don't have \
+            let msg = if !self.state.settings.path_list.iter().any(|s| s == "PYTHONPATH" || s == "RUSTPYTHONPATH"){
+                "Could not import encodings. Is your RUSTPYTHONPATH or PYTHONPATH set? If you don't have \
                     access to a consistent external environment (e.g. if you're embedding \
                     rustpython in another application), try enabling the freeze-stdlib feature"
-                    .to_owned(),
-            );
+                    .to_owned()
+            } else {
+                "Could not import encodings. Try adding your path to Setting struct's path_list field. If you don't have \
+                    access to a consistent external environment (e.g. if you're embedding \
+                    rustpython in another application), try enabling the freeze-stdlib feature"
+                    .to_owned()
+            };
+
+            let err = self.new_runtime_error(msg);
             err.set_cause(Some(import_err));
             err
         })?;
