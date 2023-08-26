@@ -2,7 +2,7 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build RustPython Debug",
+            "label": "Build RustPython Debug without SSL",
             "type": "shell",
             "command": "cargo",
             "args": [
@@ -15,6 +15,22 @@
                 "kind": "build",
                 "isDefault": true,
             },
-        }
+        },
+        {
+            "label": "Build RustPython Debug",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build",
+                "--features=ssl"
+            ],
+            "problemMatcher": [
+                "$rustc",
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true,
+            },
+        },
     ],
 }
