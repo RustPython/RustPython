@@ -223,17 +223,29 @@ impl VirtualMachine {
     #[cfg(feature = "encodings")]
     fn import_encodings(&mut self) -> PyResult<()> {
         self.import("encodings", None, 0).map_err(|import_err| {
-            let msg = if !self.state.settings.path_list.iter().any(|s| s == "PYTHONPATH" || s == "RUSTPYTHONPATH"){
-                "Could not import encodings. Is your RUSTPYTHONPATH or PYTHONPATH set? If you don't have \
-                    access to a consistent external environment (e.g. if you're embedding \
-                    rustpython in another application), try enabling the freeze-stdlib feature"
-                    .to_owned()
+            let rustpythonpath_env = std::env::var("RUSTPYTHONPATH").ok();
+            let pythonpath_env = std::env::var("PYTHONPATH").ok();
+            let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
+            let path_contains_env = self.state.settings.path_list.iter().any(|s| {
+                Some(s.as_str()) == rustpythonpath_env.as_deref() || Some(s.as_str()) == pythonpath_env.as_deref()
+            });
+
+            let guide_message = if !env_set {
+                "Neither RUSTPYTHONPATH nor PYTHONPATH is set. Try setting one of them to the stdlib directory."
+            } else if path_contains_env {
+                "RUSTPYTHONPATH or PYTHONPATH is set, but it doesn't contain encodings library. If you are going to customize RustPython vm/interpreter, try adding it to the path. If you are developing RustPython interpreter, it might be a bug during development."
             } else {
-                "Could not import encodings. Try adding your path to Setting struct's path_list field. If you don't have \
-                    access to a consistent external environment (e.g. if you're embedding \
-                    rustpython in another application), try enabling the freeze-stdlib feature"
-                    .to_owned()
+                "RUSTPYTHONPATH or PYTHONPATH is set, but it wasn't loaded to `Settings::path_list`. If you are going to customize RustPython vm/interpreter, those environment variables are not loaded to Settings by default. Please try it yourself. If you are developing RustPython interpreter, it might be a bug during development."
             };
+
+            let msg = format!(
+                "Could not import encodings. It usually means something goes wrong. Please carefully read messages and follow the steps.\n\
+                \n\
+                {guide_message}\n\
+                If you don't have access to a consistent external environment (e.g. targeting wasm, embedding \
+                    rustpython in another application), try enabling the freeze-stdlib feature.\n\
+                If this is intended and you want to exclude encodings library from your interpreter, please remove `encodings` feature from `rustpython-vm` crate."
+            );
 
             let err = self.new_runtime_error(msg);
             err.set_cause(Some(import_err));
