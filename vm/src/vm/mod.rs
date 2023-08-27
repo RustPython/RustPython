@@ -334,9 +334,13 @@ impl VirtualMachine {
         }
 
         #[cfg(feature = "encodings")]
-        if let Err(e) = self.import_encodings() {
-            eprintln!("encodings initialization failed. Only utf-8 encoding will be supported.");
-            self.print_exception(e);
+        if !self.state.settings.path_list.is_empty() {
+            if let Err(e) = self.import_encodings() {
+                eprintln!(
+                    "encodings initialization failed. Only utf-8 encoding will be supported."
+                );
+                self.print_exception(e);
+            }
         }
 
         self.initialized = true;
