@@ -265,9 +265,6 @@ impl VirtualMachine {
             panic!("Double Initialize Error");
         }
 
-        // add the current directory to sys.path
-        self.state_mut().settings.path_list.insert(0, "".to_owned());
-
         stdlib::builtins::init_module(self, &self.builtins);
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
 

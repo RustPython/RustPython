@@ -89,10 +89,9 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn with_path(path: String) -> Self {
-        let mut settings = Self::default();
-        settings.path_list.push(path);
-        settings
+    pub fn with_path(mut self, path: String) -> Self {
+        self.path_list.push(path);
+        self
     }
 }
 

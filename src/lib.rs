@@ -89,6 +89,8 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
         }
     }
 
+    // add current working directory to sys.path
+    let settings = settings.with_path("".to_owned());
     let mut config = InterpreterConfig::new().settings(settings);
     #[cfg(feature = "stdlib")]
     {
