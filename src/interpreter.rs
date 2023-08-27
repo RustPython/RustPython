@@ -2,6 +2,35 @@ use rustpython_vm::{Interpreter, Settings, VirtualMachine};
 
 pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 
+/// The convenient way to create `rustpython_vm::Interpreter` with stdlib and other stuffs.
+///
+/// Basic usage:
+/// ```
+/// let interpreter = rustpython::InterpreterConfig::new()
+///     .init_stdlib()
+///     .interpreter();
+/// ```
+///
+/// Overriding Settings:
+/// ```
+/// let settings = Settings::Default();  // override your settings here
+/// let interpreter = rustpython::InterpreterConfig::new()
+///     .settings(settings)
+///     .interpreter();
+/// ```
+///
+/// Add native modules:
+/// ```no_run
+/// let interpreter = rustpython::InterpreterConfig::new()
+///     .init_stdlib()
+///     .init_hook(Box::new(|vm| {
+///         vm.add_native_module(
+///             "your_module_name".to_owned(),
+///             Box::new(your_module::make_module),
+///         );
+///     }))
+///     .interpreter();
+/// ```
 #[derive(Default)]
 pub struct InterpreterConfig {
     settings: Option<Settings>,

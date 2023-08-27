@@ -28,7 +28,10 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    /// To create with stdlib, use `with_init`
+    /// This is bare unit to build up interpreters without stdlib.
+    /// To create an interpreter with stdlib with `rustpython` crate, use `rustpython::InterpreterConfig`.
+    /// To create an interpreter without `rustpython` crate, but only with `rustpython-vm`,
+    /// try to build one from the source code of `InterpreterConfig`. It will not be one-liner but also not too hard.
     pub fn without_stdlib(settings: Settings) -> Self {
         Self::with_init(settings, |_| {})
     }
