@@ -114,8 +114,8 @@ def __get_builtin_constructor(name):
             cache['shake_128'] = _sha3.shake_128
             cache['shake_256'] = _sha3.shake_256
     except ImportError:
-        pass  # no extension module, this hash is unsupported.'''
-    
+        pass  # no extension module, this hash is unsupported.
+
     constructor = cache.get(name)
     if constructor is not None:
         return constructor
