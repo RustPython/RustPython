@@ -50,8 +50,7 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
         let state = PyRc::get_mut(&mut vm.state).unwrap();
         let settings = &mut state.settings;
 
-        #[allow(clippy::needless_collect)] // false positive
-        let path_list: Vec<_> = settings.path_list.drain(..).collect();
+        let path_list = std::mem::take(&mut settings.path_list);
 
         // BUILDTIME_RUSTPYTHONPATH should be set when distributing
         if let Some(paths) = option_env!("BUILDTIME_RUSTPYTHONPATH") {
