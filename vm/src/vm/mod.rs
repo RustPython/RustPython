@@ -334,13 +334,21 @@ impl VirtualMachine {
         }
 
         #[cfg(feature = "encodings")]
-        if !self.state.settings.path_list.is_empty() {
+        if cfg!(feature = "freeze-stdlib") || !self.state.settings.path_list.is_empty() {
             if let Err(e) = self.import_encodings() {
                 eprintln!(
                     "encodings initialization failed. Only utf-8 encoding will be supported."
                 );
                 self.print_exception(e);
             }
+        } else {
+            // Here may not be the best place to give general `path_list` advice,
+            // but bare rustpython_vm::VirtualMachine users skipped proper settings must hit here while properly setup vm never enters here.
+            eprintln!(
+                "feature `encodings` is enabled but `settings.path_list` is empty. This is likely a user-side bug. \
+                Please add library path to `settings.path_list`. If you intended to disable stdlib including `encodings`, please also disable `encodings` feature.\n\
+                Tip: You may also want to add `\"\"` to `settings.path_list` to enable importing from current working directory."
+            );
         }
 
         self.initialized = true;
