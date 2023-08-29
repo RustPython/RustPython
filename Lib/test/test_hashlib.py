@@ -400,9 +400,6 @@ class HashLibTestCase(unittest.TestCase):
             for digest in digests:
                 buf = io.BytesIO(data)
                 buf.seek(0)
-                '''self.assertEqual(
-                    dir(hashlib), None
-                )'''
                 self.assertEqual(
                     hashlib.file_digest(buf, digest).hexdigest(), hexdigest
                 )
