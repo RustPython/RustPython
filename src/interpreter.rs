@@ -13,13 +13,16 @@ pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 ///
 /// Overriding Settings:
 /// ```
-/// let settings = Settings::Default();  // override your settings here
+/// let settings = Settings {
+///     debug: true,
+///     ..Settings::Default()
+/// };
 /// let interpreter = rustpython::InterpreterConfig::new()
 ///     .settings(settings)
 ///     .interpreter();
 /// ```
 ///
-/// Add native modules:
+/// To add native modules:
 /// ```no_run
 /// let interpreter = rustpython::InterpreterConfig::new()
 ///     .init_stdlib()
