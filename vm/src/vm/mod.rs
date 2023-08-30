@@ -345,9 +345,9 @@ impl VirtualMachine {
             // Here may not be the best place to give general `path_list` advice,
             // but bare rustpython_vm::VirtualMachine users skipped proper settings must hit here while properly setup vm never enters here.
             eprintln!(
-                "feature `encodings` is enabled but `settings.path_list` is empty. This is likely a user-side bug. \
-                Please add library path to `settings.path_list`. If you intended to disable stdlib including `encodings`, please also disable `encodings` feature.\n\
-                Tip: You may also want to add `\"\"` to `settings.path_list` to enable importing from current working directory."
+                "feature `encodings` is enabled but `settings.path_list` is empty. \
+                Please add the library path to `settings.path_list`. If you intended to disable the entire standard library (including the `encodings` feature), please also make sure to disable the `encodings` feature.\n\
+                Tip: You may also want to add `\"\"` to `settings.path_list` in order to enable importing from the current working directory."
             );
         }
 
