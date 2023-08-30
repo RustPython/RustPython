@@ -1,8 +1,10 @@
 [package]
 name = "rustpython-compiler"
-version = "0.2.0"
+version = "0.3.0"
 description = "A usability wrapper around rustpython-parser and rustpython-compiler-core"
 authors = ["RustPython Team"]
+repository = "https://github.com/RustPython/RustPython"
+license = "MIT"
 edition = "2021"
 
 [dependencies]

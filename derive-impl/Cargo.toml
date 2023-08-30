@@ -1,6 +1,10 @@
 [package]
 name = "rustpython-derive-impl"
-version = "0.2.0"
+version = "0.3.0"
+description = "Rust language extensions and macros specific to rustpython."
+authors = ["RustPython Team"]
+repository = "https://github.com/RustPython/RustPython"
+license = "MIT"
 edition = "2021"
 
 [dependencies]
