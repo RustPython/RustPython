@@ -513,8 +513,6 @@ class TestSupport(unittest.TestCase):
         self.assertEqual(proc.stdout.rstrip(), repr(expected))
         self.assertEqual(proc.returncode, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_args_from_interpreter_flags(self):
         # Test test.support.args_from_interpreter_flags()
         for opts in (

@@ -754,7 +754,7 @@ mod sys {
                 dev_mode: settings.dev_mode,
                 utf8_mode: settings.utf8_mode,
                 int_max_str_digits: settings.int_max_str_digits,
-                safe_path: false,
+                safe_path: settings.safe_path,
                 warn_default_encoding: settings.warn_default_encoding as u8,
             }
         }

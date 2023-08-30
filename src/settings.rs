@@ -101,6 +101,11 @@ fn parse_arguments<'a>(app: App<'a, '_>) -> ArgMatches<'a> {
                 .help("don't write .pyc files on import"),
         )
         .arg(
+            Arg::with_name("safe-path")
+                .short("P")
+                .help("don’t prepend a potentially unsafe path to sys.path"),
+        )
+        .arg(
             Arg::with_name("ignore-environment")
                 .short("E")
                 .help("Ignore environment variables PYTHON* such as PYTHONPATH"),
@@ -235,6 +240,12 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
                 std::process::exit(1);
             }
         };
+    }
+
+    if matches.is_present("safe-path")
+        || (!ignore_environment && env::var_os("PYTHONSAFEPATH").is_some())
+    {
+        settings.safe_path = true;
     }
 
     settings.check_hash_based_pycs = matches
