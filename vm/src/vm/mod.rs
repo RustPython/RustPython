@@ -244,11 +244,13 @@ impl VirtualMachine {
 
     fn import_utf8_encodings(&mut self) -> PyResult<()> {
         import::import_frozen(self, "codecs")?;
-        let encoding_module_name = if cfg!(feature = "freeze-stdlib") {
-            "encodings.utf_8"
-        } else {
-            "encodings_utf_8"
-        };
+        // FIXME: See corresponding part of `core_frozen_inits`
+        // let encoding_module_name = if cfg!(feature = "freeze-stdlib") {
+        //     "encodings.utf_8"
+        // } else {
+        //     "encodings_utf_8"
+        // };
+        let encoding_module_name = "encodings_utf_8";
         let encoding_module = import::import_frozen(self, encoding_module_name)?;
         let getregentry = encoding_module.get_attr("getregentry", self)?;
         let codec_info = getregentry.call((), self)?;
@@ -875,7 +877,9 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
 
     // core stdlib Python modules that the vm calls into, but are still used in Python
     // application code, e.g. copyreg
-    #[cfg(not(feature = "freeze-stdlib"))]
+    // FIXME: Initializing core_modules here results duplicated frozen module generation for core_modules.
+    // We need a way to initialize this modules for both `Interpreter::without_stdlib()` and `InterpreterConfig::new().init_stdlib().interpreter()`
+    // #[cfg(not(feature = "freeze-stdlib"))]
     ext_modules!(
         iter,
         dir = "./Lib/core_modules",

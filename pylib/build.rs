@@ -1,11 +1,14 @@
 fn main() {
-    process_python_libs("../Lib/python_builtins/*");
+    process_python_libs("../vm/Lib/python_builtins/*");
 
     #[cfg(not(feature = "stdlib"))]
-    process_python_libs("../Lib/core_modules/*");
-
-    #[cfg(feature = "stdlib")]
-    process_python_libs("../../Lib/**/*");
+    process_python_libs("../vm/Lib/core_modules/*");
+    #[cfg(feature = "freeze-stdlib")]
+    if cfg!(windows) {
+        process_python_libs("../Lib/**/*");
+    } else {
+        process_python_libs("./Lib/**/*");
+    }
 
     if cfg!(windows) {
         if let Ok(real_path) = std::fs::read_to_string("Lib") {
