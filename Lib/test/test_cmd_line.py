@@ -1008,26 +1008,6 @@ class IgnoreEnvironmentTest(unittest.TestCase):
             PYTHONSAFEPATH="1",
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_pythonsafepath_env(self):
-        # Test the PYTHONSAFEPATH environment variable
-        code = "import sys; print(sys.flags.safe_path)"
-        env = dict(os.environ)
-        env.pop('PYTHONSAFEPATH', None)
-        args = (sys.executable, '-P', code)
-
-        proc = subprocess.run(args, stdout=subprocess.PIPE,
-                              universal_newlines=True, env=env)
-        self.assertEqual(proc.stdout.rstrip(), 'False')
-        self.assertEqual(proc.returncode, 0, proc)
-
-        env['PYTHONSAFEPATH'] = '1'
-        proc = subprocess.run(args, stdout=subprocess.PIPE,
-                              universal_newlines=True, env=env)
-        self.assertEqual(proc.stdout.rstrip(), 'True')
-        self.assertEqual(proc.returncode, 0, proc)
-
 class SyntaxErrorTests(unittest.TestCase):
     def check_string(self, code):
         proc = subprocess.run([sys.executable, "-"], input=code,

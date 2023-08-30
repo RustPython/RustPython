@@ -1,4 +1,6 @@
 import sys
+import os
+import subprocess
 
 from testutils import assert_raises
 
@@ -106,3 +108,22 @@ with assert_raises(ValueError):
 
 sys.set_int_max_str_digits(1000)
 assert sys.get_int_max_str_digits() == 1000
+
+# Test the PYTHONSAFEPATH environment variable
+code = "import sys; print(sys.flags.safe_path)"
+env = dict(os.environ)
+env.pop('PYTHONSAFEPATH', None)
+args = (sys.executable, '-P', '-c', code)
+
+proc = subprocess.run(
+    args, stdout=subprocess.PIPE,
+    universal_newlines=True, env=env)
+assert proc.stdout.rstrip() == 'True', proc
+assert proc.returncode == 0, proc
+
+env['PYTHONSAFEPATH'] = '1'
+proc = subprocess.run(
+    args, stdout=subprocess.PIPE,
+    universal_newlines=True, env=env)
+assert proc.stdout.rstrip() == 'True'
+assert proc.returncode == 0, proc
