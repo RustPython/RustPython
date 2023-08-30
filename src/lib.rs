@@ -165,8 +165,17 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResu
 
     let scope = setup_main_module(vm)?;
 
-    let site_result = vm.import("site", None, 0);
+    if !vm.state.settings.safe_path {
+        // TODO: The prepending path depends on running mode
+        // See https://docs.python.org/3/using/cmdline.html#cmdoption-P
+        vm.run_code_string(
+            vm.new_scope_with_builtins(),
+            "import sys; sys.path.insert(0, '')",
+            "<embedded>".to_owned(),
+        )?;
+    }
 
+    let site_result = vm.import("site", None, 0);
     if site_result.is_err() {
         warn!(
             "Failed to import site, consider adding the Lib directory to your RUSTPYTHONPATH \
