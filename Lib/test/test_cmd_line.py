@@ -1008,6 +1008,7 @@ class IgnoreEnvironmentTest(unittest.TestCase):
             PYTHONSAFEPATH="1",
         )
 
+
 class SyntaxErrorTests(unittest.TestCase):
     def check_string(self, code):
         proc = subprocess.run([sys.executable, "-"], input=code,
