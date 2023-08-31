@@ -71,9 +71,14 @@ mod sys {
     const PS1: &str = ">>>>> ";
     #[pyattr(name = "ps2")]
     const PS2: &str = "..... ";
+
     #[cfg(windows)]
     #[pyattr(name = "_vpath")]
     const VPATH: Option<&'static str> = None; // TODO: actual VPATH value
+
+    #[cfg(windows)]
+    #[pyattr(name = "dllhandle")]
+    const DLLHANDLE: usize = 0;
 
     #[pyattr]
     fn default_prefix(_vm: &VirtualMachine) -> &'static str {
