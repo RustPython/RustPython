@@ -154,6 +154,11 @@ mod _imp {
         // TODO:
     }
 
+    #[pyfunction]
+    fn _frozen_module_names(_code: PyObjectRef) {
+        // TODO:
+    }
+
     #[allow(clippy::type_complexity)]
     #[pyfunction]
     fn find_frozen(
