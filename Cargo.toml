@@ -80,10 +80,10 @@ unicode_names2 = { version = "0.6.0", git = "https://github.com/youknowone/unico
 widestring = "0.5.1"
 
 [features]
-default = ["threading", "stdlib", "zlib", "importlib", "encodings"]
+default = ["threading", "stdlib", "zlib", "importlib"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
-stdlib = ["rustpython-stdlib", "rustpython-pylib"]
+stdlib = ["rustpython-stdlib", "rustpython-pylib", "encodings"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
 jit = ["rustpython-vm/jit"]
