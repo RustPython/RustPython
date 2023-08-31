@@ -6,7 +6,7 @@ use rustpython_vm::{
     compiler::{self, CompileError, CompileErrorType},
     readline::{Readline, ReadlineResult},
     scope::Scope,
-    AsObject, PyResult, VirtualMachine,
+    version, AsObject, PyResult, VirtualMachine,
 };
 
 enum ShellExecResult {
@@ -92,6 +92,15 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     }
 
     let mut continuing = false;
+
+    println!(
+        "RustPython {}.{}.{}",
+        version::MAJOR,
+        version::MINOR,
+        version::MICRO,
+    );
+
+    println!("Type \"help\", \"copyright\", \"credits\" or \"license\" for more information.");
 
     loop {
         let prompt_name = if continuing { "ps2" } else { "ps1" };
