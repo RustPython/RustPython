@@ -155,8 +155,14 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn _frozen_module_names(_code: PyObjectRef) {
-        // TODO:
+    fn _frozen_module_names(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let names = vm
+            .state
+            .frozen
+            .keys()
+            .map(|&name| vm.ctx.new_str(name).into())
+            .collect();
+        Ok(names)
     }
 
     #[allow(clippy::type_complexity)]
