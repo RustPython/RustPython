@@ -78,8 +78,8 @@ class PlatformTest(unittest.TestCase):
     def test_architecture(self):
         res = platform.architecture()
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
+    @support.requires_subprocess()
     def test_architecture_via_symlink(self): # issue3762
         with support.PythonSymlink() as py:
             cmd = "-c", "import platform; print(platform.architecture())"
@@ -269,7 +269,16 @@ class PlatformTest(unittest.TestCase):
         self.assertEqual(res[:], expected)
         self.assertEqual(res[:5], expected[:5])
 
+    def test_uname_fields(self):
+        self.assertIn('processor', platform.uname()._fields)
+
+    def test_uname_asdict(self):
+        res = platform.uname()._asdict()
+        self.assertEqual(len(res), 6)
+        self.assertIn('processor', res)
+
     @unittest.skipIf(sys.platform in ['win32', 'OpenVMS'], "uname -p not used")
+    @support.requires_subprocess()
     def test_uname_processor(self):
         """
         On some systems, the processor must match the output
@@ -346,6 +355,7 @@ class PlatformTest(unittest.TestCase):
             else:
                 self.assertEqual(res[2], 'PowerPC')
 
+
     @unittest.skipUnless(sys.platform == 'darwin', "OSX only test")
     def test_mac_ver_with_fork(self):
         # Issue7895: platform.mac_ver() crashes when using fork without exec
@@ -362,6 +372,7 @@ class PlatformTest(unittest.TestCase):
             # parent
             support.wait_process(pid, exitcode=0)
 
+    @unittest.skipIf(support.is_emscripten, "Does not apply to Emscripten")
     def test_libc_ver(self):
         # check that libc_ver(executable) doesn't raise an exception
         if os.path.isdir(sys.executable) and \

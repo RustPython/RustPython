@@ -346,7 +346,6 @@ class TestSysConfig(unittest.TestCase):
             wanted.extend(['nt_user', 'osx_framework_user', 'posix_user'])
         self.assertEqual(get_scheme_names(), tuple(sorted(wanted)))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @skip_unless_symlink
     @requires_subprocess()
     def test_symlink(self): # Issue 7880
