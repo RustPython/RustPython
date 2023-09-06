@@ -3,7 +3,8 @@ use criterion::{
     criterion_group, criterion_main, Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
 };
 use rustpython_compiler::Mode;
-use rustpython_parser::parse_program;
+use rustpython_parser::ast;
+use rustpython_parser::Parse;
 use rustpython_vm::{Interpreter, PyResult};
 use std::collections::HashMap;
 use std::path::Path;
@@ -51,7 +52,7 @@ pub fn benchmark_file_execution(
 pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
     group.throughput(Throughput::Bytes(contents.len() as u64));
     group.bench_function(BenchmarkId::new("rustpython", name), |b| {
-        b.iter(|| parse_program(contents, name).unwrap())
+        b.iter(|| ast::Suite::parse(contents, name).unwrap())
     });
     group.bench_function(BenchmarkId::new("cpython", name), |b| {
         let gil = cpython::Python::acquire_gil();

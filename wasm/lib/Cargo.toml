@@ -1,6 +1,6 @@
 [package]
 name = "rustpython_wasm"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["RustPython Team"]
 license = "MIT"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust, compiled to WASM"
@@ -16,11 +16,11 @@ freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib"
 no-start-func = []
 
 [dependencies]
-rustpython-common = { path = "../../common" }
-rustpython-pylib = { path = "../../pylib", default-features = false, optional = true }
-rustpython-stdlib = { path = "../../stdlib", default-features = false, optional = true }
+rustpython-common = { workspace = true }
+rustpython-pylib = { workspace = true, optional = true }
+rustpython-stdlib = { workspace = true, default-features = false, optional = true }
 # make sure no threading! otherwise wasm build will fail
-rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler", "encodings", "serde"] }
+rustpython-vm = { workspace = true, default-features = false, features = ["compiler", "encodings", "serde"] }
 
 rustpython-parser = { workspace = true }
 

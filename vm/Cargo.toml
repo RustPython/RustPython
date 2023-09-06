@@ -1,7 +1,7 @@
 [package]
 name = "rustpython-vm"
-version = "0.2.0"
-description = "Rust Python virtual machine."
+version = "0.3.0"
+description = "RustPython virtual machine."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
@@ -24,11 +24,11 @@ parser = ["rustpython-parser", "ast"]
 serde = ["dep:serde"]
 
 [dependencies]
-rustpython-compiler = { path = "../compiler", optional = true, version = "0.2.0" }
-rustpython-codegen = { path = "../compiler/codegen", optional = true, version = "0.2.0" }
-rustpython-common = { path = "../common" }
-rustpython-derive = { path = "../derive", version = "0.2.0" }
-rustpython-jit = { path = "../jit", optional = true, version = "0.2.0" }
+rustpython-compiler = { workspace = true, optional = true }
+rustpython-codegen = { workspace = true, optional = true }
+rustpython-common = { workspace = true }
+rustpython-derive = { workspace = true }
+rustpython-jit = { workspace = true, optional = true }
 
 rustpython-ast = { workspace = true, optional = true }
 rustpython-parser = { workspace = true, optional = true }

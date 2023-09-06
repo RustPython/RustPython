@@ -1,6 +1,6 @@
 [package]
 name = "rustpython"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["RustPython Team"]
 edition = "2021"
 rust-version = "1.67.1"
@@ -17,23 +17,23 @@ members = [
 ]
 
 [workspace.dependencies]
-rustpython-compiler-core = { path = "compiler/core" }
-rustpython-compiler = { path = "compiler" }
-rustpython-codegen = { path = "compiler/codegen" }
-rustpython-common = { path = "common" }
-rustpython-derive = { path = "derive" }
-rustpython-derive-impl = { path = "derive-impl" }
-rustpython-jit = { path = "jit" }
-rustpython-vm = { path = "vm" }
-rustpython-pylib = { path = "pylib" }
-rustpython-stdlib = { path = "stdlib" }
-rustpython-doc = { git = "https://github.com/RustPython/__doc__", branch = "main" }
+rustpython-compiler-core = { path = "compiler/core", version = "0.3.0" }
+rustpython-compiler = { path = "compiler", version = "0.3.0" }
+rustpython-codegen = { path = "compiler/codegen", version = "0.3.0" }
+rustpython-common = { path = "common", version = "0.3.0" }
+rustpython-derive = { path = "derive", version = "0.3.0" }
+rustpython-derive-impl = { path = "derive-impl", version = "0.3.0" }
+rustpython-jit = { path = "jit", version = "0.3.0" }
+rustpython-vm = { path = "vm", version = "0.3.0" }
+rustpython-pylib = { path = "pylib", version = "0.3.0" }
+rustpython-stdlib = { path = "stdlib", version = "0.3.0" }
+rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
-rustpython-literal = { git = "https://github.com/RustPython/Parser.git", rev = "704eb40108239a8faf9bd1d4217e8dad0ac7edb3" }
-rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", rev = "704eb40108239a8faf9bd1d4217e8dad0ac7edb3" }
-rustpython-parser = { git = "https://github.com/RustPython/Parser.git", rev = "704eb40108239a8faf9bd1d4217e8dad0ac7edb3" }
-rustpython-ast = { git = "https://github.com/RustPython/Parser.git", rev = "704eb40108239a8faf9bd1d4217e8dad0ac7edb3" }
-rustpython-format = { git = "https://github.com/RustPython/Parser.git", rev = "704eb40108239a8faf9bd1d4217e8dad0ac7edb3" }
+rustpython-literal = { git = "https://github.com/RustPython/Parser.git", tag = "0.3.0", version = "0.3.0" }
+rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", tag = "0.3.0", version = "0.3.0" }
+rustpython-parser = { git = "https://github.com/RustPython/Parser.git", tag = "0.3.0", version = "0.3.0" }
+rustpython-ast = { git = "https://github.com/RustPython/Parser.git", tag = "0.3.0", version = "0.3.0" }
+rustpython-format = { git = "https://github.com/RustPython/Parser.git", tag = "0.3.0", version = "0.3.0" }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-parser-core = { path = "../RustPython-parser/core" }
 # rustpython-parser = { path = "../RustPython-parser/parser" }
@@ -48,7 +48,7 @@ bitflags = "2.2.1"
 bstr = "0.2.17"
 cfg-if = "1.0"
 chrono = "0.4.19"
-crossbeam-utils = "0.8.9"
+crossbeam-utils = "0.8.16"
 flame = "0.2.2"
 glob = "0.3"
 hex = "0.4.3"
@@ -94,11 +94,10 @@ ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
 
 [dependencies]
-rustpython-compiler = { path = "compiler", version = "0.2.0" }
-rustpython-pylib = { path = "pylib", optional = true, default-features = false }
-rustpython-stdlib = { path = "stdlib", optional = true, default-features = false }
-rustpython-vm = { path = "vm", version = "0.2.0", default-features = false, features = ["compiler"] }
-
+rustpython-compiler = { workspace = true }
+rustpython-pylib = { workspace = true, optional = true }
+rustpython-stdlib = { workspace = true, optional = true }
+rustpython-vm = { workspace = true, default-features = false, features = ["compiler"] }
 rustpython-parser = { workspace = true }
 
 atty = { workspace = true }
@@ -120,7 +119,7 @@ rustyline = { workspace = true }
 [dev-dependencies]
 cpython = "0.7.0"
 criterion = "0.3.5"
-python3-sys = "0.7.0"
+python3-sys = "0.7.1"
 
 [[bench]]
 name = "execution"
