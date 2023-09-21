@@ -616,7 +616,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "scratch",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -633,7 +633,7 @@ checksum = "086c685979a698443656e5cf7856c95c642295a38599f12fb1ff76fb28d19892"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -646,7 +646,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustc_version",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -723,7 +723,7 @@ dependencies = [
  "base64",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -818,7 +818,7 @@ checksum = "36b732da54fd4ea34452f2431cf464ac7be94ca4b339c9cd3d3d12eb06fe7aab"
 dependencies = [
  "flame",
  "quote",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -1043,10 +1043,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a7d079e129b77477a49c5c4f1cfe9ce6c2c909ef52520693e8e811a714c7b20"
 dependencies = [
  "Inflector",
- "pmutil",
+ "pmutil 0.5.3",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
+]
+
+[[package]]
+name = "is-macro"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4467ed1321b310c2625c5aa6c1b1ffc5de4d9e42668cf697a08fb033ee8265e"
+dependencies = [
+ "Inflector",
+ "pmutil 0.6.1",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.32",
 ]
 
 [[package]]
@@ -1487,7 +1500,7 @@ dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -1531,7 +1544,7 @@ checksum = "b501e44f11665960c7e7fcf062c7d96a14ade4aa98116c004b2e37b5be7d736c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -1693,7 +1706,18 @@ checksum = "3894e5d549cccbe44afecf72922f277f603cd4bb0219c8342631ef18fffbe004"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
+]
+
+[[package]]
+name = "pmutil"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52a40bc70c2c58040d2d8b167ba9a5ff59fc9dab7ad44771cfde3dcfde7a09c6"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.32",
 ]
 
 [[package]]
@@ -1739,9 +1763,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.23"
+version = "1.0.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8856d8364d252a14d474036ea1358d63c9e6965c8e5c1885c18f73d70bff9c7b"
+checksum = "5267fca4496028628a95160fc423a33e8b2e6af8a5302579e322e4b520293cae"
 dependencies = [
  "proc-macro2",
 ]
@@ -1943,10 +1967,10 @@ version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a29c8a4ac7839f1dcb8b899263b501e0d6932f210300c8a0d271323727b35c1"
 dependencies = [
- "pmutil",
+ "pmutil 0.5.3",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
  "syn-ext",
 ]
 
@@ -2008,7 +2032,7 @@ name = "rustpython-ast"
 version = "0.3.0"
 source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
 dependencies = [
- "is-macro",
+ "is-macro 0.2.2",
  "malachite-bigint",
  "rustpython-literal",
  "rustpython-parser-core",
@@ -2087,7 +2111,7 @@ version = "0.3.0"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -2102,7 +2126,7 @@ dependencies = [
  "rustpython-compiler-core",
  "rustpython-doc",
  "rustpython-parser-core",
- "syn",
+ "syn 1.0.107",
  "syn-ext",
  "textwrap 0.15.2",
 ]
@@ -2148,7 +2172,7 @@ version = "0.3.0"
 source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
 dependencies = [
  "hexf-parse",
- "is-macro",
+ "is-macro 0.2.2",
  "lexical-parse-float",
  "num-traits",
  "unic-ucd-category",
@@ -2160,7 +2184,7 @@ version = "0.3.0"
 source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
 dependencies = [
  "anyhow",
- "is-macro",
+ "is-macro 0.2.2",
  "itertools 0.10.5",
  "lalrpop-util",
  "log",
@@ -2182,7 +2206,7 @@ name = "rustpython-parser-core"
 version = "0.3.0"
 source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
 dependencies = [
- "is-macro",
+ "is-macro 0.2.2",
  "memchr",
  "rustpython-parser-vendored",
 ]
@@ -2297,7 +2321,7 @@ dependencies = [
  "half",
  "hex",
  "indexmap",
- "is-macro",
+ "is-macro 0.3.0",
  "itertools 0.10.5",
  "libc",
  "log",
@@ -2480,7 +2504,7 @@ checksum = "af487d118eecd09402d70a5d72551860e788df87b464af30e5ea6a38c75c541e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -2617,7 +2641,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -2638,12 +2662,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn"
+version = "2.0.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "239814284fd6f1a4ffe4ca893952cdd93c224b6a1571c9a9eadd670295c0c9e2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
 name = "syn-ext"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b86cb2b68c5b3c078cac02588bc23f3c04bb828c5d3aedd17980876ec6a7be6"
 dependencies = [
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -2723,7 +2758,7 @@ checksum = "1fb327af4685e4d03fa8cbcf1716380da910eeb2bb8be417e7f9fd3fb164f36f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -3029,7 +3064,7 @@ checksum = "c1b300a878652a387d2a0de915bdae8f1a548f0c6d45e072fe2688794b656cc9"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
 ]
 
 [[package]]
@@ -3106,7 +3141,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
  "wasm-bindgen-shared",
 ]
 
@@ -3140,7 +3175,7 @@ checksum = "2aff81306fcac3c7515ad4e177f521b5c9a15f2b08f4e32d823066102f35a5f6"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
+ "syn 1.0.107",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
