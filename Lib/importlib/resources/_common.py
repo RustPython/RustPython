@@ -77,12 +77,12 @@ def resolve(cand: Optional[Anchor]) -> types.ModuleType:
     return cast(types.ModuleType, cand)
 
 
-@resolve.register
+@resolve.register(str)  # TODO: RUSTPYTHON; manual type annotation
 def _(cand: str) -> types.ModuleType:
     return importlib.import_module(cand)
 
 
-@resolve.register
+@resolve.register(type(None))  # TODO: RUSTPYTHON; manual type annotation
 def _(cand: None) -> types.ModuleType:
     return resolve(_infer_caller().f_globals['__name__'])
 
