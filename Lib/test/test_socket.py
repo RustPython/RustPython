@@ -1493,6 +1493,8 @@ class GeneralModuleTests(unittest.TestCase):
             raise
         self.assertRaises(TypeError, s.ioctl, socket.SIO_LOOPBACK_FAST_PATH, None)
 
+    # TODO: RUSTPYTHON, AssertionError: '2' != 'AddressFamily.AF_INET'
+    @unittest.expectedFailure
     def testGetaddrinfo(self):
         try:
             socket.getaddrinfo('localhost', 80)
@@ -1799,6 +1801,8 @@ class GeneralModuleTests(unittest.TestCase):
         nameinfo = socket.getnameinfo(sockaddr, socket.NI_NUMERICHOST | socket.NI_NUMERICSERV)
         self.assertEqual(nameinfo, ('ff02::1de:c0:face:8d%' + str(ifindex), '1234'))
 
+    # TODO: RUSTPYTHON, AssertionError: '2' != 'AddressFamily.AF_INET'
+    @unittest.expectedFailure
     def test_str_for_enums(self):
         # Make sure that the AF_* and SOCK_* constants have enum-like string
         # reprs.

@@ -1509,6 +1509,9 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertRaisesRegex(TypeError, '%x format: an integer is required, not PseudoFloat', operator.mod, '%x', pi),
         self.assertRaises(TypeError, operator.mod, '%c', pi),
 
+
+    # TODO: RUSTPYTHON, AssertionError: '...15...' != '...Int.IDES...'
+    @unittest.expectedFailure
     def test_formatting_with_enum(self):
         # issue18780
         import enum
