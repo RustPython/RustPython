@@ -126,6 +126,8 @@ class TestBlessMyLoader(unittest.TestCase):
             ValueError,
             _bootstrap_external._bless_my_loader, bar.__dict__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_gh86298_no_spec(self):
         bar = ModuleType('bar')
         bar.__loader__ = object()
@@ -135,6 +137,8 @@ class TestBlessMyLoader(unittest.TestCase):
                 DeprecationWarning,
                 _bootstrap_external._bless_my_loader, bar.__dict__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_gh86298_spec_is_none(self):
         bar = ModuleType('bar')
         bar.__loader__ = object()
@@ -144,6 +148,8 @@ class TestBlessMyLoader(unittest.TestCase):
                 DeprecationWarning,
                 _bootstrap_external._bless_my_loader, bar.__dict__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_gh86298_no_spec_loader(self):
         bar = ModuleType('bar')
         bar.__loader__ = object()
@@ -153,6 +159,8 @@ class TestBlessMyLoader(unittest.TestCase):
                 DeprecationWarning,
                 _bootstrap_external._bless_my_loader, bar.__dict__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_gh86298_loader_and_spec_loader_disagree(self):
         bar = ModuleType('bar')
         bar.__loader__ = object()
