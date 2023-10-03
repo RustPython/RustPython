@@ -7,7 +7,7 @@ name: Periodic checks/tasks
 
 env:
   CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl,jit
-  PYTHON_VERSION: "3.11.4"
+  PYTHON_VERSION: "3.12.0"
 
 jobs:
   # codecov collects code coverage data from the rust tests, python snippets and python test suite.

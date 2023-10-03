@@ -35,8 +35,8 @@ GENERATED_FILE = "extra_tests/not_impl.py"
 implementation = platform.python_implementation()
 if implementation != "CPython":
     sys.exit(f"whats_left.py must be run under CPython, got {implementation} instead")
-if sys.version_info[:2] < (3, 11):
-    sys.exit(f"whats_left.py must be run under CPython 3.11 or newer, got {implementation} {sys.version} instead")
+if sys.version_info[:2] < (3, 12):
+    sys.exit(f"whats_left.py must be run under CPython 3.12 or newer, got {implementation} {sys.version} instead")
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Process some integers.")
