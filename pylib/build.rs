@@ -12,7 +12,12 @@ fn main() {
 
     if cfg!(windows) {
         if let Ok(real_path) = std::fs::read_to_string("Lib") {
-            println!("cargo:rustc-env=win_lib_path={real_path:?}");
+            let canonicalized_path = std::fs::canonicalize(real_path)
+                .expect("failed to resolve RUSTPYTHONPATH during build time");
+            println!(
+                "cargo:rustc-env=win_lib_path={}",
+                canonicalized_path.to_str().unwrap()
+            );
         }
     }
 }
