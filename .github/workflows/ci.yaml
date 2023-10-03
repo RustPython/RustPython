@@ -315,7 +315,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: install ruff
-        run: python -m pip install ruff
+        run: python -m pip install ruff==0.0.291
       - name: run python lint
         run: ruff extra_tests wasm examples  --exclude='./.*',./Lib,./vm/Lib,./benches/ --select=E9,F63,F7,F82 --show-source
       - name: install prettier
