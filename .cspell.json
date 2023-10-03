@@ -171,6 +171,8 @@
     "scproxy",
     "setattro",
     "setcomp",
+    "showwarnmsg",
+    "warnmsg",
     "stacklevel",
     "subclasscheck",
     "subclasshook",
