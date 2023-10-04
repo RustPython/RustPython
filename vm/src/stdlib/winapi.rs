@@ -208,8 +208,8 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetCurrentProcess() -> usize {
-        unsafe { processthreadsapi::GetCurrentProcess() as usize }
+    fn GetCurrentProcess() -> HANDLE {
+        unsafe { windows::Win32::System::Threading::GetCurrentProcess() }
     }
 
     #[pyfunction]
