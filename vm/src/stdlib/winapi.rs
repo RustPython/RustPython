@@ -12,7 +12,7 @@ mod _winapi {
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::ptr::{null, null_mut};
-    use winapi::um::{processthreadsapi, winbase};
+    use winapi::um::winbase;
     use windows::{
         core::PCWSTR,
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
@@ -433,20 +433,17 @@ mod _winapi {
                     attrlist,
                 };
                 if let Some(ref mut handlelist) = attrs.handlelist {
-                    let ret = unsafe {
-                        processthreadsapi::UpdateProcThreadAttribute(
+                    WindowsSysResult(unsafe {
+                        windows_sys::Win32::System::Threading::UpdateProcThreadAttribute(
                             attrs.attrlist.as_mut_ptr() as _,
                             0,
                             (2 & 0xffff) | 0x20000, // PROC_THREAD_ATTRIBUTE_HANDLE_LIST
                             handlelist.as_mut_ptr() as _,
                             (handlelist.len() * std::mem::size_of::<HANDLE>()) as _,
-                            null_mut(),
-                            null_mut(),
+                            std::ptr::null_mut(),
+                            std::ptr::null(),
                         )
-                    };
-                    if ret == 0 {
-                        return Err(errno_err(vm));
-                    }
+                    }).into_pyresult(vm)?;
                 }
                 Ok(attrs)
             })
