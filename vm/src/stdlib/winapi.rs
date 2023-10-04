@@ -12,7 +12,6 @@ mod _winapi {
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::ptr::{null, null_mut};
-    use winapi::shared::winerror;
     use winapi::um::{processthreadsapi, winbase};
     use windows::{
         core::PCWSTR,
@@ -402,30 +401,33 @@ mod _winapi {
                     .transpose()?;
 
                 let attr_count = handlelist.is_some() as u32;
-                let mut size = 0;
-                let ret = unsafe {
-                    processthreadsapi::InitializeProcThreadAttributeList(
-                        null_mut(),
-                        attr_count,
-                        0,
-                        &mut size,
-                    )
+                let (result, mut size) = unsafe {
+                    let mut size = std::mem::MaybeUninit::uninit();
+                    let result = WindowsSysResult(
+                        windows_sys::Win32::System::Threading::InitializeProcThreadAttributeList(
+                            std::ptr::null_mut(),
+                            attr_count,
+                            0,
+                            size.as_mut_ptr(),
+                        ),
+                    );
+                    (result, size.assume_init())
                 };
-                if ret != 0 || GetLastError() != winerror::ERROR_INSUFFICIENT_BUFFER {
+                if !result.is_err()
+                    || GetLastError() != winapi::shared::winerror::ERROR_INSUFFICIENT_BUFFER
+                {
                     return Err(errno_err(vm));
                 }
                 let mut attrlist = vec![0u8; size];
-                let ret = unsafe {
-                    processthreadsapi::InitializeProcThreadAttributeList(
-                        attrlist.as_mut_ptr() as _,
+                WindowsSysResult(unsafe {
+                    windows_sys::Win32::System::Threading::InitializeProcThreadAttributeList(
+                        attrlist.as_mut_ptr() as *mut _,
                         attr_count,
                         0,
                         &mut size,
                     )
-                };
-                if ret == 0 {
-                    return Err(errno_err(vm));
-                }
+                })
+                .into_pyresult(vm)?;
                 let mut attrs = AttrList {
                     handlelist,
                     attrlist,
