@@ -251,7 +251,7 @@ mod _winapi {
     fn CreateProcess(
         args: CreateProcessArgs,
         vm: &VirtualMachine,
-    ) -> PyResult<(usize, usize, u32, u32)> {
+    ) -> PyResult<(HANDLE, HANDLE, u32, u32)> {
         let mut si = winbase::STARTUPINFOEXW::default();
         si.StartupInfo.cb = std::mem::size_of_val(&si) as _;
 
@@ -310,11 +310,11 @@ mod _winapi {
 
         let procinfo = unsafe {
             let mut procinfo = std::mem::MaybeUninit::uninit();
-            let ret = processthreadsapi::CreateProcessW(
+            WindowsSysResult(windows_sys::Win32::System::Threading::CreateProcessW(
                 app_name,
                 command_line,
-                null_mut(),
-                null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
                 args.inherit_handles,
                 args.creation_flags
                     | winbase::EXTENDED_STARTUPINFO_PRESENT
@@ -323,16 +323,14 @@ mod _winapi {
                 current_dir,
                 &mut si as *mut winbase::STARTUPINFOEXW as _,
                 procinfo.as_mut_ptr(),
-            );
-            if ret == 0 {
-                return Err(errno_err(vm));
-            }
+            ))
+            .into_pyresult(vm)?;
             procinfo.assume_init()
         };
 
         Ok((
-            procinfo.hProcess as usize,
-            procinfo.hThread as usize,
+            HANDLE(procinfo.hProcess),
+            HANDLE(procinfo.hThread),
             procinfo.dwProcessId,
             procinfo.dwThreadId,
         ))
