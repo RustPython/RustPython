@@ -379,7 +379,9 @@ mod _winapi {
     impl Drop for AttrList {
         fn drop(&mut self) {
             unsafe {
-                processthreadsapi::DeleteProcThreadAttributeList(self.attrlist.as_mut_ptr() as _)
+                windows_sys::Win32::System::Threading::DeleteProcThreadAttributeList(
+                    self.attrlist.as_mut_ptr() as *mut _,
+                )
             };
         }
     }
