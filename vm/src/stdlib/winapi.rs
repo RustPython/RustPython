@@ -13,7 +13,7 @@ mod _winapi {
     };
     use std::ptr::{null, null_mut};
     use winapi::shared::winerror;
-    use winapi::um::{processthreadsapi, synchapi, winbase};
+    use winapi::um::{processthreadsapi, winbase};
     use windows::{
         core::PCWSTR,
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
@@ -454,9 +454,9 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn WaitForSingleObject(h: usize, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
-        let ret = unsafe { synchapi::WaitForSingleObject(h as _, ms) };
-        if ret == winbase::WAIT_FAILED {
+    fn WaitForSingleObject(h: HANDLE, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
+        let ret = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0, ms) };
+        if ret == windows_sys::Win32::Foundation::WAIT_FAILED {
             Err(errno_err(vm))
         } else {
             Ok(ret)
