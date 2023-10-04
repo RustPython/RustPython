@@ -115,7 +115,7 @@ winreg = "0.10.1"
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.51.1"
 features = [
-  "Win32_UI_Shell", "Win32_System_LibraryLoader", "Win32_Foundation"
+  "Win32_UI_Shell", "Win32_System_LibraryLoader", "Win32_Foundation", "Win32_System_Pipes", "Win32_Security",
 ]
 
 [target.'cfg(windows)'.dependencies.windows-sys]

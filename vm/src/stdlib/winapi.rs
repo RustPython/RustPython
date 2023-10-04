@@ -13,7 +13,7 @@ mod _winapi {
     };
     use std::ptr::{null, null_mut};
     use winapi::shared::winerror;
-    use winapi::um::{fileapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase};
+    use winapi::um::{fileapi, processenv, processthreadsapi, synchapi, winbase};
     use windows::{
         core::PCWSTR,
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
@@ -163,13 +163,20 @@ mod _winapi {
         _pipe_attrs: PyObjectRef,
         size: u32,
         vm: &VirtualMachine,
-    ) -> PyResult<(usize, usize)> {
-        let mut read = null_mut();
-        let mut write = null_mut();
-        cvt(vm, unsafe {
-            namedpipeapi::CreatePipe(&mut read, &mut write, null_mut(), size)
-        })?;
-        Ok((read as usize, write as usize))
+    ) -> PyResult<(HANDLE, HANDLE)> {
+        let (read, write) = unsafe {
+            let mut read = std::mem::MaybeUninit::<isize>::uninit();
+            let mut write = std::mem::MaybeUninit::<isize>::uninit();
+            WindowsSysResult(windows_sys::Win32::System::Pipes::CreatePipe(
+                read.as_mut_ptr(),
+                write.as_mut_ptr(),
+                std::ptr::null(),
+                size,
+            ))
+            .to_pyresult(vm)?;
+            (read.assume_init(), write.assume_init())
+        };
+        Ok((HANDLE(read), HANDLE(write)))
     }
 
     #[pyfunction]
