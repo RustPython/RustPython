@@ -49,6 +49,7 @@ flame = { workspace = true, optional = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
+is-macro = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 nix = { workspace = true }
@@ -70,7 +71,6 @@ caseless = "0.2.1"
 getrandom = { version = "0.2.6", features = ["js"] }
 flamer = { version = "0.4", optional = true }
 half = "1.8.2"
-is-macro = "0.3"
 memchr = "2.4.1"
 memoffset = "0.6.5"
 optional = "0.5.0"
@@ -123,7 +123,7 @@ version = "0.3.9"
 features = [
   "winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi", "processenv",
   "namedpipeapi", "winnt", "processthreadsapi", "errhandlingapi", "winuser", "synchapi", "wincon",
-  "impl-default", "vcruntime", "ifdef", "netioapi", "memoryapi",
+  "impl-default", "vcruntime", "ifdef", "netioapi", "memoryapi", "profileapi",
 ]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

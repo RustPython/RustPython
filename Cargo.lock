@@ -22,10 +22,11 @@ checksum = "aae1277d39aeec15cb388266ecc24b11c80469deae6067e17a1a7aa9e5c1f234"
 
 [[package]]
 name = "ahash"
-version = "0.7.6"
+version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcb51a0695d8f838b1ee009b3fbf66bda078cd64590202a864a8f3e8c4315c47"
+checksum = "2c99f64d1e06488f620f932677e24bc6e2897582980441ae90a671415bd7ec2f"
 dependencies = [
+ "cfg-if",
  "getrandom 0.2.8",
  "once_cell",
  "version_check",
@@ -39,6 +40,12 @@ checksum = "cc936419f96fa211c1b9166887b38e5e40b19958e5b895be7c1f93adec7071ac"
 dependencies = [
  "memchr",
 ]
+
+[[package]]
+name = "android-tzdata"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
 
 [[package]]
 name = "android_system_properties"
@@ -125,9 +132,9 @@ checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
-version = "2.3.1"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6776fc96284a0bb647b615056fc496d1fe1644a7ab01829818a6d91cae888b84"
+checksum = "b4682ae6287fcf752ecaabbfcc7b6f9b72aa33933dc23a554d853aea8eea8635"
 
 [[package]]
 name = "blake2"
@@ -237,17 +244,16 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.23"
+version = "0.4.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16b0a3d9ed01224b22057780a37bb8c5dbfe1be8ba48678e7bf57ec4b385411f"
+checksum = "7f2c685bad3eb3d45a01354cedb7d5faa66194d1d58ba6e267a8de788f79db38"
 dependencies = [
+ "android-tzdata",
  "iana-time-zone",
  "js-sys",
- "num-integer",
  "num-traits",
- "time",
  "wasm-bindgen",
- "winapi",
+ "windows-targets 0.48.0",
 ]
 
 [[package]]
@@ -895,6 +901,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "getopts"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14dbbfd5c71d70241ecf9e6f13737f7b5ce823821063188d7e46c41d371eebd5"
+dependencies = [
+ "unicode-width",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1014,9 +1029,9 @@ dependencies = [
 
 [[package]]
 name = "insta"
-version = "1.28.0"
+version = "1.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fea5b3894afe466b4bcf0388630fc15e11938a6074af0cd637c825ba2ec8a099"
+checksum = "1aa511b2e298cd49b1856746f6bb73e17036bcd66b25f5e92cdcdbec9bd75686"
 dependencies = [
  "console",
  "lazy_static 1.4.0",
@@ -1034,19 +1049,6 @@ dependencies = [
  "hermit-abi 0.3.1",
  "libc",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "is-macro"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a7d079e129b77477a49c5c4f1cfe9ce6c2c909ef52520693e8e811a714c7b20"
-dependencies = [
- "Inflector",
- "pmutil 0.5.3",
- "proc-macro2",
- "quote",
- "syn 1.0.107",
 ]
 
 [[package]]
@@ -1076,6 +1078,15 @@ name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1c173a5686ce8bfa551b3563d0c2170bf24ca44da99c7ca4bfdab5418c3fe57"
 dependencies = [
  "either",
 ]
@@ -1505,9 +1516,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.17.1"
+version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7e5500299e16ebb147ae15a00a942af264cf3688f47923b8fc2cd5858f23ad3"
+checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
 
 [[package]]
 name = "oorandom"
@@ -2029,10 +2040,10 @@ dependencies = [
 
 [[package]]
 name = "rustpython-ast"
-version = "0.3.0"
-source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
+version = "0.3.1"
+source = "git+https://github.com/RustPython/Parser.git?rev=13cae0af64d0a23de95f08c0210e97ad74d155e9#13cae0af64d0a23de95f08c0210e97ad74d155e9"
 dependencies = [
- "is-macro 0.2.2",
+ "is-macro",
  "malachite-bigint",
  "rustpython-literal",
  "rustpython-parser-core",
@@ -2044,10 +2055,10 @@ name = "rustpython-codegen"
 version = "0.3.0"
 dependencies = [
  "ahash",
- "bitflags 2.3.1",
+ "bitflags 2.4.0",
  "indexmap",
  "insta",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "log",
  "num-complex",
  "num-traits",
@@ -2062,10 +2073,10 @@ name = "rustpython-common"
 version = "0.3.0"
 dependencies = [
  "ascii",
- "bitflags 2.3.1",
+ "bitflags 2.4.0",
  "bstr",
  "cfg-if",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "libc",
  "lock_api",
  "malachite-base",
@@ -2096,8 +2107,8 @@ dependencies = [
 name = "rustpython-compiler-core"
 version = "0.3.0"
 dependencies = [
- "bitflags 2.3.1",
- "itertools 0.10.5",
+ "bitflags 2.4.0",
+ "itertools 0.11.0",
  "lz4_flex",
  "malachite-bigint",
  "num-complex",
@@ -2118,7 +2129,7 @@ dependencies = [
 name = "rustpython-derive-impl"
 version = "0.3.0"
 dependencies = [
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "maplit",
  "once_cell",
  "proc-macro2",
@@ -2141,11 +2152,11 @@ dependencies = [
 
 [[package]]
 name = "rustpython-format"
-version = "0.3.0"
-source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
+version = "0.3.1"
+source = "git+https://github.com/RustPython/Parser.git?rev=13cae0af64d0a23de95f08c0210e97ad74d155e9#13cae0af64d0a23de95f08c0210e97ad74d155e9"
 dependencies = [
- "bitflags 2.3.1",
- "itertools 0.10.5",
+ "bitflags 2.4.0",
+ "itertools 0.11.0",
  "malachite-bigint",
  "num-traits",
  "rustpython-literal",
@@ -2168,11 +2179,11 @@ dependencies = [
 
 [[package]]
 name = "rustpython-literal"
-version = "0.3.0"
-source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
+version = "0.3.1"
+source = "git+https://github.com/RustPython/Parser.git?rev=13cae0af64d0a23de95f08c0210e97ad74d155e9#13cae0af64d0a23de95f08c0210e97ad74d155e9"
 dependencies = [
  "hexf-parse",
- "is-macro 0.2.2",
+ "is-macro",
  "lexical-parse-float",
  "num-traits",
  "unic-ucd-category",
@@ -2180,12 +2191,12 @@ dependencies = [
 
 [[package]]
 name = "rustpython-parser"
-version = "0.3.0"
-source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
+version = "0.3.1"
+source = "git+https://github.com/RustPython/Parser.git?rev=13cae0af64d0a23de95f08c0210e97ad74d155e9#13cae0af64d0a23de95f08c0210e97ad74d155e9"
 dependencies = [
  "anyhow",
- "is-macro 0.2.2",
- "itertools 0.10.5",
+ "is-macro",
+ "itertools 0.11.0",
  "lalrpop-util",
  "log",
  "malachite-bigint",
@@ -2203,18 +2214,18 @@ dependencies = [
 
 [[package]]
 name = "rustpython-parser-core"
-version = "0.3.0"
-source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
+version = "0.3.1"
+source = "git+https://github.com/RustPython/Parser.git?rev=13cae0af64d0a23de95f08c0210e97ad74d155e9#13cae0af64d0a23de95f08c0210e97ad74d155e9"
 dependencies = [
- "is-macro 0.2.2",
+ "is-macro",
  "memchr",
  "rustpython-parser-vendored",
 ]
 
 [[package]]
 name = "rustpython-parser-vendored"
-version = "0.3.0"
-source = "git+https://github.com/RustPython/Parser.git?tag=0.3.0#a1e4336f7043807eda8a5ecb15d4115172cc4a7e"
+version = "0.3.1"
+source = "git+https://github.com/RustPython/Parser.git?rev=13cae0af64d0a23de95f08c0210e97ad74d155e9#13cae0af64d0a23de95f08c0210e97ad74d155e9"
 dependencies = [
  "memchr",
  "once_cell",
@@ -2250,7 +2261,7 @@ dependencies = [
  "foreign-types-shared",
  "gethostname",
  "hex",
- "itertools 0.10.5",
+ "itertools 0.11.0",
  "libc",
  "libsqlite3-sys",
  "libz-sys",
@@ -2307,7 +2318,7 @@ dependencies = [
  "ahash",
  "ascii",
  "atty",
- "bitflags 2.3.1",
+ "bitflags 2.4.0",
  "bstr",
  "caseless",
  "cfg-if",
@@ -2321,8 +2332,8 @@ dependencies = [
  "half",
  "hex",
  "indexmap",
- "is-macro 0.3.0",
- "itertools 0.10.5",
+ "is-macro",
+ "itertools 0.11.0",
  "libc",
  "log",
  "malachite-bigint",
@@ -2440,11 +2451,11 @@ dependencies = [
 
 [[package]]
 name = "schannel"
-version = "0.1.21"
+version = "0.1.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "713cfb06c7059f3588fb8044c0fad1d09e3c01d225e25b9220dbfdcf16dbb1b3"
+checksum = "0c3733bf4cf7ea0880754e19cb5a462007c4a8c1914bff372ccc95b464f1df88"
 dependencies = [
- "windows-sys 0.42.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -2784,14 +2795,19 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.1.45"
+version = "0.3.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b797afad3f312d1c66a56d11d0316f916356d11bd158fbc6ca6389ff6bf805a"
+checksum = "cd0cbfecb4d19b5ea75bb31ad904eb5b9fa13f21079c3b92017ebdf4999a5890"
 dependencies = [
- "libc",
- "wasi 0.10.0+wasi-snapshot-preview1",
- "winapi",
+ "serde",
+ "time-core",
 ]
+
+[[package]]
+name = "time-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e153e1f1acaef8acc537e68b44906d2db6436e2b35ac2c6b42640fff91f00fd"
 
 [[package]]
 name = "timsort"
@@ -3032,10 +3048,25 @@ checksum = "c0edd1e5b14653f783770bce4a4dabb4a5108a5370a5f5d8cfe8710c361f6c8b"
 
 [[package]]
 name = "unicode_names2"
-version = "0.6.0"
-source = "git+https://github.com/youknowone/unicode_names2.git?rev=4ce16aa85cbcdd9cc830410f1a72ef9a235f2fde#4ce16aa85cbcdd9cc830410f1a72ef9a235f2fde"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38b2c0942619ae1797f999a0ce7efc6c09592ad30e68e16cdbfdcd48a98c3579"
 dependencies = [
  "phf",
+ "unicode_names2_generator",
+]
+
+[[package]]
+name = "unicode_names2_generator"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d0d66ab60be9799a70f8eb227ea43da7dcc47561dd9102cbadacfe0930113f7"
+dependencies = [
+ "getopts",
+ "log",
+ "phf_codegen",
+ "rand 0.8.5",
+ "time",
 ]
 
 [[package]]
@@ -3107,12 +3138,6 @@ name = "wasi"
 version = "0.9.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
-
-[[package]]
-name = "wasi"
-version = "0.10.0+wasi-snapshot-preview1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a143597ca7c7793eff794def352d41792a93c481eb1042423ff7ff72ba2c31f"
 
 [[package]]
 name = "wasi"
