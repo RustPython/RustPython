@@ -13,7 +13,7 @@ mod _winapi {
     };
     use std::ptr::{null, null_mut};
     use winapi::shared::winerror;
-    use winapi::um::{processenv, processthreadsapi, synchapi, winbase};
+    use winapi::um::{processthreadsapi, synchapi, winbase};
     use windows::{
         core::PCWSTR,
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
@@ -142,11 +142,6 @@ mod _winapi {
         }
     }
 
-    #[pyfunction]
-    fn CloseHandle(handle: HANDLE) -> WindowsSysResult<BOOL> {
-        WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0) })
-    }
-
     impl ToPyObject for HANDLE {
         fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
             (self.0 as HandleInt).to_pyobject(vm)
@@ -154,8 +149,15 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetStdHandle(std_handle: u32, vm: &VirtualMachine) -> PyResult<usize> {
-        cvt(vm, unsafe { processenv::GetStdHandle(std_handle) }).map(husize)
+    fn CloseHandle(handle: HANDLE) -> WindowsSysResult<BOOL> {
+        WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0) })
+    }
+
+    #[pyfunction]
+    fn GetStdHandle(
+        std_handle: windows_sys::Win32::System::Console::STD_HANDLE,
+    ) -> WindowsSysResult<RAW_HANDLE> {
+        WindowsSysResult(unsafe { windows_sys::Win32::System::Console::GetStdHandle(std_handle) })
     }
 
     #[pyfunction]
