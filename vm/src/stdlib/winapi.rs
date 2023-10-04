@@ -473,11 +473,10 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn TerminateProcess(h: usize, exit_code: u32, vm: &VirtualMachine) -> PyResult<()> {
-        cvt(vm, unsafe {
-            processthreadsapi::TerminateProcess(h as _, exit_code)
+    fn TerminateProcess(h: HANDLE, exit_code: u32) -> WindowsSysResult<BOOL> {
+        WindowsSysResult(unsafe {
+            windows_sys::Win32::System::Threading::TerminateProcess(h.0, exit_code)
         })
-        .map(drop)
     }
 
     // TODO: ctypes.LibraryLoader.LoadLibrary
