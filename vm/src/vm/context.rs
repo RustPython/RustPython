@@ -222,6 +222,7 @@ declare_const_name! {
     // common names
     _attributes,
     _fields,
+    _showwarnmsg,
     decode,
     encode,
     keys,
@@ -232,6 +233,7 @@ declare_const_name! {
     copy,
     flush,
     close,
+    WarningMessage,
 }
 
 // Basic objects:

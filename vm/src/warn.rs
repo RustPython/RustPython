@@ -1,5 +1,8 @@
 use crate::{
-    builtins::{PyDict, PyDictRef, PyListRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{
+        PyDict, PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef,
+        PyTypeRef,
+    },
     convert::{IntoObject, TryFromObject},
     types::PyComparisonOp,
     AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine,
@@ -48,19 +51,26 @@ fn check_matched(obj: &PyObjectRef, arg: &PyObjectRef, vm: &VirtualMachine) -> P
     Ok(result.is_ok())
 }
 
-pub fn py_warn(
-    category: &Py<PyType>,
-    message: String,
-    stack_level: usize,
+fn get_warnings_attr(
     vm: &VirtualMachine,
-) -> PyResult<()> {
-    // TODO: use rust warnings module
-    if let Ok(module) = vm.import("warnings", None, 0) {
-        if let Ok(func) = module.get_attr("warn", vm) {
-            let _ = func.call((message, category.to_owned(), stack_level), vm);
+    attr_name: &'static PyStrInterned,
+    try_import: bool,
+) -> PyResult<Option<PyObjectRef>> {
+    let module = if try_import
+        && !vm
+            .state
+            .finalizing
+            .load(std::sync::atomic::Ordering::SeqCst)
+    {
+        match vm.import("warnings", None, 0) {
+            Ok(module) => module,
+            Err(_) => return Ok(None),
         }
-    }
-    Ok(())
+    } else {
+        // TODO: finalizing support
+        return Ok(None);
+    };
+    Ok(Some(module.get_attr(attr_name, vm)?))
 }
 
 pub fn warn(
@@ -192,7 +202,7 @@ fn already_warned(
     Ok(true)
 }
 
-fn normalize_module(filename: PyStrRef, vm: &VirtualMachine) -> Option<PyObjectRef> {
+fn normalize_module(filename: &Py<PyStr>, vm: &VirtualMachine) -> Option<PyObjectRef> {
     let obj = match filename.char_len() {
         0 => vm.new_pyobj("<unknown>"),
         len if len >= 3 && filename.as_str().ends_with(".py") => {
@@ -211,8 +221,8 @@ fn warn_explicit(
     lineno: usize,
     module: Option<PyObjectRef>,
     registry: PyObjectRef,
-    _source_line: Option<PyObjectRef>,
-    _source: Option<PyObjectRef>,
+    source_line: Option<PyObjectRef>,
+    source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     let registry: PyObjectRef = registry
@@ -220,7 +230,7 @@ fn warn_explicit(
         .map_err(|_| vm.new_type_error("'registry' must be a dict or None".to_owned()))?;
 
     // Normalize module.
-    let module = match module.or_else(|| normalize_module(filename, vm)) {
+    let module = match module.or_else(|| normalize_module(&filename, vm)) {
         Some(module) => module,
         None => return Ok(()),
     };
@@ -280,8 +290,68 @@ fn warn_explicit(
         return Ok(());
     }
 
+    call_show_warning(
+        // t_state,
+        category,
+        message,
+        filename,
+        lineno, // lineno_obj,
+        source_line,
+        source,
+        vm,
+    )
+}
+
+fn call_show_warning(
+    category: PyTypeRef,
+    message: PyStrRef,
+    filename: PyStrRef,
+    lineno: usize,
+    source_line: Option<PyObjectRef>,
+    source: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let Some(show_fn) =
+        get_warnings_attr(vm, identifier!(&vm.ctx, _showwarnmsg), source.is_some())?
+    else {
+        return show_warning(filename, lineno, message, category, source_line, vm);
+    };
+    if !show_fn.is_callable() {
+        return Err(
+            vm.new_type_error("warnings._showwarnmsg() must be set to a callable".to_owned())
+        );
+    }
+    let Some(warnmsg_cls) = get_warnings_attr(vm, identifier!(&vm.ctx, WarningMessage), false)?
+    else {
+        return Err(vm.new_type_error("unable to get warnings.WarningMessage".to_owned()));
+    };
+
+    let msg = warnmsg_cls.call(
+        vec![
+            message.into(),
+            category.into(),
+            filename.into(),
+            vm.new_pyobj(lineno),
+            vm.ctx.none(),
+            vm.ctx.none(),
+            vm.unwrap_or_none(source),
+        ],
+        vm,
+    )?;
+    show_fn.call((msg,), vm)?;
+    Ok(())
+}
+
+fn show_warning(
+    _filename: PyStrRef,
+    _lineno: usize,
+    text: PyStrRef,
+    category: PyTypeRef,
+    _source_line: Option<PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     let stderr = crate::stdlib::sys::PyStderr(vm);
-    writeln!(stderr, "{}: {}", category.name(), text,);
+    writeln!(stderr, "{}: {}", category.name(), text.as_str(),);
     Ok(())
 }
 
