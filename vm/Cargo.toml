@@ -120,6 +120,7 @@ features = [
   "Win32_Storage_FileSystem",
   "Win32_System_LibraryLoader",
   "Win32_System_Pipes",
+  "Win32_System_Threading",
   "Win32_UI_Shell",
 ]
 

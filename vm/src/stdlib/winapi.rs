@@ -460,12 +460,16 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetExitCodeProcess(h: usize, vm: &VirtualMachine) -> PyResult<u32> {
-        let mut ec = 0;
-        cvt(vm, unsafe {
-            processthreadsapi::GetExitCodeProcess(h as _, &mut ec)
-        })?;
-        Ok(ec)
+    fn GetExitCodeProcess(h: HANDLE, vm: &VirtualMachine) -> PyResult<u32> {
+        unsafe {
+            let mut ec = std::mem::MaybeUninit::uninit();
+            WindowsSysResult(windows_sys::Win32::System::Threading::GetExitCodeProcess(
+                h.0,
+                ec.as_mut_ptr(),
+            ))
+            .to_pyresult(vm)?;
+            Ok(ec.assume_init())
+        }
     }
 
     #[pyfunction]
