@@ -348,6 +348,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
                         Ok(())
                     }
+                    (JitValue::Bool(a), JitValue::Bool(b)) => {
+                        let cond = match op {
+                            ComparisonOperator::Equal => IntCC::Equal,
+                            ComparisonOperator::NotEqual => IntCC::NotEqual,
+                            ComparisonOperator::Less => IntCC::UnsignedLessThan,
+                            ComparisonOperator::LessOrEqual => IntCC::UnsignedLessThanOrEqual,
+                            ComparisonOperator::Greater => IntCC::UnsignedGreaterThan,
+                            ComparisonOperator::GreaterOrEqual => IntCC::UnsignedGreaterThanOrEqual,
+                        };
+
+                        let val = self.builder.ins().icmp(cond, a, b);
+                        // TODO: Remove this `bint` in cranelift 0.90 as icmp now returns i8
+                        self.stack
+                            .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
+                        Ok(())
+                    }
                     _ => Err(JitCompileError::NotSupported),
                 }
             }
