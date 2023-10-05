@@ -127,7 +127,11 @@ jobs:
         shell: bash
         run: |
           choco install llvm openssl --no-progress
-          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >> $GITHUB_ENV
+          if [[ -d "C:\Program Files\OpenSSL-Win64" ]]; then
+            echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >> $GITHUB_ENV
+          else
+            echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $GITHUB_ENV
+          fi
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
@@ -252,7 +256,11 @@ jobs:
         shell: bash
         run: |
           choco install llvm openssl --no-progress
-          echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >>$GITHUB_ENV
+          if [[ -d "C:\Program Files\OpenSSL-Win64" ]]; then
+            echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64;" >> $GITHUB_ENV
+          else
+            echo "OPENSSL_DIR=C:\Program Files\OpenSSL;" >> $GITHUB_ENV
+          fi
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
