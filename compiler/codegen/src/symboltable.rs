@@ -297,7 +297,7 @@ impl SymbolTableAnalyzer {
         &mut self,
         symbol: &mut Symbol,
         st_typ: SymbolTableType,
-        sub_tables: &mut [SymbolTable],
+        sub_tables: &[SymbolTable],
     ) -> SymbolTableResult {
         if symbol
             .flags

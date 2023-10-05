@@ -310,7 +310,7 @@ mod zlib {
 
         fn save_unused_input(
             &self,
-            d: &mut Decompress,
+            d: &Decompress,
             data: &[u8],
             stream_end: bool,
             orig_in: u64,
@@ -349,7 +349,7 @@ mod zlib {
                     Ok((buf, false)) => (Ok(buf), false),
                     Err(err) => (Err(err), false),
                 };
-            self.save_unused_input(&mut d, data, stream_end, orig_in, vm);
+            self.save_unused_input(&d, data, stream_end, orig_in, vm);
 
             let leftover = if stream_end {
                 b""
@@ -390,7 +390,7 @@ mod zlib {
                 Ok((buf, stream_end)) => (Ok(buf), stream_end),
                 Err(err) => (Err(err), false),
             };
-            self.save_unused_input(&mut d, &data, stream_end, orig_in, vm);
+            self.save_unused_input(&d, &data, stream_end, orig_in, vm);
 
             *data = PyBytes::from(Vec::new()).into_ref(&vm.ctx);
 

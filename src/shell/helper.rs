@@ -119,8 +119,8 @@ impl<'vm> ShellHelper<'vm> {
             // only the completions that don't start with a '_'
             let no_underscore = all_completions
                 .iter()
+                .filter(|&s| !s.as_str().starts_with('_'))
                 .cloned()
-                .filter(|s| !s.as_str().starts_with('_'))
                 .collect::<Vec<_>>();
 
             // if there are only completions that start with a '_', give them all of the
