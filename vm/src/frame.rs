@@ -1946,22 +1946,18 @@ impl ExecutingFrame<'_> {
 impl fmt::Debug for Frame {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let state = self.state.lock();
-        let stack_str = state
-            .stack
-            .iter()
-            .map(|elem| {
-                if elem.payload_is::<Frame>() {
-                    "\n  > {frame}".to_owned()
-                } else {
-                    format!("\n  > {elem:?}")
-                }
-            })
-            .collect::<String>();
-        let block_str = state
-            .blocks
-            .iter()
-            .map(|elem| format!("\n  > {elem:?}"))
-            .collect::<String>();
+        let stack_str = state.stack.iter().fold(String::new(), |mut s, elem| {
+            if elem.payload_is::<Frame>() {
+                s.push_str("\n  > {frame}");
+            } else {
+                std::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
+            }
+            s
+        });
+        let block_str = state.blocks.iter().fold(String::new(), |mut s, elem| {
+            std::fmt::write(&mut s, format_args!("\n  > {elem:?}")).unwrap();
+            s
+        });
         // TODO: fix this up
         let locals = self.locals.clone();
         write!(

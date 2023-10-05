@@ -784,8 +784,8 @@ mod sys {
     impl PyThreadInfo {
         const INFO: Self = PyThreadInfo {
             name: crate::stdlib::thread::_thread::PYTHREAD_NAME,
-            /// As I know, there's only way to use lock as "Mutex" in Rust
-            /// with satisfying python document spec.
+            // As I know, there's only way to use lock as "Mutex" in Rust
+            // with satisfying python document spec.
             lock: Some("mutex+cond"),
             version: None,
         };

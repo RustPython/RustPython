@@ -31,10 +31,7 @@ pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectR
     Ok(importlib)
 }
 
-pub(crate) fn init_importlib_package(
-    vm: &mut VirtualMachine,
-    importlib: PyObjectRef,
-) -> PyResult<()> {
+pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef) -> PyResult<()> {
     thread::enter_vm(vm, || {
         flame_guard!("install_external");
 

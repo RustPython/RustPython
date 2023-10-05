@@ -116,10 +116,12 @@ macro_rules! match_class {
 
     // The default arm, binding the original object to the specified identifier.
     (match ($obj:expr) { $binding:ident => $default:expr $(,)? }) => {{
+        #[allow(clippy::redundant_locals)]
         let $binding = $obj;
         $default
     }};
     (match ($obj:expr) { ref $binding:ident => $default:expr $(,)? }) => {{
+        #[allow(clippy::redundant_locals)]
         let $binding = &$obj;
         $default
     }};
