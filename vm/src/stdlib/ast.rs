@@ -168,7 +168,7 @@ fn range_from_object(
         None
     };
     let range = SourceRange {
-        start: location.unwrap_or(SourceLocation::default()),
+        start: location.unwrap_or_default(),
         end: end_location,
     };
     Ok(range)

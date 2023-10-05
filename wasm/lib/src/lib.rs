@@ -52,7 +52,7 @@ pub mod eval {
 
     fn run_py(source: &str, options: Option<Object>, mode: Mode) -> Result<JsValue, JsValue> {
         let vm = VMStore::init(PY_EVAL_VM_ID.into(), Some(true));
-        let options = options.unwrap_or_else(Object::new);
+        let options = options.unwrap_or_default();
         let js_vars = {
             let prop = Reflect::get(&options, &"vars".into())?;
             if prop.is_undefined() {
