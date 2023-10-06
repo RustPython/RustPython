@@ -13,7 +13,7 @@ mod _winapi {
     };
     use std::ptr::{null, null_mut};
     use winapi::shared::winerror;
-    use winapi::um::{fileapi, processenv, processthreadsapi, synchapi, winbase};
+    use winapi::um::{processenv, processthreadsapi, synchapi, winbase};
     use windows::{
         core::PCWSTR,
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
@@ -211,12 +211,15 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn GetFileType(h: usize, vm: &VirtualMachine) -> PyResult<u32> {
-        let ret = unsafe { fileapi::GetFileType(h as _) };
-        if ret == 0 && GetLastError() != 0 {
+    fn GetFileType(
+        h: HANDLE,
+        vm: &VirtualMachine,
+    ) -> PyResult<windows_sys::Win32::Storage::FileSystem::FILE_TYPE> {
+        let file_type = unsafe { windows_sys::Win32::Storage::FileSystem::GetFileType(h.0) };
+        if file_type == 0 && GetLastError() != 0 {
             Err(errno_err(vm))
         } else {
-            Ok(ret)
+            Ok(file_type)
         }
     }
 
