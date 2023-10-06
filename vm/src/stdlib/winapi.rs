@@ -6,7 +6,7 @@ mod _winapi {
     use crate::{
         builtins::PyStrRef,
         common::windows::ToWideString,
-        convert::ToPyException,
+        convert::{ToPyException, ToPyObject, ToPyResult},
         function::{ArgMapping, ArgSequence, OptionalArg},
         stdlib::os::errno_err,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
@@ -15,13 +15,12 @@ mod _winapi {
     use winapi::shared::winerror;
     use winapi::um::{
         fileapi, handleapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase,
-        winnt::HANDLE,
     };
     use windows::{
         core::PCWSTR,
-        Win32::Foundation::{HINSTANCE, MAX_PATH},
-        Win32::System::LibraryLoader::{GetModuleFileNameW, LoadLibraryW},
+        Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
     };
+    use windows_sys::Win32::Foundation::{BOOL, HANDLE as RAW_HANDLE};
 
     #[pyattr]
     use winapi::{
@@ -66,22 +65,43 @@ mod _winapi {
         unsafe { winapi::um::errhandlingapi::GetLastError() }
     }
 
-    fn husize(h: HANDLE) -> usize {
+    fn husize(h: winapi::um::winnt::HANDLE) -> usize {
         h as usize
     }
 
     trait Convertible {
+        type Ok: ToPyObject;
         fn is_err(&self) -> bool;
+        fn into_ok(self) -> Self::Ok;
     }
 
-    impl Convertible for HANDLE {
+    impl Convertible for winapi::um::winnt::HANDLE {
+        type Ok = HANDLE;
         fn is_err(&self) -> bool {
-            *self == handleapi::INVALID_HANDLE_VALUE
+            *self == winapi::um::handleapi::INVALID_HANDLE_VALUE
+        }
+        fn into_ok(self) -> Self::Ok {
+            HANDLE(self as _)
         }
     }
-    impl Convertible for i32 {
+
+    impl Convertible for RAW_HANDLE {
+        type Ok = HANDLE;
+        fn is_err(&self) -> bool {
+            *self == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE
+        }
+        fn into_ok(self) -> Self::Ok {
+            HANDLE(self)
+        }
+    }
+
+    impl Convertible for BOOL {
+        type Ok = ();
         fn is_err(&self) -> bool {
             *self == 0
+        }
+        fn into_ok(self) -> Self::Ok {
+            ()
         }
     }
 
@@ -93,9 +113,46 @@ mod _winapi {
         }
     }
 
+    struct WindowsSysResult<T>(T);
+
+    impl<T: Convertible> WindowsSysResult<T> {
+        fn is_err(&self) -> bool {
+            self.0.is_err()
+        }
+        fn into_pyresult(self, vm: &VirtualMachine) -> PyResult<T::Ok> {
+            if self.is_err() {
+                Err(errno_err(vm))
+            } else {
+                Ok(self.0.into_ok())
+            }
+        }
+    }
+
+    impl<T: Convertible> ToPyResult for WindowsSysResult<T> {
+        fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
+            let ok = self.into_pyresult(vm)?;
+            Ok(ok.to_pyobject(vm))
+        }
+    }
+
+    type HandleInt = usize; // TODO: change to isize when fully ported to windows-rs
+
+    impl TryFromObject for HANDLE {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let handle = HandleInt::try_from_object(vm, obj)?;
+            Ok(HANDLE(handle as isize))
+        }
+    }
+
     #[pyfunction]
     fn CloseHandle(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
         cvt(vm, unsafe { handleapi::CloseHandle(handle as HANDLE) }).map(drop)
+    }
+
+    impl ToPyObject for HANDLE {
+        fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+            (self.0 as HandleInt).to_pyobject(vm)
+        }
     }
 
     #[pyfunction]
@@ -413,7 +470,10 @@ mod _winapi {
     #[allow(dead_code)]
     fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
         let path = path.as_str().to_wides_with_nul();
-        let handle = unsafe { LoadLibraryW(PCWSTR::from_raw(path.as_ptr())).unwrap() };
+        let handle = unsafe {
+            windows::Win32::System::LibraryLoader::LoadLibraryW(PCWSTR::from_raw(path.as_ptr()))
+                .unwrap()
+        };
         if handle.is_invalid() {
             return Err(vm.new_runtime_error("LoadLibrary failed".to_owned()));
         }
@@ -425,7 +485,8 @@ mod _winapi {
         let mut path: Vec<u16> = vec![0; MAX_PATH as usize];
         let handle = HINSTANCE(handle);
 
-        let length = unsafe { GetModuleFileNameW(handle, &mut path) };
+        let length =
+            unsafe { windows::Win32::System::LibraryLoader::GetModuleFileNameW(handle, &mut path) };
         if length == 0 {
             return Err(vm.new_runtime_error("GetModuleFileName failed".to_owned()));
         }
