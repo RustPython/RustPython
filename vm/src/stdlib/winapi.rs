@@ -145,8 +145,8 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn CloseHandle(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
-        cvt(vm, unsafe { handleapi::CloseHandle(handle as HANDLE) }).map(drop)
+    fn CloseHandle(handle: HANDLE) -> WindowsSysResult<BOOL> {
+        WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0) })
     }
 
     impl ToPyObject for HANDLE {
