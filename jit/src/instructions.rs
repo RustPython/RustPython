@@ -315,18 +315,36 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
+                let a_type:Option<JitType>  = a.to_jit_type();
+                let b_type:Option<JitType> = b.to_jit_type();
+
                 match (a, b) {
-                    (JitValue::Int(a), JitValue::Int(b)) => {
+                    (JitValue::Int(a), JitValue::Int(b)) |
+                    (JitValue::Bool(a), JitValue::Bool(b)) |
+                    (JitValue::Bool(a), JitValue::Int(b)) |
+                    (JitValue::Int(a), JitValue::Bool(b))
+                    => {
+
+                        let operand_one = match a_type.unwrap() {
+                            JitType::Bool => self.builder.ins().uextend(types::I64, a),
+                            _=> a
+                        };
+
+                        let operand_two = match b_type.unwrap() {
+                            JitType::Bool => self.builder.ins().uextend(types::I64, b),
+                            _=> b
+                        };
+
                         let cond = match op {
                             ComparisonOperator::Equal => IntCC::Equal,
                             ComparisonOperator::NotEqual => IntCC::NotEqual,
                             ComparisonOperator::Less => IntCC::SignedLessThan,
                             ComparisonOperator::LessOrEqual => IntCC::SignedLessThanOrEqual,
                             ComparisonOperator::Greater => IntCC::SignedGreaterThan,
-                            ComparisonOperator::GreaterOrEqual => IntCC::SignedLessThanOrEqual,
+                            ComparisonOperator::GreaterOrEqual => IntCC::SignedGreaterThanOrEqual,
                         };
 
-                        let val = self.builder.ins().icmp(cond, a, b);
+                        let val = self.builder.ins().icmp(cond, operand_one, operand_two);
                         // TODO: Remove this `bint` in cranelift 0.90 as icmp now returns i8
                         self.stack
                             .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
@@ -344,22 +362,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                         let val = self.builder.ins().fcmp(cond, a, b);
                         // TODO: Remove this `bint` in cranelift 0.90 as fcmp now returns i8
-                        self.stack
-                            .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
-                        Ok(())
-                    }
-                    (JitValue::Bool(a), JitValue::Bool(b)) => {
-                        let cond = match op {
-                            ComparisonOperator::Equal => IntCC::Equal,
-                            ComparisonOperator::NotEqual => IntCC::NotEqual,
-                            ComparisonOperator::Less => IntCC::UnsignedLessThan,
-                            ComparisonOperator::LessOrEqual => IntCC::UnsignedLessThanOrEqual,
-                            ComparisonOperator::Greater => IntCC::UnsignedGreaterThan,
-                            ComparisonOperator::GreaterOrEqual => IntCC::UnsignedGreaterThanOrEqual,
-                        };
-
-                        let val = self.builder.ins().icmp(cond, a, b);
-                        // TODO: Remove this `bint` in cranelift 0.90 as icmp now returns i8
                         self.stack
                             .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
                         Ok(())
