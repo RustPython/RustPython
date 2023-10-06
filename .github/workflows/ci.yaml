@@ -257,9 +257,9 @@ jobs:
         run: |
           choco install llvm openssl --no-progress
           if [[ -d "C:\Program Files\OpenSSL-Win64" ]]; then
-            echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64;" >> $GITHUB_ENV
+            echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >> $GITHUB_ENV
           else
-            echo "OPENSSL_DIR=C:\Program Files\OpenSSL;" >> $GITHUB_ENV
+            echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $GITHUB_ENV
           fi
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
