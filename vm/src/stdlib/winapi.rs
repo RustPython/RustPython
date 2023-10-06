@@ -56,10 +56,6 @@ mod _winapi {
         UI::WindowsAndMessaging::SW_HIDE,
     };
 
-    fn GetLastError() -> u32 {
-        unsafe { winapi::um::errhandlingapi::GetLastError() }
-    }
-
     trait WindowsSysResultValue {
         type Ok: ToPyObject;
         fn is_err(&self) -> bool;
@@ -191,7 +187,7 @@ mod _winapi {
         vm: &VirtualMachine,
     ) -> PyResult<windows_sys::Win32::Storage::FileSystem::FILE_TYPE> {
         let file_type = unsafe { windows_sys::Win32::Storage::FileSystem::GetFileType(h.0) };
-        if file_type == 0 && GetLastError() != 0 {
+        if file_type == 0 && unsafe { windows_sys::Win32::Foundation::GetLastError() } != 0 {
             Err(errno_err(vm))
         } else {
             Ok(file_type)
@@ -389,7 +385,8 @@ mod _winapi {
                     (result, size.assume_init())
                 };
                 if !result.is_err()
-                    || GetLastError() != windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER
+                    || unsafe { windows_sys::Win32::Foundation::GetLastError() }
+                        != windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER
                 {
                     return Err(errno_err(vm));
                 }
