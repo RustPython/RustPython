@@ -12,7 +12,6 @@ mod _winapi {
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::ptr::{null, null_mut};
-    use winapi::um::winbase;
     use windows::{
         core::PCWSTR,
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
@@ -227,7 +226,8 @@ mod _winapi {
         args: CreateProcessArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(HANDLE, HANDLE, u32, u32)> {
-        let mut si = winbase::STARTUPINFOEXW::default();
+        let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
+            unsafe { std::mem::zeroed() };
         si.StartupInfo.cb = std::mem::size_of_val(&si) as _;
 
         macro_rules! si_attr {
@@ -292,11 +292,11 @@ mod _winapi {
                 std::ptr::null(),
                 args.inherit_handles,
                 args.creation_flags
-                    | winbase::EXTENDED_STARTUPINFO_PRESENT
-                    | winbase::CREATE_UNICODE_ENVIRONMENT,
+                    | windows_sys::Win32::System::Threading::EXTENDED_STARTUPINFO_PRESENT
+                    | windows_sys::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT,
                 env as _,
                 current_dir,
-                &mut si as *mut winbase::STARTUPINFOEXW as _,
+                &mut si as *mut _ as *mut _,
                 procinfo.as_mut_ptr(),
             ))
             .into_pyresult(vm)?;
@@ -390,7 +390,7 @@ mod _winapi {
                     (result, size.assume_init())
                 };
                 if !result.is_err()
-                    || GetLastError() != winapi::shared::winerror::ERROR_INSUFFICIENT_BUFFER
+                    || GetLastError() != windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER
                 {
                     return Err(errno_err(vm));
                 }
