@@ -13,9 +13,7 @@ mod _winapi {
     };
     use std::ptr::{null, null_mut};
     use winapi::shared::winerror;
-    use winapi::um::{
-        fileapi, handleapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase,
-    };
+    use winapi::um::{fileapi, namedpipeapi, processenv, processthreadsapi, synchapi, winbase};
     use windows::{
         core::PCWSTR,
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
@@ -176,26 +174,28 @@ mod _winapi {
 
     #[pyfunction]
     fn DuplicateHandle(
-        (src_process, src): (usize, usize),
-        target_process: usize,
+        (src_process, src): (HANDLE, HANDLE),
+        target_process: HANDLE,
         access: u32,
-        inherit: i32,
+        inherit: BOOL,
         options: OptionalArg<u32>,
         vm: &VirtualMachine,
-    ) -> PyResult<usize> {
-        let mut target = null_mut();
-        cvt(vm, unsafe {
-            handleapi::DuplicateHandle(
-                src_process as _,
-                src as _,
-                target_process as _,
-                &mut target,
+    ) -> PyResult<HANDLE> {
+        let target = unsafe {
+            let mut target = std::mem::MaybeUninit::<isize>::uninit();
+            WindowsSysResult(windows_sys::Win32::Foundation::DuplicateHandle(
+                src_process.0,
+                src.0,
+                target_process.0,
+                target.as_mut_ptr(),
                 access,
                 inherit,
                 options.unwrap_or(0),
-            )
-        })?;
-        Ok(target as usize)
+            ))
+            .to_pyresult(vm)?;
+            target.assume_init()
+        };
+        Ok(HANDLE(target))
     }
 
     #[pyfunction]
