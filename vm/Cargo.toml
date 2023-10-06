@@ -116,11 +116,7 @@ winreg = "0.10.1"
 version = "0.51.1"
 features = [
   "Win32_Foundation",
-  "Win32_Security",
-  "Win32_Storage_FileSystem",
-  "Win32_System_Console",
   "Win32_System_LibraryLoader",
-  "Win32_System_Pipes",
   "Win32_System_Threading",
   "Win32_UI_Shell",
 ]

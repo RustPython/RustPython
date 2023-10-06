@@ -62,27 +62,13 @@ mod _winapi {
         unsafe { winapi::um::errhandlingapi::GetLastError() }
     }
 
-    fn husize(h: winapi::um::winnt::HANDLE) -> usize {
-        h as usize
-    }
-
-    trait Convertible {
+    trait WindowsSysResultValue {
         type Ok: ToPyObject;
         fn is_err(&self) -> bool;
         fn into_ok(self) -> Self::Ok;
     }
 
-    impl Convertible for winapi::um::winnt::HANDLE {
-        type Ok = HANDLE;
-        fn is_err(&self) -> bool {
-            *self == winapi::um::handleapi::INVALID_HANDLE_VALUE
-        }
-        fn into_ok(self) -> Self::Ok {
-            HANDLE(self as _)
-        }
-    }
-
-    impl Convertible for RAW_HANDLE {
+    impl WindowsSysResultValue for RAW_HANDLE {
         type Ok = HANDLE;
         fn is_err(&self) -> bool {
             *self == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE
@@ -92,27 +78,17 @@ mod _winapi {
         }
     }
 
-    impl Convertible for BOOL {
+    impl WindowsSysResultValue for BOOL {
         type Ok = ();
         fn is_err(&self) -> bool {
             *self == 0
         }
-        fn into_ok(self) -> Self::Ok {
-            ()
-        }
-    }
-
-    fn cvt<T: Convertible>(vm: &VirtualMachine, res: T) -> PyResult<T> {
-        if res.is_err() {
-            Err(errno_err(vm))
-        } else {
-            Ok(res)
-        }
+        fn into_ok(self) -> Self::Ok {}
     }
 
     struct WindowsSysResult<T>(T);
 
-    impl<T: Convertible> WindowsSysResult<T> {
+    impl<T: WindowsSysResultValue> WindowsSysResult<T> {
         fn is_err(&self) -> bool {
             self.0.is_err()
         }
@@ -125,7 +101,7 @@ mod _winapi {
         }
     }
 
-    impl<T: Convertible> ToPyResult for WindowsSysResult<T> {
+    impl<T: WindowsSysResultValue> ToPyResult for WindowsSysResult<T> {
         fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
             let ok = self.into_pyresult(vm)?;
             Ok(ok.to_pyobject(vm))
@@ -443,7 +419,8 @@ mod _winapi {
                             std::ptr::null_mut(),
                             std::ptr::null(),
                         )
-                    }).into_pyresult(vm)?;
+                    })
+                    .into_pyresult(vm)?;
                 }
                 Ok(attrs)
             })
