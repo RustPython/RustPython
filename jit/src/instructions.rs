@@ -315,24 +315,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
 
-                let a_type:Option<JitType>  = a.to_jit_type();
-                let b_type:Option<JitType> = b.to_jit_type();
+                let a_type: Option<JitType> = a.to_jit_type();
+                let b_type: Option<JitType> = b.to_jit_type();
 
                 match (a, b) {
-                    (JitValue::Int(a), JitValue::Int(b)) |
-                    (JitValue::Bool(a), JitValue::Bool(b)) |
-                    (JitValue::Bool(a), JitValue::Int(b)) |
-                    (JitValue::Int(a), JitValue::Bool(b))
-                    => {
-
+                    (JitValue::Int(a), JitValue::Int(b))
+                    | (JitValue::Bool(a), JitValue::Bool(b))
+                    | (JitValue::Bool(a), JitValue::Int(b))
+                    | (JitValue::Int(a), JitValue::Bool(b)) => {
                         let operand_one = match a_type.unwrap() {
                             JitType::Bool => self.builder.ins().uextend(types::I64, a),
-                            _=> a
+                            _ => a,
                         };
 
                         let operand_two = match b_type.unwrap() {
                             JitType::Bool => self.builder.ins().uextend(types::I64, b),
-                            _=> b
+                            _ => b,
                         };
 
                         let cond = match op {

@@ -156,7 +156,6 @@ fn test_gte() {
     assert_eq!(gte(true, false), Ok(1));
 }
 
-
 #[test]
 fn test_gte_with_integers() {
     let gte = jit_function! { gte(a:bool, b:i64) -> i64 => r##"
