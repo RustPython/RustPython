@@ -161,6 +161,52 @@ fn test_gt() {
 }
 
 #[test]
+fn test_lt() {
+    let lt = jit_function! { lt(a:i64, b:i64) -> i64 => r##"
+        def lt(a: int, b: int):
+            if a < b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(lt(-1, -5), Ok(0));
+    assert_eq!(lt(10, 0), Ok(0));
+    assert_eq!(lt(0, 1), Ok(1));
+    assert_eq!(lt(-10, -1), Ok(1));
+    assert_eq!(lt(100, 100), Ok(0));
+}
+
+#[test]
+fn test_gte() {
+    let gte = jit_function! { gte(a:i64, b:i64) -> i64 => r##"
+        def gte(a: int, b: int):
+            if a >= b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(gte(-64, -64), Ok(1));
+    assert_eq!(gte(100, -1), Ok(1));
+    assert_eq!(gte(1, 2), Ok(0));
+    assert_eq!(gte(1, 0), Ok(1));
+}
+
+#[test]
+fn test_lte() {
+    let lte = jit_function! { lte(a:i64, b:i64) -> i64 => r##"
+        def lte(a: int, b: int):
+            if a <= b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(lte(-100, -100), Ok(1));
+    assert_eq!(lte(-100, 100), Ok(1));
+    assert_eq!(lte(10, 1), Ok(0));
+    assert_eq!(lte(0, -2), Ok(0));
+}
+
+#[test]
 fn test_minus() {
     let minus = jit_function! { minus(a:i64) -> i64 => r##"
         def minus(a: int):

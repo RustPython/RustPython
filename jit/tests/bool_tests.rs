@@ -50,3 +50,153 @@ fn test_if_not() {
     assert_eq!(if_not(true), Ok(1));
     assert_eq!(if_not(false), Ok(0));
 }
+
+#[test]
+fn test_eq() {
+    let eq = jit_function! { eq(a:bool, b:bool) -> i64 => r##"
+        def eq(a: bool, b: bool):
+            if a == b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(eq(false, false), Ok(1));
+    assert_eq!(eq(true, true), Ok(1));
+    assert_eq!(eq(false, true), Ok(0));
+    assert_eq!(eq(true, false), Ok(0));
+}
+
+#[test]
+fn test_eq_with_integers() {
+    let eq = jit_function! { eq(a:bool, b:i64) -> i64 => r##"
+        def eq(a: bool, b: int):
+            if a == b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(eq(false, 0), Ok(1));
+    assert_eq!(eq(true, 1), Ok(1));
+    assert_eq!(eq(false, 1), Ok(0));
+    assert_eq!(eq(true, 0), Ok(0));
+}
+
+#[test]
+fn test_gt() {
+    let gt = jit_function! { gt(a:bool, b:bool) -> i64 => r##"
+        def gt(a: bool, b: bool):
+            if a > b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(gt(false, false), Ok(0));
+    assert_eq!(gt(true, true), Ok(0));
+    assert_eq!(gt(false, true), Ok(0));
+    assert_eq!(gt(true, false), Ok(1));
+}
+
+#[test]
+fn test_gt_with_integers() {
+    let gt = jit_function! { gt(a:i64, b:bool) -> i64 => r##"
+        def gt(a: int, b: bool):
+            if a > b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(gt(0, false), Ok(0));
+    assert_eq!(gt(1, true), Ok(0));
+    assert_eq!(gt(0, true), Ok(0));
+    assert_eq!(gt(1, false), Ok(1));
+}
+
+#[test]
+fn test_lt() {
+    let lt = jit_function! { lt(a:bool, b:bool) -> i64 => r##"
+        def lt(a: bool, b: bool):
+            if a < b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(lt(false, false), Ok(0));
+    assert_eq!(lt(true, true), Ok(0));
+    assert_eq!(lt(false, true), Ok(1));
+    assert_eq!(lt(true, false), Ok(0));
+}
+
+#[test]
+fn test_lt_with_integers() {
+    let lt = jit_function! { lt(a:i64, b:bool) -> i64 => r##"
+        def lt(a: int, b: bool):
+            if a < b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(lt(0, false), Ok(0));
+    assert_eq!(lt(1, true), Ok(0));
+    assert_eq!(lt(0, true), Ok(1));
+    assert_eq!(lt(1, false), Ok(0));
+}
+
+#[test]
+fn test_gte() {
+    let gte = jit_function! { gte(a:bool, b:bool) -> i64 => r##"
+        def gte(a: bool, b: bool):
+            if a >= b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(gte(false, false), Ok(1));
+    assert_eq!(gte(true, true), Ok(1));
+    assert_eq!(gte(false, true), Ok(0));
+    assert_eq!(gte(true, false), Ok(1));
+}
+
+#[test]
+fn test_gte_with_integers() {
+    let gte = jit_function! { gte(a:bool, b:i64) -> i64 => r##"
+        def gte(a: bool, b: int):
+            if a >= b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(gte(false, 0), Ok(1));
+    assert_eq!(gte(true, 1), Ok(1));
+    assert_eq!(gte(false, 1), Ok(0));
+    assert_eq!(gte(true, 0), Ok(1));
+}
+
+#[test]
+fn test_lte() {
+    let lte = jit_function! { lte(a:bool, b:bool) -> i64 => r##"
+        def lte(a: bool, b: bool):
+            if a <= b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(lte(false, false), Ok(1));
+    assert_eq!(lte(true, true), Ok(1));
+    assert_eq!(lte(false, true), Ok(1));
+    assert_eq!(lte(true, false), Ok(0));
+}
+
+#[test]
+fn test_lte_with_integers() {
+    let lte = jit_function! { lte(a:bool, b:i64) -> i64 => r##"
+        def lte(a: bool, b: int):
+            if a <= b:
+                return 1
+            return 0
+    "## };
+
+    assert_eq!(lte(false, 0), Ok(1));
+    assert_eq!(lte(true, 1), Ok(1));
+    assert_eq!(lte(false, 1), Ok(1));
+    assert_eq!(lte(true, 0), Ok(0));
+}
