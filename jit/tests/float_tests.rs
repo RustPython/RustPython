@@ -105,9 +105,9 @@ fn test_mul_with_integer() {
     assert_approx_eq!(mul(5.2, 2), Ok(10.4));
     assert_approx_eq!(mul(3.4, -1), Ok(-3.4));
     assert_bits_eq!(mul(1.0, 0), Ok(0.0f64));
-    assert_bits_eq!(mul(-0.0,1), Ok(-0.0f64));
+    assert_bits_eq!(mul(-0.0, 1), Ok(-0.0f64));
     assert_bits_eq!(mul(0.0, -1), Ok(-0.0f64));
-    assert_bits_eq!(mul(-0.0,-1), Ok(0.0f64));
+    assert_bits_eq!(mul(-0.0, -1), Ok(0.0f64));
 }
 
 #[test]
