@@ -79,6 +79,8 @@ pub mod utils;
 pub mod version;
 pub mod vm;
 pub mod warn;
+#[cfg(windows)]
+pub mod windows;
 
 pub use self::compiler::parser::source_code;
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
