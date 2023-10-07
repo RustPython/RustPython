@@ -33,6 +33,18 @@ fn test_add() {
 }
 
 #[test]
+fn test_add_with_integer() {
+    let add = jit_function! { add(a:f64, b:i64) -> f64 => r##"
+        def add(a: float, b: int):
+            return a + b
+    "## };
+
+    assert_approx_eq!(add(5.5, 10), Ok(15.5));
+    assert_approx_eq!(add(-4.6, 7), Ok(2.4));
+    assert_approx_eq!(add(-5.2, -3), Ok(-8.2));
+}
+
+#[test]
 fn test_sub() {
     let sub = jit_function! { sub(a:f64, b:f64) -> f64 => r##"
         def sub(a: float, b: float):
@@ -47,6 +59,19 @@ fn test_sub() {
     assert_eq!(sub(f64::INFINITY, 2.0), Ok(f64::INFINITY));
     assert_eq!(sub(-2.0, f64::NEG_INFINITY), Ok(f64::INFINITY));
     assert_eq!(sub(1.0, f64::INFINITY), Ok(f64::NEG_INFINITY));
+}
+
+#[test]
+fn test_sub_with_integer() {
+    let sub = jit_function! { sub(a:i64, b:f64) -> f64 => r##"
+        def sub(a: int, b: float):
+            return a - b
+    "## };
+
+    assert_approx_eq!(sub(5, 3.6), Ok(1.4));
+    assert_approx_eq!(sub(3, -4.2), Ok(7.2));
+    assert_approx_eq!(sub(-2, 1.3), Ok(-3.3));
+    assert_approx_eq!(sub(-3, -1.3), Ok(-1.7));
 }
 
 #[test]
@@ -71,6 +96,21 @@ fn test_mul() {
 }
 
 #[test]
+fn test_mul_with_integer() {
+    let mul = jit_function! { mul(a:f64, b:i64) -> f64 => r##"
+        def mul(a: float, b: int):
+            return a * b
+    "## };
+
+    assert_approx_eq!(mul(5.2, 2), Ok(10.4));
+    assert_approx_eq!(mul(3.4, -1), Ok(-3.4));
+    assert_bits_eq!(mul(1.0, 0), Ok(0.0f64));
+    assert_bits_eq!(mul(-0.0, 1), Ok(-0.0f64));
+    assert_bits_eq!(mul(0.0, -1), Ok(-0.0f64));
+    assert_bits_eq!(mul(-0.0, -1), Ok(0.0f64));
+}
+
+#[test]
 fn test_div() {
     let div = jit_function! { div(a:f64, b:f64) -> f64 => r##"
         def div(a: float, b: float):
@@ -89,6 +129,23 @@ fn test_div() {
     assert_bits_eq!(div(1.0, f64::INFINITY), Ok(0.0f64));
     assert_bits_eq!(div(2.0, f64::NEG_INFINITY), Ok(-0.0f64));
     assert_bits_eq!(div(-1.0, f64::INFINITY), Ok(-0.0f64));
+}
+
+#[test]
+fn test_div_with_integer() {
+    let div = jit_function! { div(a:f64, b:i64) -> f64 => r##"
+        def div(a: float, b: int):
+            return a / b
+    "## };
+
+    assert_approx_eq!(div(5.2, 2), Ok(2.6));
+    assert_approx_eq!(div(3.4, -1), Ok(-3.4));
+    assert_eq!(div(1.0, 0), Ok(f64::INFINITY));
+    assert_eq!(div(1.0, -0), Ok(f64::INFINITY));
+    assert_eq!(div(-1.0, 0), Ok(f64::NEG_INFINITY));
+    assert_eq!(div(-1.0, -0), Ok(f64::NEG_INFINITY));
+    assert_eq!(div(f64::INFINITY, 2), Ok(f64::INFINITY));
+    assert_eq!(div(f64::NEG_INFINITY, 3), Ok(f64::NEG_INFINITY));
 }
 
 #[test]
