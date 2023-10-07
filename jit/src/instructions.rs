@@ -381,6 +381,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 // the rhs is popped off first
                 let b = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 let a = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+
+                let a_type = a.to_jit_type();
+                let b_type = b.to_jit_type();
+
                 let val = match (op, a, b) {
                     (BinaryOperator::Add, JitValue::Int(a), JitValue::Int(b)) => {
                         let (out, carry) = self.builder.ins().iadd_ifcout(a, b);
@@ -442,6 +446,30 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     }
                     (BinaryOperator::Divide, JitValue::Float(a), JitValue::Float(b)) => {
                         JitValue::Float(self.builder.ins().fdiv(a, b))
+                    }
+
+                    // Floats and Integers
+                    (_, JitValue::Int(a), JitValue::Float(b)) |
+                    (_, JitValue::Float(a), JitValue::Int(b)) =>{
+
+                        let operand_one = match a_type.unwrap() {
+                            JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, a),
+                            _=> a
+                        };
+
+                        let operand_two = match b_type.unwrap() {
+                            JitType::Int => self.builder.ins().fcvt_from_sint(types::F64, b),
+                            _=> b
+                        };
+
+                        match op{
+                            BinaryOperator::Add => JitValue::Float(self.builder.ins().fadd(operand_one, operand_two)),
+                            BinaryOperator::Subtract => JitValue::Float(self.builder.ins().fsub(operand_one, operand_two)),
+                            BinaryOperator::Multiply => JitValue::Float(self.builder.ins().fmul(operand_one, operand_two)),
+                            BinaryOperator::Divide => JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two)),
+                            _ => return Err(JitCompileError::NotSupported)
+                        }
+
                     }
                     _ => return Err(JitCompileError::NotSupported),
                 };
