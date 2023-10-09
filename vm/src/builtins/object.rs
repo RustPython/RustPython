@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::{
     class::PyClassImpl,
@@ -252,22 +252,7 @@ impl PyBaseObject {
 
     #[pymethod(magic)]
     pub fn dir(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyList> {
-        let attributes = obj.class().get_attributes();
-
-        let dict = PyDict::from_attributes(attributes, vm)?.into_ref(&vm.ctx);
-
-        // Get instance attributes:
-        if let Some(object_dict) = obj.dict() {
-            vm.call_method(
-                dict.as_object(),
-                identifier!(vm, update).as_str(),
-                (object_dict,),
-            )?;
-        }
-
-        let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k).collect();
-
-        Ok(PyList::from(attributes))
+        obj.dir(vm)
     }
 
     #[pymethod(magic)]

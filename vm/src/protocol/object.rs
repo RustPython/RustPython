@@ -3,7 +3,7 @@
 
 use crate::{
     builtins::{
-        pystr::AsPyStr, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyStr, PyStrRef,
+        pystr::AsPyStr, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyStrRef,
         PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     bytesinner::ByteInnerNewOptions,
@@ -11,6 +11,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     dictdatatype::DictKey,
     function::{Either, OptionalArg, PyArithmeticValue, PySetterValue},
+    object::PyPayload,
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
     AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
@@ -62,6 +63,23 @@ impl PyObjectRef {
     }
 
     // PyObject *PyObject_Dir(PyObject *o)
+    pub fn dir(self, vm: &VirtualMachine) -> PyResult<PyList> {
+        let attributes = self.class().get_attributes();
+
+        let dict = PyDict::from_attributes(attributes, vm)?.into_ref(&vm.ctx);
+
+        if let Some(object_dict) = self.dict() {
+            vm.call_method(
+                dict.as_object(),
+                identifier!(vm, update).as_str(),
+                (object_dict,),
+            )?;
+        }
+
+        let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k).collect();
+
+        Ok(PyList::from(attributes))
+    }
 }
 
 impl PyObject {
