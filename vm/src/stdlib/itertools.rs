@@ -1376,7 +1376,7 @@ mod decl {
         fn setstate(zelf: PyRef<Self>, state: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
             let args = state.as_slice();
             if args.len() != zelf.pools.len() {
-                let msg = format!("Invalid number of arguments");
+                let msg = "Invalid number of arguments".to_string();
                 return Err(vm.new_type_error(msg));
             }
             let mut idxs: PyRwLockWriteGuard<'_, Vec<usize>> = zelf.idxs.write();
