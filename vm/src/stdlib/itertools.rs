@@ -1395,7 +1395,7 @@ mod decl {
                 }
             }
             zelf.stop.store(false);
-            return Ok(());
+            Ok(())
         }
 
         #[pymethod(magic)]
@@ -1417,11 +1417,11 @@ mod decl {
                 indices.push(vm.new_pyobj(*item));
             }
 
-            return vm.new_tuple((
+            vm.new_tuple((
                 class,
                 pools.clone().into_pytuple(vm),
                 indices.into_pytuple(vm),
-            ));
+            ))
         }
     }
 
