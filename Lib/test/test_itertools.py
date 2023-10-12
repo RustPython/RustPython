@@ -208,7 +208,7 @@ class TestBasicOps(unittest.TestCase):
         it = chain()
         it.__setstate__((iter(['abc', 'def']), iter(['ghi'])))
         self.assertEqual(list(it), ['ghi', 'a', 'b', 'c', 'd', 'e', 'f'])
-    
+
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_combinations(self):
@@ -1165,8 +1165,7 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(len(set(map(id, product('abc', 'def')))), 1)
         self.assertNotEqual(len(set(map(id, list(product('abc', 'def'))))), 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+
     def test_product_pickling(self):
         # check copy, deepcopy, pickle
         for args, result in [
@@ -2297,7 +2296,7 @@ class RegressionTests(unittest.TestCase):
 
 
 class SubclassWithKwargsTest(unittest.TestCase):
-    
+
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_keywords_in_subclass(self):
