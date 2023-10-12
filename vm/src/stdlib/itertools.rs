@@ -1689,17 +1689,12 @@ mod decl {
     #[pyclass(name = "permutations")]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsPermutations {
-        pool: Vec<PyObjectRef>,
-        // Collected input iterable
-        indices: PyRwLock<Vec<usize>>,
-        // One index per element in pool
-        cycles: PyRwLock<Vec<usize>>,
-        // One rollover counter per element in the result
-        result: PyRwLock<Option<Vec<usize>>>,
-        // Indexes of the most recently returned result
-        r: AtomicCell<usize>,
-        // Size of result tuple
-        exhausted: AtomicCell<bool>, // Set when the iterator is exhausted
+        pool: Vec<PyObjectRef>,               // Collected input iterable
+        indices: PyRwLock<Vec<usize>>,        // One index per element in pool
+        cycles: PyRwLock<Vec<usize>>,         // One rollover counter per element in the result
+        result: PyRwLock<Option<Vec<usize>>>, // Indexes of the most recently returned result
+        r: AtomicCell<usize>,                 // Size of result tuple
+        exhausted: AtomicCell<bool>,          // Set when the iterator is exhausted
     }
 
     #[derive(FromArgs)]
