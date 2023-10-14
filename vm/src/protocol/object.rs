@@ -552,7 +552,7 @@ impl PyObject {
 
     // type protocol
     // PyObject *PyObject_Type(PyObject *o)
-    pub fn type_call(&self) -> PyObjectRef {
+    pub fn obj_type(&self) -> PyObjectRef {
         self.class().to_owned().into()
     }
 
