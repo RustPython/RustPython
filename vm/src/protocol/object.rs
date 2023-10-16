@@ -3,8 +3,8 @@
 
 use crate::{
     builtins::{
-        pystr::AsPyStr, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyStrRef,
-        PyTuple, PyTupleRef, PyType, PyTypeRef,
+        pystr::AsPyStr, PyAsyncGen, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList,
+        PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
@@ -92,6 +92,13 @@ impl PyObject {
     }
 
     // PyObject *PyObject_GetAIter(PyObject *o)
+    pub fn get_aiter(&self, vm: &VirtualMachine) -> PyResult {
+        if self.payload_is::<PyAsyncGen>() {
+            vm.call_special_method(self, identifier!(vm, __aiter__), ())
+        } else {
+            Err(vm.new_type_error("wrong argument type".to_owned()))
+        }
+    }
 
     pub fn has_attr<'a>(&self, attr_name: impl AsPyStr<'a>, vm: &VirtualMachine) -> PyResult<bool> {
         self.get_attr(attr_name, vm).map(|o| !vm.is_none(&o))
