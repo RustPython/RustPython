@@ -1,4 +1,4 @@
-<img src="./logo.png" width="125" height="125" align="right" />
+<img src="https://github.com/bit-web24/RustPython/assets/62652273/8f637c9e-3fea-4512-987b-7a730422858f" width="125" height="125" align="right" />
 
 # [RustPython](https://rustpython.github.io/)
 
