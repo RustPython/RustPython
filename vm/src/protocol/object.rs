@@ -559,8 +559,14 @@ impl PyObject {
 
     // type protocol
     // PyObject *PyObject_Type(PyObject *o)
+    pub fn obj_type(&self) -> PyObjectRef {
+        self.class().to_owned().into()
+    }
 
     // int PyObject_TypeCheck(PyObject *o, PyTypeObject *type)
+    pub fn type_check(&self, typ: PyTypeRef) -> bool {
+        self.class().fast_isinstance(&typ)
+    }
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
         self.to_sequence(vm)
