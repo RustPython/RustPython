@@ -925,22 +925,20 @@ pub trait GetDescriptor: PyPayload {
     #[inline]
     fn _check<'a>(
         zelf: &'a PyObject,
-        obj: Option<PyObjectRef>,
+        obj: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> Option<(&'a Py<Self>, PyObjectRef)> {
+    ) -> PyResult<(&'a Py<Self>, PyObjectRef)> {
         // CPython descr_check
-        let obj = obj?;
-        // if (!PyObject_TypeCheck(obj, descr->d_type)) {
-        //     PyErr_Format(PyExc_TypeError,
-        //                  "descriptor '%V' for '%.100s' objects "
-        //                  "doesn't apply to a '%.100s' object",
-        //                  descr_name((PyDescrObject *)descr), "?",
-        //                  descr->d_type->slot_name,
-        //                  obj->ob_type->slot_name);
-        //     *pres = NULL;
-        //     return 1;
-        // } else {
-        Some((Self::_as_pyref(zelf, vm).unwrap(), obj))
+        if !obj.type_check(zelf.obj_type()) {
+            Err(vm.new_type_error(format!(
+                "descriptor {:?} for {} objects doesn't apply to a {} object",
+                zelf,
+                zelf.obj_type(),
+                obj.obj_type()
+            )))
+        } else {
+            Ok((Self::_as_pyref(zelf, vm).unwrap(), obj))
+        }
     }
 
     #[inline]
