@@ -303,7 +303,7 @@ def _get_sysctl(name):
                           stderr=subprocess.STDOUT,
                           text=True)
     if proc.returncode:
-        support.print_warning(f'{' '.join(cmd)!r} command failed with '
+        support.print_warning(f'{" ".join(cmd)!r} command failed with '
                               f'exit code {proc.returncode}')
         # cache the error to only log the warning once
         _sysctl_cache[name] = None
@@ -314,7 +314,7 @@ def _get_sysctl(name):
     try:
         value = int(output.strip())
     except Exception as exc:
-        support.print_warning(f'Failed to parse {' '.join(cmd)!r} '
+        support.print_warning(f'Failed to parse {" ".join(cmd)!r} '
                               f'command output {output!r}: {exc!r}')
         # cache the error to only log the warning once
         _sysctl_cache[name] = None
