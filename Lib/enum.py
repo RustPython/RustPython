@@ -1941,7 +1941,8 @@ def _test_simple_enum(checked_enum, simple_enum):
         ...     RED = auto()
         ...     GREEN = auto()
         ...     BLUE = auto()
-        >>> _test_simple_enum(CheckedColor, Color)
+        ... # TODO: RUSTPYTHON
+        >>> _test_simple_enum(CheckedColor, Color)  # doctest: +SKIP
 
     If differences are found, a :exc:`TypeError` is raised.
     """

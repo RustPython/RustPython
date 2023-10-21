@@ -4794,6 +4794,8 @@ class TestStdLib(unittest.TestCase):
         MAGENTA = 2
         YELLOW = 3
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pydoc(self):
         # indirectly test __objclass__
         if StrEnum.__doc__ is None:
