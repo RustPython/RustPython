@@ -4671,118 +4671,87 @@ expected_help_output_with_docs = """\
 Help on class Color in module %s:
 
 class Color(enum.Enum)
- |  Create a collection of name/value pairs.
- |\x20\x20
- |  Example enumeration:
- |\x20\x20
- |  >>> class Color(Enum):
- |  ...     RED = 1
- |  ...     BLUE = 2
- |  ...     GREEN = 3
- |\x20\x20
- |  Access them by:
- |\x20\x20
- |  - attribute access::
- |\x20\x20
- |  >>> Color.RED
- |  <Color.RED: 1>
- |\x20\x20
- |  - value lookup:
- |\x20\x20
- |  >>> Color(1)
- |  <Color.RED: 1>
- |\x20\x20
- |  - name lookup:
- |\x20\x20
- |  >>> Color['RED']
- |  <Color.RED: 1>
- |\x20\x20
- |  Enumerations can be iterated over, and know how many members they have:
- |\x20\x20
- |  >>> len(Color)
- |  3
- |\x20\x20
- |  >>> list(Color)
- |  [<Color.RED: 1>, <Color.BLUE: 2>, <Color.GREEN: 3>]
- |\x20\x20
- |  Methods can be added to enumerations, and members can have their own
- |  attributes -- see the documentation for details.
- |\x20\x20
+ |  Color(*values)
+ |
  |  Method resolution order:
  |      Color
  |      enum.Enum
  |      builtins.object
- |\x20\x20
+ |
  |  Data and other attributes defined here:
- |\x20\x20
+ |
  |  CYAN = <Color.CYAN: 1>
- |\x20\x20
+ |
  |  MAGENTA = <Color.MAGENTA: 2>
- |\x20\x20
+ |
  |  YELLOW = <Color.YELLOW: 3>
- |\x20\x20
+ |
  |  ----------------------------------------------------------------------
  |  Data descriptors inherited from enum.Enum:
- |\x20\x20
+ |
  |  name
  |      The name of the Enum member.
- |\x20\x20
+ |
  |  value
  |      The value of the Enum member.
- |\x20\x20
+ |
  |  ----------------------------------------------------------------------
  |  Methods inherited from enum.EnumType:
- |\x20\x20
- |  __contains__(member) from enum.EnumType
- |      Return True if member is a member of this enum
- |      raises TypeError if member is not an enum member
- |\x20\x20\x20\x20\x20\x20
- |      note: in 3.12 TypeError will no longer be raised, and True will also be
- |      returned if member is the value of a member in this enum
- |\x20\x20
+ |
+ |  __contains__(value) from enum.EnumType
+ |      Return True if `value` is in `cls`.
+ |
+ |      `value` is in `cls` if:
+ |      1) `value` is a member of `cls`, or
+ |      2) `value` is the value of one of the `cls`'s members.
+ |
  |  __getitem__(name) from enum.EnumType
  |      Return the member matching `name`.
- |\x20\x20
+ |
  |  __iter__() from enum.EnumType
  |      Return members in definition order.
- |\x20\x20
+ |
  |  __len__() from enum.EnumType
  |      Return the number of members (no aliases)
- |\x20\x20
+ |
  |  ----------------------------------------------------------------------
- |  Data descriptors inherited from enum.EnumType:
- |\x20\x20
- |  __members__"""
+ |  Readonly properties inherited from enum.EnumType:
+ |
+ |  __members__
+ |      Returns a mapping of member name->value.
+ |
+ |      This mapping lists all enum members, including aliases. Note that this
+ |      is a read-only view of the internal mapping."""
 
 expected_help_output_without_docs = """\
 Help on class Color in module %s:
 
 class Color(enum.Enum)
- |  Color(value, names=None, *, module=None, qualname=None, type=None, start=1)
- |\x20\x20
+ |  Color(*values)
+ |
  |  Method resolution order:
  |      Color
  |      enum.Enum
  |      builtins.object
- |\x20\x20
+ |
  |  Data and other attributes defined here:
- |\x20\x20
+ |
  |  YELLOW = <Color.YELLOW: 3>
- |\x20\x20
+ |
  |  MAGENTA = <Color.MAGENTA: 2>
- |\x20\x20
+ |
  |  CYAN = <Color.CYAN: 1>
- |\x20\x20
+ |
  |  ----------------------------------------------------------------------
  |  Data descriptors inherited from enum.Enum:
- |\x20\x20
+ |
  |  name
- |\x20\x20
+ |
  |  value
- |\x20\x20
+ |
  |  ----------------------------------------------------------------------
  |  Data descriptors inherited from enum.EnumType:
- |\x20\x20
+ |
  |  __members__"""
 
 class TestStdLib(unittest.TestCase):
