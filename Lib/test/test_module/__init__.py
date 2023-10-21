@@ -8,17 +8,16 @@ from test.support.script_helper import assert_python_ok
 import sys
 ModuleType = type(sys)
 
+
 class FullLoader:
-    @classmethod
-    def module_repr(cls, m):
-        return "<module '{}' (crafted)>".format(m.__name__)
+    pass
+
 
 class BareLoader:
     pass
 
 
 class ModuleTests(unittest.TestCase):
-    
     def test_uninitialized(self):
         # An uninitialized module has no __dict__ or __name__,
         # and __doc__ is None
@@ -128,11 +127,9 @@ a = A(destroyed)"""
         gc_collect()
         self.assertIs(wr(), None)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_getattr(self):
-        import test.good_getattr as gga
-        from test.good_getattr import test
+        import test.test_module.good_getattr as gga
+        from test.test_module.good_getattr import test
         self.assertEqual(test, "There is test")
         self.assertEqual(gga.x, 1)
         self.assertEqual(gga.y, 2)
@@ -140,54 +137,50 @@ a = A(destroyed)"""
                                     "Deprecated, use whatever instead"):
             gga.yolo
         self.assertEqual(gga.whatever, "There is whatever")
-        del sys.modules['test.good_getattr']
+        del sys.modules['test.test_module.good_getattr']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_getattr_errors(self):
-        import test.bad_getattr as bga
-        from test import bad_getattr2
+        import test.test_module.bad_getattr as bga
+        from test.test_module import bad_getattr2
         self.assertEqual(bga.x, 1)
         self.assertEqual(bad_getattr2.x, 1)
         with self.assertRaises(TypeError):
             bga.nope
         with self.assertRaises(TypeError):
             bad_getattr2.nope
-        del sys.modules['test.bad_getattr']
-        if 'test.bad_getattr2' in sys.modules:
-            del sys.modules['test.bad_getattr2']
+        del sys.modules['test.test_module.bad_getattr']
+        if 'test.test_module.bad_getattr2' in sys.modules:
+            del sys.modules['test.test_module.bad_getattr2']
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_module_dir(self):
-        import test.good_getattr as gga
+        import test.test_module.good_getattr as gga
         self.assertEqual(dir(gga), ['a', 'b', 'c'])
-        del sys.modules['test.good_getattr']
+        del sys.modules['test.test_module.good_getattr']
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_module_dir_errors(self):
-        import test.bad_getattr as bga
-        from test import bad_getattr2
+        import test.test_module.bad_getattr as bga
+        from test.test_module import bad_getattr2
         with self.assertRaises(TypeError):
             dir(bga)
         with self.assertRaises(TypeError):
             dir(bad_getattr2)
-        del sys.modules['test.bad_getattr']
-        if 'test.bad_getattr2' in sys.modules:
-            del sys.modules['test.bad_getattr2']
+        del sys.modules['test.test_module.bad_getattr']
+        if 'test.test_module.bad_getattr2' in sys.modules:
+            del sys.modules['test.test_module.bad_getattr2']
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_getattr_tricky(self):
-        from test import bad_getattr3
+        from test.test_module import bad_getattr3
         # these lookups should not crash
         with self.assertRaises(AttributeError):
             bad_getattr3.one
         with self.assertRaises(AttributeError):
             bad_getattr3.delgetattr
-        if 'test.bad_getattr3' in sys.modules:
-            del sys.modules['test.bad_getattr3']
+        if 'test.test_module.bad_getattr3' in sys.modules:
+            del sys.modules['test.test_module.bad_getattr3']
 
     def test_module_repr_minimal(self):
         # reprs when modules have no __file__, __name__, or __loader__
@@ -249,10 +242,9 @@ a = A(destroyed)"""
         # Yes, a class not an instance.
         m.__loader__ = FullLoader
         self.assertEqual(
-            repr(m), "<module 'foo' (crafted)>")
+            repr(m), f"<module 'foo' (<class '{__name__}.FullLoader'>)>")
 
     def test_module_repr_with_bare_loader_and_filename(self):
-        # Because the loader has no module_repr(), use the file name.
         m = ModuleType('foo')
         # Yes, a class not an instance.
         m.__loader__ = BareLoader
@@ -260,12 +252,11 @@ a = A(destroyed)"""
         self.assertEqual(repr(m), "<module 'foo' from '/tmp/foo.py'>")
 
     def test_module_repr_with_full_loader_and_filename(self):
-        # Even though the module has an __file__, use __loader__.module_repr()
         m = ModuleType('foo')
         # Yes, a class not an instance.
         m.__loader__ = FullLoader
         m.__file__ = '/tmp/foo.py'
-        self.assertEqual(repr(m), "<module 'foo' (crafted)>")
+        self.assertEqual(repr(m), "<module 'foo' from '/tmp/foo.py'>")
 
     def test_module_repr_builtin(self):
         self.assertEqual(repr(sys), "<module 'sys' (built-in)>")
