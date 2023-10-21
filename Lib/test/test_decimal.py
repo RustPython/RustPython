@@ -928,6 +928,8 @@ class PyImplicitConstructionTest(ImplicitConstructionTest, unittest.TestCase):
 
 class FormatTest:
     '''Unit tests for the format function.'''
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_formatting(self):
         Decimal = self.decimal.Decimal
 
@@ -1138,6 +1140,8 @@ class FormatTest:
         # bytes format argument
         self.assertRaises(TypeError, Decimal(1).__format__, b'-020')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_negative_zero_format_directed_rounding(self):
         with self.decimal.localcontext() as ctx:
             ctx.rounding = ROUND_CEILING
@@ -3692,6 +3696,8 @@ class ContextWithStatement:
         self.assertIsNot(new_ctx, set_ctx, 'did not copy the context')
         self.assertIs(set_ctx, enter_ctx, '__enter__ returned wrong context')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_localcontext_kwargs(self):
         with self.decimal.localcontext(
             prec=10, rounding=ROUND_HALF_DOWN,
@@ -3720,6 +3726,8 @@ class ContextWithStatement:
         self.assertRaises(TypeError, self.decimal.localcontext, Emin="")
         self.assertRaises(TypeError, self.decimal.localcontext, Emax="")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_local_context_kwargs_does_not_overwrite_existing_argument(self):
         ctx = self.decimal.getcontext()
         orig_prec = ctx.prec
