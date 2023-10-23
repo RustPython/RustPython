@@ -35,6 +35,7 @@ pub struct PyFunction {
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
     qualname: PyMutex<PyStrRef>,
+    type_params: PyMutex<PyTupleRef>,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
 }
@@ -54,7 +55,8 @@ impl PyFunction {
         closure: Option<PyTupleTyped<PyCellRef>>,
         defaults: Option<PyTupleRef>,
         kw_only_defaults: Option<PyDictRef>,
-        qualname: PyMutex<PyStrRef>,
+        qualname: PyStrRef,
+        type_params: PyTupleRef,
     ) -> Self {
         let name = PyMutex::new(code.obj_name.to_owned());
         PyFunction {
@@ -63,7 +65,8 @@ impl PyFunction {
             closure,
             defaults_and_kwdefaults: PyMutex::new((defaults, kw_only_defaults)),
             name,
-            qualname,
+            qualname: PyMutex::new(qualname),
+            type_params: PyMutex::new(type_params),
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
         }
@@ -422,6 +425,30 @@ impl PyFunction {
             PySetterValue::Delete => {
                 return Err(
                     vm.new_type_error("__qualname__ must be set to a string object".to_string())
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[pygetset(magic)]
+    fn type_params(&self) -> PyTupleRef {
+        self.type_params.lock().clone()
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_type_params(
+        &self,
+        value: PySetterValue<PyTupleRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match value {
+            PySetterValue::Assign(value) => {
+                *self.type_params.lock() = value;
+            }
+            PySetterValue::Delete => {
+                return Err(
+                    vm.new_type_error("__type_params__ must be set to a tuple object".to_string())
                 );
             }
         }

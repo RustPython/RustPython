@@ -1642,7 +1642,8 @@ impl ExecutingFrame<'_> {
             closure,
             defaults,
             kw_only_defaults,
-            PyMutex::new(qualified_name.clone()),
+            qualified_name.clone(),
+            vm.ctx.empty_tuple.clone(), // FIXME: fake implementation
         )
         .into_pyobject(vm);
 
