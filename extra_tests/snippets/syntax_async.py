@@ -128,5 +128,5 @@ if sys.version_info < (3, 11, 0):
                 foo().send(None)
 
 
-if __name__ == "__main__":
-    unittest.main()
+    if __name__ == "__main__":
+        unittest.main()
