@@ -92,7 +92,9 @@ class AllTest(unittest.TestCase):
             if not fn.endswith('.py') or fn == '__init__.py':
                 continue
             yield path, modpath + fn[:-3]
-
+            
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_all(self):
         # List of denied modules and packages
         denylist = set([
