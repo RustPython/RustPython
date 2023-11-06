@@ -62,10 +62,6 @@ Welcome to the magnificent Rust Python interpreter
 >>>>>
 ```
 
-(The `rustpython-*` crates are currently yanked from crates.io due to being out
-of date and not building on newer rust versions; we hope to release a new
-version Soon™)
-
 If you'd like to make https requests, you can enable the `ssl` feature, which
 also lets you install the `pip` package manager. Note that on Windows, you may
 need to install OpenSSL, or you can enable the `ssl-vendor` feature instead,
