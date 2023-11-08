@@ -5,14 +5,14 @@ use malachite_q::Rational;
 use num_traits::{One, ToPrimitive, Zero};
 
 pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
-    let val: f64 = Rational::from_integers_ref(numerator.into(), denominator.into())
-        .rounding_into(RoundingMode::Nearest);
-
-    if val == f64::MAX || val == f64::MIN {
-        // FIXME: not possible for available ratio?
-        return f64::INFINITY;
+    let rational = Rational::from_integers_ref(numerator.into(), denominator.into());
+    match rational.rounding_into(RoundingMode::Nearest) {
+        // returned value is $t::MAX but still less than the original
+        (val, std::cmp::Ordering::Less) if val == f64::MAX => f64::INFINITY,
+        // returned value is $t::MIN but still greater than the original
+        (val, std::cmp::Ordering::Greater) if val == f64::MIN => f64::NEG_INFINITY,
+        (val, _) => val,
     }
-    val
 }
 
 pub fn float_to_ratio(value: f64) -> Option<(BigInt, BigInt)> {
