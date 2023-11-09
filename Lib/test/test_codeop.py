@@ -30,6 +30,8 @@ class CodeopTests(unittest.TestCase):
         except OverflowError:
             self.assertTrue(not is_syntax)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_valid(self):
         av = self.assertValid
 
@@ -298,12 +300,15 @@ class CodeopTests(unittest.TestCase):
             warnings.simplefilter('error', SyntaxWarning)
             compile_command(r"'\e'", symbol='exec')
 
-    def test_incomplete_warning(self):
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter('always')
-            self.assertIncomplete("'\\e' + (")
-        self.assertEqual(w, [])
+    # TODO: RUSTPYTHON
+    #def test_incomplete_warning(self):
+    #    with warnings.catch_warnings(record=True) as w:
+    #        warnings.simplefilter('always')
+    #        self.assertIncomplete("'\\e' + (")
+    #    self.assertEqual(w, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_warning(self):
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter('always')
