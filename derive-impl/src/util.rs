@@ -639,13 +639,6 @@ impl ErrorVec for Vec<syn::Error> {
     }
 }
 
-macro_rules! iter_chain {
-    ($($it:expr),*$(,)?) => {
-        ::std::iter::empty()
-            $(.chain(::std::iter::once($it)))*
-    };
-}
-
 pub(crate) fn iter_use_idents<'a, F, R: 'a>(item_use: &'a syn::ItemUse, mut f: F) -> Result<Vec<R>>
 where
     F: FnMut(&'a syn::Ident, bool) -> Result<R>,

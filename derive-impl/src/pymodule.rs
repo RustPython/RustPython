@@ -110,7 +110,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
     let is_submodule = module_meta.sub()?;
     let withs = module_meta.with()?;
     if !is_submodule {
-        items.extend(iter_chain![
+        items.extend([
             parse_quote! {
                 pub(crate) const MODULE_NAME: &'static str = #module_name;
             },
@@ -165,7 +165,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
             >(&[#(super::#withs::METHOD_DEFS,)* OWN_METHODS])
         })
     };
-    items.extend(iter_chain![
+    items.extend([
         parse_quote! {
             ::rustpython_vm::common::static_cell! {
                 pub(crate) static DEF: ::rustpython_vm::builtins::PyModuleDef;

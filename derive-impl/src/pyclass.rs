@@ -172,7 +172,7 @@ pub(crate) fn impl_pyclass_impl(attr: AttributeArgs, item: Item) -> Result<Token
             let slots_impl = context.extend_slots_items.validate()?;
             let class_extensions = &context.class_extensions;
 
-            let extra_methods = iter_chain![
+            let extra_methods = [
                 parse_quote! {
                     const __OWN_METHOD_DEFS: &'static [::rustpython_vm::function::PyMethodDef] = &#method_def;
                 },
@@ -266,7 +266,7 @@ pub(crate) fn impl_pyclass_impl(attr: AttributeArgs, item: Item) -> Result<Token
             } else {
                 quote! {}
             };
-            let extra_methods = iter_chain![
+            let extra_methods = [
                 parse_quote! {
                     const __OWN_METHOD_DEFS: &'static [::rustpython_vm::function::PyMethodDef] = &#method_def;
                 },
