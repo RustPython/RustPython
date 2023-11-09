@@ -4,7 +4,7 @@ use crate::util::{
     AttributeExt, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ItemMeta, ItemNursery,
     ModuleItemMeta, SimpleItemMeta, ALL_ALLOWED_NAMES,
 };
-use proc_macro2::TokenStream;
+use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{quote, quote_spanned, ToTokens};
 use std::{collections::HashSet, str::FromStr};
 use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result};
@@ -122,16 +122,10 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
                     ctx: &::rustpython_vm::Context,
                 ) -> &'static ::rustpython_vm::builtins::PyModuleDef {
                     DEF.get_or_init(|| {
-                        #[allow(clippy::ptr_arg)]
-                        let method_defs = {
-                            let mut method_defs = Vec::new();
-                            extend_method_def(ctx, &mut method_defs);
-                            method_defs
-                        };
                         let mut def = ::rustpython_vm::builtins::PyModuleDef {
                             name: ctx.intern_str(MODULE_NAME),
                             doc: DOC.map(|doc| ctx.intern_str(doc)),
-                            methods: Box::leak(method_defs.into_boxed_slice()),
+                            methods: METHOD_DEFS,
                             slots: Default::default(),
                         };
                         def.slots.exec = Some(extend_module);
@@ -161,6 +155,16 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
             }
         });
     }
+    let method_defs = if withs.is_empty() {
+        quote!(#function_items)
+    } else {
+        quote!({
+            const OWN_METHODS: &'static [::rustpython_vm::function::PyMethodDef] = &#function_items;
+            rustpython_vm::function::PyMethodDef::__const_concat_arrays::<
+                { OWN_METHODS.len() #(+ super::#withs::METHOD_DEFS.len())* },
+            >(&[#(super::#withs::METHOD_DEFS,)* OWN_METHODS])
+        })
+    };
     items.extend(iter_chain![
         parse_quote! {
             ::rustpython_vm::common::static_cell! {
@@ -168,16 +172,7 @@ pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStre
             }
         },
         parse_quote! {
-            #[allow(clippy::ptr_arg)]
-            pub(crate) fn extend_method_def(
-                ctx: &::rustpython_vm::Context,
-                method_defs: &mut Vec<::rustpython_vm::function::PyMethodDef>,
-            ) {
-                #(
-                    super::#withs::extend_method_def(ctx, method_defs);
-                )*
-                #function_items
-            }
+            pub(crate) const METHOD_DEFS: &'static [::rustpython_vm::function::PyMethodDef] = &#method_defs;
         },
         parse_quote! {
             pub(crate) fn __init_attributes(
@@ -361,26 +356,30 @@ struct ValidatedFunctionNursery(FunctionNursery);
 
 impl ToTokens for ValidatedFunctionNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
+        let mut inner_tokens = TokenStream::new();
+        let flags = quote! { rustpython_vm::function::PyMethodFlags::empty() };
         for item in &self.0.items {
             let ident = &item.ident;
             let cfgs = &item.cfgs;
+            let cfgs = quote!(#(#cfgs)*);
             let py_names = &item.py_names;
             let doc = &item.doc;
-            let flags = quote! { rustpython_vm::function::PyMethodFlags::empty() };
+            let doc = quote!(Some(#doc));
 
-            tokens.extend(quote! {
-                #(#cfgs)*
-                {
-                    let doc = Some(#doc);
-                    #(method_defs.push(rustpython_vm::function::PyMethodDef::new(
-                        (#py_names),
+            inner_tokens.extend(quote![
+                #(
+                    #cfgs
+                    rustpython_vm::function::PyMethodDef::new_const(
+                        #py_names,
                         #ident,
                         #flags,
-                        doc,
-                    ));)*
-                }
-            });
+                        #doc,
+                    ),
+                )*
+            ]);
         }
+        let array: TokenTree = Group::new(Delimiter::Bracket, inner_tokens).into();
+        tokens.extend([array]);
     }
 }
 

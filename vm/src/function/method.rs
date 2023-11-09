@@ -86,6 +86,22 @@ impl PyMethodDef {
             doc,
         }
     }
+
+    #[inline]
+    pub const fn new_const<Kind>(
+        name: &'static str,
+        func: impl IntoPyNativeFn<Kind>,
+        flags: PyMethodFlags,
+        doc: Option<&'static str>,
+    ) -> Self {
+        Self {
+            name,
+            func: super::static_func(func),
+            flags,
+            doc,
+        }
+    }
+
     pub fn to_proper_method(
         &'static self,
         class: &'static Py<PyType>,
@@ -191,6 +207,41 @@ impl PyMethodDef {
         debug_assert!(self.flags.contains(PyMethodFlags::STATIC));
         let func = self.to_function();
         PyNativeMethod { func, class }.into_ref(ctx)
+    }
+
+    #[doc(hidden)]
+    pub const fn __const_concat_arrays<const SUM_LEN: usize>(
+        method_groups: &[&[Self]],
+    ) -> [Self; SUM_LEN] {
+        const NULL_METHOD: PyMethodDef = PyMethodDef {
+            name: "",
+            func: &|_, _| unreachable!(),
+            flags: PyMethodFlags::empty(),
+            doc: None,
+        };
+        let mut all_methods = [NULL_METHOD; SUM_LEN];
+        let mut all_idx = 0;
+        let mut group_idx = 0;
+        while group_idx < method_groups.len() {
+            let group = method_groups[group_idx];
+            let mut method_idx = 0;
+            while method_idx < group.len() {
+                all_methods[all_idx] = group[method_idx].const_copy();
+                method_idx += 1;
+                all_idx += 1;
+            }
+            group_idx += 1;
+        }
+        all_methods
+    }
+
+    const fn const_copy(&self) -> Self {
+        Self {
+            name: self.name,
+            func: self.func,
+            flags: self.flags,
+            doc: self.doc,
+        }
     }
 }
 

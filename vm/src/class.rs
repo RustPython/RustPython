@@ -135,19 +135,16 @@ pub trait PyClassImpl: PyClassDef {
     }
 
     fn impl_extend_class(ctx: &Context, class: &'static Py<PyType>);
-    fn impl_extend_method_def(method_defs: &mut Vec<PyMethodDef>);
+    const METHOD_DEFS: &'static [PyMethodDef];
     fn extend_slots(slots: &mut PyTypeSlots);
 
     fn make_slots() -> PyTypeSlots {
-        let mut method_defs = Vec::new();
-        Self::impl_extend_method_def(&mut method_defs);
-
         let mut slots = PyTypeSlots {
             flags: Self::TP_FLAGS,
             name: Self::TP_NAME,
             basicsize: Self::BASICSIZE,
             doc: Self::DOC,
-            methods: Box::leak(method_defs.into_boxed_slice()),
+            methods: Self::METHOD_DEFS,
             ..Default::default()
         };
 
