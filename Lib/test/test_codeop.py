@@ -2,48 +2,19 @@
    Test cases for codeop.py
    Nick Mathewson
 """
-import sys
 import unittest
 import warnings
-from test import support
 from test.support import warnings_helper
+from textwrap import dedent
 
 from codeop import compile_command, PyCF_DONT_IMPLY_DEDENT
-import io
-
-if support.is_jython:
-
-    def unify_callables(d):
-        for n, v in d.items():
-            if hasattr(v, '__call__'):
-                d[n] = True
-        return d
-
 
 class CodeopTests(unittest.TestCase):
 
     def assertValid(self, str, symbol='single'):
         '''succeed iff str is a valid piece of code'''
-        if support.is_jython:
-            code = compile_command(str, "<input>", symbol)
-            self.assertTrue(code)
-            if symbol == "single":
-                d, r = {}, {}
-                saved_stdout = sys.stdout
-                sys.stdout = io.StringIO()
-                try:
-                    exec(code, d)
-                    exec(compile(str, "<input>", "single"), r)
-                finally:
-                    sys.stdout = saved_stdout
-            elif symbol == 'eval':
-                ctx = {'a': 2}
-                d = {'value': eval(code, ctx)}
-                r = {'value': eval(str, ctx)}
-            self.assertEqual(unify_callables(r), unify_callables(d))
-        else:
-            expected = compile(str, "<input>", symbol, PyCF_DONT_IMPLY_DEDENT)
-            self.assertEqual(compile_command(str, "<input>", symbol), expected)
+        expected = compile(str, "<input>", symbol, PyCF_DONT_IMPLY_DEDENT)
+        self.assertEqual(compile_command(str, "<input>", symbol), expected)
 
     def assertIncomplete(self, str, symbol='single'):
         '''succeed iff str is the start of a valid piece of code'''
@@ -52,7 +23,7 @@ class CodeopTests(unittest.TestCase):
     def assertInvalid(self, str, symbol='single', is_syntax=1):
         '''succeed iff str is the start of an invalid piece of code'''
         try:
-            compile_command(str, symbol=symbol)
+            compile_command(str,symbol=symbol)
             self.fail("No exception raised for invalid code")
         except SyntaxError:
             self.assertTrue(is_syntax)
@@ -60,22 +31,17 @@ class CodeopTests(unittest.TestCase):
             self.assertTrue(not is_syntax)
 
     # TODO: RUSTPYTHON
-
     @unittest.expectedFailure
     def test_valid(self):
         av = self.assertValid
 
         # special case
-        if not support.is_jython:
-            self.assertEqual(compile_command(""),
-                             compile("pass", "<input>", 'single',
-                                     PyCF_DONT_IMPLY_DEDENT))
-            self.assertEqual(compile_command("\n"),
-                             compile("pass", "<input>", 'single',
-                                     PyCF_DONT_IMPLY_DEDENT))
-        else:
-            av("")
-            av("\n")
+        self.assertEqual(compile_command(""),
+                            compile("pass", "<input>", 'single',
+                                    PyCF_DONT_IMPLY_DEDENT))
+        self.assertEqual(compile_command("\n"),
+                            compile("pass", "<input>", 'single',
+                                    PyCF_DONT_IMPLY_DEDENT))
 
         av("a = 1")
         av("\na = 1")
@@ -104,15 +70,15 @@ class CodeopTests(unittest.TestCase):
         av("a=3\n\n")
         av("a = 9+ \\\n3")
 
-        av("3**3", "eval")
-        av("(lambda z: \n z**3)", "eval")
+        av("3**3","eval")
+        av("(lambda z: \n z**3)","eval")
 
-        av("9+ \\\n3", "eval")
-        av("9+ \\\n3\n", "eval")
+        av("9+ \\\n3","eval")
+        av("9+ \\\n3\n","eval")
 
-        av("\n\na**3", "eval")
-        av("\n \na**3", "eval")
-        av("#a\n#b\na**3", "eval")
+        av("\n\na**3","eval")
+        av("\n \na**3","eval")
+        av("#a\n#b\na**3","eval")
 
         av("\n\na = 1\n\n")
         av("\n\nif 1: a=1\n\n")
@@ -120,9 +86,9 @@ class CodeopTests(unittest.TestCase):
         av("if 1:\n pass\n if 1:\n  pass\n else:\n  pass\n")
         av("#a\n\n   \na=3\n\n")
 
-        av("\n\na**3", "eval")
-        av("\n \na**3", "eval")
-        av("#a\n#b\na**3", "eval")
+        av("\n\na**3","eval")
+        av("\n \na**3","eval")
+        av("#a\n#b\na**3","eval")
 
         av("def f():\n try: pass\n finally: [x for x in (1,2)]\n")
         av("def f():\n pass\n#foo\n")
@@ -140,6 +106,10 @@ class CodeopTests(unittest.TestCase):
         ai("a = (")
         ai("a = {")
         ai("b + {")
+
+        ai("print([1,\n2,")
+        ai("print({1:1,\n2:3,")
+        ai("print((1,\n2,")
 
         ai("if 9==3:\n   pass\nelse:")
         ai("if 9==3:\n   pass\nelse:\n")
@@ -163,13 +133,12 @@ class CodeopTests(unittest.TestCase):
         ai("a = 'a\\")
         ai("a = '''xy")
 
-        ai("", "eval")
-        ai("\n", "eval")
-        ai("(", "eval")
-        ai("(\n\n\n", "eval")
-        ai("(9+", "eval")
-        ai("9+ \\", "eval")
-        ai("lambda z: \\", "eval")
+        ai("","eval")
+        ai("\n","eval")
+        ai("(","eval")
+        ai("(9+","eval")
+        ai("9+ \\","eval")
+        ai("lambda z: \\","eval")
 
         ai("if True:\n if True:\n  if True:   \n")
 
@@ -277,14 +246,13 @@ class CodeopTests(unittest.TestCase):
         ai("a = 'a\\ ")
         ai("a = 'a\\\n")
 
-        ai("a = 1", "eval")
-        ai("a = (", "eval")
-        ai("]", "eval")
-        ai("())", "eval")
-        ai("[}", "eval")
-        ai("9+", "eval")
-        ai("lambda z:", "eval")
-        ai("a b", "eval")
+        ai("a = 1","eval")
+        ai("]","eval")
+        ai("())","eval")
+        ai("[}","eval")
+        ai("9+","eval")
+        ai("lambda z:","eval")
+        ai("a b","eval")
 
         ai("return 2.3")
         ai("if (a == 1 and b = 2): pass")
@@ -314,11 +282,11 @@ class CodeopTests(unittest.TestCase):
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_warning(self):
-        # Teswarnings_helper.check_warningsonly returned once.
+        # Test that the warning is only returned once.
         with warnings_helper.check_warnings(
-                (".*literal", SyntaxWarning),
-                (".*invalid", DeprecationWarning),
-        ) as w:
+                ('"is" with \'str\' literal', SyntaxWarning),
+                ("invalid escape sequence", SyntaxWarning),
+                ) as w:
             compile_command(r"'\e' is 0")
             self.assertEqual(len(w.warnings), 2)
 
@@ -326,6 +294,42 @@ class CodeopTests(unittest.TestCase):
         with warnings.catch_warnings(), self.assertRaises(SyntaxError):
             warnings.simplefilter('error', SyntaxWarning)
             compile_command('1 is 1', symbol='exec')
+
+        # Check SyntaxWarning treated as an SyntaxError
+        with warnings.catch_warnings(), self.assertRaises(SyntaxError):
+            warnings.simplefilter('error', SyntaxWarning)
+            compile_command(r"'\e'", symbol='exec')
+
+    # TODO: RUSTPYTHON
+    #def test_incomplete_warning(self):
+    #    with warnings.catch_warnings(record=True) as w:
+    #        warnings.simplefilter('always')
+    #        self.assertIncomplete("'\\e' + (")
+    #    self.assertEqual(w, [])
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_invalid_warning(self):
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter('always')
+            self.assertInvalid("'\\e' 1")
+        self.assertEqual(len(w), 1)
+        self.assertEqual(w[0].category, SyntaxWarning)
+        self.assertRegex(str(w[0].message), 'invalid escape sequence')
+        self.assertEqual(w[0].filename, '<input>')
+
+    def assertSyntaxErrorMatches(self, code, message):
+        with self.subTest(code):
+            with self.assertRaisesRegex(SyntaxError, message):
+                compile_command(code, symbol='exec')
+
+    def test_syntax_errors(self):
+        self.assertSyntaxErrorMatches(
+            dedent("""\
+                def foo(x,x):
+                   pass
+            """), "duplicate argument 'x' in function definition")
+
 
 
 if __name__ == "__main__":
