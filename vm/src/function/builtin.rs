@@ -30,6 +30,7 @@ pub type PyNativeFn = py_dyn_fn!(dyn Fn(&VirtualMachine, FuncArgs) -> PyResult);
 /// `fn foo<F, FKind>(f: F) where F: IntoPyNativeFn<FKind>`
 pub trait IntoPyNativeFn<Kind>: Sized + PyThreadingConstraint + 'static {
     fn call(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult;
+
     /// `IntoPyNativeFn::into_func()` generates a PyNativeFn that performs the
     /// appropriate type and arity checking, any requested conversions, and then if
     /// successful calls the function with the extracted parameters.
@@ -37,6 +38,36 @@ pub trait IntoPyNativeFn<Kind>: Sized + PyThreadingConstraint + 'static {
         let boxed = Box::new(move |vm: &VirtualMachine, args| self.call(vm, args));
         Box::leak(boxed)
     }
+
+    /// Equivalent to `into_func()`, but accessible as a constant. This is only
+    /// valid if this function is zero-sized, i.e. that
+    /// `std::mem::size_of::<F>() == 0`. If it isn't, use of this constant will
+    /// raise a compile error.
+    const STATIC_FUNC: &'static PyNativeFn = {
+        if std::mem::size_of::<Self>() == 0 {
+            &|vm, args| {
+                // SAFETY: we just confirmed that Self is zero-sized, so there
+                //         aren't any bytes in it that could be uninit.
+                #[allow(clippy::uninit_assumed_init)]
+                let f = unsafe { std::mem::MaybeUninit::<Self>::uninit().assume_init() };
+                f.call(vm, args)
+            }
+        } else {
+            panic!("function must be zero-sized to access STATIC_FUNC")
+        }
+    };
+}
+
+/// Get the [`STATIC_FUNC`](IntoPyNativeFn::STATIC_FUNC) of the passed function. The same
+/// requirements of zero-sizedness apply, see that documentation for details.
+#[inline(always)]
+pub const fn static_func<Kind, F: IntoPyNativeFn<Kind>>(f: F) -> &'static PyNativeFn {
+    // if f is zero-sized, there's no issue forgetting it - even if a capture of f does have a Drop
+    // impl, it would never get called anyway. If you passed it to into_func, it would just get
+    // Box::leak'd, and as a 'static reference it'll never be dropped. and if f isn't zero-sized,
+    // we'll never reach this point anyway because we'll fail to compile.
+    std::mem::forget(f);
+    F::STATIC_FUNC
 }
 
 // TODO: once higher-rank trait bounds are stabilized, remove the `Kind` type
@@ -186,5 +217,6 @@ mod tests {
         check_zst(py_func.into_func());
         let empty_closure = || "foo".to_owned();
         check_zst(empty_closure.into_func());
+        check_zst(static_func(empty_closure));
     }
 }
