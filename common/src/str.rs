@@ -221,19 +221,6 @@ pub fn to_ascii(value: &str) -> AsciiString {
     unsafe { AsciiString::from_ascii_unchecked(ascii) }
 }
 
-#[doc(hidden)]
-pub const fn bytes_is_ascii(x: &str) -> bool {
-    let x = x.as_bytes();
-    let mut i = 0;
-    while i < x.len() {
-        if !x[i].is_ascii() {
-            return false;
-        }
-        i += 1;
-    }
-    true
-}
-
 pub mod levenshtein {
     use std::{cell::RefCell, thread_local};
 
@@ -335,15 +322,24 @@ pub mod levenshtein {
     }
 }
 
+/// Creates an [`AsciiStr`][ascii::AsciiStr] from a string literal, throwing a compile error if the
+/// literal isn't actually ascii.
+///
+/// ```compile_fail
+/// # use rustpython_common::str::ascii;
+/// ascii!("I ❤️ Rust & Python");
+/// ```
 #[macro_export]
 macro_rules! ascii {
     ($x:literal) => {{
-        const _: () = {
-            ["not ascii"][!$crate::str::bytes_is_ascii($x) as usize];
+        const STR: &str = $x;
+        const _: () = if !STR.is_ascii() {
+            panic!("ascii!() argument is not an ascii string");
         };
-        unsafe { $crate::vendored::ascii::AsciiStr::from_ascii_unchecked($x.as_bytes()) }
+        unsafe { $crate::vendored::ascii::AsciiStr::from_ascii_unchecked(STR.as_bytes()) }
     }};
 }
+pub use ascii;
 
 #[cfg(test)]
 mod tests {

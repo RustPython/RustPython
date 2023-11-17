@@ -75,15 +75,8 @@ impl OsPath {
         Path::new(&self.path)
     }
 
-    #[cfg(any(unix, target_os = "wasi"))]
     pub fn into_bytes(self) -> Vec<u8> {
-        use rustpython_common::os::ffi::OsStrExt;
-        self.path.as_bytes().to_vec()
-    }
-
-    #[cfg(windows)]
-    pub fn into_bytes(self) -> Vec<u8> {
-        self.path.to_string_lossy().to_string().into_bytes()
+        self.path.into_encoded_bytes()
     }
 
     pub fn into_cstring(self, vm: &VirtualMachine) -> PyResult<ffi::CString> {
