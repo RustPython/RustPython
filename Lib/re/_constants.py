@@ -13,7 +13,7 @@
 
 # update when constants are added or removed
 
-MAGIC = 20230612
+MAGIC = 20221023
 
 from _sre import MAXREPEAT, MAXGROUPS
 
@@ -204,6 +204,7 @@ CH_UNICODE = {
 }
 
 # flags
+SRE_FLAG_TEMPLATE = 1 # template mode (unknown purpose, deprecated)
 SRE_FLAG_IGNORECASE = 2 # case insensitive
 SRE_FLAG_LOCALE = 4 # honour system locale
 SRE_FLAG_MULTILINE = 8 # treat target as multiline string
@@ -217,3 +218,4 @@ SRE_FLAG_ASCII = 256 # use ascii "locale"
 SRE_INFO_PREFIX = 1 # has prefix
 SRE_INFO_LITERAL = 2 # entire pattern is literal (given by prefix)
 SRE_INFO_CHARSET = 4 # pattern starts with character from given set
+RE_INFO_CHARSET = 4 # pattern starts with character from given set

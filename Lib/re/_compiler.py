@@ -101,6 +101,8 @@ def _compile(code, pattern, flags):
             else:
                 emit(ANY)
         elif op in REPEATING_CODES:
+            if flags & SRE_FLAG_TEMPLATE:
+                raise error("internal: unsupported template operator %r" % (op,))
             if _simple(av[2]):
                 emit(REPEATING_CODES[op][2])
                 skip = _len(code); emit(0)
@@ -761,3 +763,4 @@ def compile(p, flags=0):
         p.state.groups-1,
         groupindex, tuple(indexgroup)
         )
+
