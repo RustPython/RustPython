@@ -78,11 +78,11 @@ result-like = "0.4.5"
 timsort = "0.1.2"
 
 # RustPython crates implementing functionality based on CPython
-sre-engine = "0.4.1"
+# sre-engine = "0.4.1"
 # to work on sre-engine locally or git version
 # sre-engine = { git = "https://github.com/RustPython/sre-engine", rev = "refs/pull/14/head" }
 # sre-engine = { git = "https://github.com/RustPython/sre-engine" }
-# sre-engine = { path = "../../sre-engine" }
+sre-engine = { path = "../../sre-engine" }
 
 ## unicode stuff
 unicode_names2 = { workspace = true }
