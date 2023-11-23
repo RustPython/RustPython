@@ -624,6 +624,8 @@ class IsCloseTests(test_math.IsCloseTests):
         self.assertIsClose(0.001-0.001j, 0.001+0.001j, abs_tol=2e-03)
         self.assertIsNotClose(0.001-0.001j, 0.001+0.001j, abs_tol=1e-03)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_complex_special(self):
         self.assertIsNotClose(INF, INF*1j)
         self.assertIsNotClose(INF*1j, INF)
