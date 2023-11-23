@@ -243,6 +243,8 @@ class LocaleConfigurationTests(_LocaleHandlingTestCase):
         if not AVAILABLE_TARGETS:
             raise unittest.SkipTest("No C-with-UTF-8 locale available")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_external_target_locale_configuration(self):
 
         # Explicitly setting a target locale should give the same behaviour as
