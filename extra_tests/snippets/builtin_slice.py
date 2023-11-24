@@ -82,7 +82,7 @@ assert_raises(TypeError, lambda: slice(0) > 3)
 assert_raises(TypeError, lambda: slice(0) <= 3)
 assert_raises(TypeError, lambda: slice(0) >= 3)
 
-# TODO: slice is hashable in CPython 3.12
+# slice is hashable in CPython 3.12
 # assert_raises(TypeError, hash, slice(0))
 # assert_raises(TypeError, hash, slice(None))
 #
