@@ -2,10 +2,12 @@ use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
+    function::{PyArithmeticValue, PyComparisonValue},
     protocol::PyNumberMethods,
-    types::{AsNumber, Constructor, Representable},
-    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
+use rustpython_vm::AsObject;
 
 #[pyclass(module = false, name = "NoneType")]
 #[derive(Debug)]
@@ -42,7 +44,7 @@ impl Constructor for PyNone {
     }
 }
 
-#[pyclass(with(Constructor, AsNumber, Representable))]
+#[pyclass(with(Constructor, Comparable, AsNumber, Representable))]
 impl PyNone {
     #[pymethod(magic)]
     fn bool(&self) -> bool {
@@ -69,6 +71,26 @@ impl AsNumber for PyNone {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
+    }
+}
+
+impl Comparable for PyNone {
+    fn cmp(
+        zelf: &Py<Self>,
+        other: &PyObject,
+        op: PyComparisonOp,
+        _vm: &VirtualMachine,
+    ) -> PyResult<PyComparisonValue> {
+        match op {
+            PyComparisonOp::Eq => {
+                if zelf.is(other) {
+                    Ok(PyArithmeticValue::Implemented(true))
+                } else {
+                    Ok(PyArithmeticValue::NotImplemented)
+                }
+            }
+            _ => Ok(PyComparisonValue::NotImplemented),
+        }
     }
 }
 
