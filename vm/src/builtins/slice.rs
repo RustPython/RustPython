@@ -3,10 +3,11 @@
 use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
+    common::hash::{PyHash, PyUHash},
     convert::ToPyObject,
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
-    types::{Comparable, Constructor, PyComparisonOp, Representable},
+    types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use malachite_bigint::{BigInt, ToBigInt};
@@ -26,7 +27,7 @@ impl PyPayload for PySlice {
     }
 }
 
-#[pyclass(with(Comparable, Representable))]
+#[pyclass(with(Comparable, Representable, Hashable))]
 impl PySlice {
     #[pygetset]
     fn start(&self, vm: &VirtualMachine) -> PyObjectRef {
@@ -194,6 +195,47 @@ impl PySlice {
             zelf.class().to_owned(),
             (zelf.start.clone(), zelf.stop.clone(), zelf.step.clone()),
         ))
+    }
+}
+
+impl Hashable for PySlice {
+    #[inline]
+    fn hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
+        const XXPRIME_1: PyUHash = if cfg!(target_pointer_width = "64") {
+            11400714785074694791
+        } else {
+            2654435761
+        };
+        const XXPRIME_2: PyUHash = if cfg!(target_pointer_width = "64") {
+            14029467366897019727
+        } else {
+            2246822519
+        };
+        const XXPRIME_5: PyUHash = if cfg!(target_pointer_width = "64") {
+            2870177450012600261
+        } else {
+            374761393
+        };
+        const ROTATE: u32 = if cfg!(target_pointer_width = "64") {
+            31
+        } else {
+            13
+        };
+
+        let mut acc = XXPRIME_5;
+        for part in [zelf.start_ref(vm), &zelf.stop, zelf.step_ref(vm)].iter() {
+            let lane = part.hash(vm)? as PyUHash;
+            if lane == u64::MAX as PyUHash {
+                return Ok(-1 as PyHash);
+            }
+            acc = acc.wrapping_add(lane.wrapping_mul(XXPRIME_2));
+            acc = acc.rotate_left(ROTATE);
+            acc = acc.wrapping_mul(XXPRIME_1);
+        }
+        if acc == u64::MAX as PyUHash {
+            return Ok(1546275796 as PyHash);
+        }
+        Ok(acc as PyHash)
     }
 }
 

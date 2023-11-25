@@ -82,16 +82,6 @@ assert_raises(TypeError, lambda: slice(0) > 3)
 assert_raises(TypeError, lambda: slice(0) <= 3)
 assert_raises(TypeError, lambda: slice(0) >= 3)
 
-# TODO: slice is hashable in CPython 3.12
-# assert_raises(TypeError, hash, slice(0))
-# assert_raises(TypeError, hash, slice(None))
-#
-# def dict_slice():
-#     d = {}
-#     d[slice(0)] = 3
-#
-# assert_raises(TypeError, dict_slice)
-
 assert slice(None           ).indices(10) == (0, 10,  1)
 assert slice(None,  None,  2).indices(10) == (0, 10,  2)
 assert slice(1,     None,  2).indices(10) == (1, 10,  2)
