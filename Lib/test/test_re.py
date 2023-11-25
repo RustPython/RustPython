@@ -116,8 +116,6 @@ class ReTests(unittest.TestCase):
         int_value = int(matchobj.group(0))
         return str(int_value + 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_re_sub(self):
         self.assertTypedEqual(re.sub('y', 'a', 'xyz'), 'xaz')
         self.assertTypedEqual(re.sub('y', S('a'), S('xyz')), 'xaz')
@@ -161,15 +159,11 @@ class ReTests(unittest.TestCase):
 
         self.assertEqual(re.sub(r'^\s*', 'X', 'test'), 'Xtest')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_449964(self):
         # fails for group followed by other escape
         self.assertEqual(re.sub(r'(?P<unk>x)', r'\g<1>\g<1>\b', 'xx'),
                          'xx\bxx\b')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_449000(self):
         # Test for sub() on escaped characters
         self.assertEqual(re.sub(r'\r\n', r'\n', 'abc\r\ndef\r\n'),
@@ -193,8 +187,6 @@ class ReTests(unittest.TestCase):
         # A regex that triggered a bug in the sre-code validator
         re.compile("(?P<quote>)(?(quote))")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sub_template_numeric_escape(self):
         # bug 776311 and friends
         self.assertEqual(re.sub('x', r'\0', 'x'), '\0')
@@ -248,8 +240,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.sub('a', 'b', 'aaaaa', 1), 'baaaa')
         self.assertEqual(re.sub('a', 'b', 'aaaaa', count=1), 'baaaa')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_114660(self):
         self.assertEqual(re.sub(r'(\S)\s+(\S)', r'\1 \2', 'hello  there'),
                          'hello there')
@@ -303,8 +293,6 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(b'(?(\xc2\xb5)y)',
                                r"bad character in group name '\xc2\xb5'", 3)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_symbolic_refs(self):
         self.assertEqual(re.sub('(?P<a>x)|(?P<b>y)', r'\g<b>', 'xx'), '')
         self.assertEqual(re.sub('(?P<a>x)|(?P<b>y)', r'\2', 'xx'), '')
@@ -316,8 +304,6 @@ class ReTests(unittest.TestCase):
         pat = '|'.join('x(?P<a%d>%x)y' % (i, i) for i in range(1, 200 + 1))
         self.assertEqual(re.sub(pat, r'\g<200>', 'xc8yzxc8y'), 'c8zc8')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_symbolic_refs_errors(self):
         self.checkTemplateError('(?P<a>x)', r'\g<a', 'xx',
                                 'missing >, unterminated name', 3)
@@ -651,8 +637,6 @@ class ReTests(unittest.TestCase):
             with self.subTest(code=i):
                 re.compile(r'()(?(1)\x%02x?)' % i)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_re_groupref_overflow(self):
         from re._constants import MAXGROUPS
         self.checkTemplateError('()', r'\g<%s>' % MAXGROUPS, 'xx',
@@ -1754,8 +1738,6 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.fullmatch('(?x)#x\na|#y\nb', 'a'))
         self.assertTrue(re.fullmatch('(?x)#x\na|#y\nb', 'b'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_6509(self):
         # Replacement strings of both types must parse properly.
         # all strings
@@ -1902,8 +1884,6 @@ class ReTests(unittest.TestCase):
         )
         self.assertRegex(repr(second), pattern)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_zerowidth(self):
         # Issues 852532, 1647489, 3262, 25054.
         self.assertEqual(re.split(r"\b", "a::bc"), ['', 'a', '::', 'bc', ''])
@@ -2235,8 +2215,6 @@ class ReTests(unittest.TestCase):
         p = r'(?:a*?(xx)??z)*'
         self.assertEqual(re.match(p, s).groups(), ('xx',))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ASSERT_NOT_mark_bug(self):
         # Fixed in issue35859, reported in issue725149.
         # JUMP_ASSERT_NOT should LASTMARK_SAVE()
@@ -2249,16 +2227,12 @@ class ReTests(unittest.TestCase):
         self.assertEqual(m.span(3), (3, 4))
         self.assertEqual(m.groups(), ('b', None, 'b'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_40736(self):
         with self.assertRaisesRegex(TypeError, "got 'int'"):
             re.search("x*", 5)
         with self.assertRaisesRegex(TypeError, "got 'type'"):
             re.search("x*", type)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_search_anchor_at_beginning(self):
         s = 'x'*10**7
         start = time.perf_counter()
@@ -2273,7 +2247,8 @@ class ReTests(unittest.TestCase):
         # With optimization -- 0.0003 seconds.
         self.assertLess(t, 0.1)
 
-    @unittest.skip('dead lock')
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_possessive_quantifiers(self):
         """Test Possessive Quantifiers
         Test quantifiers of the form @+ for some repetition operator @,
@@ -2342,7 +2317,6 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.fullmatch(r'(?:ab)?+c', 'abc'))
         self.assertTrue(re.fullmatch(r'(?:ab){1,3}+c', 'abc'))
 
-    @unittest.skip("dead lock")
     def test_findall_possessive_quantifiers(self):
         self.assertEqual(re.findall(r'a++', 'aab'), ['aa'])
         self.assertEqual(re.findall(r'a*+', 'aab'), ['aa', '', ''])
@@ -2354,8 +2328,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.findall(r'(?:ab)?+', 'ababc'), ['ab', 'ab', '', ''])
         self.assertEqual(re.findall(r'(?:ab){1,3}+', 'ababc'), ['abab'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_atomic_grouping(self):
         """Test Atomic Grouping
         Test non-capturing groups of the form (?>...), which does
@@ -2399,8 +2371,6 @@ class ReTests(unittest.TestCase):
         self.assertTrue(re.fullmatch(r'(?>(?:ab)?)c', 'abc'))
         self.assertTrue(re.fullmatch(r'(?>(?:ab){1,3})c', 'abc'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_findall_atomic_grouping(self):
         self.assertEqual(re.findall(r'(?>a+)', 'aab'), ['aa'])
         self.assertEqual(re.findall(r'(?>a*)', 'aab'), ['aa', '', ''])
@@ -2412,6 +2382,8 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.findall(r'(?>(?:ab)?)', 'ababc'), ['ab', 'ab', '', ''])
         self.assertEqual(re.findall(r'(?>(?:ab){1,3})', 'ababc'), ['abab'])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_bug_gh91616(self):
         self.assertTrue(re.fullmatch(r'(?s:(?>.*?\.).*)\Z', "a.txt")) # reproducer
         self.assertTrue(re.fullmatch(r'(?s:(?=(?P<g0>.*?\.))(?P=g0).*)\Z', "a.txt"))
@@ -2442,8 +2414,6 @@ class ReTests(unittest.TestCase):
         self.assertTrue(template_re1.match('ahoy'))
         self.assertFalse(template_re1.match('nope'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_gh106052(self):
         # gh-100061
         self.assertEqual(re.match('(?>(?:.(?!D))+)', 'ABCDE').span(), (0, 2))

@@ -2532,6 +2532,7 @@ dependencies = [
 [[package]]
 name = "sre-engine"
 version = "0.6.0"
+source = "git+https://github.com/RustPython/sre-engine?rev=refs/pull/17/head#9725808c302b13e873ff7f955dd4c1632f1137fd"
 dependencies = [
  "bitflags 2.4.0",
  "num_enum",
