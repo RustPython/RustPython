@@ -930,6 +930,8 @@ class CmdLineTest(unittest.TestCase):
         self.assertTrue(proc.stderr.startswith(err_msg), proc.stderr)
         self.assertNotEqual(proc.returncode, 0)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_int_max_str_digits(self):
         code = "import sys; print(sys.flags.int_max_str_digits, sys.get_int_max_str_digits())"
 
