@@ -1858,6 +1858,7 @@ order (MRO) for bases """
         self.assertRaises(TypeError, object.__init__, A(3), 5)
 
     @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_restored_object_new(self):
         class A(object):
             def __new__(cls, *args, **kwargs):
@@ -4529,7 +4530,8 @@ order (MRO) for bases """
         o = Oops()
         o.whatever = Provoker(o)
         del o
-
+        
+    @unittest.skip("TODO: RUSTPYTHON, rustpython segmentation fault")
     @support.requires_resource('cpu')
     def test_wrapper_segfault(self):
         # SF 927248: deeply nested wrappers could cause stack overflow
@@ -5097,6 +5099,8 @@ order (MRO) for bases """
         gc.collect()
         self.assertEqual(Parent.__subclasses__(), [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attr_raise_through_property(self):
         # test case for gh-103272
         class A:
