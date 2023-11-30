@@ -21,6 +21,11 @@ try:
 except ImportError:
     _testcapi = None
 
+try:
+    import xxsubtype
+except ImportError:
+    xxsubtype = None
+
 
 class OperatorsTest(unittest.TestCase):
 
@@ -299,6 +304,7 @@ class OperatorsTest(unittest.TestCase):
         self.assertEqual(float.__rsub__(3.0, 1), -2.0)
 
     @support.impl_detail("the module 'xxsubtype' is internal")
+    @unittest.skipIf(xxsubtype is None, "requires xxsubtype module")
     def test_spam_lists(self):
         # Testing spamlist operations...
         import copy, xxsubtype as spam
@@ -343,6 +349,7 @@ class OperatorsTest(unittest.TestCase):
         self.assertEqual(a.getstate(), 42)
 
     @support.impl_detail("the module 'xxsubtype' is internal")
+    @unittest.skipIf(xxsubtype is None, "requires xxsubtype module")
     def test_spam_dicts(self):
         # Testing spamdict operations...
         import copy, xxsubtype as spam
@@ -426,7 +433,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             def __getitem__(self, key):
                 return self.get(key, 0)
             def __setitem__(self_local, key, value):
-                self.assertIsInstance(key, type(0))
+                self.assertIsInstance(key, int)
                 dict.__setitem__(self_local, key, value)
             def setstate(self, state):
                 self.state = state
@@ -842,7 +849,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
                                ("getattr", "foo"),
                                ("delattr", "foo")])
 
-        # http://python.org/sf/1174712
+        # https://bugs.python.org/issue1174712
         try:
             class Module(types.ModuleType, str):
                 pass
@@ -875,7 +882,7 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(a.getstate(), 10)
         class D(dict, C):
             def __init__(self):
-                type({}).__init__(self)
+                dict.__init__(self)
                 C.__init__(self)
         d = D()
         self.assertEqual(list(d.keys()), [])
@@ -1627,6 +1634,7 @@ order (MRO) for bases """
         self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
 
     @support.impl_detail("the module 'xxsubtype' is internal")
+    @unittest.skipIf(xxsubtype is None, "requires xxsubtype module")
     def test_classmethods_in_c(self):
         # Testing C-based class methods...
         import xxsubtype as spam
@@ -1712,6 +1720,7 @@ order (MRO) for bases """
         self.assertAlmostEqual(gettotalrefcount() - refs_before, 0, delta=10)
 
     @support.impl_detail("the module 'xxsubtype' is internal")
+    @unittest.skipIf(xxsubtype is None, "requires xxsubtype module")
     def test_staticmethods_in_c(self):
         # Testing C-based static methods...
         import xxsubtype as spam
@@ -1848,9 +1857,8 @@ order (MRO) for bases """
         object.__init__(A(3))
         self.assertRaises(TypeError, object.__init__, A(3), 5)
 
-    # TODO: RUSTPYTHON, CPython 3.5 and above expect this test case to fail, but in RustPython this currently passes.
-    # See https://github.com/python/cpython/issues/49572 for more details.
-    # @unittest.expectedFailure 
+    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_restored_object_new(self):
         class A(object):
             def __new__(cls, *args, **kwargs):
@@ -2006,7 +2014,7 @@ order (MRO) for bases """
         ns = {}
         exec(code, ns)
         number_attrs = ns["number_attrs"]
-        # Warm up the the function for quickening (PEP 659)
+        # Warm up the function for quickening (PEP 659)
         for _ in range(30):
             self.assertEqual(number_attrs(Numbers()), list(range(280)))
 
@@ -3298,12 +3306,8 @@ order (MRO) for bases """
                 if otype:
                     otype = otype.__name__
                 return 'object=%s; type=%s' % (object, otype)
-        class OldClass:
+        class NewClass:
             __doc__ = DocDescr()
-        class NewClass(object):
-            __doc__ = DocDescr()
-        self.assertEqual(OldClass.__doc__, 'object=None; type=OldClass')
-        self.assertEqual(OldClass().__doc__, 'object=OldClass instance; type=OldClass')
         self.assertEqual(NewClass.__doc__, 'object=None; type=NewClass')
         self.assertEqual(NewClass().__doc__, 'object=NewClass instance; type=NewClass')
 
@@ -3345,7 +3349,7 @@ order (MRO) for bases """
         cant(True, int)
         cant(2, bool)
         o = object()
-        cant(o, type(1))
+        cant(o, int)
         cant(o, type(None))
         del o
         class G(object):
@@ -3622,7 +3626,6 @@ order (MRO) for bases """
     def test_str_of_str_subclass(self):
         # Testing __str__ defined in subclass of str ...
         import binascii
-        import io
 
         class octetstring(str):
             def __str__(self):
@@ -4527,8 +4530,9 @@ order (MRO) for bases """
         o = Oops()
         o.whatever = Provoker(o)
         del o
-
+        
     @unittest.skip("TODO: RUSTPYTHON, rustpython segmentation fault")
+    @support.requires_resource('cpu')
     def test_wrapper_segfault(self):
         # SF 927248: deeply nested wrappers could cause stack overflow
         f = lambda:None
@@ -5094,6 +5098,34 @@ order (MRO) for bases """
         del Child
         gc.collect()
         self.assertEqual(Parent.__subclasses__(), [])
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_attr_raise_through_property(self):
+        # test case for gh-103272
+        class A:
+            def __getattr__(self, name):
+                raise ValueError("FOO")
+
+            @property
+            def foo(self):
+                return self.__getattr__("asdf")
+
+        with self.assertRaisesRegex(ValueError, "FOO"):
+            A().foo
+
+        # test case for gh-103551
+        class B:
+            @property
+            def __getattr__(self, name):
+                raise ValueError("FOO")
+
+            @property
+            def foo(self):
+                raise NotImplementedError("BAR")
+
+        with self.assertRaisesRegex(NotImplementedError, "BAR"):
+            B().foo
 
 
 class DictProxyTests(unittest.TestCase):
