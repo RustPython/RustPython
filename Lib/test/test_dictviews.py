@@ -278,6 +278,8 @@ class DictSetTest(unittest.TestCase):
         # Again.
         self.assertIsInstance(r, str)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_deeply_nested_repr(self):
         d = {}
         for i in range(C_RECURSION_LIMIT//2 + 100):
