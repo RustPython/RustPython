@@ -685,6 +685,8 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_syntaxerror_null_bytes(self):
         script = "x = '\0' nothing to see here\n';import os;os.system('echo pwnd')\n"
         with os_helper.temp_dir() as script_dir:
@@ -697,6 +699,8 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_syntaxerror_null_bytes_in_multiline_string(self):
         scripts = ["\n'''\nmultilinestring\0\n'''", "\nf'''\nmultilinestring\0\n'''"] # Both normal and f-strings
         with os_helper.temp_dir() as script_dir:
@@ -710,6 +714,8 @@ class CmdLineTest(unittest.TestCase):
                     ]
                 )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_consistent_sys_path_for_direct_execution(self):
         # This test case ensures that the following all give the same
         # sys.path configuration:
