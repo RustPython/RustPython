@@ -1,6 +1,6 @@
 [package]
 name = "sre-engine"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["Kangzhi Shi <shikangzhi@gmail.com>", "RustPython Team"]
 description = "A low-level implementation of Python's SRE regex engine"
 repository = "https://github.com/RustPython/sre-engine"
@@ -10,6 +10,6 @@ keywords = ["regex"]
 include = ["LICENSE", "src/**/*.rs"]
 
 [dependencies]
-num_enum = "0.5.9"
+num_enum = "0.7"
 bitflags = "2"
 optional = "0.5"
