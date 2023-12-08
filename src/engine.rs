@@ -672,7 +672,9 @@ fn op_min_repeat_one<S: StrDrive>(
     ctx.count = if min_count == 0 {
         0
     } else {
-        let count = _count(req, state, ctx, min_count);
+        let mut next_ctx = *ctx;
+        next_ctx.skip_code(4);
+        let count = _count(req, state, next_ctx, min_count);
         if count < min_count {
             return ctx.failure();
         }
@@ -713,7 +715,9 @@ fn op_min_repeat_one<S: StrDrive>(
 
         state.string_position = ctx.string_position;
 
-        if _count(req, state, ctx, 1) == 0 {
+        let mut next_ctx = *ctx;
+        next_ctx.skip_code(4);
+        if _count(req, state, next_ctx, 1) == 0 {
             state.marks.pop_discard();
             return ctx.failure();
         }
@@ -741,7 +745,9 @@ fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
 
     state.string_position = ctx.string_position;
 
-    let count = _count(req, state, ctx, max_count);
+    let mut next_ctx = *ctx;
+    next_ctx.skip_code(4);
+    let count = _count(req, state, next_ctx, max_count);
     ctx.skip_char(req, count);
     if count < min_count {
         return ctx.failure();
@@ -1428,17 +1434,16 @@ fn charset(set: &[u32], ch: u32) -> bool {
 fn _count<S: StrDrive>(
     req: &Request<S>,
     state: &mut State<S>,
-    ctx: &MatchContext<S>,
+    mut ctx: MatchContext<S>,
     max_count: usize,
 ) -> usize {
-    let mut ctx = *ctx;
     let max_count = std::cmp::min(max_count, ctx.remaining_chars(req));
     let end = ctx.string_position + max_count;
     let opcode = SreOpcode::try_from(ctx.peek_code(req, 0)).unwrap();
 
     match opcode {
         SreOpcode::ANY => {
-            while !ctx.string_position < end && !ctx.at_linebreak(req) {
+            while ctx.string_position < end && !ctx.at_linebreak(req) {
                 ctx.skip_char(req, 1);
             }
         }
@@ -1446,8 +1451,7 @@ fn _count<S: StrDrive>(
             ctx.skip_char(req, max_count);
         }
         SreOpcode::IN => {
-            while !ctx.string_position < end && charset(&ctx.pattern(req)[2..], ctx.peek_char(req))
-            {
+            while ctx.string_position < end && charset(&ctx.pattern(req)[2..], ctx.peek_char(req)) {
                 ctx.skip_char(req, 1);
             }
         }
@@ -1483,7 +1487,6 @@ fn _count<S: StrDrive>(
             /* General case */
             let mut count = 0;
 
-            ctx.skip_code(4);
             let reset_position = ctx.code_position;
 
             while count < max_count {
@@ -1511,7 +1514,7 @@ fn general_count_literal<S: StrDrive, F: FnMut(u32, u32) -> bool>(
     mut f: F,
 ) {
     let ch = ctx.peek_code(req, 1);
-    while !ctx.string_position < end && f(ch, ctx.peek_char(req)) {
+    while ctx.string_position < end && f(ch, ctx.peek_char(req)) {
         ctx.skip_char(req, 1);
     }
 }
