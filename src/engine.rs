@@ -6,14 +6,13 @@ use super::constants::{SreAtCode, SreCatCode, SreOpcode};
 use super::MAXREPEAT;
 use optional::Optioned;
 use std::convert::TryFrom;
-use std::ops::Deref;
 
 const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Request<'a, S: StrDrive> {
+pub struct Request<'a, S> {
     pub string: S,
     pub start: usize,
     pub end: usize,
@@ -61,14 +60,6 @@ impl Default for Marks {
     }
 }
 
-impl Deref for Marks {
-    type Target = Vec<Optioned<usize>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.marks
-    }
-}
-
 impl Marks {
     pub fn get(&self, group_index: usize) -> (Optioned<usize>, Optioned<usize>) {
         let marks_index = 2 * group_index;
@@ -81,6 +72,10 @@ impl Marks {
 
     pub fn last_index(&self) -> isize {
         self.last_index
+    }
+
+    pub fn raw(&self) -> &[Optioned<usize>] {
+        self.marks.as_slice()
     }
 
     fn set(&mut self, mark_nr: usize, position: usize) {
@@ -120,70 +115,23 @@ impl Marks {
     }
 }
 
-#[derive(Debug)]
-pub struct State<S: StrDrive> {
-    pub marks: Marks,
-    context_stack: Vec<MatchContext<S>>,
-    repeat_stack: Vec<RepeatContext>,
+#[derive(Debug, Default)]
+pub struct State {
     pub start: usize,
+    pub marks: Marks,
     pub string_position: usize,
-    next_context: Option<MatchContext<S>>,
-    popped_has_matched: bool,
-    pub has_matched: bool,
+    repeat_stack: Vec<RepeatContext>,
 }
 
-impl<S: StrDrive> Default for State<S> {
-    fn default() -> Self {
-        Self {
-            marks: Marks::default(),
-            context_stack: Vec::new(),
-            repeat_stack: Vec::new(),
-            start: 0,
-            string_position: 0,
-            next_context: None,
-            popped_has_matched: false,
-            has_matched: false,
-        }
-    }
-}
-
-impl<S: StrDrive> State<S> {
+impl State {
     pub fn reset(&mut self, start: usize) {
         self.marks.clear();
-        self.context_stack.clear();
         self.repeat_stack.clear();
         self.start = start;
         self.string_position = start;
-        self.next_context = None;
-        self.popped_has_matched = false;
-        self.has_matched = false;
     }
 
-    fn _match(&mut self, req: &mut Request<S>) {
-        while let Some(mut ctx) = self.context_stack.pop() {
-            if let Some(handler) = ctx.handler.take() {
-                handler(req, self, &mut ctx);
-            } else if ctx.remaining_codes(req) > 0 {
-                let code = ctx.peek_code(req, 0);
-                let code = SreOpcode::try_from(code).unwrap();
-                dispatch(req, self, &mut ctx, code);
-            } else {
-                ctx.failure();
-            }
-
-            if let Some(has_matched) = ctx.has_matched {
-                self.popped_has_matched = has_matched;
-            } else {
-                self.context_stack.push(ctx);
-                if let Some(next_ctx) = self.next_context.take() {
-                    self.context_stack.push(next_ctx);
-                }
-            }
-        }
-        self.has_matched = self.popped_has_matched;
-    }
-
-    pub fn pymatch(&mut self, mut req: Request<S>) {
+    pub fn pymatch<S: StrDrive>(&mut self, req: &Request<S>) -> bool {
         self.start = req.start;
         self.string_position = req.start;
 
@@ -191,24 +139,20 @@ impl<S: StrDrive> State<S> {
             string_position: req.start,
             string_offset: req.string.offset(0, req.start),
             code_position: 0,
-            has_matched: None,
             toplevel: true,
-            handler: None,
+            jump: Jump::OpCode,
             repeat_ctx_id: usize::MAX,
             count: -1,
         };
-        self.context_stack.push(ctx);
-
-        self._match(&mut req);
+        _match(&req, self, ctx)
     }
 
-    pub fn search(&mut self, mut req: Request<S>) {
+    pub fn search<S: StrDrive>(&mut self, mut req: Request<S>) -> bool {
         self.start = req.start;
         self.string_position = req.start;
 
-        // TODO: optimize by op info and skip prefix
         if req.start > req.end {
-            return;
+            return false;
         }
 
         let mut end = req.end;
@@ -219,9 +163,8 @@ impl<S: StrDrive> State<S> {
             string_position: req.start,
             string_offset: start_offset,
             code_position: 0,
-            has_matched: None,
             toplevel: true,
-            handler: None,
+            jump: Jump::OpCode,
             repeat_ctx_id: usize::MAX,
             count: -1,
         };
@@ -229,11 +172,10 @@ impl<S: StrDrive> State<S> {
         if ctx.peek_code(&req, 0) == SreOpcode::INFO as u32 {
             /* optimization info block */
             /* <INFO> <1=skip> <2=flags> <3=min> <4=max> <5=prefix info>  */
-            let req = &mut req;
-            let min = ctx.peek_code(req, 3) as usize;
+            let min = ctx.peek_code(&req, 3) as usize;
 
-            if ctx.remaining_chars(req) < min {
-                return;
+            if ctx.remaining_chars(&req) < min {
+                return false;
             }
 
             if min > 1 {
@@ -249,42 +191,44 @@ impl<S: StrDrive> State<S> {
                 }
             }
 
-            let flags = SreInfo::from_bits_truncate(ctx.peek_code(req, 2));
+            let flags = SreInfo::from_bits_truncate(ctx.peek_code(&req, 2));
 
             if flags.contains(SreInfo::PREFIX) {
                 if flags.contains(SreInfo::LITERAL) {
-                    search_info_literal::<true, S>(req, self, ctx);
+                    return search_info_literal::<true, S>(&mut req, self, ctx);
                 } else {
-                    search_info_literal::<false, S>(req, self, ctx);
+                    return search_info_literal::<false, S>(&mut req, self, ctx);
                 }
-                return;
             } else if flags.contains(SreInfo::CHARSET) {
-                return search_info_charset(req, self, ctx);
+                return search_info_charset(&mut req, self, ctx);
             }
             // fallback to general search
         }
 
-        self.context_stack.push(ctx);
-        self._match(&mut req);
+        if _match(&req, self, ctx) {
+            return true;
+        }
 
         req.must_advance = false;
         ctx.toplevel = false;
-        while !self.has_matched && req.start < end {
+        while req.start < end {
             req.start += 1;
             start_offset = req.string.offset(start_offset, 1);
             self.reset(req.start);
             ctx.string_position = req.start;
             ctx.string_offset = start_offset;
 
-            self.context_stack.push(ctx);
-            self._match(&mut req);
+            if _match(&req, self, ctx) {
+                return true;
+            }
         }
+        false
     }
 }
 
 pub struct SearchIter<'a, S: StrDrive> {
     pub req: Request<'a, S>,
-    pub state: State<S>,
+    pub state: State,
 }
 
 impl<'a, S: StrDrive> Iterator for SearchIter<'a, S> {
@@ -296,8 +240,7 @@ impl<'a, S: StrDrive> Iterator for SearchIter<'a, S> {
         }
 
         self.state.reset(self.req.start);
-        self.state.search(self.req);
-        if !self.state.has_matched {
+        if !self.state.search(self.req) {
             return None;
         }
 
@@ -308,10 +251,537 @@ impl<'a, S: StrDrive> Iterator for SearchIter<'a, S> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum Jump {
+    OpCode,
+    Assert1,
+    AssertNot1,
+    Branch1,
+    Branch2,
+    Repeat1,
+    UntilBacktrace,
+    MaxUntil2,
+    MaxUntil3,
+    MinUntil1,
+    RepeatOne1,
+    RepeatOne2,
+    MinRepeatOne1,
+    MinRepeatOne2,
+}
+
+fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -> bool {
+    let mut context_stack = vec![ctx];
+    let mut popped_result = false;
+
+    'coro: loop {
+        let Some(mut ctx) = context_stack.pop() else {
+            break;
+        };
+
+        popped_result = 'result: loop {
+            let yield_ = 'context: loop {
+                match ctx.jump {
+                    Jump::OpCode => {}
+                    Jump::Assert1 => {
+                        if popped_result {
+                            ctx.skip_code_from(req, 1);
+                        } else {
+                            break 'result false;
+                        }
+                    }
+                    Jump::AssertNot1 => {
+                        if popped_result {
+                            break 'result false;
+                        }
+                        ctx.skip_code_from(req, 1);
+                    }
+                    Jump::Branch1 => {
+                        let branch_offset = ctx.count as usize;
+                        let next_length = ctx.peek_code(req, branch_offset) as isize;
+                        if next_length == 0 {
+                            state.marks.pop_discard();
+                            break 'result false;
+                        }
+                        state.string_position = ctx.string_position;
+                        let next_ctx = ctx.next_offset(branch_offset + 1, Jump::Branch2);
+                        ctx.count += next_length;
+                        break 'context next_ctx;
+                    }
+                    Jump::Branch2 => {
+                        if popped_result {
+                            break 'result true;
+                        }
+                        state.marks.pop_keep();
+                        ctx.jump = Jump::Branch1;
+                        continue 'context;
+                    }
+                    Jump::Repeat1 => {
+                        state.repeat_stack.pop();
+                        break 'result popped_result;
+                    }
+                    Jump::UntilBacktrace => {
+                        if !popped_result {
+                            state.repeat_stack[ctx.repeat_ctx_id].count -= 1;
+                            state.string_position = ctx.string_position;
+                        }
+                        break 'result popped_result;
+                    }
+                    Jump::MaxUntil2 => {
+                        let save_last_position = ctx.count as usize;
+                        let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
+                        repeat_ctx.last_position = save_last_position;
+
+                        if popped_result {
+                            state.marks.pop_discard();
+                            break 'result true;
+                        }
+
+                        state.marks.pop();
+                        repeat_ctx.count -= 1;
+                        state.string_position = ctx.string_position;
+
+                        /* cannot match more repeated items here.  make sure the
+                        tail matches */
+                        let mut next_ctx = ctx.next_offset(1, Jump::MaxUntil3);
+                        next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
+                        break 'context next_ctx;
+                    }
+                    Jump::MaxUntil3 => {
+                        if !popped_result {
+                            state.string_position = ctx.string_position;
+                        }
+                        break 'result popped_result;
+                    }
+                    Jump::MinUntil1 => {
+                        if popped_result {
+                            break 'result true;
+                        }
+                        ctx.repeat_ctx_id = ctx.count as usize;
+                        let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
+                        state.string_position = ctx.string_position;
+                        state.marks.pop();
+
+                        // match more until tail matches
+                        if repeat_ctx.count as usize >= repeat_ctx.max_count
+                            && repeat_ctx.max_count != MAXREPEAT
+                            || state.string_position == repeat_ctx.last_position
+                        {
+                            repeat_ctx.count -= 1;
+                            break 'result false;
+                        }
+
+                        /* zero-width match protection */
+                        repeat_ctx.last_position = state.string_position;
+
+                        break 'context ctx
+                            .next_at(repeat_ctx.code_position + 4, Jump::UntilBacktrace);
+                    }
+                    Jump::RepeatOne1 => {
+                        let min_count = ctx.peek_code(req, 2) as isize;
+                        let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
+                        if next_code == SreOpcode::LITERAL as u32 {
+                            // Special case: Tail starts with a literal. Skip positions where
+                            // the rest of the pattern cannot possibly match.
+                            let c = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 2);
+                            while ctx.at_end(req) || ctx.peek_char(req) != c {
+                                if ctx.count <= min_count {
+                                    state.marks.pop_discard();
+                                    break 'result false;
+                                }
+                                ctx.back_skip_char(req, 1);
+                                ctx.count -= 1;
+                            }
+                        }
+
+                        state.string_position = ctx.string_position;
+                        // General case: backtracking
+                        break 'context ctx.next_peek_from(1, req, Jump::RepeatOne2);
+                    }
+                    Jump::RepeatOne2 => {
+                        if popped_result {
+                            break 'result true;
+                        }
+
+                        let min_count = ctx.peek_code(req, 2) as isize;
+                        if ctx.count <= min_count {
+                            state.marks.pop_discard();
+                            break 'result false;
+                        }
+
+                        ctx.back_skip_char(req, 1);
+                        ctx.count -= 1;
+
+                        state.marks.pop_keep();
+                        ctx.jump = Jump::RepeatOne1;
+                        continue 'context;
+                    }
+                    Jump::MinRepeatOne1 => {
+                        let max_count = ctx.peek_code(req, 3) as usize;
+                        if max_count == MAXREPEAT || ctx.count as usize <= max_count {
+                            state.string_position = ctx.string_position;
+                            break 'context ctx.next_peek_from(1, req, Jump::MinRepeatOne2);
+                        } else {
+                            state.marks.pop_discard();
+                            break 'result false;
+                        }
+                    }
+                    Jump::MinRepeatOne2 => {
+                        if popped_result {
+                            break 'result true;
+                        }
+
+                        state.string_position = ctx.string_position;
+
+                        let mut count_ctx = ctx;
+                        count_ctx.skip_code(4);
+                        if _count(req, state, count_ctx, 1) == 0 {
+                            state.marks.pop_discard();
+                            break 'result false;
+                        }
+
+                        ctx.skip_char(req, 1);
+                        ctx.count += 1;
+                        state.marks.pop_keep();
+                        ctx.jump = Jump::MinRepeatOne1;
+                        continue 'context;
+                    }
+                }
+                ctx.jump = Jump::OpCode;
+
+                loop {
+                    macro_rules! general_op_literal {
+                        ($f:expr) => {{
+                            if ctx.at_end(req) || !$f(ctx.peek_code(req, 1), ctx.peek_char(req)) {
+                                break 'result false;
+                            }
+                            ctx.skip_code(2);
+                            ctx.skip_char(req, 1);
+                        }};
+                    }
+
+                    macro_rules! general_op_in {
+                        ($f:expr) => {{
+                            if ctx.at_end(req) || !$f(&ctx.pattern(req)[2..], ctx.peek_char(req)) {
+                                break 'result false;
+                            }
+                            ctx.skip_code_from(req, 1);
+                            ctx.skip_char(req, 1);
+                        }};
+                    }
+
+                    macro_rules! general_op_groupref {
+                        ($f:expr) => {{
+                            let (group_start, group_end) =
+                                state.marks.get(ctx.peek_code(req, 1) as usize);
+                            let (group_start, group_end) = if group_start.is_some()
+                                && group_end.is_some()
+                                && group_start.unpack() <= group_end.unpack()
+                            {
+                                (group_start.unpack(), group_end.unpack())
+                            } else {
+                                break 'result false;
+                            };
+
+                            let mut gctx = MatchContext {
+                                string_position: group_start,
+                                string_offset: req.string.offset(0, group_start),
+                                ..ctx
+                            };
+
+                            for _ in group_start..group_end {
+                                if ctx.at_end(req)
+                                    || $f(ctx.peek_char(req)) != $f(gctx.peek_char(req))
+                                {
+                                    break 'result false;
+                                }
+                                ctx.skip_char(req, 1);
+                                gctx.skip_char(req, 1);
+                            }
+
+                            ctx.skip_code(2);
+                        }};
+                    }
+
+                    if ctx.remaining_codes(req) == 0 {
+                        break 'result false;
+                    }
+                    let opcode = ctx.peek_code(req, 0);
+                    let opcode = SreOpcode::try_from(opcode).unwrap();
+
+                    match opcode {
+                        SreOpcode::FAILURE => break 'result false,
+                        SreOpcode::SUCCESS => {
+                            if ctx.can_success(req) {
+                                state.string_position = ctx.string_position;
+                                break 'result true;
+                            }
+                            break 'result false;
+                        }
+                        SreOpcode::ANY => {
+                            if ctx.at_end(req) || ctx.at_linebreak(req) {
+                                break 'result false;
+                            }
+                            ctx.skip_code(1);
+                            ctx.skip_char(req, 1);
+                        }
+                        SreOpcode::ANY_ALL => {
+                            if ctx.at_end(req) {
+                                break 'result false;
+                            }
+                            ctx.skip_code(1);
+                            ctx.skip_char(req, 1);
+                        }
+                        SreOpcode::ASSERT => {
+                            let back = ctx.peek_code(req, 2) as usize;
+                            if ctx.string_position < back {
+                                break 'result false;
+                            }
+
+                            let mut next_ctx = ctx.next_offset(3, Jump::Assert1);
+                            next_ctx.toplevel = false;
+                            next_ctx.back_skip_char(req, back);
+                            state.string_position = next_ctx.string_position;
+                            break 'context next_ctx;
+                        }
+                        SreOpcode::ASSERT_NOT => {
+                            let back = ctx.peek_code(req, 2) as usize;
+                            if ctx.string_position < back {
+                                ctx.skip_code_from(req, 1);
+                                continue;
+                            }
+
+                            let mut next_ctx = ctx.next_offset(3, Jump::AssertNot1);
+                            next_ctx.toplevel = false;
+                            next_ctx.back_skip_char(req, back);
+                            state.string_position = next_ctx.string_position;
+                            break 'context next_ctx;
+                        }
+                        SreOpcode::AT => {
+                            let atcode = SreAtCode::try_from(ctx.peek_code(req, 1)).unwrap();
+                            if at(req, &ctx, atcode) {
+                                ctx.skip_code(2);
+                            } else {
+                                break 'result false;
+                            }
+                        }
+                        SreOpcode::BRANCH => {
+                            state.marks.push();
+                            ctx.count = 1;
+                            ctx.jump = Jump::Branch1;
+                            continue 'context;
+                        }
+                        SreOpcode::CATEGORY => {
+                            let catcode = SreCatCode::try_from(ctx.peek_code(req, 1)).unwrap();
+                            if ctx.at_end(req) || !category(catcode, ctx.peek_char(req)) {
+                                break 'result false;
+                            }
+                            ctx.skip_code(2);
+                            ctx.skip_char(req, 1);
+                        }
+                        SreOpcode::IN => general_op_in!(charset),
+                        SreOpcode::IN_IGNORE => {
+                            general_op_in!(|set, c| charset(set, lower_ascii(c)))
+                        }
+                        SreOpcode::IN_UNI_IGNORE => {
+                            general_op_in!(|set, c| charset(set, lower_unicode(c)))
+                        }
+                        SreOpcode::IN_LOC_IGNORE => general_op_in!(charset_loc_ignore),
+                        SreOpcode::INFO => {
+                            let min = ctx.peek_code(req, 3) as usize;
+                            if ctx.remaining_chars(req) < min {
+                                break 'result false;
+                            }
+                            ctx.skip_code_from(req, 1);
+                        }
+                        SreOpcode::MARK => {
+                            state
+                                .marks
+                                .set(ctx.peek_code(req, 1) as usize, ctx.string_position);
+                            ctx.skip_code(2);
+                        }
+                        SreOpcode::JUMP => ctx.skip_code_from(req, 1),
+                        SreOpcode::REPEAT => {
+                            let repeat_ctx = RepeatContext {
+                                count: -1,
+                                min_count: ctx.peek_code(req, 2) as usize,
+                                max_count: ctx.peek_code(req, 3) as usize,
+                                code_position: ctx.code_position,
+                                last_position: std::usize::MAX,
+                                prev_id: ctx.repeat_ctx_id,
+                            };
+                            state.repeat_stack.push(repeat_ctx);
+                            let repeat_ctx_id = state.repeat_stack.len() - 1;
+                            state.string_position = ctx.string_position;
+                            let mut next_ctx = ctx.next_peek_from(1, req, Jump::Repeat1);
+                            next_ctx.repeat_ctx_id = repeat_ctx_id;
+                            break 'context next_ctx;
+                        }
+                        SreOpcode::MAX_UNTIL => {
+                            let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
+                            state.string_position = ctx.string_position;
+                            repeat_ctx.count += 1;
+
+                            if (repeat_ctx.count as usize) < repeat_ctx.min_count {
+                                // not enough matches
+                                break 'context ctx
+                                    .next_at(repeat_ctx.code_position + 4, Jump::UntilBacktrace);
+                            }
+
+                            if ((repeat_ctx.count as usize) < repeat_ctx.max_count
+                                || repeat_ctx.max_count == MAXREPEAT)
+                                && state.string_position != repeat_ctx.last_position
+                            {
+                                /* we may have enough matches, but if we can
+                                match another item, do so */
+                                state.marks.push();
+                                ctx.count = repeat_ctx.last_position as isize;
+                                repeat_ctx.last_position = state.string_position;
+
+                                break 'context ctx
+                                    .next_at(repeat_ctx.code_position + 4, Jump::MaxUntil2);
+                            }
+
+                            /* cannot match more repeated items here.  make sure the
+                            tail matches */
+                            let mut next_ctx = ctx.next_offset(1, Jump::MaxUntil3);
+                            next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
+                            break 'context next_ctx;
+                        }
+                        SreOpcode::MIN_UNTIL => {
+                            let repeat_ctx = state.repeat_stack.last_mut().unwrap();
+                            state.string_position = ctx.string_position;
+                            repeat_ctx.count += 1;
+
+                            if (repeat_ctx.count as usize) < repeat_ctx.min_count {
+                                // not enough matches
+                                break 'context ctx
+                                    .next_at(repeat_ctx.code_position + 4, Jump::UntilBacktrace);
+                            }
+
+                            state.marks.push();
+                            ctx.count = ctx.repeat_ctx_id as isize;
+                            let mut next_ctx = ctx.next_offset(1, Jump::MinUntil1);
+                            next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
+                            break 'context next_ctx;
+                        }
+                        SreOpcode::REPEAT_ONE => {
+                            let min_count = ctx.peek_code(req, 2) as usize;
+                            let max_count = ctx.peek_code(req, 3) as usize;
+
+                            if ctx.remaining_chars(req) < min_count {
+                                break 'result false;
+                            }
+
+                            state.string_position = ctx.string_position;
+
+                            let mut next_ctx = ctx;
+                            next_ctx.skip_code(4);
+                            let count = _count(req, state, next_ctx, max_count);
+                            ctx.skip_char(req, count);
+                            if count < min_count {
+                                break 'result false;
+                            }
+
+                            let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
+                            if next_code == SreOpcode::SUCCESS as u32 && ctx.can_success(req) {
+                                // tail is empty. we're finished
+                                state.string_position = ctx.string_position;
+                                break 'result true;
+                            }
+
+                            state.marks.push();
+                            ctx.count = count as isize;
+                            ctx.jump = Jump::RepeatOne1;
+                            continue 'context;
+                        }
+                        SreOpcode::MIN_REPEAT_ONE => {
+                            let min_count = ctx.peek_code(req, 2) as usize;
+                            if ctx.remaining_chars(req) < min_count {
+                                break 'result false;
+                            }
+
+                            state.string_position = ctx.string_position;
+                            ctx.count = if min_count == 0 {
+                                0
+                            } else {
+                                let mut count_ctx = ctx;
+                                count_ctx.skip_code(4);
+                                let count = _count(req, state, count_ctx, min_count);
+                                if count < min_count {
+                                    break 'result false;
+                                }
+                                ctx.skip_char(req, count);
+                                count as isize
+                            };
+
+                            let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
+                            if next_code == SreOpcode::SUCCESS as u32 && ctx.can_success(req) {
+                                // tail is empty. we're finished
+                                state.string_position = ctx.string_position;
+                                break 'result true;
+                            }
+
+                            state.marks.push();
+                            ctx.jump = Jump::MinRepeatOne1;
+                            continue 'context;
+                        }
+                        SreOpcode::LITERAL => general_op_literal!(|code, c| code == c),
+                        SreOpcode::NOT_LITERAL => general_op_literal!(|code, c| code != c),
+                        SreOpcode::LITERAL_IGNORE => {
+                            general_op_literal!(|code, c| code == lower_ascii(c))
+                        }
+                        SreOpcode::NOT_LITERAL_IGNORE => {
+                            general_op_literal!(|code, c| code != lower_ascii(c))
+                        }
+                        SreOpcode::LITERAL_UNI_IGNORE => {
+                            general_op_literal!(|code, c| code == lower_unicode(c))
+                        }
+                        SreOpcode::NOT_LITERAL_UNI_IGNORE => {
+                            general_op_literal!(|code, c| code != lower_unicode(c))
+                        }
+                        SreOpcode::LITERAL_LOC_IGNORE => general_op_literal!(char_loc_ignore),
+                        SreOpcode::NOT_LITERAL_LOC_IGNORE => {
+                            general_op_literal!(|code, c| !char_loc_ignore(code, c))
+                        }
+                        SreOpcode::GROUPREF => general_op_groupref!(|x| x),
+                        SreOpcode::GROUPREF_IGNORE => general_op_groupref!(lower_ascii),
+                        SreOpcode::GROUPREF_LOC_IGNORE => general_op_groupref!(lower_locate),
+                        SreOpcode::GROUPREF_UNI_IGNORE => general_op_groupref!(lower_unicode),
+                        SreOpcode::GROUPREF_EXISTS => {
+                            let (group_start, group_end) =
+                                state.marks.get(ctx.peek_code(req, 1) as usize);
+                            if group_start.is_some()
+                                && group_end.is_some()
+                                && group_start.unpack() <= group_end.unpack()
+                            {
+                                ctx.skip_code(3);
+                            } else {
+                                ctx.skip_code_from(req, 2)
+                            }
+                        }
+                        SreOpcode::CALL => todo!(),
+                        SreOpcode::CHARSET => todo!(),
+                        SreOpcode::BIGCHARSET => todo!(),
+                        SreOpcode::NEGATE => todo!(),
+                        SreOpcode::RANGE => todo!(),
+                        SreOpcode::RANGE_UNI_IGNORE => todo!(),
+                        SreOpcode::SUBPATTERN => todo!(),
+                    }
+                }
+            };
+            context_stack.push(ctx);
+            context_stack.push(yield_);
+            continue 'coro;
+        };
+    }
+    popped_result
+}
+
+/*
 fn dispatch<S: StrDrive>(
     req: &Request<S>,
-    state: &mut State<S>,
-    ctx: &mut MatchContext<S>,
+    state: &mut State,
+    ctx: &mut MatchContext,
     opcode: SreOpcode,
 ) {
     match opcode {
@@ -422,12 +892,13 @@ fn dispatch<S: StrDrive>(
         _ => unreachable!("unexpected opcode"),
     }
 }
+*/
 
 fn search_info_literal<const LITERAL: bool, S: StrDrive>(
     req: &mut Request<S>,
-    state: &mut State<S>,
-    mut ctx: MatchContext<S>,
-) {
+    state: &mut State,
+    mut ctx: MatchContext,
+) -> bool {
     /* pattern starts with a known prefix */
     /* <length> <skip> <prefix data> <overlap data> */
     let len = ctx.peek_code(req, 5) as usize;
@@ -450,7 +921,7 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
             while ctx.peek_char(req) != c {
                 ctx.skip_char(req, 1);
                 if ctx.at_end(req) {
-                    return;
+                    return false;
                 }
             }
 
@@ -460,18 +931,14 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
 
             // literal only
             if LITERAL {
-                state.has_matched = true;
-                return;
+                return true;
             }
 
             let mut next_ctx = ctx;
             next_ctx.skip_char(req, skip);
 
-            state.context_stack.push(next_ctx);
-            state._match(req);
-
-            if state.has_matched {
-                return;
+            if _match(req, state, next_ctx) {
+                return true;
             }
 
             ctx.skip_char(req, 1);
@@ -483,12 +950,12 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
             while ctx.peek_char(req) != c {
                 ctx.skip_char(req, 1);
                 if ctx.at_end(req) {
-                    return;
+                    return false;
                 }
             }
             ctx.skip_char(req, 1);
             if ctx.at_end(req) {
-                return;
+                return false;
             }
 
             let mut i = 1;
@@ -498,7 +965,7 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
                     if i != len {
                         ctx.skip_char(req, 1);
                         if ctx.at_end(req) {
-                            return;
+                            return false;
                         }
                         continue;
                     }
@@ -509,8 +976,7 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
 
                     // literal only
                     if LITERAL {
-                        state.has_matched = true;
-                        return;
+                        return true;
                     }
 
                     let mut next_ctx = ctx;
@@ -521,16 +987,13 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
                         next_ctx.string_offset = req.string.offset(0, state.string_position);
                     }
 
-                    state.context_stack.push(next_ctx);
-                    state._match(req);
-
-                    if state.has_matched {
-                        return;
+                    if _match(req, state, next_ctx) {
+                        return true;
                     }
 
                     ctx.skip_char(req, 1);
                     if ctx.at_end(req) {
-                        return;
+                        return false;
                     }
                     state.marks.clear();
                 }
@@ -542,13 +1005,14 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
             }
         }
     }
+    false
 }
 
 fn search_info_charset<S: StrDrive>(
     req: &mut Request<S>,
-    state: &mut State<S>,
-    mut ctx: MatchContext<S>,
-) {
+    state: &mut State,
+    mut ctx: MatchContext,
+) -> bool {
     let set = &ctx.pattern(req)[5..];
 
     ctx.skip_code_from(req, 1);
@@ -560,18 +1024,15 @@ fn search_info_charset<S: StrDrive>(
             ctx.skip_char(req, 1);
         }
         if ctx.at_end(req) {
-            return;
+            return false;
         }
 
         req.start = ctx.string_position;
         state.start = ctx.string_position;
         state.string_position = ctx.string_position;
 
-        state.context_stack.push(ctx);
-        state._match(req);
-
-        if state.has_matched {
-            return;
+        if _match(req, state, ctx) {
+            return true;
         }
 
         ctx.skip_char(req, 1);
@@ -579,9 +1040,10 @@ fn search_info_charset<S: StrDrive>(
     }
 }
 
+/*
 /* assert subpattern */
 /* <ASSERT> <skip> <back> <pattern> */
-fn op_assert<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
+fn op_assert<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
     let back = ctx.peek_code(req, 2) as usize;
     if ctx.string_position < back {
         return ctx.failure();
@@ -601,7 +1063,7 @@ fn op_assert<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut Matc
 
 /* assert not subpattern */
 /* <ASSERT_NOT> <skip> <back> <pattern> */
-fn op_assert_not<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
+fn op_assert_not<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
     let back = ctx.peek_code(req, 2) as usize;
 
     if ctx.string_position < back {
@@ -622,17 +1084,13 @@ fn op_assert_not<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
 
 // alternation
 // <BRANCH> <0=skip> code <JUMP> ... <NULL>
-fn op_branch<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
+fn op_branch<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
     state.marks.push();
 
     ctx.count = 1;
     create_context(req, state, ctx);
 
-    fn create_context<S: StrDrive>(
-        req: &Request<S>,
-        state: &mut State<S>,
-        ctx: &mut MatchContext<S>,
-    ) {
+    fn create_context<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
         let branch_offset = ctx.count as usize;
         let next_length = ctx.peek_code(req, branch_offset) as isize;
         if next_length == 0 {
@@ -646,7 +1104,7 @@ fn op_branch<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut Matc
         ctx.next_offset(branch_offset + 1, state, callback);
     }
 
-    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
+    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
         if state.popped_has_matched {
             return ctx.success();
         }
@@ -656,11 +1114,7 @@ fn op_branch<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut Matc
 }
 
 /* <MIN_REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
-fn op_min_repeat_one<S: StrDrive>(
-    req: &Request<S>,
-    state: &mut State<S>,
-    ctx: &mut MatchContext<S>,
-) {
+fn op_min_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
     let min_count = ctx.peek_code(req, 2) as usize;
 
     if ctx.remaining_chars(req) < min_count {
@@ -692,23 +1146,19 @@ fn op_min_repeat_one<S: StrDrive>(
     state.marks.push();
     create_context(req, state, ctx);
 
-    fn create_context<S: StrDrive>(
-        req: &Request<S>,
-        state: &mut State<S>,
-        ctx: &mut MatchContext<S>,
-    ) {
+    fn create_context<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
         let max_count = ctx.peek_code(req, 3) as usize;
 
         if max_count == MAXREPEAT || ctx.count as usize <= max_count {
             state.string_position = ctx.string_position;
-            ctx.next_from(1, req, state, callback);
+            ctx.next_peek_from(1, req, state, callback);
         } else {
             state.marks.pop_discard();
             ctx.failure();
         }
     }
 
-    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
+    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
         if state.popped_has_matched {
             return ctx.success();
         }
@@ -735,7 +1185,7 @@ exactly one character wide, and we're not already
 collecting backtracking points.  for other cases,
 use the MAX_REPEAT operator */
 /* <REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
-fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
+fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
     let min_count = ctx.peek_code(req, 2) as usize;
     let max_count = ctx.peek_code(req, 3) as usize;
 
@@ -764,11 +1214,7 @@ fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
     ctx.count = count as isize;
     create_context(req, state, ctx);
 
-    fn create_context<S: StrDrive>(
-        req: &Request<S>,
-        state: &mut State<S>,
-        ctx: &mut MatchContext<S>,
-    ) {
+    fn create_context<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
         let min_count = ctx.peek_code(req, 2) as isize;
         let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
         if next_code == SreOpcode::LITERAL as u32 {
@@ -788,10 +1234,10 @@ fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
         state.string_position = ctx.string_position;
 
         // General case: backtracking
-        ctx.next_from(1, req, state, callback);
+        ctx.next_peek_from(1, req, state, callback);
     }
 
-    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
+    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
         if state.popped_has_matched {
             return ctx.success();
         }
@@ -810,6 +1256,7 @@ fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut 
         create_context(req, state, ctx);
     }
 }
+*/
 
 #[derive(Debug, Clone, Copy)]
 struct RepeatContext {
@@ -821,10 +1268,11 @@ struct RepeatContext {
     prev_id: usize,
 }
 
+/*
 /* create repeat context.  all the hard work is done
 by the UNTIL operator (MAX_UNTIL, MIN_UNTIL) */
 /* <REPEAT> <skip> <1=min> <2=max> item <UNTIL> tail */
-fn op_repeat<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
+fn op_repeat<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
     let repeat_ctx = RepeatContext {
         count: -1,
         min_count: ctx.peek_code(req, 2) as usize,
@@ -840,7 +1288,7 @@ fn op_repeat<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut Matc
 
     let repeat_ctx_id = state.repeat_stack.len() - 1;
 
-    let next_ctx = ctx.next_from(1, req, state, |_, state, ctx| {
+    let next_ctx = ctx.next_peek_from(1, req, state, |_, state, ctx| {
         ctx.has_matched = Some(state.popped_has_matched);
         state.repeat_stack.pop();
     });
@@ -848,7 +1296,7 @@ fn op_repeat<S: StrDrive>(req: &Request<S>, state: &mut State<S>, ctx: &mut Matc
 }
 
 /* minimizing repeat */
-fn op_min_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
+fn op_min_until<S: StrDrive>(state: &mut State, ctx: &mut MatchContext) {
     let repeat_ctx = state.repeat_stack.last_mut().unwrap();
 
     state.string_position = ctx.string_position;
@@ -915,7 +1363,7 @@ fn op_min_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
 }
 
 /* maximizing repeat */
-fn op_max_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
+fn op_max_until<S: StrDrive>(state: &mut State, ctx: &mut MatchContext) {
     let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
 
     state.string_position = ctx.string_position;
@@ -976,7 +1424,7 @@ fn op_max_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
     let next_ctx = ctx.next_offset(1, state, tail_callback);
     next_ctx.repeat_ctx_id = repeat_ctx_prev_id;
 
-    fn tail_callback<S: StrDrive>(_: &Request<S>, state: &mut State<S>, ctx: &mut MatchContext<S>) {
+    fn tail_callback<S: StrDrive>(_: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
         if state.popped_has_matched {
             ctx.success();
         } else {
@@ -985,6 +1433,7 @@ fn op_max_until<S: StrDrive>(state: &mut State<S>, ctx: &mut MatchContext<S>) {
         }
     }
 }
+*/
 
 pub trait StrDrive: Copy {
     fn offset(&self, offset: usize, skip: usize) -> usize;
@@ -1061,67 +1510,49 @@ impl<'a> StrDrive for &'a [u8] {
     }
 }
 
-type OpFunc<S> = for<'a> fn(&Request<'a, S>, &mut State<S>, &mut MatchContext<S>);
-
 #[derive(Clone, Copy)]
-struct MatchContext<S: StrDrive> {
+struct MatchContext {
     string_position: usize,
     string_offset: usize,
     code_position: usize,
-    has_matched: Option<bool>,
     toplevel: bool,
-    handler: Option<OpFunc<S>>,
+    jump: Jump,
     repeat_ctx_id: usize,
     count: isize,
 }
 
-impl<S: StrDrive> std::fmt::Debug for MatchContext<S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MatchContext")
-            .field("string_position", &self.string_position)
-            .field("string_offset", &self.string_offset)
-            .field("code_position", &self.code_position)
-            .field("has_matched", &self.has_matched)
-            .field("toplevel", &self.toplevel)
-            .field("handler", &self.handler.map(|x| x as usize))
-            .field("repeat_ctx_id", &self.repeat_ctx_id)
-            .field("count", &self.count)
-            .finish()
-    }
-}
-
-impl<S: StrDrive> MatchContext<S> {
-    fn pattern<'a>(&self, req: &Request<'a, S>) -> &'a [u32] {
+impl MatchContext {
+    fn pattern<'a, S>(&self, req: &Request<'a, S>) -> &'a [u32] {
         &req.pattern_codes[self.code_position..]
     }
 
-    fn remaining_codes(&self, req: &Request<S>) -> usize {
+    fn remaining_codes<S>(&self, req: &Request<S>) -> usize {
         req.pattern_codes.len() - self.code_position
     }
 
-    fn remaining_chars(&self, req: &Request<S>) -> usize {
+    fn remaining_chars<S>(&self, req: &Request<S>) -> usize {
         req.end - self.string_position
     }
 
-    fn peek_char(&self, req: &Request<S>) -> u32 {
+    fn peek_char<S: StrDrive>(&self, req: &Request<S>) -> u32 {
         req.string.peek(self.string_offset)
     }
 
-    fn skip_char(&mut self, req: &Request<S>, skip: usize) {
+    fn skip_char<S: StrDrive>(&mut self, req: &Request<S>, skip: usize) {
         self.string_position += skip;
         self.string_offset = req.string.offset(self.string_offset, skip);
     }
 
-    fn back_peek_char(&self, req: &Request<S>) -> u32 {
+    fn back_peek_char<S: StrDrive>(&self, req: &Request<S>) -> u32 {
         req.string.back_peek(self.string_offset)
     }
 
-    fn back_skip_char(&mut self, req: &Request<S>, skip: usize) {
+    fn back_skip_char<S: StrDrive>(&mut self, req: &Request<S>, skip: usize) {
         self.string_position -= skip;
         self.string_offset = req.string.back_offset(self.string_offset, skip);
     }
 
-    fn peek_code(&self, req: &Request<S>, peek: usize) -> u32 {
+    fn peek_code<S>(&self, req: &Request<S>, peek: usize) -> u32 {
         req.pattern_codes[self.code_position + peek]
     }
 
@@ -1129,7 +1560,7 @@ impl<S: StrDrive> MatchContext<S> {
         self.code_position += skip;
     }
 
-    fn skip_code_from(&mut self, req: &Request<S>, peek: usize) {
+    fn skip_code_from<S>(&mut self, req: &Request<S>, peek: usize) {
         self.skip_code(self.peek_code(req, peek) as usize + 1);
     }
 
@@ -1138,15 +1569,19 @@ impl<S: StrDrive> MatchContext<S> {
         self.string_position == 0
     }
 
-    fn at_end(&self, req: &Request<S>) -> bool {
+    fn at_end<S>(&self, req: &Request<S>) -> bool {
         self.string_position == req.end
     }
 
-    fn at_linebreak(&self, req: &Request<S>) -> bool {
+    fn at_linebreak<S: StrDrive>(&self, req: &Request<S>) -> bool {
         !self.at_end(req) && is_linebreak(self.peek_char(req))
     }
 
-    fn at_boundary<F: FnMut(u32) -> bool>(&self, req: &Request<S>, mut word_checker: F) -> bool {
+    fn at_boundary<S: StrDrive, F: FnMut(u32) -> bool>(
+        &self,
+        req: &Request<S>,
+        mut word_checker: F,
+    ) -> bool {
         if self.at_beginning() && self.at_end(req) {
             return false;
         }
@@ -1155,7 +1590,7 @@ impl<S: StrDrive> MatchContext<S> {
         this != that
     }
 
-    fn at_non_boundary<F: FnMut(u32) -> bool>(
+    fn at_non_boundary<S: StrDrive, F: FnMut(u32) -> bool>(
         &self,
         req: &Request<S>,
         mut word_checker: F,
@@ -1168,7 +1603,7 @@ impl<S: StrDrive> MatchContext<S> {
         this == that
     }
 
-    fn can_success(&self, req: &Request<S>) -> bool {
+    fn can_success<S>(&self, req: &Request<S>) -> bool {
         if !self.toplevel {
             return true;
         }
@@ -1181,51 +1616,29 @@ impl<S: StrDrive> MatchContext<S> {
         true
     }
 
-    fn success(&mut self) {
-        self.has_matched = Some(true);
+    #[must_use]
+    fn next_peek_from<S>(&mut self, peek: usize, req: &Request<S>, jump: Jump) -> Self {
+        self.next_offset(self.peek_code(req, peek) as usize + 1, jump)
     }
 
-    fn failure(&mut self) {
-        self.has_matched = Some(false);
+    #[must_use]
+    fn next_offset(&mut self, offset: usize, jump: Jump) -> Self {
+        self.next_at(self.code_position + offset, jump)
     }
 
-    fn next_from<'b>(
-        &mut self,
-        peek: usize,
-        req: &Request<S>,
-        state: &'b mut State<S>,
-        f: OpFunc<S>,
-    ) -> &'b mut Self {
-        self.next_offset(self.peek_code(req, peek) as usize + 1, state, f)
-    }
-
-    fn next_offset<'b>(
-        &mut self,
-        offset: usize,
-        state: &'b mut State<S>,
-        f: OpFunc<S>,
-    ) -> &'b mut Self {
-        self.next_at(self.code_position + offset, state, f)
-    }
-
-    fn next_at<'b>(
-        &mut self,
-        code_position: usize,
-        state: &'b mut State<S>,
-        f: OpFunc<S>,
-    ) -> &'b mut Self {
-        self.handler = Some(f);
-        state.next_context.insert(MatchContext {
+    #[must_use]
+    fn next_at(&mut self, code_position: usize, jump: Jump) -> Self {
+        self.jump = jump;
+        MatchContext {
             code_position,
-            has_matched: None,
-            handler: None,
+            jump: Jump::OpCode,
             count: -1,
             ..*self
-        })
+        }
     }
 }
 
-fn at<S: StrDrive>(req: &Request<S>, ctx: &MatchContext<S>, atcode: SreAtCode) -> bool {
+fn at<S: StrDrive>(req: &Request<S>, ctx: &MatchContext, atcode: SreAtCode) -> bool {
     match atcode {
         SreAtCode::BEGINNING | SreAtCode::BEGINNING_STRING => ctx.at_beginning(),
         SreAtCode::BEGINNING_LINE => ctx.at_beginning() || is_linebreak(ctx.back_peek_char(req)),
@@ -1243,9 +1656,10 @@ fn at<S: StrDrive>(req: &Request<S>, ctx: &MatchContext<S>, atcode: SreAtCode) -
     }
 }
 
+/*
 fn general_op_literal<S: StrDrive, F: FnOnce(u32, u32) -> bool>(
     req: &Request<S>,
-    ctx: &mut MatchContext<S>,
+    ctx: &mut MatchContext,
     f: F,
 ) {
     if ctx.at_end(req) || !f(ctx.peek_code(req, 1), ctx.peek_char(req)) {
@@ -1258,7 +1672,7 @@ fn general_op_literal<S: StrDrive, F: FnOnce(u32, u32) -> bool>(
 
 fn general_op_in<S: StrDrive, F: FnOnce(&[u32], u32) -> bool>(
     req: &Request<S>,
-    ctx: &mut MatchContext<S>,
+    ctx: &mut MatchContext,
     f: F,
 ) {
     if ctx.at_end(req) || !f(&ctx.pattern(req)[2..], ctx.peek_char(req)) {
@@ -1271,8 +1685,8 @@ fn general_op_in<S: StrDrive, F: FnOnce(&[u32], u32) -> bool>(
 
 fn general_op_groupref<S: StrDrive, F: FnMut(u32) -> u32>(
     req: &Request<S>,
-    state: &State<S>,
-    ctx: &mut MatchContext<S>,
+    state: &State,
+    ctx: &mut MatchContext,
     mut f: F,
 ) {
     let (group_start, group_end) = state.marks.get(ctx.peek_code(req, 1) as usize);
@@ -1301,6 +1715,7 @@ fn general_op_groupref<S: StrDrive, F: FnMut(u32) -> u32>(
 
     ctx.skip_code(2);
 }
+*/
 
 fn char_loc_ignore(code: u32, c: u32) -> bool {
     code == c || code == lower_locate(c) || code == upper_locate(c)
@@ -1433,8 +1848,8 @@ fn charset(set: &[u32], ch: u32) -> bool {
 
 fn _count<S: StrDrive>(
     req: &Request<S>,
-    state: &mut State<S>,
-    mut ctx: MatchContext<S>,
+    state: &mut State,
+    mut ctx: MatchContext,
     max_count: usize,
 ) -> usize {
     let max_count = std::cmp::min(max_count, ctx.remaining_chars(req));
@@ -1491,12 +1906,15 @@ fn _count<S: StrDrive>(
 
             while count < max_count {
                 ctx.code_position = reset_position;
-                let code = ctx.peek_code(req, 0);
-                let code = SreOpcode::try_from(code).unwrap();
-                dispatch(req, state, &mut ctx, code);
-                if ctx.has_matched == Some(false) {
+                if !_match(req, state, ctx) {
                     break;
                 }
+                // let code = ctx.peek_code(req, 0);
+                // let code = SreOpcode::try_from(code).unwrap();
+                // dispatch(req, state, &mut ctx, code);
+                // if ctx.has_matched == Some(false) {
+                //     break;
+                // }
                 count += 1;
             }
             return count;
@@ -1509,7 +1927,7 @@ fn _count<S: StrDrive>(
 
 fn general_count_literal<S: StrDrive, F: FnMut(u32, u32) -> bool>(
     req: &Request<S>,
-    ctx: &mut MatchContext<S>,
+    ctx: &mut MatchContext,
     end: usize,
     mut f: F,
 ) {

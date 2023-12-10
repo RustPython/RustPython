@@ -10,10 +10,7 @@ struct Pattern {
 }
 
 impl Pattern {
-    fn state<'a, S: engine::StrDrive>(
-        &self,
-        string: S,
-    ) -> (engine::Request<'a, S>, engine::State<S>) {
+    fn state<'a, S: engine::StrDrive>(&self, string: S) -> (engine::Request<'a, S>, engine::State) {
         self.state_range(string, 0..usize::MAX)
     }
 
@@ -21,7 +18,7 @@ impl Pattern {
         &self,
         string: S,
         range: std::ops::Range<usize>,
-    ) -> (engine::Request<'a, S>, engine::State<S>) {
+    ) -> (engine::Request<'a, S>, engine::State) {
         let req = engine::Request::new(string, range.start, range.end, self.code, false);
         let state = engine::State::default();
         (req, state)
@@ -93,29 +90,22 @@ fn benchmarks(b: &mut Bencher) {
     b.iter(move || {
         for (p, s) in &tests {
             let (req, mut state) = p.state(s.clone());
-            state.search(req);
-            assert!(state.has_matched);
+            assert!(state.search(req));
             let (req, mut state) = p.state(s.clone());
-            state.pymatch(req);
-            assert!(state.has_matched);
+            assert!(state.pymatch(&req));
             let (mut req, mut state) = p.state(s.clone());
             req.match_all = true;
-            state.pymatch(req);
-            assert!(state.has_matched);
+            assert!(state.pymatch(&req));
             let s2 = format!("{}{}{}", " ".repeat(10000), s, " ".repeat(10000));
             let (req, mut state) = p.state_range(s2.as_str(), 0..usize::MAX);
-            state.search(req);
-            assert!(state.has_matched);
+            assert!(state.search(req));
             let (req, mut state) = p.state_range(s2.as_str(), 10000..usize::MAX);
-            state.pymatch(req);
-            assert!(state.has_matched);
+            assert!(state.pymatch(&req));
             let (req, mut state) = p.state_range(s2.as_str(), 10000..10000 + s.len());
-            state.pymatch(req);
-            assert!(state.has_matched);
+            assert!(state.pymatch(&req));
             let (mut req, mut state) = p.state_range(s2.as_str(), 10000..10000 + s.len());
             req.match_all = true;
-            state.pymatch(req);
-            assert!(state.has_matched);
+            assert!(state.pymatch(&req));
         }
     })
 }

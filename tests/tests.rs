@@ -8,7 +8,7 @@ impl Pattern {
     fn state<'a, S: engine::StrDrive>(
         &self,
         string: S,
-    ) -> (engine::Request<'a, S>, engine::State<S>) {
+    ) -> (engine::Request<'a, S>, engine::State) {
         let req = engine::Request::new(string, 0, usize::MAX, self.code, false);
         let state = engine::State::default();
         (req, state)
@@ -22,8 +22,7 @@ fn test_2427() {
     #[rustfmt::skip] let lookbehind = Pattern { code: &[15, 4, 0, 1, 1, 5, 5, 1, 17, 46, 1, 17, 120, 6, 10, 1] };
     // END GENERATED
     let (req, mut state) = lookbehind.state("x");
-    state.pymatch(req);
-    assert!(state.has_matched);
+    assert!(state.pymatch(&req));
 }
 
 #[test]
@@ -33,8 +32,7 @@ fn test_assert() {
     #[rustfmt::skip] let positive_lookbehind = Pattern { code: &[15, 4, 0, 3, 3, 4, 9, 3, 17, 97, 17, 98, 17, 99, 1, 17, 100, 17, 101, 17, 102, 1] };
     // END GENERATED
     let (req, mut state) = positive_lookbehind.state("abcdef");
-    state.search(req);
-    assert!(state.has_matched);
+    assert!(state.search(req));
 }
 
 #[test]
@@ -44,8 +42,7 @@ fn test_string_boundaries() {
     #[rustfmt::skip] let big_b = Pattern { code: &[15, 4, 0, 0, 0, 6, 11, 1] };
     // END GENERATED
     let (req, mut state) = big_b.state("");
-    state.search(req);
-    assert!(!state.has_matched);
+    assert!(!state.search(req));
 }
 
 #[test]
@@ -56,7 +53,7 @@ fn test_zerowidth() {
     // END GENERATED
     let (mut req, mut state) = p.state("a:");
     req.must_advance = true;
-    state.search(req);
+    assert!(state.search(req));
     assert_eq!(state.string_position, 1);
 }
 
@@ -68,8 +65,8 @@ fn test_repeat_context_panic() {
     #[rustfmt::skip] let p = Pattern { code: &[15, 4, 0, 0, 4294967295, 24, 25, 0, 4294967295, 27, 6, 0, 4294967295, 17, 97, 1, 24, 11, 0, 1, 18, 0, 17, 120, 17, 120, 18, 1, 20, 17, 122, 19, 1] };
     // END GENERATED
     let (req, mut state) = p.state("axxzaz");
-    state.pymatch(req);
-    assert_eq!(*state.marks, vec![Optioned::some(1), Optioned::some(3)]);
+    assert!(state.pymatch(&req));
+    assert_eq!(*state.marks.raw(), vec![Optioned::some(1), Optioned::some(3)]);
 }
 
 #[test]
@@ -79,7 +76,7 @@ fn test_double_max_until() {
     #[rustfmt::skip] let p = Pattern { code: &[15, 4, 0, 0, 4294967295, 24, 18, 0, 4294967295, 18, 0, 24, 9, 0, 1, 18, 2, 17, 49, 18, 3, 19, 18, 1, 19, 1] };
     // END GENERATED
     let (req, mut state) = p.state("1111");
-    state.pymatch(req);
+    assert!(state.pymatch(&req));
     assert_eq!(state.string_position, 4);
 }
 
@@ -90,7 +87,7 @@ fn test_info_single() {
     #[rustfmt::skip] let p = Pattern { code: &[15, 8, 1, 1, 4294967295, 1, 1, 97, 0, 17, 97, 25, 6, 0, 4294967295, 17, 97, 1, 1] };
     // END GENERATED
     let (req, mut state) = p.state("baaaa");
-    state.search(req);
+    assert!(state.search(req));
     assert_eq!(state.start, 1);
     assert_eq!(state.string_position, 5);
 }
@@ -102,8 +99,7 @@ fn test_info_single2() {
     #[rustfmt::skip] let p = Pattern { code: &[15, 8, 1, 4, 6, 1, 1, 80, 0, 17, 80, 7, 13, 17, 121, 17, 116, 17, 104, 17, 111, 17, 110, 16, 11, 9, 17, 101, 17, 114, 17, 108, 16, 2, 0, 1] };
     // END GENERATED
     let (req, mut state) = p.state("Perl");
-    state.search(req);
-    assert!(state.has_matched);
+    assert!(state.search(req));
 }
 
 #[test]
@@ -113,8 +109,7 @@ fn test_info_literal() {
     #[rustfmt::skip] let p = Pattern { code: &[15, 14, 1, 5, 4294967295, 4, 4, 97, 98, 97, 98, 0, 0, 1, 2, 17, 97, 17, 98, 17, 97, 17, 98, 25, 6, 1, 4294967295, 17, 99, 1, 1] };
     // END GENERATED
     let (req, mut state) = p.state("!ababc");
-    state.search(req);
-    assert!(state.has_matched);
+    assert!(state.search(req));
 }
 
 #[test]
@@ -124,6 +119,5 @@ fn test_info_literal2() {
     #[rustfmt::skip] let p = Pattern { code: &[15, 18, 1, 12, 12, 6, 0, 112, 121, 116, 104, 111, 110, 0, 0, 0, 0, 0, 0, 18, 0, 17, 112, 17, 121, 17, 116, 17, 104, 17, 111, 17, 110, 18, 1, 12, 0, 1] };
     // END GENERATED
     let (req, mut state) = p.state("pythonpython");
-    state.search(req);
-    assert!(state.has_matched);
+    assert!(state.search(req));
 }
