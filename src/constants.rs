@@ -13,7 +13,7 @@
 
 use bitflags::bitflags;
 
-pub const SRE_MAGIC: usize = 20171005;
+pub const SRE_MAGIC: usize = 20221023;
 #[derive(num_enum::TryFromPrimitive, Debug)]
 #[repr(u32)]
 #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
@@ -26,39 +26,41 @@ pub enum SreOpcode {
     ASSERT_NOT = 5,
     AT = 6,
     BRANCH = 7,
-    CALL = 8,
-    CATEGORY = 9,
-    CHARSET = 10,
-    BIGCHARSET = 11,
-    GROUPREF = 12,
-    GROUPREF_EXISTS = 13,
-    IN = 14,
-    INFO = 15,
-    JUMP = 16,
-    LITERAL = 17,
-    MARK = 18,
-    MAX_UNTIL = 19,
-    MIN_UNTIL = 20,
-    NOT_LITERAL = 21,
-    NEGATE = 22,
-    RANGE = 23,
-    REPEAT = 24,
-    REPEAT_ONE = 25,
-    SUBPATTERN = 26,
-    MIN_REPEAT_ONE = 27,
-    GROUPREF_IGNORE = 28,
-    IN_IGNORE = 29,
-    LITERAL_IGNORE = 30,
-    NOT_LITERAL_IGNORE = 31,
-    GROUPREF_LOC_IGNORE = 32,
-    IN_LOC_IGNORE = 33,
-    LITERAL_LOC_IGNORE = 34,
-    NOT_LITERAL_LOC_IGNORE = 35,
-    GROUPREF_UNI_IGNORE = 36,
-    IN_UNI_IGNORE = 37,
-    LITERAL_UNI_IGNORE = 38,
-    NOT_LITERAL_UNI_IGNORE = 39,
-    RANGE_UNI_IGNORE = 40,
+    CATEGORY = 8,
+    CHARSET = 9,
+    BIGCHARSET = 10,
+    GROUPREF = 11,
+    GROUPREF_EXISTS = 12,
+    IN = 13,
+    INFO = 14,
+    JUMP = 15,
+    LITERAL = 16,
+    MARK = 17,
+    MAX_UNTIL = 18,
+    MIN_UNTIL = 19,
+    NOT_LITERAL = 20,
+    NEGATE = 21,
+    RANGE = 22,
+    REPEAT = 23,
+    REPEAT_ONE = 24,
+    SUBPATTERN = 25,
+    MIN_REPEAT_ONE = 26,
+    ATOMIC_GROUP = 27,
+    POSSESSIVE_REPEAT = 28,
+    POSSESSIVE_REPEAT_ONE = 29,
+    GROUPREF_IGNORE = 30,
+    IN_IGNORE = 31,
+    LITERAL_IGNORE = 32,
+    NOT_LITERAL_IGNORE = 33,
+    GROUPREF_LOC_IGNORE = 34,
+    IN_LOC_IGNORE = 35,
+    LITERAL_LOC_IGNORE = 36,
+    NOT_LITERAL_LOC_IGNORE = 37,
+    GROUPREF_UNI_IGNORE = 38,
+    IN_UNI_IGNORE = 39,
+    LITERAL_UNI_IGNORE = 40,
+    NOT_LITERAL_UNI_IGNORE = 41,
+    RANGE_UNI_IGNORE = 42,
 }
 #[derive(num_enum::TryFromPrimitive, Debug)]
 #[repr(u32)]
@@ -101,7 +103,7 @@ pub enum SreCatCode {
     UNI_NOT_LINEBREAK = 17,
 }
 bitflags! {
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub struct SreFlag: u16 {
         const TEMPLATE = 1;
         const IGNORECASE = 2;

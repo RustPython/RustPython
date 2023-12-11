@@ -759,13 +759,15 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                                 ctx.skip_code_from(req, 2)
                             }
                         }
-                        SreOpcode::CALL => todo!(),
                         SreOpcode::CHARSET => todo!(),
                         SreOpcode::BIGCHARSET => todo!(),
                         SreOpcode::NEGATE => todo!(),
                         SreOpcode::RANGE => todo!(),
                         SreOpcode::RANGE_UNI_IGNORE => todo!(),
                         SreOpcode::SUBPATTERN => todo!(),
+                        SreOpcode::ATOMIC_GROUP => todo!(),
+                        SreOpcode::POSSESSIVE_REPEAT => todo!(),
+                        SreOpcode::POSSESSIVE_REPEAT_ONE => todo!(),
                     }
                 }
             };
