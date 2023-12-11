@@ -1904,19 +1904,17 @@ fn _count<S: StrDrive>(
             /* General case */
             let mut count = 0;
 
-            let reset_position = ctx.code_position;
-
             while count < max_count {
-                ctx.code_position = reset_position;
-                if !_match(req, state, ctx) {
+                let sub_ctx = MatchContext {
+                    toplevel: true,
+                    jump: Jump::OpCode,
+                    repeat_ctx_id: usize::MAX,
+                    count: -1,
+                    ..ctx
+                };
+                if !_match(req, state, sub_ctx) {
                     break;
                 }
-                // let code = ctx.peek_code(req, 0);
-                // let code = SreOpcode::try_from(code).unwrap();
-                // dispatch(req, state, &mut ctx, code);
-                // if ctx.has_matched == Some(false) {
-                //     break;
-                // }
                 count += 1;
             }
             return count;
