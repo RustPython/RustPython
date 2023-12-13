@@ -267,6 +267,11 @@ enum Jump {
     RepeatOne2,
     MinRepeatOne1,
     MinRepeatOne2,
+    AtomicGroup1,
+    PossessiveRepeat1,
+    PossessiveRepeat2,
+    PossessiveRepeat3,
+    PossessiveRepeat4,
 }
 
 fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -> bool {
@@ -444,6 +449,73 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                         state.marks.pop_keep();
                         ctx.jump = Jump::MinRepeatOne1;
                         continue 'context;
+                    }
+                    Jump::AtomicGroup1 => {
+                        if popped_result {
+                            ctx.skip_code_from(req, 1);
+                            ctx.string_position = state.string_position;
+                            ctx.string_offset = req.string.offset(0, state.string_position);
+                            // dispatch opcode
+                        } else {
+                            state.string_position = ctx.string_position;
+                            break 'result false;
+                        }
+                    }
+                    Jump::PossessiveRepeat1 => {
+                        let min_count = ctx.peek_code(req, 2) as isize;
+                        if ctx.count < min_count {
+                            break 'context ctx.next_offset(4, Jump::PossessiveRepeat2);
+                        }
+                        // zero match protection
+                        ctx.string_position = usize::MAX;
+                        ctx.jump = Jump::PossessiveRepeat3;
+                        continue 'context;
+                    }
+                    Jump::PossessiveRepeat2 => {
+                        if popped_result {
+                            ctx.count += 1;
+                            ctx.jump = Jump::PossessiveRepeat1;
+                            continue 'context;
+                        } else {
+                            state.string_position = ctx.string_position;
+                            break 'result false;
+                        }
+                    }
+                    Jump::PossessiveRepeat3 => {
+                        let max_count = ctx.peek_code(req, 3) as usize;
+                        if ((ctx.count as usize) < max_count || max_count == MAXREPEAT)
+                            && ctx.string_position != state.string_position
+                        {
+                            state.marks.push();
+                            ctx.string_position = state.string_position;
+                            ctx.string_offset = req.string.offset(0, state.string_position);
+                            break 'context ctx.next_offset(4, Jump::PossessiveRepeat4);
+                        }
+                        ctx.string_position = state.string_position;
+                        ctx.string_offset = req.string.offset(0, state.string_position);
+                        // popped_result = false;
+                        // ctx.jump = Jump::PossessiveRepeat4;
+                        // continue 'context;
+                        ctx.skip_code_from(req, 1);
+                        ctx.skip_code(1);
+                        // if ctx.remaining_codes(req) > 1 && ctx.toplevel {
+                        //     ctx.skip_code(1);
+                        // }
+                    }
+                    Jump::PossessiveRepeat4 => {
+                        if popped_result {
+                            state.marks.pop_discard();
+                            ctx.count += 1;
+                            ctx.jump = Jump::PossessiveRepeat3;
+                            continue 'context;
+                        }
+                        state.marks.pop();
+                        state.string_position = ctx.string_position;
+                        ctx.skip_code_from(req, 1);
+                        ctx.skip_code(1);
+                        // if ctx.remaining_codes(req) > 1 && ctx.toplevel {
+                        //     ctx.skip_code(1);
+                        // }
                     }
                 }
                 ctx.jump = Jump::OpCode;
@@ -759,15 +831,43 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                                 ctx.skip_code_from(req, 2)
                             }
                         }
+                        /* <ATOMIC_GROUP> <skip> pattern <SUCCESS> tail */
+                        SreOpcode::ATOMIC_GROUP => {
+                            state.string_position = ctx.string_position;
+                            break 'context ctx.next_offset(2, Jump::AtomicGroup1);
+                        }
+                        /* <POSSESSIVE_REPEAT> <skip> <1=min> <2=max> pattern
+                        <SUCCESS> tail */
+                        SreOpcode::POSSESSIVE_REPEAT => {
+                            state.string_position = ctx.string_position;
+                            ctx.count = 0;
+                            ctx.jump = Jump::PossessiveRepeat1;
+                            continue 'context;
+                        }
+                        /* <POSSESSIVE_REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS>
+                        tail */
+                        SreOpcode::POSSESSIVE_REPEAT_ONE => {
+                            let min_count = ctx.peek_code(req, 2) as usize;
+                            let max_count = ctx.peek_code(req, 3) as usize;
+                            if ctx.remaining_chars(req) < min_count {
+                                break 'result false;
+                            }
+                            state.string_position = ctx.string_position;
+                            let mut count_ctx = ctx;
+                            count_ctx.skip_code(4);
+                            let count = _count(req, state, count_ctx, max_count);
+                            if count < min_count {
+                                break 'result false;
+                            }
+                            ctx.skip_char(req, count);
+                            ctx.skip_code_from(req, 1);
+                        }
                         SreOpcode::CHARSET => todo!(),
                         SreOpcode::BIGCHARSET => todo!(),
                         SreOpcode::NEGATE => todo!(),
                         SreOpcode::RANGE => todo!(),
                         SreOpcode::RANGE_UNI_IGNORE => todo!(),
                         SreOpcode::SUBPATTERN => todo!(),
-                        SreOpcode::ATOMIC_GROUP => todo!(),
-                        SreOpcode::POSSESSIVE_REPEAT => todo!(),
-                        SreOpcode::POSSESSIVE_REPEAT_ONE => todo!(),
                     }
                 }
             };
@@ -1906,7 +2006,7 @@ fn _count<S: StrDrive>(
 
             while count < max_count {
                 let sub_ctx = MatchContext {
-                    toplevel: true,
+                    toplevel: false,
                     jump: Jump::OpCode,
                     repeat_ctx_id: usize::MAX,
                     count: -1,
