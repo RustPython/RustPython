@@ -493,14 +493,8 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                         }
                         ctx.string_position = state.string_position;
                         ctx.string_offset = req.string.offset(0, state.string_position);
-                        // popped_result = false;
-                        // ctx.jump = Jump::PossessiveRepeat4;
-                        // continue 'context;
                         ctx.skip_code_from(req, 1);
                         ctx.skip_code(1);
-                        // if ctx.remaining_codes(req) > 1 && ctx.toplevel {
-                        //     ctx.skip_code(1);
-                        // }
                     }
                     Jump::PossessiveRepeat4 => {
                         if popped_result {
@@ -513,9 +507,6 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                         state.string_position = ctx.string_position;
                         ctx.skip_code_from(req, 1);
                         ctx.skip_code(1);
-                        // if ctx.remaining_codes(req) > 1 && ctx.toplevel {
-                        //     ctx.skip_code(1);
-                        // }
                     }
                 }
                 ctx.jump = Jump::OpCode;
@@ -603,6 +594,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                             ctx.skip_code(1);
                             ctx.skip_char(req, 1);
                         }
+                        /* <ASSERT> <skip> <back> <pattern> */
                         SreOpcode::ASSERT => {
                             let back = ctx.peek_code(req, 2) as usize;
                             if ctx.string_position < back {
@@ -615,6 +607,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                             state.string_position = next_ctx.string_position;
                             break 'context next_ctx;
                         }
+                        /* <ASSERT_NOT> <skip> <back> <pattern> */
                         SreOpcode::ASSERT_NOT => {
                             let back = ctx.peek_code(req, 2) as usize;
                             if ctx.string_position < back {
@@ -636,6 +629,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                                 break 'result false;
                             }
                         }
+                        // <BRANCH> <0=skip> code <JUMP> ... <NULL>
                         SreOpcode::BRANCH => {
                             state.marks.push();
                             ctx.count = 1;
@@ -672,6 +666,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                             ctx.skip_code(2);
                         }
                         SreOpcode::JUMP => ctx.skip_code_from(req, 1),
+                        /* <REPEAT> <skip> <1=min> <2=max> item <UNTIL> tail */
                         SreOpcode::REPEAT => {
                             let repeat_ctx = RepeatContext {
                                 count: -1,
@@ -736,6 +731,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                             next_ctx.repeat_ctx_id = repeat_ctx.prev_id;
                             break 'context next_ctx;
                         }
+                        /* <REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
                         SreOpcode::REPEAT_ONE => {
                             let min_count = ctx.peek_code(req, 2) as usize;
                             let max_count = ctx.peek_code(req, 3) as usize;
@@ -766,6 +762,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                             ctx.jump = Jump::RepeatOne1;
                             continue 'context;
                         }
+                        /* <MIN_REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
                         SreOpcode::MIN_REPEAT_ONE => {
                             let min_count = ctx.peek_code(req, 2) as usize;
                             if ctx.remaining_chars(req) < min_count {
@@ -862,12 +859,14 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                             ctx.skip_char(req, count);
                             ctx.skip_code_from(req, 1);
                         }
-                        SreOpcode::CHARSET => todo!(),
-                        SreOpcode::BIGCHARSET => todo!(),
-                        SreOpcode::NEGATE => todo!(),
-                        SreOpcode::RANGE => todo!(),
-                        SreOpcode::RANGE_UNI_IGNORE => todo!(),
-                        SreOpcode::SUBPATTERN => todo!(),
+                        SreOpcode::CHARSET
+                        | SreOpcode::BIGCHARSET
+                        | SreOpcode::NEGATE
+                        | SreOpcode::RANGE
+                        | SreOpcode::RANGE_UNI_IGNORE
+                        | SreOpcode::SUBPATTERN => {
+                            unreachable!("unexpected opcode on main dispatch")
+                        }
                     }
                 }
             };
@@ -878,123 +877,6 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
     }
     popped_result
 }
-
-/*
-fn dispatch<S: StrDrive>(
-    req: &Request<S>,
-    state: &mut State,
-    ctx: &mut MatchContext,
-    opcode: SreOpcode,
-) {
-    match opcode {
-        SreOpcode::FAILURE => {
-            ctx.failure();
-        }
-        SreOpcode::SUCCESS => {
-            if ctx.can_success(req) {
-                state.string_position = ctx.string_position;
-                ctx.success();
-            } else {
-                ctx.failure();
-            }
-        }
-        SreOpcode::ANY => {
-            if ctx.at_end(req) || ctx.at_linebreak(req) {
-                ctx.failure();
-            } else {
-                ctx.skip_code(1);
-                ctx.skip_char(req, 1);
-            }
-        }
-        SreOpcode::ANY_ALL => {
-            if ctx.at_end(req) {
-                ctx.failure();
-            } else {
-                ctx.skip_code(1);
-                ctx.skip_char(req, 1);
-            }
-        }
-        SreOpcode::ASSERT => op_assert(req, state, ctx),
-        SreOpcode::ASSERT_NOT => op_assert_not(req, state, ctx),
-        SreOpcode::AT => {
-            let atcode = SreAtCode::try_from(ctx.peek_code(req, 1)).unwrap();
-            if at(req, ctx, atcode) {
-                ctx.skip_code(2);
-            } else {
-                ctx.failure();
-            }
-        }
-        SreOpcode::BRANCH => op_branch(req, state, ctx),
-        SreOpcode::CATEGORY => {
-            let catcode = SreCatCode::try_from(ctx.peek_code(req, 1)).unwrap();
-            if ctx.at_end(req) || !category(catcode, ctx.peek_char(req)) {
-                ctx.failure();
-            } else {
-                ctx.skip_code(2);
-                ctx.skip_char(req, 1);
-            }
-        }
-        SreOpcode::IN => general_op_in(req, ctx, charset),
-        SreOpcode::IN_IGNORE => general_op_in(req, ctx, |set, c| charset(set, lower_ascii(c))),
-        SreOpcode::IN_UNI_IGNORE => {
-            general_op_in(req, ctx, |set, c| charset(set, lower_unicode(c)))
-        }
-        SreOpcode::IN_LOC_IGNORE => general_op_in(req, ctx, charset_loc_ignore),
-        SreOpcode::INFO => {
-            let min = ctx.peek_code(req, 3) as usize;
-            if ctx.remaining_chars(req) < min {
-                ctx.failure();
-            } else {
-                ctx.skip_code_from(req, 1);
-            }
-        }
-        SreOpcode::JUMP => ctx.skip_code_from(req, 1),
-        SreOpcode::LITERAL => general_op_literal(req, ctx, |code, c| code == c),
-        SreOpcode::NOT_LITERAL => general_op_literal(req, ctx, |code, c| code != c),
-        SreOpcode::LITERAL_IGNORE => general_op_literal(req, ctx, |code, c| code == lower_ascii(c)),
-        SreOpcode::NOT_LITERAL_IGNORE => {
-            general_op_literal(req, ctx, |code, c| code != lower_ascii(c))
-        }
-        SreOpcode::LITERAL_UNI_IGNORE => {
-            general_op_literal(req, ctx, |code, c| code == lower_unicode(c))
-        }
-        SreOpcode::NOT_LITERAL_UNI_IGNORE => {
-            general_op_literal(req, ctx, |code, c| code != lower_unicode(c))
-        }
-        SreOpcode::LITERAL_LOC_IGNORE => general_op_literal(req, ctx, char_loc_ignore),
-        SreOpcode::NOT_LITERAL_LOC_IGNORE => {
-            general_op_literal(req, ctx, |code, c| !char_loc_ignore(code, c))
-        }
-        SreOpcode::MARK => {
-            state
-                .marks
-                .set(ctx.peek_code(req, 1) as usize, ctx.string_position);
-            ctx.skip_code(2);
-        }
-        SreOpcode::MAX_UNTIL => op_max_until(state, ctx),
-        SreOpcode::MIN_UNTIL => op_min_until(state, ctx),
-        SreOpcode::REPEAT => op_repeat(req, state, ctx),
-        SreOpcode::REPEAT_ONE => op_repeat_one(req, state, ctx),
-        SreOpcode::MIN_REPEAT_ONE => op_min_repeat_one(req, state, ctx),
-        SreOpcode::GROUPREF => general_op_groupref(req, state, ctx, |x| x),
-        SreOpcode::GROUPREF_IGNORE => general_op_groupref(req, state, ctx, lower_ascii),
-        SreOpcode::GROUPREF_LOC_IGNORE => general_op_groupref(req, state, ctx, lower_locate),
-        SreOpcode::GROUPREF_UNI_IGNORE => general_op_groupref(req, state, ctx, lower_unicode),
-        SreOpcode::GROUPREF_EXISTS => {
-            let (group_start, group_end) = state.marks.get(ctx.peek_code(req, 1) as usize);
-            if group_start.is_some()
-                && group_end.is_some()
-                && group_start.unpack() <= group_end.unpack()
-            {
-                ctx.skip_code(3);
-            } else {
-                ctx.skip_code_from(req, 2)
-            }
-        }
-        _ => unreachable!("unexpected opcode"),
-    }
-}
-*/
 
 fn search_info_literal<const LITERAL: bool, S: StrDrive>(
     req: &mut Request<S>,
@@ -1142,224 +1024,6 @@ fn search_info_charset<S: StrDrive>(
     }
 }
 
-/*
-/* assert subpattern */
-/* <ASSERT> <skip> <back> <pattern> */
-fn op_assert<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-    let back = ctx.peek_code(req, 2) as usize;
-    if ctx.string_position < back {
-        return ctx.failure();
-    }
-
-    let next_ctx = ctx.next_offset(3, state, |req, state, ctx| {
-        if state.popped_has_matched {
-            ctx.skip_code_from(req, 1);
-        } else {
-            ctx.failure();
-        }
-    });
-    next_ctx.toplevel = false;
-    next_ctx.back_skip_char(req, back);
-    state.string_position = next_ctx.string_position;
-}
-
-/* assert not subpattern */
-/* <ASSERT_NOT> <skip> <back> <pattern> */
-fn op_assert_not<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-    let back = ctx.peek_code(req, 2) as usize;
-
-    if ctx.string_position < back {
-        return ctx.skip_code_from(req, 1);
-    }
-
-    let next_ctx = ctx.next_offset(3, state, |req, state, ctx| {
-        if state.popped_has_matched {
-            ctx.failure();
-        } else {
-            ctx.skip_code_from(req, 1);
-        }
-    });
-    next_ctx.toplevel = false;
-    next_ctx.back_skip_char(req, back);
-    state.string_position = next_ctx.string_position;
-}
-
-// alternation
-// <BRANCH> <0=skip> code <JUMP> ... <NULL>
-fn op_branch<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-    state.marks.push();
-
-    ctx.count = 1;
-    create_context(req, state, ctx);
-
-    fn create_context<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-        let branch_offset = ctx.count as usize;
-        let next_length = ctx.peek_code(req, branch_offset) as isize;
-        if next_length == 0 {
-            state.marks.pop_discard();
-            return ctx.failure();
-        }
-
-        state.string_position = ctx.string_position;
-
-        ctx.count += next_length;
-        ctx.next_offset(branch_offset + 1, state, callback);
-    }
-
-    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-        if state.popped_has_matched {
-            return ctx.success();
-        }
-        state.marks.pop_keep();
-        create_context(req, state, ctx);
-    }
-}
-
-/* <MIN_REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
-fn op_min_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-    let min_count = ctx.peek_code(req, 2) as usize;
-
-    if ctx.remaining_chars(req) < min_count {
-        return ctx.failure();
-    }
-
-    state.string_position = ctx.string_position;
-
-    ctx.count = if min_count == 0 {
-        0
-    } else {
-        let mut next_ctx = *ctx;
-        next_ctx.skip_code(4);
-        let count = _count(req, state, next_ctx, min_count);
-        if count < min_count {
-            return ctx.failure();
-        }
-        ctx.skip_char(req, count);
-        count as isize
-    };
-
-    let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
-    if next_code == SreOpcode::SUCCESS as u32 && ctx.can_success(req) {
-        // tail is empty. we're finished
-        state.string_position = ctx.string_position;
-        return ctx.success();
-    }
-
-    state.marks.push();
-    create_context(req, state, ctx);
-
-    fn create_context<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-        let max_count = ctx.peek_code(req, 3) as usize;
-
-        if max_count == MAXREPEAT || ctx.count as usize <= max_count {
-            state.string_position = ctx.string_position;
-            ctx.next_peek_from(1, req, state, callback);
-        } else {
-            state.marks.pop_discard();
-            ctx.failure();
-        }
-    }
-
-    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-        if state.popped_has_matched {
-            return ctx.success();
-        }
-
-        state.string_position = ctx.string_position;
-
-        let mut next_ctx = *ctx;
-        next_ctx.skip_code(4);
-        if _count(req, state, next_ctx, 1) == 0 {
-            state.marks.pop_discard();
-            return ctx.failure();
-        }
-
-        ctx.skip_char(req, 1);
-        ctx.count += 1;
-        state.marks.pop_keep();
-        create_context(req, state, ctx);
-    }
-}
-
-/* match repeated sequence (maximizing regexp) */
-/* this operator only works if the repeated item is
-exactly one character wide, and we're not already
-collecting backtracking points.  for other cases,
-use the MAX_REPEAT operator */
-/* <REPEAT_ONE> <skip> <1=min> <2=max> item <SUCCESS> tail */
-fn op_repeat_one<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-    let min_count = ctx.peek_code(req, 2) as usize;
-    let max_count = ctx.peek_code(req, 3) as usize;
-
-    if ctx.remaining_chars(req) < min_count {
-        return ctx.failure();
-    }
-
-    state.string_position = ctx.string_position;
-
-    let mut next_ctx = *ctx;
-    next_ctx.skip_code(4);
-    let count = _count(req, state, next_ctx, max_count);
-    ctx.skip_char(req, count);
-    if count < min_count {
-        return ctx.failure();
-    }
-
-    let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
-    if next_code == SreOpcode::SUCCESS as u32 && ctx.can_success(req) {
-        // tail is empty. we're finished
-        state.string_position = ctx.string_position;
-        return ctx.success();
-    }
-
-    state.marks.push();
-    ctx.count = count as isize;
-    create_context(req, state, ctx);
-
-    fn create_context<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-        let min_count = ctx.peek_code(req, 2) as isize;
-        let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
-        if next_code == SreOpcode::LITERAL as u32 {
-            // Special case: Tail starts with a literal. Skip positions where
-            // the rest of the pattern cannot possibly match.
-            let c = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 2);
-            while ctx.at_end(req) || ctx.peek_char(req) != c {
-                if ctx.count <= min_count {
-                    state.marks.pop_discard();
-                    return ctx.failure();
-                }
-                ctx.back_skip_char(req, 1);
-                ctx.count -= 1;
-            }
-        }
-
-        state.string_position = ctx.string_position;
-
-        // General case: backtracking
-        ctx.next_peek_from(1, req, state, callback);
-    }
-
-    fn callback<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-        if state.popped_has_matched {
-            return ctx.success();
-        }
-
-        let min_count = ctx.peek_code(req, 2) as isize;
-
-        if ctx.count <= min_count {
-            state.marks.pop_discard();
-            return ctx.failure();
-        }
-
-        ctx.back_skip_char(req, 1);
-        ctx.count -= 1;
-
-        state.marks.pop_keep();
-        create_context(req, state, ctx);
-    }
-}
-*/
-
 #[derive(Debug, Clone, Copy)]
 struct RepeatContext {
     count: isize,
@@ -1369,173 +1033,6 @@ struct RepeatContext {
     last_position: usize,
     prev_id: usize,
 }
-
-/*
-/* create repeat context.  all the hard work is done
-by the UNTIL operator (MAX_UNTIL, MIN_UNTIL) */
-/* <REPEAT> <skip> <1=min> <2=max> item <UNTIL> tail */
-fn op_repeat<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-    let repeat_ctx = RepeatContext {
-        count: -1,
-        min_count: ctx.peek_code(req, 2) as usize,
-        max_count: ctx.peek_code(req, 3) as usize,
-        code_position: ctx.code_position,
-        last_position: std::usize::MAX,
-        prev_id: ctx.repeat_ctx_id,
-    };
-
-    state.repeat_stack.push(repeat_ctx);
-
-    state.string_position = ctx.string_position;
-
-    let repeat_ctx_id = state.repeat_stack.len() - 1;
-
-    let next_ctx = ctx.next_peek_from(1, req, state, |_, state, ctx| {
-        ctx.has_matched = Some(state.popped_has_matched);
-        state.repeat_stack.pop();
-    });
-    next_ctx.repeat_ctx_id = repeat_ctx_id;
-}
-
-/* minimizing repeat */
-fn op_min_until<S: StrDrive>(state: &mut State, ctx: &mut MatchContext) {
-    let repeat_ctx = state.repeat_stack.last_mut().unwrap();
-
-    state.string_position = ctx.string_position;
-
-    repeat_ctx.count += 1;
-
-    if (repeat_ctx.count as usize) < repeat_ctx.min_count {
-        // not enough matches
-        ctx.next_at(repeat_ctx.code_position + 4, state, |_, state, ctx| {
-            if state.popped_has_matched {
-                ctx.success();
-            } else {
-                state.repeat_stack[ctx.repeat_ctx_id].count -= 1;
-                state.string_position = ctx.string_position;
-                ctx.failure();
-            }
-        });
-        return;
-    }
-
-    state.marks.push();
-
-    ctx.count = ctx.repeat_ctx_id as isize;
-
-    let repeat_ctx_prev_id = repeat_ctx.prev_id;
-
-    // see if the tail matches
-    let next_ctx = ctx.next_offset(1, state, |_, state, ctx| {
-        if state.popped_has_matched {
-            return ctx.success();
-        }
-
-        ctx.repeat_ctx_id = ctx.count as usize;
-
-        let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
-
-        state.string_position = ctx.string_position;
-
-        state.marks.pop();
-
-        // match more until tail matches
-
-        if repeat_ctx.count as usize >= repeat_ctx.max_count && repeat_ctx.max_count != MAXREPEAT
-            || state.string_position == repeat_ctx.last_position
-        {
-            repeat_ctx.count -= 1;
-            return ctx.failure();
-        }
-
-        /* zero-width match protection */
-        repeat_ctx.last_position = state.string_position;
-
-        ctx.next_at(repeat_ctx.code_position + 4, state, |_, state, ctx| {
-            if state.popped_has_matched {
-                ctx.success();
-            } else {
-                state.repeat_stack[ctx.repeat_ctx_id].count -= 1;
-                state.string_position = ctx.string_position;
-                ctx.failure();
-            }
-        });
-    });
-    next_ctx.repeat_ctx_id = repeat_ctx_prev_id;
-}
-
-/* maximizing repeat */
-fn op_max_until<S: StrDrive>(state: &mut State, ctx: &mut MatchContext) {
-    let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
-
-    state.string_position = ctx.string_position;
-
-    repeat_ctx.count += 1;
-
-    if (repeat_ctx.count as usize) < repeat_ctx.min_count {
-        // not enough matches
-        ctx.next_at(repeat_ctx.code_position + 4, state, |_, state, ctx| {
-            if state.popped_has_matched {
-                ctx.success();
-            } else {
-                state.repeat_stack[ctx.repeat_ctx_id].count -= 1;
-                state.string_position = ctx.string_position;
-                ctx.failure();
-            }
-        });
-        return;
-    }
-
-    if ((repeat_ctx.count as usize) < repeat_ctx.max_count || repeat_ctx.max_count == MAXREPEAT)
-        && state.string_position != repeat_ctx.last_position
-    {
-        /* we may have enough matches, but if we can
-        match another item, do so */
-        state.marks.push();
-
-        ctx.count = repeat_ctx.last_position as isize;
-        repeat_ctx.last_position = state.string_position;
-
-        ctx.next_at(repeat_ctx.code_position + 4, state, |_, state, ctx| {
-            let save_last_position = ctx.count as usize;
-            let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
-            repeat_ctx.last_position = save_last_position;
-
-            if state.popped_has_matched {
-                state.marks.pop_discard();
-                return ctx.success();
-            }
-
-            state.marks.pop();
-            repeat_ctx.count -= 1;
-
-            state.string_position = ctx.string_position;
-
-            /* cannot match more repeated items here.  make sure the
-            tail matches */
-            let repeat_ctx_prev_id = repeat_ctx.prev_id;
-            let next_ctx = ctx.next_offset(1, state, tail_callback);
-            next_ctx.repeat_ctx_id = repeat_ctx_prev_id;
-        });
-        return;
-    }
-
-    /* cannot match more repeated items here.  make sure the
-    tail matches */
-    let repeat_ctx_prev_id = repeat_ctx.prev_id;
-    let next_ctx = ctx.next_offset(1, state, tail_callback);
-    next_ctx.repeat_ctx_id = repeat_ctx_prev_id;
-
-    fn tail_callback<S: StrDrive>(_: &Request<S>, state: &mut State, ctx: &mut MatchContext) {
-        if state.popped_has_matched {
-            ctx.success();
-        } else {
-            state.string_position = ctx.string_position;
-            ctx.failure();
-        }
-    }
-}
-*/
 
 pub trait StrDrive: Copy {
     fn offset(&self, offset: usize, skip: usize) -> usize;
@@ -1757,67 +1254,6 @@ fn at<S: StrDrive>(req: &Request<S>, ctx: &MatchContext, atcode: SreAtCode) -> b
         SreAtCode::UNI_NON_BOUNDARY => ctx.at_non_boundary(req, is_uni_word),
     }
 }
-
-/*
-fn general_op_literal<S: StrDrive, F: FnOnce(u32, u32) -> bool>(
-    req: &Request<S>,
-    ctx: &mut MatchContext,
-    f: F,
-) {
-    if ctx.at_end(req) || !f(ctx.peek_code(req, 1), ctx.peek_char(req)) {
-        ctx.failure();
-    } else {
-        ctx.skip_code(2);
-        ctx.skip_char(req, 1);
-    }
-}
-
-fn general_op_in<S: StrDrive, F: FnOnce(&[u32], u32) -> bool>(
-    req: &Request<S>,
-    ctx: &mut MatchContext,
-    f: F,
-) {
-    if ctx.at_end(req) || !f(&ctx.pattern(req)[2..], ctx.peek_char(req)) {
-        ctx.failure();
-    } else {
-        ctx.skip_code_from(req, 1);
-        ctx.skip_char(req, 1);
-    }
-}
-
-fn general_op_groupref<S: StrDrive, F: FnMut(u32) -> u32>(
-    req: &Request<S>,
-    state: &State,
-    ctx: &mut MatchContext,
-    mut f: F,
-) {
-    let (group_start, group_end) = state.marks.get(ctx.peek_code(req, 1) as usize);
-    let (group_start, group_end) = if group_start.is_some()
-        && group_end.is_some()
-        && group_start.unpack() <= group_end.unpack()
-    {
-        (group_start.unpack(), group_end.unpack())
-    } else {
-        return ctx.failure();
-    };
-
-    let mut gctx = MatchContext {
-        string_position: group_start,
-        string_offset: req.string.offset(0, group_start),
-        ..*ctx
-    };
-
-    for _ in group_start..group_end {
-        if ctx.at_end(req) || f(ctx.peek_char(req)) != f(gctx.peek_char(req)) {
-            return ctx.failure();
-        }
-        ctx.skip_char(req, 1);
-        gctx.skip_char(req, 1);
-    }
-
-    ctx.skip_code(2);
-}
-*/
 
 fn char_loc_ignore(code: u32, c: u32) -> bool {
     code == c || code == lower_locate(c) || code == upper_locate(c)
