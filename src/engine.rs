@@ -142,7 +142,7 @@ impl State {
             repeat_ctx_id: usize::MAX,
             count: -1,
         };
-        _match(&req, self, ctx)
+        _match(req, self, ctx)
     }
 
     pub fn search<S: StrDrive>(&mut self, mut req: Request<S>) -> bool {
@@ -1400,16 +1400,16 @@ fn _count<S: StrDrive>(
             }
         }
         SreOpcode::LITERAL => {
-            general_count_literal(req, &mut ctx, end, |code, c| code == c as u32);
+            general_count_literal(req, &mut ctx, end, |code, c| code == c);
         }
         SreOpcode::NOT_LITERAL => {
-            general_count_literal(req, &mut ctx, end, |code, c| code != c as u32);
+            general_count_literal(req, &mut ctx, end, |code, c| code != c);
         }
         SreOpcode::LITERAL_IGNORE => {
-            general_count_literal(req, &mut ctx, end, |code, c| code == lower_ascii(c) as u32);
+            general_count_literal(req, &mut ctx, end, |code, c| code == lower_ascii(c));
         }
         SreOpcode::NOT_LITERAL_IGNORE => {
-            general_count_literal(req, &mut ctx, end, |code, c| code != lower_ascii(c) as u32);
+            general_count_literal(req, &mut ctx, end, |code, c| code != lower_ascii(c));
         }
         SreOpcode::LITERAL_LOC_IGNORE => {
             general_count_literal(req, &mut ctx, end, char_loc_ignore);
@@ -1419,12 +1419,12 @@ fn _count<S: StrDrive>(
         }
         SreOpcode::LITERAL_UNI_IGNORE => {
             general_count_literal(req, &mut ctx, end, |code, c| {
-                code == lower_unicode(c) as u32
+                code == lower_unicode(c)
             });
         }
         SreOpcode::NOT_LITERAL_UNI_IGNORE => {
             general_count_literal(req, &mut ctx, end, |code, c| {
-                code != lower_unicode(c) as u32
+                code != lower_unicode(c)
             });
         }
         _ => {
