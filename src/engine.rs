@@ -1,8 +1,6 @@
 // good luck to those that follow; here be dragons
 
-use crate::constants::SreInfo;
-
-use super::constants::{SreAtCode, SreCatCode, SreOpcode};
+use super::constants::{SreAtCode, SreCatCode, SreOpcode, SreInfo};
 use super::MAXREPEAT;
 use optional::Optioned;
 use std::convert::TryFrom;
@@ -284,7 +282,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
         };
 
         popped_result = 'result: loop {
-            let yield_ = 'context: loop {
+            let yielded = 'context: loop {
                 match ctx.jump {
                     Jump::OpCode => {}
                     Jump::Assert1 => {
@@ -864,7 +862,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                 }
             };
             context_stack.push(ctx);
-            context_stack.push(yield_);
+            context_stack.push(yielded);
             continue 'coro;
         };
     }
