@@ -652,20 +652,13 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                             general_op_in!(|set, c| charset(set, lower_unicode(c)))
                         }
                         SreOpcode::IN_LOC_IGNORE => general_op_in!(charset_loc_ignore),
-                        SreOpcode::INFO => {
-                            let min = ctx.peek_code(req, 3) as usize;
-                            if ctx.remaining_chars(req) < min {
-                                break 'result false;
-                            }
-                            ctx.skip_code_from(req, 1);
-                        }
                         SreOpcode::MARK => {
                             state
                                 .marks
                                 .set(ctx.peek_code(req, 1) as usize, ctx.string_position);
                             ctx.skip_code(2);
                         }
-                        SreOpcode::JUMP => ctx.skip_code_from(req, 1),
+                        SreOpcode::INFO | SreOpcode::JUMP => ctx.skip_code_from(req, 1),
                         /* <REPEAT> <skip> <1=min> <2=max> item <UNTIL> tail */
                         SreOpcode::REPEAT => {
                             let repeat_ctx = RepeatContext {
