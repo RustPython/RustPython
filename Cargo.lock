@@ -1946,7 +1946,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=52edf4525ec300f2b69670f3991784bbcf140564#52edf4525ec300f2b69670f3991784bbcf140564"
+source = "git+https://github.com/h7kanna/Parser.git?rev=a398b11aa6eda633638f0fbfdc14359e4a35413d#a398b11aa6eda633638f0fbfdc14359e4a35413d"
 dependencies = [
  "is-macro",
  "malachite-bigint",
@@ -2058,7 +2058,7 @@ dependencies = [
 [[package]]
 name = "rustpython-format"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=52edf4525ec300f2b69670f3991784bbcf140564#52edf4525ec300f2b69670f3991784bbcf140564"
+source = "git+https://github.com/h7kanna/Parser.git?rev=a398b11aa6eda633638f0fbfdc14359e4a35413d#a398b11aa6eda633638f0fbfdc14359e4a35413d"
 dependencies = [
  "bitflags 2.4.0",
  "itertools 0.11.0",
@@ -2085,7 +2085,7 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=52edf4525ec300f2b69670f3991784bbcf140564#52edf4525ec300f2b69670f3991784bbcf140564"
+source = "git+https://github.com/h7kanna/Parser.git?rev=a398b11aa6eda633638f0fbfdc14359e4a35413d#a398b11aa6eda633638f0fbfdc14359e4a35413d"
 dependencies = [
  "hexf-parse",
  "is-macro",
@@ -2097,7 +2097,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=52edf4525ec300f2b69670f3991784bbcf140564#52edf4525ec300f2b69670f3991784bbcf140564"
+source = "git+https://github.com/h7kanna/Parser.git?rev=a398b11aa6eda633638f0fbfdc14359e4a35413d#a398b11aa6eda633638f0fbfdc14359e4a35413d"
 dependencies = [
  "anyhow",
  "is-macro",
@@ -2120,7 +2120,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser-core"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=52edf4525ec300f2b69670f3991784bbcf140564#52edf4525ec300f2b69670f3991784bbcf140564"
+source = "git+https://github.com/h7kanna/Parser.git?rev=a398b11aa6eda633638f0fbfdc14359e4a35413d#a398b11aa6eda633638f0fbfdc14359e4a35413d"
 dependencies = [
  "is-macro",
  "memchr",
@@ -2130,7 +2130,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser-vendored"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=52edf4525ec300f2b69670f3991784bbcf140564#52edf4525ec300f2b69670f3991784bbcf140564"
+source = "git+https://github.com/h7kanna/Parser.git?rev=a398b11aa6eda633638f0fbfdc14359e4a35413d#a398b11aa6eda633638f0fbfdc14359e4a35413d"
 dependencies = [
  "memchr",
  "once_cell",

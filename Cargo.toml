@@ -29,11 +29,11 @@ rustpython-pylib = { path = "pylib", version = "0.3.0" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.3.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
-rustpython-literal = { git = "https://github.com/RustPython/Parser.git", rev = "52edf4525ec300f2b69670f3991784bbcf140564" }
-rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", rev = "52edf4525ec300f2b69670f3991784bbcf140564" }
-rustpython-parser = { git = "https://github.com/RustPython/Parser.git", rev = "52edf4525ec300f2b69670f3991784bbcf140564" }
-rustpython-ast = { git = "https://github.com/RustPython/Parser.git", rev = "52edf4525ec300f2b69670f3991784bbcf140564" }
-rustpython-format = { git = "https://github.com/RustPython/Parser.git", rev = "52edf4525ec300f2b69670f3991784bbcf140564" }
+rustpython-literal = { git = "https://github.com/h7kanna/Parser.git", rev = "a398b11aa6eda633638f0fbfdc14359e4a35413d" }
+rustpython-parser-core = { git = "https://github.com/h7kanna/Parser.git", rev = "a398b11aa6eda633638f0fbfdc14359e4a35413d" }
+rustpython-parser = { git = "https://github.com/h7kanna/Parser.git", rev = "a398b11aa6eda633638f0fbfdc14359e4a35413d" }
+rustpython-ast = { git = "https://github.com/h7kanna/Parser.git", rev = "a398b11aa6eda633638f0fbfdc14359e4a35413d" }
+rustpython-format = { git = "https://github.com/h7kanna/Parser.git", rev = "a398b11aa6eda633638f0fbfdc14359e4a35413d" }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-parser-core = { path = "../RustPython-parser/core" }
 # rustpython-parser = { path = "../RustPython-parser/parser" }
