@@ -8,9 +8,18 @@ mod math {
         identifier, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use itertools::Itertools;
+    #[cfg(feature = "malachite-bigint")]
     use malachite_bigint::BigInt;
+    #[cfg(feature = "num-bigint")]
+    use num_bigint::BigInt;
+    #[cfg(feature = "num-bigint")]
+    use num_rational::Ratio;
     use num_traits::{One, Signed, Zero};
-    use rustpython_common::{float_ops, int::true_div};
+    #[cfg(feature = "num-bigint")]
+    use num_traits::ToPrimitive;
+    use rustpython_common::float_ops;
+    #[cfg(feature = "malachite-bigint")]
+    use rustpython_common::int::true_div;
     use std::cmp::Ordering;
 
     // Constants
@@ -155,8 +164,16 @@ mod math {
         // If we set 2^n to be the greatest power of 2 below x, then x/2^n is in [1, 2), and can
         // thus be converted into a float.
         let n = x.bits() as u32 - 1;
-        let frac = true_div(x, &BigInt::from(2).pow(n));
-        f64::from(n) + frac.log2()
+        #[cfg(feature = "malachite-bigint")]
+        {
+            let frac = true_div(x, &BigInt::from(2).pow(n));
+            f64::from(n) + frac.log2()
+        }
+        #[cfg(feature = "num-bigint")]
+        {
+            let frac = Ratio::new(x.clone(), BigInt::from(2).pow(n));
+            f64::from(n) + frac.to_f64().unwrap().log2()
+        }
     }
 
     #[pyfunction]

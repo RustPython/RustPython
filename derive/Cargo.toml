@@ -10,9 +10,14 @@ edition = "2021"
 [lib]
 proc-macro = true
 
+[features]
+default = ["malachite-bigint"]
+malachite-bigint = ["rustpython-compiler/malachite-bigint", "rustpython-derive-impl/malachite-bigint"]
+num-bigint = ["rustpython-compiler/num-bigint", "rustpython-derive-impl/num-bigint"]
+
 [dependencies]
-rustpython-compiler = { workspace = true }
-rustpython-derive-impl = { workspace = true }
+rustpython-compiler = { workspace = true, default-features = false }
+rustpython-derive-impl = { workspace = true, default-features = false }
 syn = { workspace = true }
 
 [lints]

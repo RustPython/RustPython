@@ -1,5 +1,8 @@
 use crate::bytecode::*;
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::{BigInt, Sign};
+#[cfg(feature = "num-bigint")]
+use num_bigint::{BigInt, Sign};
 use num_complex::Complex64;
 use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
 use std::convert::Infallible;

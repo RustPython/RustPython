@@ -10,7 +10,10 @@ use crate::{
     types::{Constructor, IterNext, Iterable, SelfIter},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::BigInt;
+#[cfg(feature = "num-bigint")]
+use num_bigint::BigInt;
 use num_traits::Zero;
 
 #[pyclass(module = false, name = "enumerate", traverse)]

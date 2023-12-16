@@ -18,23 +18,23 @@ members = [
 
 [workspace.dependencies]
 rustpython-compiler-core = { path = "compiler/core", version = "0.3.1" }
-rustpython-compiler = { path = "compiler", version = "0.3.1" }
+rustpython-compiler = { path = "compiler", default-features = false, version = "0.3.1" }
 rustpython-codegen = { path = "compiler/codegen", version = "0.3.1" }
 rustpython-common = { path = "common", version = "0.3.1" }
-rustpython-derive = { path = "derive", version = "0.3.1" }
-rustpython-derive-impl = { path = "derive-impl", version = "0.3.1" }
+rustpython-derive = { path = "derive", default-features = false, version = "0.3.1" }
+rustpython-derive-impl = { path = "derive-impl", default-features = false, version = "0.3.1" }
 rustpython-jit = { path = "jit", version = "0.3.1" }
 rustpython-vm = { path = "vm", default-features = false, version = "0.3.1" }
-rustpython-pylib = { path = "pylib", version = "0.3.1" }
+rustpython-pylib = { path = "pylib", default-features = false, version = "0.3.1" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.3.1" }
 rustpython-sre_engine = { path = "vm/sre_engine", version = "0.3.1" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
 rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "51b5f80ae3080dfec2db815a299a69873fb9ca65" }
 rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "51b5f80ae3080dfec2db815a299a69873fb9ca65" }
-rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "51b5f80ae3080dfec2db815a299a69873fb9ca65" }
-rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "51b5f80ae3080dfec2db815a299a69873fb9ca65" }
-rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "51b5f80ae3080dfec2db815a299a69873fb9ca65" }
+rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "51b5f80ae3080dfec2db815a299a69873fb9ca65", default-features = false, features = ["location"] }
+rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "51b5f80ae3080dfec2db815a299a69873fb9ca65", default-features = false, features = ["location"] }
+rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "51b5f80ae3080dfec2db815a299a69873fb9ca65", default-features = false, features = ["location"] }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-parser-core = { path = "../RustPython-parser/core" }
 # rustpython-parser = { path = "../RustPython-parser/parser" }
@@ -64,8 +64,10 @@ malachite-bigint = "0.2.0"
 malachite-q = "0.4.4"
 malachite-base = "0.4.4"
 memchr = "2.7.2"
+num-bigint = "0.4.4"
 num-complex = "0.4.0"
 num-integer = "0.1.44"
+num-rational = "0.4.0"
 num-traits = "0.2"
 num_enum = "0.7"
 once_cell = "1.19.0"
@@ -84,7 +86,7 @@ widestring = "1.1.0"
 windows-sys = "0.52.0"
 
 [features]
-default = ["threading", "stdlib", "zlib", "importlib"]
+default = ["threading", "stdlib", "zlib", "importlib", "malachite-bigint"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
 stdlib = ["rustpython-stdlib", "rustpython-pylib", "encodings"]
@@ -96,13 +98,27 @@ zlib = ["stdlib", "rustpython-stdlib/zlib"]
 bz2 = ["stdlib", "rustpython-stdlib/bz2"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
+malachite-bigint = [
+    "rustpython-compiler/malachite-bigint",
+    "rustpython-pylib?/malachite-bigint",
+    "rustpython-stdlib?/malachite-bigint",
+    "rustpython-vm/malachite-bigint",
+    "rustpython-parser/malachite-bigint",
+]
+num-bigint = [
+    "rustpython-compiler/num-bigint",
+    "rustpython-pylib?/num-bigint",
+    "rustpython-stdlib?/num-bigint",
+    "rustpython-vm/num-bigint",
+    "rustpython-parser/num-bigint",
+]
 
 [dependencies]
-rustpython-compiler = { workspace = true }
-rustpython-pylib = { workspace = true, optional = true }
-rustpython-stdlib = { workspace = true, optional = true }
-rustpython-vm = { workspace = true, features = ["compiler"] }
-rustpython-parser = { workspace = true }
+rustpython-compiler = { workspace = true, default-features = false }
+rustpython-pylib = { workspace = true, default-features = false, optional = true }
+rustpython-stdlib = { workspace = true, default-features = false, optional = true }
+rustpython-vm = { workspace = true, default-features = false, features = ["compiler"] }
+rustpython-parser = { workspace = true, default-features = false }
 
 atty = { workspace = true }
 cfg-if = { workspace = true }

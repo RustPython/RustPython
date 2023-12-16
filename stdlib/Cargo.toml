@@ -10,16 +10,30 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [features]
+default = ["malachite-bigint"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
 zlib = ["libz-sys", "flate2/zlib"]
 bz2 = ["bzip2"]
 ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
 ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
+malachite-bigint = [
+  "dep:malachite-bigint",
+  "rustpython-derive/malachite-bigint",
+  "rustpython-vm/malachite-bigint",
+  "rustpython-common/malachite-bigint"
+]
+num-bigint = [
+  "dep:num-bigint",
+  "dep:num-rational",
+  "rustpython-derive/num-bigint",
+  "rustpython-vm/num-bigint",
+  "rustpython-common/num-bigint",
+]
 
 [dependencies]
 # rustpython crates
-rustpython-derive = { workspace = true }
-rustpython-vm = { workspace = true }
+rustpython-derive = { workspace = true, default-features = false }
+rustpython-vm = { workspace = true, default-features = false }
 rustpython-common = { workspace = true }
 
 ahash = { workspace = true }
@@ -32,8 +46,10 @@ indexmap = { workspace = true }
 libc = { workspace = true }
 nix = { workspace = true }
 num-complex = { workspace = true }
-malachite-bigint = { workspace = true }
+malachite-bigint = { workspace = true, optional = true }
+num-bigint = { workspace = true, optional = true }
 num-integer = { workspace = true }
+num-rational = { workspace = true, optional = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 once_cell = { workspace = true }

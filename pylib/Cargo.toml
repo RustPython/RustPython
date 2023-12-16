@@ -9,11 +9,18 @@ edition = "2021"
 include = ["Cargo.toml", "src/**/*.rs", "Lib/", "!Lib/**/test/", "!Lib/**/*.pyc"]
 
 [features]
+default = ["malachite-bigint"]
 freeze-stdlib = []
+malachite-bigint = [
+    "rustpython-derive/malachite-bigint",
+]
+num-bigint = [
+    "rustpython-derive/num-bigint",
+]
 
 [dependencies]
 rustpython-compiler-core = { workspace = true }
-rustpython-derive = { version = "0.3.1", path = "../derive" }
+rustpython-derive = { version = "0.3.1", default-features = false, path = "../derive" }
 
 [build-dependencies]
 glob = { workspace = true }

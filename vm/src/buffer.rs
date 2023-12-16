@@ -7,7 +7,10 @@ use crate::{
 };
 use half::f16;
 use itertools::Itertools;
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::BigInt;
+#[cfg(feature = "num-bigint")]
+use num_bigint::BigInt;
 use num_traits::{PrimInt, ToPrimitive};
 use std::{fmt, iter::Peekable, mem, os::raw};
 

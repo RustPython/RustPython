@@ -15,7 +15,10 @@ mod decl {
         protocol::PyBuffer,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
+    #[cfg(feature = "malachite-bigint")]
     use malachite_bigint::BigInt;
+    #[cfg(feature = "num-bigint")]
+    use num_bigint::BigInt;
     use num_complex::Complex64;
     use num_traits::Zero;
     use rustpython_compiler_core::marshal;

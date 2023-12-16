@@ -11,7 +11,10 @@ mod _random {
         types::Constructor,
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
+    #[cfg(feature = "malachite-bigint")]
     use malachite_bigint::{BigInt, BigUint, Sign};
+    #[cfg(feature = "num-bigint")]
+    use num_bigint::{BigInt, BigUint, Sign};
     use num_traits::{Signed, Zero};
     use rand::{rngs::StdRng, RngCore, SeedableRng};
 

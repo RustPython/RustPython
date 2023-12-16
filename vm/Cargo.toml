@@ -9,7 +9,7 @@ edition = "2021"
 include = ["src/**/*.rs", "Cargo.toml", "build.rs", "Lib/**/*.py"]
 
 [features]
-default = ["compiler"]
+default = ["compiler", "malachite-bigint"]
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
@@ -22,20 +22,42 @@ ast = ["rustpython-ast"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 serde = ["dep:serde"]
+malachite-bigint = [
+    "dep:malachite-bigint",
+    "rustpython-compiler?/malachite-bigint",
+    "rustpython-codegen/malachite-bigint",
+    "rustpython-common/malachite-bigint",
+    "rustpython-derive/malachite-bigint",
+    "rustpython-ast?/malachite-bigint",
+    "rustpython-parser?/malachite-bigint",
+    "rustpython-compiler-core/malachite-bigint",
+    "rustpython-format/malachite-bigint"
+]
+num-bigint = [
+    "dep:num-bigint",
+    "rustpython-compiler?/num-bigint",
+    "rustpython-codegen/num-bigint",
+    "rustpython-common/num-bigint",
+    "rustpython-derive/num-bigint",
+    "rustpython-ast?/num-bigint",
+    "rustpython-parser?/num-bigint",
+    "rustpython-compiler-core/num-bigint",
+    "rustpython-format/num-bigint"
+]
 
 [dependencies]
-rustpython-compiler = { workspace = true, optional = true }
+rustpython-compiler = { workspace = true, default-features = false, optional = true }
 rustpython-codegen = { workspace = true, optional = true }
 rustpython-common = { workspace = true }
-rustpython-derive = { workspace = true }
+rustpython-derive = { workspace = true, default-features = false }
 rustpython-jit = { workspace = true, optional = true }
 
-rustpython-ast = { workspace = true, optional = true }
-rustpython-parser = { workspace = true, optional = true }
+rustpython-ast = { workspace = true, default-features = false, optional = true }
+rustpython-parser = { workspace = true, default-features = false, optional = true }
 rustpython-compiler-core = { workspace = true }
 rustpython-parser-core = { workspace = true }
 rustpython-literal = { workspace = true }
-rustpython-format = { workspace = true }
+rustpython-format = { workspace = true, default-features = false }
 rustpython-sre_engine = { workspace = true }
 
 ascii = { workspace = true }
@@ -54,9 +76,11 @@ is-macro = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
 nix = { workspace = true }
-malachite-bigint = { workspace = true }
+malachite-bigint = { workspace = true, optional = true }
+num-bigint = { workspace = true, optional = true }
 num-complex = { workspace = true }
 num-integer = { workspace = true }
+num-rational = { workspace = true }
 num-traits = { workspace = true }
 num_enum = { workspace = true }
 once_cell = { workspace = true }

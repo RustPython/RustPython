@@ -25,7 +25,10 @@ use crate::{
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     PyResult, VirtualMachine,
 };
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::BigInt;
+#[cfg(feature = "num-bigint")]
+use num_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;

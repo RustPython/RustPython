@@ -131,7 +131,10 @@ mod _io {
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
+    #[cfg(feature = "malachite-bigint")]
     use malachite_bigint::{BigInt, BigUint};
+    #[cfg(feature = "num-bigint")]
+    use num_bigint::{BigInt, BigUint};
     use num_traits::ToPrimitive;
     use std::{
         io::{self, prelude::*, Cursor, SeekFrom},

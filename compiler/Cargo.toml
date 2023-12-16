@@ -7,10 +7,15 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 edition = "2021"
 
+[features]
+default = ["malachite-bigint"]
+malachite-bigint = ["rustpython-codegen/malachite-bigint", "rustpython-compiler-core/malachite-bigint", "rustpython-parser/malachite-bigint"]
+num-bigint = ["rustpython-codegen/num-bigint", "rustpython-compiler-core/num-bigint", "rustpython-parser/num-bigint"]
+
 [dependencies]
 rustpython-codegen = { workspace = true }
 rustpython-compiler-core = { workspace = true }
-rustpython-parser = { workspace = true }
+rustpython-parser = { workspace = true, default-features = false }
 
 [lints]
 workspace = true

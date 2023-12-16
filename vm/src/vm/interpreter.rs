@@ -143,7 +143,10 @@ mod tests {
         builtins::{int, PyStr},
         PyObjectRef,
     };
+    #[cfg(feature = "malachite-bigint")]
     use malachite_bigint::ToBigInt;
+    #[cfg(feature = "num-bigint")]
+    use num_bigint::ToBigInt;
 
     #[test]
     fn test_add_py_integers() {
