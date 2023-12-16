@@ -3,7 +3,10 @@ use crate::{
     builtins::{int::PyInt, slice::PySlice},
     PyObject, PyResult, VirtualMachine,
 };
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::BigInt;
+#[cfg(feature = "num-bigint")]
+use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use std::ops::Range;
 

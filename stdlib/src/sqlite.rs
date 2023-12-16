@@ -45,7 +45,10 @@ mod _sqlite {
         SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT,
         SQLITE_TRACE_STMT, SQLITE_TRANSIENT, SQLITE_UTF8,
     };
+    #[cfg(feature = "malachite-bigint")]
     use malachite_bigint::Sign;
+    #[cfg(feature = "num-bigint")]
+    use num_bigint::Sign;
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
         hash::PyHash,

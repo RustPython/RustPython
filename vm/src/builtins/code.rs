@@ -14,7 +14,10 @@ use crate::{
     types::Representable,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::BigInt;
+#[cfg(feature = "num-bigint")]
+use num_bigint::BigInt;
 use num_traits::Zero;
 use std::{borrow::Borrow, fmt, ops::Deref};
 

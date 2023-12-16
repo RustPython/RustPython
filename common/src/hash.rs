@@ -1,4 +1,7 @@
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::BigInt;
+#[cfg(feature = "num-bigint")]
+use num_bigint::BigInt;
 use num_traits::ToPrimitive;
 use siphasher::sip::SipHasher24;
 use std::hash::{BuildHasher, Hash, Hasher};

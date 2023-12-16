@@ -1,9 +1,18 @@
 use bstr::ByteSlice;
+#[cfg(feature = "malachite-bigint")]
 use malachite_base::{num::conversion::traits::RoundingInto, rounding_modes::RoundingMode};
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::{BigInt, BigUint, Sign};
+#[cfg(feature = "malachite-bigint")]
 use malachite_q::Rational;
+#[cfg(feature = "num-bigint")]
+use num_bigint::{BigInt, BigUint, Sign};
+#[cfg(feature = "malachite-bigint")]
 use num_traits::{One, ToPrimitive, Zero};
+#[cfg(feature = "num-bigint")]
+use num_traits::{ToPrimitive, Zero};
 
+#[cfg(feature = "malachite-bigint")]
 pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
     let rational = Rational::from_integers_ref(numerator.into(), denominator.into());
     match rational.rounding_into(RoundingMode::Nearest) {
@@ -15,6 +24,7 @@ pub fn true_div(numerator: &BigInt, denominator: &BigInt) -> f64 {
     }
 }
 
+#[cfg(feature = "malachite-bigint")]
 pub fn float_to_ratio(value: f64) -> Option<(BigInt, BigInt)> {
     let sign = match std::cmp::PartialOrd::partial_cmp(&value, &0.0)? {
         std::cmp::Ordering::Less => Sign::Minus,
