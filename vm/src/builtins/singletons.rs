@@ -83,7 +83,7 @@ impl Comparable for PyNone {
     ) -> PyResult<PyComparisonValue> {
         match op {
             PyComparisonOp::Eq => {
-                if zelf.is(other) {
+                if vm.is_none(other) {
                     Ok(PyArithmeticValue::Implemented(true))
                 } else {
                     Ok(PyArithmeticValue::NotImplemented)
