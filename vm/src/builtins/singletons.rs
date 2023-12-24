@@ -79,18 +79,20 @@ impl Comparable for PyNone {
         zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
-        match op {
+        let value = match op {
             PyComparisonOp::Eq => {
                 if vm.is_none(other) {
-                    Ok(PyArithmeticValue::Implemented(true))
+                    PyArithmeticValue::Implemented(true)
                 } else {
-                    Ok(PyArithmeticValue::NotImplemented)
+                    PyArithmeticValue::NotImplemented
                 }
             }
-            _ => Ok(PyComparisonValue::NotImplemented),
-        }
+            _ => PyComparisonValue::NotImplemented,
+        };
+
+        Ok(value)
     }
 }
 
