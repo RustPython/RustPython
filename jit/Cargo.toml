@@ -24,7 +24,7 @@ version = "3.1.0"
 features = ["system"]
 
 [dev-dependencies]
-rustpython-derive = { path = "../derive", version = "0.3.1" }
+rustpython-derive = { path = "../derive", default-features = false, version = "0.3.1" }
 
 approx = "0.5.1"
 

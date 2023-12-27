@@ -25,7 +25,7 @@ num-complex = { workspace = true }
 num-traits = { workspace = true }
 
 [dev-dependencies]
-rustpython-parser = { workspace = true }
+rustpython-parser = { workspace = true, default-features = false }
 
 insta = { workspace = true }
 
