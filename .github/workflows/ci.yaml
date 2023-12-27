@@ -415,4 +415,4 @@ jobs:
       - name: build rustpython
         run: cargo build --release --target wasm32-wasi --features freeze-stdlib,stdlib --verbose
       - name: run snippets
-        run: wasmer run --dir . target/wasm32-wasi/release/rustpython.wasm -- extra_tests/snippets/stdlib_random.py
+        run: wasmer run --dir `pwd` target/wasm32-wasi/release/rustpython.wasm -- `pwd`/extra_tests/snippets/stdlib_random.py
