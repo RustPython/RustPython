@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,ssl
+  CARGO_ARGS: --no-default-features --features malachite-bigint,stdlib,zlib,importlib,encodings,ssl
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
   WINDOWS_SKIPS: >-
     test_datetime
@@ -142,7 +142,8 @@ jobs:
         run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os != 'macOS'
       - name: run rust tests
-        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --verbose --features threading  ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --verbose --no-default-features --features malachite-bigint,threading,stdlib,zlib,importlib,encodings,jit  ${{ env.CARGO_ARGS }}
+
         if: runner.os == 'macOS'
 
       - name: check compilation without threading
@@ -215,7 +216,7 @@ jobs:
           target: wasm32-unknown-unknown
 
       - name: Check compilation for wasm32
-        run: cargo check --target wasm32-unknown-unknown --no-default-features
+        run: cargo check --target wasm32-unknown-unknown --no-default-features --features malachite-bigint
 
       - uses: dtolnay/rust-toolchain@stable
         with:
