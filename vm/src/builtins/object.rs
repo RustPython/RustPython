@@ -41,7 +41,7 @@ impl Constructor for PyBaseObject {
             if let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm) {
                 let methods: Vec<PyStrRef> = abs_methods.try_to_value(vm)?;
                 let methods: String =
-                    Itertools::intersperse(methods.iter().map(|name| name.as_str()), ", ")
+                    Itertools::intersperse(methods.iter().map(|name| name.as_str()), "', '")
                         .collect();
 
                 let unimplemented_abstract_method_count = unimplemented_abstract_method_count?;
@@ -51,13 +51,13 @@ impl Constructor for PyBaseObject {
                     0 => {}
                     1 => {
                         return Err(vm.new_type_error(format!(
-                            "Can't instantiate abstract class {} with abstract method {}",
+                            "class {} without an implementation for abstract method '{}'",
                             name, methods
                         )));
                     }
                     2.. => {
                         return Err(vm.new_type_error(format!(
-                            "Can't instantiate abstract class {} with abstract methods {}",
+                            "class {} without an implementation for abstract methods '{}'",
                             name, methods
                         )));
                     }
