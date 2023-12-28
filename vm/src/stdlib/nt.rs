@@ -23,14 +23,16 @@ pub(crate) mod module {
         },
         PyResult, TryFromObject, VirtualMachine,
     };
+    use libc::intptr_t;
     use std::{
         env, fs, io,
         mem::MaybeUninit,
         os::windows::ffi::{OsStrExt, OsStringExt},
     };
-    use winapi::{um, vc::vcruntime::intptr_t};
+    use winapi::um;
     use windows_sys::Win32::{
         Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
+        Storage::FileSystem,
         System::{Console, Threading},
     };
 
@@ -39,9 +41,9 @@ pub(crate) mod module {
 
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        use um::{fileapi, winnt};
-        let attr = unsafe { fileapi::GetFileAttributesW(path.to_widecstring(vm)?.as_ptr()) };
-        Ok(attr != fileapi::INVALID_FILE_ATTRIBUTES
+        use um::winnt;
+        let attr = unsafe { FileSystem::GetFileAttributesW(path.to_widecstring(vm)?.as_ptr()) };
+        Ok(attr != FileSystem::INVALID_FILE_ATTRIBUTES
             && (mode & 2 == 0
                 || attr & winnt::FILE_ATTRIBUTE_READONLY == 0
                 || attr & winnt::FILE_ATTRIBUTE_DIRECTORY != 0))
@@ -252,7 +254,7 @@ pub(crate) mod module {
         let wpath = path.to_widecstring(vm)?;
         let mut buffer = vec![0u16; winapi::shared::minwindef::MAX_PATH];
         let ret = unsafe {
-            um::fileapi::GetFullPathNameW(
+            FileSystem::GetFullPathNameW(
                 wpath.as_ptr(),
                 buffer.len() as _,
                 buffer.as_mut_ptr(),
@@ -265,7 +267,7 @@ pub(crate) mod module {
         if ret as usize > buffer.len() {
             buffer.resize(ret as usize, 0);
             let ret = unsafe {
-                um::fileapi::GetFullPathNameW(
+                FileSystem::GetFullPathNameW(
                     wpath.as_ptr(),
                     buffer.len() as _,
                     buffer.as_mut_ptr(),
@@ -286,7 +288,7 @@ pub(crate) mod module {
         let buflen = std::cmp::max(wide.len(), winapi::shared::minwindef::MAX_PATH);
         let mut buffer = vec![0u16; buflen];
         let ret = unsafe {
-            um::fileapi::GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buflen as _)
+            FileSystem::GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buflen as _)
         };
         if ret == 0 {
             return Err(errno_err(vm));
@@ -335,17 +337,17 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _getdiskusage(path: OsPath, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
-        use um::fileapi::GetDiskFreeSpaceExW;
-        use winapi::shared::{ntdef::ULARGE_INTEGER, winerror};
+        use winapi::shared::winerror;
+        use FileSystem::GetDiskFreeSpaceExW;
 
         let wpath = path.to_widecstring(vm)?;
-        let mut _free_to_me = ULARGE_INTEGER::default();
-        let mut total = ULARGE_INTEGER::default();
-        let mut free = ULARGE_INTEGER::default();
+        let mut _free_to_me: u64 = 0;
+        let mut total: u64 = 0;
+        let mut free: u64 = 0;
         let ret =
             unsafe { GetDiskFreeSpaceExW(wpath.as_ptr(), &mut _free_to_me, &mut total, &mut free) };
         if ret != 0 {
-            return Ok(unsafe { (*total.QuadPart(), *free.QuadPart()) });
+            return Ok((total, free));
         }
         let err = io::Error::last_os_error();
         if err.raw_os_error() == Some(winerror::ERROR_DIRECTORY as i32) {
@@ -359,7 +361,7 @@ pub(crate) mod module {
                 return if ret == 0 {
                     Err(errno_err(vm))
                 } else {
-                    Ok(unsafe { (*total.QuadPart(), *free.QuadPart()) })
+                    Ok((total, free))
                 };
             }
         }
@@ -367,7 +369,7 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn get_handle_inheritable(handle: intptr_t, vm: &VirtualMachine) -> PyResult<bool> {
+    fn get_handle_inheritable(handle: isize, vm: &VirtualMachine) -> PyResult<bool> {
         let mut flags = 0;
         if unsafe { um::handleapi::GetHandleInformation(handle as _, &mut flags) } == 0 {
             Err(errno_err(vm))
@@ -376,7 +378,7 @@ pub(crate) mod module {
         }
     }
 
-    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> io::Result<()> {
+    pub fn raw_set_handle_inheritable(handle: isize, inheritable: bool) -> io::Result<()> {
         use um::winbase::HANDLE_FLAG_INHERIT;
         let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
         let res =
