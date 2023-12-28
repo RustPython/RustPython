@@ -157,8 +157,6 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             msg = r"class C without an implementation for abstract method 'method_one'"
             self.assertRaisesRegex(TypeError, msg, C)
 
-        # TODO: RUSTPYTHON
-        ##@unittest.expectedFailure
         def test_object_new_with_many_abstractmethods(self):
             class C(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
