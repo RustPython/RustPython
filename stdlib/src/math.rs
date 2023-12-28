@@ -14,9 +14,9 @@ mod math {
     use num_bigint::BigInt;
     #[cfg(feature = "num-bigint")]
     use num_rational::Ratio;
-    use num_traits::{One, Signed, Zero};
     #[cfg(feature = "num-bigint")]
     use num_traits::ToPrimitive;
+    use num_traits::{One, Signed, Zero};
     use rustpython_common::float_ops;
     #[cfg(feature = "malachite-bigint")]
     use rustpython_common::int::true_div;
