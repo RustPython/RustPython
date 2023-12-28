@@ -30,8 +30,8 @@ mod platform {
 #[allow(non_snake_case)]
 #[cfg(windows)]
 mod platform {
-    use winapi::um::winsock2;
-    pub use winsock2::{fd_set, select, timeval, FD_SETSIZE, SOCKET as RawFd};
+    use windows_sys::Win32::Networking::WinSock;
+    pub use WinSock::{select, FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval};
 
     // based off winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
 
@@ -45,7 +45,7 @@ mod platform {
             slot = slot.add(1);
         }
         // slot == &fd_array[fd_count] at this point
-        if fd_count < FD_SETSIZE as u32 {
+        if fd_count < FD_SETSIZE {
             *slot = fd as RawFd;
             (*set).fd_count += 1;
         }
@@ -56,12 +56,12 @@ mod platform {
     }
 
     pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
-        use winapi::um::winsock2::__WSAFDIsSet;
+        use WinSock::__WSAFDIsSet;
         __WSAFDIsSet(fd as _, set) != 0
     }
 
     pub fn check_err(x: i32) -> bool {
-        x == winsock2::SOCKET_ERROR
+        x == WinSock::SOCKET_ERROR
     }
 }
 

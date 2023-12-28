@@ -34,18 +34,46 @@ mod _socket {
     use libc as c;
     #[cfg(windows)]
     mod c {
-        pub use winapi::shared::ifdef::IF_MAX_STRING_SIZE as IF_NAMESIZE;
-        pub use winapi::shared::mstcpip::*;
         pub use winapi::shared::netioapi::{if_indextoname, if_nametoindex};
-        pub use winapi::shared::ws2def::*;
-        pub use winapi::shared::ws2ipdef::*;
-        pub use winapi::um::winsock2::{
-            IPPORT_RESERVED, SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR,
-            SOCK_DGRAM, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST,
-            SO_ERROR, SO_EXCLUSIVEADDRUSE, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE,
-            SO_USELOOPBACK, *,
+        pub use winapi::shared::ws2def::{
+            INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
         };
-        pub use winapi::um::ws2tcpip::*;
+        pub use winapi::um::winsock2::{
+            getprotobyname, getservbyname, getservbyport, getsockopt, setsockopt,
+            SO_EXCLUSIVEADDRUSE,
+        };
+        pub use winapi::um::ws2tcpip::{
+            EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NODATA, EAI_NONAME,
+            EAI_SERVICE, EAI_SOCKTYPE,
+        };
+        pub use windows_sys::Win32::Networking::WinSock::{
+            AF_DECnet, AF_APPLETALK, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
+            AI_NUMERICSERV, AI_V4MAPPED, IPPORT_RESERVED, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP,
+            IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP, IPPROTO_HOPOPTS, IPPROTO_ICMP,
+            IPPROTO_ICMPV6, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP,
+            IPPROTO_IPV4, IPPROTO_IPV6, IPPROTO_ND, IPPROTO_NONE, IPPROTO_PIM, IPPROTO_PUP,
+            IPPROTO_RAW, IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP, IPV6_CHECKSUM, IPV6_DONTFRAG,
+            IPV6_HOPLIMIT, IPV6_HOPOPTS, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS,
+            IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_PKTINFO, IPV6_RECVRTHDR, IPV6_RECVTCLASS,
+            IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY, IP_ADD_MEMBERSHIP,
+            IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL,
+            IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, MSG_BCAST, MSG_CTRUNC, MSG_DONTROUTE,
+            MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST, NI_MAXSERV,
+            NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, RCVALL_IPLEVEL, RCVALL_OFF,
+            RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD,
+            SD_SEND as SHUT_WR, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SOCK_DGRAM,
+            SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SOMAXCONN, SO_BROADCAST,
+            SO_ERROR, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, SO_USELOOPBACK, TCP_NODELAY,
+            WSAEBADF, WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK,
+        };
+        pub const IF_NAMESIZE: usize =
+            windows_sys::Win32::NetworkManagement::Ndis::IF_MAX_STRING_SIZE as _;
+        pub const AF_UNSPEC: i32 = windows_sys::Win32::Networking::WinSock::AF_UNSPEC as _;
+        pub const AF_INET: i32 = windows_sys::Win32::Networking::WinSock::AF_INET as _;
+        pub const AF_INET6: i32 = windows_sys::Win32::Networking::WinSock::AF_INET6 as _;
+        pub const AI_PASSIVE: i32 = windows_sys::Win32::Networking::WinSock::AI_PASSIVE as _;
+        pub const AI_NUMERICHOST: i32 =
+            windows_sys::Win32::Networking::WinSock::AI_NUMERICHOST as _;
     }
     // constants
     #[pyattr(name = "has_ipv6")]
@@ -658,7 +686,7 @@ mod _socket {
 
     #[cfg(windows)]
     #[pyattr]
-    use winapi::shared::ws2def::{
+    use windows_sys::Win32::Networking::WinSock::{
         IPPROTO_CBT, IPPROTO_ICLFXBM, IPPROTO_IGP, IPPROTO_L2TP, IPPROTO_PGM, IPPROTO_RDP,
         IPPROTO_SCTP, IPPROTO_ST,
     };
@@ -2216,7 +2244,7 @@ mod _socket {
         }
         #[cfg(windows)]
         {
-            winapi::um::winsock2::INVALID_SOCKET as RawSocket
+            windows_sys::Win32::Networking::WinSock::INVALID_SOCKET as RawSocket
         }
     };
 
@@ -2329,7 +2357,7 @@ mod _socket {
         #[cfg(unix)]
         use libc::close;
         #[cfg(windows)]
-        use winapi::um::winsock2::closesocket as close;
+        use windows_sys::Win32::Networking::WinSock::closesocket as close;
         let ret = unsafe { close(x as _) };
         if ret < 0 {
             let err = crate::common::os::errno();

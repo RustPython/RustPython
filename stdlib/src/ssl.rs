@@ -1453,7 +1453,7 @@ mod windows {
     #[pyfunction]
     fn enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         use schannel::{cert_context::ValidUses, cert_store::CertStore, RawPointer};
-        use winapi::um::wincrypt;
+        use windows_sys::Win32::Security::Cryptography;
 
         // TODO: check every store for it, not just 2 of them:
         // https://github.com/python/cpython/blob/3.8/Modules/_ssl.c#L5603-L5610
@@ -1465,12 +1465,12 @@ mod windows {
         let certs = stores.iter().flat_map(|s| s.certs()).map(|c| {
             let cert = vm.ctx.new_bytes(c.to_der().to_owned());
             let enc_type = unsafe {
-                let ptr = c.as_ptr() as wincrypt::PCCERT_CONTEXT;
+                let ptr = c.as_ptr() as *const Cryptography::CERT_CONTEXT;
                 (*ptr).dwCertEncodingType
             };
             let enc_type = match enc_type {
-                wincrypt::X509_ASN_ENCODING => vm.new_pyobj(ascii!("x509_asn")),
-                wincrypt::PKCS_7_ASN_ENCODING => vm.new_pyobj(ascii!("pkcs_7_asn")),
+                Cryptography::X509_ASN_ENCODING => vm.new_pyobj(ascii!("x509_asn")),
+                Cryptography::PKCS_7_ASN_ENCODING => vm.new_pyobj(ascii!("pkcs_7_asn")),
                 other => vm.new_pyobj(other),
             };
             let usage: PyObjectRef = match c.valid_uses()? {
