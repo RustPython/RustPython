@@ -1200,22 +1200,20 @@ pub(super) mod _os {
         let res = unsafe { suppress_iph!(libc::lseek(fd, position, how)) };
         #[cfg(windows)]
         let res = unsafe {
-            use winapi::um::winnt;
             use windows_sys::Win32::Storage::FileSystem;
             let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
-            let mut li = winnt::LARGE_INTEGER::default();
-            *li.QuadPart_mut() = position;
+            let mut distance_to_move: [i32; 2] = std::mem::transmute(position);
             let ret = FileSystem::SetFilePointer(
                 handle as _,
-                li.u().LowPart as _,
-                &mut li.u_mut().HighPart,
+                distance_to_move[0],
+                &mut distance_to_move[1],
                 how as _,
             );
             if ret == FileSystem::INVALID_SET_FILE_POINTER {
                 -1
             } else {
-                li.u_mut().LowPart = ret;
-                *li.QuadPart()
+                distance_to_move[0] = ret as _;
+                std::mem::transmute(distance_to_move)
             }
         };
         if res < 0 {
@@ -1358,7 +1356,7 @@ pub(super) mod _os {
         #[cfg(windows)]
         {
             use std::{fs::OpenOptions, os::windows::prelude::*};
-            use winapi::shared::minwindef::DWORD;
+            type DWORD = u32;
             use windows_sys::Win32::{Foundation::FILETIME, Storage::FileSystem};
 
             let [] = dir_fd.0;
@@ -1605,9 +1603,10 @@ pub(super) mod _os {
             if #[cfg(any(target_os = "android", target_os = "redox"))] {
                 Ok(Some("UTF-8".to_owned()))
             } else if #[cfg(windows)] {
+                use windows_sys::Win32::System::Console;
                 let cp = match fd {
-                    0 => unsafe { winapi::um::consoleapi::GetConsoleCP() },
-                    1 | 2 => unsafe { winapi::um::consoleapi::GetConsoleOutputCP() },
+                    0 => unsafe { Console::GetConsoleCP() },
+                    1 | 2 => unsafe { Console::GetConsoleOutputCP() },
                     _ => 0,
                 };
 

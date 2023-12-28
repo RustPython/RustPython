@@ -250,7 +250,7 @@ pub(crate) mod module {
     #[pyfunction]
     fn _getfullpathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
         let wpath = path.to_widecstring(vm)?;
-        let mut buffer = vec![0u16; winapi::shared::minwindef::MAX_PATH];
+        let mut buffer = vec![0u16; Foundation::MAX_PATH as usize];
         let ret = unsafe {
             FileSystem::GetFullPathNameW(
                 wpath.as_ptr(),
@@ -283,7 +283,7 @@ pub(crate) mod module {
     #[pyfunction]
     fn _getvolumepathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
         let wide = path.to_widecstring(vm)?;
-        let buflen = std::cmp::max(wide.len(), winapi::shared::minwindef::MAX_PATH);
+        let buflen = std::cmp::max(wide.len(), Foundation::MAX_PATH as usize);
         let mut buffer = vec![0u16; buflen];
         let ret = unsafe {
             FileSystem::GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buflen as _)
@@ -335,7 +335,6 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _getdiskusage(path: OsPath, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
-        use winapi::shared::winerror;
         use FileSystem::GetDiskFreeSpaceExW;
 
         let wpath = path.to_widecstring(vm)?;
@@ -348,7 +347,7 @@ pub(crate) mod module {
             return Ok((total, free));
         }
         let err = io::Error::last_os_error();
-        if err.raw_os_error() == Some(winerror::ERROR_DIRECTORY as i32) {
+        if err.raw_os_error() == Some(Foundation::ERROR_DIRECTORY as i32) {
             if let Some(parent) = path.as_ref().parent() {
                 let parent = widestring::WideCString::from_os_str(parent).unwrap();
 

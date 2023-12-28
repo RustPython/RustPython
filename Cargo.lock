@@ -2287,7 +2287,6 @@ dependencies = [
  "wasm-bindgen",
  "which",
  "widestring",
- "winapi",
  "windows",
  "windows-sys 0.52.0",
  "winreg",

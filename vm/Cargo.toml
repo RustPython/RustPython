@@ -132,6 +132,7 @@ features = [
   "Win32_System_Diagnostics_Debug",
   "Win32_System_LibraryLoader",
   "Win32_System_Memory",
+  "Win32_System_Performance",
   "Win32_System_Pipes",
   "Win32_System_Registry",
   "Win32_System_SystemInformation",
@@ -140,10 +141,6 @@ features = [
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",
 ]
-
-[target.'cfg(windows)'.dependencies.winapi]
-version = "0.3.9"
-features = ["std", "winnt"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.80"

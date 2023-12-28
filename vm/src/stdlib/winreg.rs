@@ -34,7 +34,7 @@ mod winreg {
     };
     use ::winreg::{enums::RegType, RegKey, RegValue};
     use std::{ffi::OsStr, io};
-    use winapi::shared::winerror;
+    use windows_sys::Win32::Foundation;
 
     // access rights
     #[pyattr]
@@ -201,7 +201,7 @@ mod winreg {
         key.with_key(|k| k.enum_keys().nth(index as usize))
             .unwrap_or_else(|| {
                 Err(io::Error::from_raw_os_error(
-                    winerror::ERROR_NO_MORE_ITEMS as i32,
+                    Foundation::ERROR_NO_MORE_ITEMS as i32,
                 ))
             })
             .map_err(|e| e.to_pyexception(vm))
@@ -217,7 +217,7 @@ mod winreg {
             .with_key(|k| k.enum_values().nth(index as usize))
             .unwrap_or_else(|| {
                 Err(io::Error::from_raw_os_error(
-                    winerror::ERROR_NO_MORE_ITEMS as i32,
+                    Foundation::ERROR_NO_MORE_ITEMS as i32,
                 ))
             })
             .map_err(|e| e.to_pyexception(vm))?;

@@ -628,43 +628,33 @@ mod platform {
         PyRef, PyResult, VirtualMachine,
     };
     use std::time::Duration;
-    use winapi::shared::ntdef::ULARGE_INTEGER;
-    use winapi::um::profileapi::{QueryPerformanceCounter, QueryPerformanceFrequency};
     use windows_sys::Win32::{
         Foundation::FILETIME,
+        System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency},
         System::SystemInformation::{GetSystemTimeAdjustment, GetTickCount64},
         System::Threading::{GetCurrentProcess, GetCurrentThread, GetProcessTimes, GetThreadTimes},
     };
 
     fn u64_from_filetime(time: FILETIME) -> u64 {
-        unsafe {
-            let mut large = std::mem::MaybeUninit::<ULARGE_INTEGER>::uninit();
-            {
-                let m = (*large.as_mut_ptr()).u_mut();
-                m.LowPart = time.dwLowDateTime;
-                m.HighPart = time.dwHighDateTime;
-            }
-            let large = large.assume_init();
-            *large.QuadPart()
-        }
+        let large: [u32; 2] = [time.dwLowDateTime, time.dwHighDateTime];
+        unsafe { std::mem::transmute(large) }
     }
 
     fn win_perf_counter_frequency(vm: &VirtualMachine) -> PyResult<i64> {
-        let freq = unsafe {
+        let frequency = unsafe {
             let mut freq = std::mem::MaybeUninit::uninit();
             if QueryPerformanceFrequency(freq.as_mut_ptr()) == 0 {
                 return Err(errno_err(vm));
             }
             freq.assume_init()
         };
-        let frequency = unsafe { freq.QuadPart() };
 
-        if *frequency < 1 {
+        if frequency < 1 {
             Err(vm.new_runtime_error("invalid QueryPerformanceFrequency".to_owned()))
-        } else if *frequency > i64::MAX / SEC_TO_NS {
+        } else if frequency > i64::MAX / SEC_TO_NS {
             Err(vm.new_overflow_error("QueryPerformanceFrequency is too large".to_owned()))
         } else {
-            Ok(*frequency)
+            Ok(frequency)
         }
     }
 
@@ -678,15 +668,14 @@ mod platform {
     }
 
     pub(super) fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let now = unsafe {
+        let ticks = unsafe {
             let mut performance_count = std::mem::MaybeUninit::uninit();
             QueryPerformanceCounter(performance_count.as_mut_ptr());
             performance_count.assume_init()
         };
 
-        let ticks = unsafe { now.QuadPart() };
         Ok(Duration::from_nanos(time_muldiv(
-            *ticks,
+            ticks,
             SEC_TO_NS,
             global_frequency(vm)?,
         )))
