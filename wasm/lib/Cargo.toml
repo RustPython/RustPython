@@ -11,18 +11,32 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["freeze-stdlib"]
+default = ["freeze-stdlib", "malachite-bigint"]
 freeze-stdlib = ["rustpython-vm/freeze-stdlib", "rustpython-pylib/freeze-stdlib", "rustpython-stdlib"]
 no-start-func = []
+malachite-bigint = [
+    "rustpython-common/malachite-bigint",
+    "rustpython-pylib/malachite-bigint",
+    "rustpython-stdlib/malachite-bigint",
+    "rustpython-vm/malachite-bigint",
+    "rustpython-parser/malachite-bigint"
+]
+num-bigint = [
+    "rustpython-common/num-bigint",
+    "rustpython-pylib/num-bigint",
+    "rustpython-stdlib/num-bigint",
+    "rustpython-vm/num-bigint",
+    "rustpython-parser/num-bigint"
+]
 
 [dependencies]
 rustpython-common = { workspace = true }
-rustpython-pylib = { workspace = true, optional = true }
+rustpython-pylib = { workspace = true, default-features = false, optional = true }
 rustpython-stdlib = { workspace = true, default-features = false, optional = true }
 # make sure no threading! otherwise wasm build will fail
-rustpython-vm = { workspace = true, features = ["compiler", "encodings", "serde"] }
+rustpython-vm = { workspace = true, default-features = false, features = ["compiler", "encodings", "serde"] }
 
-rustpython-parser = { workspace = true }
+rustpython-parser = { workspace = true, default-features = false }
 
 serde = { workspace = true }
 
