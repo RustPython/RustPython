@@ -112,9 +112,8 @@ widestring = { workspace = true }
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3.9"
 features = [
-  "winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi", "processenv",
-  "namedpipeapi", "winnt", "processthreadsapi", "errhandlingapi", "winuser", "synchapi", "wincon",
-  "impl-default", "vcruntime", "ifdef", "netioapi"
+  "winsock2", "ws2def", "std", "wincrypt", "fileapi",
+  "impl-default", "vcruntime", "ifdef", "netioapi", "profileapi",
 ]
 
 [target.'cfg(target_os = "macos")'.dependencies]
