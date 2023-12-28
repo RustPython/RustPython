@@ -142,7 +142,7 @@ features = [
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3.9"
 features = [
-  "winsock2", "handleapi", "std", "winbase",
+  "winsock2", "std", "winbase",
   "winnt",
   "impl-default",
 ]

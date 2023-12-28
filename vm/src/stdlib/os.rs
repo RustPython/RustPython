@@ -1200,17 +1200,18 @@ pub(super) mod _os {
         let res = unsafe { suppress_iph!(libc::lseek(fd, position, how)) };
         #[cfg(windows)]
         let res = unsafe {
-            use winapi::um::{fileapi, winnt};
+            use winapi::um::winnt;
+            use windows_sys::Win32::Storage::FileSystem;
             let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
             let mut li = winnt::LARGE_INTEGER::default();
             *li.QuadPart_mut() = position;
-            let ret = fileapi::SetFilePointer(
-                handle,
+            let ret = FileSystem::SetFilePointer(
+                handle as _,
                 li.u().LowPart as _,
                 &mut li.u_mut().HighPart,
                 how as _,
             );
-            if ret == fileapi::INVALID_SET_FILE_POINTER {
+            if ret == FileSystem::INVALID_SET_FILE_POINTER {
                 -1
             } else {
                 li.u_mut().LowPart = ret;
@@ -1357,10 +1358,8 @@ pub(super) mod _os {
         #[cfg(windows)]
         {
             use std::{fs::OpenOptions, os::windows::prelude::*};
-            use winapi::{
-                shared::minwindef::{DWORD, FILETIME},
-                um::fileapi::SetFileTime,
-            };
+            use winapi::shared::minwindef::DWORD;
+            use windows_sys::Win32::{Foundation::FILETIME, Storage::FileSystem};
 
             let [] = dir_fd.0;
 
@@ -1382,8 +1381,9 @@ pub(super) mod _os {
                 .open(path)
                 .map_err(|err| err.into_pyexception(vm))?;
 
-            let ret =
-                unsafe { SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif) };
+            let ret = unsafe {
+                FileSystem::SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif)
+            };
 
             if ret == 0 {
                 Err(io::Error::last_os_error().into_pyexception(vm))

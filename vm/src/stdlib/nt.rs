@@ -29,9 +29,8 @@ pub(crate) mod module {
         mem::MaybeUninit,
         os::windows::ffi::{OsStrExt, OsStringExt},
     };
-    use winapi::um;
     use windows_sys::Win32::{
-        Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
+        Foundation::{self, INVALID_HANDLE_VALUE},
         Storage::FileSystem,
         System::{Console, Threading},
     };
@@ -41,12 +40,11 @@ pub(crate) mod module {
 
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        use um::winnt;
         let attr = unsafe { FileSystem::GetFileAttributesW(path.to_widecstring(vm)?.as_ptr()) };
         Ok(attr != FileSystem::INVALID_FILE_ATTRIBUTES
             && (mode & 2 == 0
-                || attr & winnt::FILE_ATTRIBUTE_READONLY == 0
-                || attr & winnt::FILE_ATTRIBUTE_DIRECTORY != 0))
+                || attr & FileSystem::FILE_ATTRIBUTE_READONLY == 0
+                || attr & FileSystem::FILE_ATTRIBUTE_DIRECTORY != 0))
     }
 
     #[derive(FromArgs)]
@@ -155,7 +153,7 @@ pub(crate) mod module {
         }
         let ret = unsafe { Threading::TerminateProcess(h, sig) };
         let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
-        unsafe { CloseHandle(h) };
+        unsafe { Foundation::CloseHandle(h) };
         res
     }
 
@@ -369,20 +367,24 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn get_handle_inheritable(handle: isize, vm: &VirtualMachine) -> PyResult<bool> {
+    fn get_handle_inheritable(handle: intptr_t, vm: &VirtualMachine) -> PyResult<bool> {
         let mut flags = 0;
-        if unsafe { um::handleapi::GetHandleInformation(handle as _, &mut flags) } == 0 {
+        if unsafe { Foundation::GetHandleInformation(handle as _, &mut flags) } == 0 {
             Err(errno_err(vm))
         } else {
-            Ok(flags & um::winbase::HANDLE_FLAG_INHERIT != 0)
+            Ok(flags & Foundation::HANDLE_FLAG_INHERIT != 0)
         }
     }
 
-    pub fn raw_set_handle_inheritable(handle: isize, inheritable: bool) -> io::Result<()> {
-        use um::winbase::HANDLE_FLAG_INHERIT;
-        let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
-        let res =
-            unsafe { um::handleapi::SetHandleInformation(handle as _, HANDLE_FLAG_INHERIT, flags) };
+    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> io::Result<()> {
+        let flags = if inheritable {
+            Foundation::HANDLE_FLAG_INHERIT
+        } else {
+            0
+        };
+        let res = unsafe {
+            Foundation::SetHandleInformation(handle as _, Foundation::HANDLE_FLAG_INHERIT, flags)
+        };
         if res == 0 {
             Err(errno())
         } else {
@@ -410,7 +412,7 @@ pub(crate) mod module {
         let [] = dir_fd.0;
         let _ = mode;
         let wide = path.to_widecstring(vm)?;
-        let res = unsafe { um::fileapi::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
+        let res = unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
         if res == 0 {
             return Err(errno_err(vm));
         }
