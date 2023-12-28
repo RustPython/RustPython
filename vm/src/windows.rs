@@ -4,7 +4,7 @@ use crate::{
     PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use windows::Win32::Foundation::HANDLE;
-use windows_sys::Win32::Foundation::{BOOL, HANDLE as RAW_HANDLE};
+use windows_sys::Win32::Foundation::{BOOL, HANDLE as RAW_HANDLE, INVALID_HANDLE_VALUE};
 
 pub(crate) trait WindowsSysResultValue {
     type Ok: ToPyObject;
@@ -15,7 +15,7 @@ pub(crate) trait WindowsSysResultValue {
 impl WindowsSysResultValue for RAW_HANDLE {
     type Ok = HANDLE;
     fn is_err(&self) -> bool {
-        *self == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE
+        *self == INVALID_HANDLE_VALUE
     }
     fn into_ok(self) -> Self::Ok {
         HANDLE(self)

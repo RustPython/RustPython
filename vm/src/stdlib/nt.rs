@@ -10,8 +10,10 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule(name = "nt", with(super::os::_os))]
 pub(crate) mod module {
+    #[cfg(target_env = "msvc")]
+    use crate::builtins::PyListRef;
     use crate::{
-        builtins::{PyStrRef, PyTupleRef},
+        builtins::{PyDictRef, PyStrRef, PyTupleRef},
         common::{crt_fd::Fd, os::errno, suppress_iph},
         convert::ToPyException,
         function::Either,
@@ -23,13 +25,14 @@ pub(crate) mod module {
     };
     use std::{
         env, fs, io,
+        mem::MaybeUninit,
         os::windows::ffi::{OsStrExt, OsStringExt},
     };
-
-    use crate::builtins::PyDictRef;
-    #[cfg(target_env = "msvc")]
-    use crate::builtins::PyListRef;
     use winapi::{um, vc::vcruntime::intptr_t};
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, INVALID_HANDLE_VALUE},
+        System::{Console, Threading},
+    };
 
     #[pyattr]
     use libc::{O_BINARY, O_TEMPORARY};
@@ -135,27 +138,23 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
-        {
-            use um::{wincon, winnt};
-            use windows_sys::Win32::{Foundation::CloseHandle, System::Threading};
-            let sig = sig as u32;
-            let pid = pid as u32;
+        let sig = sig as u32;
+        let pid = pid as u32;
 
-            if sig == wincon::CTRL_C_EVENT || sig == wincon::CTRL_BREAK_EVENT {
-                let ret = unsafe { wincon::GenerateConsoleCtrlEvent(sig, pid) };
-                let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
-                return res;
-            }
-
-            let h = unsafe { Threading::OpenProcess(winnt::PROCESS_ALL_ACCESS, 0, pid) };
-            if h == 0 {
-                return Err(errno_err(vm));
-            }
-            let ret = unsafe { Threading::TerminateProcess(h, sig) };
+        if sig == Console::CTRL_C_EVENT || sig == Console::CTRL_BREAK_EVENT {
+            let ret = unsafe { Console::GenerateConsoleCtrlEvent(sig, pid) };
             let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
-            unsafe { CloseHandle(h) };
-            res
+            return res;
         }
+
+        let h = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) };
+        if h == 0 {
+            return Err(errno_err(vm));
+        }
+        let ret = unsafe { Threading::TerminateProcess(h, sig) };
+        let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
+        unsafe { CloseHandle(h) };
+        res
     }
 
     #[pyfunction]
@@ -164,22 +163,22 @@ pub(crate) mod module {
         vm: &VirtualMachine,
     ) -> PyResult<_os::PyTerminalSize> {
         let (columns, lines) = {
-            use um::{handleapi, processenv, winbase, wincon};
             let stdhandle = match fd {
-                OptionalArg::Present(0) => winbase::STD_INPUT_HANDLE,
-                OptionalArg::Present(1) | OptionalArg::Missing => winbase::STD_OUTPUT_HANDLE,
-                OptionalArg::Present(2) => winbase::STD_ERROR_HANDLE,
+                OptionalArg::Present(0) => Console::STD_INPUT_HANDLE,
+                OptionalArg::Present(1) | OptionalArg::Missing => Console::STD_OUTPUT_HANDLE,
+                OptionalArg::Present(2) => Console::STD_ERROR_HANDLE,
                 _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
             };
-            let h = unsafe { processenv::GetStdHandle(stdhandle) };
-            if h.is_null() {
+            let h = unsafe { Console::GetStdHandle(stdhandle) };
+            if h == 0 {
                 return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
             }
-            if h == handleapi::INVALID_HANDLE_VALUE {
+            if h == INVALID_HANDLE_VALUE {
                 return Err(errno_err(vm));
             }
-            let mut csbi = wincon::CONSOLE_SCREEN_BUFFER_INFO::default();
-            let ret = unsafe { wincon::GetConsoleScreenBufferInfo(h, &mut csbi) };
+            let mut csbi = MaybeUninit::uninit();
+            let ret = unsafe { Console::GetConsoleScreenBufferInfo(h, csbi.as_mut_ptr()) };
+            let csbi = unsafe { csbi.assume_init() };
             if ret == 0 {
                 return Err(errno_err(vm));
             }

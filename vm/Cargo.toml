@@ -141,8 +141,8 @@ features = [
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3.9"
 features = [
-  "winsock2", "handleapi", "std", "winbase", "processenv",
-  "winnt", "errhandlingapi", "wincon",
+  "winsock2", "handleapi", "std", "winbase",
+  "winnt", "errhandlingapi",
   "impl-default", "vcruntime",
 ]
 
