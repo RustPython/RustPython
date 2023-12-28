@@ -1,4 +1,6 @@
 use super::{float, PyByteArray, PyBytes, PyStr, PyType, PyTypeRef};
+#[cfg(feature = "malachite-bigint")]
+use crate::common::int::true_div;
 use crate::{
     builtins::PyStrRef,
     bytesinner::PyBytesInner,
@@ -18,8 +20,6 @@ use crate::{
     TryFromBorrowedObject, VirtualMachine,
 };
 #[cfg(feature = "malachite-bigint")]
-use crate::common::int::true_div;
-#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::{BigInt, Sign};
 #[cfg(feature = "num-bigint")]
 use num_bigint::{BigInt, Sign};
@@ -29,10 +29,10 @@ use num_rational::Ratio;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
 use rustpython_format::FormatSpec;
 use std::fmt;
-#[cfg(feature = "malachite-bigint")]
-use std::ops::{Neg, Not};
 #[cfg(feature = "num-bigint")]
 use std::ops::{Div, Neg, Not};
+#[cfg(feature = "malachite-bigint")]
+use std::ops::{Neg, Not};
 
 #[pyclass(module = false, name = "int")]
 #[derive(Debug)]
