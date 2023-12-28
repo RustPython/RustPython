@@ -68,6 +68,12 @@ Rust unit tests can be run with `cargo`:
 $ cargo test --workspace --exclude rustpython_wasm
 ```
 
+To enable 'num-bigint' feature (For context refer to the issue [License clarification](https://github.com/RustPython/RustPython/issues/5130)).
+```shell
+cargo test --workspace --exclude rustpython_wasm --no-default-features --features num-bigint,stdlib,threading
+
+```
+
 Python unit tests can be run by compiling RustPython and running the test module:
 
 ```shell
