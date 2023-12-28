@@ -136,7 +136,8 @@ pub(crate) mod module {
     #[pyfunction]
     fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
         {
-            use um::{handleapi, processthreadsapi, wincon, winnt};
+            use um::{wincon, winnt};
+            use windows_sys::Win32::{Foundation::CloseHandle, System::Threading};
             let sig = sig as u32;
             let pid = pid as u32;
 
@@ -146,13 +147,13 @@ pub(crate) mod module {
                 return res;
             }
 
-            let h = unsafe { processthreadsapi::OpenProcess(winnt::PROCESS_ALL_ACCESS, 0, pid) };
-            if h.is_null() {
+            let h = unsafe { Threading::OpenProcess(winnt::PROCESS_ALL_ACCESS, 0, pid) };
+            if h == 0 {
                 return Err(errno_err(vm));
             }
-            let ret = unsafe { processthreadsapi::TerminateProcess(h, sig) };
+            let ret = unsafe { Threading::TerminateProcess(h, sig) };
             let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
-            unsafe { handleapi::CloseHandle(h) };
+            unsafe { CloseHandle(h) };
             res
         }
     }

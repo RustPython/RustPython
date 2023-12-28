@@ -142,8 +142,8 @@ features = [
 version = "0.3.9"
 features = [
   "winsock2", "handleapi", "std", "winbase", "processenv",
-  "winnt", "processthreadsapi", "errhandlingapi", "wincon",
-  "impl-default", "vcruntime", "sysinfoapi",
+  "winnt", "errhandlingapi", "wincon",
+  "impl-default", "vcruntime",
 ]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

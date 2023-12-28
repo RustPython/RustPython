@@ -628,12 +628,13 @@ mod platform {
         PyRef, PyResult, VirtualMachine,
     };
     use std::time::Duration;
-    use winapi::shared::{minwindef::FILETIME, ntdef::ULARGE_INTEGER};
-    use winapi::um::processthreadsapi::{
-        GetCurrentProcess, GetCurrentThread, GetProcessTimes, GetThreadTimes,
-    };
+    use winapi::shared::ntdef::ULARGE_INTEGER;
     use winapi::um::profileapi::{QueryPerformanceCounter, QueryPerformanceFrequency};
-    use windows_sys::Win32::System::SystemInformation::{GetSystemTimeAdjustment, GetTickCount64};
+    use windows_sys::Win32::{
+        Foundation::FILETIME,
+        System::SystemInformation::{GetSystemTimeAdjustment, GetTickCount64},
+        System::Threading::{GetCurrentProcess, GetCurrentThread, GetProcessTimes, GetThreadTimes},
+    };
 
     fn u64_from_filetime(time: FILETIME) -> u64 {
         unsafe {

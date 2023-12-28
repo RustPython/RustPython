@@ -1414,18 +1414,27 @@ pub(super) mod _os {
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
-            use winapi::shared::minwindef::FILETIME;
-            use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessTimes};
+            use std::mem::MaybeUninit;
+            use windows_sys::Win32::{Foundation::FILETIME, System::Threading};
 
-            let mut _create = FILETIME::default();
-            let mut _exit = FILETIME::default();
-            let mut kernel = FILETIME::default();
-            let mut user = FILETIME::default();
+            let mut _create = MaybeUninit::<FILETIME>::uninit();
+            let mut _exit = MaybeUninit::<FILETIME>::uninit();
+            let mut kernel = MaybeUninit::<FILETIME>::uninit();
+            let mut user = MaybeUninit::<FILETIME>::uninit();
 
             unsafe {
-                let h_proc = GetCurrentProcess();
-                GetProcessTimes(h_proc, &mut _create, &mut _exit, &mut kernel, &mut user);
+                let h_proc = Threading::GetCurrentProcess();
+                Threading::GetProcessTimes(
+                    h_proc,
+                    _create.as_mut_ptr(),
+                    _exit.as_mut_ptr(),
+                    kernel.as_mut_ptr(),
+                    user.as_mut_ptr(),
+                );
             }
+
+            let kernel = unsafe { kernel.assume_init() };
+            let user = unsafe { user.assume_init() };
 
             let times_result = TimesResult {
                 user: user.dwHighDateTime as f64 * 429.4967296 + user.dwLowDateTime as f64 * 1e-7,
