@@ -149,14 +149,18 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             self.assertEqual(D.foo(), 4)
             self.assertEqual(D().foo(), 4)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_object_new_with_one_abstractmethod(self):
             class C(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
                 def method_one(self):
                     pass
-            msg = r"class C with abstract method method_one"
+            msg = r"class C without an implementation for abstract method 'method_one'"
             self.assertRaisesRegex(TypeError, msg, C)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_object_new_with_many_abstractmethods(self):
             class C(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -165,7 +169,7 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
                 @abc.abstractmethod
                 def method_two(self):
                     pass
-            msg = r"class C with abstract methods method_one, method_two"
+            msg = r"class C without an implementation for abstract methods 'method_one', 'method_two'"
             self.assertRaisesRegex(TypeError, msg, C)
 
         def test_abstractmethod_integration(self):
@@ -448,15 +452,16 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
 
             # Also check that issubclass() propagates exceptions raised by
             # __subclasses__.
+            class CustomError(Exception): ...
             exc_msg = "exception from __subclasses__"
 
             def raise_exc():
-                raise Exception(exc_msg)
+                raise CustomError(exc_msg)
 
             class S(metaclass=abc_ABCMeta):
                 __subclasses__ = raise_exc
 
-            with self.assertRaisesRegex(Exception, exc_msg):
+            with self.assertRaisesRegex(CustomError, exc_msg):
                 issubclass(int, S)
 
         def test_subclasshook(self):
@@ -521,6 +526,8 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             self.assertEqual(A.__abstractmethods__, set())
             A()
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_update_new_abstractmethods(self):
             class A(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -534,9 +541,11 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             A.foo = updated_foo
             abc.update_abstractmethods(A)
             self.assertEqual(A.__abstractmethods__, {'foo', 'bar'})
-            msg = "class A with abstract methods bar, foo"
+            msg = "class A without an implementation for abstract methods 'bar', 'foo'"
             self.assertRaisesRegex(TypeError, msg, A)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_update_implementation(self):
             class A(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -546,7 +555,7 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             class B(A):
                 pass
 
-            msg = "class B with abstract method foo"
+            msg = "class B without an implementation for abstract method 'foo'"
             self.assertRaisesRegex(TypeError, msg, B)
             self.assertEqual(B.__abstractmethods__, {'foo'})
 
@@ -588,6 +597,8 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
             A()
             self.assertFalse(hasattr(A, '__abstractmethods__'))
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_update_del_implementation(self):
             class A(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -604,9 +615,11 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
 
             abc.update_abstractmethods(B)
 
-            msg = "class B with abstract method foo"
+            msg = "class B without an implementation for abstract method 'foo'"
             self.assertRaisesRegex(TypeError, msg, B)
 
+        # TODO: RUSTPYTHON
+        @unittest.expectedFailure
         def test_update_layered_implementation(self):
             class A(metaclass=abc_ABCMeta):
                 @abc.abstractmethod
@@ -626,7 +639,7 @@ def test_factory(abc_ABCMeta, abc_get_cache_token):
 
             abc.update_abstractmethods(C)
 
-            msg = "class C with abstract method foo"
+            msg = "class C without an implementation for abstract method 'foo'"
             self.assertRaisesRegex(TypeError, msg, C)
 
         def test_update_multi_inheritance(self):
