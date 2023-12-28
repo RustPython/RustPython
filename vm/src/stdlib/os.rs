@@ -1377,7 +1377,7 @@ pub(super) mod _os {
 
             let f = OpenOptions::new()
                 .write(true)
-                .custom_flags(winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS)
+                .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
                 .open(path)
                 .map_err(|err| err.into_pyexception(vm))?;
 

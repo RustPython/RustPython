@@ -15,7 +15,7 @@ mod msvcrt {
     };
 
     #[pyattr]
-    use winapi::um::winbase::{
+    use windows_sys::Win32::System::Diagnostics::Debug::{
         SEM_FAILCRITICALERRORS, SEM_NOALIGNMENTFAULTEXCEPT, SEM_NOGPFAULTERRORBOX,
         SEM_NOOPENFILEERRORBOX,
     };
