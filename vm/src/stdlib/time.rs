@@ -633,7 +633,7 @@ mod platform {
         GetCurrentProcess, GetCurrentThread, GetProcessTimes, GetThreadTimes,
     };
     use winapi::um::profileapi::{QueryPerformanceCounter, QueryPerformanceFrequency};
-    use winapi::um::sysinfoapi::{GetSystemTimeAdjustment, GetTickCount64};
+    use windows_sys::Win32::System::SystemInformation::{GetSystemTimeAdjustment, GetTickCount64};
 
     fn u64_from_filetime(time: FILETIME) -> u64 {
         unsafe {
