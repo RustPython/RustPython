@@ -7,7 +7,6 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
     Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
-use rustpython_vm::AsObject;
 
 #[pyclass(module = false, name = "NoneType")]
 #[derive(Debug)]
@@ -76,7 +75,7 @@ impl AsNumber for PyNone {
 
 impl Comparable for PyNone {
     fn cmp(
-        zelf: &Py<Self>,
+        _zelf: &Py<Self>,
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
