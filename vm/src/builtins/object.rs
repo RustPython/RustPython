@@ -61,7 +61,9 @@ impl Constructor for PyBaseObject {
                             name, methods
                         )));
                     }
-                    _ => unreachable!("unimplemented_abstract_method_count is always positive"),
+                    // TODO: remove `allow` when redox build doesn't complain about it
+                    #[allow(unreachable_patterns)]
+                    _ => unreachable!(),
                 }
             }
         }

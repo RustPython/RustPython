@@ -59,9 +59,7 @@ impl HashSecret {
 
 impl HashSecret {
     pub fn hash_value<T: Hash + ?Sized>(&self, data: &T) -> PyHash {
-        let mut hasher = self.build_hasher();
-        data.hash(&mut hasher);
-        fix_sentinel(mod_int(hasher.finish() as PyHash))
+        fix_sentinel(mod_int(self.hash_one(data) as _))
     }
 
     pub fn hash_iter<'a, T: 'a, I, F, E>(&self, iter: I, hashf: F) -> Result<PyHash, E>
