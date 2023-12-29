@@ -112,8 +112,16 @@ widestring = { workspace = true }
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3.9"
 features = [
-  "winsock2", "ws2def", "std", "wincrypt", "fileapi",
-  "impl-default", "vcruntime", "ifdef", "netioapi", "profileapi",
+  "winsock2", "ifdef", "netioapi",
+]
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.52.0"
+features = [
+  "Win32_Networking_WinSock",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_Security_Cryptography",
 ]
 
 [target.'cfg(target_os = "macos")'.dependencies]
