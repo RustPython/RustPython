@@ -703,9 +703,8 @@ mod _ssl {
             let certs = self
                 .ctx()
                 .cert_store()
-                .objects()
+                .all_certificates()
                 .iter()
-                .filter_map(|obj| obj.x509())
                 .map(|cert| cert_to_py(vm, cert, binary_form))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(certs)
