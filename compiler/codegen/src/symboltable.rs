@@ -230,10 +230,10 @@ mod stack {
             res.unwrap_or_else(|x| panic::resume_unwind(x))
         }
 
-        pub fn iter(&self) -> impl Iterator<Item = &T> + DoubleEndedIterator + '_ {
+        pub fn iter(&self) -> impl DoubleEndedIterator<Item = &T> + '_ {
             self.as_ref().iter().copied()
         }
-        pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> + DoubleEndedIterator + '_ {
+        pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut T> + '_ {
             self.as_mut().iter_mut().map(|x| &mut **x)
         }
         // pub fn top(&self) -> Option<&T> {

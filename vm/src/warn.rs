@@ -87,17 +87,13 @@ pub fn warn(
 }
 
 fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-    vm.state
-        .warnings
-        .default_action
-        .clone()
-        .try_into()
-        .map_err(|_| {
-            vm.new_value_error(format!(
-                "_warnings.defaultaction must be a string, not '{}'",
-                vm.state.warnings.default_action
-            ))
-        })
+    Ok(vm.state.warnings.default_action.clone().into())
+    // .map_err(|_| {
+    //     vm.new_value_error(format!(
+    //         "_warnings.defaultaction must be a string, not '{}'",
+    //         vm.state.warnings.default_action
+    //     ))
+    // })
 }
 
 fn get_filter(
@@ -125,7 +121,7 @@ fn get_filter(
         .ok_or_else(|| vm.new_value_error(format!("_warnings.filters item {i} isn't a 5-tuple")))?;
 
         /* Python code: action, msg, cat, mod, ln = item */
-        let action = if let Some(action) = tmp_item.get(0) {
+        let action = if let Some(action) = tmp_item.first() {
             action.str(vm).map(|action| action.into_object())
         } else {
             Err(vm.new_type_error("action must be a string".to_string()))
