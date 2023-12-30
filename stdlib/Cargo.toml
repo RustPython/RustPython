@@ -81,7 +81,7 @@ bzip2 = { version = "0.4", optional = true }
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
-mac_address = "1.1.3"
+mac_address2 = "2.0.1"
 uuid = { version = "1.1.2", features = ["v1", "fast-rng", "macro-diagnostics"] }
 
 # mmap
@@ -96,7 +96,7 @@ termios = "0.3.3"
 gethostname = "0.2.3"
 socket2 = { version = "0.4.4", features = ["all"] }
 dns-lookup = "1.0.8"
-openssl = { version = "0.10.55", optional = true }
+openssl = { version = "0.10.57", optional = true }
 openssl-sys = { version = "0.9.80", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }

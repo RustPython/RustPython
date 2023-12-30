@@ -3,7 +3,7 @@ pub(crate) use _uuid::make_module;
 #[pymodule]
 mod _uuid {
     use crate::{builtins::PyNone, vm::VirtualMachine};
-    use mac_address::get_mac_address;
+    use mac_address2::get_mac_address;
     use once_cell::sync::OnceCell;
     use rand::Rng;
     use std::time::{Duration, SystemTime};
