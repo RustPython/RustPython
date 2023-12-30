@@ -1200,21 +1200,20 @@ pub(super) mod _os {
         let res = unsafe { suppress_iph!(libc::lseek(fd, position, how)) };
         #[cfg(windows)]
         let res = unsafe {
-            use winapi::um::{fileapi, winnt};
+            use windows_sys::Win32::Storage::FileSystem;
             let handle = Fd(fd).to_raw_handle().map_err(|e| e.into_pyexception(vm))?;
-            let mut li = winnt::LARGE_INTEGER::default();
-            *li.QuadPart_mut() = position;
-            let ret = fileapi::SetFilePointer(
-                handle,
-                li.u().LowPart as _,
-                &mut li.u_mut().HighPart,
+            let mut distance_to_move: [i32; 2] = std::mem::transmute(position);
+            let ret = FileSystem::SetFilePointer(
+                handle as _,
+                distance_to_move[0],
+                &mut distance_to_move[1],
                 how as _,
             );
-            if ret == fileapi::INVALID_SET_FILE_POINTER {
+            if ret == FileSystem::INVALID_SET_FILE_POINTER {
                 -1
             } else {
-                li.u_mut().LowPart = ret;
-                *li.QuadPart()
+                distance_to_move[0] = ret as _;
+                std::mem::transmute(distance_to_move)
             }
         };
         if res < 0 {
@@ -1357,10 +1356,8 @@ pub(super) mod _os {
         #[cfg(windows)]
         {
             use std::{fs::OpenOptions, os::windows::prelude::*};
-            use winapi::{
-                shared::minwindef::{DWORD, FILETIME},
-                um::fileapi::SetFileTime,
-            };
+            type DWORD = u32;
+            use windows_sys::Win32::{Foundation::FILETIME, Storage::FileSystem};
 
             let [] = dir_fd.0;
 
@@ -1378,12 +1375,13 @@ pub(super) mod _os {
 
             let f = OpenOptions::new()
                 .write(true)
-                .custom_flags(winapi::um::winbase::FILE_FLAG_BACKUP_SEMANTICS)
+                .custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS)
                 .open(path)
                 .map_err(|err| err.into_pyexception(vm))?;
 
-            let ret =
-                unsafe { SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif) };
+            let ret = unsafe {
+                FileSystem::SetFileTime(f.as_raw_handle() as _, std::ptr::null(), &acc, &modif)
+            };
 
             if ret == 0 {
                 Err(io::Error::last_os_error().into_pyexception(vm))
@@ -1414,18 +1412,27 @@ pub(super) mod _os {
     fn times(vm: &VirtualMachine) -> PyResult {
         #[cfg(windows)]
         {
-            use winapi::shared::minwindef::FILETIME;
-            use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessTimes};
+            use std::mem::MaybeUninit;
+            use windows_sys::Win32::{Foundation::FILETIME, System::Threading};
 
-            let mut _create = FILETIME::default();
-            let mut _exit = FILETIME::default();
-            let mut kernel = FILETIME::default();
-            let mut user = FILETIME::default();
+            let mut _create = MaybeUninit::<FILETIME>::uninit();
+            let mut _exit = MaybeUninit::<FILETIME>::uninit();
+            let mut kernel = MaybeUninit::<FILETIME>::uninit();
+            let mut user = MaybeUninit::<FILETIME>::uninit();
 
             unsafe {
-                let h_proc = GetCurrentProcess();
-                GetProcessTimes(h_proc, &mut _create, &mut _exit, &mut kernel, &mut user);
+                let h_proc = Threading::GetCurrentProcess();
+                Threading::GetProcessTimes(
+                    h_proc,
+                    _create.as_mut_ptr(),
+                    _exit.as_mut_ptr(),
+                    kernel.as_mut_ptr(),
+                    user.as_mut_ptr(),
+                );
             }
+
+            let kernel = unsafe { kernel.assume_init() };
+            let user = unsafe { user.assume_init() };
 
             let times_result = TimesResult {
                 user: user.dwHighDateTime as f64 * 429.4967296 + user.dwLowDateTime as f64 * 1e-7,
@@ -1596,9 +1603,10 @@ pub(super) mod _os {
             if #[cfg(any(target_os = "android", target_os = "redox"))] {
                 Ok(Some("UTF-8".to_owned()))
             } else if #[cfg(windows)] {
+                use windows_sys::Win32::System::Console;
                 let cp = match fd {
-                    0 => unsafe { winapi::um::consoleapi::GetConsoleCP() },
-                    1 | 2 => unsafe { winapi::um::consoleapi::GetConsoleOutputCP() },
+                    0 => unsafe { Console::GetConsoleCP() },
+                    1 | 2 => unsafe { Console::GetConsoleOutputCP() },
                     _ => 0,
                 };
 

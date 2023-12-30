@@ -24,12 +24,31 @@ pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub mod errors {
     pub use libc::*;
     #[cfg(windows)]
-    pub use winapi::shared::winerror::*;
+    pub use windows_sys::Win32::{
+        Foundation::*,
+        Networking::WinSock::{
+            WSABASEERR, WSADESCRIPTION_LEN, WSAEACCES, WSAEADDRINUSE, WSAEADDRNOTAVAIL,
+            WSAEAFNOSUPPORT, WSAEALREADY, WSAEBADF, WSAECANCELLED, WSAECONNABORTED,
+            WSAECONNREFUSED, WSAECONNRESET, WSAEDESTADDRREQ, WSAEDISCON, WSAEDQUOT, WSAEFAULT,
+            WSAEHOSTDOWN, WSAEHOSTUNREACH, WSAEINPROGRESS, WSAEINTR, WSAEINVAL,
+            WSAEINVALIDPROCTABLE, WSAEINVALIDPROVIDER, WSAEISCONN, WSAELOOP, WSAEMFILE,
+            WSAEMSGSIZE, WSAENAMETOOLONG, WSAENETDOWN, WSAENETRESET, WSAENETUNREACH, WSAENOBUFS,
+            WSAENOMORE, WSAENOPROTOOPT, WSAENOTCONN, WSAENOTEMPTY, WSAENOTSOCK, WSAEOPNOTSUPP,
+            WSAEPFNOSUPPORT, WSAEPROCLIM, WSAEPROTONOSUPPORT, WSAEPROTOTYPE,
+            WSAEPROVIDERFAILEDINIT, WSAEREFUSED, WSAEREMOTE, WSAESHUTDOWN, WSAESOCKTNOSUPPORT,
+            WSAESTALE, WSAETIMEDOUT, WSAETOOMANYREFS, WSAEUSERS, WSAEWOULDBLOCK, WSAHOST_NOT_FOUND,
+            WSAID_ACCEPTEX, WSAID_CONNECTEX, WSAID_DISCONNECTEX, WSAID_GETACCEPTEXSOCKADDRS,
+            WSAID_TRANSMITFILE, WSAID_TRANSMITPACKETS, WSAID_WSAPOLL, WSAID_WSARECVMSG,
+            WSANOTINITIALISED, WSANO_DATA, WSANO_RECOVERY, WSAPROTOCOL_LEN, WSASERVICE_NOT_FOUND,
+            WSASYSCALLFAILURE, WSASYSNOTREADY, WSASYS_STATUS_LEN, WSATRY_AGAIN, WSATYPE_NOT_FOUND,
+            WSAVERNOTSUPPORTED,
+        },
+    };
     #[cfg(windows)]
     macro_rules! reexport_wsa {
         ($($errname:ident),*$(,)?) => {
             paste::paste! {
-                $(pub const $errname: i32 = [<WSA $errname>] as i32;)*
+                $(pub const $errname: i32 = windows_sys::Win32::Networking::WinSock:: [<WSA $errname>] as i32;)*
             }
         }
     }
@@ -43,7 +62,7 @@ pub mod errors {
         // TODO: EBADF should be here once winerrs are translated to errnos but it messes up some things atm
     }
     #[cfg(windows)]
-    pub const WSAHOS: i32 = WSAHOST_NOT_FOUND as i32;
+    pub const WSAHOS: i32 = WSAHOST_NOT_FOUND;
 }
 
 #[cfg(any(unix, windows, target_os = "wasi"))]

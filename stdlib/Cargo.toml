@@ -112,7 +112,7 @@ termios = "0.3.3"
 gethostname = "0.2.3"
 socket2 = { version = "0.4.4", features = ["all"] }
 dns-lookup = "1.0.8"
-openssl = { version = "0.10.55", optional = true }
+openssl = { version = "0.10.62", optional = true }
 openssl-sys = { version = "0.9.80", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
@@ -128,9 +128,16 @@ widestring = { workspace = true }
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3.9"
 features = [
-  "winsock2", "handleapi", "ws2def", "std", "winbase", "wincrypt", "fileapi", "processenv",
-  "namedpipeapi", "winnt", "processthreadsapi", "errhandlingapi", "winuser", "synchapi", "wincon",
-  "impl-default", "vcruntime", "ifdef", "netioapi"
+  "winsock2", "ifdef", "netioapi",
+]
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.52.0"
+features = [
+  "Win32_Networking_WinSock",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_Security_Cryptography",
 ]
 
 [target.'cfg(target_os = "macos")'.dependencies]

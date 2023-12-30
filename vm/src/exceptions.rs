@@ -779,7 +779,7 @@ impl ExceptionZoo {
         let errno_getter =
             ctx.new_readonly_getset("errno", excs.os_error, |exc: PyBaseExceptionRef| {
                 let args = exc.args();
-                args.get(0)
+                args.first()
                     .filter(|_| args.len() > 1 && args.len() <= 5)
                     .cloned()
             });
@@ -1116,7 +1116,7 @@ pub(super) mod types {
             args: ::rustpython_vm::function::FuncArgs,
             vm: &::rustpython_vm::VirtualMachine,
         ) -> ::rustpython_vm::PyResult<()> {
-            zelf.set_attr("value", vm.unwrap_or_none(args.args.get(0).cloned()), vm)?;
+            zelf.set_attr("value", vm.unwrap_or_none(args.args.first().cloned()), vm)?;
             Ok(())
         }
     }

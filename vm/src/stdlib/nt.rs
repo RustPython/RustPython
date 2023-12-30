@@ -10,8 +10,10 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule(name = "nt", with(super::os::_os))]
 pub(crate) mod module {
+    #[cfg(target_env = "msvc")]
+    use crate::builtins::PyListRef;
     use crate::{
-        builtins::{PyStrRef, PyTupleRef},
+        builtins::{PyDictRef, PyStrRef, PyTupleRef},
         common::{crt_fd::Fd, os::errno, suppress_iph},
         convert::ToPyException,
         function::Either,
@@ -21,27 +23,28 @@ pub(crate) mod module {
         },
         PyResult, TryFromObject, VirtualMachine,
     };
+    use libc::intptr_t;
     use std::{
         env, fs, io,
+        mem::MaybeUninit,
         os::windows::ffi::{OsStrExt, OsStringExt},
     };
-
-    use crate::builtins::PyDictRef;
-    #[cfg(target_env = "msvc")]
-    use crate::builtins::PyListRef;
-    use winapi::{um, vc::vcruntime::intptr_t};
+    use windows_sys::Win32::{
+        Foundation::{self, INVALID_HANDLE_VALUE},
+        Storage::FileSystem,
+        System::{Console, Threading},
+    };
 
     #[pyattr]
     use libc::{O_BINARY, O_TEMPORARY};
 
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
-        use um::{fileapi, winnt};
-        let attr = unsafe { fileapi::GetFileAttributesW(path.to_widecstring(vm)?.as_ptr()) };
-        Ok(attr != fileapi::INVALID_FILE_ATTRIBUTES
+        let attr = unsafe { FileSystem::GetFileAttributesW(path.to_widecstring(vm)?.as_ptr()) };
+        Ok(attr != FileSystem::INVALID_FILE_ATTRIBUTES
             && (mode & 2 == 0
-                || attr & winnt::FILE_ATTRIBUTE_READONLY == 0
-                || attr & winnt::FILE_ATTRIBUTE_DIRECTORY != 0))
+                || attr & FileSystem::FILE_ATTRIBUTE_READONLY == 0
+                || attr & FileSystem::FILE_ATTRIBUTE_DIRECTORY != 0))
     }
 
     #[derive(FromArgs)]
@@ -135,26 +138,23 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn kill(pid: i32, sig: isize, vm: &VirtualMachine) -> PyResult<()> {
-        {
-            use um::{handleapi, processthreadsapi, wincon, winnt};
-            let sig = sig as u32;
-            let pid = pid as u32;
+        let sig = sig as u32;
+        let pid = pid as u32;
 
-            if sig == wincon::CTRL_C_EVENT || sig == wincon::CTRL_BREAK_EVENT {
-                let ret = unsafe { wincon::GenerateConsoleCtrlEvent(sig, pid) };
-                let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
-                return res;
-            }
-
-            let h = unsafe { processthreadsapi::OpenProcess(winnt::PROCESS_ALL_ACCESS, 0, pid) };
-            if h.is_null() {
-                return Err(errno_err(vm));
-            }
-            let ret = unsafe { processthreadsapi::TerminateProcess(h, sig) };
+        if sig == Console::CTRL_C_EVENT || sig == Console::CTRL_BREAK_EVENT {
+            let ret = unsafe { Console::GenerateConsoleCtrlEvent(sig, pid) };
             let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
-            unsafe { handleapi::CloseHandle(h) };
-            res
+            return res;
         }
+
+        let h = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) };
+        if h == 0 {
+            return Err(errno_err(vm));
+        }
+        let ret = unsafe { Threading::TerminateProcess(h, sig) };
+        let res = if ret == 0 { Err(errno_err(vm)) } else { Ok(()) };
+        unsafe { Foundation::CloseHandle(h) };
+        res
     }
 
     #[pyfunction]
@@ -163,22 +163,22 @@ pub(crate) mod module {
         vm: &VirtualMachine,
     ) -> PyResult<_os::PyTerminalSize> {
         let (columns, lines) = {
-            use um::{handleapi, processenv, winbase, wincon};
             let stdhandle = match fd {
-                OptionalArg::Present(0) => winbase::STD_INPUT_HANDLE,
-                OptionalArg::Present(1) | OptionalArg::Missing => winbase::STD_OUTPUT_HANDLE,
-                OptionalArg::Present(2) => winbase::STD_ERROR_HANDLE,
+                OptionalArg::Present(0) => Console::STD_INPUT_HANDLE,
+                OptionalArg::Present(1) | OptionalArg::Missing => Console::STD_OUTPUT_HANDLE,
+                OptionalArg::Present(2) => Console::STD_ERROR_HANDLE,
                 _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
             };
-            let h = unsafe { processenv::GetStdHandle(stdhandle) };
-            if h.is_null() {
+            let h = unsafe { Console::GetStdHandle(stdhandle) };
+            if h == 0 {
                 return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
             }
-            if h == handleapi::INVALID_HANDLE_VALUE {
+            if h == INVALID_HANDLE_VALUE {
                 return Err(errno_err(vm));
             }
-            let mut csbi = wincon::CONSOLE_SCREEN_BUFFER_INFO::default();
-            let ret = unsafe { wincon::GetConsoleScreenBufferInfo(h, &mut csbi) };
+            let mut csbi = MaybeUninit::uninit();
+            let ret = unsafe { Console::GetConsoleScreenBufferInfo(h, csbi.as_mut_ptr()) };
+            let csbi = unsafe { csbi.assume_init() };
             if ret == 0 {
                 return Err(errno_err(vm));
             }
@@ -250,9 +250,9 @@ pub(crate) mod module {
     #[pyfunction]
     fn _getfullpathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
         let wpath = path.to_widecstring(vm)?;
-        let mut buffer = vec![0u16; winapi::shared::minwindef::MAX_PATH];
+        let mut buffer = vec![0u16; Foundation::MAX_PATH as usize];
         let ret = unsafe {
-            um::fileapi::GetFullPathNameW(
+            FileSystem::GetFullPathNameW(
                 wpath.as_ptr(),
                 buffer.len() as _,
                 buffer.as_mut_ptr(),
@@ -265,7 +265,7 @@ pub(crate) mod module {
         if ret as usize > buffer.len() {
             buffer.resize(ret as usize, 0);
             let ret = unsafe {
-                um::fileapi::GetFullPathNameW(
+                FileSystem::GetFullPathNameW(
                     wpath.as_ptr(),
                     buffer.len() as _,
                     buffer.as_mut_ptr(),
@@ -283,10 +283,10 @@ pub(crate) mod module {
     #[pyfunction]
     fn _getvolumepathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
         let wide = path.to_widecstring(vm)?;
-        let buflen = std::cmp::max(wide.len(), winapi::shared::minwindef::MAX_PATH);
+        let buflen = std::cmp::max(wide.len(), Foundation::MAX_PATH as usize);
         let mut buffer = vec![0u16; buflen];
         let ret = unsafe {
-            um::fileapi::GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buflen as _)
+            FileSystem::GetVolumePathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buflen as _)
         };
         if ret == 0 {
             return Err(errno_err(vm));
@@ -335,20 +335,19 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _getdiskusage(path: OsPath, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
-        use um::fileapi::GetDiskFreeSpaceExW;
-        use winapi::shared::{ntdef::ULARGE_INTEGER, winerror};
+        use FileSystem::GetDiskFreeSpaceExW;
 
         let wpath = path.to_widecstring(vm)?;
-        let mut _free_to_me = ULARGE_INTEGER::default();
-        let mut total = ULARGE_INTEGER::default();
-        let mut free = ULARGE_INTEGER::default();
+        let mut _free_to_me: u64 = 0;
+        let mut total: u64 = 0;
+        let mut free: u64 = 0;
         let ret =
             unsafe { GetDiskFreeSpaceExW(wpath.as_ptr(), &mut _free_to_me, &mut total, &mut free) };
         if ret != 0 {
-            return Ok(unsafe { (*total.QuadPart(), *free.QuadPart()) });
+            return Ok((total, free));
         }
         let err = io::Error::last_os_error();
-        if err.raw_os_error() == Some(winerror::ERROR_DIRECTORY as i32) {
+        if err.raw_os_error() == Some(Foundation::ERROR_DIRECTORY as i32) {
             if let Some(parent) = path.as_ref().parent() {
                 let parent = widestring::WideCString::from_os_str(parent).unwrap();
 
@@ -359,7 +358,7 @@ pub(crate) mod module {
                 return if ret == 0 {
                     Err(errno_err(vm))
                 } else {
-                    Ok(unsafe { (*total.QuadPart(), *free.QuadPart()) })
+                    Ok((total, free))
                 };
             }
         }
@@ -369,18 +368,22 @@ pub(crate) mod module {
     #[pyfunction]
     fn get_handle_inheritable(handle: intptr_t, vm: &VirtualMachine) -> PyResult<bool> {
         let mut flags = 0;
-        if unsafe { um::handleapi::GetHandleInformation(handle as _, &mut flags) } == 0 {
+        if unsafe { Foundation::GetHandleInformation(handle as _, &mut flags) } == 0 {
             Err(errno_err(vm))
         } else {
-            Ok(flags & um::winbase::HANDLE_FLAG_INHERIT != 0)
+            Ok(flags & Foundation::HANDLE_FLAG_INHERIT != 0)
         }
     }
 
     pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> io::Result<()> {
-        use um::winbase::HANDLE_FLAG_INHERIT;
-        let flags = if inheritable { HANDLE_FLAG_INHERIT } else { 0 };
-        let res =
-            unsafe { um::handleapi::SetHandleInformation(handle as _, HANDLE_FLAG_INHERIT, flags) };
+        let flags = if inheritable {
+            Foundation::HANDLE_FLAG_INHERIT
+        } else {
+            0
+        };
+        let res = unsafe {
+            Foundation::SetHandleInformation(handle as _, Foundation::HANDLE_FLAG_INHERIT, flags)
+        };
         if res == 0 {
             Err(errno())
         } else {
@@ -408,7 +411,7 @@ pub(crate) mod module {
         let [] = dir_fd.0;
         let _ = mode;
         let wide = path.to_widecstring(vm)?;
-        let res = unsafe { um::fileapi::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
+        let res = unsafe { FileSystem::CreateDirectoryW(wide.as_ptr(), std::ptr::null_mut()) };
         if res == 0 {
             return Err(errno_err(vm));
         }
@@ -424,6 +427,6 @@ pub fn init_winsock() {
     static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
     WSA_INIT.call_once(|| unsafe {
         let mut wsa_data = std::mem::MaybeUninit::uninit();
-        let _ = winapi::um::winsock2::WSAStartup(0x0101, wsa_data.as_mut_ptr());
+        let _ = windows_sys::Win32::Networking::WinSock::WSAStartup(0x0101, wsa_data.as_mut_ptr());
     })
 }

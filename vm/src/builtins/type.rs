@@ -299,7 +299,7 @@ impl PyType {
         }
     }
 
-    pub fn iter_mro(&self) -> impl Iterator<Item = &PyType> + DoubleEndedIterator {
+    pub fn iter_mro(&self) -> impl DoubleEndedIterator<Item = &PyType> {
         std::iter::once(self).chain(self.mro.iter().map(|cls| -> &PyType { cls }))
     }
 
@@ -420,7 +420,7 @@ impl Py<PyType> {
         self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
     }
 
-    pub fn iter_mro(&self) -> impl Iterator<Item = &Py<PyType>> + DoubleEndedIterator {
+    pub fn iter_mro(&self) -> impl DoubleEndedIterator<Item = &Py<PyType>> {
         std::iter::once(self).chain(self.mro.iter().map(|x| x.deref()))
     }
 

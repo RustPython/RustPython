@@ -19,7 +19,6 @@ pub(crate) mod _signal {
 
     cfg_if::cfg_if! {
         if #[cfg(windows)] {
-            use winapi::um::winsock2;
             type WakeupFd = libc::SOCKET;
             const INVALID_WAKEUP: WakeupFd = (-1isize) as usize;
             static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
@@ -200,14 +199,16 @@ pub(crate) mod _signal {
 
         #[cfg(windows)]
         let is_socket = if fd != INVALID_WAKEUP {
+            use windows_sys::Win32::Networking::WinSock;
+
             crate::stdlib::nt::init_winsock();
             let mut res = 0i32;
             let mut res_size = std::mem::size_of::<i32>() as i32;
             let res = unsafe {
-                winsock2::getsockopt(
+                WinSock::getsockopt(
                     fd,
-                    winsock2::SOL_SOCKET,
-                    winsock2::SO_ERROR,
+                    WinSock::SOL_SOCKET,
+                    WinSock::SO_ERROR,
                     &mut res as *mut i32 as *mut _,
                     &mut res_size,
                 )
@@ -217,7 +218,7 @@ pub(crate) mod _signal {
             if !is_socket {
                 let err = std::io::Error::last_os_error();
                 // if getsockopt failed for some other reason, throw
-                if err.raw_os_error() != Some(winsock2::WSAENOTSOCK) {
+                if err.raw_os_error() != Some(WinSock::WSAENOTSOCK) {
                     return Err(err.into_pyexception(vm));
                 }
             }
@@ -263,8 +264,14 @@ pub(crate) mod _signal {
             let sigbyte = signum as u8;
             #[cfg(windows)]
             if WAKEUP_IS_SOCKET.load(Ordering::Relaxed) {
-                let _res =
-                    unsafe { winsock2::send(wakeup_fd, &sigbyte as *const u8 as *const _, 1, 0) };
+                let _res = unsafe {
+                    windows_sys::Win32::Networking::WinSock::send(
+                        wakeup_fd,
+                        &sigbyte as *const u8 as *const _,
+                        1,
+                        0,
+                    )
+                };
                 return;
             }
             let _res = unsafe { libc::write(wakeup_fd as _, &sigbyte as *const u8 as *const _, 1) };

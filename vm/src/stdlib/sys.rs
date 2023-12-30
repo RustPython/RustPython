@@ -487,18 +487,15 @@ mod sys {
     fn getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple::PyTupleRef> {
         use std::ffi::OsString;
         use std::os::windows::ffi::OsStringExt;
-        use winapi::um::{
-            sysinfoapi::GetVersionExW,
-            winnt::{LPOSVERSIONINFOEXW, LPOSVERSIONINFOW, OSVERSIONINFOEXW},
+        use windows_sys::Win32::System::SystemInformation::{
+            GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW,
         };
 
-        let mut version = OSVERSIONINFOEXW {
-            dwOSVersionInfoSize: std::mem::size_of::<OSVERSIONINFOEXW>() as u32,
-            ..OSVERSIONINFOEXW::default()
-        };
+        let mut version: OSVERSIONINFOEXW = unsafe { std::mem::zeroed() };
+        version.dwOSVersionInfoSize = std::mem::size_of::<OSVERSIONINFOEXW>() as u32;
         let result = unsafe {
-            let osvi = &mut version as LPOSVERSIONINFOEXW as LPOSVERSIONINFOW;
-            // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but winapi crate's type currently doesn't allow to do so.
+            let osvi = &mut version as *mut OSVERSIONINFOEXW as *mut OSVERSIONINFOW;
+            // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but windows-sys crate's type currently doesn't allow to do so.
             // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getversionexw#parameters
             GetVersionExW(osvi)
         };
