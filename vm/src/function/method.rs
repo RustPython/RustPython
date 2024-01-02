@@ -56,7 +56,7 @@ macro_rules! define_methods {
     ($($name:literal => $func:ident as $flags:ident),+) => {
         vec![ $( $crate::function::PyMethodDef {
             name: $name,
-            func: $crate::function::IntoPyNativeFn::into_func($func),
+            func: $crate::function::static_func($func),
             flags: $crate::function::PyMethodFlags::$flags,
             doc: None,
         }),+ ]
@@ -66,27 +66,12 @@ macro_rules! define_methods {
 #[derive(Clone)]
 pub struct PyMethodDef {
     pub name: &'static str, // TODO: interned
-    pub func: &'static PyNativeFn,
+    pub func: &'static dyn PyNativeFn,
     pub flags: PyMethodFlags,
     pub doc: Option<&'static str>, // TODO: interned
 }
 
 impl PyMethodDef {
-    #[inline]
-    pub fn new<Kind>(
-        name: &'static str,
-        func: impl IntoPyNativeFn<Kind>,
-        flags: PyMethodFlags,
-        doc: Option<&'static str>,
-    ) -> Self {
-        Self {
-            name,
-            func: func.into_func(),
-            flags,
-            doc,
-        }
-    }
-
     #[inline]
     pub const fn new_const<Kind>(
         name: &'static str,

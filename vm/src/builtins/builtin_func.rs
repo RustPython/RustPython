@@ -49,7 +49,7 @@ impl PyNativeFunction {
         )
     }
 
-    pub fn as_func(&self) -> &'static PyNativeFn {
+    pub fn as_func(&self) -> &'static dyn PyNativeFn {
         self.value.func
     }
 }
