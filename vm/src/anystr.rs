@@ -150,20 +150,14 @@ where
 pub trait AnyStr {
     type Char: Copy;
     type Container: AnyStrContainer<Self> + Extend<Self::Char>;
-    type CharIter<'a>: Iterator<Item = char> + 'a
-    where
-        Self: 'a;
-    type ElementIter<'a>: Iterator<Item = Self::Char> + 'a
-    where
-        Self: 'a;
 
     fn element_bytes_len(c: Self::Char) -> usize;
 
     fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
     fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error>;
-    fn chars(&self) -> Self::CharIter<'_>;
-    fn elements(&self) -> Self::ElementIter<'_>;
+    fn chars(&self) -> impl Iterator<Item = char>;
+    fn elements(&self) -> impl Iterator<Item = Self::Char>;
     fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self;
     // FIXME: get_chars is expensive for str
     fn get_chars(&self, range: std::ops::Range<usize>) -> &Self;

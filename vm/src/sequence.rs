@@ -3,13 +3,13 @@ use crate::{
     vm::VirtualMachine, AsObject, PyObject, PyObjectRef, PyResult,
 };
 use optional::Optioned;
-use std::ops::Range;
+use std::ops::{Deref, Range};
 
 pub trait MutObjectSequenceOp {
-    type Guard<'a>: 'a;
+    type Inner: ?Sized;
 
-    fn do_get<'a>(index: usize, guard: &'a Self::Guard<'_>) -> Option<&'a PyObjectRef>;
-    fn do_lock(&self) -> Self::Guard<'_>;
+    fn do_get(index: usize, inner: &Self::Inner) -> Option<&PyObjectRef>;
+    fn do_lock(&self) -> impl Deref<Target = Self::Inner>;
 
     fn mut_count(&self, vm: &VirtualMachine, needle: &PyObject) -> PyResult<usize> {
         let mut count = 0;

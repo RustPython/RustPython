@@ -358,13 +358,13 @@ where
 }
 
 impl MutObjectSequenceOp for PyList {
-    type Guard<'a> = PyMappedRwLockReadGuard<'a, [PyObjectRef]>;
+    type Inner = [PyObjectRef];
 
-    fn do_get<'a>(index: usize, guard: &'a Self::Guard<'_>) -> Option<&'a PyObjectRef> {
-        guard.get(index)
+    fn do_get(index: usize, inner: &[PyObjectRef]) -> Option<&PyObjectRef> {
+        inner.get(index)
     }
 
-    fn do_lock(&self) -> Self::Guard<'_> {
+    fn do_lock(&self) -> impl std::ops::Deref<Target = [PyObjectRef]> {
         self.borrow_vec()
     }
 }

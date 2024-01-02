@@ -1024,8 +1024,6 @@ const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 impl AnyStr for [u8] {
     type Char = u8;
     type Container = Vec<u8>;
-    type CharIter<'a> = bstr::Chars<'a>;
-    type ElementIter<'a> = std::iter::Copied<std::slice::Iter<'a, u8>>;
 
     fn element_bytes_len(_: u8) -> usize {
         1
@@ -1043,11 +1041,11 @@ impl AnyStr for [u8] {
         std::str::from_utf8(self)
     }
 
-    fn chars(&self) -> Self::CharIter<'_> {
+    fn chars(&self) -> impl Iterator<Item = char> {
         bstr::ByteSlice::chars(self)
     }
 
-    fn elements(&self) -> Self::ElementIter<'_> {
+    fn elements(&self) -> impl Iterator<Item = u8> {
         self.iter().copied()
     }
 
