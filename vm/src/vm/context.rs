@@ -291,12 +291,12 @@ impl Context {
         let string_pool = StringPool::default();
         let names = unsafe { ConstName::new(&string_pool, &types.str_type.to_owned()) };
 
-        let slot_new_wrapper = PyMethodDef {
-            name: names.__new__.as_str(),
-            func: PyType::__new__.into_func(),
-            flags: PyMethodFlags::METHOD,
-            doc: None,
-        };
+        let slot_new_wrapper = PyMethodDef::new_const(
+            names.__new__.as_str(),
+            PyType::__new__,
+            PyMethodFlags::METHOD,
+            None,
+        );
 
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
@@ -499,7 +499,7 @@ impl Context {
     {
         let def = PyMethodDef {
             name,
-            func: f.into_func(),
+            func: Box::leak(Box::new(f.into_func())),
             flags,
             doc,
         };

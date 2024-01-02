@@ -7,7 +7,14 @@ use std::marker::PhantomData;
 
 /// A built-in Python function.
 // PyCFunction in CPython
-pub type PyNativeFn = py_dyn_fn!(dyn Fn(&VirtualMachine, FuncArgs) -> PyResult);
+pub trait PyNativeFn:
+    Fn(&VirtualMachine, FuncArgs) -> PyResult + PyThreadingConstraint + 'static
+{
+}
+impl<F: Fn(&VirtualMachine, FuncArgs) -> PyResult + PyThreadingConstraint + 'static> PyNativeFn
+    for F
+{
+}
 
 /// Implemented by types that are or can generate built-in functions.
 ///
@@ -34,40 +41,44 @@ pub trait IntoPyNativeFn<Kind>: Sized + PyThreadingConstraint + 'static {
     /// `IntoPyNativeFn::into_func()` generates a PyNativeFn that performs the
     /// appropriate type and arity checking, any requested conversions, and then if
     /// successful calls the function with the extracted parameters.
-    fn into_func(self) -> &'static PyNativeFn {
-        let boxed = Box::new(move |vm: &VirtualMachine, args| self.call(vm, args));
-        Box::leak(boxed)
+    fn into_func(self) -> impl PyNativeFn {
+        into_func(self)
     }
+}
 
-    /// Equivalent to `into_func()`, but accessible as a constant. This is only
-    /// valid if this function is zero-sized, i.e. that
-    /// `std::mem::size_of::<F>() == 0`. If it isn't, use of this constant will
-    /// raise a compile error.
-    const STATIC_FUNC: &'static PyNativeFn = {
-        if std::mem::size_of::<Self>() == 0 {
-            &|vm, args| {
-                // SAFETY: we just confirmed that Self is zero-sized, so there
-                //         aren't any bytes in it that could be uninit.
-                #[allow(clippy::uninit_assumed_init)]
-                let f = unsafe { std::mem::MaybeUninit::<Self>::uninit().assume_init() };
-                f.call(vm, args)
+const fn into_func<F: IntoPyNativeFn<Kind>, Kind>(f: F) -> impl PyNativeFn {
+    move |vm: &VirtualMachine, args| f.call(vm, args)
+}
+
+const fn zst_ref_out_of_thin_air<T: 'static>(x: T) -> &'static T {
+    // if T is zero-sized, there's no issue forgetting it - even if it does have a Drop impl, it
+    // would never get called anyway if we consider this semantically a Box::leak(Box::new(x))-type
+    // operation. if T isn't zero-sized, we don't have to worry about it because we'll fail to compile.
+    std::mem::forget(x);
+    trait Zst: Sized + 'static {
+        const THIN_AIR: &'static Self = {
+            if std::mem::size_of::<Self>() == 0 {
+                // SAFETY: we just confirmed that Self is zero-sized, so we can
+                //         pull a value of it out of thin air.
+                unsafe { std::ptr::NonNull::<Self>::dangling().as_ref() }
+            } else {
+                panic!("can't use a non-zero-sized type here")
             }
-        } else {
-            panic!("function must be zero-sized to access STATIC_FUNC")
-        }
-    };
+        };
+    }
+    impl<T: 'static> Zst for T {}
+    <T as Zst>::THIN_AIR
 }
 
 /// Get the [`STATIC_FUNC`](IntoPyNativeFn::STATIC_FUNC) of the passed function. The same
 /// requirements of zero-sizedness apply, see that documentation for details.
+///
+/// Equivalent to [`IntoPyNativeFn::into_func()`], but usable in a const context. This is only
+/// valid if the function is zero-sized, i.e. that `std::mem::size_of::<F>() == 0`. If you call
+/// this function with a non-zero-sized function, it will raise a compile error.
 #[inline(always)]
-pub const fn static_func<Kind, F: IntoPyNativeFn<Kind>>(f: F) -> &'static PyNativeFn {
-    // if f is zero-sized, there's no issue forgetting it - even if a capture of f does have a Drop
-    // impl, it would never get called anyway. If you passed it to into_func, it would just get
-    // Box::leak'd, and as a 'static reference it'll never be dropped. and if f isn't zero-sized,
-    // we'll never reach this point anyway because we'll fail to compile.
-    std::mem::forget(f);
-    F::STATIC_FUNC
+pub const fn static_func<Kind, F: IntoPyNativeFn<Kind>>(f: F) -> &'static dyn PyNativeFn {
+    zst_ref_out_of_thin_air(into_func(f))
 }
 
 // TODO: once higher-rank trait bounds are stabilized, remove the `Kind` type
@@ -207,16 +218,16 @@ into_py_native_fn_tuple!(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::mem::size_of_val;
 
     #[test]
     fn test_into_native_fn_noalloc() {
-        let check_zst = |f: &'static PyNativeFn| assert_eq!(std::mem::size_of_val(f), 0);
         fn py_func(_b: bool, _vm: &crate::VirtualMachine) -> i32 {
             1
         }
-        check_zst(py_func.into_func());
+        assert_eq!(size_of_val(&py_func.into_func()), 0);
         let empty_closure = || "foo".to_owned();
-        check_zst(empty_closure.into_func());
-        check_zst(static_func(empty_closure));
+        assert_eq!(size_of_val(&empty_closure.into_func()), 0);
+        assert_eq!(size_of_val(static_func(empty_closure)), 0);
     }
 }
