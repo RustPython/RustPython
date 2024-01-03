@@ -296,6 +296,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                         if popped_result {
                             break 'result false;
                         }
+                        state.marks.pop();
                         ctx.skip_code_from(req, 1);
                     }
                     Jump::Branch1 => {
@@ -612,6 +613,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                                 ctx.skip_code_from(req, 1);
                                 continue;
                             }
+                            state.marks.push();
 
                             let mut next_ctx = ctx.next_offset(3, Jump::AssertNot1);
                             next_ctx.toplevel = false;
