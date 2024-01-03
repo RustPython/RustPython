@@ -1,6 +1,6 @@
 // good luck to those that follow; here be dragons
 
-use super::constants::{SreAtCode, SreCatCode, SreOpcode, SreInfo};
+use super::constants::{SreAtCode, SreCatCode, SreInfo, SreOpcode};
 use super::MAXREPEAT;
 use optional::Optioned;
 use std::convert::TryFrom;
@@ -1418,31 +1418,31 @@ fn _count<S: StrDrive>(
             general_count_literal(req, &mut ctx, end, |code, c| !char_loc_ignore(code, c));
         }
         SreOpcode::LITERAL_UNI_IGNORE => {
-            general_count_literal(req, &mut ctx, end, |code, c| {
-                code == lower_unicode(c)
-            });
+            general_count_literal(req, &mut ctx, end, |code, c| code == lower_unicode(c));
         }
         SreOpcode::NOT_LITERAL_UNI_IGNORE => {
-            general_count_literal(req, &mut ctx, end, |code, c| {
-                code != lower_unicode(c)
-            });
+            general_count_literal(req, &mut ctx, end, |code, c| code != lower_unicode(c));
         }
         _ => {
             /* General case */
             let mut count = 0;
 
+            let mut sub_ctx = MatchContext {
+                toplevel: false,
+                jump: Jump::OpCode,
+                repeat_ctx_id: usize::MAX,
+                count: -1,
+                ..ctx
+            };
+
             while count < max_count {
-                let sub_ctx = MatchContext {
-                    toplevel: false,
-                    jump: Jump::OpCode,
-                    repeat_ctx_id: usize::MAX,
-                    count: -1,
-                    ..ctx
-                };
                 if !_match(req, state, sub_ctx) {
                     break;
                 }
                 count += 1;
+                sub_ctx.skip_char(req, 1);
+                // ctx.string_position = state.string_position;
+                // ctx.string_offset = req.string.offset(0, state.string_position);
             }
             return count;
         }
