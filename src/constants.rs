@@ -14,7 +14,7 @@
 use bitflags::bitflags;
 
 pub const SRE_MAGIC: usize = 20221023;
-#[derive(num_enum::TryFromPrimitive, Debug)]
+#[derive(num_enum::TryFromPrimitive, Debug, PartialEq, Eq)]
 #[repr(u32)]
 #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 pub enum SreOpcode {
@@ -62,7 +62,7 @@ pub enum SreOpcode {
     NOT_LITERAL_UNI_IGNORE = 41,
     RANGE_UNI_IGNORE = 42,
 }
-#[derive(num_enum::TryFromPrimitive, Debug)]
+#[derive(num_enum::TryFromPrimitive, Debug, PartialEq, Eq)]
 #[repr(u32)]
 #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
 pub enum SreAtCode {

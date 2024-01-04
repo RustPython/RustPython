@@ -207,6 +207,15 @@ impl State {
             return true;
         }
 
+        if ctx.try_peek_code_as::<SreOpcode, _>(&req, 1).unwrap() == SreOpcode::AT
+            && (ctx.try_peek_code_as::<SreAtCode, _>(&req, 2).unwrap() == SreAtCode::BEGINNING
+                || ctx.try_peek_code_as::<SreAtCode, _>(&req, 2).unwrap()
+                    == SreAtCode::BEGINNING_STRING)
+        {
+            self.reset(req.end);
+            return false;
+        }
+
         req.must_advance = false;
         ctx.toplevel = false;
         while req.start < end {
@@ -272,15 +281,11 @@ enum Jump {
     PossessiveRepeat4,
 }
 
-fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -> bool {
-    let mut context_stack = vec![ctx];
+fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContext) -> bool {
+    let mut context_stack = vec![];
     let mut popped_result = false;
 
     'coro: loop {
-        let Some(mut ctx) = context_stack.pop() else {
-            break;
-        };
-
         popped_result = 'result: loop {
             let yielded = 'context: loop {
                 match ctx.jump {
@@ -864,9 +869,14 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, ctx: MatchContext) -
                 }
             };
             context_stack.push(ctx);
-            context_stack.push(yielded);
+            ctx = yielded;
             continue 'coro;
         };
+        if let Some(popped_ctx) = context_stack.pop() {
+            ctx = popped_ctx;
+        } else {
+            break;
+        }
     }
     popped_result
 }
@@ -1146,6 +1156,13 @@ impl MatchContext {
 
     fn peek_code<S>(&self, req: &Request<S>, peek: usize) -> u32 {
         req.pattern_codes[self.code_position + peek]
+    }
+
+    fn try_peek_code_as<T, S>(&self, req: &Request<S>, peek: usize) -> Result<T, T::Error>
+    where
+        T: TryFrom<u32>,
+    {
+        self.peek_code(req, peek).try_into()
     }
 
     fn skip_code(&mut self, skip: usize) {
