@@ -201,15 +201,17 @@ impl State {
                 return search_info_charset(&mut req, self, ctx);
             }
             // fallback to general search
+            // skip OP INFO
+            ctx.skip_code_from(&req, 1);
         }
 
         if _match(&req, self, ctx) {
             return true;
         }
 
-        if ctx.try_peek_code_as::<SreOpcode, _>(&req, 1).unwrap() == SreOpcode::AT
-            && (ctx.try_peek_code_as::<SreAtCode, _>(&req, 2).unwrap() == SreAtCode::BEGINNING
-                || ctx.try_peek_code_as::<SreAtCode, _>(&req, 2).unwrap()
+        if ctx.try_peek_code_as::<SreOpcode, _>(&req, 0).unwrap() == SreOpcode::AT
+            && (ctx.try_peek_code_as::<SreAtCode, _>(&req, 1).unwrap() == SreAtCode::BEGINNING
+                || ctx.try_peek_code_as::<SreAtCode, _>(&req, 1).unwrap()
                     == SreAtCode::BEGINNING_STRING)
         {
             self.reset(req.end);
