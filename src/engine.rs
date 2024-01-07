@@ -1446,26 +1446,20 @@ fn _count<S: StrDrive>(
         }
         _ => {
             /* General case */
-            let mut count = 0;
+            ctx.toplevel = false;
+            ctx.jump = Jump::OpCode;
+            ctx.repeat_ctx_id = usize::MAX;
+            ctx.count = -1;
 
-            let mut sub_ctx = MatchContext {
-                toplevel: false,
-                jump: Jump::OpCode,
-                repeat_ctx_id: usize::MAX,
-                count: -1,
-                ..ctx
+            let mut sub_state = State {
+                marks: Marks::default(),
+                repeat_stack: vec![],
+                ..*state
             };
 
-            while count < max_count {
-                if !_match(req, state, sub_ctx) {
-                    break;
-                }
-                count += 1;
-                sub_ctx.skip_char(req, 1);
-                // ctx.string_position = state.string_position;
-                // ctx.string_offset = req.string.offset(0, state.string_position);
+            while ctx.string_position < end && _match(req, &mut sub_state, ctx) {
+                ctx.skip_char(req, 1);
             }
-            return count;
         }
     }
 
