@@ -22,4 +22,4 @@ assert type(None)() is None
 assert None.__eq__(3) is NotImplemented
 assert None.__ne__(3) is NotImplemented
 assert None.__eq__(None) is True
-# assert None.__ne__(None) is False  # changed in 3.12
+assert None.__ne__(None) is NotImplemented
