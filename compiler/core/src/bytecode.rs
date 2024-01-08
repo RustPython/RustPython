@@ -3,7 +3,10 @@
 
 use bitflags::bitflags;
 use itertools::Itertools;
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::BigInt;
+#[cfg(feature = "num-bigint")]
+use num_bigint::BigInt;
 use num_complex::Complex64;
 use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
 use std::marker::PhantomData;

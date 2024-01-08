@@ -64,7 +64,10 @@ macro_rules! py_namespace {
 /// # Examples
 ///
 /// ```
+/// #[cfg(feature = "malachite-bigint")]
 /// use malachite_bigint::ToBigInt;
+/// #[cfg(feature = "num-bigint")]
+/// use num_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;
@@ -88,7 +91,10 @@ macro_rules! py_namespace {
 /// With a binding to the downcasted type:
 ///
 /// ```
+/// #[cfg(feature = "malachite-bigint")]
 /// use malachite_bigint::ToBigInt;
+/// #[cfg(feature = "num-bigint")]
+/// use num_bigint::ToBigInt;
 /// use num_traits::Zero;
 ///
 /// use rustpython_vm::match_class;

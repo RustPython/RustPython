@@ -9,7 +9,10 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     VirtualMachine,
 };
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::Sign;
+#[cfg(feature = "num-bigint")]
+use num_bigint::Sign;
 use num_traits::Zero;
 use rustpython_format::FormatSpec;
 use std::fmt::{Debug, Formatter};

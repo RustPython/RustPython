@@ -1408,6 +1408,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-bigint"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "608e7659b5c3d7cba262d894801b9ec9d00de989e8a82bd4bef91d08da45cdc0"
+dependencies = [
+ "autocfg",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
 name = "num-complex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1427,10 +1438,22 @@ dependencies = [
 ]
 
 [[package]]
-name = "num-traits"
-version = "0.2.15"
+name = "num-rational"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "578ede34cf02f8924ab9447f50c28075b4d3e5b269972345e7e0372b38c6cdcd"
+checksum = "0638a1c9d0a3c0914158145bc76cff373a75a627e6ecbfb71cbe6f453a5a19b0"
+dependencies = [
+ "autocfg",
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+]
+
+[[package]]
+name = "num-traits"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39e3200413f237f41ab11ad6d161bc7239c84dcb631773ccd7de3dfe4b5c267c"
 dependencies = [
  "autocfg",
 ]
@@ -1946,10 +1969,11 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=29c4728dbedc7e69cc2560b9b34058bbba9b1303#29c4728dbedc7e69cc2560b9b34058bbba9b1303"
+source = "git+https://github.com/RustPython/Parser.git?rev=8731e9fc504a216a1a8e849e243df9573b989c13#8731e9fc504a216a1a8e849e243df9573b989c13"
 dependencies = [
  "is-macro",
  "malachite-bigint",
+ "num-bigint",
  "rustpython-literal",
  "rustpython-parser-core",
  "static_assertions",
@@ -1987,6 +2011,7 @@ dependencies = [
  "malachite-base",
  "malachite-bigint",
  "malachite-q",
+ "num-bigint",
  "num-complex",
  "num-traits",
  "once_cell",
@@ -2016,6 +2041,7 @@ dependencies = [
  "itertools 0.11.0",
  "lz4_flex",
  "malachite-bigint",
+ "num-bigint",
  "num-complex",
  "rustpython-parser-core",
  "serde",
@@ -2058,11 +2084,12 @@ dependencies = [
 [[package]]
 name = "rustpython-format"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=29c4728dbedc7e69cc2560b9b34058bbba9b1303#29c4728dbedc7e69cc2560b9b34058bbba9b1303"
+source = "git+https://github.com/RustPython/Parser.git?rev=8731e9fc504a216a1a8e849e243df9573b989c13#8731e9fc504a216a1a8e849e243df9573b989c13"
 dependencies = [
  "bitflags 2.4.0",
  "itertools 0.11.0",
  "malachite-bigint",
+ "num-bigint",
  "num-traits",
  "rustpython-literal",
 ]
@@ -2085,7 +2112,7 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=29c4728dbedc7e69cc2560b9b34058bbba9b1303#29c4728dbedc7e69cc2560b9b34058bbba9b1303"
+source = "git+https://github.com/RustPython/Parser.git?rev=8731e9fc504a216a1a8e849e243df9573b989c13#8731e9fc504a216a1a8e849e243df9573b989c13"
 dependencies = [
  "hexf-parse",
  "is-macro",
@@ -2097,7 +2124,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=29c4728dbedc7e69cc2560b9b34058bbba9b1303#29c4728dbedc7e69cc2560b9b34058bbba9b1303"
+source = "git+https://github.com/RustPython/Parser.git?rev=8731e9fc504a216a1a8e849e243df9573b989c13#8731e9fc504a216a1a8e849e243df9573b989c13"
 dependencies = [
  "anyhow",
  "is-macro",
@@ -2105,6 +2132,7 @@ dependencies = [
  "lalrpop-util",
  "log",
  "malachite-bigint",
+ "num-bigint",
  "num-traits",
  "phf",
  "phf_codegen",
@@ -2120,7 +2148,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser-core"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=29c4728dbedc7e69cc2560b9b34058bbba9b1303#29c4728dbedc7e69cc2560b9b34058bbba9b1303"
+source = "git+https://github.com/RustPython/Parser.git?rev=8731e9fc504a216a1a8e849e243df9573b989c13#8731e9fc504a216a1a8e849e243df9573b989c13"
 dependencies = [
  "is-macro",
  "memchr",
@@ -2130,7 +2158,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser-vendored"
 version = "0.3.1"
-source = "git+https://github.com/RustPython/Parser.git?rev=29c4728dbedc7e69cc2560b9b34058bbba9b1303#29c4728dbedc7e69cc2560b9b34058bbba9b1303"
+source = "git+https://github.com/RustPython/Parser.git?rev=8731e9fc504a216a1a8e849e243df9573b989c13#8731e9fc504a216a1a8e849e243df9573b989c13"
 dependencies = [
  "memchr",
  "once_cell",
@@ -2177,8 +2205,10 @@ dependencies = [
  "memmap2",
  "mt19937",
  "nix 0.26.2",
+ "num-bigint",
  "num-complex",
  "num-integer",
+ "num-rational",
  "num-traits",
  "num_enum",
  "once_cell",
@@ -2246,8 +2276,10 @@ dependencies = [
  "memchr",
  "memoffset 0.6.5",
  "nix 0.26.2",
+ "num-bigint",
  "num-complex",
  "num-integer",
+ "num-rational",
  "num-traits",
  "num_cpus",
  "num_enum",
