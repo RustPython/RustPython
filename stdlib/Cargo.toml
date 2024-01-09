@@ -94,8 +94,8 @@ termios = "0.3.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "0.2.3"
-socket2 = { version = "0.4.4", features = ["all"] }
-dns-lookup = "1.0.8"
+socket2 = { version = "0.5.4", features = ["all"] }
+dns-lookup = "2"
 openssl = { version = "0.10.62", optional = true }
 openssl-sys = { version = "0.9.80", optional = true }
 openssl-probe = { version = "0.1.5", optional = true }
@@ -112,7 +112,7 @@ widestring = { workspace = true }
 [target.'cfg(windows)'.dependencies.winapi]
 version = "0.3.9"
 features = [
-  "winsock2", "ifdef", "netioapi",
+  "winsock2", "ifdef", "netioapi", "ws2tcpip",
 ]
 
 [target.'cfg(windows)'.dependencies.windows-sys]

@@ -21,7 +21,7 @@ mod _socket {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
-    use socket2::{Domain, Protocol, Socket, Type as SocketType};
+    use socket2::Socket;
     use std::{
         ffi,
         io::{self, Read, Write},
@@ -1117,11 +1117,7 @@ mod _socket {
                 if proto == -1 {
                     proto = 0
                 }
-                sock = Socket::new(
-                    Domain::from(family),
-                    SocketType::from(socket_kind),
-                    Some(Protocol::from(proto)),
-                )?;
+                sock = Socket::new(family.into(), socket_kind.into(), Some(proto.into()))?;
             };
             Ok(zelf.init_inner(family, socket_kind, proto, sock)?)
         }
@@ -1195,7 +1191,7 @@ mod _socket {
             let mut buf = buf.borrow_buf_mut();
             let buf = &mut *buf;
             self.sock_op(vm, SelectKind::Read, || {
-                sock.recv_with_flags(slice_as_uninit(buf), flags)
+                sock.recv_with_flags(unsafe { slice_as_uninit(buf) }, flags)
             })
         }
 
@@ -1245,7 +1241,7 @@ mod _socket {
             let flags = flags.unwrap_or(0);
             let sock = self.sock()?;
             let (n, addr) = self.sock_op(vm, SelectKind::Read, || {
-                sock.recv_from_with_flags(slice_as_uninit(buf), flags)
+                sock.recv_from_with_flags(unsafe { slice_as_uninit(buf) }, flags)
             })?;
             Ok((n, get_addr_tuple(&addr, vm)))
         }
@@ -1581,16 +1577,13 @@ mod _socket {
             return get_ip_addr_tuple(&addr, vm);
         }
         #[cfg(unix)]
-        use nix::sys::socket::{SockaddrLike, UnixAddr};
-        #[cfg(unix)]
-        if let Some(unix_addr) = unsafe { UnixAddr::from_raw(addr.as_ptr(), Some(addr.len())) } {
+        if addr.is_unix() {
             use std::os::unix::ffi::OsStrExt;
-            #[cfg(any(target_os = "android", target_os = "linux"))]
-            if let Some(abstractpath) = unix_addr.as_abstract() {
+            if let Some(abstractpath) = addr.as_abstract_namespace() {
                 return vm.ctx.new_bytes([b"\0", abstractpath].concat()).into();
             }
             // necessary on macos
-            let path = ffi::OsStr::as_bytes(unix_addr.path().unwrap_or("".as_ref()).as_ref());
+            let path = ffi::OsStr::as_bytes(addr.as_pathname().unwrap_or("".as_ref()).as_ref());
             let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
             let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
             return vm.ctx.new_str(path.to_string_lossy()).into();
@@ -1678,8 +1671,8 @@ mod _socket {
         Ok(s.to_string_lossy().into_owned())
     }
 
-    fn slice_as_uninit<T>(v: &mut [T]) -> &mut [MaybeUninit<T>] {
-        unsafe { &mut *(v as *mut [T] as *mut [MaybeUninit<T>]) }
+    unsafe fn slice_as_uninit<T>(v: &mut [T]) -> &mut [MaybeUninit<T>] {
+        &mut *(v as *mut [T] as *mut [MaybeUninit<T>])
     }
 
     enum IoOrPyException {
@@ -1733,7 +1726,6 @@ mod _socket {
         kind: SelectKind,
         interval: Option<Duration>,
     ) -> io::Result<bool> {
-        let fd = sock_fileno(sock);
         #[cfg(unix)]
         {
             use nix::poll::*;
@@ -1742,7 +1734,7 @@ mod _socket {
                 SelectKind::Write => PollFlags::POLLOUT,
                 SelectKind::Connect => PollFlags::POLLOUT | PollFlags::POLLERR,
             };
-            let mut pollfd = [PollFd::new(fd, events)];
+            let mut pollfd = [PollFd::new(sock, events)];
             let timeout = match interval {
                 Some(d) => d.as_millis() as _,
                 None => -1,
@@ -1753,6 +1745,8 @@ mod _socket {
         #[cfg(windows)]
         {
             use crate::select;
+
+            let fd = sock_fileno(sock);
 
             let mut reads = select::FdSet::new();
             let mut writes = select::FdSet::new();

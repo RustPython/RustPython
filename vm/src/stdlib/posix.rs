@@ -41,7 +41,7 @@ pub mod module {
         env,
         ffi::{CStr, CString},
         fs, io,
-        os::unix::io::RawFd,
+        os::fd::{AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
     };
     use strum_macros::{EnumIter, EnumString};
 
@@ -161,6 +161,24 @@ pub mod module {
     #[cfg(target_os = "macos")]
     #[pyattr]
     const _COPYFILE_DATA: u32 = 1 << 3;
+
+    impl TryFromObject for BorrowedFd<'_> {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let fd = i32::try_from_object(vm, obj)?;
+            if fd == -1 {
+                return Err(io::Error::from_raw_os_error(libc::EBADF).into_pyexception(vm));
+            }
+            // SAFETY: none, really. but, python's os api of passing around file descriptors
+            //         everywhere isn't really io-safe anyway, so, this is passed to the user.
+            Ok(unsafe { BorrowedFd::borrow_raw(fd) })
+        }
+    }
+
+    impl ToPyObject for OwnedFd {
+        fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+            self.into_raw_fd().to_pyobject(vm)
+        }
+    }
 
     // Flags for os_access
     bitflags! {
@@ -1196,10 +1214,11 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn openpty(vm: &VirtualMachine) -> PyResult<(i32, i32)> {
+    fn openpty(vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
         let r = nix::pty::openpty(None, None).map_err(|err| err.into_pyexception(vm))?;
-        for fd in &[r.master, r.slave] {
-            super::raw_set_inheritable(*fd, false).map_err(|e| e.into_pyexception(vm))?;
+        for fd in [&r.master, &r.slave] {
+            super::raw_set_inheritable(fd.as_raw_fd(), false)
+                .map_err(|e| e.into_pyexception(vm))?;
         }
         Ok((r.master, r.slave))
     }
@@ -2013,9 +2032,9 @@ pub mod module {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[derive(FromArgs)]
-    struct SendFileArgs {
-        out_fd: i32,
-        in_fd: i32,
+    struct SendFileArgs<'fd> {
+        out_fd: BorrowedFd<'fd>,
+        in_fd: BorrowedFd<'fd>,
         offset: crate::common::crt_fd::Offset,
         count: i64,
         #[cfg(target_os = "macos")]
@@ -2033,7 +2052,7 @@ pub mod module {
 
     #[cfg(target_os = "linux")]
     #[pyfunction]
-    fn sendfile(args: SendFileArgs, vm: &VirtualMachine) -> PyResult {
+    fn sendfile(args: SendFileArgs<'_>, vm: &VirtualMachine) -> PyResult {
         let mut file_offset = args.offset;
 
         let res = nix::sys::sendfile::sendfile(
@@ -2062,7 +2081,7 @@ pub mod module {
 
     #[cfg(target_os = "macos")]
     #[pyfunction]
-    fn sendfile(args: SendFileArgs, vm: &VirtualMachine) -> PyResult {
+    fn sendfile(args: SendFileArgs<'_>, vm: &VirtualMachine) -> PyResult {
         let headers = _extract_vec_bytes(args.headers, vm)?;
         let count = headers
             .as_ref()
