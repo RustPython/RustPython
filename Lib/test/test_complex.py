@@ -236,8 +236,6 @@ class ComplexTest(unittest.TestCase):
         for a, b in ZERO_DIVISION:
             self.assertRaises(TypeError, divmod, a, b)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pow(self):
         self.assertAlmostEqual(pow(1+1j, 0+0j), 1.0)
         self.assertAlmostEqual(pow(0+0j, 2+0j), 0.0)
