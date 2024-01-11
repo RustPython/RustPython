@@ -40,7 +40,7 @@ rustpython-format = { git = "https://github.com/RustPython/Parser.git", rev = "2
 # rustpython-ast = { path = "../RustPython-parser/ast" }
 # rustpython-format = { path = "../RustPython-parser/format" }
 
-ahash = "0.8.3"
+ahash = "0.8.6"
 anyhow = "1.0.45"
 ascii = "1.0"
 atty = "0.2.14"
