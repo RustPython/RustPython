@@ -41,10 +41,10 @@ rustpython-format = { git = "https://github.com/RustPython/Parser.git", rev = "2
 # rustpython-ast = { path = "../RustPython-parser/ast" }
 # rustpython-format = { path = "../RustPython-parser/format" }
 
-ahash = "0.8.3"
+ahash = "0.8.11"
 ascii = "1.0"
 atty = "0.2.14"
-bitflags = "2.4.0"
+bitflags = "2.4.1"
 bstr = "0.2.17"
 cfg-if = "1.0"
 chrono = "0.4.31"
@@ -74,7 +74,7 @@ rustyline = "13"
 serde = { version = "1.0.133", default-features = false }
 schannel = "0.1.22"
 static_assertions = "1.1"
-syn = "1.0.91"
+syn = "1.0.109"
 thiserror = "1.0"
 thread_local = "1.1.4"
 unicode_names2 = "1.1.0"
