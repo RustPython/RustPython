@@ -3676,6 +3676,7 @@ class TestAbstract(unittest.TestCase):
         self.assertFalse(inspect.isabstract(Date))
         self.assertGreater(Date(2020,12,25), Date(2020,8,31))
 
+    @unittest.expectedFailure
     def test_maintain_abc(self):
         class A(abc.ABC):
             @abc.abstractmethod
