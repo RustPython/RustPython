@@ -3,24 +3,24 @@
 extern crate test;
 use test::Bencher;
 
-use sre_engine::engine;
+use sre_engine::{Request, State, StrDrive};
 
 struct Pattern {
     code: &'static [u32],
 }
 
 impl Pattern {
-    fn state<'a, S: engine::StrDrive>(&self, string: S) -> (engine::Request<'a, S>, engine::State) {
+    fn state<'a, S: StrDrive>(&self, string: S) -> (Request<'a, S>, State) {
         self.state_range(string, 0..usize::MAX)
     }
 
-    fn state_range<'a, S: engine::StrDrive>(
+    fn state_range<'a, S: StrDrive>(
         &self,
         string: S,
         range: std::ops::Range<usize>,
-    ) -> (engine::Request<'a, S>, engine::State) {
-        let req = engine::Request::new(string, range.start, range.end, self.code, false);
-        let state = engine::State::default();
+    ) -> (Request<'a, S>, State) {
+        let req = Request::new(string, range.start, range.end, self.code, false);
+        let state = State::default();
         (req, state)
     }
 }

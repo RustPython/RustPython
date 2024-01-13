@@ -1,13 +1,13 @@
 // good luck to those that follow; here be dragons
 
-use super::constants::{SreAtCode, SreCatCode, SreInfo, SreOpcode};
-use super::MAXREPEAT;
+use crate::string::{
+    is_digit, is_linebreak, is_loc_word, is_space, is_uni_digit, is_uni_linebreak, is_uni_space,
+    is_uni_word, is_word, lower_ascii, lower_locate, lower_unicode, upper_locate, upper_unicode,
+};
+
+use super::{SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor, MAXREPEAT};
 use optional::Optioned;
 use std::convert::TryFrom;
-
-const fn is_py_ascii_whitespace(b: u8) -> bool {
-    matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
-}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a, S> {
@@ -117,25 +117,29 @@ impl Marks {
 pub struct State {
     pub start: usize,
     pub marks: Marks,
-    pub string_position: usize,
+    pub cursor: StringCursor,
     repeat_stack: Vec<RepeatContext>,
 }
 
 impl State {
-    pub fn reset(&mut self, start: usize) {
+    pub fn reset<S: StrDrive>(&mut self, req: &Request<S>, start: usize) {
         self.marks.clear();
         self.repeat_stack.clear();
         self.start = start;
-        self.string_position = start;
+        if self.cursor.ptr.is_null() || self.cursor.position > self.start {
+            self.cursor = req.string.create_cursor(self.start);
+        } else if self.cursor.position < self.start {
+            let skip = self.start - self.cursor.position;
+            S::skip(&mut self.cursor, skip);
+        }
     }
 
     pub fn pymatch<S: StrDrive>(&mut self, req: &Request<S>) -> bool {
         self.start = req.start;
-        self.string_position = req.start;
+        self.cursor = req.string.create_cursor(self.start);
 
         let ctx = MatchContext {
-            string_position: req.start,
-            string_offset: req.string.offset(0, req.start),
+            cursor: self.cursor,
             code_position: 0,
             toplevel: true,
             jump: Jump::OpCode,
@@ -147,7 +151,7 @@ impl State {
 
     pub fn search<S: StrDrive>(&mut self, mut req: Request<S>) -> bool {
         self.start = req.start;
-        self.string_position = req.start;
+        self.cursor = req.string.create_cursor(self.start);
 
         if req.start > req.end {
             return false;
@@ -155,11 +159,8 @@ impl State {
 
         let mut end = req.end;
 
-        let mut start_offset = req.string.offset(0, req.start);
-
         let mut ctx = MatchContext {
-            string_position: req.start,
-            string_offset: start_offset,
+            cursor: self.cursor,
             code_position: 0,
             toplevel: true,
             jump: Jump::OpCode,
@@ -183,9 +184,9 @@ impl State {
                 end -= min - 1;
 
                 // adjust ctx position
-                if end < ctx.string_position {
-                    ctx.string_position = end;
-                    ctx.string_offset = req.string.offset(0, ctx.string_position);
+                if end < ctx.cursor.position {
+                    let skip = end - self.cursor.position;
+                    S::skip(&mut self.cursor, skip);
                 }
             }
 
@@ -214,7 +215,7 @@ impl State {
                 || ctx.try_peek_code_as::<SreAtCode, _>(&req, 1).unwrap()
                     == SreAtCode::BEGINNING_STRING)
         {
-            self.reset(req.end);
+            self.reset(&req, req.end);
             return false;
         }
 
@@ -222,10 +223,8 @@ impl State {
         ctx.toplevel = false;
         while req.start < end {
             req.start += 1;
-            start_offset = req.string.offset(start_offset, 1);
-            self.reset(req.start);
-            ctx.string_position = req.start;
-            ctx.string_offset = start_offset;
+            self.reset(&req, req.start);
+            ctx.cursor = self.cursor;
 
             if _match(&req, self, ctx) {
                 return true;
@@ -248,13 +247,13 @@ impl<'a, S: StrDrive> Iterator for SearchIter<'a, S> {
             return None;
         }
 
-        self.state.reset(self.req.start);
+        self.state.reset(&self.req, self.req.start);
         if !self.state.search(self.req) {
             return None;
         }
 
-        self.req.must_advance = self.state.string_position == self.state.start;
-        self.req.start = self.state.string_position;
+        self.req.must_advance = self.state.cursor.position == self.state.start;
+        self.req.start = self.state.cursor.position;
 
         Some(())
     }
@@ -313,7 +312,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             state.marks.pop_discard();
                             break 'result false;
                         }
-                        state.string_position = ctx.string_position;
+                        state.cursor = ctx.cursor;
                         let next_ctx = ctx.next_offset(branch_offset + 1, Jump::Branch2);
                         ctx.count += next_length;
                         break 'context next_ctx;
@@ -333,7 +332,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                     Jump::UntilBacktrace => {
                         if !popped_result {
                             state.repeat_stack[ctx.repeat_ctx_id].count -= 1;
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                         }
                         break 'result popped_result;
                     }
@@ -349,7 +348,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
 
                         state.marks.pop();
                         repeat_ctx.count -= 1;
-                        state.string_position = ctx.string_position;
+                        state.cursor = ctx.cursor;
 
                         /* cannot match more repeated items here.  make sure the
                         tail matches */
@@ -359,7 +358,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                     }
                     Jump::MaxUntil3 => {
                         if !popped_result {
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                         }
                         break 'result popped_result;
                     }
@@ -369,20 +368,20 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                         }
                         ctx.repeat_ctx_id = ctx.count as usize;
                         let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
-                        state.string_position = ctx.string_position;
+                        state.cursor = ctx.cursor;
                         state.marks.pop();
 
                         // match more until tail matches
                         if repeat_ctx.count as usize >= repeat_ctx.max_count
                             && repeat_ctx.max_count != MAXREPEAT
-                            || state.string_position == repeat_ctx.last_position
+                            || state.cursor.position == repeat_ctx.last_position
                         {
                             repeat_ctx.count -= 1;
                             break 'result false;
                         }
 
                         /* zero-width match protection */
-                        repeat_ctx.last_position = state.string_position;
+                        repeat_ctx.last_position = state.cursor.position;
 
                         break 'context ctx
                             .next_at(repeat_ctx.code_position + 4, Jump::UntilBacktrace);
@@ -394,17 +393,17 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             // Special case: Tail starts with a literal. Skip positions where
                             // the rest of the pattern cannot possibly match.
                             let c = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 2);
-                            while ctx.at_end(req) || ctx.peek_char(req) != c {
+                            while ctx.at_end(req) || ctx.peek_char::<S>() != c {
                                 if ctx.count <= min_count {
                                     state.marks.pop_discard();
                                     break 'result false;
                                 }
-                                ctx.back_skip_char(req, 1);
+                                ctx.back_advance_char::<S>();
                                 ctx.count -= 1;
                             }
                         }
 
-                        state.string_position = ctx.string_position;
+                        state.cursor = ctx.cursor;
                         // General case: backtracking
                         break 'context ctx.next_peek_from(1, req, Jump::RepeatOne2);
                     }
@@ -419,7 +418,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             break 'result false;
                         }
 
-                        ctx.back_skip_char(req, 1);
+                        ctx.back_advance_char::<S>();
                         ctx.count -= 1;
 
                         state.marks.pop_keep();
@@ -429,7 +428,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                     Jump::MinRepeatOne1 => {
                         let max_count = ctx.peek_code(req, 3) as usize;
                         if max_count == MAXREPEAT || ctx.count as usize <= max_count {
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             break 'context ctx.next_peek_from(1, req, Jump::MinRepeatOne2);
                         } else {
                             state.marks.pop_discard();
@@ -441,7 +440,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             break 'result true;
                         }
 
-                        state.string_position = ctx.string_position;
+                        state.cursor = ctx.cursor;
 
                         let mut count_ctx = ctx;
                         count_ctx.skip_code(4);
@@ -450,7 +449,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             break 'result false;
                         }
 
-                        ctx.skip_char(req, 1);
+                        ctx.advance_char::<S>();
                         ctx.count += 1;
                         state.marks.pop_keep();
                         ctx.jump = Jump::MinRepeatOne1;
@@ -459,11 +458,10 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                     Jump::AtomicGroup1 => {
                         if popped_result {
                             ctx.skip_code_from(req, 1);
-                            ctx.string_position = state.string_position;
-                            ctx.string_offset = req.string.offset(0, state.string_position);
+                            ctx.cursor = state.cursor;
                             // dispatch opcode
                         } else {
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             break 'result false;
                         }
                     }
@@ -473,7 +471,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             break 'context ctx.next_offset(4, Jump::PossessiveRepeat2);
                         }
                         // zero match protection
-                        ctx.string_position = usize::MAX;
+                        ctx.cursor.position = usize::MAX;
                         ctx.jump = Jump::PossessiveRepeat3;
                         continue 'context;
                     }
@@ -483,22 +481,20 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             ctx.jump = Jump::PossessiveRepeat1;
                             continue 'context;
                         } else {
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             break 'result false;
                         }
                     }
                     Jump::PossessiveRepeat3 => {
                         let max_count = ctx.peek_code(req, 3) as usize;
                         if ((ctx.count as usize) < max_count || max_count == MAXREPEAT)
-                            && ctx.string_position != state.string_position
+                            && ctx.cursor.position != state.cursor.position
                         {
                             state.marks.push();
-                            ctx.string_position = state.string_position;
-                            ctx.string_offset = req.string.offset(0, state.string_position);
+                            ctx.cursor = state.cursor;
                             break 'context ctx.next_offset(4, Jump::PossessiveRepeat4);
                         }
-                        ctx.string_position = state.string_position;
-                        ctx.string_offset = req.string.offset(0, state.string_position);
+                        ctx.cursor = state.cursor;
                         ctx.skip_code_from(req, 1);
                         ctx.skip_code(1);
                     }
@@ -510,7 +506,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             continue 'context;
                         }
                         state.marks.pop();
-                        state.string_position = ctx.string_position;
+                        state.cursor = ctx.cursor;
                         ctx.skip_code_from(req, 1);
                         ctx.skip_code(1);
                     }
@@ -520,21 +516,22 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                 loop {
                     macro_rules! general_op_literal {
                         ($f:expr) => {{
-                            if ctx.at_end(req) || !$f(ctx.peek_code(req, 1), ctx.peek_char(req)) {
+                            if ctx.at_end(req) || !$f(ctx.peek_code(req, 1), ctx.peek_char::<S>()) {
                                 break 'result false;
                             }
                             ctx.skip_code(2);
-                            ctx.skip_char(req, 1);
+                            ctx.advance_char::<S>();
                         }};
                     }
 
                     macro_rules! general_op_in {
                         ($f:expr) => {{
-                            if ctx.at_end(req) || !$f(&ctx.pattern(req)[2..], ctx.peek_char(req)) {
+                            if ctx.at_end(req) || !$f(&ctx.pattern(req)[2..], ctx.peek_char::<S>())
+                            {
                                 break 'result false;
                             }
                             ctx.skip_code_from(req, 1);
-                            ctx.skip_char(req, 1);
+                            ctx.advance_char::<S>();
                         }};
                     }
 
@@ -552,19 +549,18 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             };
 
                             let mut gctx = MatchContext {
-                                string_position: group_start,
-                                string_offset: req.string.offset(0, group_start),
+                                cursor: req.string.create_cursor(group_start),
                                 ..ctx
                             };
 
                             for _ in group_start..group_end {
                                 if ctx.at_end(req)
-                                    || $f(ctx.peek_char(req)) != $f(gctx.peek_char(req))
+                                    || $f(ctx.peek_char::<S>()) != $f(gctx.peek_char::<S>())
                                 {
                                     break 'result false;
                                 }
-                                ctx.skip_char(req, 1);
-                                gctx.skip_char(req, 1);
+                                ctx.advance_char::<S>();
+                                gctx.advance_char::<S>();
                             }
 
                             ctx.skip_code(2);
@@ -581,7 +577,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                         SreOpcode::FAILURE => break 'result false,
                         SreOpcode::SUCCESS => {
                             if ctx.can_success(req) {
-                                state.string_position = ctx.string_position;
+                                state.cursor = ctx.cursor;
                                 break 'result true;
                             }
                             break 'result false;
@@ -591,32 +587,32 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                                 break 'result false;
                             }
                             ctx.skip_code(1);
-                            ctx.skip_char(req, 1);
+                            ctx.advance_char::<S>();
                         }
                         SreOpcode::ANY_ALL => {
                             if ctx.at_end(req) {
                                 break 'result false;
                             }
                             ctx.skip_code(1);
-                            ctx.skip_char(req, 1);
+                            ctx.advance_char::<S>();
                         }
                         /* <ASSERT> <skip> <back> <pattern> */
                         SreOpcode::ASSERT => {
                             let back = ctx.peek_code(req, 2) as usize;
-                            if ctx.string_position < back {
+                            if ctx.cursor.position < back {
                                 break 'result false;
                             }
 
                             let mut next_ctx = ctx.next_offset(3, Jump::Assert1);
                             next_ctx.toplevel = false;
-                            next_ctx.back_skip_char(req, back);
-                            state.string_position = next_ctx.string_position;
+                            next_ctx.back_skip_char::<S>(back);
+                            state.cursor = next_ctx.cursor;
                             break 'context next_ctx;
                         }
                         /* <ASSERT_NOT> <skip> <back> <pattern> */
                         SreOpcode::ASSERT_NOT => {
                             let back = ctx.peek_code(req, 2) as usize;
-                            if ctx.string_position < back {
+                            if ctx.cursor.position < back {
                                 ctx.skip_code_from(req, 1);
                                 continue;
                             }
@@ -624,8 +620,8 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
 
                             let mut next_ctx = ctx.next_offset(3, Jump::AssertNot1);
                             next_ctx.toplevel = false;
-                            next_ctx.back_skip_char(req, back);
-                            state.string_position = next_ctx.string_position;
+                            next_ctx.back_skip_char::<S>(back);
+                            state.cursor = next_ctx.cursor;
                             break 'context next_ctx;
                         }
                         SreOpcode::AT => {
@@ -645,11 +641,11 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                         }
                         SreOpcode::CATEGORY => {
                             let catcode = SreCatCode::try_from(ctx.peek_code(req, 1)).unwrap();
-                            if ctx.at_end(req) || !category(catcode, ctx.peek_char(req)) {
+                            if ctx.at_end(req) || !category(catcode, ctx.peek_char::<S>()) {
                                 break 'result false;
                             }
                             ctx.skip_code(2);
-                            ctx.skip_char(req, 1);
+                            ctx.advance_char::<S>();
                         }
                         SreOpcode::IN => general_op_in!(charset),
                         SreOpcode::IN_IGNORE => {
@@ -662,7 +658,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                         SreOpcode::MARK => {
                             state
                                 .marks
-                                .set(ctx.peek_code(req, 1) as usize, ctx.string_position);
+                                .set(ctx.peek_code(req, 1) as usize, ctx.cursor.position);
                             ctx.skip_code(2);
                         }
                         SreOpcode::INFO | SreOpcode::JUMP => ctx.skip_code_from(req, 1),
@@ -678,14 +674,14 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             };
                             state.repeat_stack.push(repeat_ctx);
                             let repeat_ctx_id = state.repeat_stack.len() - 1;
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             let mut next_ctx = ctx.next_peek_from(1, req, Jump::Repeat1);
                             next_ctx.repeat_ctx_id = repeat_ctx_id;
                             break 'context next_ctx;
                         }
                         SreOpcode::MAX_UNTIL => {
                             let repeat_ctx = &mut state.repeat_stack[ctx.repeat_ctx_id];
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             repeat_ctx.count += 1;
 
                             if (repeat_ctx.count as usize) < repeat_ctx.min_count {
@@ -696,13 +692,13 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
 
                             if ((repeat_ctx.count as usize) < repeat_ctx.max_count
                                 || repeat_ctx.max_count == MAXREPEAT)
-                                && state.string_position != repeat_ctx.last_position
+                                && state.cursor.position != repeat_ctx.last_position
                             {
                                 /* we may have enough matches, but if we can
                                 match another item, do so */
                                 state.marks.push();
                                 ctx.count = repeat_ctx.last_position as isize;
-                                repeat_ctx.last_position = state.string_position;
+                                repeat_ctx.last_position = state.cursor.position;
 
                                 break 'context ctx
                                     .next_at(repeat_ctx.code_position + 4, Jump::MaxUntil2);
@@ -716,7 +712,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                         }
                         SreOpcode::MIN_UNTIL => {
                             let repeat_ctx = state.repeat_stack.last_mut().unwrap();
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             repeat_ctx.count += 1;
 
                             if (repeat_ctx.count as usize) < repeat_ctx.min_count {
@@ -740,12 +736,12 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                                 break 'result false;
                             }
 
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
 
                             let mut next_ctx = ctx;
                             next_ctx.skip_code(4);
                             let count = _count(req, state, next_ctx, max_count);
-                            ctx.skip_char(req, count);
+                            ctx.skip_char::<S>(count);
                             if count < min_count {
                                 break 'result false;
                             }
@@ -753,7 +749,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
                             if next_code == SreOpcode::SUCCESS as u32 && ctx.can_success(req) {
                                 // tail is empty. we're finished
-                                state.string_position = ctx.string_position;
+                                state.cursor = ctx.cursor;
                                 break 'result true;
                             }
 
@@ -769,7 +765,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                                 break 'result false;
                             }
 
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             ctx.count = if min_count == 0 {
                                 0
                             } else {
@@ -779,14 +775,14 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                                 if count < min_count {
                                     break 'result false;
                                 }
-                                ctx.skip_char(req, count);
+                                ctx.skip_char::<S>(count);
                                 count as isize
                             };
 
                             let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
                             if next_code == SreOpcode::SUCCESS as u32 && ctx.can_success(req) {
                                 // tail is empty. we're finished
-                                state.string_position = ctx.string_position;
+                                state.cursor = ctx.cursor;
                                 break 'result true;
                             }
 
@@ -830,13 +826,13 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                         }
                         /* <ATOMIC_GROUP> <skip> pattern <SUCCESS> tail */
                         SreOpcode::ATOMIC_GROUP => {
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             break 'context ctx.next_offset(2, Jump::AtomicGroup1);
                         }
                         /* <POSSESSIVE_REPEAT> <skip> <1=min> <2=max> pattern
                         <SUCCESS> tail */
                         SreOpcode::POSSESSIVE_REPEAT => {
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             ctx.count = 0;
                             ctx.jump = Jump::PossessiveRepeat1;
                             continue 'context;
@@ -849,14 +845,14 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             if ctx.remaining_chars(req) < min_count {
                                 break 'result false;
                             }
-                            state.string_position = ctx.string_position;
+                            state.cursor = ctx.cursor;
                             let mut count_ctx = ctx;
                             count_ctx.skip_code(4);
                             let count = _count(req, state, count_ctx, max_count);
                             if count < min_count {
                                 break 'result false;
                             }
-                            ctx.skip_char(req, count);
+                            ctx.skip_char::<S>(count);
                             ctx.skip_code_from(req, 1);
                         }
                         SreOpcode::CHARSET
@@ -907,16 +903,17 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
 
         while !ctx.at_end(req) {
             // find the next matched literal
-            while ctx.peek_char(req) != c {
-                ctx.skip_char(req, 1);
+            while ctx.peek_char::<S>() != c {
+                ctx.advance_char::<S>();
                 if ctx.at_end(req) {
                     return false;
                 }
             }
 
-            req.start = ctx.string_position;
-            state.start = ctx.string_position;
-            state.string_position = ctx.string_position + skip;
+            req.start = ctx.cursor.position;
+            state.start = req.start;
+            state.cursor = ctx.cursor;
+            S::skip(&mut state.cursor, skip);
 
             // literal only
             if LITERAL {
@@ -924,44 +921,46 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
             }
 
             let mut next_ctx = ctx;
-            next_ctx.skip_char(req, skip);
+            next_ctx.skip_char::<S>(skip);
 
             if _match(req, state, next_ctx) {
                 return true;
             }
 
-            ctx.skip_char(req, 1);
+            ctx.advance_char::<S>();
             state.marks.clear();
         }
     } else {
         while !ctx.at_end(req) {
             let c = prefix[0];
-            while ctx.peek_char(req) != c {
-                ctx.skip_char(req, 1);
+            while ctx.peek_char::<S>() != c {
+                ctx.advance_char::<S>();
                 if ctx.at_end(req) {
                     return false;
                 }
             }
-            ctx.skip_char(req, 1);
+            ctx.advance_char::<S>();
             if ctx.at_end(req) {
                 return false;
             }
 
             let mut i = 1;
             loop {
-                if ctx.peek_char(req) == prefix[i] {
+                if ctx.peek_char::<S>() == prefix[i] {
                     i += 1;
                     if i != len {
-                        ctx.skip_char(req, 1);
+                        ctx.advance_char::<S>();
                         if ctx.at_end(req) {
                             return false;
                         }
                         continue;
                     }
 
-                    req.start = ctx.string_position - (len - 1);
-                    state.start = req.start;
-                    state.string_position = state.start + skip;
+                    req.start = ctx.cursor.position - (len - 1);
+                    state.reset(req, req.start);
+                    S::skip(&mut state.cursor, skip);
+                    // state.start = req.start;
+                    // state.cursor = req.string.create_cursor(req.start + skip);
 
                     // literal only
                     if LITERAL {
@@ -970,17 +969,16 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
 
                     let mut next_ctx = ctx;
                     if skip != 0 {
-                        next_ctx.skip_char(req, 1);
+                        next_ctx.advance_char::<S>();
                     } else {
-                        next_ctx.string_position = state.string_position;
-                        next_ctx.string_offset = req.string.offset(0, state.string_position);
+                        next_ctx.cursor = state.cursor;
                     }
 
                     if _match(req, state, next_ctx) {
                         return true;
                     }
 
-                    ctx.skip_char(req, 1);
+                    ctx.advance_char::<S>();
                     if ctx.at_end(req) {
                         return false;
                     }
@@ -1009,22 +1007,22 @@ fn search_info_charset<S: StrDrive>(
     req.must_advance = false;
 
     loop {
-        while !ctx.at_end(req) && !charset(set, ctx.peek_char(req)) {
-            ctx.skip_char(req, 1);
+        while !ctx.at_end(req) && !charset(set, ctx.peek_char::<S>()) {
+            ctx.advance_char::<S>();
         }
         if ctx.at_end(req) {
             return false;
         }
 
-        req.start = ctx.string_position;
-        state.start = ctx.string_position;
-        state.string_position = ctx.string_position;
+        req.start = ctx.cursor.position;
+        state.start = ctx.cursor.position;
+        state.cursor = ctx.cursor;
 
         if _match(req, state, ctx) {
             return true;
         }
 
-        ctx.skip_char(req, 1);
+        ctx.advance_char::<S>();
         state.marks.clear();
     }
 }
@@ -1039,85 +1037,9 @@ struct RepeatContext {
     prev_id: usize,
 }
 
-pub trait StrDrive: Copy {
-    fn offset(&self, offset: usize, skip: usize) -> usize;
-    fn count(&self) -> usize;
-    fn peek(&self, offset: usize) -> u32;
-    fn back_peek(&self, offset: usize) -> u32;
-    fn back_offset(&self, offset: usize, skip: usize) -> usize;
-}
-
-impl StrDrive for &str {
-    fn offset(&self, offset: usize, skip: usize) -> usize {
-        self.get(offset..)
-            .and_then(|s| s.char_indices().nth(skip).map(|x| x.0 + offset))
-            .unwrap_or(self.len())
-    }
-
-    fn count(&self) -> usize {
-        self.chars().count()
-    }
-
-    fn peek(&self, offset: usize) -> u32 {
-        unsafe { self.get_unchecked(offset..) }
-            .chars()
-            .next()
-            .unwrap() as u32
-    }
-
-    fn back_peek(&self, offset: usize) -> u32 {
-        let bytes = self.as_bytes();
-        let back_offset = utf8_back_peek_offset(bytes, offset);
-        match offset - back_offset {
-            1 => u32::from_be_bytes([0, 0, 0, bytes[offset - 1]]),
-            2 => u32::from_be_bytes([0, 0, bytes[offset - 2], bytes[offset - 1]]),
-            3 => u32::from_be_bytes([0, bytes[offset - 3], bytes[offset - 2], bytes[offset - 1]]),
-            4 => u32::from_be_bytes([
-                bytes[offset - 4],
-                bytes[offset - 3],
-                bytes[offset - 2],
-                bytes[offset - 1],
-            ]),
-            _ => unreachable!(),
-        }
-    }
-
-    fn back_offset(&self, offset: usize, skip: usize) -> usize {
-        let bytes = self.as_bytes();
-        let mut back_offset = offset;
-        for _ in 0..skip {
-            back_offset = utf8_back_peek_offset(bytes, back_offset);
-        }
-        back_offset
-    }
-}
-
-impl<'a> StrDrive for &'a [u8] {
-    fn offset(&self, offset: usize, skip: usize) -> usize {
-        offset + skip
-    }
-
-    fn count(&self) -> usize {
-        self.len()
-    }
-
-    fn peek(&self, offset: usize) -> u32 {
-        self[offset] as u32
-    }
-
-    fn back_peek(&self, offset: usize) -> u32 {
-        self[offset - 1] as u32
-    }
-
-    fn back_offset(&self, offset: usize, skip: usize) -> usize {
-        offset - skip
-    }
-}
-
 #[derive(Clone, Copy)]
 struct MatchContext {
-    string_position: usize,
-    string_offset: usize,
+    cursor: StringCursor,
     code_position: usize,
     toplevel: bool,
     jump: Jump,
@@ -1135,25 +1057,31 @@ impl MatchContext {
     }
 
     fn remaining_chars<S>(&self, req: &Request<S>) -> usize {
-        req.end - self.string_position
+        req.end - self.cursor.position
     }
 
-    fn peek_char<S: StrDrive>(&self, req: &Request<S>) -> u32 {
-        req.string.peek(self.string_offset)
+    fn peek_char<S: StrDrive>(&self) -> u32 {
+        S::peek(&self.cursor)
     }
 
-    fn skip_char<S: StrDrive>(&mut self, req: &Request<S>, skip: usize) {
-        self.string_position += skip;
-        self.string_offset = req.string.offset(self.string_offset, skip);
+    fn skip_char<S: StrDrive>(&mut self, skip: usize) {
+        S::skip(&mut self.cursor, skip);
     }
 
-    fn back_peek_char<S: StrDrive>(&self, req: &Request<S>) -> u32 {
-        req.string.back_peek(self.string_offset)
+    fn advance_char<S: StrDrive>(&mut self) -> u32 {
+        S::advance(&mut self.cursor)
     }
 
-    fn back_skip_char<S: StrDrive>(&mut self, req: &Request<S>, skip: usize) {
-        self.string_position -= skip;
-        self.string_offset = req.string.back_offset(self.string_offset, skip);
+    fn back_peek_char<S: StrDrive>(&self) -> u32 {
+        S::back_peek(&self.cursor)
+    }
+
+    fn back_skip_char<S: StrDrive>(&mut self, skip: usize) {
+        S::back_skip(&mut self.cursor, skip);
+    }
+
+    fn back_advance_char<S: StrDrive>(&mut self) -> u32 {
+        S::back_advance(&mut self.cursor)
     }
 
     fn peek_code<S>(&self, req: &Request<S>, peek: usize) -> u32 {
@@ -1177,15 +1105,15 @@ impl MatchContext {
 
     fn at_beginning(&self) -> bool {
         // self.ctx().string_position == self.state().start
-        self.string_position == 0
+        self.cursor.position == 0
     }
 
     fn at_end<S>(&self, req: &Request<S>) -> bool {
-        self.string_position == req.end
+        self.cursor.position == req.end
     }
 
     fn at_linebreak<S: StrDrive>(&self, req: &Request<S>) -> bool {
-        !self.at_end(req) && is_linebreak(self.peek_char(req))
+        !self.at_end(req) && is_linebreak(self.peek_char::<S>())
     }
 
     fn at_boundary<S: StrDrive, F: FnMut(u32) -> bool>(
@@ -1196,8 +1124,8 @@ impl MatchContext {
         if self.at_beginning() && self.at_end(req) {
             return false;
         }
-        let that = !self.at_beginning() && word_checker(self.back_peek_char(req));
-        let this = !self.at_end(req) && word_checker(self.peek_char(req));
+        let that = !self.at_beginning() && word_checker(self.back_peek_char::<S>());
+        let this = !self.at_end(req) && word_checker(self.peek_char::<S>());
         this != that
     }
 
@@ -1209,8 +1137,8 @@ impl MatchContext {
         if self.at_beginning() && self.at_end(req) {
             return false;
         }
-        let that = !self.at_beginning() && word_checker(self.back_peek_char(req));
-        let this = !self.at_end(req) && word_checker(self.peek_char(req));
+        let that = !self.at_beginning() && word_checker(self.back_peek_char::<S>());
+        let this = !self.at_end(req) && word_checker(self.peek_char::<S>());
         this == that
     }
 
@@ -1221,7 +1149,7 @@ impl MatchContext {
         if req.match_all && !self.at_end(req) {
             return false;
         }
-        if req.must_advance && self.string_position == req.start {
+        if req.must_advance && self.cursor.position == req.start {
             return false;
         }
         true
@@ -1252,7 +1180,7 @@ impl MatchContext {
 fn at<S: StrDrive>(req: &Request<S>, ctx: &MatchContext, atcode: SreAtCode) -> bool {
     match atcode {
         SreAtCode::BEGINNING | SreAtCode::BEGINNING_STRING => ctx.at_beginning(),
-        SreAtCode::BEGINNING_LINE => ctx.at_beginning() || is_linebreak(ctx.back_peek_char(req)),
+        SreAtCode::BEGINNING_LINE => ctx.at_beginning() || is_linebreak(ctx.back_peek_char::<S>()),
         SreAtCode::BOUNDARY => ctx.at_boundary(req, is_word),
         SreAtCode::NON_BOUNDARY => ctx.at_non_boundary(req, is_word),
         SreAtCode::END => {
@@ -1403,21 +1331,22 @@ fn _count<S: StrDrive>(
     max_count: usize,
 ) -> usize {
     let max_count = std::cmp::min(max_count, ctx.remaining_chars(req));
-    let end = ctx.string_position + max_count;
+    let end = ctx.cursor.position + max_count;
     let opcode = SreOpcode::try_from(ctx.peek_code(req, 0)).unwrap();
 
     match opcode {
         SreOpcode::ANY => {
-            while ctx.string_position < end && !ctx.at_linebreak(req) {
-                ctx.skip_char(req, 1);
+            while ctx.cursor.position < end && !ctx.at_linebreak(req) {
+                ctx.advance_char::<S>();
             }
         }
         SreOpcode::ANY_ALL => {
-            ctx.skip_char(req, max_count);
+            ctx.skip_char::<S>(max_count);
         }
         SreOpcode::IN => {
-            while ctx.string_position < end && charset(&ctx.pattern(req)[2..], ctx.peek_char(req)) {
-                ctx.skip_char(req, 1);
+            while ctx.cursor.position < end && charset(&ctx.pattern(req)[2..], ctx.peek_char::<S>())
+            {
+                ctx.advance_char::<S>();
             }
         }
         SreOpcode::LITERAL => {
@@ -1457,14 +1386,14 @@ fn _count<S: StrDrive>(
                 ..*state
             };
 
-            while ctx.string_position < end && _match(req, &mut sub_state, ctx) {
-                ctx.skip_char(req, 1);
+            while ctx.cursor.position < end && _match(req, &mut sub_state, ctx) {
+                ctx.advance_char::<S>();
             }
         }
     }
 
     // TODO: return offset
-    ctx.string_position - state.string_position
+    ctx.cursor.position - state.cursor.position
 }
 
 fn general_count_literal<S: StrDrive, F: FnMut(u32, u32) -> bool>(
@@ -1474,145 +1403,7 @@ fn general_count_literal<S: StrDrive, F: FnMut(u32, u32) -> bool>(
     mut f: F,
 ) {
     let ch = ctx.peek_code(req, 1);
-    while ctx.string_position < end && f(ch, ctx.peek_char(req)) {
-        ctx.skip_char(req, 1);
+    while ctx.cursor.position < end && f(ch, ctx.peek_char::<S>()) {
+        ctx.advance_char::<S>();
     }
-}
-
-fn is_word(ch: u32) -> bool {
-    ch == '_' as u32
-        || u8::try_from(ch)
-            .map(|x| x.is_ascii_alphanumeric())
-            .unwrap_or(false)
-}
-fn is_space(ch: u32) -> bool {
-    u8::try_from(ch)
-        .map(is_py_ascii_whitespace)
-        .unwrap_or(false)
-}
-fn is_digit(ch: u32) -> bool {
-    u8::try_from(ch)
-        .map(|x| x.is_ascii_digit())
-        .unwrap_or(false)
-}
-fn is_loc_alnum(ch: u32) -> bool {
-    // FIXME: Ignore the locales
-    u8::try_from(ch)
-        .map(|x| x.is_ascii_alphanumeric())
-        .unwrap_or(false)
-}
-fn is_loc_word(ch: u32) -> bool {
-    ch == '_' as u32 || is_loc_alnum(ch)
-}
-fn is_linebreak(ch: u32) -> bool {
-    ch == '\n' as u32
-}
-pub fn lower_ascii(ch: u32) -> u32 {
-    u8::try_from(ch)
-        .map(|x| x.to_ascii_lowercase() as u32)
-        .unwrap_or(ch)
-}
-fn lower_locate(ch: u32) -> u32 {
-    // FIXME: Ignore the locales
-    lower_ascii(ch)
-}
-fn upper_locate(ch: u32) -> u32 {
-    // FIXME: Ignore the locales
-    u8::try_from(ch)
-        .map(|x| x.to_ascii_uppercase() as u32)
-        .unwrap_or(ch)
-}
-fn is_uni_digit(ch: u32) -> bool {
-    // TODO: check with cpython
-    char::try_from(ch)
-        .map(|x| x.is_ascii_digit())
-        .unwrap_or(false)
-}
-fn is_uni_space(ch: u32) -> bool {
-    // TODO: check with cpython
-    is_space(ch)
-        || matches!(
-            ch,
-            0x0009
-                | 0x000A
-                | 0x000B
-                | 0x000C
-                | 0x000D
-                | 0x001C
-                | 0x001D
-                | 0x001E
-                | 0x001F
-                | 0x0020
-                | 0x0085
-                | 0x00A0
-                | 0x1680
-                | 0x2000
-                | 0x2001
-                | 0x2002
-                | 0x2003
-                | 0x2004
-                | 0x2005
-                | 0x2006
-                | 0x2007
-                | 0x2008
-                | 0x2009
-                | 0x200A
-                | 0x2028
-                | 0x2029
-                | 0x202F
-                | 0x205F
-                | 0x3000
-        )
-}
-fn is_uni_linebreak(ch: u32) -> bool {
-    matches!(
-        ch,
-        0x000A | 0x000B | 0x000C | 0x000D | 0x001C | 0x001D | 0x001E | 0x0085 | 0x2028 | 0x2029
-    )
-}
-fn is_uni_alnum(ch: u32) -> bool {
-    // TODO: check with cpython
-    char::try_from(ch)
-        .map(|x| x.is_alphanumeric())
-        .unwrap_or(false)
-}
-fn is_uni_word(ch: u32) -> bool {
-    ch == '_' as u32 || is_uni_alnum(ch)
-}
-pub fn lower_unicode(ch: u32) -> u32 {
-    // TODO: check with cpython
-    char::try_from(ch)
-        .map(|x| x.to_lowercase().next().unwrap() as u32)
-        .unwrap_or(ch)
-}
-pub fn upper_unicode(ch: u32) -> u32 {
-    // TODO: check with cpython
-    char::try_from(ch)
-        .map(|x| x.to_uppercase().next().unwrap() as u32)
-        .unwrap_or(ch)
-}
-
-fn is_utf8_first_byte(b: u8) -> bool {
-    // In UTF-8, there are three kinds of byte...
-    // 0xxxxxxx : ASCII
-    // 10xxxxxx : 2nd, 3rd or 4th byte of code
-    // 11xxxxxx : 1st byte of multibyte code
-    (b & 0b10000000 == 0) || (b & 0b11000000 == 0b11000000)
-}
-
-fn utf8_back_peek_offset(bytes: &[u8], offset: usize) -> usize {
-    let mut offset = offset - 1;
-    if !is_utf8_first_byte(bytes[offset]) {
-        offset -= 1;
-        if !is_utf8_first_byte(bytes[offset]) {
-            offset -= 1;
-            if !is_utf8_first_byte(bytes[offset]) {
-                offset -= 1;
-                if !is_utf8_first_byte(bytes[offset]) {
-                    panic!("not utf-8 code point");
-                }
-            }
-        }
-    }
-    offset
 }

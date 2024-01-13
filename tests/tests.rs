@@ -1,16 +1,13 @@
-use sre_engine::engine;
+use sre_engine::{Request, State, StrDrive};
 
 struct Pattern {
     code: &'static [u32],
 }
 
 impl Pattern {
-    fn state<'a, S: engine::StrDrive>(
-        &self,
-        string: S,
-    ) -> (engine::Request<'a, S>, engine::State) {
-        let req = engine::Request::new(string, 0, usize::MAX, self.code, false);
-        let state = engine::State::default();
+    fn state<'a, S: StrDrive>(&self, string: S) -> (Request<'a, S>, State) {
+        let req = Request::new(string, 0, usize::MAX, self.code, false);
+        let state = State::default();
         (req, state)
     }
 }
@@ -54,7 +51,7 @@ fn test_zerowidth() {
     let (mut req, mut state) = p.state("a:");
     req.must_advance = true;
     assert!(state.search(req));
-    assert_eq!(state.string_position, 1);
+    assert_eq!(state.cursor.position, 1);
 }
 
 #[test]
@@ -66,7 +63,10 @@ fn test_repeat_context_panic() {
     // END GENERATED
     let (req, mut state) = p.state("axxzaz");
     assert!(state.pymatch(&req));
-    assert_eq!(*state.marks.raw(), vec![Optioned::some(1), Optioned::some(3)]);
+    assert_eq!(
+        *state.marks.raw(),
+        vec![Optioned::some(1), Optioned::some(3)]
+    );
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn test_double_max_until() {
     // END GENERATED
     let (req, mut state) = p.state("1111");
     assert!(state.pymatch(&req));
-    assert_eq!(state.string_position, 4);
+    assert_eq!(state.cursor.position, 4);
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn test_info_single() {
     let (req, mut state) = p.state("baaaa");
     assert!(state.search(req));
     assert_eq!(state.start, 1);
-    assert_eq!(state.string_position, 5);
+    assert_eq!(state.cursor.position, 5);
 }
 
 #[test]
@@ -161,7 +161,7 @@ fn test_bug_20998() {
     let (mut req, mut state) = p.state("ABC");
     req.match_all = true;
     assert!(state.pymatch(&req));
-    assert_eq!(state.string_position, 3);
+    assert_eq!(state.cursor.position, 3);
 }
 
 #[test]
@@ -172,5 +172,10 @@ fn test_bigcharset() {
     // END GENERATED
     let (req, mut state) = p.state("x ");
     assert!(state.pymatch(&req));
-    assert_eq!(state.string_position, 1);
+    assert_eq!(state.cursor.position, 1);
+}
+
+#[test]
+fn test_search_nonascii() {
+    // pattern p = re.compile('\xe0+')
 }
