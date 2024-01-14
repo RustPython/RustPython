@@ -16,6 +16,7 @@ impl Default for StringCursor {
 pub trait StrDrive: Copy {
     fn count(&self) -> usize;
     fn create_cursor(&self, n: usize) -> StringCursor;
+    fn adjust_cursor(&self, cursor: &mut StringCursor, n: usize);
     fn advance(cursor: &mut StringCursor) -> u32;
     fn peek(cursor: &StringCursor) -> u32;
     fn skip(cursor: &mut StringCursor, n: usize);
@@ -36,6 +37,12 @@ impl<'a> StrDrive for &'a [u8] {
             ptr: self[n..].as_ptr(),
             position: n,
         }
+    }
+
+    #[inline]
+    fn adjust_cursor(&self, cursor: &mut StringCursor, n: usize) {
+        cursor.position = n;
+        cursor.ptr = self[n..].as_ptr();
     }
 
     #[inline]
@@ -83,11 +90,21 @@ impl StrDrive for &str {
 
     #[inline]
     fn create_cursor(&self, n: usize) -> StringCursor {
-        let mut ptr = self.as_ptr();
-        for _ in 0..n {
-            unsafe { next_code_point(&mut ptr) };
+        let mut cursor = StringCursor {
+            ptr: self.as_ptr(),
+            position: 0,
+        };
+        Self::skip(&mut cursor, n);
+        cursor
+    }
+
+    #[inline]
+    fn adjust_cursor(&self, cursor: &mut StringCursor, n: usize) {
+        if cursor.ptr.is_null() || cursor.position > n {
+            *cursor = Self::create_cursor(&self, n);
+        } else if cursor.position < n {
+            Self::skip(cursor, n - cursor.position);
         }
-        StringCursor { ptr, position: n }
     }
 
     #[inline]

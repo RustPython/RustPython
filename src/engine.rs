@@ -7,7 +7,7 @@ use crate::string::{
 
 use super::{SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor, MAXREPEAT};
 use optional::Optioned;
-use std::convert::TryFrom;
+use std::{convert::TryFrom, ptr::null};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Request<'a, S> {
@@ -126,17 +126,12 @@ impl State {
         self.marks.clear();
         self.repeat_stack.clear();
         self.start = start;
-        if self.cursor.ptr.is_null() || self.cursor.position > self.start {
-            self.cursor = req.string.create_cursor(self.start);
-        } else if self.cursor.position < self.start {
-            let skip = self.start - self.cursor.position;
-            S::skip(&mut self.cursor, skip);
-        }
+        req.string.adjust_cursor(&mut self.cursor, start);
     }
 
     pub fn pymatch<S: StrDrive>(&mut self, req: &Request<S>) -> bool {
         self.start = req.start;
-        self.cursor = req.string.create_cursor(self.start);
+        req.string.adjust_cursor(&mut self.cursor, self.start);
 
         let ctx = MatchContext {
             cursor: self.cursor,
@@ -151,7 +146,7 @@ impl State {
 
     pub fn search<S: StrDrive>(&mut self, mut req: Request<S>) -> bool {
         self.start = req.start;
-        self.cursor = req.string.create_cursor(self.start);
+        req.string.adjust_cursor(&mut self.cursor, self.start);
 
         if req.start > req.end {
             return false;
@@ -215,7 +210,9 @@ impl State {
                 || ctx.try_peek_code_as::<SreAtCode, _>(&req, 1).unwrap()
                     == SreAtCode::BEGINNING_STRING)
         {
-            self.reset(&req, req.end);
+            self.cursor.position = req.end;
+            self.cursor.ptr = null();
+            // self.reset(&req, req.end);
             return false;
         }
 
