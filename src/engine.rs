@@ -441,7 +441,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
 
                         let mut count_ctx = ctx;
                         count_ctx.skip_code(4);
-                        if _count(req, state, count_ctx, 1) == 0 {
+                        if _count(req, state, &mut count_ctx, 1) == 0 {
                             state.marks.pop_discard();
                             break 'result false;
                         }
@@ -735,13 +735,13 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
 
                             state.cursor = ctx.cursor;
 
-                            let mut next_ctx = ctx;
-                            next_ctx.skip_code(4);
-                            let count = _count(req, state, next_ctx, max_count);
-                            ctx.skip_char::<S>(count);
+                            let mut count_ctx = ctx;
+                            count_ctx.skip_code(4);
+                            let count = _count(req, state, &mut count_ctx, max_count);
                             if count < min_count {
                                 break 'result false;
                             }
+                            ctx.cursor = count_ctx.cursor;
 
                             let next_code = ctx.peek_code(req, ctx.peek_code(req, 1) as usize + 1);
                             if next_code == SreOpcode::SUCCESS as u32 && ctx.can_success(req) {
@@ -768,11 +768,11 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             } else {
                                 let mut count_ctx = ctx;
                                 count_ctx.skip_code(4);
-                                let count = _count(req, state, count_ctx, min_count);
+                                let count = _count(req, state, &mut count_ctx, min_count);
                                 if count < min_count {
                                     break 'result false;
                                 }
-                                ctx.skip_char::<S>(count);
+                                ctx.cursor = count_ctx.cursor;
                                 count as isize
                             };
 
@@ -845,11 +845,11 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             state.cursor = ctx.cursor;
                             let mut count_ctx = ctx;
                             count_ctx.skip_code(4);
-                            let count = _count(req, state, count_ctx, max_count);
+                            let count = _count(req, state, &mut count_ctx, max_count);
                             if count < min_count {
                                 break 'result false;
                             }
-                            ctx.skip_char::<S>(count);
+                            ctx.cursor = count_ctx.cursor;
                             ctx.skip_code_from(req, 1);
                         }
                         SreOpcode::CHARSET
@@ -1324,7 +1324,7 @@ fn charset(set: &[u32], ch: u32) -> bool {
 fn _count<S: StrDrive>(
     req: &Request<S>,
     state: &mut State,
-    mut ctx: MatchContext,
+    ctx: &mut MatchContext,
     max_count: usize,
 ) -> usize {
     let max_count = std::cmp::min(max_count, ctx.remaining_chars(req));
@@ -1347,28 +1347,28 @@ fn _count<S: StrDrive>(
             }
         }
         SreOpcode::LITERAL => {
-            general_count_literal(req, &mut ctx, end, |code, c| code == c);
+            general_count_literal(req, ctx, end, |code, c| code == c);
         }
         SreOpcode::NOT_LITERAL => {
-            general_count_literal(req, &mut ctx, end, |code, c| code != c);
+            general_count_literal(req, ctx, end, |code, c| code != c);
         }
         SreOpcode::LITERAL_IGNORE => {
-            general_count_literal(req, &mut ctx, end, |code, c| code == lower_ascii(c));
+            general_count_literal(req, ctx, end, |code, c| code == lower_ascii(c));
         }
         SreOpcode::NOT_LITERAL_IGNORE => {
-            general_count_literal(req, &mut ctx, end, |code, c| code != lower_ascii(c));
+            general_count_literal(req, ctx, end, |code, c| code != lower_ascii(c));
         }
         SreOpcode::LITERAL_LOC_IGNORE => {
-            general_count_literal(req, &mut ctx, end, char_loc_ignore);
+            general_count_literal(req, ctx, end, char_loc_ignore);
         }
         SreOpcode::NOT_LITERAL_LOC_IGNORE => {
-            general_count_literal(req, &mut ctx, end, |code, c| !char_loc_ignore(code, c));
+            general_count_literal(req, ctx, end, |code, c| !char_loc_ignore(code, c));
         }
         SreOpcode::LITERAL_UNI_IGNORE => {
-            general_count_literal(req, &mut ctx, end, |code, c| code == lower_unicode(c));
+            general_count_literal(req, ctx, end, |code, c| code == lower_unicode(c));
         }
         SreOpcode::NOT_LITERAL_UNI_IGNORE => {
-            general_count_literal(req, &mut ctx, end, |code, c| code != lower_unicode(c));
+            general_count_literal(req, ctx, end, |code, c| code != lower_unicode(c));
         }
         _ => {
             /* General case */
@@ -1383,7 +1383,7 @@ fn _count<S: StrDrive>(
                 ..*state
             };
 
-            while ctx.cursor.position < end && _match(req, &mut sub_state, ctx) {
+            while ctx.cursor.position < end && _match(req, &mut sub_state, *ctx) {
                 ctx.advance_char::<S>();
             }
         }
