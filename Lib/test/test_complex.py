@@ -241,6 +241,13 @@ class ComplexTest(unittest.TestCase):
         else:
             self.fail("should fail 0.0 to negative or complex power")
 
+        try:
+            0j ** (-1)
+        except ZeroDivisionError:
+            pass
+        else:
+            self.fail("should fail 0.0 to negative or complex power")
+
         # The following is used to exercise certain code paths
         self.assertEqual(a ** 105, a ** 105)
         self.assertEqual(a ** -105, a ** -105)

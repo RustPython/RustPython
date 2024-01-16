@@ -12,8 +12,8 @@ use crate::{
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
-use num_complex::Complex64;
-use num_traits::Zero;
+use num_complex::{Complex64, ComplexFloat};
+use num_traits::{Zero, Signed};
 use rustpython_common::hash;
 use std::num::Wrapping;
 
@@ -103,7 +103,7 @@ fn inner_div(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
 
 fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Complex64> {
     if v1.is_zero() {
-        return if v2.im != 0.0 {
+        return if v2.im != 0.0 || (v1.im.is_zero() && v2.re().is_negative()) { 
             let msg = format!("{v1} cannot be raised to a negative or complex power");
             Err(vm.new_zero_division_error(msg))
         } else if v2.is_zero() {
