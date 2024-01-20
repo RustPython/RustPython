@@ -815,10 +815,10 @@ class UtimeTests(unittest.TestCase):
         # Convert a number of nanosecond (int) to a number of seconds (float).
         # Round towards infinity by adding 0.5 nanosecond to avoid rounding
         # issue, os.utime() rounds towards minus infinity.
-        return (ns * 1e-9) + 0.5e-9
+        # XXX: RUSTCPYTHON os.utime() use `[Duration::from_secs_f64](https://doc.rust-lang.org/std/time/struct.Duration.html#method.try_from_secs_f64)`
+        # return (ns * 1e-9) + 0.5e-9
+        return (ns * 1e-9)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_utime_by_indexed(self):
         # pass times as floating point seconds as the second indexed parameter
         def set_time(filename, ns):
@@ -830,8 +830,6 @@ class UtimeTests(unittest.TestCase):
             os.utime(filename, (atime, mtime))
         self._test_utime(set_time)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_utime_by_times(self):
         def set_time(filename, ns):
             atime_ns, mtime_ns = ns
