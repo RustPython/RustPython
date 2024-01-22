@@ -9,8 +9,9 @@ use crate::{
     },
     identifier,
     protocol::PyNumberMethods,
+    stdlib::warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, stdlib::warnings,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;
@@ -59,7 +60,7 @@ impl PyObjectRef {
         }
         if let Some(method) = vm.get_method(self.clone(), identifier!(vm, __complex__)) {
             let result = method?.call((), vm)?;
-            
+
             let ret_class = result.class().to_owned();
             if let Some(ret) = result.downcast_ref::<PyComplex>() {
                 warnings::warn(
@@ -74,7 +75,7 @@ impl PyObjectRef {
                     vm,
                 )?;
 
-                return Ok(Some((ret.value, true)))
+                return Ok(Some((ret.value, true)));
             } else {
                 return match result.payload::<PyComplex>() {
                     Some(complex_obj) => Ok(Some((complex_obj.value, true))),
@@ -84,7 +85,6 @@ impl PyObjectRef {
                     ))),
                 };
             }
-            
         }
         // `complex` does not have a `__complex__` by default, so subclasses might not either,
         // use the actual stored value in this case
