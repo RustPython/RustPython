@@ -507,7 +507,7 @@ impl Compiler {
             SymbolScope::Cell => {
                 cache = &mut info.cellvar_cache;
                 NameOpType::Deref
-            } // // TODO: is this right?
+            } // TODO: is this right?
               // SymbolScope::Unknown => NameOpType::Global,
         };
 
