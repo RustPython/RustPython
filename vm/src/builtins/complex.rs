@@ -83,7 +83,7 @@ impl PyObjectRef {
                         "__complex__ returned non-complex (type '{}')",
                         result.class().name()
                     ))),
-                }
+                };
             }
         }
         // `complex` does not have a `__complex__` by default, so subclasses might not either,
