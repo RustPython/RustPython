@@ -77,13 +77,13 @@ impl PyObjectRef {
 
                 Ok(Some((ret.value, true)))
             } else {
-                return match result.payload::<PyComplex>() {
+                match result.payload::<PyComplex>() {
                     Some(complex_obj) => Ok(Some((complex_obj.value, true))),
                     None => Err(vm.new_type_error(format!(
                         "__complex__ returned non-complex (type '{}')",
                         result.class().name()
                     ))),
-                };
+                }
             }
         }
         // `complex` does not have a `__complex__` by default, so subclasses might not either,
