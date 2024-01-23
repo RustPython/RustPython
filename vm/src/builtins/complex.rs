@@ -75,7 +75,7 @@ impl PyObjectRef {
                     vm,
                 )?;
 
-                Ok(Some((ret.value, true)))
+                return Ok(Some((ret.value, true)));
             } else {
                 match result.payload::<PyComplex>() {
                     Some(complex_obj) => Ok(Some((complex_obj.value, true))),
