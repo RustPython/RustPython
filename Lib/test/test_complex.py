@@ -340,8 +340,6 @@ class ComplexTest(unittest.TestCase):
     def test_conjugate(self):
         self.assertClose(complex(5.3, 9.8).conjugate(), 5.3-9.8j)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor(self):
         class NS:
             def __init__(self, value): self.value = value
