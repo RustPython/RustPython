@@ -1141,8 +1141,6 @@ class LongTest(unittest.TestCase):
             self.assertEqual((a ^ 63).bit_count(), 7)
             self.assertEqual(((a - 1) ^ 510).bit_count(), exp - 8)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_round(self):
         # check round-half-even algorithm. For round to nearest ten;
         # rounding map is invariant under adding multiples of 20
