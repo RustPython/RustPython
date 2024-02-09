@@ -2946,8 +2946,6 @@ else:
 
 class TransformCodecTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics(self):
         binput = bytes(range(256))
         for encoding in bytes_transform_encodings:
@@ -2959,8 +2957,6 @@ class TransformCodecTest(unittest.TestCase):
                 self.assertEqual(size, len(o))
                 self.assertEqual(i, binput)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_read(self):
         for encoding in bytes_transform_encodings:
             with self.subTest(encoding=encoding):
@@ -2969,8 +2965,6 @@ class TransformCodecTest(unittest.TestCase):
                 sout = reader.read()
                 self.assertEqual(sout, b"\x80")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_readline(self):
         for encoding in bytes_transform_encodings:
             with self.subTest(encoding=encoding):
