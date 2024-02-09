@@ -486,10 +486,6 @@ impl<T: Clone> Dict<T> {
         self.read().used
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
     pub fn size(&self) -> DictSize {
         self.read().size()
     }
