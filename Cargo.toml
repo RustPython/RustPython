@@ -41,7 +41,6 @@ rustpython-format = { git = "https://github.com/RustPython/Parser.git", rev = "2
 # rustpython-format = { path = "../RustPython-parser/format" }
 
 ahash = "0.8.3"
-anyhow = "1.0.45"
 ascii = "1.0"
 atty = "0.2.14"
 bitflags = "2.4.0"
@@ -118,9 +117,8 @@ libc = { workspace = true }
 rustyline = { workspace = true }
 
 [dev-dependencies]
-cpython = "0.7.0"
-criterion = "0.3.5"
-python3-sys = "0.7.1"
+criterion = { version = "0.3.5", features = ["html_reports"] }
+pyo3 = { version = "0.20.2", features = ["auto-initialize"] }
 
 [[bench]]
 name = "execution"
