@@ -1,30 +1,32 @@
 use criterion::measurement::WallTime;
 use criterion::{
-    criterion_group, criterion_main, Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput,
+    black_box, criterion_group, criterion_main, Bencher, BenchmarkGroup, BenchmarkId, Criterion,
+    Throughput,
 };
 use rustpython_compiler::Mode;
 use rustpython_parser::ast;
 use rustpython_parser::Parse;
-use rustpython_vm::{Interpreter, PyResult};
+use rustpython_vm::{Interpreter, PyResult, Settings};
 use std::collections::HashMap;
 use std::path::Path;
 
 fn bench_cpython_code(b: &mut Bencher, source: &str) {
-    let gil = cpython::Python::acquire_gil();
-    let python = gil.python();
-
-    b.iter(|| {
-        let res: cpython::PyResult<()> = python.run(source, None, None);
-        if let Err(e) = res {
-            e.print(python);
-            panic!("Error running source")
-        }
-    });
+    pyo3::Python::with_gil(|py| {
+        b.iter(|| {
+            let module =
+                pyo3::types::PyModule::from_code(py, source, "", "").expect("Error running source");
+            black_box(module);
+        })
+    })
 }
 
 fn bench_rustpy_code(b: &mut Bencher, name: &str, source: &str) {
     // NOTE: Take long time.
-    Interpreter::without_stdlib(Default::default()).enter(|vm| {
+    let mut settings = Settings::default();
+    settings.path_list.push("Lib/".to_string());
+    settings.dont_write_bytecode = true;
+    settings.no_user_site = true;
+    Interpreter::without_stdlib(settings).enter(|vm| {
         // Note: bench_cpython is both compiling and executing the code.
         // As such we compile the code in the benchmark loop as well.
         b.iter(|| {
@@ -36,16 +38,12 @@ fn bench_rustpy_code(b: &mut Bencher, name: &str, source: &str) {
     })
 }
 
-pub fn benchmark_file_execution(
-    group: &mut BenchmarkGroup<WallTime>,
-    name: &str,
-    contents: &String,
-) {
+pub fn benchmark_file_execution(group: &mut BenchmarkGroup<WallTime>, name: &str, contents: &str) {
     group.bench_function(BenchmarkId::new(name, "cpython"), |b| {
-        bench_cpython_code(b, &contents)
+        bench_cpython_code(b, contents)
     });
     group.bench_function(BenchmarkId::new(name, "rustpython"), |b| {
-        bench_rustpy_code(b, name, &contents)
+        bench_rustpy_code(b, name, contents)
     });
 }
 
@@ -55,42 +53,18 @@ pub fn benchmark_file_parsing(group: &mut BenchmarkGroup<WallTime>, name: &str, 
         b.iter(|| ast::Suite::parse(contents, name).unwrap())
     });
     group.bench_function(BenchmarkId::new("cpython", name), |b| {
-        let gil = cpython::Python::acquire_gil();
-        let py = gil.python();
-
-        let code = std::ffi::CString::new(contents).unwrap();
-        let fname = cpython::PyString::new(py, name);
-
-        b.iter(|| parse_program_cpython(py, &code, &fname))
+        pyo3::Python::with_gil(|py| {
+            let builtins =
+                pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
+            let compile = builtins.getattr("compile").expect("no compile in builtins");
+            b.iter(|| {
+                let x = compile
+                    .call1((contents, name, "exec"))
+                    .expect("Failed to parse code");
+                black_box(x);
+            })
+        })
     });
-}
-
-fn parse_program_cpython(
-    py: cpython::Python<'_>,
-    code: &std::ffi::CStr,
-    fname: &cpython::PyString,
-) {
-    extern "C" {
-        fn PyArena_New() -> *mut python3_sys::PyArena;
-        fn PyArena_Free(arena: *mut python3_sys::PyArena);
-    }
-    use cpython::PythonObject;
-    let fname = fname.as_object();
-    unsafe {
-        let arena = PyArena_New();
-        assert!(!arena.is_null());
-        let ret = python3_sys::PyParser_ASTFromStringObject(
-            code.as_ptr() as _,
-            fname.as_ptr(),
-            python3_sys::Py_file_input,
-            std::ptr::null_mut(),
-            arena,
-        );
-        if ret.is_null() {
-            cpython::PyErr::fetch(py).print(py);
-        }
-        PyArena_Free(arena);
-    }
 }
 
 pub fn benchmark_pystone(group: &mut BenchmarkGroup<WallTime>, contents: String) {
