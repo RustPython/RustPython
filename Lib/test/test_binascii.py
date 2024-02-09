@@ -38,8 +38,6 @@ class BinASCIITest(unittest.TestCase):
             self.assertTrue(hasattr(getattr(binascii, name), '__call__'))
             self.assertRaises(TypeError, getattr(binascii, name))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_returned_value(self):
         # Limit to the minimum of all limits (b2a_uu)
         MAX_ALL = 45
@@ -186,8 +184,6 @@ class BinASCIITest(unittest.TestCase):
         assertInvalidLength(b'a' * (4 * 87 + 1))
         assertInvalidLength(b'A\tB\nC ??DE')  # only 5 valid characters
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_uu(self):
         MAX_UU = 45
         for backtick in (True, False):
@@ -404,8 +400,6 @@ class BinASCIITest(unittest.TestCase):
         # crc_hqx needs 2 arguments
         self.assertRaises(TypeError, binascii.crc_hqx, "test", 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicode_a2b(self):
         # Unicode strings are accepted by a2b_* functions.
         MAX_ALL = 45
