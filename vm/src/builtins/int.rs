@@ -502,19 +502,40 @@ impl PyInt {
     #[pymethod(magic)]
     fn round(
         zelf: PyRef<Self>,
-        precision: OptionalArg<PyObjectRef>,
+        ndigits: OptionalArg<PyIntRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        match precision {
-            OptionalArg::Missing => (),
-            OptionalArg::Present(ref value) => {
-                // Only accept int type ndigits
-                let _ndigits = value.payload_if_subclass::<PyInt>(vm).ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "'{}' object cannot be interpreted as an integer",
-                        value.class().name()
-                    ))
-                })?;
+        if let OptionalArg::Present(ndigits) = ndigits {
+            let ndigits = ndigits.as_bigint();
+            // round(12345, -2) == 12300
+            // If precision >= 0, then any integer is already rounded correctly
+            if let Some(ndigits) = ndigits.neg().to_u32() {
+                if ndigits > 0 {
+                    // Work with positive integers and negate at the end if necessary
+                    let sign = if zelf.value.is_negative() {
+                        BigInt::from(-1)
+                    } else {
+                        BigInt::from(1)
+                    };
+                    let value = zelf.value.abs();
+
+                    // Divide and multiply by the power of 10 to get the approximate answer
+                    let pow10 = BigInt::from(10).pow(ndigits);
+                    let quotient = &value / &pow10;
+                    let rounded = &quotient * &pow10;
+
+                    // Malachite division uses floor rounding, Python uses half-even
+                    let remainder = &value - &rounded;
+                    let halfpow10 = &pow10 / BigInt::from(2);
+                    let correction =
+                        if remainder > halfpow10 || (remainder == halfpow10 && quotient.is_odd()) {
+                            pow10
+                        } else {
+                            BigInt::from(0)
+                        };
+                    let rounded = (rounded + correction) * sign;
+                    return Ok(vm.ctx.new_int(rounded));
+                }
             }
         }
         Ok(zelf)
