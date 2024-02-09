@@ -289,7 +289,7 @@ mod decl {
             if [b'\r', b'\n'].contains(c) {
                 return Ok(0);
             }
-            return Err(vm.new_value_error("Illegal char".to_string()));
+            return Err(super::new_binascii_error("Illegal char".to_owned(), vm));
         }
         Ok((*c - b' ') & 0x3f)
     }
@@ -645,7 +645,8 @@ mod decl {
 
             // Allocate the buffer
             let mut res = Vec::<u8>::with_capacity(length);
-            let trailing_garbage_error = || Err(vm.new_value_error("Trailing garbage".to_string()));
+            let trailing_garbage_error =
+                || Err(super::new_binascii_error("Trailing garbage".to_owned(), vm));
 
             for chunk in b.get(1..).unwrap_or_default().chunks(4) {
                 let (char_a, char_b, char_c, char_d) = {
@@ -666,7 +667,7 @@ mod decl {
                 }
 
                 if res.len() < length {
-                    res.push((char_b & 0xf) | char_c >> 2);
+                    res.push((char_b & 0xf) << 4 | char_c >> 2);
                 } else if char_c != 0 {
                     return trailing_garbage_error();
                 }
@@ -688,7 +689,7 @@ mod decl {
 
     #[derive(FromArgs)]
     struct BacktickArg {
-        #[pyarg(named, default = "true")]
+        #[pyarg(named, default = "false")]
         backtick: bool,
     }
 
@@ -700,7 +701,7 @@ mod decl {
     ) -> PyResult<Vec<u8>> {
         #[inline]
         fn uu_b2a(num: u8, backtick: bool) -> u8 {
-            if backtick && num != 0 {
+            if backtick && num == 0 {
                 0x60
             } else {
                 b' ' + num
@@ -710,7 +711,10 @@ mod decl {
         data.with_ref(|b| {
             let length = b.len();
             if length > 45 {
-                return Err(vm.new_value_error("At most 45 bytes at once".to_string()));
+                return Err(super::new_binascii_error(
+                    "At most 45 bytes at once".to_owned(),
+                    vm,
+                ));
             }
             let mut res = Vec::<u8>::with_capacity(2 + ((length + 2) / 3) * 4);
             res.push(uu_b2a(length as u8, backtick));

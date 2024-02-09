@@ -75,8 +75,6 @@ class UUTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             uu.encode(inp, out, "t1", 0o644, True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decode(self):
         for backtick in True, False:
             inp = io.BytesIO(encodedtextwrapped(0o666, "t1", backtick=backtick))
@@ -110,8 +108,6 @@ class UUTest(unittest.TestCase):
         except uu.Error as e:
             self.assertEqual(str(e), "No valid begin line found in input file")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_garbage_padding(self):
         # Issue #22406
         encodedtext1 = (
@@ -163,8 +159,6 @@ class UUStdIOTest(unittest.TestCase):
         sys.stdin = self.stdin
         sys.stdout = self.stdout
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode(self):
         sys.stdin = FakeIO(plaintext.decode("ascii"))
         sys.stdout = FakeIO()
@@ -172,8 +166,6 @@ class UUStdIOTest(unittest.TestCase):
         self.assertEqual(sys.stdout.getvalue(),
                          encodedtextwrapped(0o666, "t1").decode("ascii"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decode(self):
         sys.stdin = FakeIO(encodedtextwrapped(0o666, "t1").decode("ascii"))
         sys.stdout = FakeIO()
@@ -192,8 +184,6 @@ class UUFileTest(unittest.TestCase):
         self.addCleanup(os_helper.unlink, self.tmpin)
         self.addCleanup(os_helper.unlink, self.tmpout)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode(self):
         with open(self.tmpin, 'wb') as fin:
             fin.write(plaintext)
@@ -212,8 +202,6 @@ class UUFileTest(unittest.TestCase):
             s = fout.read()
         self.assertEqual(s, encodedtextwrapped(0o644, self.tmpin))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decode(self):
         with open(self.tmpin, 'wb') as f:
             f.write(encodedtextwrapped(0o644, self.tmpout))
@@ -226,8 +214,6 @@ class UUFileTest(unittest.TestCase):
         self.assertEqual(s, plaintext)
         # XXX is there an xp way to verify the mode?
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decode_filename(self):
         with open(self.tmpin, 'wb') as f:
             f.write(encodedtextwrapped(0o644, self.tmpout))
