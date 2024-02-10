@@ -1290,7 +1290,7 @@ where
     #[cold]
     fn slot_iter(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let repr = zelf.repr(vm)?;
-        unreachable!("slot must be overriden for {}", repr.as_str());
+        unreachable!("slot must be overridden for {}", repr.as_str());
     }
 
     fn __iter__(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
