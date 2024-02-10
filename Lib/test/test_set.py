@@ -728,7 +728,8 @@ class TestFrozenSet(TestJointOps, unittest.TestCase):
             for i in range(len(s)+1):
                 yield from map(frozenset, itertools.combinations(s, i))
 
-        # TODO the original test has:
+        # TODO: RUSTPYTHON
+        # The original test has:
         # for n in range(18):
         # Due to general performance overhead, hashing a frozenset takes
         # about 50 times longer than in CPython. This test amplifies that
