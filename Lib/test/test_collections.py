@@ -1832,8 +1832,6 @@ class TestCollectionABCs(ABCTestCase):
         self.assertTrue(f1 != l1)
         self.assertTrue(f1 != l2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_Set_hash_matches_frozenset(self):
         sets = [
             {}, {1}, {None}, {-1}, {0.0}, {"abc"}, {1, 2, 3},

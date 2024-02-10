@@ -11,13 +11,6 @@ pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
     vm.state.hash_secret.hash_iter(iter, |obj| obj.hash(vm))
 }
 
-pub fn hash_iter_unordered<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
-    iter: I,
-    vm: &VirtualMachine,
-) -> PyResult<rustpython_common::hash::PyHash> {
-    rustpython_common::hash::hash_iter_unordered(iter, |obj| obj.hash(vm))
-}
-
 impl ToPyObject for std::convert::Infallible {
     fn to_pyobject(self, _vm: &VirtualMachine) -> PyObjectRef {
         match self {}
