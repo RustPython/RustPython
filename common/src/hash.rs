@@ -130,20 +130,6 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
     Some(fix_sentinel(x as PyHash * value.signum() as PyHash))
 }
 
-pub fn hash_iter_unordered<'a, T: 'a, I, F, E>(iter: I, hashf: F) -> Result<PyHash, E>
-where
-    I: IntoIterator<Item = &'a T>,
-    F: Fn(&'a T) -> Result<PyHash, E>,
-{
-    let mut hash: PyHash = 0;
-    for element in iter {
-        let item_hash = hashf(element)?;
-        // xor is commutative and hash should be independent of order
-        hash ^= item_hash;
-    }
-    Ok(fix_sentinel(mod_int(hash)))
-}
-
 pub fn hash_bigint(value: &BigInt) -> PyHash {
     let ret = match value.to_i64() {
         Some(i) => mod_int(i),

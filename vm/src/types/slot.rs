@@ -15,6 +15,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
+use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use std::{borrow::Borrow, cmp::Ordering, ops::Deref};
 
@@ -254,7 +255,11 @@ fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     let py_int = hash_obj
         .payload_if_subclass::<PyInt>(vm)
         .ok_or_else(|| vm.new_type_error("__hash__ method should return an integer".to_owned()))?;
-    Ok(rustpython_common::hash::hash_bigint(py_int.as_bigint()))
+    let big_int = py_int.as_bigint();
+    let hash: PyHash = big_int
+        .to_i64()
+        .unwrap_or_else(|| (big_int % BigInt::from(u64::MAX)).to_i64().unwrap());
+    Ok(hash)
 }
 
 /// Marks a type as unhashable. Similar to PyObject_HashNotImplemented in CPython
