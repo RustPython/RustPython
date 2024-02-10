@@ -243,11 +243,6 @@ impl PyDict {
     }
 
     #[pymethod(magic)]
-    fn bool(&self) -> bool {
-        !self.entries.is_empty()
-    }
-
-    #[pymethod(magic)]
     pub fn len(&self) -> usize {
         self.entries.len()
     }

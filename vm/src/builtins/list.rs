@@ -164,11 +164,6 @@ impl PyList {
         Ok(zelf)
     }
 
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
-        !self.borrow_vec().is_empty()
-    }
-
     #[pymethod]
     fn clear(&self) {
         let _removed = std::mem::take(self.borrow_vec_mut().deref_mut());

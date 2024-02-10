@@ -411,11 +411,6 @@ impl PyStr {
         }
     }
 
-    #[pymethod(magic)]
-    fn bool(&self) -> bool {
-        !self.bytes.is_empty()
-    }
-
     fn _contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         if let Some(needle) = needle.payload::<Self>() {
             Ok(self.as_str().contains(needle.as_str()))
