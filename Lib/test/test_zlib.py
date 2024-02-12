@@ -51,7 +51,7 @@ skip_on_s390x = unittest.skipIf(hasattr(os, 'uname') and os.uname().machine == '
 
 class VersionTestCase(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON ZLIB_VERSION missing.
     @unittest.expectedFailure
     def test_library_version(self):
         # Test that the major version of the actual library in use matches the
