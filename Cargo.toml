@@ -151,11 +151,3 @@ lto = "thin"
 [patch.crates-io]
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
-
-[package.metadata.vcpkg]
-git = "https://github.com/microsoft/vcpkg"
-# https://github.com/microsoft/vcpkg/tags
-rev = "2024.02.14"
-
-[package.metadata.vcpkg.target]
-x86_64-pc-windows-msvc = {dependencies=["openssl-windows", "openssl"]}
