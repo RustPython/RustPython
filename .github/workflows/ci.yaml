@@ -124,15 +124,9 @@ jobs:
         with:
           components: clippy
       - name: Set up the Windows environment
-        shell: bash
         run: |
-          choco install llvm --no-progress
-          choco install openssl --version=3.2.0 --no-progress
-          if [[ -d "C:\Program Files\OpenSSL-Win64" ]]; then
-            echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >> $GITHUB_ENV
-          else
-            echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $GITHUB_ENV
-          fi
+          cargo install cargo-vcpkg
+          cargo vcpkg build
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
