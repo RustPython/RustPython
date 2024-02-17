@@ -127,8 +127,7 @@ jobs:
         shell: bash
         run: |
           cargo install cargo-vcpkg
-          cargo vcpkg -v build
-
+          cargo vcpkg build
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
@@ -252,12 +251,8 @@ jobs:
       - name: Set up the Windows environment
         shell: bash
         run: |
-          choco install llvm openssl --no-progress
-          if [[ -d "C:\Program Files\OpenSSL-Win64" ]]; then
-            echo "OPENSSL_DIR=C:\Program Files\OpenSSL-Win64" >> $GITHUB_ENV
-          else
-            echo "OPENSSL_DIR=C:\Program Files\OpenSSL" >> $GITHUB_ENV
-          fi
+          cargo install cargo-vcpkg
+          cargo vcpkg build
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool openssl@3
