@@ -152,8 +152,10 @@ lto = "thin"
 # REDOX START, Uncomment when you want to compile/check with redoxer
 # REDOX END
 
+# Used only on Windows to build the vcpkg dependencies
 [package.metadata.vcpkg]
 git = "https://github.com/microsoft/vcpkg"
+# The revision of the vcpkg repository to use
 # https://github.com/microsoft/vcpkg/tags
 rev = "2024.02.14"
 
