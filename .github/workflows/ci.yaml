@@ -124,11 +124,10 @@ jobs:
         with:
           components: clippy
       - name: Set up the Windows environment
-        uses: lukka/run-vcpkg@v11
-        with:
-          # https://github.com/microsoft/vcpkg/tags
-          vcpkgGitCommitId: fba75d09065fcc76a25dcf386b1d00d33f5175af
-          runVcpkgInstall: true
+        shell: bash
+        run: |
+          cargo install cargo-vcpkg
+          cargo vcpkg -v build
 
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
