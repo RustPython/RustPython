@@ -128,7 +128,7 @@ jobs:
       - name: Set up the Windows environment
         shell: bash
         run: |
-          cargo install -v cargo-vcpkg
+          cargo install --target-dir=target -v cargo-vcpkg
           cargo vcpkg -v build
         if: runner.os == 'Windows'
       - name: Set up the Mac environment
