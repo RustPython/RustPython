@@ -123,6 +123,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+
       - name: Set up the Windows environment
         shell: bash
         run: |
@@ -132,8 +134,6 @@ jobs:
       - name: Set up the Mac environment
         run: brew install autoconf automake libtool
         if: runner.os == 'macOS'
-
-      - uses: Swatinem/rust-cache@v2
 
       - name: run clippy
         run: cargo clippy ${{ env.CARGO_ARGS }} --workspace  --exclude rustpython_wasm -- -Dwarnings
@@ -245,6 +245,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -258,7 +259,6 @@ jobs:
         run: brew install autoconf automake libtool openssl@3
         if: runner.os == 'macOS'
 
-      - uses: Swatinem/rust-cache@v2
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
       - uses: actions/setup-python@v4
