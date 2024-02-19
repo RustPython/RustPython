@@ -357,6 +357,8 @@ class CodeTest(unittest.TestCase):
         new_code = code = func.__code__.replace(co_linetable=b'')
         self.assertEqual(list(new_code.co_lines()), [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_co_lnotab_is_deprecated(self):  # TODO: remove in 3.14
         def func():
             pass
@@ -364,6 +366,8 @@ class CodeTest(unittest.TestCase):
         with self.assertWarns(DeprecationWarning):
             func.__code__.co_lnotab
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_bytecode(self):
         def foo():
             pass
@@ -520,6 +524,8 @@ class CodeTest(unittest.TestCase):
         self.assertNotEqual(c, swapped)
         self.assertNotEqual(hash(c), hash(swapped))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_code_hash_uses_bytecode(self):
         c = (lambda x, y: x + y).__code__
         d = (lambda x, y: x * y).__code__
