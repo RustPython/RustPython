@@ -1977,6 +1977,10 @@ class TestCollectionABCs(ABCTestCase):
             # No metaclass conflict
             class Z(ByteString, Awaitable): pass
 
+    # TODO: RUSTPYTHON
+    # Need to implement __buffer__ and __release_buffer__
+    # https://docs.python.org/3.13/reference/datamodel.html#emulating-buffer-types
+    @unittest.expectedFailure
     def test_Buffer(self):
         for sample in [bytes, bytearray, memoryview]:
             self.assertIsInstance(sample(b"x"), Buffer)
