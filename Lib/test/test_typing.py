@@ -513,8 +513,6 @@ class BaseCallableTests:
         with self.assertRaises(TypeError):
             self.assertNotIsInstance(None, Callable[[], Any])
 
-    # TODO: RUSTPYTHON update typing to 3.12
-    @unittest.expectedFailure
     def test_repr(self):
         Callable = self.Callable
         fullname = f'{Callable.__module__}.Callable'
@@ -706,6 +704,11 @@ class CollectionsCallableTests(BaseCallableTests, BaseTestCase):
     @unittest.expectedFailure
     def test_concatenate(self):  # TODO: RUSTPYTHON, remove when this passes
         super().test_concatenate()  # TODO: RUSTPYTHON, remove when this passes
+
+    # TODO: RUSTPYTHON might be fixed by updating typing to 3.12
+    @unittest.expectedFailure
+    def test_repr(self):  # TODO: RUSTPYTHON, remove when this passes
+        super().test_repr()  # TODO: RUSTPYTHON, remove when this passes
 
 
 class LiteralTests(BaseTestCase):
