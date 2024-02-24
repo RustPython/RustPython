@@ -513,6 +513,8 @@ class BaseCallableTests:
         with self.assertRaises(TypeError):
             self.assertNotIsInstance(None, Callable[[], Any])
 
+    # TODO: RUSTPYTHON update typing to 3.12
+    @unittest.expectedFailure
     def test_repr(self):
         Callable = self.Callable
         fullname = f'{Callable.__module__}.Callable'
