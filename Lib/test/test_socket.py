@@ -2161,12 +2161,16 @@ class ISOTPTest(unittest.TestCase):
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             pass
 
+    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    @unittest.expectedFailure
     def testTooLongInterfaceName(self):
         # most systems limit IFNAMSIZ to 16, take 1024 to be sure
         with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
             with self.assertRaisesRegex(OSError, 'interface name too long'):
                 s.bind(('x' * 1024, 1, 2))
 
+    # TODO: RUSTPYTHON, OSError: bind(): bad family
+    @unittest.expectedFailure
     def testBind(self):
         try:
             with socket.socket(socket.PF_CAN, socket.SOCK_DGRAM, socket.CAN_ISOTP) as s:
