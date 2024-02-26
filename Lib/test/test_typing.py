@@ -705,6 +705,11 @@ class CollectionsCallableTests(BaseCallableTests, BaseTestCase):
     def test_concatenate(self):  # TODO: RUSTPYTHON, remove when this passes
         super().test_concatenate()  # TODO: RUSTPYTHON, remove when this passes
 
+    # TODO: RUSTPYTHON might be fixed by updating typing to 3.12
+    @unittest.expectedFailure
+    def test_repr(self):  # TODO: RUSTPYTHON, remove when this passes
+        super().test_repr()  # TODO: RUSTPYTHON, remove when this passes
+
 
 class LiteralTests(BaseTestCase):
     def test_basics(self):

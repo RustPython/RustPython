@@ -25,7 +25,7 @@ from collections.abc import Sized, Container, Callable, Collection
 from collections.abc import Set, MutableSet
 from collections.abc import Mapping, MutableMapping, KeysView, ItemsView, ValuesView
 from collections.abc import Sequence, MutableSequence
-from collections.abc import ByteString
+from collections.abc import ByteString, Buffer
 
 
 class TestUserObjects(unittest.TestCase):
@@ -70,6 +70,14 @@ class TestUserObjects(unittest.TestCase):
         obj = UserDict()
         obj[123] = "abc"
         self._copy_test(obj)
+
+    def test_dict_missing(self):
+        class A(UserDict):
+            def __missing__(self, key):
+                return 456
+        self.assertEqual(A()[123], 456)
+        # get() ignores __missing__ on dict
+        self.assertIs(A().get(123), None)
 
 
 ################################################################################
@@ -539,7 +547,7 @@ class TestNamedTuple(unittest.TestCase):
         self.assertEqual(Dot(1)._replace(d=999), (999,))
         self.assertEqual(Dot(1)._fields, ('d',))
 
-        n = 5000
+        n = support.EXCEEDS_RECURSION_LIMIT
         names = list(set(''.join([choice(string.ascii_letters)
                                   for j in range(10)]) for i in range(n)))
         n = len(names)
@@ -1629,7 +1637,7 @@ class TestCollectionABCs(ABCTestCase):
         class SetUsingInstanceFromIterable(MutableSet):
             def __init__(self, values, created_by):
                 if not created_by:
-                    raise ValueError(f'created_by must be specified')
+                    raise ValueError('created_by must be specified')
                 self.created_by = created_by
                 self._values = set(values)
 
@@ -1949,13 +1957,38 @@ class TestCollectionABCs(ABCTestCase):
 
     def test_ByteString(self):
         for sample in [bytes, bytearray]:
-            self.assertIsInstance(sample(), ByteString)
+            with self.assertWarns(DeprecationWarning):
+                self.assertIsInstance(sample(), ByteString)
             self.assertTrue(issubclass(sample, ByteString))
         for sample in [str, list, tuple]:
-            self.assertNotIsInstance(sample(), ByteString)
+            with self.assertWarns(DeprecationWarning):
+                self.assertNotIsInstance(sample(), ByteString)
             self.assertFalse(issubclass(sample, ByteString))
-        self.assertNotIsInstance(memoryview(b""), ByteString)
+        with self.assertWarns(DeprecationWarning):
+            self.assertNotIsInstance(memoryview(b""), ByteString)
         self.assertFalse(issubclass(memoryview, ByteString))
+        with self.assertWarns(DeprecationWarning):
+            self.validate_abstract_methods(ByteString, '__getitem__', '__len__')
+
+        with self.assertWarns(DeprecationWarning):
+            class X(ByteString): pass
+
+        with self.assertWarns(DeprecationWarning):
+            # No metaclass conflict
+            class Z(ByteString, Awaitable): pass
+
+    # TODO: RUSTPYTHON
+    # Need to implement __buffer__ and __release_buffer__
+    # https://docs.python.org/3.13/reference/datamodel.html#emulating-buffer-types
+    @unittest.expectedFailure
+    def test_Buffer(self):
+        for sample in [bytes, bytearray, memoryview]:
+            self.assertIsInstance(sample(b"x"), Buffer)
+            self.assertTrue(issubclass(sample, Buffer))
+        for sample in [str, list, tuple]:
+            self.assertNotIsInstance(sample(), Buffer)
+            self.assertFalse(issubclass(sample, Buffer))
+        self.validate_abstract_methods(Buffer, '__buffer__')
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
