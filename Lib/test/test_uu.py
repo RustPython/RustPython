@@ -4,12 +4,13 @@ Nick Mathewson
 """
 
 import unittest
-from test.support import os_helper
+from test.support import os_helper, warnings_helper
+
+uu = warnings_helper.import_deprecated("uu")
 
 import os
 import stat
 import sys
-import uu
 import io
 
 plaintext = b"The symbols on top of your keyboard are !@#$%^&*()_+|~\n"
@@ -75,6 +76,7 @@ class UUTest(unittest.TestCase):
         with self.assertRaises(TypeError):
             uu.encode(inp, out, "t1", 0o644, True)
 
+    @os_helper.skip_unless_working_chmod
     def test_decode(self):
         for backtick in True, False:
             inp = io.BytesIO(encodedtextwrapped(0o666, "t1", backtick=backtick))
@@ -149,6 +151,34 @@ class UUTest(unittest.TestCase):
         uu.encode(inp, out, filename)
         self.assertIn(safefilename, out.getvalue())
 
+    def test_no_directory_traversal(self):
+        relative_bad = b"""\
+begin 644 ../../../../../../../../tmp/test1
+$86)C"@``
+`
+end
+"""
+        with self.assertRaisesRegex(uu.Error, 'directory'):
+            uu.decode(io.BytesIO(relative_bad))
+        if os.altsep:
+            relative_bad_bs = relative_bad.replace(b'/', b'\\')
+            with self.assertRaisesRegex(uu.Error, 'directory'):
+                uu.decode(io.BytesIO(relative_bad_bs))
+
+        absolute_bad = b"""\
+begin 644 /tmp/test2
+$86)C"@``
+`
+end
+"""
+        with self.assertRaisesRegex(uu.Error, 'directory'):
+            uu.decode(io.BytesIO(absolute_bad))
+        if os.altsep:
+            absolute_bad_bs = absolute_bad.replace(b'/', b'\\')
+            with self.assertRaisesRegex(uu.Error, 'directory'):
+                uu.decode(io.BytesIO(absolute_bad_bs))
+
+
 class UUStdIOTest(unittest.TestCase):
 
     def setUp(self):
@@ -202,6 +232,8 @@ class UUFileTest(unittest.TestCase):
             s = fout.read()
         self.assertEqual(s, encodedtextwrapped(0o644, self.tmpin))
 
+    # decode() calls chmod()
+    @os_helper.skip_unless_working_chmod
     def test_decode(self):
         with open(self.tmpin, 'wb') as f:
             f.write(encodedtextwrapped(0o644, self.tmpout))
@@ -214,6 +246,7 @@ class UUFileTest(unittest.TestCase):
         self.assertEqual(s, plaintext)
         # XXX is there an xp way to verify the mode?
 
+    @os_helper.skip_unless_working_chmod
     def test_decode_filename(self):
         with open(self.tmpin, 'wb') as f:
             f.write(encodedtextwrapped(0o644, self.tmpout))
@@ -224,6 +257,7 @@ class UUFileTest(unittest.TestCase):
             s = f.read()
         self.assertEqual(s, plaintext)
 
+    @os_helper.skip_unless_working_chmod
     def test_decodetwice(self):
         # Verify that decode() will refuse to overwrite an existing file
         with open(self.tmpin, 'wb') as f:
@@ -236,6 +270,7 @@ class UUFileTest(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @os_helper.skip_unless_working_chmod
     def test_decode_mode(self):
         # Verify that decode() will set the given mode for the out_file
         expected_mode = 0o444
