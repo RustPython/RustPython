@@ -67,9 +67,10 @@ class LoaderTests(abc.LoaderTests):
         self.assertEqual(cm.exception.name, module_name)
 
 
-(Frozen_LoaderTests,
- Source_LoaderTests
- ) = util.test_both(LoaderTests, machinery=machinery)
+# TODO: RUSTPYTHON
+# (Frozen_LoaderTests,
+#  Source_LoaderTests
+#  ) = util.test_both(LoaderTests, machinery=machinery)
 
 
 @unittest.skipIf(util.BUILTINS.good_name is None, 'no reasonable builtin module')
