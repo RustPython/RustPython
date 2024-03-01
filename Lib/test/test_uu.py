@@ -58,8 +58,6 @@ def encodedtextwrapped(mode, filename, backtick=False):
 
 class UUTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_encode(self):
         inp = io.BytesIO(plaintext)
         out = io.BytesIO()
@@ -140,8 +138,6 @@ class UUTest(unittest.TestCase):
                 decoded = codecs.decode(encodedtext, "uu_codec")
                 self.assertEqual(decoded, plaintext)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_newlines_escaped(self):
         # Test newlines are escaped with uu.encode
         inp = io.BytesIO(plaintext)
@@ -268,8 +264,6 @@ class UUFileTest(unittest.TestCase):
         with open(self.tmpin, 'rb') as f:
             self.assertRaises(uu.Error, uu.decode, f)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @os_helper.skip_unless_working_chmod
     def test_decode_mode(self):
         # Verify that decode() will set the given mode for the out_file
