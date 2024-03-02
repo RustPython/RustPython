@@ -12,7 +12,7 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, Arg};
-use rustpython_parser::{self as parser, ast};
+use rustpython_parser::{self as parser, ast, Parse};
 use std::{
     path::Path,
     time::{Duration, Instant},
@@ -85,8 +85,8 @@ fn parse_python_file(filename: &Path) -> ParsedFile {
         },
         Ok(source) => {
             let num_lines = source.lines().count();
-            let result = parser::parse_program(&source, &filename.to_string_lossy())
-                .map_err(|e| e.to_string());
+            let result =
+                ast::Suite::parse(&source, &filename.to_string_lossy()).map_err(|e| e.to_string());
             ParsedFile {
                 // filename: Box::new(filename.to_path_buf()),
                 // code: source.to_string(),
