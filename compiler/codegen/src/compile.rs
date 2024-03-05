@@ -2941,7 +2941,8 @@ impl ToU32 for usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustpython_parser as parser;
+    use rustpython_parser::ast::Suite;
+    use rustpython_parser::Parse;
     use rustpython_parser_core::source_code::LinearLocator;
 
     fn compile_exec(source: &str) -> CodeObject {
@@ -2952,7 +2953,7 @@ mod tests {
             "source_path".to_owned(),
             "<module>".to_owned(),
         );
-        let ast = parser::parse_program(source, "<test>").unwrap();
+        let ast = Suite::parse(source, "<test>").unwrap();
         let ast = locator.fold(ast).unwrap();
         let symbol_scope = SymbolTable::scan_program(&ast).unwrap();
         compiler.compile_program(&ast, symbol_scope).unwrap();
