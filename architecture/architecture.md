@@ -101,7 +101,7 @@ Part of the Python standard library that's implemented in Rust. The modules that
 
 ### Lib
 
-Python side of the standard libary, copied over (with care) from CPython sourcecode.
+Python side of the standard library, copied over (with care) from CPython sourcecode.
 
 #### Lib/test
 
