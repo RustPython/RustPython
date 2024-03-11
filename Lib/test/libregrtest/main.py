@@ -373,7 +373,7 @@ class Regrtest:
             import trace
             self.tracer = trace.Trace(trace=False, count=True)
 
-        save_modules = sys.modules.keys()
+        save_modules = set(sys.modules)
 
         print("Run tests sequentially")
 
@@ -409,10 +409,18 @@ class Regrtest:
                 # be quiet: say nothing if the test passed shortly
                 previous_test = None
 
-            # Unload the newly imported modules (best effort finalization)
-            for module in sys.modules.keys():
-                if module not in save_modules and module.startswith("test."):
-                    import_helper.unload(module)
+            # Unload the newly imported test modules (best effort finalization)
+            new_modules = [module for module in sys.modules
+                           if module not in save_modules and
+                                module.startswith(("test.", "test_"))]
+            for module in new_modules:
+                sys.modules.pop(module, None)
+                # Remove the attribute of the parent module.
+                parent, _, name = module.rpartition('.')
+                try:
+                    delattr(sys.modules[parent], name)
+                except (KeyError, AttributeError):
+                    pass
 
         if previous_test:
             print(previous_test)
