@@ -31,6 +31,22 @@ impl std::ops::BitOr for PyStrKind {
 }
 
 impl PyStrKind {
+    pub fn of_bytes(s: &[u8]) -> Self {
+        if s.is_ascii() {
+            Self::Ascii
+        } else {
+            Self::Utf8
+        }
+    }
+
+    pub fn of_str(s: &str) -> Self {
+        if s.is_ascii() {
+            Self::Ascii
+        } else {
+            Self::Utf8
+        }
+    }
+
     #[inline]
     pub fn new_data(self) -> PyStrKindData {
         match self {
@@ -79,11 +95,7 @@ impl<'a> BorrowedStr<'a> {
 
     #[inline]
     pub fn from_bytes(s: &'a [u8]) -> Self {
-        let k = if s.is_ascii() {
-            PyStrKind::Ascii.new_data()
-        } else {
-            PyStrKind::Utf8.new_data()
-        };
+        let k = PyStrKind::of_bytes(s).new_data();
         Self {
             bytes: s,
             kind: k,

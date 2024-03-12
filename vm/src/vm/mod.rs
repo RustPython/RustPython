@@ -206,12 +206,20 @@ impl VirtualMachine {
 
         vm.builtins.init_dict(
             vm.ctx.intern_str("builtins"),
-            Some(vm.ctx.intern_str(stdlib::builtins::DOC.unwrap()).to_owned()),
+            Some(
+                vm.ctx
+                    .intern_static_str(stdlib::builtins::DOC.unwrap())
+                    .to_owned(),
+            ),
             &vm,
         );
         vm.sys_module.init_dict(
             vm.ctx.intern_str("sys"),
-            Some(vm.ctx.intern_str(stdlib::sys::DOC.unwrap()).to_owned()),
+            Some(
+                vm.ctx
+                    .intern_static_str(stdlib::sys::DOC.unwrap())
+                    .to_owned(),
+            ),
             &vm,
         );
         // let name = vm.sys_module.get_attr("__name__", &vm).unwrap();
@@ -298,14 +306,14 @@ impl VirtualMachine {
                 // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
                 // require the Python stdlib to be present
                 let io = import::import_builtin(self, "_io")?;
-                let set_stdio = |name, fd, mode: &str| {
+                let set_stdio = |name, dunder_name, fd, mode: &str| {
                     let stdio = crate::stdlib::io::open(
                         self.ctx.new_int(fd).into(),
                         Some(mode),
                         Default::default(),
                         self,
                     )?;
-                    let dunder_name = self.ctx.intern_str(format!("__{name}__"));
+                    let dunder_name = self.ctx.intern_static_str(dunder_name);
                     self.sys_module.set_attr(
                         dunder_name, // e.g. __stdin__
                         stdio.clone(),
@@ -314,9 +322,9 @@ impl VirtualMachine {
                     self.sys_module.set_attr(name, stdio, self)?;
                     Ok(())
                 };
-                set_stdio("stdin", 0, "r")?;
-                set_stdio("stdout", 1, "w")?;
-                set_stdio("stderr", 2, "w")?;
+                set_stdio("stdin", "__stdin__", 0, "r")?;
+                set_stdio("stdout", "__stdout__", 1, "w")?;
+                set_stdio("stderr", "__stderr__", 2, "w")?;
 
                 let io_open = io.get_attr("open", self)?;
                 self.builtins.set_attr("open", io_open, self)?;

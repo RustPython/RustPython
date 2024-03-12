@@ -22,7 +22,7 @@ impl Representable for Frame {
     #[inline]
     fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         const REPR: &str = "<frame object at .. >";
-        Ok(vm.ctx.intern_str(REPR).to_owned())
+        Ok(vm.ctx.intern_static_str(REPR).to_owned())
     }
 
     #[cold]
