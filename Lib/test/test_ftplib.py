@@ -21,6 +21,8 @@ from test import support
 from test.support import threading_helper
 from test.support import socket_helper
 from test.support import warnings_helper
+from test.support import asynchat
+from test.support import asyncore
 from test.support.socket_helper import HOST, HOSTv6
 
 import sys
@@ -992,11 +994,11 @@ class TestTLS_FTPClass(TestCase):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
-        self.assertRaises(ValueError, ftplib.FTP_TLS, keyfile=CERTFILE,
+        self.assertRaises(TypeError, ftplib.FTP_TLS, keyfile=CERTFILE,
                           context=ctx)
-        self.assertRaises(ValueError, ftplib.FTP_TLS, certfile=CERTFILE,
+        self.assertRaises(TypeError, ftplib.FTP_TLS, certfile=CERTFILE,
                           context=ctx)
-        self.assertRaises(ValueError, ftplib.FTP_TLS, certfile=CERTFILE,
+        self.assertRaises(TypeError, ftplib.FTP_TLS, certfile=CERTFILE,
                           keyfile=CERTFILE, context=ctx)
 
         self.client = ftplib.FTP_TLS(context=ctx, timeout=TIMEOUT)
@@ -1160,18 +1162,10 @@ class MiscTestCase(TestCase):
         support.check__all__(self, ftplib, not_exported=not_exported)
 
 
-def test_main():
-    tests = [TestFTPClass, TestTimeouts,
-             TestIPv6Environment,
-             TestTLS_FTPClassMixin, TestTLS_FTPClass,
-             MiscTestCase]
-
+def setUpModule():
     thread_info = threading_helper.threading_setup()
-    try:
-        support.run_unittest(*tests)
-    finally:
-        threading_helper.threading_cleanup(*thread_info)
+    unittest.addModuleCleanup(threading_helper.threading_cleanup, *thread_info)
 
 
 if __name__ == '__main__':
-    test_main()
+    unittest.main()
