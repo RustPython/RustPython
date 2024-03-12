@@ -6,6 +6,7 @@ pub use time::*;
 
 #[pymodule(name = "time", with(platform))]
 mod time {
+
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
         function::{Either, FuncArgs, OptionalArg},
@@ -14,7 +15,7 @@ mod time {
     };
     use chrono::{
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
-        Datelike, Timelike,
+        DateTime, Datelike, Local, Offset, TimeZone, Timelike,
     };
     use std::time::Duration;
 
@@ -325,6 +326,8 @@ mod time {
         tm_wday: PyObjectRef,
         tm_yday: PyObjectRef,
         tm_isdst: PyObjectRef,
+        tm_gmtoff: PyObjectRef,
+        tm_zone: PyObjectRef,
     }
 
     impl std::fmt::Debug for PyStructTime {
@@ -336,6 +339,8 @@ mod time {
     #[pyclass(with(PyStructSequence))]
     impl PyStructTime {
         fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
+            let offset = Local::now().offset().fix();
+            let zoned_date: DateTime<Local> = DateTime::from_local(tm, offset);
             PyStructTime {
                 tm_year: vm.ctx.new_int(tm.year()).into(),
                 tm_mon: vm.ctx.new_int(tm.month()).into(),
@@ -346,6 +351,11 @@ mod time {
                 tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()).into(),
                 tm_yday: vm.ctx.new_int(tm.ordinal()).into(),
                 tm_isdst: vm.ctx.new_int(isdst).into(),
+                tm_gmtoff: vm.ctx.new_int(offset.local_minus_utc()).into(),
+                tm_zone: vm
+                    .ctx
+                    .new_str(format!("{}", zoned_date.format("%Z")))
+                    .into(),
             }
         }
 
