@@ -130,6 +130,10 @@ impl FuncArgs {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.args.is_empty() && self.kwargs.is_empty()
+    }
+
     pub fn prepend_arg(&mut self, item: PyObjectRef) {
         self.args.reserve_exact(1);
         self.args.insert(0, item)

@@ -269,9 +269,57 @@ impl PyBaseObject {
     }
 
     #[pyslot]
-    #[pymethod(magic)]
-    fn init(_zelf: PyObjectRef, _args: FuncArgs, _vm: &VirtualMachine) -> PyResult<()> {
+    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let typ = zelf.class();
+        eprintln!("called init of {}", zelf.class().name());
+        if typ.slots.init.load().map_or(0, |f| f as usize)
+            == vm
+                .ctx
+                .types
+                .object_type
+                .slots
+                .init
+                .load()
+                .map_or(0, |f| f as usize)
+        {
+            return Ok(());
+        }
+        if !args.is_empty() {
+            // if typ.slots.init.load().map_or(0, |f| f as usize) != vm.ctx.types.object_type.slots.init.load().map_or(0, |f| f as usize) {
+            //     return Err(vm.new_type_error(format!(
+            //         "object.__init__() takes exactly one argument (the instance to initialize)",
+            //     )));
+            // }
+            if typ.slots.new.load().map_or(0, |f| f as usize)
+                == vm
+                    .ctx
+                    .types
+                    .object_type
+                    .slots
+                    .new
+                    .load()
+                    .map_or(0, |f| f as usize)
+            {
+                return Err(vm.new_type_error(format!(
+                    "{:.200}.__init__() takes exactly one argument (the instance to initialize)",
+                    typ.name()
+                )));
+            }
+        }
         Ok(())
+    }
+
+    #[pymethod(magic)]
+    fn init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        if zelf.class().is(vm.ctx.types.object_type) {
+            return Ok(());
+        }
+        eprintln!("{:?}", zelf.class().name());
+        let init = zelf
+            .class()
+            .mro_find_map(|cls| cls.slots.init.load())
+            .unwrap();
+        (init)(zelf, args, vm)
     }
 
     #[pygetset(name = "__class__")]
