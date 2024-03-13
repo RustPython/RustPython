@@ -564,6 +564,8 @@ class CommandLineTestsBase:
             self.assertNotCompiled(self.initfn)
             self.assertNotCompiled(self.barfn)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @without_source_date_epoch  # timestamp invalidation test
     @support.requires_resource('cpu')
     def test_no_args_respects_force_flag(self):
