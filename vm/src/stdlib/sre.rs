@@ -21,13 +21,13 @@ mod _sre {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
-    use sre_engine::{
+    use rustpython_sre_engine::{
         string::{lower_ascii, lower_unicode, upper_unicode},
         Request, SearchIter, SreFlag, State, StrDrive,
     };
 
     #[pyattr]
-    pub use sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
+    pub use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
 
     #[pyfunction]
     fn getcodesize() -> usize {

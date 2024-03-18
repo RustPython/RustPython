@@ -2298,10 +2298,10 @@ dependencies = [
  "rustpython-literal",
  "rustpython-parser",
  "rustpython-parser-core",
+ "rustpython-sre_engine",
  "rustyline",
  "schannel",
  "serde",
- "sre-engine",
  "static_assertions",
  "strum",
  "strum_macros",
@@ -2527,16 +2527,6 @@ checksum = "7b5fac59a5cb5dd637972e5fca70daf0523c9067fcdc4842f053dae04a18f8e9"
 dependencies = [
  "libc",
  "windows-sys 0.48.0",
-]
-
-[[package]]
-name = "sre-engine"
-version = "0.6.0"
-source = "git+https://github.com/RustPython/sre-engine?rev=refs/pull/17/head#9725808c302b13e873ff7f955dd4c1632f1137fd"
-dependencies = [
- "bitflags 2.4.0",
- "num_enum",
- "optional",
 ]
 
 [[package]]
