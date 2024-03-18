@@ -1,4 +1,4 @@
-use sre_engine::{Request, State, StrDrive};
+use rustpython_sre_engine::{Request, State, StrDrive};
 
 struct Pattern {
     code: &'static [u32],
