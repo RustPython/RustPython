@@ -939,9 +939,9 @@ impl ExecutingFrame<'_> {
                     _ => self.fatal("WithCleanupFinish expects a FinallyHandler block on stack"),
                 };
 
-                let suppress_exception = self.pop_value().try_to_bool(vm)?;
-
                 vm.set_exception(prev_exc);
+
+                let suppress_exception = self.pop_value().try_to_bool(vm)?;
 
                 if suppress_exception {
                     Ok(None)
