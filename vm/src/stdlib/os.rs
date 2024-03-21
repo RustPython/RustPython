@@ -698,7 +698,7 @@ pub(super) mod _os {
                     if self.is_symlink(vm)? {
                         do_stat(true)
                     } else {
-                        lstat().map(Clone::clone)
+                        lstat().cloned()
                     }
                 })?
             } else {

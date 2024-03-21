@@ -250,7 +250,7 @@ pub mod levenshtein {
 
     pub fn levenshtein_distance(a: &str, b: &str, max_cost: usize) -> usize {
         thread_local! {
-            static BUFFER: RefCell<[usize; MAX_STRING_SIZE]> = RefCell::new([0usize; MAX_STRING_SIZE]);
+            static BUFFER: RefCell<[usize; MAX_STRING_SIZE]> = const { RefCell::new([0usize; MAX_STRING_SIZE]) };
         }
 
         if a == b {

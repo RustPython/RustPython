@@ -1047,7 +1047,7 @@ impl Hashable for PyMemoryView {
                 }
                 Ok(zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes)))
             })
-            .map(|&x| x)
+            .copied()
     }
 }
 
