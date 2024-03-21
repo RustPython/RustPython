@@ -1,4 +1,4 @@
-use rustpython_vm::{Interpreter, Settings, VirtualMachine};
+use rustpython_vm::{builtins::PyModule, Interpreter, PyRef, Settings, VirtualMachine};
 
 pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 
@@ -62,6 +62,15 @@ impl InterpreterConfig {
     pub fn init_hook(mut self, hook: InitHook) -> Self {
         self.init_hooks.push(hook);
         self
+    }
+    pub fn add_native_module(
+        self,
+        name: String,
+        make_module: fn(&VirtualMachine) -> PyRef<PyModule>,
+    ) -> Self {
+        self.init_hook(Box::new(move |vm| {
+            vm.add_native_module(name, Box::new(make_module))
+        }))
     }
     #[cfg(feature = "stdlib")]
     pub fn init_stdlib(self) -> Self {
