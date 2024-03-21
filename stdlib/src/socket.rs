@@ -822,7 +822,8 @@ mod _socket {
 
     impl PySocket {
         pub fn sock_opt(&self) -> Option<PyMappedRwLockReadGuard<'_, Socket>> {
-            PyRwLockReadGuard::try_map(self.sock.read(), |sock| sock.as_ref()).ok()
+            let sock = PyRwLockReadGuard::try_map(self.sock.read(), |sock| sock.as_ref());
+            sock.ok()
         }
 
         pub fn sock(&self) -> io::Result<PyMappedRwLockReadGuard<'_, Socket>> {
@@ -869,7 +870,8 @@ mod _socket {
         where
             F: FnMut() -> io::Result<R>,
         {
-            self.sock_op_timeout_err(vm, select, self.get_timeout().ok(), f)
+            let timeout = self.get_timeout().ok();
+            self.sock_op_timeout_err(vm, select, timeout, f)
         }
 
         fn sock_op_timeout_err<F, R>(
@@ -1370,8 +1372,11 @@ mod _socket {
                 msg = msg.with_control(&control_buf);
             }
 
-            self.sock_op(vm, SelectKind::Write, || self.sock()?.sendmsg(&msg, flags))
-                .map_err(|e| e.into_pyexception(vm))
+            self.sock_op(vm, SelectKind::Write, || {
+                let sock = self.sock()?;
+                sock.sendmsg(&msg, flags)
+            })
+            .map_err(|e| e.into_pyexception(vm))
         }
 
         // based on nix's implementation
