@@ -1466,6 +1466,10 @@ class ProtocolTests(BaseTestCase):
         with self.assertRaises(TypeError):
             C[int](a=42)
 
+    # TODO: RUSTPYTHON the last line breaks any tests that use unittest.mock
+    # See https://github.com/RustPython/RustPython/issues/5190#issuecomment-2010535802
+    # It's possible that updating typing to 3.12 will resolve this
+    @unittest.skip("TODO: RUSTPYTHON this test breaks other tests that use unittest.mock")
     def test_protocols_bad_subscripts(self):
         T = TypeVar('T')
         S = TypeVar('S')
