@@ -283,6 +283,8 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
     let mut context_stack = vec![];
     let mut popped_result = false;
 
+    // NOTE: 'result loop is not an actual loop but break label
+    #[allow(clippy::never_loop)]
     'coro: loop {
         popped_result = 'result: loop {
             let yielded = 'context: loop {
@@ -513,6 +515,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                 loop {
                     macro_rules! general_op_literal {
                         ($f:expr) => {{
+                            #[allow(clippy::redundant_closure_call)]
                             if ctx.at_end(req) || !$f(ctx.peek_code(req, 1), ctx.peek_char::<S>()) {
                                 break 'result false;
                             }
@@ -523,6 +526,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
 
                     macro_rules! general_op_in {
                         ($f:expr) => {{
+                            #[allow(clippy::redundant_closure_call)]
                             if ctx.at_end(req) || !$f(&ctx.pattern(req)[2..], ctx.peek_char::<S>())
                             {
                                 break 'result false;
@@ -551,6 +555,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                             };
 
                             for _ in group_start..group_end {
+                                #[allow(clippy::redundant_closure_call)]
                                 if ctx.at_end(req)
                                     || $f(ctx.peek_char::<S>()) != $f(gctx.peek_char::<S>())
                                 {

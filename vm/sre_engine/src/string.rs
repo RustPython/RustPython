@@ -101,7 +101,7 @@ impl StrDrive for &str {
     #[inline]
     fn adjust_cursor(&self, cursor: &mut StringCursor, n: usize) {
         if cursor.ptr.is_null() || cursor.position > n {
-            *cursor = Self::create_cursor(&self, n);
+            *cursor = Self::create_cursor(self, n);
         } else if cursor.position < n {
             Self::skip(cursor, n - cursor.position);
         }
