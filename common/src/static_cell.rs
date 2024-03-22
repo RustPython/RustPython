@@ -46,7 +46,7 @@ mod non_threading {
             F: FnOnce() -> Result<T, E>,
         {
             self.inner
-                .with(|x| x.get_or_try_init(|| f().map(leak)).map(|&x| x))
+                .with(|x| x.get_or_try_init(|| f().map(leak)).copied())
         }
     }
 
