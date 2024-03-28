@@ -2561,17 +2561,22 @@ class TestsWithMultipleOpens(unittest.TestCase):
             self.assertEqual(data1, self.data1)
             self.assertEqual(data2, self.data2)
 
+    # TODO: RUSTPYTHON other tests can impact the file descriptor incrementor
+    # by leaving file handles unclosed. If there are more than 100 files in
+    # TESTFN and references to them are left unclosed and ungarbage collected
+    # in another test, then fileno() will always be too high for this test to
+    # pass. The solution is to increase the number of files from 100 to 200
     def test_many_opens(self):
         # Verify that read() and open() promptly close the file descriptor,
         # and don't rely on the garbage collector to free resources.
         self.make_test_archive(TESTFN2)
         with zipfile.ZipFile(TESTFN2, mode="r") as zipf:
-            for x in range(100):
+            for x in range(200):
                 zipf.read('ones')
                 with zipf.open('ones') as zopen1:
                     pass
         with open(os.devnull, "rb") as f:
-            self.assertLess(f.fileno(), 100)
+            self.assertLess(f.fileno(), 200)
 
     def test_write_while_reading(self):
         with zipfile.ZipFile(TESTFN2, 'w', zipfile.ZIP_DEFLATED) as zipf:

@@ -4248,9 +4248,8 @@ class TestScandir(unittest.TestCase):
         else:
             self.assertEqual(stat1, stat2)
 
-    # TODO: RUSTPPYTHON (AssertionError: TypeError not raised by ScandirIter)
-    # TODO: See https://github.com/RustPython/RustPython/issues/5190 for skip rationale 
-    @unittest.skip("skipping to avoid the unclosed scandir from squatting on file descriptors")
+    # TODO: RUSTPYTHON (AssertionError: TypeError not raised by ScandirIter)
+    @unittest.expectedFailure
     def test_uninstantiable(self):
         scandir_iter = os.scandir(self.path)
         self.assertRaises(TypeError, type(scandir_iter))
