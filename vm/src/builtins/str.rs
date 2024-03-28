@@ -1692,8 +1692,6 @@ impl AnyStrContainer<str> for String {
 impl AnyStr for str {
     type Char = char;
     type Container = String;
-    type CharIter<'a> = std::str::Chars<'a>;
-    type ElementIter<'a> = std::str::Chars<'a>;
 
     fn element_bytes_len(c: char) -> usize {
         c.len_utf8()
@@ -1711,11 +1709,11 @@ impl AnyStr for str {
         Ok(self)
     }
 
-    fn chars(&self) -> Self::CharIter<'_> {
+    fn chars(&self) -> impl Iterator<Item = char> {
         str::chars(self)
     }
 
-    fn elements(&self) -> Self::ElementIter<'_> {
+    fn elements(&self) -> impl Iterator<Item = char> {
         str::chars(self)
     }
 
