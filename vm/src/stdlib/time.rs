@@ -72,12 +72,16 @@ mod time {
         _time(vm)
     }
 
-    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+    #[cfg(any(
+        not(target_arch = "wasm32"),
+        target_os = "wasi",
+        not(feature = "wasmbind")
+    ))]
     fn _time(vm: &VirtualMachine) -> PyResult<f64> {
         Ok(duration_since_system_now(vm)?.as_secs_f64())
     }
 
-    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi"), feature = "wasmbind"))]
     fn _time(_vm: &VirtualMachine) -> PyResult<f64> {
         use wasm_bindgen::prelude::*;
         #[wasm_bindgen]
@@ -87,7 +91,7 @@ mod time {
             fn now() -> f64;
         }
         // Date.now returns unix time in milliseconds, we want it in seconds
-        Ok(Date::now() / 1000.0)
+        return Ok(Date::now() / 1000.0);
     }
 
     #[pyfunction]
