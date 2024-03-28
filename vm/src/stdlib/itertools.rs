@@ -1952,4 +1952,75 @@ mod decl {
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
         }
     }
+
+    #[pyattr]
+    #[pyclass(name = "batched")]
+    #[derive(Debug, PyPayload)]
+    struct PyItertoolsBatched {
+        exhausted: AtomicCell<bool>,
+        iterable: PyIter,
+        n: AtomicCell<usize>,
+    }
+
+    #[derive(FromArgs)]
+    struct BatchedNewArgs {
+        #[pyarg(positional)]
+        iterable: PyIter,
+        #[pyarg(positional)]
+        n: PyIntRef,
+    }
+
+    impl Constructor for PyItertoolsBatched {
+        type Args = BatchedNewArgs;
+
+        fn py_new(
+            cls: PyTypeRef,
+            Self::Args { iterable, n }: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let n = n.as_bigint();
+            if n.is_negative() {
+                return Err(vm.new_value_error("n must be at least one".to_owned()));
+            }
+            let n = n.to_usize().unwrap();
+
+            Self {
+                iterable,
+                n: AtomicCell::new(n),
+                exhausted: AtomicCell::new(false),
+            }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
+        }
+    }
+
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE, HAS_DICT))]
+    impl PyItertoolsBatched {}
+
+    impl SelfIter for PyItertoolsBatched {}
+
+    impl IterNext for PyItertoolsBatched {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            if zelf.exhausted.load() {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
+            let mut result: Vec<PyObjectRef> = Vec::new();
+            let n = zelf.n.load();
+            for _ in 0..n {
+                match zelf.iterable.next(vm)? {
+                    PyIterReturn::Return(obj) => {
+                        result.push(obj);
+                    }
+                    PyIterReturn::StopIteration(_) => {
+                        zelf.exhausted.store(true);
+                        break;
+                    }
+                }
+            }
+            match result.len() {
+                0 => Ok(PyIterReturn::StopIteration(None)),
+                _ => Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into())),
+            }
+        }
+    }
 }
