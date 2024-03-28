@@ -475,8 +475,6 @@ class TestTemplate(unittest.TestCase):
         self.assertEqual(s.substitute(dict(who='tim', what='ham')),
                          'tim likes to eat a bag of ham worth $100')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_is_valid(self):
         eq = self.assertEqual
         s = Template('$who likes to eat a bag of ${what} worth $$100')
@@ -498,8 +496,6 @@ class TestTemplate(unittest.TestCase):
         s = BadPattern('@bag.foo.who likes to eat a bag of @bag.what')
         self.assertRaises(ValueError, s.is_valid)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_identifiers(self):
         eq = self.assertEqual
         raises = self.assertRaises

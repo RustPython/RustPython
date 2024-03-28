@@ -122,65 +122,40 @@ This module also defines an exception 'error'.
 """
 
 import enum
-import sre_compile
-import sre_parse
+from . import _compiler, _parser
 import functools
-try:
-    import _locale
-except ImportError:
-    _locale = None
+import _sre
 
 
 # public symbols
 __all__ = [
     "match", "fullmatch", "search", "sub", "subn", "split",
-    "findall", "finditer", "compile", "purge", "template", "escape",
+    "findall", "finditer", "compile", "purge", "escape",
     "error", "Pattern", "Match", "A", "I", "L", "M", "S", "X", "U",
     "ASCII", "IGNORECASE", "LOCALE", "MULTILINE", "DOTALL", "VERBOSE",
-    "UNICODE",
+    "UNICODE", "NOFLAG", "RegexFlag",
 ]
 
 __version__ = "2.2.1"
 
-class RegexFlag(enum.IntFlag):
-    ASCII = A = sre_compile.SRE_FLAG_ASCII # assume ascii "locale"
-    IGNORECASE = I = sre_compile.SRE_FLAG_IGNORECASE # ignore case
-    LOCALE = L = sre_compile.SRE_FLAG_LOCALE # assume current 8-bit locale
-    UNICODE = U = sre_compile.SRE_FLAG_UNICODE # assume unicode "locale"
-    MULTILINE = M = sre_compile.SRE_FLAG_MULTILINE # make anchors look for newline
-    DOTALL = S = sre_compile.SRE_FLAG_DOTALL # make dot match newline
-    VERBOSE = X = sre_compile.SRE_FLAG_VERBOSE # ignore whitespace and comments
+@enum.global_enum
+@enum._simple_enum(enum.IntFlag, boundary=enum.KEEP)
+class RegexFlag:
+    NOFLAG = 0
+    ASCII = A = _compiler.SRE_FLAG_ASCII # assume ascii "locale"
+    IGNORECASE = I = _compiler.SRE_FLAG_IGNORECASE # ignore case
+    LOCALE = L = _compiler.SRE_FLAG_LOCALE # assume current 8-bit locale
+    UNICODE = U = _compiler.SRE_FLAG_UNICODE # assume unicode "locale"
+    MULTILINE = M = _compiler.SRE_FLAG_MULTILINE # make anchors look for newline
+    DOTALL = S = _compiler.SRE_FLAG_DOTALL # make dot match newline
+    VERBOSE = X = _compiler.SRE_FLAG_VERBOSE # ignore whitespace and comments
     # sre extensions (experimental, don't rely on these)
-    TEMPLATE = T = sre_compile.SRE_FLAG_TEMPLATE # disable backtracking
-    DEBUG = sre_compile.SRE_FLAG_DEBUG # dump pattern after compilation
-
-    def __repr__(self):
-        if self._name_ is not None:
-            return f're.{self._name_}'
-        value = self._value_
-        members = []
-        negative = value < 0
-        if negative:
-            value = ~value
-        for m in self.__class__:
-            if value & m._value_:
-                value &= ~m._value_
-                members.append(f're.{m._name_}')
-        if value:
-            members.append(hex(value))
-        res = '|'.join(members)
-        if negative:
-            if len(members) > 1:
-                res = f'~({res})'
-            else:
-                res = f'~{res}'
-        return res
+    DEBUG = _compiler.SRE_FLAG_DEBUG # dump pattern after compilation
     __str__ = object.__str__
-
-globals().update(RegexFlag.__members__)
+    _numeric_repr_ = hex
 
 # sre exception
-error = sre_compile.error
+error = _compiler.error
 
 # --------------------------------------------------------------------
 # public interface
@@ -200,16 +175,39 @@ def search(pattern, string, flags=0):
     a Match object, or None if no match was found."""
     return _compile(pattern, flags).search(string)
 
-def sub(pattern, repl, string, count=0, flags=0):
+class _ZeroSentinel(int):
+    pass
+_zero_sentinel = _ZeroSentinel()
+
+def sub(pattern, repl, string, *args, count=_zero_sentinel, flags=_zero_sentinel):
     """Return the string obtained by replacing the leftmost
     non-overlapping occurrences of the pattern in string by the
     replacement repl.  repl can be either a string or a callable;
     if a string, backslash escapes in it are processed.  If it is
     a callable, it's passed the Match object and must return
     a replacement string to be used."""
-    return _compile(pattern, flags).sub(repl, string, count)
+    if args:
+        if count is not _zero_sentinel:
+            raise TypeError("sub() got multiple values for argument 'count'")
+        count, *args = args
+        if args:
+            if flags is not _zero_sentinel:
+                raise TypeError("sub() got multiple values for argument 'flags'")
+            flags, *args = args
+            if args:
+                raise TypeError("sub() takes from 3 to 5 positional arguments "
+                                "but %d were given" % (5 + len(args)))
 
-def subn(pattern, repl, string, count=0, flags=0):
+        import warnings
+        warnings.warn(
+            "'count' is passed as positional argument",
+            DeprecationWarning, stacklevel=2
+        )
+
+    return _compile(pattern, flags).sub(repl, string, count)
+sub.__text_signature__ = '(pattern, repl, string, count=0, flags=0)'
+
+def subn(pattern, repl, string, *args, count=_zero_sentinel, flags=_zero_sentinel):
     """Return a 2-tuple containing (new_string, number).
     new_string is the string obtained by replacing the leftmost
     non-overlapping occurrences of the pattern in the source
@@ -218,9 +216,28 @@ def subn(pattern, repl, string, count=0, flags=0):
     callable; if a string, backslash escapes in it are processed.
     If it is a callable, it's passed the Match object and must
     return a replacement string to be used."""
-    return _compile(pattern, flags).subn(repl, string, count)
+    if args:
+        if count is not _zero_sentinel:
+            raise TypeError("subn() got multiple values for argument 'count'")
+        count, *args = args
+        if args:
+            if flags is not _zero_sentinel:
+                raise TypeError("subn() got multiple values for argument 'flags'")
+            flags, *args = args
+            if args:
+                raise TypeError("subn() takes from 3 to 5 positional arguments "
+                                "but %d were given" % (5 + len(args)))
 
-def split(pattern, string, maxsplit=0, flags=0):
+        import warnings
+        warnings.warn(
+            "'count' is passed as positional argument",
+            DeprecationWarning, stacklevel=2
+        )
+
+    return _compile(pattern, flags).subn(repl, string, count)
+subn.__text_signature__ = '(pattern, repl, string, count=0, flags=0)'
+
+def split(pattern, string, *args, maxsplit=_zero_sentinel, flags=_zero_sentinel):
     """Split the source string by the occurrences of the pattern,
     returning a list containing the resulting substrings.  If
     capturing parentheses are used in pattern, then the text of all
@@ -228,7 +245,26 @@ def split(pattern, string, maxsplit=0, flags=0):
     list.  If maxsplit is nonzero, at most maxsplit splits occur,
     and the remainder of the string is returned as the final element
     of the list."""
+    if args:
+        if maxsplit is not _zero_sentinel:
+            raise TypeError("split() got multiple values for argument 'maxsplit'")
+        maxsplit, *args = args
+        if args:
+            if flags is not _zero_sentinel:
+                raise TypeError("split() got multiple values for argument 'flags'")
+            flags, *args = args
+            if args:
+                raise TypeError("split() takes from 2 to 4 positional arguments "
+                                "but %d were given" % (4 + len(args)))
+
+        import warnings
+        warnings.warn(
+            "'maxsplit' is passed as positional argument",
+            DeprecationWarning, stacklevel=2
+        )
+
     return _compile(pattern, flags).split(string, maxsplit)
+split.__text_signature__ = '(pattern, string, maxsplit=0, flags=0)'
 
 def findall(pattern, string, flags=0):
     """Return a list of all non-overlapping matches in the string.
@@ -254,11 +290,9 @@ def compile(pattern, flags=0):
 def purge():
     "Clear the regular expression caches"
     _cache.clear()
-    _compile_repl.cache_clear()
+    _cache2.clear()
+    _compile_template.cache_clear()
 
-def template(pattern, flags=0):
-    "Compile a template pattern, returning a Pattern object"
-    return _compile(pattern, flags|T)
 
 # SPECIAL_CHARS
 # closing ')', '}' and ']'
@@ -277,60 +311,69 @@ def escape(pattern):
         pattern = str(pattern, 'latin1')
         return pattern.translate(_special_chars_map).encode('latin1')
 
-Pattern = type(sre_compile.compile('', 0))
-Match = type(sre_compile.compile('', 0).match(''))
+Pattern = type(_compiler.compile('', 0))
+Match = type(_compiler.compile('', 0).match(''))
 
 # --------------------------------------------------------------------
 # internals
 
-_cache = {}  # ordered!
-
+# Use the fact that dict keeps the insertion order.
+# _cache2 uses the simple FIFO policy which has better latency.
+# _cache uses the LRU policy which has better hit rate.
+_cache = {}  # LRU
+_cache2 = {}  # FIFO
 _MAXCACHE = 512
+_MAXCACHE2 = 256
+assert _MAXCACHE2 < _MAXCACHE
+
 def _compile(pattern, flags):
     # internal: compile pattern
     if isinstance(flags, RegexFlag):
         flags = flags.value
     try:
-        return _cache[type(pattern), pattern, flags]
+        return _cache2[type(pattern), pattern, flags]
     except KeyError:
         pass
-    if isinstance(pattern, Pattern):
-        if flags:
-            raise ValueError(
-                "cannot process flags argument with a compiled pattern")
-        return pattern
-    if not sre_compile.isstring(pattern):
-        raise TypeError("first argument must be string or compiled pattern")
-    p = sre_compile.compile(pattern, flags)
-    if not (flags & DEBUG):
+
+    key = (type(pattern), pattern, flags)
+    # Item in _cache should be moved to the end if found.
+    p = _cache.pop(key, None)
+    if p is None:
+        if isinstance(pattern, Pattern):
+            if flags:
+                raise ValueError(
+                    "cannot process flags argument with a compiled pattern")
+            return pattern
+        if not _compiler.isstring(pattern):
+            raise TypeError("first argument must be string or compiled pattern")
+        p = _compiler.compile(pattern, flags)
+        if flags & DEBUG:
+            return p
         if len(_cache) >= _MAXCACHE:
-            # Drop the oldest item
+            # Drop the least recently used item.
+            # next(iter(_cache)) is known to have linear amortized time,
+            # but it is used here to avoid a dependency from using OrderedDict.
+            # For the small _MAXCACHE value it doesn't make much of a difference.
             try:
                 del _cache[next(iter(_cache))]
             except (StopIteration, RuntimeError, KeyError):
                 pass
-        _cache[type(pattern), pattern, flags] = p
+    # Append to the end.
+    _cache[key] = p
+
+    if len(_cache2) >= _MAXCACHE2:
+        # Drop the oldest item.
+        try:
+            del _cache2[next(iter(_cache2))]
+        except (StopIteration, RuntimeError, KeyError):
+            pass
+    _cache2[key] = p
     return p
 
 @functools.lru_cache(_MAXCACHE)
-def _compile_repl(repl, pattern):
+def _compile_template(pattern, repl):
     # internal: compile replacement pattern
-    return sre_parse.parse_template(repl, pattern)
-
-def _expand(pattern, match, template):
-    # internal: Match.expand implementation hook
-    template = sre_parse.parse_template(template, pattern)
-    return sre_parse.expand_template(template, match)
-
-def _subx(pattern, template):
-    # internal: Pattern.sub/subn implementation helper
-    template = _compile_repl(template, pattern)
-    if not template[0] and len(template[1]) == 1:
-        # literal replacement
-        return template[1][0]
-    def filter(match, template=template):
-        return sre_parse.expand_template(template, match)
-    return filter
+    return _sre.template(pattern, _parser.parse_template(repl, pattern))
 
 # register myself for pickling
 
@@ -346,22 +389,22 @@ copyreg.pickle(Pattern, _pickle, _compile)
 
 class Scanner:
     def __init__(self, lexicon, flags=0):
-        from sre_constants import BRANCH, SUBPATTERN
+        from ._constants import BRANCH, SUBPATTERN
         if isinstance(flags, RegexFlag):
             flags = flags.value
         self.lexicon = lexicon
         # combine phrases into a compound pattern
         p = []
-        s = sre_parse.State()
+        s = _parser.State()
         s.flags = flags
         for phrase, action in lexicon:
             gid = s.opengroup()
-            p.append(sre_parse.SubPattern(s, [
-                (SUBPATTERN, (gid, 0, 0, sre_parse.parse(phrase, flags))),
+            p.append(_parser.SubPattern(s, [
+                (SUBPATTERN, (gid, 0, 0, _parser.parse(phrase, flags))),
                 ]))
             s.closegroup(gid, p[-1])
-        p = sre_parse.SubPattern(s, [(BRANCH, (None, p))])
-        self.scanner = sre_compile.compile(p)
+        p = _parser.SubPattern(s, [(BRANCH, (None, p))])
+        self.scanner = _compiler.compile(p)
     def scan(self, string):
         result = []
         append = result.append
