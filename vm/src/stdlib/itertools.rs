@@ -22,6 +22,9 @@ mod decl {
         VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use malachite_bigint::BigInt;
+    use num_traits::One;
+
     use num_traits::{Signed, ToPrimitive};
     use std::fmt;
 
@@ -1965,7 +1968,7 @@ mod decl {
     #[derive(FromArgs)]
     struct BatchedNewArgs {
         #[pyarg(positional)]
-        iterable: PyIter,
+        iterable_ref: PyObjectRef,
         #[pyarg(positional)]
         n: PyIntRef,
     }
@@ -1975,14 +1978,18 @@ mod decl {
 
         fn py_new(
             cls: PyTypeRef,
-            Self::Args { iterable, n }: Self::Args,
+            Self::Args { iterable_ref, n }: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult {
             let n = n.as_bigint();
-            if n.is_negative() {
+            if n.lt(&BigInt::one()) {
                 return Err(vm.new_value_error("n must be at least one".to_owned()));
             }
             let n = n.to_usize().unwrap();
+            let iterable = match iterable_ref.get_iter(vm) {
+                Ok(it) => it,
+                Err(e) => return Err(e),
+            };
 
             Self {
                 iterable,
