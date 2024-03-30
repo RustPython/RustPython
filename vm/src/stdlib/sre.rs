@@ -435,27 +435,6 @@ mod _sre {
                     FilterType::Literal(repl)
                 }
             };
-            // };
-            // Self::with_bytes(&repl, vm, |x| Ok(x.contains(&b'\\')))?
-            //     || Self::with_str(&repl, vm, |x| Ok(x.contains('\\')))?
-            // {
-            //     FilterType::Template(Template::compile(zelf.clone(), repl, vm)?)
-            // } else {
-            //     FilterType::Literal(repl)
-            // };
-
-            // let (is_callable, filter) = if repl.is_callable() {
-            //     (true, repl)
-            // } else {
-            //     if is_template {
-            //         let re = vm.import("re", None, 0)?;
-            //         let func = re.get_attr("_compile_template", vm)?;
-            //         let filter = func.call((zelf.clone(), repl), vm)?;
-            //         (filter.is_callable(), filter)
-            //     } else {
-            //         (false, repl)
-            //     }
-            // };
 
             with_sre_str!(zelf, &string, vm, |s| {
                 let req = s.create_request(&zelf, 0, usize::MAX);
@@ -492,13 +471,6 @@ mod _sre {
                         }
                     };
 
-                    // if is_callable {
-                    //     let m = Match::new(&iter.state, zelf.clone(), string.clone());
-                    //     let ret = filter.call((m.into_ref(&vm.ctx),), vm)?;
-                    //     sublist.push(ret);
-                    // } else {
-                    //     sublist.push(filter.clone());
-                    // }
 
                     last_pos = iter.state.cursor.position;
                     n += 1;
