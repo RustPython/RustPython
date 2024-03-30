@@ -5,13 +5,13 @@ mod _sre {
     use crate::{
         atomic_func,
         builtins::{
-            PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyStrRef, PyTuple,
-            PyTupleRef, PyTypeRef,
+            PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyListRef, PyStr,
+            PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
         common::{ascii, hash::PyHash},
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg, PosArgs, PyComparisonValue},
-        protocol::{PyBuffer, PyMappingMethods},
+        protocol::{PyBuffer, PyCallable, PyMappingMethods},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable, Representable},
         Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
@@ -21,13 +21,13 @@ mod _sre {
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
-    use sre_engine::{
-        constants::SreFlag,
-        engine::{lower_ascii, lower_unicode, upper_unicode, Request, SearchIter, State, StrDrive},
+    use rustpython_sre_engine::{
+        string::{lower_ascii, lower_unicode, upper_unicode},
+        Request, SearchIter, SreFlag, State, StrDrive,
     };
 
     #[pyattr]
-    pub use sre_engine::{constants::SRE_MAGIC as MAGIC, CODESIZE, MAXGROUPS, MAXREPEAT};
+    pub use rustpython_sre_engine::{CODESIZE, MAXGROUPS, MAXREPEAT, SRE_MAGIC as MAGIC};
 
     #[pyfunction]
     fn getcodesize() -> usize {
@@ -103,6 +103,58 @@ mod _sre {
         })
     }
 
+    #[pyattr]
+    #[pyclass(name = "SRE_Template")]
+    #[derive(Debug, PyPayload)]
+    struct Template {
+        literal: PyObjectRef,
+        items: Vec<(usize, PyObjectRef)>,
+    }
+
+    #[pyclass]
+    impl Template {
+        fn compile(
+            pattern: PyRef<Pattern>,
+            repl: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyRef<Self>> {
+            let re = vm.import("re", None, 0)?;
+            let func = re.get_attr("_compile_template", vm)?;
+            let result = func.call((pattern, repl.clone()), vm)?;
+            result
+                .downcast::<Self>()
+                .map_err(|_| vm.new_runtime_error("expected SRE_Template".to_owned()))
+        }
+    }
+
+    #[pyfunction]
+    fn template(
+        _pattern: PyObjectRef,
+        template: PyListRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Template> {
+        let err = || vm.new_type_error("invalid template".to_owned());
+
+        let mut items = Vec::with_capacity(1);
+        let v = template.borrow_vec();
+        let literal = v.first().ok_or_else(err)?.clone();
+        let trunks = v[1..].chunks_exact(2);
+
+        if !trunks.remainder().is_empty() {
+            return Err(err());
+        }
+
+        for trunk in trunks {
+            let index: usize = trunk[0]
+                .payload::<PyInt>()
+                .ok_or_else(|| vm.new_type_error("expected usize".to_owned()))?
+                .try_to_primitive(vm)?;
+            items.push((index, trunk[1].clone()));
+        }
+
+        Ok(Template { literal, items })
+    }
+
     #[derive(FromArgs)]
     struct StringArgs {
         string: PyObjectRef,
@@ -157,9 +209,9 @@ mod _sre {
         where
             F: FnOnce(&str) -> PyResult<R>,
         {
-            let string = string
-                .payload::<PyStr>()
-                .ok_or_else(|| vm.new_type_error("expected string".to_owned()))?;
+            let string = string.payload::<PyStr>().ok_or_else(|| {
+                vm.new_type_error(format!("expected string got '{}'", string.class()))
+            })?;
             f(string.as_str())
         }
 
@@ -184,10 +236,9 @@ mod _sre {
             with_sre_str!(zelf, &string.clone(), vm, |x| {
                 let req = x.create_request(&zelf, pos, endpos);
                 let mut state = State::default();
-                state.pymatch(req);
                 Ok(state
-                    .has_matched
-                    .then(|| Match::new(&state, zelf.clone(), string).into_ref(&vm.ctx)))
+                    .pymatch(&req)
+                    .then(|| Match::new(&mut state, zelf.clone(), string).into_ref(&vm.ctx)))
             })
         }
 
@@ -201,9 +252,8 @@ mod _sre {
                 let mut req = x.create_request(&zelf, string_args.pos, string_args.endpos);
                 req.match_all = true;
                 let mut state = State::default();
-                state.pymatch(req);
-                Ok(state.has_matched.then(|| {
-                    Match::new(&state, zelf.clone(), string_args.string).into_ref(&vm.ctx)
+                Ok(state.pymatch(&req).then(|| {
+                    Match::new(&mut state, zelf.clone(), string_args.string).into_ref(&vm.ctx)
                 }))
             })
         }
@@ -217,9 +267,8 @@ mod _sre {
             with_sre_str!(zelf, &string_args.string.clone(), vm, |x| {
                 let req = x.create_request(&zelf, string_args.pos, string_args.endpos);
                 let mut state = State::default();
-                state.search(req);
-                Ok(state.has_matched.then(|| {
-                    Match::new(&state, zelf.clone(), string_args.string).into_ref(&vm.ctx)
+                Ok(state.search(req).then(|| {
+                    Match::new(&mut state, zelf.clone(), string_args.string).into_ref(&vm.ctx)
                 }))
             })
         }
@@ -237,7 +286,7 @@ mod _sre {
                 let mut iter = SearchIter { req, state };
 
                 while iter.next().is_some() {
-                    let m = Match::new(&iter.state, zelf.clone(), string_args.string.clone());
+                    let m = Match::new(&mut iter.state, zelf.clone(), string_args.string.clone());
 
                     let item = if zelf.groups == 0 || zelf.groups == 1 {
                         m.get_slice(zelf.groups, s, vm)
@@ -318,7 +367,7 @@ mod _sre {
                     /* get segment before this match */
                     splitlist.push(s.slice(last, iter.state.start, vm));
 
-                    let m = Match::new(&iter.state, zelf.clone(), split_args.string.clone());
+                    let m = Match::new(&mut iter.state, zelf.clone(), split_args.string.clone());
 
                     // add groups (if any)
                     for i in 1..=zelf.groups {
@@ -326,7 +375,7 @@ mod _sre {
                     }
 
                     n += 1;
-                    last = iter.state.string_position;
+                    last = iter.state.cursor.position;
                 }
 
                 // get segment following last match (even if empty)
@@ -365,21 +414,25 @@ mod _sre {
                 count,
             } = sub_args;
 
-            let (is_callable, filter) = if repl.is_callable() {
-                (true, repl)
+            enum FilterType<'a> {
+                Literal(PyObjectRef),
+                Callable(PyCallable<'a>),
+                Template(PyRef<Template>),
+            }
+
+            let filter = if let Some(callable) = repl.to_callable() {
+                FilterType::Callable(callable)
             } else {
                 let is_template = if zelf.isbytes {
-                    Self::with_bytes(&repl, vm, |x| Ok(x.contains(&b'\\')))
+                    Self::with_bytes(&repl, vm, |x| Ok(x.contains(&b'\\')))?
                 } else {
-                    Self::with_str(&repl, vm, |x| Ok(x.contains('\\')))
-                }?;
+                    Self::with_str(&repl, vm, |x| Ok(x.contains('\\')))?
+                };
+
                 if is_template {
-                    let re = vm.import("re", None, 0)?;
-                    let func = re.get_attr("_subx", vm)?;
-                    let filter = func.call((zelf.clone(), repl), vm)?;
-                    (filter.is_callable(), filter)
+                    FilterType::Template(Template::compile(zelf.clone(), repl, vm)?)
                 } else {
-                    (false, repl)
+                    FilterType::Literal(repl)
                 }
             };
 
@@ -397,15 +450,29 @@ mod _sre {
                         sublist.push(s.slice(last_pos, iter.state.start, vm));
                     }
 
-                    if is_callable {
-                        let m = Match::new(&iter.state, zelf.clone(), string.clone());
-                        let ret = filter.call((m.into_ref(&vm.ctx),), vm)?;
-                        sublist.push(ret);
-                    } else {
-                        sublist.push(filter.clone());
-                    }
+                    match &filter {
+                        FilterType::Literal(literal) => sublist.push(literal.clone()),
+                        FilterType::Callable(callable) => {
+                            let m = Match::new(&mut iter.state, zelf.clone(), string.clone())
+                                .into_ref(&vm.ctx);
+                            sublist.push(callable.invoke((m,), vm)?);
+                        }
+                        FilterType::Template(template) => {
+                            let m = Match::new(&mut iter.state, zelf.clone(), string.clone());
+                            // template.expand(m)?
+                            // let mut list = vec![template.literal.clone()];
+                            sublist.push(template.literal.clone());
+                            for (index, literal) in template.items.iter().cloned() {
+                                if let Some(item) = m.get_slice(index, s, vm) {
+                                    sublist.push(item);
+                                }
+                                sublist.push(literal);
+                            }
+                        }
+                    };
 
-                    last_pos = iter.state.string_position;
+
+                    last_pos = iter.state.cursor.position;
                     n += 1;
                 }
 
@@ -528,17 +595,15 @@ mod _sre {
 
     #[pyclass(with(AsMapping, Representable))]
     impl Match {
-        pub(crate) fn new<S: StrDrive>(
-            state: &State<S>,
-            pattern: PyRef<Pattern>,
-            string: PyObjectRef,
-        ) -> Self {
-            let mut regs = vec![(state.start as isize, state.string_position as isize)];
+        pub(crate) fn new(state: &mut State, pattern: PyRef<Pattern>, string: PyObjectRef) -> Self {
+            let string_position = state.cursor.position;
+            let marks = &state.marks;
+            let mut regs = vec![(state.start as isize, string_position as isize)];
             for group in 0..pattern.groups {
                 let mark_index = 2 * group;
-                if mark_index + 1 < state.marks.len() {
-                    let start = state.marks[mark_index];
-                    let end = state.marks[mark_index + 1];
+                if mark_index + 1 < marks.raw().len() {
+                    let start = marks.raw()[mark_index];
+                    let end = marks.raw()[mark_index + 1];
                     if start.is_some() && end.is_some() {
                         regs.push((start.unpack() as isize, end.unpack() as isize));
                         continue;
@@ -550,8 +615,8 @@ mod _sre {
                 string,
                 pattern,
                 pos: state.start,
-                endpos: state.string_position,
-                lastindex: state.marks.last_index(),
+                endpos: string_position,
+                lastindex: marks.last_index(),
                 regs,
             }
         }
@@ -796,14 +861,15 @@ mod _sre {
                 let mut req = s.create_request(&self.pattern, self.start.load(), self.end);
                 let mut state = State::default();
                 req.must_advance = self.must_advance.load();
-                state.pymatch(req);
+                let has_matched = state.pymatch(&req);
 
                 self.must_advance
-                    .store(state.string_position == state.start);
-                self.start.store(state.string_position);
+                    .store(state.cursor.position == state.start);
+                self.start.store(state.cursor.position);
 
-                Ok(state.has_matched.then(|| {
-                    Match::new(&state, self.pattern.clone(), self.string.clone()).into_ref(&vm.ctx)
+                Ok(has_matched.then(|| {
+                    Match::new(&mut state, self.pattern.clone(), self.string.clone())
+                        .into_ref(&vm.ctx)
                 }))
             })
         }
@@ -818,14 +884,15 @@ mod _sre {
                 let mut state = State::default();
                 req.must_advance = self.must_advance.load();
 
-                state.search(req);
+                let has_matched = state.search(req);
 
                 self.must_advance
-                    .store(state.string_position == state.start);
-                self.start.store(state.string_position);
+                    .store(state.cursor.position == state.start);
+                self.start.store(state.cursor.position);
 
-                Ok(state.has_matched.then(|| {
-                    Match::new(&state, self.pattern.clone(), self.string.clone()).into_ref(&vm.ctx)
+                Ok(has_matched.then(|| {
+                    Match::new(&mut state, self.pattern.clone(), self.string.clone())
+                        .into_ref(&vm.ctx)
                 }))
             })
         }
