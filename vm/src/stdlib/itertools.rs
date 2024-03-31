@@ -1986,10 +1986,7 @@ mod decl {
                 return Err(vm.new_value_error("n must be at least one".to_owned()));
             }
             let n = n.to_usize().unwrap();
-            let iterable = match iterable_ref.get_iter(vm) {
-                Ok(it) => it,
-                Err(e) => return Err(e),
-            };
+            let iterable = iterable_ref.get_iter(vm)?;
 
             Self {
                 iterable,
