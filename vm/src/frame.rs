@@ -1136,12 +1136,13 @@ impl ExecutingFrame<'_> {
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn import(&mut self, vm: &VirtualMachine, module: Option<&Py<PyStr>>) -> PyResult<()> {
-        let module = module.unwrap_or(vm.ctx.empty_str);
-        let from_list = <Option<PyTupleTyped<PyStrRef>>>::try_from_object(vm, self.pop_value())?;
+    fn import(&mut self, vm: &VirtualMachine, module_name: Option<&Py<PyStr>>) -> PyResult<()> {
+        let module_name = module_name.unwrap_or(vm.ctx.empty_str);
+        let from_list = <Option<PyTupleTyped<PyStrRef>>>::try_from_object(vm, self.pop_value())?
+            .unwrap_or_else(|| PyTupleTyped::empty(vm));
         let level = usize::try_from_object(vm, self.pop_value())?;
 
-        let module = vm.import(module, from_list, level)?;
+        let module = vm.import_from(module_name, from_list, level)?;
 
         self.push_value(module);
         Ok(())

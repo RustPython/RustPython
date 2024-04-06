@@ -1301,7 +1301,7 @@ mod _sqlite {
 
         #[pymethod]
         fn iterdump(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-            let module = vm.import("sqlite3.dump", None, 0)?;
+            let module = vm.import("sqlite3.dump", 0)?;
             let func = module.get_attr("_iterdump", vm)?;
             func.call((zelf,), vm)
         }

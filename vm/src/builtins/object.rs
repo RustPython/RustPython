@@ -366,11 +366,11 @@ pub fn init(ctx: &Context) {
 
 fn common_reduce(obj: PyObjectRef, proto: usize, vm: &VirtualMachine) -> PyResult {
     if proto >= 2 {
-        let reducelib = vm.import("__reducelib", None, 0)?;
+        let reducelib = vm.import("__reducelib", 0)?;
         let reduce_2 = reducelib.get_attr("reduce_2", vm)?;
         reduce_2.call((obj,), vm)
     } else {
-        let copyreg = vm.import("copyreg", None, 0)?;
+        let copyreg = vm.import("copyreg", 0)?;
         let reduce_ex = copyreg.get_attr("_reduce_ex", vm)?;
         reduce_ex.call((obj, proto), vm)
     }

@@ -378,7 +378,7 @@ mod sys {
             (&env_var[..(env_var.len() - last.len() - 1)], last)
         };
 
-        let module = match vm.import(&vm.ctx.new_str(module_path), None, 0) {
+        let module = match vm.import(&vm.ctx.new_str(module_path), 0) {
             Ok(module) => module,
             Err(_) => {
                 return print_unimportable_module_warn();
@@ -560,7 +560,7 @@ mod sys {
         }
 
         // TODO: print received unraisable.exc_traceback
-        let tb_module = vm.import("traceback", None, 0)?;
+        let tb_module = vm.import("traceback", 0)?;
         let print_stack = tb_module.get_attr("print_stack", vm)?;
         print_stack.call((), vm)?;
 

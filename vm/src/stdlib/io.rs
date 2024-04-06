@@ -2204,7 +2204,7 @@ mod _io {
                 Some(enc) if enc.as_str() != "locale" => enc,
                 _ => {
                     // None without utf8_mode or "locale" encoding
-                    vm.import("locale", None, 0)?
+                    vm.import("locale", 0)?
                         .get_attr("getencoding", vm)?
                         .call((), vm)?
                         .try_into_value(vm)?

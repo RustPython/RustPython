@@ -17,7 +17,7 @@ pub fn main() {
         vm.insert_sys_path(vm.new_pyobj("examples"))
             .expect("add path");
 
-        let module = vm.import("call_between_rust_and_python", None, 0).unwrap();
+        let module = vm.import("call_between_rust_and_python", 0).unwrap();
         let init_fn = module.get_attr("python_callback", vm).unwrap();
         init_fn.call((), vm).unwrap();
 

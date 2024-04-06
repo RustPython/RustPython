@@ -62,7 +62,7 @@ fn get_warnings_attr(
             .finalizing
             .load(std::sync::atomic::Ordering::SeqCst)
     {
-        match vm.import("warnings", None, 0) {
+        match vm.import("warnings", 0) {
             Ok(module) => module,
             Err(_) => return Ok(None),
         }

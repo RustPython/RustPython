@@ -538,7 +538,7 @@ mod _operator {
             } else {
                 // If we have kwargs, create a partial function that contains them and pass back that
                 // along with the args.
-                let partial = vm.import("functools", None, 0)?.get_attr("partial", vm)?;
+                let partial = vm.import("functools", 0)?.get_attr("partial", vm)?;
                 let args = FuncArgs::new(
                     vec![zelf.class().to_owned().into(), zelf.name.clone().into()],
                     KwArgs::new(zelf.args.kwargs.clone()),

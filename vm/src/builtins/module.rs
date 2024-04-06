@@ -202,7 +202,7 @@ impl GetAttr for PyModule {
 impl Representable for PyModule {
     #[inline]
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let importlib = vm.import("_frozen_importlib", None, 0)?;
+        let importlib = vm.import("_frozen_importlib", 0)?;
         let module_repr = importlib.get_attr("_module_repr", vm)?;
         let repr = module_repr.call((zelf.to_owned(),), vm)?;
         repr.downcast()
