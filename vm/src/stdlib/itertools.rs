@@ -22,6 +22,9 @@ mod decl {
         VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use malachite_bigint::BigInt;
+    use num_traits::One;
+
     use num_traits::{Signed, ToPrimitive};
     use std::fmt;
 
@@ -1950,6 +1953,80 @@ mod decl {
             };
             *zelf.old.write() = Some(new.clone());
             Ok(PyIterReturn::Return(vm.new_tuple((old, new)).into()))
+        }
+    }
+
+    #[pyattr]
+    #[pyclass(name = "batched")]
+    #[derive(Debug, PyPayload)]
+    struct PyItertoolsBatched {
+        exhausted: AtomicCell<bool>,
+        iterable: PyIter,
+        n: AtomicCell<usize>,
+    }
+
+    #[derive(FromArgs)]
+    struct BatchedNewArgs {
+        #[pyarg(positional)]
+        iterable_ref: PyObjectRef,
+        #[pyarg(positional)]
+        n: PyIntRef,
+    }
+
+    impl Constructor for PyItertoolsBatched {
+        type Args = BatchedNewArgs;
+
+        fn py_new(
+            cls: PyTypeRef,
+            Self::Args { iterable_ref, n }: Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult {
+            let n = n.as_bigint();
+            if n.lt(&BigInt::one()) {
+                return Err(vm.new_value_error("n must be at least one".to_owned()));
+            }
+            let n = n.to_usize().ok_or(
+                vm.new_overflow_error("Python int too large to convert to usize".to_owned()),
+            )?;
+            let iterable = iterable_ref.get_iter(vm)?;
+
+            Self {
+                iterable,
+                n: AtomicCell::new(n),
+                exhausted: AtomicCell::new(false),
+            }
+            .into_ref_with_type(vm, cls)
+            .map(Into::into)
+        }
+    }
+
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE, HAS_DICT))]
+    impl PyItertoolsBatched {}
+
+    impl SelfIter for PyItertoolsBatched {}
+
+    impl IterNext for PyItertoolsBatched {
+        fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
+            if zelf.exhausted.load() {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
+            let mut result: Vec<PyObjectRef> = Vec::new();
+            let n = zelf.n.load();
+            for _ in 0..n {
+                match zelf.iterable.next(vm)? {
+                    PyIterReturn::Return(obj) => {
+                        result.push(obj);
+                    }
+                    PyIterReturn::StopIteration(_) => {
+                        zelf.exhausted.store(true);
+                        break;
+                    }
+                }
+            }
+            match result.len() {
+                0 => Ok(PyIterReturn::StopIteration(None)),
+                _ => Ok(PyIterReturn::Return(vm.ctx.new_tuple(result).into())),
+            }
         }
     }
 }

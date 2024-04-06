@@ -471,7 +471,6 @@ mod _sre {
                         }
                     };
 
-
                     last_pos = iter.state.cursor.position;
                     n += 1;
                 }
