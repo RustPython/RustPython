@@ -391,7 +391,6 @@ pub fn impl_py_freeze(
     let input: PyCompileInput = parse2(input)?;
     let args = input.parse(true)?;
 
-    let crate_name = args.crate_name;
     let code_map = args.source.compile(args.mode, args.module_name, compiler)?;
 
     let data = frozen::FrozenLib::encode(code_map.iter().map(|(k, v)| {
@@ -404,7 +403,7 @@ pub fn impl_py_freeze(
     let bytes = LitByteStr::new(&data.bytes, Span::call_site());
 
     let output = quote! {
-        #crate_name::frozen::FrozenLib::from_ref(#bytes)
+        rustpython_compiler_core::frozen::FrozenLib::from_ref(#bytes)
     };
 
     Ok(output)
