@@ -11,7 +11,7 @@ mod _browser {
         class::PyClassImpl,
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg},
-        import::import_file,
+        import::import_source,
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use wasm_bindgen::{prelude::*, JsCast};
