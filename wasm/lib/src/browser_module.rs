@@ -245,7 +245,7 @@ mod _browser {
                 .expect("that the vm is valid when the promise resolves");
             stored_vm.interp.enter(move |vm| {
                 let resp_text = text.as_string().unwrap();
-                let res = import_file(vm, module.as_str(), "WEB".to_owned(), resp_text);
+                let res = import_source(vm, module.as_str(), &resp_text);
                 match res {
                     Ok(_) => Ok(JsValue::null()),
                     Err(err) => Err(convert::py_err_to_js_err(vm, &err)),

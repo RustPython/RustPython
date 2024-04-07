@@ -106,17 +106,30 @@ pub fn import_file(
     vm: &VirtualMachine,
     module_name: &str,
     file_path: String,
-    content: String,
+    content: &str,
 ) -> PyResult {
     let code = vm
         .compile_with_opts(
-            &content,
+            content,
             crate::compiler::Mode::Exec,
             file_path,
             vm.compile_opts(),
         )
-        .map_err(|err| vm.new_syntax_error(&err, Some(&content)))?;
+        .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
     import_codeobj(vm, module_name, code, true)
+}
+
+#[cfg(feature = "rustpython-compiler")]
+pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> PyResult {
+    let code = vm
+        .compile_with_opts(
+            content,
+            crate::compiler::Mode::Exec,
+            "<source>".to_owned(),
+            vm.compile_opts(),
+        )
+        .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
+    import_codeobj(vm, module_name, code, false)
 }
 
 pub fn import_codeobj(
