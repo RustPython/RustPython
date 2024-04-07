@@ -76,6 +76,23 @@ impl Interpreter {
         thread::enter_vm(&self.vm, || f(&self.vm))
     }
 
+    /// Run [`enter`] and call `expect_pyresult` for the result.
+    ///
+    /// This function is useful when you want to expect a result from the function,
+    /// but also print useful panic information when exception raised.
+    ///
+    /// See [`enter`] for more information.
+    /// See [`expect_pyresult`] for more information.
+    pub fn enter_and_expect<F, R>(&self, f: F, msg: &str) -> R
+    where
+        F: FnOnce(&VirtualMachine) -> PyResult<R>,
+    {
+        self.enter(|vm| {
+            let result = f(vm);
+            vm.expect_pyresult(result, msg)
+        })
+    }
+
     /// Run a function with the main virtual machine and return exit code.
     ///
     /// To enter vm context only once and safely terminate the vm, this function is preferred.
