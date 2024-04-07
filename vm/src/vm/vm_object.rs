@@ -4,6 +4,7 @@ use crate::{
     function::IntoFuncArgs,
     identifier,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
+    stdlib::sys,
     vm::VirtualMachine,
 };
 
@@ -14,15 +15,9 @@ impl VirtualMachine {
     fn _py_panic_failed(&self, exc: PyBaseExceptionRef, msg: &str) -> ! {
         #[cfg(not(all(target_arch = "wasm32", not(target_os = "wasi"))))]
         {
-            let show_backtrace =
-                std::env::var_os("RUST_BACKTRACE").map_or(cfg!(target_os = "wasi"), |v| &v != "0");
-            let after = if show_backtrace {
-                self.print_exception(exc);
-                "exception backtrace above"
-            } else {
-                "run with RUST_BACKTRACE=1 to see Python backtrace"
-            };
-            panic!("{msg}; {after}")
+            self.print_exception(exc);
+            self.flush_std();
+            panic!("{msg}")
         }
         #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
         {
@@ -36,6 +31,16 @@ impl VirtualMachine {
             self.write_exception(&mut s, &exc).unwrap();
             error(&s);
             panic!("{}; exception backtrace above", msg)
+        }
+    }
+
+    pub(crate) fn flush_std(&self) {
+        let vm = self;
+        if let Ok(stdout) = sys::get_stdout(vm) {
+            let _ = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ());
+        }
+        if let Ok(stderr) = sys::get_stderr(vm) {
+            let _ = vm.call_method(&stderr, identifier!(vm, flush).as_str(), ());
         }
     }
 

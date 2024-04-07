@@ -830,7 +830,7 @@ impl VirtualMachine {
                     );
                     let result = unsafe { sigaction(SIGINT, &action) };
                     if result.is_ok() {
-                        interpreter::flush_std(self);
+                        self.flush_std();
                         kill(getpid(), SIGINT).expect("Expect to be killed.");
                     }
 
