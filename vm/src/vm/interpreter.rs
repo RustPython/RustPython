@@ -1,6 +1,7 @@
 use super::{setting::Settings, thread, Context, VirtualMachine};
 use crate::{
     stdlib::{atexit, sys},
+    vm::PyBaseExceptionRef,
     PyResult,
 };
 use std::sync::atomic::Ordering;
@@ -59,6 +60,15 @@ impl Interpreter {
         Self { vm }
     }
 
+    /// Run a function with the main virtual machine and return a PyResult of the result.
+    ///
+    /// To enter vm context multiple times or to avoid buffer/exception management, this function is preferred.
+    /// `enter` is lightweight and it returns a python object in PyResult.
+    /// You can stop or continue the execution multiple times by calling `enter`.
+    ///
+    /// To finalize the vm once all desired `enter`s are called, calling `finalize` will be helpful.
+    ///
+    /// See also [`run`] for managed way to run the interpreter.
     pub fn enter<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&VirtualMachine) -> R,
@@ -66,19 +76,41 @@ impl Interpreter {
         thread::enter_vm(&self.vm, || f(&self.vm))
     }
 
+    /// Run a function with the main virtual machine and return exit code.
+    ///
+    /// To enter vm context only once and safely terminate the vm, this function is preferred.
+    /// Unlike [`enter`], `run` calls finalize and returns exit code.
+    /// You will not be able to obtain Python exception in this way.
+    ///
+    /// See [`finalize`] for the finalization steps.
+    /// See also [`enter`] for pure function call to obtain Python exception.
     pub fn run<F, R>(self, f: F) -> u8
     where
         F: FnOnce(&VirtualMachine) -> PyResult<R>,
     {
+        let res = self.enter(|vm| f(vm));
+        self.finalize(res.err())
+    }
+
+    /// Finalize vm and turns an exception to exit code.
+    ///
+    /// Finalization steps including 4 steps:
+    /// 1. Flush stdout and stderr.
+    /// 1. Handle exit exception and turn it to exit code.
+    /// 1. Run atexit exit functions.
+    /// 1. Mark vm as finalized.
+    ///
+    /// Note that calling `finalize` is not necessary by purpose though.
+    pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u8 {
         self.enter(|vm| {
-            let res = f(vm);
             flush_std(vm);
 
             // See if any exception leaked out:
-            let exit_code = res
-                .map(|_| 0)
-                .map_err(|exc| vm.handle_exit_exception(exc))
-                .unwrap_or_else(|code| code);
+            let exit_code = if let Some(exc) = exc {
+                vm.handle_exit_exception(exc)
+            } else {
+                0
+            };
 
             atexit::_run_exitfuncs(vm);
 
