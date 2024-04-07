@@ -29,7 +29,7 @@ impl VirtualMachine {
     pub fn run_script(&self, scope: Scope, path: &str) -> PyResult<()> {
         if get_importer(path, self)?.is_some() {
             self.insert_sys_path(self.new_pyobj(path))?;
-            let runpy = self.import("runpy", None, 0)?;
+            let runpy = self.import("runpy", 0)?;
             let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
             run_module_as_main.call((identifier!(self, __main__).to_owned(), false), self)?;
             return Ok(());

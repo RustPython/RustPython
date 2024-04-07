@@ -7,7 +7,7 @@ fn py_main(interp: &Interpreter) -> vm::PyResult<PyStrRef> {
         // Add local library path
         vm.insert_sys_path(vm.new_pyobj("examples"))
             .expect("add examples to sys.path failed");
-        let module = vm.import("package_embed", None, 0)?;
+        let module = vm.import("package_embed", 0)?;
         let name_func = module.get_attr("context", vm)?;
         let result = name_func.call((), vm)?;
         let result: PyStrRef = result.get_attr("name", vm)?.try_into_value(vm)?;

@@ -10,7 +10,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
         .expect("Expect array has array type.");
 
     let collections_abc = vm
-        .import("collections.abc", None, 0)
+        .import("collections.abc", 0)
         .expect("Expect collections exist.");
     let abc = collections_abc
         .get_attr("abc", vm)
@@ -1165,7 +1165,7 @@ mod array {
             let bytes = vm.ctx.new_bytes(array.get_bytes().to_vec());
             let code = MachineFormatCode::from_typecode(array.typecode()).unwrap();
             let code = PyInt::from(u8::from(code)).into_pyobject(vm);
-            let module = vm.import("array", None, 0)?;
+            let module = vm.import("array", 0)?;
             let func = module.get_attr("_array_reconstructor", vm)?;
             Ok((
                 func,

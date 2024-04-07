@@ -222,7 +222,7 @@ impl VirtualMachine {
     /// init_importlib must be called before this call
     #[cfg(feature = "encodings")]
     fn import_encodings(&mut self) -> PyResult<()> {
-        self.import("encodings", None, 0).map_err(|import_err| {
+        self.import("encodings", 0).map_err(|import_err| {
             let rustpythonpath_env = std::env::var("RUSTPYTHONPATH").ok();
             let pythonpath_env = std::env::var("PYTHONPATH").ok();
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
@@ -396,7 +396,7 @@ impl VirtualMachine {
 
     #[cold]
     pub fn run_unraisable(&self, e: PyBaseExceptionRef, msg: Option<String>, object: PyObjectRef) {
-        let sys_module = self.import("sys", None, 0).unwrap();
+        let sys_module = self.import("sys", 0).unwrap();
         let unraisablehook = sys_module.get_attr("unraisablehook", self).unwrap();
 
         let exc_type = e.class().to_owned();
@@ -495,7 +495,7 @@ impl VirtualMachine {
 
     pub fn try_class(&self, module: &'static str, class: &'static str) -> PyResult<PyTypeRef> {
         let class = self
-            .import(module, None, 0)?
+            .import(module, 0)?
             .get_attr(class, self)?
             .downcast()
             .expect("not a class");
@@ -504,7 +504,7 @@ impl VirtualMachine {
 
     pub fn class(&self, module: &'static str, class: &'static str) -> PyTypeRef {
         let module = self
-            .import(module, None, 0)
+            .import(module, 0)
             .unwrap_or_else(|_| panic!("unable to import {module}"));
 
         let class = module
@@ -513,11 +513,24 @@ impl VirtualMachine {
         class.downcast().expect("not a class")
     }
 
+    /// Call Python __import__ function without from_list.
+    /// Roughly equivalent to `import module_name` or `import top.submodule`.
+    ///
+    /// See also [`import_from`] for more advanced import.
     #[inline]
-    pub fn import<'a>(
+    pub fn import<'a>(&self, module_name: impl AsPyStr<'a>, level: usize) -> PyResult {
+        let module_name = module_name.as_pystr(&self.ctx);
+        let from_list = PyTupleTyped::empty(self);
+        self.import_inner(module_name, from_list, level)
+    }
+
+    /// Call Python __import__ function caller with from_list.
+    /// Roughly equivalent to `from module_name import item1, item2` or `from top.submodule import item1, item2`
+    #[inline]
+    pub fn import_from<'a>(
         &self,
         module_name: impl AsPyStr<'a>,
-        from_list: Option<PyTupleTyped<PyStrRef>>,
+        from_list: PyTupleTyped<PyStrRef>,
         level: usize,
     ) -> PyResult {
         let module_name = module_name.as_pystr(&self.ctx);
@@ -527,14 +540,12 @@ impl VirtualMachine {
     fn import_inner(
         &self,
         module: &Py<PyStr>,
-        from_list: Option<PyTupleTyped<PyStrRef>>,
+        from_list: PyTupleTyped<PyStrRef>,
         level: usize,
     ) -> PyResult {
         // if the import inputs seem weird, e.g a package import or something, rather than just
         // a straight `import ident`
-        let weird = module.as_str().contains('.')
-            || level != 0
-            || from_list.as_ref().map_or(false, |x| !x.is_empty());
+        let weird = module.as_str().contains('.') || level != 0 || !from_list.is_empty();
 
         let cached_module = if weird {
             None
@@ -567,10 +578,7 @@ impl VirtualMachine {
                 } else {
                     (None, None)
                 };
-                let from_list = match from_list {
-                    Some(tup) => tup.to_pyobject(self),
-                    None => self.new_tuple(()).into(),
-                };
+                let from_list = from_list.to_pyobject(self);
                 import_func
                     .call((module.to_owned(), globals, locals, from_list, level), self)
                     .map_err(|exc| import::remove_importlib_frames(self, &exc))
@@ -859,7 +867,7 @@ impl VirtualMachine {
     }
 
     pub fn run_module(&self, module: &str) -> PyResult<()> {
-        let runpy = self.import("runpy", None, 0)?;
+        let runpy = self.import("runpy", 0)?;
         let run_module_as_main = runpy.get_attr("_run_module_as_main", self)?;
         run_module_as_main.call((module,), self)?;
         Ok(())

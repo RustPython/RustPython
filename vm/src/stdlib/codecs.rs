@@ -355,7 +355,7 @@ mod _codecs {
         vm: &VirtualMachine,
     ) -> PyResult {
         let f = cell.get_or_try_init(|| {
-            let module = vm.import("_pycodecs", None, 0)?;
+            let module = vm.import("_pycodecs", 0)?;
             module.get_attr(name, vm)
         })?;
         f.call(args, vm)

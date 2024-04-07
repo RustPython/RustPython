@@ -510,6 +510,13 @@ impl<T: TransmuteFromObject> AsRef<[T]> for PyTupleTyped<T> {
 }
 
 impl<T: TransmuteFromObject> PyTupleTyped<T> {
+    pub fn empty(vm: &VirtualMachine) -> Self {
+        Self {
+            tuple: vm.ctx.empty_tuple.clone(),
+            _marker: PhantomData,
+        }
+    }
+
     #[inline]
     pub fn as_slice(&self) -> &[T] {
         unsafe { &*(self.tuple.as_slice() as *const [PyObjectRef] as *const [T]) }

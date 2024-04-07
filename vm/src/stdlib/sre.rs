@@ -118,7 +118,7 @@ mod _sre {
             repl: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<PyRef<Self>> {
-            let re = vm.import("re", None, 0)?;
+            let re = vm.import("re", 0)?;
             let func = re.get_attr("_compile_template", vm)?;
             let result = func.call((pattern, repl.clone()), vm)?;
             result
@@ -680,7 +680,7 @@ mod _sre {
 
         #[pymethod]
         fn expand(zelf: PyRef<Match>, template: PyStrRef, vm: &VirtualMachine) -> PyResult {
-            let re = vm.import("re", None, 0)?;
+            let re = vm.import("re", 0)?;
             let func = re.get_attr("_expand", vm)?;
             func.call((zelf.pattern.clone(), zelf, template), vm)
         }

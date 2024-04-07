@@ -175,7 +175,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResu
         )?;
     }
 
-    let site_result = vm.import("site", None, 0);
+    let site_result = vm.import("site", 0);
     if site_result.is_err() {
         warn!(
             "Failed to import site, consider adding the Lib directory to your RUSTPYTHONPATH \
