@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-sre_engine"
-version = "0.6.0"
+version = "0.3.1"
 authors = ["Kangzhi Shi <shikangzhi@gmail.com>", "RustPython Team"]
 description = "A low-level implementation of Python's SRE regex engine"
 repository = "https://github.com/RustPython/RustPython"

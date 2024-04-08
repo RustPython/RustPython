@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-common"
-version = "0.3.0"
+version = "0.3.1"
 description = "General python functions and algorithms for use in RustPython"
 authors = ["RustPython Team"]
 edition = "2021"

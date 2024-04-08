@@ -1006,7 +1006,7 @@ impl ToPyException for std::ffi::NulError {
 }
 
 #[cfg(windows)]
-impl<C: widestring::UChar> ToPyException for widestring::NulError<C> {
+impl<C> ToPyException for widestring::error::ContainsNul<C> {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         cstring_error(vm)
     }

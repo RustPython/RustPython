@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-vm"
-version = "0.3.0"
+version = "0.3.1"
 description = "RustPython virtual machine."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
