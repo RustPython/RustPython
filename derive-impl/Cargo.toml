@@ -17,7 +17,7 @@ once_cell = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits"] }
 
 maplit = "1.0.2"
-proc-macro2 = "1.0.60"
+proc-macro2 = "1.0.79"
 quote = "1.0.18"
 syn-ext = { version = "0.4.0", features = ["full"] }
 textwrap = { version = "0.15.0", default-features = false }

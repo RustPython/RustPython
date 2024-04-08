@@ -718,6 +718,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "equivalent"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5443807d6dff69373d433ab9ef5378ad8df50ca6298caf15de6e52e24aaf54d5"
+
+[[package]]
 name = "errno"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -781,7 +787,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3cc29a6c0dfa26d3a0e80021edda5671eeed79381130897737cdd273ea18909"
 dependencies = [
  "flame",
- "indexmap",
+ "indexmap 1.9.3",
  "serde",
  "serde_json",
 ]
@@ -888,6 +894,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
 
 [[package]]
+name = "hashbrown"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "290f1a1d9242c78d09ce40a5e87e7554ee637af1351968159f4952f028f75604"
+
+[[package]]
 name = "heck"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -963,7 +975,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
 dependencies = [
  "autocfg",
- "hashbrown",
+ "hashbrown 0.12.3",
+]
+
+[[package]]
+name = "indexmap"
+version = "2.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "168fb715dda47215e360912c096649d23d58bf392ac62f73919e831745e40f26"
+dependencies = [
+ "equivalent",
+ "hashbrown 0.14.3",
 ]
 
 [[package]]
@@ -974,15 +996,14 @@ checksum = "1e186cfbae8084e513daff4240b4797e342f988cecda4fb6c939150f96315fd8"
 
 [[package]]
 name = "insta"
-version = "1.33.0"
+version = "1.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aa511b2e298cd49b1856746f6bb73e17036bcd66b25f5e92cdcdbec9bd75686"
+checksum = "3eab73f58e59ca6526037208f0e98851159ec1633cf17b6cd2e1f2c3fd5d53cc"
 dependencies = [
  "console",
  "lazy_static 1.4.0",
  "linked-hash-map",
  "similar",
- "yaml-rust",
 ]
 
 [[package]]
@@ -1283,9 +1304,9 @@ dependencies = [
 
 [[package]]
 name = "memchr"
-version = "2.5.0"
+version = "2.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
+checksum = "6c8640c5d730cb13ebd907d8d04b52f55ac9a2eec55b440c8892f40d56c76c1d"
 
 [[package]]
 name = "memmap2"
@@ -1316,9 +1337,9 @@ dependencies = [
 
 [[package]]
 name = "memoffset"
-version = "0.9.0"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a634b1c61a95585bd15607c6ab0c4e5b226e695ff2800ba0cdccddf208c406c"
+checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
 ]
@@ -1372,7 +1393,7 @@ dependencies = [
  "bitflags 2.5.0",
  "cfg-if",
  "libc",
- "memoffset 0.9.0",
+ "memoffset 0.9.1",
 ]
 
 [[package]]
@@ -1445,9 +1466,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.18.0"
+version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd8b5dd2ae5ed71462c540258bedcb51965123ad7e7ccf4b9a8cafaa4a63576d"
+checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "oorandom"
@@ -1666,18 +1687,18 @@ dependencies = [
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.66"
+version = "1.0.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18fb31db3f9bddb2ea821cde30a9f70117e3f119938b5ee630b7403aa6e2ead9"
+checksum = "e835ff2298f5721608eb1a980ecaee1aef2c132bf95ecc026a11b7bf3c01c02e"
 dependencies = [
  "unicode-ident",
 ]
 
 [[package]]
 name = "puruspe"
-version = "0.2.0"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe7765e19fb2ba6fd4373b8d90399f5321683ea7c11b598c6bbaa3a72e9c83b8"
+checksum = "06a1eed715f625eaa95fba5e049dcf7bc06fa396d6d2e55015b3764e234dfd3f"
 
 [[package]]
 name = "pyo3"
@@ -1688,7 +1709,7 @@ dependencies = [
  "cfg-if",
  "indoc",
  "libc",
- "memoffset 0.9.0",
+ "memoffset 0.9.1",
  "parking_lot",
  "pyo3-build-config",
  "pyo3-ffi",
@@ -1892,18 +1913,18 @@ dependencies = [
 
 [[package]]
 name = "result-like"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b80fe0296795a96913be20558326b797a187bb3986ce84ed82dee0fb7414428"
+checksum = "ccc7ce6435c33898517a30e85578cd204cbb696875efb93dec19a2d31294f810"
 dependencies = [
  "result-like-derive",
 ]
 
 [[package]]
 name = "result-like-derive"
-version = "0.4.5"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a29c8a4ac7839f1dcb8b899263b501e0d6932f210300c8a0d271323727b35c1"
+checksum = "1fabf0a2e54f711c68c50d49f648a1a8a37adcb57353f518ac4df374f0788f42"
 dependencies = [
  "pmutil 0.5.3",
  "proc-macro2",
@@ -1981,7 +2002,7 @@ version = "0.3.0"
 dependencies = [
  "ahash",
  "bitflags 2.5.0",
- "indexmap",
+ "indexmap 2.2.6",
  "insta",
  "itertools 0.11.0",
  "log",
@@ -2266,14 +2287,14 @@ dependencies = [
  "glob",
  "half",
  "hex",
- "indexmap",
+ "indexmap 2.2.6",
  "is-macro",
  "itertools 0.11.0",
  "libc",
  "log",
  "malachite-bigint",
  "memchr",
- "memoffset 0.6.5",
+ "memoffset 0.9.1",
  "nix 0.27.1",
  "num-complex",
  "num-integer",
@@ -2766,7 +2787,7 @@ version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56c59d8dd7d0dcbc6428bf7aa2f0e823e26e43b3c9aca15bbc9475d23e5fa12b"
 dependencies = [
- "indexmap",
+ "indexmap 1.9.3",
  "nom8",
  "toml_datetime",
 ]
@@ -3463,15 +3484,6 @@ name = "xml-rs"
 version = "0.8.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52839dc911083a8ef63efa4d039d1f58b5e409f923e44c80828f206f66e5541c"
-
-[[package]]
-name = "yaml-rust"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
-dependencies = [
- "linked-hash-map",
-]
 
 [[package]]
 name = "zerocopy"
