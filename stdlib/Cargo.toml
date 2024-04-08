@@ -76,7 +76,7 @@ ucd = "0.1.1"
 # compression
 adler32 = "1.2.0"
 crc32fast = "1.3.2"
-flate2 = "1.0.23"
+flate2 = "1.0.28"
 bzip2 = { version = "0.4", optional = true }
 
 # uuid
