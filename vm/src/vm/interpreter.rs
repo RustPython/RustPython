@@ -1,9 +1,5 @@
 use super::{setting::Settings, thread, Context, VirtualMachine};
-use crate::{
-    stdlib::{atexit, sys},
-    vm::PyBaseExceptionRef,
-    PyResult,
-};
+use crate::{stdlib::atexit, vm::PyBaseExceptionRef, PyResult};
 use std::sync::atomic::Ordering;
 
 /// The general interface for the VM
@@ -120,7 +116,7 @@ impl Interpreter {
     /// Note that calling `finalize` is not necessary by purpose though.
     pub fn finalize(self, exc: Option<PyBaseExceptionRef>) -> u8 {
         self.enter(|vm| {
-            flush_std(vm);
+            vm.flush_std();
 
             // See if any exception leaked out:
             let exit_code = if let Some(exc) = exc {
@@ -133,19 +129,10 @@ impl Interpreter {
 
             vm.state.finalizing.store(true, Ordering::Release);
 
-            flush_std(vm);
+            vm.flush_std();
 
             exit_code
         })
-    }
-}
-
-pub(crate) fn flush_std(vm: &VirtualMachine) {
-    if let Ok(stdout) = sys::get_stdout(vm) {
-        let _ = vm.call_method(&stdout, identifier!(vm, flush).as_str(), ());
-    }
-    if let Ok(stderr) = sys::get_stderr(vm) {
-        let _ = vm.call_method(&stderr, identifier!(vm, flush).as_str(), ());
     }
 }
 
