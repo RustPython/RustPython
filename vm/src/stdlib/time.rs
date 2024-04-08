@@ -14,7 +14,7 @@ mod time {
     };
     use chrono::{
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
-        Datelike, Timelike,
+        DateTime, Datelike, Timelike,
     };
     use std::time::Duration;
 
@@ -110,17 +110,17 @@ mod time {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
-    fn pyobj_to_naive_date_time(
+    fn pyobj_to_date_time(
         value: Either<f64, i64>,
         vm: &VirtualMachine,
-    ) -> PyResult<NaiveDateTime> {
+    ) -> PyResult<DateTime<chrono::offset::Utc>> {
         let timestamp = match value {
             Either::A(float) => {
                 let secs = float.trunc() as i64;
                 let nsecs = (float.fract() * 1e9) as u32;
-                NaiveDateTime::from_timestamp_opt(secs, nsecs)
+                DateTime::<chrono::offset::Utc>::from_timestamp(secs, nsecs)
             }
-            Either::B(int) => NaiveDateTime::from_timestamp_opt(int, 0),
+            Either::B(int) => DateTime::<chrono::offset::Utc>::from_timestamp(int, 0),
         };
         timestamp.ok_or_else(|| {
             vm.new_overflow_error("timestamp out of range for platform time_t".to_owned())
@@ -131,14 +131,14 @@ mod time {
         /// Construct a localtime from the optional seconds, or get the current local time.
         fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
-                OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
+                OptionalArg::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
                 OptionalArg::Missing => chrono::offset::Local::now().naive_local(),
             })
         }
 
         fn naive_or_utc(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
             Ok(match self {
-                OptionalArg::Present(secs) => pyobj_to_naive_date_time(secs, vm)?,
+                OptionalArg::Present(secs) => pyobj_to_date_time(secs, vm)?.naive_utc(),
                 OptionalArg::Missing => chrono::offset::Utc::now().naive_utc(),
             })
         }
@@ -174,7 +174,7 @@ mod time {
     #[pyfunction]
     fn mktime(t: PyStructTime, vm: &VirtualMachine) -> PyResult<f64> {
         let datetime = t.to_date_time(vm)?;
-        let seconds_since_epoch = datetime.timestamp() as f64;
+        let seconds_since_epoch = datetime.and_utc().timestamp() as f64;
         Ok(seconds_since_epoch)
     }
 
