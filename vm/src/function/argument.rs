@@ -342,7 +342,7 @@ impl<T> KwArgs<T> {
     }
 
     pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
-        self.0.remove(name)
+        self.0.swap_remove(name)
     }
 
     pub fn is_empty(self) -> bool {

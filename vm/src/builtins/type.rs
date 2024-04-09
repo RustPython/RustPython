@@ -1063,7 +1063,7 @@ impl SetAttr for PyType {
         if let PySetterValue::Assign(value) = value {
             zelf.attributes.write().insert(attr_name, value);
         } else {
-            let prev_value = zelf.attributes.write().remove(attr_name);
+            let prev_value = zelf.attributes.write().shift_remove(attr_name); // TODO: swap_remove applicable?
             if prev_value.is_none() {
                 return Err(vm.new_exception(
                     vm.ctx.exceptions.attribute_error.to_owned(),

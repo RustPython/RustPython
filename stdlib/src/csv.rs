@@ -564,7 +564,7 @@ mod _csv {
     impl FromArgs for FormatOptions {
         fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
             let mut res = FormatOptions::default();
-            if let Some(dialect) = args.kwargs.remove("dialect") {
+            if let Some(dialect) = args.kwargs.swap_remove("dialect") {
                 res.dialect = prase_dialect_item_from_arg(vm, dialect)?;
             } else if let Some(dialect) = args.args.first() {
                 res.dialect = prase_dialect_item_from_arg(vm, dialect.clone())?;
@@ -572,11 +572,11 @@ mod _csv {
                 res.dialect = DialectItem::None;
             };
 
-            if let Some(delimiter) = args.kwargs.remove("delimiter") {
+            if let Some(delimiter) = args.kwargs.swap_remove("delimiter") {
                 res.delimiter = Some(parse_delimiter_from_obj(vm, &delimiter)?);
             }
 
-            if let Some(escapechar) = args.kwargs.remove("escapechar") {
+            if let Some(escapechar) = args.kwargs.swap_remove("escapechar") {
                 res.escapechar = match_class!(match escapechar {
                     s @ PyStr => Some(s.as_str().bytes().exactly_one().map_err(|_| {
                         let msg = r#""escapechar" must be a 1-character string"#;
@@ -585,7 +585,7 @@ mod _csv {
                     _ => None,
                 })
             };
-            if let Some(lineterminator) = args.kwargs.remove("lineterminator") {
+            if let Some(lineterminator) = args.kwargs.swap_remove("lineterminator") {
                 res.lineterminator = Some(csv_core::Terminator::Any(
                     lineterminator
                         .try_to_value::<&str>(vm)?
@@ -597,19 +597,19 @@ mod _csv {
                         })?,
                 ))
             };
-            if let Some(doublequote) = args.kwargs.remove("doublequote") {
+            if let Some(doublequote) = args.kwargs.swap_remove("doublequote") {
                 res.doublequote = Some(doublequote.try_to_bool(vm).map_err(|_| {
                     let msg = r#""doublequote" must be a bool"#;
                     vm.new_type_error(msg.to_owned())
                 })?)
             };
-            if let Some(skipinitialspace) = args.kwargs.remove("skipinitialspace") {
+            if let Some(skipinitialspace) = args.kwargs.swap_remove("skipinitialspace") {
                 res.skipinitialspace = Some(skipinitialspace.try_to_bool(vm).map_err(|_| {
                     let msg = r#""skipinitialspace" must be a bool"#;
                     vm.new_type_error(msg.to_owned())
                 })?)
             };
-            if let Some(quoting) = args.kwargs.remove("quoting") {
+            if let Some(quoting) = args.kwargs.swap_remove("quoting") {
                 res.quoting = match_class!(match quoting {
                     i @ PyInt =>
                         Some(i.try_to_primitive::<isize>(vm)?.try_into().map_err(|_e| {
@@ -621,7 +621,7 @@ mod _csv {
                     }
                 });
             };
-            if let Some(quotechar) = args.kwargs.remove("quotechar") {
+            if let Some(quotechar) = args.kwargs.swap_remove("quotechar") {
                 res.quotechar = match_class!(match quotechar {
                     s @ PyStr => Some(Some(s.as_str().bytes().exactly_one().map_err(|_| {
                         let msg = r#""quotechar" must be a 1-character string"#;
@@ -646,7 +646,7 @@ mod _csv {
                     }
                 })
             };
-            if let Some(strict) = args.kwargs.remove("strict") {
+            if let Some(strict) = args.kwargs.swap_remove("strict") {
                 res.strict = Some(strict.try_to_bool(vm).map_err(|_| {
                     let msg = r#""strict" must be a int enum"#;
                     vm.new_type_error(msg.to_owned())
