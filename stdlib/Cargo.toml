@@ -19,7 +19,7 @@ ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
 [dependencies]
 # rustpython crates
 rustpython-derive = { workspace = true }
-rustpython-vm = { workspace = true, features = ["compiler"] }
+rustpython-vm = { workspace = true }
 rustpython-common = { workspace = true }
 
 ahash = { workspace = true }

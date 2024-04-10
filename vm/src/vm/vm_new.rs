@@ -8,8 +8,6 @@ use crate::{
     convert::ToPyObject,
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
-    source::AtLocation,
-    source_code::SourceLocation,
     vm::VirtualMachine,
     AsObject, Py, PyObject, PyObjectRef, PyRef,
 };
@@ -255,6 +253,9 @@ impl VirtualMachine {
         error: &crate::compiler::CompileError,
         source: Option<&str>,
     ) -> PyBaseExceptionRef {
+        use crate::source::AtLocation;
+        use crate::source_code::SourceLocation;
+
         let syntax_error_type = match &error.error {
             #[cfg(feature = "rustpython-parser")]
             crate::compiler::CompileErrorType::Parse(p) if p.is_indentation_error() => {

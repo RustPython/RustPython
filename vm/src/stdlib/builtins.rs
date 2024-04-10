@@ -17,7 +17,6 @@ mod builtins {
             PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
         },
         common::{hash::PyHash, str::to_ascii},
-        convert::ToPyException,
         function::{
             ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
             ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
@@ -147,7 +146,7 @@ mod builtins {
             }
             #[cfg(feature = "rustpython-parser")]
             {
-                use crate::builtins::PyBytesRef;
+                use crate::{builtins::PyBytesRef, convert::ToPyException};
                 use num_traits::Zero;
                 use rustpython_parser as parser;
 
