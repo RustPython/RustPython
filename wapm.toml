@@ -1,6 +1,6 @@
 [package]
 name = "rustpython"
-version = "0.3.0"
+version = "0.3.1"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust 🐍 😱 🤘"
 license-file = "LICENSE"
 readme = "README.md"
