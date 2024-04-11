@@ -1,4 +1,9 @@
-pub(crate) use _sha256::make_module;
+use crate::vm::{builtins::PyModule, PyRef, VirtualMachine};
+
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
+    let _ = vm.import("_hashlib", 0);
+    _sha256::make_module(vm)
+}
 
 #[pymodule]
 mod _sha256 {

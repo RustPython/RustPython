@@ -22,7 +22,7 @@ pub trait StaticType {
     fn static_type() -> &'static Py<PyType> {
         Self::static_cell()
             .get()
-            .expect("static type has not been initialized")
+            .expect("static type has not been initialized. e.g. the native types defined in different module may be used before importing library.")
     }
     fn init_manually(typ: PyTypeRef) -> &'static Py<PyType> {
         let cell = Self::static_cell();
