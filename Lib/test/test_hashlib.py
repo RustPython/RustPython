@@ -1118,8 +1118,6 @@ class KDFTests(unittest.TestCase):
                 iterations=1, dklen=None)
             self.assertEqual(out, self.pbkdf2_results['sha1'][0][0])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(builtin_hashlib is None, "test requires builtin_hashlib")
     def test_pbkdf2_hmac_py(self):
         with warnings_helper.check_warnings():
