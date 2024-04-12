@@ -1,5 +1,6 @@
 use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
+use crate::types::PyTypeFlags;
 use crate::{
     class::PyClassImpl,
     function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
@@ -281,7 +282,18 @@ impl PyBaseObject {
 
     #[pygetset(name = "__class__", setter)]
     fn set_class(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if instance.payload_is::<PyBaseObject>() {
+        let both_module = instance.class().fast_issubclass(vm.ctx.types.module_type)
+            && value.class().fast_issubclass(vm.ctx.types.module_type);
+        let both_mutable = !instance
+            .class()
+            .slots
+            .flags
+            .has_feature(PyTypeFlags::IMMUTABLETYPE)
+            && !value
+                .downcast_ref::<PyType>()
+                .map(|t| t.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE))
+                .unwrap_or(false);
+        if both_mutable || both_module {
             match value.downcast::<PyType>() {
                 Ok(cls) => {
                     // FIXME(#1979) cls instances might have a payload
@@ -298,7 +310,8 @@ impl PyBaseObject {
             }
         } else {
             Err(vm.new_type_error(
-                "__class__ assignment only supported for types without a payload".to_owned(),
+                "__class__ assignment only supported for mutable types or ModuleType subclasses"
+                    .to_owned(),
             ))
         }
     }
