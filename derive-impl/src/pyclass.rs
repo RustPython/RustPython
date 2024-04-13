@@ -1497,6 +1497,9 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
                              .union(::rustpython_vm::types::PyTypeFlags::#ident)
                         });
                     }
+                    flags.push(quote! {
+                        .union(::rustpython_vm::types::PyTypeFlags::IMMUTABLETYPE)
+                    });
                 } else {
                     bail_span!(path, "Unknown pyimpl attribute")
                 }
