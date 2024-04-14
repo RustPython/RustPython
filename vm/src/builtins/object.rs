@@ -282,37 +282,34 @@ impl PyBaseObject {
 
     #[pygetset(name = "__class__", setter)]
     fn set_class(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let both_module = instance.class().fast_issubclass(vm.ctx.types.module_type)
-            && value.class().fast_issubclass(vm.ctx.types.module_type);
-        let both_mutable = !instance
-            .class()
-            .slots
-            .flags
-            .has_feature(PyTypeFlags::IMMUTABLETYPE)
-            && !value
-                .downcast_ref::<PyType>()
-                .map(|t| t.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE))
-                .unwrap_or(false);
-        if both_mutable || both_module {
-            match value.downcast::<PyType>() {
-                Ok(cls) => {
-                    // FIXME(#1979) cls instances might have a payload
+        match value.downcast::<PyType>() {
+            Ok(cls) => {
+                let both_module = instance.class().fast_issubclass(vm.ctx.types.module_type)
+                    && cls.fast_issubclass(vm.ctx.types.module_type);
+                let both_mutable = !instance
+                    .class()
+                    .slots
+                    .flags
+                    .has_feature(PyTypeFlags::IMMUTABLETYPE)
+                    && !cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE);
+                // FIXME(#1979) cls instances might have a payload
+                if both_mutable || both_module {
                     instance.set_class(cls, vm);
                     Ok(())
-                }
-                Err(value) => {
-                    let value_class = value.class();
-                    let type_repr = &value_class.name();
-                    Err(vm.new_type_error(format!(
-                        "__class__ must be set to a class, not '{type_repr}' object"
-                    )))
+                } else {
+                    Err(vm.new_type_error(
+                        "__class__ assignment only supported for mutable types or ModuleType subclasses"
+                            .to_owned(),
+                    ))
                 }
             }
-        } else {
-            Err(vm.new_type_error(
-                "__class__ assignment only supported for mutable types or ModuleType subclasses"
-                    .to_owned(),
-            ))
+            Err(value) => {
+                let value_class = value.class();
+                let type_repr = &value_class.name();
+                Err(vm.new_type_error(format!(
+                    "__class__ must be set to a class, not '{type_repr}' object"
+                )))
+            }
         }
     }
 
