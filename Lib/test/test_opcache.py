@@ -152,8 +152,6 @@ class TestLoadAttrCache(unittest.TestCase):
         for _ in range(1025):
             self.assertTrue(f())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_metaclass_swap(self):
         class OldMetaclass(type):
             @property
@@ -411,8 +409,6 @@ class TestLoadMethodCache(unittest.TestCase):
         for _ in range(1025):
             self.assertTrue(f())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_metaclass_swap(self):
         class OldMetaclass(type):
             @property
