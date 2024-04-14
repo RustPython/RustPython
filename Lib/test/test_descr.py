@@ -1052,8 +1052,6 @@ order (MRO) for bases """
         self.assertEqual(x.foo, 1)
         self.assertEqual(x.__dict__, {'foo': 1})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_object_class_assignment_between_heaptypes_and_nonheaptypes(self):
         class SubType(types.ModuleType):
             a = 1
