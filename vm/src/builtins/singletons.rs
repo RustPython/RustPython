@@ -2,10 +2,9 @@ use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     convert::ToPyObject,
-    function::{PyArithmeticValue, PyComparisonValue},
     protocol::PyNumberMethods,
-    types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
-    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    types::{AsNumber, Constructor, Representable},
+    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "NoneType")]
@@ -43,7 +42,7 @@ impl Constructor for PyNone {
     }
 }
 
-#[pyclass(with(Constructor, Comparable, AsNumber, Representable))]
+#[pyclass(with(Constructor, AsNumber, Representable))]
 impl PyNone {
     #[pymethod(magic)]
     fn bool(&self) -> bool {
@@ -70,28 +69,6 @@ impl AsNumber for PyNone {
             ..PyNumberMethods::NOT_IMPLEMENTED
         };
         &AS_NUMBER
-    }
-}
-
-impl Comparable for PyNone {
-    fn cmp(
-        _zelf: &Py<Self>,
-        other: &PyObject,
-        op: PyComparisonOp,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyComparisonValue> {
-        let value = match op {
-            PyComparisonOp::Eq => {
-                if vm.is_none(other) {
-                    PyArithmeticValue::Implemented(true)
-                } else {
-                    PyArithmeticValue::NotImplemented
-                }
-            }
-            _ => PyComparisonValue::NotImplemented,
-        };
-
-        Ok(value)
     }
 }
 
