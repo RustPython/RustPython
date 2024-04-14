@@ -737,6 +737,21 @@ pub(super) mod _os {
             Ok(self.ino.load())
         }
 
+        #[cfg(not(windows))]
+        #[pymethod]
+        fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
+            Ok(false)
+        }
+
+        // TODO: RUSTPYTHON
+        // Check is_junction method logic is correct.
+        #[cfg(windows)]
+        #[pymethod]
+        fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
+            fs::metadata(&path).map_or(false, |meta| meta.file_type().is_dir())
+                && fs::symlink_metadata(&path).map_or(false, |meta| meta.file_type().is_symlink())
+        }
+
         #[pymethod(magic)]
         fn fspath(&self, vm: &VirtualMachine) -> PyResult {
             self.path(vm)
