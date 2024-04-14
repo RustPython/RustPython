@@ -105,7 +105,7 @@ env:
     test_weakref
     test_yield_from
   # Python version targeted by the CI.
-  PYTHON_VERSION: "3.12.0"
+  PYTHON_VERSION: "3.12.3"
 
 jobs:
   rust_tests:
@@ -140,7 +140,7 @@ jobs:
 
       - name: run rust tests
         run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }}
-        if: runner.os != 'macOS'  
+        if: runner.os != 'macOS'
       # temp skip ssl linking for Mac to avoid CI failure
       - name: run rust tests (MacOS no ssl)
         run: cargo test --workspace --exclude rustpython_wasm --verbose --no-default-features --features threading,stdlib,zlib,importlib,encodings,jit
