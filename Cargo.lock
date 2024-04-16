@@ -2242,6 +2242,7 @@ dependencies = [
  "gethostname",
  "hex",
  "itertools 0.11.0",
+ "junction",
  "libc",
  "libsqlite3-sys",
  "libz-sys",

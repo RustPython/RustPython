@@ -257,6 +257,18 @@ mod _winapi {
         return_value != 0
     }
 
+    #[pyfunction]
+    fn CreateJunction(
+        src_path: PyStrRef,
+        dest_path: PyStrRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let src_path = std::path::Path::new(src_path.as_str());
+        let dest_path = std::path::Path::new(dest_path.as_str());
+
+        junction::create(dest_path, src_path).map_err(|e| e.to_pyexception(vm))
+    }
+
     fn getenvironment(env: ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
         let keys = env.mapping().keys(vm)?;
         let values = env.mapping().values(vm)?;
