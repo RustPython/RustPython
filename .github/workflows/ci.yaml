@@ -24,7 +24,6 @@ env:
     test_os
     test_pathlib
     test_posixpath
-    test_shutil
     test_venv
   # configparser: https://github.com/RustPython/RustPython/issues/4995#issuecomment-1582397417
   # socketserver: seems related to configparser crash.
