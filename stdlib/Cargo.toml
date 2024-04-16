@@ -105,6 +105,7 @@ foreign-types-shared = { version = "0.1.1", optional = true }
 libsqlite3-sys = { version = "0.25", features = ["min_sqlite_version_3_7_16", "bundled"] }
 
 [target.'cfg(windows)'.dependencies]
+junction = { workspace = true }
 paste = { workspace = true }
 schannel = { workspace = true }
 widestring = { workspace = true }

@@ -107,7 +107,7 @@ widestring = { workspace = true }
 winreg = "0.10.1"
 
 [target.'cfg(windows)'.dependencies.junction]
-version = "1.0.0"
+workspace = true
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.52.0"
