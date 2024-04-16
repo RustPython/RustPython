@@ -248,10 +248,10 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         settings.safe_path = true;
     }
 
-    settings.check_hash_based_pycs = matches
+    matches
         .value_of("check-hash-based-pycs")
         .unwrap_or("default")
-        .to_owned();
+        .clone_into(&mut settings.check_hash_based_pycs);
 
     let mut dev_mode = false;
     let mut warn_default_encoding = false;

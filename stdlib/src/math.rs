@@ -16,8 +16,10 @@ mod math {
     // Constants
     #[pyattr]
     use std::f64::consts::{E as e, PI as pi, TAU as tau};
-    #[pyattr]
-    use std::f64::{INFINITY as inf, NAN as nan};
+    #[pyattr(name = "inf")]
+    const INF: f64 = f64::INFINITY;
+    #[pyattr(name = "nan")]
+    const NAN: f64 = f64::NAN;
 
     // Helper macro:
     macro_rules! call_math_func {

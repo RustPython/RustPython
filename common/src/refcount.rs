@@ -66,7 +66,7 @@ impl RefCount {
 
     pub fn leak(&self) {
         debug_assert!(!self.is_leaked());
-        const BIT_MARKER: usize = (std::isize::MAX as usize) + 1;
+        const BIT_MARKER: usize = (isize::MAX as usize) + 1;
         debug_assert_eq!(BIT_MARKER.count_ones(), 1);
         debug_assert_eq!(BIT_MARKER.leading_zeros(), 0);
         self.strong.fetch_add(BIT_MARKER, Relaxed);

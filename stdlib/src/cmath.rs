@@ -12,12 +12,14 @@ mod cmath {
     // Constants
     #[pyattr]
     use std::f64::consts::{E as e, PI as pi, TAU as tau};
-    #[pyattr]
-    use std::f64::{INFINITY as inf, NAN as nan};
+    #[pyattr(name = "inf")]
+    const INF: f64 = f64::INFINITY;
+    #[pyattr(name = "nan")]
+    const NAN: f64 = f64::NAN;
     #[pyattr(name = "infj")]
-    const INFJ: Complex64 = Complex64::new(0., std::f64::INFINITY);
+    const INFJ: Complex64 = Complex64::new(0., f64::INFINITY);
     #[pyattr(name = "nanj")]
-    const NANJ: Complex64 = Complex64::new(0., std::f64::NAN);
+    const NANJ: Complex64 = Complex64::new(0., f64::NAN);
 
     #[pyfunction]
     fn phase(z: ArgIntoComplex) -> f64 {

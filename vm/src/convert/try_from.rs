@@ -31,16 +31,16 @@ impl PyObjectRef {
 }
 
 impl PyObject {
-    pub fn try_to_value<'a, T: 'a>(&'a self, vm: &VirtualMachine) -> PyResult<T>
+    pub fn try_to_value<'a, T>(&'a self, vm: &VirtualMachine) -> PyResult<T>
     where
-        T: TryFromBorrowedObject<'a>,
+        T: 'a + TryFromBorrowedObject<'a>,
     {
         T::try_from_borrowed_object(vm, self)
     }
 
-    pub fn try_to_ref<'a, T: 'a>(&'a self, vm: &VirtualMachine) -> PyResult<&'a Py<T>>
+    pub fn try_to_ref<'a, T>(&'a self, vm: &VirtualMachine) -> PyResult<&'a Py<T>>
     where
-        T: PyPayload,
+        T: 'a + PyPayload,
     {
         self.try_to_value::<&Py<T>>(vm)
     }
