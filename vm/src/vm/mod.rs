@@ -653,7 +653,7 @@ impl VirtualMachine {
         // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
         // https://github.com/python/cpython/blob/v3.9.0/Objects/listobject.c#L922-L928
         if let Some(cap) = cap {
-            if cap >= isize::max_value() as usize {
+            if cap >= isize::MAX as usize {
                 return Ok(Vec::new());
             }
         }

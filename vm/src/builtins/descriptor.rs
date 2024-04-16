@@ -250,7 +250,7 @@ impl PyMemberDescriptor {
         Ok(if qualname.is_none() {
             drop(qualname);
             let calculated = calculate_qualname(&self.common, vm)?;
-            *self.common.qualname.write() = calculated.to_owned();
+            calculated.clone_into(&mut self.common.qualname.write());
             calculated
         } else {
             qualname.to_owned()

@@ -671,7 +671,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
                                 min_count: ctx.peek_code(req, 2) as usize,
                                 max_count: ctx.peek_code(req, 3) as usize,
                                 code_position: ctx.code_position,
-                                last_position: std::usize::MAX,
+                                last_position: usize::MAX,
                                 prev_id: ctx.repeat_ctx_id,
                             };
                             state.repeat_stack.push(repeat_ctx);

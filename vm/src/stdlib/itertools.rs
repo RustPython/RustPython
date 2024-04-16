@@ -1585,7 +1585,7 @@ mod decl {
                     for i in idx as usize..r {
                         let index = indices[i];
                         let elem = &zelf.pool[index];
-                        result[i] = elem.to_owned();
+                        elem.clone_into(&mut result[i]);
                     }
 
                     result.to_vec()
