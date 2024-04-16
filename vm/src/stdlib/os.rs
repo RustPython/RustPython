@@ -737,6 +737,18 @@ pub(super) mod _os {
             Ok(self.ino.load())
         }
 
+        #[cfg(not(windows))]
+        #[pymethod]
+        fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
+            Ok(false)
+        }
+
+        #[cfg(windows)]
+        #[pymethod]
+        fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
+            Ok(junction::exists(self.pathval.clone()).unwrap_or(false))
+        }
+
         #[pymethod(magic)]
         fn fspath(&self, vm: &VirtualMachine) -> PyResult {
             self.path(vm)

@@ -246,6 +246,17 @@ mod _winapi {
         ))
     }
 
+    #[pyfunction]
+    fn NeedCurrentDirectoryForExePath(exe_name: PyStrRef) -> bool {
+        let exe_name = exe_name.as_str().to_wides_with_nul();
+        let return_value = unsafe {
+            windows_sys::Win32::System::Environment::NeedCurrentDirectoryForExePathW(
+                exe_name.as_ptr(),
+            )
+        };
+        return_value != 0
+    }
+
     fn getenvironment(env: ArgMapping, vm: &VirtualMachine) -> PyResult<Vec<u16>> {
         let keys = env.mapping().keys(vm)?;
         let values = env.mapping().values(vm)?;

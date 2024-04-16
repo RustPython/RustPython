@@ -122,6 +122,7 @@ features = [
   "Win32_NetworkManagement_IpHelper",
   "Win32_NetworkManagement_Ndis",
   "Win32_Security_Cryptography",
+  "Win32_System_Environment",
 ]
 
 [target.'cfg(target_os = "macos")'.dependencies]
