@@ -743,13 +743,10 @@ pub(super) mod _os {
             Ok(false)
         }
 
-        // TODO: RUSTPYTHON
-        // Check is_junction method logic is correct.
         #[cfg(windows)]
         #[pymethod]
         fn is_junction(&self, _vm: &VirtualMachine) -> PyResult<bool> {
-            fs::metadata(&path).map_or(false, |meta| meta.file_type().is_dir())
-                && fs::symlink_metadata(&path).map_or(false, |meta| meta.file_type().is_symlink())
+            Ok(junction::exists(self.pathval.clone()).unwrap_or(false))
         }
 
         #[pymethod(magic)]
