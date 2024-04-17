@@ -1843,8 +1843,6 @@ class TestCase(unittest.TestCase):
                                     'does not support item assignment'):
             fields(C)[0].metadata['test'] = 3
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_field_metadata_custom_mapping(self):
         # Try a custom mapping.
         class SimpleNameSpace:
