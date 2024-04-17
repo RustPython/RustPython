@@ -127,6 +127,7 @@ pub(super) mod _os {
         common::lock::{OnceCell, PyRwLock},
         common::suppress_iph,
         convert::{IntoPyException, ToPyObject},
+        fileutils::StatStruct,
         function::{ArgBytesLike, Either, FsPath, FuncArgs, OptionalArg},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd, OutputMode},
         protocol::PyIterReturn,
@@ -724,6 +725,8 @@ pub(super) mod _os {
         pub st_mtime_ns: i128,
         #[pyarg(any, default)]
         pub st_ctime_ns: i128,
+        #[pyarg(any, default)]
+        pub st_reparse_tag: u32,
     }
 
     #[pyclass(with(PyStructSequence))]
@@ -753,6 +756,12 @@ pub(super) mod _os {
             const NANOS_PER_SEC: u32 = 1_000_000_000;
             let to_f64 = |(s, ns)| (s as f64) + (ns as f64) / (NANOS_PER_SEC as f64);
             let to_ns = |(s, ns)| s as i128 * NANOS_PER_SEC as i128 + ns as i128;
+
+            #[cfg(windows)]
+            let st_reparse_tag = stat.st_reparse_tag;
+            #[cfg(not(windows))]
+            let st_reparse_tag = 0;
+
             StatResult {
                 st_mode: vm.ctx.new_pyref(stat.st_mode),
                 st_ino: vm.ctx.new_pyref(stat.st_ino),
@@ -770,6 +779,7 @@ pub(super) mod _os {
                 st_atime_ns: to_ns(atime),
                 st_mtime_ns: to_ns(mtime),
                 st_ctime_ns: to_ns(ctime),
+                st_reparse_tag,
             }
         }
 
@@ -798,26 +808,6 @@ pub(super) mod _os {
             let stat: StatResult = args.bind(vm)?;
             Ok(stat.to_pyobject(vm))
         }
-    }
-
-    #[cfg(not(windows))]
-    use libc::stat as StatStruct;
-
-    #[cfg(windows)]
-    struct StatStruct {
-        st_dev: libc::c_ulong,
-        st_ino: u64,
-        st_mode: libc::c_ushort,
-        st_nlink: i32,
-        st_uid: i32,
-        st_gid: i32,
-        st_size: u64,
-        st_atime: libc::time_t,
-        st_atime_nsec: i32,
-        st_mtime: libc::time_t,
-        st_mtime_nsec: i32,
-        st_ctime: libc::time_t,
-        st_ctime_nsec: i32,
     }
 
     #[cfg(windows)]
@@ -860,6 +850,7 @@ pub(super) mod _os {
             st_atime_nsec: nsec(atime),
             st_mtime_nsec: nsec(mtime),
             st_ctime_nsec: nsec(ctime),
+            ..Default::default()
         })
     }
 
@@ -871,17 +862,11 @@ pub(super) mod _os {
     ) -> io::Result<Option<StatStruct>> {
         // TODO: replicate CPython's win32_xstat
         let [] = dir_fd.0;
-        let meta = match file {
-            OsPathOrFd::Path(path) => super::fs_metadata(path, follow_symlinks.0)?,
-            OsPathOrFd::Fd(fno) => {
-                use std::os::windows::io::FromRawHandle;
-                let handle = Fd(fno).to_raw_handle()?;
-                let file =
-                    std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_handle(handle) });
-                file.metadata()?
-            }
-        };
-        meta_to_stat(&meta).map(Some)
+        match file {
+            OsPathOrFd::Path(path) => meta_to_stat(&super::fs_metadata(path, follow_symlinks.0)?),
+            OsPathOrFd::Fd(fd) => crate::fileutils::fstat(fd),
+        }
+        .map(Some)
     }
 
     #[cfg(not(windows))]
