@@ -93,13 +93,12 @@ impl Constructor for PyMappingProxy {
 ))]
 impl PyMappingProxy {
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-        let opt = match &self.mapping {
-            MappingProxyInner::Class(class) => key
+        match &self.mapping {
+            MappingProxyInner::Class(class) => Ok(key
                 .as_interned_str(vm)
-                .and_then(|key| class.attributes.read().get(key).cloned()),
-            MappingProxyInner::Mapping(mapping) => mapping.mapping().subscript(&*key, vm).ok(),
-        };
-        Ok(opt)
+                .and_then(|key| class.attributes.read().get(key).cloned())),
+            MappingProxyInner::Mapping(mapping) => mapping.mapping().subscript(&*key, vm).map(Some),
+        }
     }
 
     #[pymethod]
