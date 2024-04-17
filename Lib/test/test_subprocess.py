@@ -1465,7 +1465,6 @@ class ProcessTestCase(BaseTestCase):
         self.assertFalse(os.path.exists(ofname))
         self.assertFalse(os.path.exists(efname))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_communicate_epipe(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
@@ -1496,7 +1495,6 @@ class ProcessTestCase(BaseTestCase):
                 p.returncode = code
                 self.assertEqual(repr(p), sx)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_communicate_epipe_only_stdin(self):
         # Issue 10963: communicate() should hide EPIPE
         p = subprocess.Popen(ZERO_RETURN_CMD,
