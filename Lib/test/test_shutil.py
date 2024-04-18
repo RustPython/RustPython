@@ -318,8 +318,6 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertTrue(os.path.exists(dir3))
         self.assertTrue(os.path.exists(file1))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rmtree_errors_onerror(self):
         # filename is guaranteed not to exist
         filename = tempfile.mktemp(dir=self.mkdtemp())
@@ -352,8 +350,6 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertIsInstance(errors[1][2][1], NotADirectoryError)
         self.assertEqual(errors[1][2][1].filename, filename)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_rmtree_errors_onexc(self):
         # filename is guaranteed not to exist
         filename = tempfile.mktemp(dir=self.mkdtemp())
