@@ -4,6 +4,7 @@ pub(crate) use self::termios::make_module;
 mod termios {
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
+        common::os::ErrorExt,
         convert::ToPyObject,
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
@@ -259,7 +260,7 @@ mod termios {
         vm.new_exception(
             error_type(vm),
             vec![
-                err.raw_os_error().to_pyobject(vm),
+                err.posix_errno().to_pyobject(vm),
                 vm.ctx.new_str(err.to_string()).into(),
             ],
         )

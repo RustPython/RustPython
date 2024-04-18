@@ -1,7 +1,7 @@
 use crate::{
     builtins::{PyBaseExceptionRef, PyModule, PySet},
     common::crt_fd::Fd,
-    convert::IntoPyException,
+    convert::{IntoPyException, ToPyException},
     function::{ArgumentError, FromArgs, FsPath, FuncArgs},
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
@@ -205,7 +205,7 @@ impl IntoPyException for IOErrorBuilder {
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-    crate::common::os::errno().into_pyexception(vm)
+    crate::common::os::last_os_error().to_pyexception(vm)
 }
 
 #[allow(dead_code)]

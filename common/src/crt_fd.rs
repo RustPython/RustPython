@@ -23,7 +23,7 @@ pub type Offset = libc::c_longlong;
 #[inline]
 fn cvt<T, I: num_traits::PrimInt>(ret: I, f: impl FnOnce(I) -> T) -> io::Result<T> {
     if ret < I::zero() {
-        Err(crate::os::errno())
+        Err(crate::os::last_os_error())
     } else {
         Ok(f(ret))
     }
@@ -86,7 +86,7 @@ impl Fd {
     }
 }
 
-impl io::Write for &Fd {
+impl io::Write for Fd {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let count = cmp::min(buf.len(), MAX_RW);
         cvt(
@@ -101,31 +101,12 @@ impl io::Write for &Fd {
     }
 }
 
-impl io::Write for Fd {
-    #[inline]
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        (&*self).write(buf)
-    }
-
-    #[inline]
-    fn flush(&mut self) -> io::Result<()> {
-        (&*self).flush()
-    }
-}
-
-impl io::Read for &Fd {
+impl io::Read for Fd {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let count = cmp::min(buf.len(), MAX_RW);
         cvt(
             unsafe { suppress_iph!(libc::read(self.0, buf.as_mut_ptr() as _, count as _)) },
             |i| i as usize,
         )
-    }
-}
-
-impl io::Read for Fd {
-    #[inline]
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        (&*self).read(buf)
     }
 }

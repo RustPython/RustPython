@@ -14,7 +14,7 @@ pub(crate) mod module {
     use crate::builtins::PyListRef;
     use crate::{
         builtins::{PyDictRef, PyStrRef, PyTupleRef},
-        common::{crt_fd::Fd, os::errno, suppress_iph},
+        common::{crt_fd::Fd, os::last_os_error, suppress_iph},
         convert::ToPyException,
         function::Either,
         function::OptionalArg,
@@ -385,7 +385,7 @@ pub(crate) mod module {
             Foundation::SetHandleInformation(handle as _, Foundation::HANDLE_FLAG_INHERIT, flags)
         };
         if res == 0 {
-            Err(errno())
+            Err(last_os_error())
         } else {
             Ok(())
         }
