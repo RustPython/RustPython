@@ -3570,7 +3570,7 @@ mod _io {
 
         // check file descriptor validity
         #[cfg(unix)]
-        if let Ok(crate::stdlib::os::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
+        if let Ok(crate::ospath::OsPathOrFd::Fd(fd)) = file.clone().try_into_value(vm) {
             nix::fcntl::fcntl(fd, nix::fcntl::F_GETFD)
                 .map_err(|_| crate::stdlib::os::errno_err(vm))?;
         }
@@ -3901,7 +3901,7 @@ mod fileio {
             } else if let Some(i) = name.payload::<crate::builtins::PyInt>() {
                 i.try_to_primitive(vm)?
             } else {
-                let path = os::OsPath::try_from_object(vm, name.clone())?;
+                let path = crate::ospath::OsPath::try_from_object(vm, name.clone())?;
                 if !args.closefd {
                     return Err(
                         vm.new_value_error("Cannot use closefd=False with file name".to_owned())

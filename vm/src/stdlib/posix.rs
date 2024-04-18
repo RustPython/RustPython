@@ -24,9 +24,9 @@ pub mod module {
         builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{Either, KwArgs, OptionalArg},
+        ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
         stdlib::os::{
-            errno_err, DirFd, FollowSymlinks, OsPath, OsPathOrFd, SupportFunc, TargetIsDirectory,
-            _os, fs_metadata, IOErrorBuilder,
+            errno_err, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, _os, fs_metadata,
         },
         types::{Constructor, Representable},
         utils::ToCString,
@@ -279,14 +279,15 @@ pub mod module {
         )
         })?;
 
-        let metadata = fs::metadata(path.path);
+        let metadata = fs::metadata(path.path.clone());
 
         // if it's only checking for F_OK
         if flags == AccessFlags::F_OK {
             return Ok(metadata.is_ok());
         }
 
-        let metadata = metadata.map_err(|err| err.into_pyexception(vm))?;
+        let metadata =
+            metadata.map_err(|err| IOErrorBuilder::with_filename(&err, path.clone(), vm))?;
 
         let user_id = metadata.uid();
         let group_id = metadata.gid();
@@ -356,13 +357,12 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn chroot(path: OsPath, vm: &VirtualMachine) -> PyResult<()> {
-        use crate::stdlib::os::IOErrorBuilder;
+        use crate::ospath::IOErrorBuilder;
 
         nix::unistd::chroot(&*path.path).map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
-            IOErrorBuilder::new(io::Error::from_raw_os_error(err as i32))
-                .filename(path)
-                .into_pyexception(vm)
+            let err = io::Error::from_raw_os_error(err as i32);
+            IOErrorBuilder::with_filename(&err, path, vm)
         })
     }
 
@@ -408,9 +408,8 @@ pub mod module {
         }
         .map_err(|err| {
             // Use `From<nix::Error> for io::Error` when it is available
-            IOErrorBuilder::new(io::Error::from_raw_os_error(err as i32))
-                .filename(path)
-                .into_pyexception(vm)
+            let err = io::Error::from_raw_os_error(err as i32);
+            IOErrorBuilder::with_filename(&err, path, vm)
         })
     }
 
@@ -919,11 +918,7 @@ pub mod module {
             permissions.set_mode(mode);
             fs::set_permissions(&path, permissions)
         };
-        body().map_err(|err| {
-            IOErrorBuilder::new(err)
-                .filename(err_path)
-                .into_pyexception(vm)
-        })
+        body().map_err(|err| IOErrorBuilder::with_filename(&err, err_path, vm))
     }
 
     #[cfg(not(target_os = "redox"))]
@@ -1474,9 +1469,8 @@ pub mod module {
                         }
                     };
                     if ret != 0 {
-                        return Err(IOErrorBuilder::new(std::io::Error::from_raw_os_error(ret))
-                            .filename(self.path)
-                            .into_pyexception(vm));
+                        let err = std::io::Error::from_raw_os_error(ret);
+                        return Err(IOErrorBuilder::with_filename(&err, self.path, vm));
                     }
                 }
             }
@@ -1548,9 +1542,8 @@ pub mod module {
             if ret == 0 {
                 Ok(pid)
             } else {
-                Err(IOErrorBuilder::new(std::io::Error::from_raw_os_error(ret))
-                    .filename(self.path)
-                    .into_pyexception(vm))
+                let err = std::io::Error::from_raw_os_error(ret);
+                Err(IOErrorBuilder::with_filename(&err, self.path, vm))
             }
         }
     }

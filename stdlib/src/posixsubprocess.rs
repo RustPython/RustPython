@@ -1,7 +1,8 @@
 use crate::vm::{
     builtins::PyListRef,
     function::ArgSequence,
-    stdlib::{os::OsPath, posix},
+    ospath::OsPath,
+    stdlib::posix,
     {PyObjectRef, PyResult, TryFromObject, VirtualMachine},
 };
 use nix::{errno::Errno, unistd};

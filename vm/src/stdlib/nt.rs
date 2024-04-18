@@ -18,9 +18,8 @@ pub(crate) mod module {
         convert::ToPyException,
         function::Either,
         function::OptionalArg,
-        stdlib::os::{
-            errno_err, DirFd, FollowSymlinks, OsPath, SupportFunc, TargetIsDirectory, _os,
-        },
+        ospath::OsPath,
+        stdlib::os::{errno_err, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, _os},
         PyResult, TryFromObject, VirtualMachine,
     };
     use libc::intptr_t;

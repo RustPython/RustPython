@@ -60,6 +60,8 @@ pub mod import;
 mod intern;
 pub mod iter;
 pub mod object;
+#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
+pub mod ospath;
 pub mod prelude;
 pub mod protocol;
 pub mod py_io;
