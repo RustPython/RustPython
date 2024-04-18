@@ -119,7 +119,7 @@ features = [
 ]
 
 [target.'cfg(windows)'.dependencies.windows-sys]
-version = "0.52.0"
+workspace = true
 features = [
   "Win32_Foundation",
   "Win32_Networking_WinSock",

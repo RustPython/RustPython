@@ -2063,6 +2063,7 @@ dependencies = [
  "siphasher",
  "volatile",
  "widestring",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

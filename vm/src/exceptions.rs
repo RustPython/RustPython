@@ -800,10 +800,8 @@ impl ExceptionZoo {
             // second exception filename
             "filename2" => ctx.none(),
         });
-        // TODO: this isn't really accurate
         #[cfg(windows)]
-        excs.os_error
-            .set_str_attr("winerror", errno_getter.clone(), ctx);
+        excs.os_error.set_str_attr("winerror", ctx.none(), ctx);
 
         extend_exception!(PyBlockingIOError, ctx, excs.blocking_io_error);
         extend_exception!(PyChildProcessError, ctx, excs.child_process_error);
@@ -1013,14 +1011,9 @@ impl<C> ToPyException for widestring::error::ContainsNul<C> {
 }
 
 #[cfg(any(unix, windows, target_os = "wasi"))]
-pub(crate) fn raw_os_error_to_exc_type(
-    errno: i32,
-    vm: &VirtualMachine,
-) -> Option<&'static Py<PyType>> {
+pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'static Py<PyType>> {
     use crate::stdlib::errno::errors;
     let excs = &vm.ctx.exceptions;
-    #[cfg(windows)]
-    let errno = win_error_to_errno(errno as u32);
     match errno {
         errors::EWOULDBLOCK => Some(excs.blocking_io_error),
         errors::EALREADY => Some(excs.blocking_io_error),
@@ -1045,111 +1038,8 @@ pub(crate) fn raw_os_error_to_exc_type(
     }
 }
 
-#[cfg(windows)]
-pub(crate) fn win_error_to_errno(winerror: u32) -> i32 {
-    use crate::stdlib::errno::errors;
-    use windows_sys::Win32::Foundation::*;
-    // Unwrap FACILITY_WIN32 HRESULT errors.
-    // if ((winerror & 0xFFFF0000) == 0x80070000) {
-    //     winerror &= 0x0000FFFF;
-    // }
-
-    // Winsock error codes (10000-11999) are errno values.
-    // if winerror >= 10000 && winerror < 12000 {
-    //     match winerror {
-    //         WSAEINTR | WSAEBADF | WSAEACCES | WSAEFAULT | WSAEINVAL | WSAEMFILE => {
-    //             // Winsock definitions of errno values. See WinSock2.h
-    //             return winerror - 10000;
-    //         },
-    //         _ => return winerror,
-    //     }
-    // }
-
-    #[allow(non_upper_case_globals)]
-    match winerror {
-        ERROR_FILE_NOT_FOUND
-        | ERROR_PATH_NOT_FOUND
-        | ERROR_INVALID_DRIVE
-        | ERROR_NO_MORE_FILES
-        | ERROR_BAD_NETPATH
-        | ERROR_BAD_NET_NAME
-        | ERROR_BAD_PATHNAME
-        | ERROR_FILENAME_EXCED_RANGE => errors::ENOENT,
-        ERROR_BAD_ENVIRONMENT => errors::E2BIG,
-        ERROR_BAD_FORMAT
-        | ERROR_INVALID_STARTING_CODESEG
-        | ERROR_INVALID_STACKSEG
-        | ERROR_INVALID_MODULETYPE
-        | ERROR_INVALID_EXE_SIGNATURE
-        | ERROR_EXE_MARKED_INVALID
-        | ERROR_BAD_EXE_FORMAT
-        | ERROR_ITERATED_DATA_EXCEEDS_64k
-        | ERROR_INVALID_MINALLOCSIZE
-        | ERROR_DYNLINK_FROM_INVALID_RING
-        | ERROR_IOPL_NOT_ENABLED
-        | ERROR_INVALID_SEGDPL
-        | ERROR_AUTODATASEG_EXCEEDS_64k
-        | ERROR_RING2SEG_MUST_BE_MOVABLE
-        | ERROR_RELOC_CHAIN_XEEDS_SEGLIM
-        | ERROR_INFLOOP_IN_RELOC_CHAIN => errors::ENOEXEC,
-        ERROR_INVALID_HANDLE | ERROR_INVALID_TARGET_HANDLE | ERROR_DIRECT_ACCESS_HANDLE => {
-            errors::EBADF
-        }
-        ERROR_WAIT_NO_CHILDREN | ERROR_CHILD_NOT_COMPLETE => errors::ECHILD,
-        ERROR_NO_PROC_SLOTS | ERROR_MAX_THRDS_REACHED | ERROR_NESTING_NOT_ALLOWED => errors::EAGAIN,
-        ERROR_ARENA_TRASHED
-        | ERROR_NOT_ENOUGH_MEMORY
-        | ERROR_INVALID_BLOCK
-        | ERROR_NOT_ENOUGH_QUOTA => errors::ENOMEM,
-        ERROR_ACCESS_DENIED
-        | ERROR_CURRENT_DIRECTORY
-        | ERROR_WRITE_PROTECT
-        | ERROR_BAD_UNIT
-        | ERROR_NOT_READY
-        | ERROR_BAD_COMMAND
-        | ERROR_CRC
-        | ERROR_BAD_LENGTH
-        | ERROR_SEEK
-        | ERROR_NOT_DOS_DISK
-        | ERROR_SECTOR_NOT_FOUND
-        | ERROR_OUT_OF_PAPER
-        | ERROR_WRITE_FAULT
-        | ERROR_READ_FAULT
-        | ERROR_GEN_FAILURE
-        | ERROR_SHARING_VIOLATION
-        | ERROR_LOCK_VIOLATION
-        | ERROR_WRONG_DISK
-        | ERROR_SHARING_BUFFER_EXCEEDED
-        | ERROR_NETWORK_ACCESS_DENIED
-        | ERROR_CANNOT_MAKE
-        | ERROR_FAIL_I24
-        | ERROR_DRIVE_LOCKED
-        | ERROR_SEEK_ON_DEVICE
-        | ERROR_NOT_LOCKED
-        | ERROR_LOCK_FAILED
-        | 35 => errors::EACCES,
-        ERROR_FILE_EXISTS | ERROR_ALREADY_EXISTS => errors::EEXIST,
-        ERROR_NOT_SAME_DEVICE => errors::EXDEV,
-        ERROR_DIRECTORY => errors::ENOTDIR,
-        ERROR_TOO_MANY_OPEN_FILES => errors::EMFILE,
-        ERROR_DISK_FULL => errors::ENOSPC,
-        ERROR_BROKEN_PIPE | ERROR_NO_DATA => errors::EPIPE,
-        ERROR_DIR_NOT_EMPTY => errors::ENOTEMPTY,
-        ERROR_NO_UNICODE_TRANSLATION => errors::EILSEQ,
-        ERROR_INVALID_FUNCTION
-        | ERROR_INVALID_ACCESS
-        | ERROR_INVALID_DATA
-        | ERROR_INVALID_PARAMETER
-        | ERROR_NEGATIVE_SEEK => errors::EINVAL,
-        _ => errors::EINVAL,
-    }
-}
-
 #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-pub(crate) fn raw_os_error_to_exc_type(
-    _errno: i32,
-    _vm: &VirtualMachine,
-) -> Option<&'static Py<PyType>> {
+pub(crate) fn errno_to_exc_type(_errno: i32, _vm: &VirtualMachine) -> Option<&'static Py<PyType>> {
     None
 }
 
@@ -1359,7 +1249,7 @@ pub(super) mod types {
                 errno
                     .payload_if_subclass::<PyInt>(vm)
                     .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
-                    .and_then(|errno| super::raw_os_error_to_exc_type(errno, vm))
+                    .and_then(|errno| super::errno_to_exc_type(errno, vm))
                     .and_then(|typ| vm.invoke_exception(typ.to_owned(), args.to_vec()).ok())
             } else {
                 None
@@ -1392,8 +1282,12 @@ pub(super) mod types {
             let mut new_args = args;
             if (3..=5).contains(&len) {
                 zelf.set_attr("filename", new_args.args[2].clone(), vm)?;
-                if len == 5 {
-                    zelf.set_attr("filename2", new_args.args[4].clone(), vm)?;
+                #[cfg(windows)]
+                if let Some(winerror) = new_args.args.get(3) {
+                    zelf.set_attr("winerror", winerror.clone(), vm)?;
+                }
+                if let Some(filename2) = new_args.args.get(4) {
+                    zelf.set_attr("filename2", filename2.clone(), vm)?;
                 }
 
                 new_args.args.truncate(2);

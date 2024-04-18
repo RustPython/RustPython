@@ -680,7 +680,7 @@ mod _ssl {
                     )
                 };
                 if ret != 1 {
-                    let errno = std::io::Error::last_os_error().raw_os_error().unwrap();
+                    let errno = crate::common::os::last_posix_errno();
                     let err = if errno != 0 {
                         crate::vm::stdlib::os::errno_err(vm)
                     } else {

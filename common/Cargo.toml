@@ -35,3 +35,7 @@ volatile = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 widestring = { workspace = true }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinSock",
+] }

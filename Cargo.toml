@@ -81,6 +81,7 @@ thiserror = "1.0"
 thread_local = "1.1.4"
 unicode_names2 = "1.1.0"
 widestring = "1.1.0"
+windows-sys = "0.52.0"
 
 [features]
 default = ["threading", "stdlib", "zlib", "importlib"]

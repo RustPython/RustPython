@@ -13,6 +13,7 @@ mod _socket {
     use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
     use crate::vm::{
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
+        common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, OptionalArg, OptionalOption},
         types::{DefaultConstructor, Initializer, Representable},
@@ -1018,7 +1019,7 @@ mod _socket {
                     let sock = self.sock()?;
                     let err = sock.take_error()?;
                     match err {
-                        Some(e) if e.raw_os_error() == Some(libc::EISCONN) => Ok(()),
+                        Some(e) if e.posix_errno() == libc::EISCONN => Ok(()),
                         Some(e) => Err(e),
                         // TODO: is this accurate?
                         None => Ok(()),
@@ -1408,7 +1409,7 @@ mod _socket {
                     )
                 };
                 if ret < 0 {
-                    return Err(crate::common::os::errno().into());
+                    return Err(crate::common::os::last_os_error().into());
                 }
                 Ok(vm.ctx.new_int(flag).into())
             } else {
@@ -1429,7 +1430,7 @@ mod _socket {
                     )
                 };
                 if ret < 0 {
-                    return Err(crate::common::os::errno().into());
+                    return Err(crate::common::os::last_os_error().into());
                 }
                 buf.truncate(buflen as usize);
                 Ok(vm.ctx.new_bytes(buf).into())
@@ -1470,7 +1471,7 @@ mod _socket {
                 }
             };
             if ret < 0 {
-                Err(crate::common::os::errno().into())
+                Err(crate::common::os::last_os_error().into())
             } else {
                 Ok(())
             }
@@ -1694,10 +1695,7 @@ mod _socket {
         fn errno(self) -> PyResult<i32> {
             match self {
                 Self::Timeout => Ok(errcode!(EWOULDBLOCK)),
-                Self::Io(err) => {
-                    // TODO: just unwrap()?
-                    Ok(err.raw_os_error().unwrap_or(1))
-                }
+                Self::Io(err) => Ok(err.posix_errno()),
                 Self::Py(exc) => Err(exc),
             }
         }
@@ -2354,7 +2352,7 @@ mod _socket {
         use windows_sys::Win32::Networking::WinSock::closesocket as close;
         let ret = unsafe { close(x as _) };
         if ret < 0 {
-            let err = crate::common::os::errno();
+            let err = crate::common::os::last_os_error();
             if err.raw_os_error() != Some(errcode!(ECONNRESET)) {
                 return Err(err);
             }

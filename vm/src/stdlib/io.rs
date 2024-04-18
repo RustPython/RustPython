@@ -10,9 +10,9 @@ cfg_if::cfg_if! {
 }
 
 use crate::{
-    builtins::PyBaseExceptionRef,
-    builtins::PyModule,
-    convert::{IntoPyException, ToPyException, ToPyObject},
+    builtins::{PyBaseExceptionRef, PyModule},
+    common::os::ErrorExt,
+    convert::{IntoPyException, ToPyException},
     PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 pub use _io::io_open as open;
@@ -28,14 +28,32 @@ impl ToPyException for std::io::Error {
             ErrorKind::PermissionDenied => excs.permission_error,
             ErrorKind::AlreadyExists => excs.file_exists_error,
             ErrorKind::WouldBlock => excs.blocking_io_error,
-            _ => self
-                .raw_os_error()
-                .and_then(|errno| crate::exceptions::raw_os_error_to_exc_type(errno, vm))
+            _ => crate::exceptions::errno_to_exc_type(self.posix_errno(), vm)
                 .unwrap_or(excs.os_error),
         };
-        let errno = self.raw_os_error().to_pyobject(vm);
+
+        let errno = self.raw_os_error().unwrap_or(0);
+        let errno_obj = vm.new_pyobj(errno);
+        #[cfg(windows)]
+        let (winerror_obj, errno_obj) = {
+            let winerror = errno;
+            let winerror_obj = errno_obj.clone();
+            let errno = crate::common::os::winerror_to_errno(winerror);
+            (winerror_obj, vm.new_pyobj(errno))
+        };
+
         let msg = vm.ctx.new_str(self.to_string()).into();
-        vm.new_exception(exc_type.to_owned(), vec![errno, msg])
+        #[allow(clippy::let_and_return)]
+        let exc = vm.new_exception(exc_type.to_owned(), vec![errno_obj, msg]);
+        #[cfg(windows)]
+        {
+            // FIXME: manual setup winerror due to lack of OSError.__init__ support
+            use crate::object::AsObject;
+            exc.as_object()
+                .set_attr("winerror", vm.new_pyobj(winerror_obj), vm)
+                .unwrap();
+        }
+        exc
     }
 }
 
