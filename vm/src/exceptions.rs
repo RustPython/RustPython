@@ -1307,14 +1307,14 @@ pub(super) mod types {
 
                 let s = match obj.get_attr("filename", vm) {
                     Ok(filename) => match obj.get_attr("filename2", vm) {
-                        Ok(filename2) => format!(
+                        Ok(filename2) if !vm.is_none(&filename2) => format!(
                             "[Errno {}] {}: '{}' -> '{}'",
                             errno,
                             msg,
                             filename.str(vm)?,
                             filename2.str(vm)?
                         ),
-                        Err(_) => format!("[Errno {}] {}: '{}'", errno, msg, filename.str(vm)?),
+                        _ => format!("[Errno {}] {}: '{}'", errno, msg, filename.str(vm)?),
                     },
                     Err(_) => {
                         format!("[Errno {errno}] {msg}")
