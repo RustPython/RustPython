@@ -806,7 +806,6 @@ class TestNtpath(NtpathTestCase):
         self.assertRaises(TypeError, ntpath.commonpath,
                           ['Program Files', b'C:\\Program Files\\Foo'])
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipIf(is_emscripten, "Emscripten cannot fstat unnamed files.")
     def test_sameopenfile(self):
         with TemporaryFile() as tf1, TemporaryFile() as tf2:
