@@ -203,8 +203,6 @@ class TestWeakSet(unittest.TestCase):
         t = WeakSet(s)
         self.assertNotEqual(id(s), id(t))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hash(self):
         self.assertRaises(TypeError, hash, self.s)
 

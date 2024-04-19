@@ -489,8 +489,6 @@ class ClassTests(unittest.TestCase):
         for f in [float, complex, str, repr, bytes, bin, oct, hex, bool, index]:
             self.assertRaises(TypeError, f, BadTypeClass())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testHashStuff(self):
         # Test correct errors from hash() on objects with comparisons but
         #  no __hash__
