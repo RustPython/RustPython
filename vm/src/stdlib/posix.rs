@@ -22,7 +22,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
-        convert::{IntoPyException, ToPyObject, TryFromObject},
+        convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         function::{Either, KwArgs, OptionalArg},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
         stdlib::os::{
@@ -279,7 +279,7 @@ pub mod module {
         )
         })?;
 
-        let metadata = fs::metadata(path.path.clone());
+        let metadata = fs::metadata(&path.path);
 
         // if it's only checking for F_OK
         if flags == AccessFlags::F_OK {
@@ -1982,20 +1982,27 @@ pub mod module {
 
         Errno::clear();
         debug_assert_eq!(errno::errno(), 0);
-        let raw = match path {
+        let raw = match &path {
             OsPathOrFd::Path(path) => {
-                let path = CString::new(path.into_bytes())
-                    .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+                let path = path.clone().into_cstring(vm)?;
                 unsafe { libc::pathconf(path.as_ptr(), name) }
             }
-            OsPathOrFd::Fd(fd) => unsafe { libc::fpathconf(fd, name) },
+            OsPathOrFd::Fd(fd) => unsafe { libc::fpathconf(*fd, name) },
         };
 
         if raw == -1 {
             if errno::errno() == 0 {
                 Ok(None)
             } else {
-                Err(io::Error::from(Errno::last()).into_pyexception(vm))
+                let exc = io::Error::from(Errno::last()).to_pyexception(vm);
+                if let OsPathOrFd::Path(path) = &path {
+                    exc.as_object().set_attr(
+                        "filename",
+                        vm.ctx.new_str(path.as_path().to_string_lossy()),
+                        vm,
+                    )?;
+                }
+                Err(exc)
             }
         } else {
             Ok(Some(raw))
