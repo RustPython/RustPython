@@ -50,7 +50,6 @@ class TempFileGreedy(threading.Thread):
 
 
 class ThreadedTempFileTest(unittest.TestCase):
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_main(self):
         threads = [TempFileGreedy() for i in range(NUM_THREADS)]
         with threading_helper.start_threads(threads, startEvent.set):

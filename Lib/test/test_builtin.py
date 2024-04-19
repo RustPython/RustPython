@@ -1363,7 +1363,7 @@ class BuiltinTest(unittest.TestCase):
             os.environ.clear()
             os.environ.update(old_environ)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
+    @unittest.expectedFailureIfWindows('TODO: RUSTPYTHON Windows')
     @support.requires_subprocess()
     def test_open_non_inheritable(self):
         fileobj = open(__file__, encoding="utf-8")
