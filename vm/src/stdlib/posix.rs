@@ -22,7 +22,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 pub mod module {
     use crate::{
         builtins::{PyDictRef, PyInt, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
-        convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
+        convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{Either, KwArgs, OptionalArg},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
         stdlib::os::{
@@ -1994,15 +1994,11 @@ pub mod module {
             if errno::errno() == 0 {
                 Ok(None)
             } else {
-                let exc = io::Error::from(Errno::last()).to_pyexception(vm);
-                if let OsPathOrFd::Path(path) = &path {
-                    exc.as_object().set_attr(
-                        "filename",
-                        vm.ctx.new_str(path.as_path().to_string_lossy()),
-                        vm,
-                    )?;
-                }
-                Err(exc)
+                Err(IOErrorBuilder::with_filename(
+                    &io::Error::from(Errno::last()),
+                    path,
+                    vm,
+                ))
             }
         } else {
             Ok(Some(raw))
