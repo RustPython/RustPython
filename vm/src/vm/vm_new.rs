@@ -189,6 +189,15 @@ impl VirtualMachine {
         self.new_exception_msg(os_error, msg)
     }
 
+    pub fn new_errno_error(&self, errno: i32, msg: String) -> PyBaseExceptionRef {
+        let vm = self;
+        let exc_type =
+            crate::exceptions::errno_to_exc_type(errno, vm).unwrap_or(vm.ctx.exceptions.os_error);
+
+        let errno_obj = vm.new_pyobj(errno);
+        vm.new_exception(exc_type.to_owned(), vec![errno_obj, vm.new_pyobj(msg)])
+    }
+
     pub fn new_system_error(&self, msg: String) -> PyBaseExceptionRef {
         let sys_error = self.ctx.exceptions.system_error.to_owned();
         self.new_exception_msg(sys_error, msg)
