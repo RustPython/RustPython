@@ -733,6 +733,14 @@ impl PyType {
             .entry(identifier!(vm, __qualname__))
             .or_insert_with(|| vm.ctx.new_str(name.as_str()).into());
 
+        if attributes.get(identifier!(vm, __eq__)).is_some()
+            && attributes.get(identifier!(vm, __hash__)).is_none()
+        {
+            // if __eq__ exists but __hash__ doesn't, overwrite it with None so it doesn't inherit the default hash
+            // https://docs.python.org/3/reference/datamodel.html#object.__hash__
+            attributes.insert(identifier!(vm, __hash__), vm.ctx.none.clone().into());
+        }
+
         // All *classes* should have a dict. Exceptions are *instances* of
         // classes that define __slots__ and instances of built-in classes
         // (with exceptions, e.g function)
