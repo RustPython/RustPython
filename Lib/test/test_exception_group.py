@@ -507,7 +507,7 @@ def leaf_generator(exc, tbs=None):
 
 class LeafGeneratorTest(unittest.TestCase):
     # The leaf_generator is mentioned in PEP 654 as a suggestion
-    # on how to iterate over leaf nodes of an EG. Is is also
+    # on how to iterate over leaf nodes of an EG. It is also
     # used below as a test utility. So we test it here.
 
     # TODO: RUSTPYTHON
