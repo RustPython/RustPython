@@ -407,7 +407,7 @@ pub(super) mod _os {
             return Err(vm.new_value_error("embedded null byte".to_string()));
         }
         if key.is_empty() || key.contains('=') {
-            return Err(vm.new_value_error("illegal environment variable name".to_string()));
+            return Err(vm.new_errno_error(22, "Invalid argument".to_owned()));
         }
         env::remove_var(key);
         Ok(())
