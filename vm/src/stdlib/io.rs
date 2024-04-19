@@ -3730,7 +3730,7 @@ mod _io {
 mod fileio {
     use super::{Offset, _io::*};
     use crate::{
-        builtins::{PyStr, PyStrRef},
+        builtins::{PyBaseExceptionRef, PyStr, PyStrRef},
         common::crt_fd::Fd,
         convert::ToPyException,
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
@@ -3947,6 +3947,20 @@ mod fileio {
         flags(BASETYPE, HAS_DICT)
     )]
     impl FileIO {
+        fn io_error(
+            zelf: &Py<Self>,
+            error: std::io::Error,
+            vm: &VirtualMachine,
+        ) -> PyBaseExceptionRef {
+            let exc = error.to_pyexception(vm);
+            if let Ok(name) = zelf.as_object().get_attr("name", vm) {
+                exc.as_object()
+                    .set_attr("filename", name, vm)
+                    .expect("OSError.filename set must success");
+            }
+            exc
+        }
+
         #[pygetset]
         fn closed(&self) -> bool {
             self.fd.load() < 0
@@ -4006,26 +4020,30 @@ mod fileio {
         }
 
         #[pymethod]
-        fn read(&self, read_byte: OptionalSize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            if !self.mode.load().contains(Mode::READABLE) {
+        fn read(
+            zelf: &Py<Self>,
+            read_byte: OptionalSize,
+            vm: &VirtualMachine,
+        ) -> PyResult<Vec<u8>> {
+            if !zelf.mode.load().contains(Mode::READABLE) {
                 return Err(new_unsupported_operation(
                     vm,
                     "File or stream is not readable".to_owned(),
                 ));
             }
-            let mut handle = self.get_fd(vm)?;
+            let mut handle = zelf.get_fd(vm)?;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
                 let mut bytes = vec![0; read_byte];
                 let n = handle
                     .read(&mut bytes)
-                    .map_err(|err| err.to_pyexception(vm))?;
+                    .map_err(|err| Self::io_error(zelf, err, vm))?;
                 bytes.truncate(n);
                 bytes
             } else {
                 let mut bytes = vec![];
                 handle
                     .read_to_end(&mut bytes)
-                    .map_err(|err| err.to_pyexception(vm))?;
+                    .map_err(|err| Self::io_error(zelf, err, vm))?;
                 bytes
             };
 
@@ -4033,44 +4051,46 @@ mod fileio {
         }
 
         #[pymethod]
-        fn readinto(&self, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
-            if !self.mode.load().contains(Mode::READABLE) {
+        fn readinto(zelf: &Py<Self>, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
+            if !zelf.mode.load().contains(Mode::READABLE) {
                 return Err(new_unsupported_operation(
                     vm,
                     "File or stream is not readable".to_owned(),
                 ));
             }
 
-            let handle = self.get_fd(vm)?;
+            let handle = zelf.get_fd(vm)?;
 
             let mut buf = obj.borrow_buf_mut();
             let mut f = handle.take(buf.len() as _);
-            let ret = f.read(&mut buf).map_err(|e| e.to_pyexception(vm))?;
+            let ret = f
+                .read(&mut buf)
+                .map_err(|err| Self::io_error(zelf, err, vm))?;
 
             Ok(ret)
         }
 
         #[pymethod]
-        fn write(&self, obj: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
-            if !self.mode.load().contains(Mode::WRITABLE) {
+        fn write(zelf: &Py<Self>, obj: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
+            if !zelf.mode.load().contains(Mode::WRITABLE) {
                 return Err(new_unsupported_operation(
                     vm,
                     "File or stream is not writable".to_owned(),
                 ));
             }
 
-            let mut handle = self.get_fd(vm)?;
+            let mut handle = zelf.get_fd(vm)?;
 
             let len = obj
                 .with_ref(|b| handle.write(b))
-                .map_err(|err| err.to_pyexception(vm))?;
+                .map_err(|err| Self::io_error(zelf, err, vm))?;
 
             //return number of bytes written
             Ok(len)
         }
 
         #[pymethod]
-        fn close(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<()> {
+        fn close(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             let res = iobase_close(zelf.as_object(), vm);
             if !zelf.closefd.load() {
                 zelf.fd.store(-1);
@@ -4078,7 +4098,9 @@ mod fileio {
             }
             let fd = zelf.fd.swap(-1);
             if fd >= 0 {
-                Fd(fd).close().map_err(|e| e.to_pyexception(vm))?;
+                Fd(fd)
+                    .close()
+                    .map_err(|err| Self::io_error(zelf, err, vm))?;
             }
             res
         }

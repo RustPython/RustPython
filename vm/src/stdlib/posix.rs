@@ -279,7 +279,7 @@ pub mod module {
         )
         })?;
 
-        let metadata = fs::metadata(path.path.clone());
+        let metadata = fs::metadata(&path.path);
 
         // if it's only checking for F_OK
         if flags == AccessFlags::F_OK {
@@ -1982,20 +1982,23 @@ pub mod module {
 
         Errno::clear();
         debug_assert_eq!(errno::errno(), 0);
-        let raw = match path {
+        let raw = match &path {
             OsPathOrFd::Path(path) => {
-                let path = CString::new(path.into_bytes())
-                    .map_err(|_| vm.new_value_error("embedded null character".to_owned()))?;
+                let path = path.clone().into_cstring(vm)?;
                 unsafe { libc::pathconf(path.as_ptr(), name) }
             }
-            OsPathOrFd::Fd(fd) => unsafe { libc::fpathconf(fd, name) },
+            OsPathOrFd::Fd(fd) => unsafe { libc::fpathconf(*fd, name) },
         };
 
         if raw == -1 {
             if errno::errno() == 0 {
                 Ok(None)
             } else {
-                Err(io::Error::from(Errno::last()).into_pyexception(vm))
+                Err(IOErrorBuilder::with_filename(
+                    &io::Error::from(Errno::last()),
+                    path,
+                    vm,
+                ))
             }
         } else {
             Ok(Some(raw))
