@@ -132,8 +132,6 @@ class HashInheritanceTestCase(unittest.TestCase):
         for obj in self.fixed_expected:
             self.assertEqual(hash(obj), _FIXED_HASH_VALUE)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_error_hash(self):
         for obj in self.error_expected:
             self.assertRaises(TypeError, hash, obj)
@@ -144,8 +142,6 @@ class HashInheritanceTestCase(unittest.TestCase):
         for obj in objects:
             self.assertIsInstance(obj, Hashable)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_not_hashable(self):
         for obj in self.error_expected:
             self.assertNotIsInstance(obj, Hashable)
