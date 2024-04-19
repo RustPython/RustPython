@@ -966,7 +966,16 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn lchmod(path: OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        _chmod(path, DirFd::default(), mode, FollowSymlinks(false), vm)
+        extern "C" {
+            fn lchmod(path: *const libc::c_char, mode: libc::mode_t) -> libc::c_int;
+        }
+        let c_path = path.clone().into_cstring(vm)?;
+        if unsafe { lchmod(c_path.as_ptr(), mode as libc::mode_t) } == 0 {
+            Ok(())
+        } else {
+            let err = std::io::Error::last_os_error();
+            Err(IOErrorBuilder::with_filename(&err, path, vm))
+        }
     }
 
     #[pyfunction]
