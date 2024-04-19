@@ -11,6 +11,7 @@ mod mmap {
         atomic_func,
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
+        convert::ToPyException,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
         protocol::{
             BufferDescriptor, BufferMethods, PyBuffer, PyMappingMethods, PySequenceMethods,
@@ -348,9 +349,7 @@ mod mmap {
 
             if fd != -1 {
                 let file = unsafe { File::from_raw_fd(fd) };
-                let metadata = file
-                    .metadata()
-                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+                let metadata = file.metadata().map_err(|err| err.to_pyexception(vm))?;
                 let file_len: libc::off_t = metadata.len().try_into().expect("file size overflow");
                 // File::from_raw_fd will consume the fd, so we
                 // have to  get it again.
@@ -379,32 +378,23 @@ mod mmap {
             let mut mmap_opt = MmapOptions::new();
             let mmap_opt = mmap_opt.offset(offset.try_into().unwrap()).len(map_size);
 
-            let (fd, mmap) = if fd == -1 {
-                (
-                    fd,
-                    MmapObj::Write(
-                        mmap_opt
-                            .map_anon()
-                            .map_err(|e| vm.new_os_error(e.to_string()))?,
-                    ),
-                )
-            } else {
-                let new_fd = unistd::dup(fd).map_err(|e| vm.new_os_error(e.to_string()))?;
-                let mmap = match access {
-                    AccessMode::Default | AccessMode::Write => MmapObj::Write(
-                        unsafe { mmap_opt.map_mut(fd) }
-                            .map_err(|e| vm.new_os_error(e.to_string()))?,
-                    ),
-                    AccessMode::Read => MmapObj::Read(
-                        unsafe { mmap_opt.map(fd) }.map_err(|e| vm.new_os_error(e.to_string()))?,
-                    ),
-                    AccessMode::Copy => MmapObj::Write(
-                        unsafe { mmap_opt.map_copy(fd) }
-                            .map_err(|e| vm.new_os_error(e.to_string()))?,
-                    ),
-                };
-                (new_fd, mmap)
-            };
+            let (fd, mmap) = || -> std::io::Result<_> {
+                if fd == -1 {
+                    let mmap = MmapObj::Write(mmap_opt.map_anon()?);
+                    Ok((fd, mmap))
+                } else {
+                    let new_fd = unistd::dup(fd)?;
+                    let mmap = match access {
+                        AccessMode::Default | AccessMode::Write => {
+                            MmapObj::Write(unsafe { mmap_opt.map_mut(fd) }?)
+                        }
+                        AccessMode::Read => MmapObj::Read(unsafe { mmap_opt.map(fd) }?),
+                        AccessMode::Copy => MmapObj::Write(unsafe { mmap_opt.map_copy(fd) }?),
+                    };
+                    Ok((new_fd, mmap))
+                }
+            }()
+            .map_err(|e| e.to_pyexception(vm))?;
 
             let m_obj = Self {
                 closed: AtomicCell::new(false),
@@ -662,7 +652,7 @@ mod mmap {
                 MmapObj::Read(_mmap) => {}
                 MmapObj::Write(mmap) => {
                     mmap.flush_range(offset, size)
-                        .map_err(|e| vm.new_os_error(e.to_string()))?;
+                        .map_err(|e| e.to_pyexception(vm))?;
                 }
             }
 
@@ -681,7 +671,7 @@ mod mmap {
                 MmapObj::Read(mmap) => mmap.advise(advice),
                 MmapObj::Write(mmap) => mmap.advise(advice),
             }
-            .map_err(|e| vm.new_os_error(e.to_string()))?;
+            .map_err(|e| e.to_pyexception(vm))?;
 
             Ok(())
         }
@@ -728,7 +718,7 @@ mod mmap {
                 let src_buf = mmap[src..src_end].to_vec();
                 (&mut mmap[dest..dest_end])
                     .write(&src_buf)
-                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+                    .map_err(|e| e.to_pyexception(vm))?;
                 Ok(())
             })?
         }
@@ -867,14 +857,10 @@ mod mmap {
         }
 
         #[pymethod]
-        fn size(&self, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-            let new_fd = unistd::dup(self.fd).map_err(|e| vm.new_os_error(e.to_string()))?;
+        fn size(&self, vm: &VirtualMachine) -> std::io::Result<PyIntRef> {
+            let new_fd = unistd::dup(self.fd)?;
             let file = unsafe { File::from_raw_fd(new_fd) };
-            let file_len = match file.metadata() {
-                Ok(m) => m.len(),
-                Err(e) => return Err(vm.new_os_error(e.to_string())),
-            };
-
+            let file_len = file.metadata()?.len();
             Ok(PyInt::from(file_len).into_ref(&vm.ctx))
         }
 
@@ -897,7 +883,7 @@ mod mmap {
             let len = self.try_writable(vm, |mmap| {
                 (&mut mmap[pos..(pos + data.len())])
                     .write(&data)
-                    .map_err(|e| vm.new_os_error(e.to_string()))?;
+                    .map_err(|err| err.to_pyexception(vm))?;
                 Ok(data.len())
             })??;
 
@@ -1066,7 +1052,7 @@ mod mmap {
                 self.try_writable(vm, |mmap| {
                     (&mut mmap[range])
                         .write(&bytes)
-                        .map_err(|e| vm.new_os_error(e.to_string()))?;
+                        .map_err(|err| err.to_pyexception(vm))?;
                     Ok(())
                 })?
             } else {

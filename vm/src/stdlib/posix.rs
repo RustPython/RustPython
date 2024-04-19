@@ -1098,14 +1098,16 @@ pub mod module {
 
     #[pyfunction]
     fn setgid(gid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
-        let gid = gid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+        let gid =
+            gid.ok_or_else(|| vm.new_errno_error(1, "Operation not permitted".to_string()))?;
         unistd::setgid(gid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn setegid(egid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
-        let egid = egid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+        let egid =
+            egid.ok_or_else(|| vm.new_errno_error(1, "Operation not permitted".to_string()))?;
         unistd::setegid(egid).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1160,14 +1162,16 @@ pub mod module {
 
     #[pyfunction]
     fn setuid(uid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
-        let uid = uid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+        let uid =
+            uid.ok_or_else(|| vm.new_errno_error(1, "Operation not permitted".to_string()))?;
         unistd::setuid(uid).map_err(|err| err.into_pyexception(vm))
     }
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn seteuid(euid: Option<Uid>, vm: &VirtualMachine) -> PyResult<()> {
-        let euid = euid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+        let euid =
+            euid.ok_or_else(|| vm.new_errno_error(1, "Operation not permitted".to_string()))?;
         unistd::seteuid(euid).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1320,7 +1324,8 @@ pub mod module {
     #[pyfunction]
     fn initgroups(user_name: PyStrRef, gid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
         let user = CString::new(user_name.as_str()).unwrap();
-        let gid = gid.ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+        let gid =
+            gid.ok_or_else(|| vm.new_errno_error(1, "Operation not permitted".to_string()))?;
         unistd::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1334,7 +1339,7 @@ pub mod module {
         let gids = group_ids
             .iter(vm)?
             .collect::<Result<Option<Vec<_>>, _>>()?
-            .ok_or_else(|| vm.new_os_error("Invalid argument".to_string()))?;
+            .ok_or_else(|| vm.new_errno_error(1, "Operation not permitted".to_string()))?;
         let ret = unistd::setgroups(&gids);
         ret.map_err(|err| err.into_pyexception(vm))
     }
