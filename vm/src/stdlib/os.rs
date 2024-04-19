@@ -7,7 +7,7 @@ use crate::{
 };
 use std::{ffi, fs, io, path::Path};
 
-pub(super) fn fs_metadata<P: AsRef<Path>>(
+pub(crate) fn fs_metadata<P: AsRef<Path>>(
     path: P,
     follow_symlink: bool,
 ) -> io::Result<fs::Metadata> {
@@ -821,7 +821,7 @@ pub(super) mod _os {
         // TODO: replicate CPython's win32_xstat
         let [] = dir_fd.0;
         match file {
-            OsPathOrFd::Path(path) => crate::stdlib::nt::win32_xstat(&path.path, follow_symlinks.0),
+            OsPathOrFd::Path(path) => crate::windows::win32_xstat(&path.path, follow_symlinks.0),
             OsPathOrFd::Fd(fd) => crate::common::fileutils::fstat(fd),
         }
         .map(Some)

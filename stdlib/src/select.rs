@@ -6,7 +6,7 @@ use std::{io, mem};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(windows)]
-    crate::vm::stdlib::nt::init_winsock();
+    crate::vm::windows::init_winsock();
 
     #[cfg(unix)]
     {
