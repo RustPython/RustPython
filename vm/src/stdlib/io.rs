@@ -19,38 +19,23 @@ pub use _io::io_open as open;
 
 impl ToPyException for std::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        use std::io::ErrorKind;
-
-        let excs = &vm.ctx.exceptions;
-        #[allow(unreachable_patterns)] // some errors are just aliases of each other
-        let exc_type = match self.kind() {
-            ErrorKind::NotFound => excs.file_not_found_error,
-            ErrorKind::PermissionDenied => excs.permission_error,
-            ErrorKind::AlreadyExists => excs.file_exists_error,
-            ErrorKind::WouldBlock => excs.blocking_io_error,
-            _ => crate::exceptions::errno_to_exc_type(self.posix_errno(), vm)
-                .unwrap_or(excs.os_error),
-        };
-
-        let errno = self.raw_os_error().unwrap_or(0);
-        let errno_obj = vm.new_pyobj(errno);
-        #[cfg(windows)]
-        let (winerror_obj, errno_obj) = {
-            let winerror = errno;
-            let winerror_obj = errno_obj.clone();
-            let errno = crate::common::os::winerror_to_errno(winerror);
-            (winerror_obj, vm.new_pyobj(errno))
-        };
-
-        let msg = vm.ctx.new_str(self.to_string()).into();
+        let errno = self.posix_errno();
+        let msg = self.to_string();
         #[allow(clippy::let_and_return)]
-        let exc = vm.new_exception(exc_type.to_owned(), vec![errno_obj, msg]);
+        let exc = vm.new_errno_error(errno, msg);
+
         #[cfg(windows)]
         {
-            // FIXME: manual setup winerror due to lack of OSError.__init__ support
             use crate::object::AsObject;
+            let winerror = if let Some(winerror) = self.raw_os_error() {
+                vm.new_pyobj(winerror)
+            } else {
+                vm.ctx.none()
+            };
+
+            // FIXME: manual setup winerror due to lack of OSError.__init__ support
             exc.as_object()
-                .set_attr("winerror", vm.new_pyobj(winerror_obj), vm)
+                .set_attr("winerror", vm.new_pyobj(winerror), vm)
                 .unwrap();
         }
         exc
