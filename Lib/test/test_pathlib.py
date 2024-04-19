@@ -2467,8 +2467,6 @@ class PosixPathTest(_BasePathTest, unittest.TestCase):
         with self.assertRaises(RuntimeError):
             print(path.resolve(strict))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_open_mode(self):
         old_mask = os.umask(0)
         self.addCleanup(os.umask, old_mask)

@@ -1566,7 +1566,6 @@ pub fn extend_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "error" => vm.ctx.exceptions.os_error.to_owned(),
     });
 }
-pub(crate) use _os::os_open as open;
 
 #[cfg(not(windows))]
 use super::posix as platform;

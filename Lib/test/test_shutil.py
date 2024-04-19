@@ -1408,13 +1408,9 @@ class TestCopy(BaseTest, unittest.TestCase):
             rv = fn(src, os.path.join(dst_dir, 'bar'))
             self.assertEqual(rv, os.path.join(dst_dir, 'bar'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy_dir(self):
         self._test_copy_dir(shutil.copy)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copy2_dir(self):
         self._test_copy_dir(shutil.copy2)
 
@@ -1546,8 +1542,6 @@ class TestCopy(BaseTest, unittest.TestCase):
         write_file(src_file, 'foo')
         self.assertRaises(FileNotFoundError, shutil.copyfile, src_file, dst)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copyfile_copy_dir(self):
         # Issue 45234
         # test copy() and copyfile() raising proper exceptions when src and/or
