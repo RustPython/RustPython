@@ -5,6 +5,19 @@ pub use libc::stat as StatStruct;
 #[cfg(windows)]
 pub use windows::{fstat, StatStruct};
 
+#[cfg(not(windows))]
+pub fn fstat(fd: libc::c_int) -> std::io::Result<StatStruct> {
+    let mut stat = std::mem::MaybeUninit::uninit();
+    unsafe {
+        let ret = libc::fstat(fd, stat.as_mut_ptr());
+        if ret == -1 {
+            Err(crate::common::os::last_os_error())
+        } else {
+            Ok(stat.assume_init())
+        }
+    }
+}
+
 #[cfg(windows)]
 mod windows {
     use crate::common::suppress_iph;

@@ -381,9 +381,6 @@ class CAutoFileTests(AutoFileTests, unittest.TestCase):
     def testOpenDirFD(self):
         super().testOpenDirFD()
 
-    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
-    def testOpendir(self):
-        super().testOpendir()
 
 @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON, test setUp errors on Windows")
 class PyAutoFileTests(AutoFileTests, unittest.TestCase):
@@ -616,11 +613,6 @@ class OtherFileTests:
 class COtherFileTests(OtherFileTests, unittest.TestCase):
     FileIO = _io.FileIO
     modulename = '_io'
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def testInvalidFd(self):
-        super().testInvalidFd()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
