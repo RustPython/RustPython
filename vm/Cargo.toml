@@ -128,6 +128,7 @@ features = [
   "Win32_System_Console",
   "Win32_System_Diagnostics_Debug",
   "Win32_System_Environment",
+  "Win32_System_Ioctl",
   "Win32_System_LibraryLoader",
   "Win32_System_Memory",
   "Win32_System_Performance",

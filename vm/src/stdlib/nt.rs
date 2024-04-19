@@ -373,7 +373,7 @@ pub(crate) mod module {
         }
     }
 
-    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> io::Result<()> {
+    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> std::io::Result<()> {
         let flags = if inheritable {
             Foundation::HANDLE_FLAG_INHERIT
         } else {
@@ -426,5 +426,108 @@ pub fn init_winsock() {
     WSA_INIT.call_once(|| unsafe {
         let mut wsa_data = std::mem::MaybeUninit::uninit();
         let _ = windows_sys::Win32::Networking::WinSock::WSAStartup(0x0101, wsa_data.as_mut_ptr());
+    })
+}
+
+// win32_xstat in cpython
+pub fn win32_xstat(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct> {
+    let mut result = match win32_xstat_impl(path, traverse) {
+        Ok(r) => r,
+        Err(e) => {
+            // TODO: cpython comments say GetLastError must be called here.
+            return Err(e);
+        }
+    };
+    // ctime is only deprecated from 3.12, so we copy birthtime across
+    result.st_ctime = result.st_birthtime;
+    result.st_ctime_nsec = result.st_birthtime_nsec;
+    return Ok(result);
+}
+
+fn is_reparse_tag_name_surrogate(tag: u32) -> bool {
+    (tag & 0x20000000) > 0
+}
+
+use crate::common::fileutils::StatStruct;
+use std::{ffi::OsStr, time::SystemTime};
+
+fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct> {
+    use crate::common::fileutils::windows::{
+        get_file_information_by_name, FILE_INFO_BY_NAME_CLASS,
+    };
+    use windows_sys::Win32::{Foundation, Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT};
+
+    let stat_info =
+        get_file_information_by_name(&path, FILE_INFO_BY_NAME_CLASS::FileStatBasicByNameInfo);
+    match stat_info {
+        Ok(stat_info) => {
+            if !(stat_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+                || (!traverse && is_reparse_tag_name_surrogate(stat_info.ReparseTag))
+            {
+                let mut result =
+                    crate::common::fileutils::windows::stat_basic_info_to_stat(&stat_info);
+                result.update_st_mode_from_path(&path, stat_info.FileAttributes);
+                return Ok(result);
+            }
+        }
+        Err(e) => {
+            if let Some(errno) = e.raw_os_error() {
+                if matches!(
+                    errno as u32,
+                    Foundation::ERROR_FILE_NOT_FOUND
+                        | Foundation::ERROR_PATH_NOT_FOUND
+                        | Foundation::ERROR_NOT_READY
+                        | Foundation::ERROR_BAD_NET_NAME
+                ) {
+                    return Err(e);
+                }
+            }
+        }
+    }
+
+    // TODO: win32_xstat_slow_impl(&path, result, traverse)
+    meta_to_stat(&crate::stdlib::os::fs_metadata(path, traverse)?)
+}
+
+fn meta_to_stat(meta: &std::fs::Metadata) -> std::io::Result<StatStruct> {
+    let st_mode = {
+        // Based on CPython fileutils.c' attributes_to_mode
+        let mut m = 0;
+        if meta.is_dir() {
+            m |= libc::S_IFDIR | 0o111; /* IFEXEC for user,group,other */
+        } else {
+            m |= libc::S_IFREG;
+        }
+        if meta.permissions().readonly() {
+            m |= 0o444;
+        } else {
+            m |= 0o666;
+        }
+        m as _
+    };
+    let (atime, mtime, ctime) = (meta.accessed()?, meta.modified()?, meta.created()?);
+    let sec = |systime: SystemTime| match systime.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(d) => d.as_secs() as libc::time_t,
+        Err(e) => -(e.duration().as_secs() as libc::time_t),
+    };
+    let nsec = |systime: SystemTime| match systime.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(d) => d.subsec_nanos() as i32,
+        Err(e) => -(e.duration().subsec_nanos() as i32),
+    };
+    Ok(StatStruct {
+        st_dev: 0,
+        st_ino: 0,
+        st_mode,
+        st_nlink: 0,
+        st_uid: 0,
+        st_gid: 0,
+        st_size: meta.len(),
+        st_atime: sec(atime),
+        st_mtime: sec(mtime),
+        st_ctime: sec(ctime),
+        st_atime_nsec: nsec(atime),
+        st_mtime_nsec: nsec(mtime),
+        st_ctime_nsec: nsec(ctime),
+        ..Default::default()
     })
 }

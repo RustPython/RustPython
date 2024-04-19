@@ -53,8 +53,6 @@ mod dictdatatype;
 #[cfg(feature = "rustpython-compiler")]
 pub mod eval;
 pub mod exceptions;
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
-mod fileutils;
 pub mod format;
 pub mod frame;
 pub mod function;

@@ -3930,7 +3930,7 @@ mod fileio {
 
             // TODO: _Py_set_inheritable
 
-            let fd_fstat = crate::fileutils::fstat(fd);
+            let fd_fstat = crate::common::fileutils::fstat(fd);
 
             #[cfg(windows)]
             {
