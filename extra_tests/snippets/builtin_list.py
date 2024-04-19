@@ -657,7 +657,7 @@ m.list = l
 l.remove(4) 
 assert_raises(ValueError, lambda: l.index(4)) # element 4 must not be in the list
 
-# Test no panic occured when list elements was deleted in __eq__
+# Test no panic occurred when list elements was deleted in __eq__
 class rewrite_list_eq(list):
     pass
 

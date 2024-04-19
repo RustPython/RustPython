@@ -217,7 +217,7 @@ class CustomTextTestResult(result.TestResult):
         self.suite_map = {}
 
     def stopTestRun(self):
-        # if no tests or some failure occured execution time may not have been set
+        # if no tests or some failure occurred execution time may not have been set
         try:
             self.results['suites'][self.suite_map[self.suite]]['execution_time'] = format(self.suite_execution_time, '.%sf' %CustomTextTestResult._execution_time_significant_digits)
         except:
