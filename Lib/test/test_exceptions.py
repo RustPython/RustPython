@@ -2613,8 +2613,6 @@ class SyntaxErrorTests(unittest.TestCase):
 
 
 class TestInvalidExceptionMatcher(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_except_star_invalid_exception_type(self):
         with self.assertRaises(TypeError):
             try:
