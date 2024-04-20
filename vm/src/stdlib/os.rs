@@ -48,7 +48,7 @@ cfg_if::cfg_if! {
 const DEFAULT_DIR_FD: Fd = Fd(AT_FDCWD);
 
 // XXX: AVAILABLE should be a bool, but we can't yet have it as a bool and just cast it to usize
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct DirFd<const AVAILABLE: usize>(pub(crate) [Fd; AVAILABLE]);
 
 impl<const AVAILABLE: usize> Default for DirFd<AVAILABLE> {
