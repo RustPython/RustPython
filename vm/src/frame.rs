@@ -1848,13 +1848,11 @@ impl ExecutingFrame<'_> {
                             ));
                         }
                     }
-                } else {
-                    if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
-                        return Err(vm.new_type_error(
-                            "catching classes that do not inherit from BaseException is not allowed"
-                                .to_owned(),
-                        ));
-                    }
+                } else if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
+                    return Err(vm.new_type_error(
+                        "catching classes that do not inherit from BaseException is not allowed"
+                            .to_owned(),
+                    ));
                 }
 
                 a.is_instance(&b, vm)?
