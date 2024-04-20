@@ -212,6 +212,12 @@ impl Constructor for PyInt {
     type Args = IntOptions;
 
     fn py_new(cls: PyTypeRef, options: Self::Args, vm: &VirtualMachine) -> PyResult {
+        if cls.is(vm.ctx.types.bool_type) {
+            return Err(
+                vm.new_type_error("int.__new__(bool) is not safe, use bool.__new__()".to_owned())
+            );
+        }
+
         let value = if let OptionalArg::Present(val) = options.val_options {
             if let OptionalArg::Present(base) = options.base {
                 let base = base
