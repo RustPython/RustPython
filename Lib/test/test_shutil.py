@@ -1088,6 +1088,7 @@ class TestCopy(BaseTest, unittest.TestCase):
         shutil.copymode(src_link, dst_link)
         self.assertEqual(os.stat(src).st_mode, os.stat(dst).st_mode)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(hasattr(os, 'lchmod') or os.name == 'nt', 'requires os.lchmod')
     @os_helper.skip_unless_symlink
     def test_copymode_symlink_to_symlink(self):

@@ -940,7 +940,13 @@ pub mod module {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         match path {
-            OsPathOrFd::Path(path) => _chmod(path, dir_fd, mode, follow_symlinks, vm),
+            OsPathOrFd::Path(path) => {
+                #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
+                if !follow_symlinks.0 && dir_fd == Default::default() {
+                    return lchmod(path, mode, vm);
+                }
+                _chmod(path, dir_fd, mode, follow_symlinks, vm)
+            }
             OsPathOrFd::Fd(fd) => _fchmod(fd, mode, vm),
         }
     }
@@ -963,7 +969,7 @@ pub mod module {
         _fchmod(fd, mode, vm)
     }
 
-    #[cfg(not(target_os = "redox"))]
+    #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
     #[pyfunction]
     fn lchmod(path: OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
         extern "C" {
@@ -1700,7 +1706,16 @@ pub mod module {
 
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
         vec![
-            SupportFunc::new("chmod", Some(false), Some(false), Some(false)),
+            SupportFunc::new(
+                "chmod",
+                Some(false),
+                Some(false),
+                Some(cfg!(any(
+                    target_os = "macos",
+                    target_os = "freebsd",
+                    target_os = "netbsd"
+                ))),
+            ),
             #[cfg(not(target_os = "redox"))]
             SupportFunc::new("chroot", Some(false), None, None),
             #[cfg(not(target_os = "redox"))]
