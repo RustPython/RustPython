@@ -196,8 +196,6 @@ class UsageTests(unittest.TestCase):
         # Raising a string raises TypeError.
         self.raise_fails("spam")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_catch_non_BaseException(self):
         # Trying to catch an object that does not inherit from BaseException
         # is not allowed.

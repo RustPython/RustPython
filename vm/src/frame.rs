@@ -1836,7 +1836,29 @@ impl ExecutingFrame<'_> {
             bytecode::TestOperator::IsNot => !a.is(&b),
             bytecode::TestOperator::In => self._in(vm, a, &b)?,
             bytecode::TestOperator::NotIn => self._not_in(vm, a, &b)?,
-            bytecode::TestOperator::ExceptionMatch => a.is_instance(&b, vm)?,
+            bytecode::TestOperator::ExceptionMatch => {
+                if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
+                    for exception in tuple_of_exceptions.iter() {
+                        if !exception
+                            .is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)?
+                        {
+                            return Err(vm.new_type_error(
+                                "catching classes that do not inherit from BaseException is not allowed"
+                                    .to_owned(),
+                            ));
+                        }
+                    }
+                } else {
+                    if !b.is_subclass(vm.ctx.exceptions.base_exception_type.into(), vm)? {
+                        return Err(vm.new_type_error(
+                            "catching classes that do not inherit from BaseException is not allowed"
+                                .to_owned(),
+                        ));
+                    }
+                }
+
+                a.is_instance(&b, vm)?
+            }
         };
 
         self.push_value(vm.ctx.new_bool(value).into());
