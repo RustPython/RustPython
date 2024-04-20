@@ -7,8 +7,6 @@ import os
 
 class BoolTest(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subclass(self):
         try:
             class C(bool):
