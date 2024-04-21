@@ -327,8 +327,6 @@ class BuiltinTest(unittest.TestCase):
     def test_cmp(self):
         self.assertTrue(not hasattr(builtins, "cmp"))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_compile(self):
         compile('print(1)\n', '', 'exec')
         bom = b'\xef\xbb\xbf'
