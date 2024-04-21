@@ -1,6 +1,6 @@
 use crate::common::fileutils::{
-    StatStruct,
     windows::{get_file_information_by_name, FILE_INFO_BY_NAME_CLASS},
+    StatStruct,
 };
 use crate::{
     convert::{ToPyObject, ToPyResult},
@@ -124,11 +124,42 @@ fn win32_xstat_impl(path: &OsStr, traverse: bool) -> std::io::Result<StatStruct>
         }
     }
 
-    // TODO: replace it with win32_xstat_slow_impl(&path, result, traverse)
-    meta_to_stat(&crate::stdlib::os::fs_metadata(path, traverse)?)
+    // TODO: check if win32_xstat_slow_impl(&path, result, traverse) is required
+    meta_to_stat(
+        &crate::stdlib::os::fs_metadata(path, traverse)?,
+        file_id(path)?,
+    )
 }
 
-fn meta_to_stat(meta: &std::fs::Metadata) -> std::io::Result<StatStruct> {
+// Ported from zed: https://github.com/zed-industries/zed/blob/v0.131.6/crates/fs/src/fs.rs#L1532-L1562
+// can we get file id not open the file twice?
+// https://github.com/rust-lang/rust/issues/63010
+fn file_id(path: &OsStr) -> std::io::Result<u64> {
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::{
+        Foundation::HANDLE,
+        Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
+        },
+    };
+
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?;
+
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfileinformationbyhandle
+    // This function supports Windows XP+
+    let ret = unsafe { GetFileInformationByHandle(file.as_raw_handle() as HANDLE, &mut info) };
+    if ret == 0 {
+        return Err(std::io::Error::last_os_error());
+    };
+
+    Ok(((info.nFileIndexHigh as u64) << 32) | (info.nFileIndexLow as u64))
+}
+
+fn meta_to_stat(meta: &std::fs::Metadata, file_id: u64) -> std::io::Result<StatStruct> {
     let st_mode = {
         // Based on CPython fileutils.c' attributes_to_mode
         let mut m = 0;
@@ -155,7 +186,7 @@ fn meta_to_stat(meta: &std::fs::Metadata) -> std::io::Result<StatStruct> {
     };
     Ok(StatStruct {
         st_dev: 0,
-        st_ino: 0,
+        st_ino: file_id,
         st_mode,
         st_nlink: 0,
         st_uid: 0,

@@ -242,7 +242,6 @@ class GenericTest:
         create_file(test_fn2)
         self.assertFalse(self.pathmodule.samefile(test_fn1, test_fn2))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; properly implement stat st_dev/st_ino")
     @os_helper.skip_unless_symlink
     def test_samefile_on_symlink(self):
         self._test_samefile_on_link_func(os.symlink)
@@ -285,7 +284,6 @@ class GenericTest:
         self.assertFalse(self.pathmodule.samestat(os.stat(test_fn1),
                                                   os.stat(test_fn2)))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; properly implement stat st_dev/st_ino")
     @os_helper.skip_unless_symlink
     def test_samestat_on_symlink(self):
         self._test_samestat_on_link_func(os.symlink)
@@ -313,30 +311,6 @@ class TestGenericTest(GenericTest, unittest.TestCase):
     # for test discovery purposes; CommonTest inherits from GenericTest
     # and is only meant to be inherited by others.
     pathmodule = genericpath
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_samefile(self):
-            super().test_samefile()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_samefile_on_link(self):
-            super().test_samefile_on_link()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_samestat(self):
-            super().test_samestat()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @unittest.expectedFailure
-        def test_samestat_on_link(self):
-            super().test_samestat_on_link()
 
     def test_invalid_paths(self):
         for attr in GenericTest.common_attributes:

@@ -912,26 +912,6 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
         def test_expandvars_nonascii(self):  # TODO: RUSTPYTHON; remove when done
             super().test_expandvars_nonascii()
 
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
-        def test_samefile(self):  # TODO: RUSTPYTHON; remove when done
-            super().test_samefile()
-
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
-        def test_samefile_on_link(self):  # TODO: RUSTPYTHON; remove when done
-            super().test_samefile_on_link()
-
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
-        def test_samestat(self):  # TODO: RUSTPYTHON; remove when done
-            super().test_samestat()
-
-        # TODO: RUSTPYTHON
-        @unittest.expectedFailure
-        def test_samestat_on_link(self):  # TODO: RUSTPYTHON; remove when done
-            super().test_samestat_on_link()
-
 
 class PathLikeTests(NtpathTestCase):
 

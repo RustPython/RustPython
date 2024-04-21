@@ -1299,6 +1299,7 @@ class WriteTest(WriteTestBase, unittest.TestCase):
             os_helper.unlink(target)
             os_helper.unlink(link)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_symlink_size(self):
         path = os.path.join(TEMPDIR, "symlink")
@@ -1495,13 +1496,6 @@ class GzipWriteTest(GzipTest, WriteTest):
         @expectedSuccess
         def test_cwd(self):
             super().test_cwd()
-
-    # TODO: RUSTPYTHON
-    if sys.platform == "win32":
-        @expectedSuccess
-        def test_symlink_size(self):
-            super().test_symlink_size()
-    pass
 
 
 class Bz2WriteTest(Bz2Test, WriteTest):
