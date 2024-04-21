@@ -5,7 +5,7 @@ use std::{
 
 pub trait ToWideString {
     fn to_wide(&self) -> Vec<u16>;
-    fn to_wides_with_nul(&self) -> Vec<u16>;
+    fn to_wide_with_nul(&self) -> Vec<u16>;
 }
 impl<T> ToWideString for T
 where
@@ -14,7 +14,7 @@ where
     fn to_wide(&self) -> Vec<u16> {
         self.as_ref().encode_wide().collect()
     }
-    fn to_wides_with_nul(&self) -> Vec<u16> {
+    fn to_wide_with_nul(&self) -> Vec<u16> {
         self.as_ref().encode_wide().chain(Some(0)).collect()
     }
 }

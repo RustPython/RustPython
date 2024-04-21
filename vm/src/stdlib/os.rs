@@ -7,7 +7,7 @@ use crate::{
 };
 use std::{ffi, fs, io, path::Path};
 
-pub(super) fn fs_metadata<P: AsRef<Path>>(
+pub(crate) fn fs_metadata<P: AsRef<Path>>(
     path: P,
     follow_symlink: bool,
 ) -> io::Result<fs::Metadata> {
@@ -123,11 +123,13 @@ pub(super) mod _os {
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
-        common::crt_fd::{Fd, Offset},
-        common::lock::{OnceCell, PyRwLock},
-        common::suppress_iph,
+        common::{
+            crt_fd::{Fd, Offset},
+            fileutils::StatStruct,
+            lock::{OnceCell, PyRwLock},
+            suppress_iph,
+        },
         convert::{IntoPyException, ToPyObject},
-        fileutils::StatStruct,
         function::{ArgBytesLike, Either, FsPath, FuncArgs, OptionalArg},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd, OutputMode},
         protocol::PyIterReturn,
@@ -811,50 +813,6 @@ pub(super) mod _os {
     }
 
     #[cfg(windows)]
-    fn meta_to_stat(meta: &fs::Metadata) -> io::Result<StatStruct> {
-        let st_mode = {
-            // Based on CPython fileutils.c' attributes_to_mode
-            let mut m = 0;
-            if meta.is_dir() {
-                m |= libc::S_IFDIR | 0o111; /* IFEXEC for user,group,other */
-            } else {
-                m |= libc::S_IFREG;
-            }
-            if meta.permissions().readonly() {
-                m |= 0o444;
-            } else {
-                m |= 0o666;
-            }
-            m as _
-        };
-        let (atime, mtime, ctime) = (meta.accessed()?, meta.modified()?, meta.created()?);
-        let sec = |systime: SystemTime| match systime.duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(d) => d.as_secs() as libc::time_t,
-            Err(e) => -(e.duration().as_secs() as libc::time_t),
-        };
-        let nsec = |systime: SystemTime| match systime.duration_since(SystemTime::UNIX_EPOCH) {
-            Ok(d) => d.subsec_nanos() as i32,
-            Err(e) => -(e.duration().subsec_nanos() as i32),
-        };
-        Ok(StatStruct {
-            st_dev: 0,
-            st_ino: 0,
-            st_mode,
-            st_nlink: 0,
-            st_uid: 0,
-            st_gid: 0,
-            st_size: meta.len(),
-            st_atime: sec(atime),
-            st_mtime: sec(mtime),
-            st_ctime: sec(ctime),
-            st_atime_nsec: nsec(atime),
-            st_mtime_nsec: nsec(mtime),
-            st_ctime_nsec: nsec(ctime),
-            ..Default::default()
-        })
-    }
-
-    #[cfg(windows)]
     fn stat_inner(
         file: OsPathOrFd,
         dir_fd: DirFd<{ STAT_DIR_FD as usize }>,
@@ -863,8 +821,8 @@ pub(super) mod _os {
         // TODO: replicate CPython's win32_xstat
         let [] = dir_fd.0;
         match file {
-            OsPathOrFd::Path(path) => meta_to_stat(&super::fs_metadata(path, follow_symlinks.0)?),
-            OsPathOrFd::Fd(fd) => crate::fileutils::fstat(fd),
+            OsPathOrFd::Path(path) => crate::windows::win32_xstat(&path.path, follow_symlinks.0),
+            OsPathOrFd::Fd(fd) => crate::common::fileutils::fstat(fd),
         }
         .map(Some)
     }

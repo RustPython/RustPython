@@ -248,7 +248,7 @@ mod _winapi {
 
     #[pyfunction]
     fn NeedCurrentDirectoryForExePath(exe_name: PyStrRef) -> bool {
-        let exe_name = exe_name.as_str().to_wides_with_nul();
+        let exe_name = exe_name.as_str().to_wide_with_nul();
         let return_value = unsafe {
             windows_sys::Win32::System::Environment::NeedCurrentDirectoryForExePathW(
                 exe_name.as_ptr(),
@@ -419,7 +419,7 @@ mod _winapi {
     // TODO: ctypes.LibraryLoader.LoadLibrary
     #[allow(dead_code)]
     fn LoadLibrary(path: PyStrRef, vm: &VirtualMachine) -> PyResult<isize> {
-        let path = path.as_str().to_wides_with_nul();
+        let path = path.as_str().to_wide_with_nul();
         let handle = unsafe {
             windows::Win32::System::LibraryLoader::LoadLibraryW(PCWSTR::from_raw(path.as_ptr()))
                 .unwrap()

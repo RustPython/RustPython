@@ -373,7 +373,7 @@ pub(crate) mod module {
         }
     }
 
-    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> io::Result<()> {
+    pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> std::io::Result<()> {
         let flags = if inheritable {
             Foundation::HANDLE_FLAG_INHERIT
         } else {
@@ -419,12 +419,4 @@ pub(crate) mod module {
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {
         Vec::new()
     }
-}
-
-pub fn init_winsock() {
-    static WSA_INIT: parking_lot::Once = parking_lot::Once::new();
-    WSA_INIT.call_once(|| unsafe {
-        let mut wsa_data = std::mem::MaybeUninit::uninit();
-        let _ = windows_sys::Win32::Networking::WinSock::WSAStartup(0x0101, wsa_data.as_mut_ptr());
-    })
 }
