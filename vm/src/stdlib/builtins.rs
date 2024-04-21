@@ -179,6 +179,10 @@ mod builtins {
 
                 let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
 
+                if !(flags & !ast::PY_COMPILE_FLAGS_MASK).is_zero() {
+                    return Err(vm.new_value_error("compile() unrecognized flags".to_owned()));
+                }
+
                 if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
                     #[cfg(not(feature = "rustpython-compiler"))]
                     {
