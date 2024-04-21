@@ -121,6 +121,15 @@ mod builtins {
 
             let mode_str = args.mode.as_str();
 
+            let optimize: i32 = args.optimize.map_or(Ok(-1), |v| v.try_to_primitive(vm))?;
+            let optimize: u8 = if optimize == -1 {
+                vm.state.settings.optimize
+            } else {
+                optimize.try_into().map_err(|_| {
+                    vm.new_value_error("compile() optimize value invalid".to_owned())
+                })?
+            };
+
             if args
                 .source
                 .fast_isinstance(&ast::NodeAst::make_class(&vm.ctx))
@@ -134,7 +143,13 @@ mod builtins {
                     let mode = mode_str
                         .parse::<crate::compiler::Mode>()
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
-                    return ast::compile(vm, args.source, args.filename.as_str(), mode);
+                    return ast::compile(
+                        vm,
+                        args.source,
+                        args.filename.as_str(),
+                        mode,
+                        Some(optimize),
+                    );
                 }
             }
 
@@ -193,8 +208,17 @@ mod builtins {
                         let mode = mode_str
                             .parse::<crate::compiler::Mode>()
                             .map_err(|err| vm.new_value_error(err.to_string()))?;
+
+                        let mut opts = vm.compile_opts();
+                        opts.optimize = optimize;
+
                         let code = vm
-                            .compile(source, mode, args.filename.as_str().to_owned())
+                            .compile_with_opts(
+                                source,
+                                mode,
+                                args.filename.as_str().to_owned(),
+                                opts,
+                            )
                             .map_err(|err| (err, Some(source)).to_pyexception(vm))?;
                         Ok(code.into())
                     }

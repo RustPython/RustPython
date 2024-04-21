@@ -341,8 +341,13 @@ pub(crate) fn compile(
     object: PyObjectRef,
     filename: &str,
     mode: crate::compiler::Mode,
+    optimize: Option<u8>,
 ) -> PyResult {
-    let opts = vm.compile_opts();
+    let mut opts = vm.compile_opts();
+    if let Some(optimize) = optimize {
+        opts.optimize = optimize;
+    }
+
     let ast = Node::ast_from_object(vm, object)?;
     let code = codegen::compile::compile_top(&ast, filename.to_owned(), mode, opts)
         .map_err(|err| (CompileError::from(err), None).to_pyexception(vm))?; // FIXME source

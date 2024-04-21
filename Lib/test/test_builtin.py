@@ -373,7 +373,7 @@ class BuiltinTest(unittest.TestCase):
                 ns = {}
                 exec(code, ns)
                 rv = ns['f']()
-                self.assertEqual(rv, tuple(expected))
+                self.assertEqual(rv, tuple(expected), msg=f'optval={optval}')
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
