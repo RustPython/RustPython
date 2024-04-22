@@ -633,7 +633,7 @@ class CompatPickleTests(unittest.TestCase):
                            StopAsyncIteration,
                            RecursionError,
                            EncodingWarning,
-                           #ExceptionGroup, # TODO: RUSTPYTHON
+                           ExceptionGroup,
                            BaseExceptionGroup):
                     continue
                 if exc is not OSError and issubclass(exc, OSError):

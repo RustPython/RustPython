@@ -978,11 +978,12 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         // ordered by exception_hierarchy.txt
         // Exceptions:
         "BaseException" => ctx.exceptions.base_exception_type.to_owned(),
-        "BaseExceptionGroup" => ctx.exceptions.base_exception_group.to_owned(),
+        // "BaseExceptionGroup" => ctx.exceptions.base_exception_group.to_owned(),
         "SystemExit" => ctx.exceptions.system_exit.to_owned(),
         "KeyboardInterrupt" => ctx.exceptions.keyboard_interrupt.to_owned(),
         "GeneratorExit" => ctx.exceptions.generator_exit.to_owned(),
         "Exception" => ctx.exceptions.exception_type.to_owned(),
+        // "ExceptionGroup" => ctx.exceptions.base_exception_group.to_owned(),
         "StopIteration" => ctx.exceptions.stop_iteration.to_owned(),
         "StopAsyncIteration" => ctx.exceptions.stop_async_iteration.to_owned(),
         "ArithmeticError" => ctx.exceptions.arithmetic_error.to_owned(),
