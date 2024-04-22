@@ -1,12 +1,9 @@
 import collections.abc
-import traceback
 import types
 import unittest
-
+from test.support import C_RECURSION_LIMIT
 
 class TestExceptionGroupTypeHierarchy(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_group_types(self):
         self.assertTrue(issubclass(ExceptionGroup, Exception))
         self.assertTrue(issubclass(ExceptionGroup, BaseExceptionGroup))
@@ -38,8 +35,6 @@ class BadConstructorArgs(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, MSG):
             ExceptionGroup('eg', [ValueError('too')], [TypeError('many')])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_EG_construction__bad_message(self):
         MSG = 'argument 1 must be str, not '
         with self.assertRaisesRegex(TypeError, MSG):
@@ -47,8 +42,6 @@ class BadConstructorArgs(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, MSG):
             ExceptionGroup(None, [ValueError(12)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_EG_construction__bad_excs_sequence(self):
         MSG = r'second argument \(exceptions\) must be a sequence'
         with self.assertRaisesRegex(TypeError, MSG):
@@ -60,8 +53,6 @@ class BadConstructorArgs(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, MSG):
             ExceptionGroup("eg", [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_EG_construction__nested_non_exceptions(self):
         MSG = (r'Item [0-9]+ of second argument \(exceptions\)'
               ' is not an exception')
@@ -72,24 +63,18 @@ class BadConstructorArgs(unittest.TestCase):
 
 
 class InstanceCreation(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_EG_wraps_Exceptions__creates_EG(self):
         excs = [ValueError(1), TypeError(2)]
         self.assertIs(
             type(ExceptionGroup("eg", excs)),
             ExceptionGroup)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_BEG_wraps_Exceptions__creates_EG(self):
         excs = [ValueError(1), TypeError(2)]
         self.assertIs(
             type(BaseExceptionGroup("beg", excs)),
             ExceptionGroup)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_EG_wraps_BaseException__raises_TypeError(self):
         MSG= "Cannot nest BaseExceptions in an ExceptionGroup"
         with self.assertRaisesRegex(TypeError, MSG):
@@ -99,8 +84,6 @@ class InstanceCreation(unittest.TestCase):
         beg = BaseExceptionGroup("beg", [ValueError(1), KeyboardInterrupt(2)])
         self.assertIs(type(beg), BaseExceptionGroup)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_EG_subclass_wraps_non_base_exceptions(self):
         class MyEG(ExceptionGroup):
             pass
@@ -109,8 +92,6 @@ class InstanceCreation(unittest.TestCase):
             type(MyEG("eg", [ValueError(12), TypeError(42)])),
             MyEG)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_EG_subclass_does_not_wrap_base_exceptions(self):
         class MyEG(ExceptionGroup):
             pass
@@ -119,8 +100,6 @@ class InstanceCreation(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             MyEG("eg", [ValueError(12), KeyboardInterrupt(42)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_BEG_and_E_subclass_does_not_wrap_base_exceptions(self):
         class MyEG(BaseExceptionGroup, ValueError):
             pass
@@ -128,6 +107,21 @@ class InstanceCreation(unittest.TestCase):
         msg = "Cannot nest BaseExceptions in 'MyEG'"
         with self.assertRaisesRegex(TypeError, msg):
             MyEG("eg", [ValueError(12), KeyboardInterrupt(42)])
+
+    def test_EG_and_specific_subclass_can_wrap_any_nonbase_exception(self):
+        class MyEG(ExceptionGroup, ValueError):
+            pass
+
+        # The restriction is specific to Exception, not "the other base class"
+        MyEG("eg", [ValueError(12), Exception()])
+
+    def test_BEG_and_specific_subclass_can_wrap_any_nonbase_exception(self):
+        class MyEG(BaseExceptionGroup, ValueError):
+            pass
+
+        # The restriction is specific to Exception, not "the other base class"
+        MyEG("eg", [ValueError(12), Exception()])
+
 
     def test_BEG_subclass_wraps_anything(self):
         class MyBEG(BaseExceptionGroup):
@@ -142,8 +136,6 @@ class InstanceCreation(unittest.TestCase):
 
 
 class StrAndReprTests(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ExceptionGroup(self):
         eg = BaseExceptionGroup(
             'flat', [ValueError(1), TypeError(2)])
@@ -164,8 +156,6 @@ class StrAndReprTests(unittest.TestCase):
                  "ExceptionGroup('flat', "
                     "[ValueError(1), TypeError(2)]), TypeError(2)])")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_BaseExceptionGroup(self):
         eg = BaseExceptionGroup(
             'flat', [ValueError(1), KeyboardInterrupt(2)])
@@ -188,8 +178,6 @@ class StrAndReprTests(unittest.TestCase):
                 "BaseExceptionGroup('flat', "
                     "[ValueError(1), KeyboardInterrupt(2)])])")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_custom_exception(self):
         class MyEG(ExceptionGroup):
             pass
@@ -245,8 +233,6 @@ def create_simple_eg():
 
 
 class ExceptionGroupFields(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics_ExceptionGroup_fields(self):
         eg = create_simple_eg()
 
@@ -276,8 +262,6 @@ class ExceptionGroupFields(unittest.TestCase):
             self.assertIsNone(tb.tb_next)
             self.assertEqual(tb.tb_lineno, tb_linenos[1][i])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_fields_are_readonly(self):
         eg = ExceptionGroup('eg', [TypeError(1), OSError(2)])
 
@@ -293,8 +277,6 @@ class ExceptionGroupFields(unittest.TestCase):
 
 
 class ExceptionGroupTestBase(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def assertMatchesTemplate(self, exc, exc_type, template):
         """ Assert that the exception matches the template
 
@@ -324,7 +306,6 @@ class ExceptionGroupSubgroupTests(ExceptionGroupTestBase):
         self.eg = create_simple_eg()
         self.eg_template = [ValueError(1), TypeError(int), ValueError(2)]
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_subgroup_split__bad_arg_type(self):
         bad_args = ["bad arg",
                     OSError('instance not type'),
@@ -336,8 +317,6 @@ class ExceptionGroupSubgroupTests(ExceptionGroupTestBase):
             with self.assertRaises(TypeError):
                 self.eg.split(arg)
 
-    
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_subgroup_by_type__passthrough(self):
         eg = self.eg
         self.assertIs(eg, eg.subgroup(BaseException))
@@ -345,11 +324,9 @@ class ExceptionGroupSubgroupTests(ExceptionGroupTestBase):
         self.assertIs(eg, eg.subgroup(BaseExceptionGroup))
         self.assertIs(eg, eg.subgroup(ExceptionGroup))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_subgroup_by_type__no_match(self):
         self.assertIsNone(self.eg.subgroup(OSError))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_subgroup_by_type__match(self):
         eg = self.eg
         testcases = [
@@ -364,15 +341,12 @@ class ExceptionGroupSubgroupTests(ExceptionGroupTestBase):
                 self.assertEqual(subeg.message, eg.message)
                 self.assertMatchesTemplate(subeg, ExceptionGroup, template)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_subgroup_by_predicate__passthrough(self):
         self.assertIs(self.eg, self.eg.subgroup(lambda e: True))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_subgroup_by_predicate__no_match(self):
         self.assertIsNone(self.eg.subgroup(lambda e: False))
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_subgroup_by_predicate__match(self):
         eg = self.eg
         testcases = [
@@ -392,7 +366,6 @@ class ExceptionGroupSplitTests(ExceptionGroupTestBase):
         self.eg = create_simple_eg()
         self.eg_template = [ValueError(1), TypeError(int), ValueError(2)]
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_split_by_type__passthrough(self):
         for E in [BaseException, Exception,
                   BaseExceptionGroup, ExceptionGroup]:
@@ -401,14 +374,12 @@ class ExceptionGroupSplitTests(ExceptionGroupTestBase):
                 match, ExceptionGroup, self.eg_template)
             self.assertIsNone(rest)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_split_by_type__no_match(self):
         match, rest = self.eg.split(OSError)
         self.assertIsNone(match)
         self.assertMatchesTemplate(
             rest, ExceptionGroup, self.eg_template)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_split_by_type__match(self):
         eg = self.eg
         VE = ValueError
@@ -433,19 +404,16 @@ class ExceptionGroupSplitTests(ExceptionGroupTestBase):
             else:
                 self.assertIsNone(rest)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_split_by_predicate__passthrough(self):
         match, rest = self.eg.split(lambda e: True)
         self.assertMatchesTemplate(match, ExceptionGroup, self.eg_template)
         self.assertIsNone(rest)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_split_by_predicate__no_match(self):
         match, rest = self.eg.split(lambda e: False)
         self.assertIsNone(match)
         self.assertMatchesTemplate(rest, ExceptionGroup, self.eg_template)
 
-    @unittest.skip("TODO: RUSTPYTHON")
     def test_basics_split_by_predicate__match(self):
         eg = self.eg
         VE = ValueError
@@ -471,19 +439,15 @@ class ExceptionGroupSplitTests(ExceptionGroupTestBase):
 class DeepRecursionInSplitAndSubgroup(unittest.TestCase):
     def make_deep_eg(self):
         e = TypeError(1)
-        for i in range(2000):
+        for i in range(C_RECURSION_LIMIT + 1):
             e = ExceptionGroup('eg', [e])
         return e
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deep_split(self):
         e = self.make_deep_eg()
         with self.assertRaises(RecursionError):
             e.split(TypeError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_deep_subgroup(self):
         e = self.make_deep_eg()
         with self.assertRaises(RecursionError):
@@ -507,11 +471,9 @@ def leaf_generator(exc, tbs=None):
 
 class LeafGeneratorTest(unittest.TestCase):
     # The leaf_generator is mentioned in PEP 654 as a suggestion
-    # on how to iterate over leaf nodes of an EG. It is also
+    # on how to iterate over leaf nodes of an EG. Is is also
     # used below as a test utility. So we test it here.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_leaf_generator(self):
         eg = create_simple_eg()
 
@@ -549,8 +511,6 @@ def create_nested_eg():
 
 
 class NestedExceptionGroupBasicsTest(ExceptionGroupTestBase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nested_group_matches_template(self):
         eg = create_nested_eg()
         self.assertMatchesTemplate(
@@ -558,16 +518,12 @@ class NestedExceptionGroupBasicsTest(ExceptionGroupTestBase):
             ExceptionGroup,
             [[TypeError(bytes)], ValueError(1)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nested_group_chaining(self):
         eg = create_nested_eg()
         self.assertIsInstance(eg.exceptions[1].__context__, MemoryError)
         self.assertIsInstance(eg.exceptions[1].__cause__, MemoryError)
         self.assertIsInstance(eg.exceptions[0].__context__, TypeError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nested_exception_group_tracebacks(self):
         eg = create_nested_eg()
 
@@ -581,8 +537,6 @@ class NestedExceptionGroupBasicsTest(ExceptionGroupTestBase):
             self.assertEqual(tb.tb_lineno, expected)
             self.assertIsNone(tb.tb_next)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iteration_full_tracebacks(self):
         eg = create_nested_eg()
         # check that iteration over leaves
@@ -670,8 +624,6 @@ class ExceptionGroupSplitTestBase(ExceptionGroupTestBase):
 
 class NestedExceptionGroupSplitTest(ExceptionGroupSplitTestBase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_split_by_type(self):
         class MyExceptionGroup(ExceptionGroup):
             pass
@@ -771,8 +723,6 @@ class NestedExceptionGroupSplitTest(ExceptionGroupSplitTestBase):
         self.assertMatchesTemplate(match, ExceptionGroup, [eg_template[0]])
         self.assertMatchesTemplate(rest, ExceptionGroup, [eg_template[1]])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_split_BaseExceptionGroup(self):
         def exc(ex):
             try:
@@ -813,8 +763,6 @@ class NestedExceptionGroupSplitTest(ExceptionGroupSplitTestBase):
         self.assertMatchesTemplate(
             rest, ExceptionGroup, [ValueError(1)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_split_copies_notes(self):
         # make sure each exception group after a split has its own __notes__ list
         eg = ExceptionGroup("eg", [ValueError(1), TypeError(2)])
@@ -846,11 +794,23 @@ class NestedExceptionGroupSplitTest(ExceptionGroupSplitTestBase):
         self.assertFalse(hasattr(match, '__notes__'))
         self.assertFalse(hasattr(rest, '__notes__'))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_drive_invalid_return_value(self):
+        class MyEg(ExceptionGroup):
+            def derive(self, excs):
+                return 42
+
+        eg = MyEg('eg', [TypeError(1), ValueError(2)])
+        msg = "derive must return an instance of BaseExceptionGroup"
+        with self.assertRaisesRegex(TypeError, msg):
+            eg.split(TypeError)
+        with self.assertRaisesRegex(TypeError, msg):
+            eg.subgroup(TypeError)
+
 
 class NestedExceptionGroupSubclassSplitTest(ExceptionGroupSplitTestBase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_split_ExceptionGroup_subclass_no_derive_no_new_override(self):
         class EG(ExceptionGroup):
             pass
@@ -893,8 +853,6 @@ class NestedExceptionGroupSubclassSplitTest(ExceptionGroupSplitTestBase):
         self.assertMatchesTemplate(match, ExceptionGroup, [[TypeError(2)]])
         self.assertMatchesTemplate(rest, ExceptionGroup, [ValueError(1)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_split_BaseExceptionGroup_subclass_no_derive_new_override(self):
         class EG(BaseExceptionGroup):
             def __new__(cls, message, excs, unused):
@@ -937,8 +895,6 @@ class NestedExceptionGroupSubclassSplitTest(ExceptionGroupSplitTestBase):
             match, BaseExceptionGroup, [KeyboardInterrupt(2)])
         self.assertMatchesTemplate(rest, ExceptionGroup, [ValueError(1)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_split_ExceptionGroup_subclass_derive_and_new_overrides(self):
         class EG(ExceptionGroup):
             def __new__(cls, message, excs, code):
