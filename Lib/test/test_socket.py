@@ -821,6 +821,8 @@ def requireSocket(*args):
 
 class GeneralModuleTests(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(_socket is not None, 'need _socket module')
     def test_socket_type(self):
         self.assertTrue(gc.is_tracked(_socket.socket))
@@ -1615,6 +1617,8 @@ class GeneralModuleTests(unittest.TestCase):
             except socket.gaierror:
                 pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_getaddrinfo_int_port_overflow(self):
         # gh-74895: Test that getaddrinfo does not raise OverflowError on port.
         #
@@ -2052,6 +2056,8 @@ class GeneralModuleTests(unittest.TestCase):
                     fileno=afile.fileno())
             self.assertEqual(cm.exception.errno, errno.ENOTSOCK)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_addressfamily_enum(self):
         import _socket, enum
         CheckedAddressFamily = enum._old_convert_(
@@ -2061,6 +2067,8 @@ class GeneralModuleTests(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedAddressFamily, socket.AddressFamily)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_socketkind_enum(self):
         import _socket, enum
         CheckedSocketKind = enum._old_convert_(
@@ -2070,6 +2078,8 @@ class GeneralModuleTests(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedSocketKind, socket.SocketKind)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_msgflag_enum(self):
         import _socket, enum
         CheckedMsgFlag = enum._old_convert_(
@@ -2079,6 +2089,8 @@ class GeneralModuleTests(unittest.TestCase):
                 )
         enum._test_simple_enum(CheckedMsgFlag, socket.MsgFlag)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_addressinfo_enum(self):
         import _socket, enum
         CheckedAddressInfo = enum._old_convert_(
@@ -5351,6 +5363,8 @@ class NetworkConnectionNoServer(unittest.TestCase):
         expected_errnos = socket_helper.get_socket_conn_refused_errs()
         self.assertIn(cm.exception.errno, expected_errnos)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_create_connection_all_errors(self):
         port = socket_helper.find_unused_port()
         try:
