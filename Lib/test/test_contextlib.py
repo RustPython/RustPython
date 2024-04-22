@@ -1271,8 +1271,6 @@ class TestSuppress(ExceptionIsLikeMixin, unittest.TestCase):
             1/0
         self.assertTrue(outer_continued)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception_groups(self):
         eg_ve = lambda: ExceptionGroup(
             "EG with ValueErrors only",
