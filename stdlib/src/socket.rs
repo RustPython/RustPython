@@ -1369,7 +1369,9 @@ mod _socket {
                     },
                 )?;
                 control_buf = Self::pack_cmsgs_to_send(&cmsgs, vm)?;
-                msg = msg.with_control(&control_buf);
+                if !control_buf.is_empty() {
+                    msg = msg.with_control(&control_buf);
+                }
             }
 
             self.sock_op(vm, SelectKind::Write, || {
