@@ -72,8 +72,6 @@ class BadConstructorArgs(unittest.TestCase):
 
 
 class InstanceCreation(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_EG_wraps_Exceptions__creates_EG(self):
         excs = [ValueError(1), TypeError(2)]
         self.assertIs(
@@ -99,8 +97,6 @@ class InstanceCreation(unittest.TestCase):
         beg = BaseExceptionGroup("beg", [ValueError(1), KeyboardInterrupt(2)])
         self.assertIs(type(beg), BaseExceptionGroup)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_EG_subclass_wraps_non_base_exceptions(self):
         class MyEG(ExceptionGroup):
             pass
@@ -245,8 +241,6 @@ def create_simple_eg():
 
 
 class ExceptionGroupFields(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basics_ExceptionGroup_fields(self):
         eg = create_simple_eg()
 
@@ -510,8 +504,6 @@ class LeafGeneratorTest(unittest.TestCase):
     # on how to iterate over leaf nodes of an EG. It is also
     # used below as a test utility. So we test it here.
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_leaf_generator(self):
         eg = create_simple_eg()
 
@@ -549,8 +541,6 @@ def create_nested_eg():
 
 
 class NestedExceptionGroupBasicsTest(ExceptionGroupTestBase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nested_group_matches_template(self):
         eg = create_nested_eg()
         self.assertMatchesTemplate(
@@ -558,16 +548,12 @@ class NestedExceptionGroupBasicsTest(ExceptionGroupTestBase):
             ExceptionGroup,
             [[TypeError(bytes)], ValueError(1)])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nested_group_chaining(self):
         eg = create_nested_eg()
         self.assertIsInstance(eg.exceptions[1].__context__, MemoryError)
         self.assertIsInstance(eg.exceptions[1].__cause__, MemoryError)
         self.assertIsInstance(eg.exceptions[0].__context__, TypeError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nested_exception_group_tracebacks(self):
         eg = create_nested_eg()
 
@@ -581,8 +567,6 @@ class NestedExceptionGroupBasicsTest(ExceptionGroupTestBase):
             self.assertEqual(tb.tb_lineno, expected)
             self.assertIsNone(tb.tb_next)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_iteration_full_tracebacks(self):
         eg = create_nested_eg()
         # check that iteration over leaves
