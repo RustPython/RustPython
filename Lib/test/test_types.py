@@ -392,7 +392,6 @@ class TypesTests(unittest.TestCase):
         test(123456, "1=20", '11111111111111123456')
         test(123456, "*=20", '**************123456')
 
-    # TODO: RUSTPYTHON
     @unittest.expectedFailure
     @run_with_locale('LC_NUMERIC', 'en_US.UTF8')
     def test_float__format__locale(self):

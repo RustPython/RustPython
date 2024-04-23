@@ -1,3 +1,4 @@
+import builtins
 import collections
 import copyreg
 import dbm
@@ -11,6 +12,7 @@ import shutil
 import struct
 import sys
 import threading
+import types
 import unittest
 import weakref
 from textwrap import dedent
@@ -1380,6 +1382,7 @@ class AbstractUnpickleTests:
             self.check_unpickling_error(self.truncated_errors, p)
 
     @threading_helper.reap_threads
+    @threading_helper.requires_working_threading()
     def test_unpickle_module_race(self):
         # https://bugs.python.org/issue34572
         locker_module = dedent("""
@@ -1822,6 +1825,14 @@ class AbstractPickleTests:
             t2 = self.loads(p)
             self.assert_is_copy(t, t2)
 
+    def test_unicode_memoization(self):
+        # Repeated str is re-used (even when escapes added).
+        for proto in protocols:
+            for s in '', 'xyz', 'xyz\n', 'x\\yz', 'x\xa1yz\r':
+                p = self.dumps((s, s), proto)
+                s1, s2 = self.loads(p)
+                self.assertIs(s1, s2)
+
     def test_bytes(self):
         for proto in protocols:
             for s in b'', b'xyz', b'xyz'*100:
@@ -1852,6 +1863,14 @@ class AbstractPickleTests:
                 elif proto == 5:
                     self.assertNotIn(b'bytearray', p)
                     self.assertTrue(opcode_in_pickle(pickle.BYTEARRAY8, p))
+
+    def test_bytearray_memoization_bug(self):
+        for proto in protocols:
+            for s in b'', b'xyz', b'xyz'*100:
+                b = bytearray(s)
+                p = self.dumps((b, b), proto)
+                b1, b2 = self.loads(p)
+                self.assertIs(b1, b2)
 
     def test_ints(self):
         for proto in protocols:
@@ -1970,6 +1989,35 @@ class AbstractPickleTests:
                 s = self.dumps(type(singleton), proto)
                 u = self.loads(s)
                 self.assertIs(type(singleton), u)
+
+    def test_builtin_types(self):
+        for t in builtins.__dict__.values():
+            if isinstance(t, type) and not issubclass(t, BaseException):
+                for proto in protocols:
+                    s = self.dumps(t, proto)
+                    self.assertIs(self.loads(s), t)
+
+    def test_builtin_exceptions(self):
+        for t in builtins.__dict__.values():
+            if isinstance(t, type) and issubclass(t, BaseException):
+                for proto in protocols:
+                    s = self.dumps(t, proto)
+                    u = self.loads(s)
+                    if proto <= 2 and issubclass(t, OSError) and t is not BlockingIOError:
+                        self.assertIs(u, OSError)
+                    elif proto <= 2 and issubclass(t, ImportError):
+                        self.assertIs(u, ImportError)
+                    else:
+                        self.assertIs(u, t)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_builtin_functions(self):
+        for t in builtins.__dict__.values():
+            if isinstance(t, types.BuiltinFunctionType):
+                for proto in protocols:
+                    s = self.dumps(t, proto)
+                    self.assertIs(self.loads(s), t)
 
     # Tests for protocol 2
 
@@ -2370,13 +2418,17 @@ class AbstractPickleTests:
             y = self.loads(s)
             self.assertEqual(y._reduce_called, 1)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @no_tracing
     def test_bad_getattr(self):
         # Issue #3514: crash when there is an infinite loop in __getattr__
         x = BadGetattr()
-        for proto in protocols:
+        for proto in range(2):
             with support.infinite_recursion():
                 self.assertRaises(RuntimeError, self.dumps, x, proto)
+        for proto in range(2, pickle.HIGHEST_PROTOCOL + 1):
+            s = self.dumps(x, proto)
 
     def test_reduce_bad_iterator(self):
         # Issue4176: crash when 4th and 5th items of __reduce__()
@@ -2536,6 +2588,7 @@ class AbstractPickleTests:
             self.assertLess(pos - frameless_start, self.FRAME_SIZE_MIN)
 
     @support.skip_if_pgo_task
+    @support.requires_resource('cpu')
     def test_framing_many_objects(self):
         obj = list(range(10**5))
         for proto in range(4, pickle.HIGHEST_PROTOCOL + 1):
@@ -3024,6 +3077,67 @@ class AbstractPickleTests:
         # 2-D, non-contiguous
         check_array(arr[::2])
 
+    def test_evil_class_mutating_dict(self):
+        # https://github.com/python/cpython/issues/92930
+        from random import getrandbits
+
+        global Bad
+        class Bad:
+            def __eq__(self, other):
+                return ENABLED
+            def __hash__(self):
+                return 42
+            def __reduce__(self):
+                if getrandbits(6) == 0:
+                    collection.clear()
+                return (Bad, ())
+
+        for proto in protocols:
+            for _ in range(20):
+                ENABLED = False
+                collection = {Bad(): Bad() for _ in range(20)}
+                for bad in collection:
+                    bad.bad = bad
+                    bad.collection = collection
+                ENABLED = True
+                try:
+                    data = self.dumps(collection, proto)
+                    self.loads(data)
+                except RuntimeError as e:
+                    expected = "changed size during iteration"
+                    self.assertIn(expected, str(e))
+
+    def test_evil_pickler_mutating_collection(self):
+        # https://github.com/python/cpython/issues/92930
+        if not hasattr(self, "pickler"):
+            raise self.skipTest(f"{type(self)} has no associated pickler type")
+
+        global Clearer
+        class Clearer:
+            pass
+
+        def check(collection):
+            class EvilPickler(self.pickler):
+                def persistent_id(self, obj):
+                    if isinstance(obj, Clearer):
+                        collection.clear()
+                    return None
+            pickler = EvilPickler(io.BytesIO(), proto)
+            try:
+                pickler.dump(collection)
+            except RuntimeError as e:
+                expected = "changed size during iteration"
+                self.assertIn(expected, str(e))
+
+        for proto in protocols:
+            check([Clearer()])
+            check([Clearer(), Clearer()])
+            check({Clearer()})
+            check({Clearer(), Clearer()})
+            check({Clearer(): 1})
+            check({Clearer(): 1, Clearer(): 2})
+            check({1: Clearer(), 2: Clearer()})
+
 
 class BigmemPickleTests:
 
@@ -3362,6 +3476,84 @@ class AbstractPickleModuleTests:
 
         self.assertRaises(pickle.PicklingError, BadPickler().dump, 0)
         self.assertRaises(pickle.UnpicklingError, BadUnpickler().load)
+
+    def test_unpickler_bad_file(self):
+        # bpo-38384: Crash in _pickle if the read attribute raises an error.
+        def raises_oserror(self, *args, **kwargs):
+            raise OSError
+        @property
+        def bad_property(self):
+            1/0
+
+        # File without read and readline
+        class F:
+            pass
+        self.assertRaises((AttributeError, TypeError), self.Unpickler, F())
+
+        # File without read
+        class F:
+            readline = raises_oserror
+        self.assertRaises((AttributeError, TypeError), self.Unpickler, F())
+
+        # File without readline
+        class F:
+            read = raises_oserror
+        self.assertRaises((AttributeError, TypeError), self.Unpickler, F())
+
+        # File with bad read
+        class F:
+            read = bad_property
+            readline = raises_oserror
+        self.assertRaises(ZeroDivisionError, self.Unpickler, F())
+
+        # File with bad readline
+        class F:
+            readline = bad_property
+            read = raises_oserror
+        self.assertRaises(ZeroDivisionError, self.Unpickler, F())
+
+        # File with bad readline, no read
+        class F:
+            readline = bad_property
+        self.assertRaises(ZeroDivisionError, self.Unpickler, F())
+
+        # File with bad read, no readline
+        class F:
+            read = bad_property
+        self.assertRaises((AttributeError, ZeroDivisionError), self.Unpickler, F())
+
+        # File with bad peek
+        class F:
+            peek = bad_property
+            read = raises_oserror
+            readline = raises_oserror
+        try:
+            self.Unpickler(F())
+        except ZeroDivisionError:
+            pass
+
+        # File with bad readinto
+        class F:
+            readinto = bad_property
+            read = raises_oserror
+            readline = raises_oserror
+        try:
+            self.Unpickler(F())
+        except ZeroDivisionError:
+            pass
+
+    def test_pickler_bad_file(self):
+        # File without write
+        class F:
+            pass
+        self.assertRaises(TypeError, self.Pickler, F())
+
+        # File with bad write
+        class F:
+            @property
+            def write(self):
+                1/0
+        self.assertRaises(ZeroDivisionError, self.Pickler, F())
 
     def check_dumps_loads_oob_buffers(self, dumps, loads):
         # No need to do the full gamut of tests here, just enough to
