@@ -234,14 +234,14 @@ impl CodeInfo {
                 eprintln!("===BLOCK {}===", block.0);
             }
             let block = &self.blocks[block];
-            for i in &block.instructions {
-                let instr = &i.instr;
-                let effect = instr.stack_effect(i.arg, false);
+            for ins in &block.instructions {
+                let instr = &ins.instr;
+                let effect = instr.stack_effect(ins.arg, false);
                 if DEBUG {
-                    let display_arg = if i.target == BlockIdx::NULL {
-                        i.arg
+                    let display_arg = if ins.target == BlockIdx::NULL {
+                        ins.arg
                     } else {
-                        OpArg(i.target.0)
+                        OpArg(ins.target.0)
                     };
                     let instr_display = instr.display(display_arg, self);
                     eprint!("{instr_display}: {depth} {effect:+} => ");
@@ -256,18 +256,18 @@ impl CodeInfo {
                 // we don't want to worry about Break/Continue, they use unwinding to jump to
                 // their targets and as such the stack size is taken care of in frame.rs by setting
                 // it back to the level it was at when SetupLoop was run
-                if i.target != BlockIdx::NULL
+                if ins.target != BlockIdx::NULL
                     && !matches!(
                         instr,
                         Instruction::Continue { .. } | Instruction::Break { .. }
                     )
                 {
-                    let effect = instr.stack_effect(i.arg, true);
+                    let effect = instr.stack_effect(ins.arg, true);
                     let target_depth = depth.checked_add_signed(effect).unwrap();
                     if target_depth > maxdepth {
                         maxdepth = target_depth
                     }
-                    stackdepth_push(&mut stack, &mut start_depths, i.target, target_depth);
+                    stackdepth_push(&mut stack, &mut start_depths, ins.target, target_depth);
                 }
                 depth = new_depth;
                 if instr.unconditional_branch() {

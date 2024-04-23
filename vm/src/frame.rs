@@ -486,7 +486,10 @@ impl ExecutingFrame<'_> {
     ) -> FrameResult {
         vm.check_signals()?;
 
-        flame_guard!(format!("Frame::execute_instruction({:?})", instruction));
+        flame_guard!(format!(
+            "Frame::execute_instruction({})",
+            instruction.display(arg, &self.code.code).to_string()
+        ));
 
         #[cfg(feature = "vm-tracing-logging")]
         {
@@ -497,7 +500,10 @@ impl ExecutingFrame<'_> {
             }
             */
             trace!("  {:#?}", self);
-            trace!("  Executing op code: {:?}", instruction);
+            trace!(
+                "  Executing op code: {}",
+                instruction.display(arg, &self.code.code).to_string()
+            );
             trace!("=======");
         }
 
@@ -1926,6 +1932,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
+    #[track_caller] // not a real track_caller but pop_value is not very useful
     fn pop_value(&mut self) -> PyObjectRef {
         match self.state.stack.pop() {
             Some(x) => x,
@@ -1959,6 +1966,7 @@ impl ExecutingFrame<'_> {
 
     #[cold]
     #[inline(never)]
+    #[track_caller]
     fn fatal(&self, msg: &'static str) -> ! {
         dbg!(self);
         panic!("{}", msg)
