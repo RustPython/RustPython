@@ -168,6 +168,9 @@ fn meta_to_stat(meta: &std::fs::Metadata, file_id: u64) -> std::io::Result<StatS
         } else {
             m |= libc::S_IFREG;
         }
+        if meta.is_symlink() {
+            m |= 0o100000;
+        }
         if meta.permissions().readonly() {
             m |= 0o444;
         } else {
