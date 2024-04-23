@@ -390,6 +390,26 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
+    fn listdrives(vm: &VirtualMachine) -> PyResult<PyListRef> {
+        use windows_sys::Win32::Foundation::ERROR_MORE_DATA;
+
+        let mut buffer = [0u16; 256];
+        let len =
+            unsafe { FileSystem::GetLogicalDriveStringsW(buffer.len() as _, buffer.as_mut_ptr()) };
+        if len == 0 {
+            return Err(errno_err(vm));
+        }
+        if len as usize >= buffer.len() {
+            return Err(std::io::Error::from_raw_os_error(ERROR_MORE_DATA as _).to_pyexception(vm));
+        }
+        let drives: Vec<_> = buffer[..(len - 1) as usize]
+            .split(|&c| c == 0)
+            .map(|drive| vm.new_pyobj(String::from_utf16_lossy(drive)))
+            .collect();
+        Ok(vm.ctx.new_list(drives))
+    }
+
+    #[pyfunction]
     fn set_handle_inheritable(
         handle: intptr_t,
         inheritable: bool,
