@@ -183,35 +183,48 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok(())
     }
 
-    fn load_const<C: bytecode::Constant>(
+    fn prepare_const<C: bytecode::Constant>(
         &mut self,
         constant: BorrowedConstant<C>,
-    ) -> Result<(), JitCompileError> {
-        match constant {
+    ) -> Result<JitValue, JitCompileError> {
+        let value = match constant {
             BorrowedConstant::Integer { value } => {
                 let val = self.builder.ins().iconst(
                     types::I64,
                     value.to_i64().ok_or(JitCompileError::NotSupported)?,
                 );
-                self.stack.push(JitValue::Int(val));
-                Ok(())
+                JitValue::Int(val)
             }
             BorrowedConstant::Float { value } => {
                 let val = self.builder.ins().f64const(value);
-                self.stack.push(JitValue::Float(val));
-                Ok(())
+                JitValue::Float(val)
             }
             BorrowedConstant::Boolean { value } => {
                 let val = self.builder.ins().iconst(types::I8, value as i64);
-                self.stack.push(JitValue::Bool(val));
-                Ok(())
+                JitValue::Bool(val)
             }
-            BorrowedConstant::None => {
-                self.stack.push(JitValue::None);
-                Ok(())
+            BorrowedConstant::None => JitValue::None,
+            _ => return Err(JitCompileError::NotSupported),
+        };
+        Ok(value)
+    }
+
+    fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
+        if let Some(ref ty) = self.sig.ret {
+            if val.to_jit_type().as_ref() != Some(ty) {
+                return Err(JitCompileError::NotSupported);
             }
-            _ => Err(JitCompileError::NotSupported),
+        } else {
+            let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+            self.sig.ret = Some(ty.clone());
+            self.builder
+                .func
+                .signature
+                .returns
+                .push(AbiParam::new(ty.to_cranelift()));
         }
+        self.builder.ins().return_(&[val.into_value().unwrap()]);
+        Ok(())
     }
 
     pub fn add_instruction<C: bytecode::Constant>(
@@ -269,7 +282,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.store_variable(idx.get(arg), val)
             }
             Instruction::LoadConst { idx } => {
-                self.load_const(constants[idx.get(arg) as usize].borrow_constant())
+                let val = self.prepare_const(constants[idx.get(arg) as usize].borrow_constant())?;
+                self.stack.push(val);
+                Ok(())
             }
             Instruction::BuildTuple { size } => {
                 let elements = self.pop_multiple(size.get(arg) as usize);
@@ -293,21 +308,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::ReturnValue => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-                if let Some(ref ty) = self.sig.ret {
-                    if val.to_jit_type().as_ref() != Some(ty) {
-                        return Err(JitCompileError::NotSupported);
-                    }
-                } else {
-                    let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-                    self.sig.ret = Some(ty.clone());
-                    self.builder
-                        .func
-                        .signature
-                        .returns
-                        .push(AbiParam::new(ty.to_cranelift()));
-                }
-                self.builder.ins().return_(&[val.into_value().unwrap()]);
-                Ok(())
+                self.return_value(val)
+            }
+            Instruction::ReturnConst { idx } => {
+                let val = self.prepare_const(constants[idx.get(arg) as usize].borrow_constant())?;
+                self.return_value(val)
             }
             Instruction::CompareOperation { op, .. } => {
                 let op = op.get(arg);
