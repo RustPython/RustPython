@@ -80,6 +80,4 @@ expression: "compile_exec(\"\\\nfor stop_exc in (StopIteration('spam'), StopAsyn
              66 WithCleanupFinish
              67 Jump                 (9)
         >>   68 PopBlock
-             69 LoadConst            (None)
-             70 ReturnValue
-
+             69 ReturnConst          (None)

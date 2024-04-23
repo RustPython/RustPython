@@ -806,6 +806,10 @@ impl ExecutingFrame<'_> {
                 let value = self.pop_value();
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
+            bytecode::Instruction::ReturnConst { idx } => {
+                let value = self.code.constants[idx.get(arg) as usize].clone().into();
+                self.unwind_blocks(vm, UnwindReason::Returning { value })
+            }
             bytecode::Instruction::YieldValue => {
                 let value = self.pop_value();
                 let value = if self.code.flags.contains(bytecode::CodeFlags::IS_COROUTINE) {

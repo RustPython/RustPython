@@ -141,6 +141,11 @@ impl StackMachine {
                 let i = self.stack.len() - 3;
                 self.stack[i..].rotate_right(1);
             }
+            Instruction::ReturnConst { idx } => {
+                let idx = idx.get(arg);
+                self.stack.push(constants[idx as usize].clone().into());
+                return ControlFlow::Break(());
+            }
             Instruction::ReturnValue => return ControlFlow::Break(()),
             Instruction::ExtendedArg => {}
             _ => unimplemented!(

@@ -9,6 +9,4 @@ expression: "compile_exec(\"\\\nif True or False or False:\n    pass\n\")"
               4 LoadConst            (False)
               5 JumpIfFalse          (6)
 
-  2     >>    6 LoadConst            (None)
-              7 ReturnValue
-
+  2     >>    6 ReturnConst          (None)

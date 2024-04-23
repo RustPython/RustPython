@@ -11,6 +11,4 @@ expression: "compile_exec(\"\\\nif (True and False) or (False and True):\n    pa
               6 LoadConst            (True)
               7 JumpIfFalse          (8)
 
-  2     >>    8 LoadConst            (None)
-              9 ReturnValue
-
+  2     >>    8 ReturnConst          (None)
