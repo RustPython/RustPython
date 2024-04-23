@@ -414,6 +414,34 @@ if has_c_implementation:
         pickler_class = CustomCPicklerClass
 
     @support.cpython_only
+    class HeapTypesTests(unittest.TestCase):
+        def setUp(self):
+            pickler = _pickle.Pickler(io.BytesIO())
+            unpickler = _pickle.Unpickler(io.BytesIO())
+
+            self._types = (
+                _pickle.Pickler,
+                _pickle.Unpickler,
+                type(pickler.memo),
+                type(unpickler.memo),
+
+                # We cannot test the _pickle.Pdata;
+                # there's no way to get to it.
+            )
+
+        def test_have_gc(self):
+            import gc
+            for tp in self._types:
+                with self.subTest(tp=tp):
+                    self.assertTrue(gc.is_tracked(tp))
+
+        def test_immutable(self):
+            for tp in self._types:
+                with self.subTest(tp=tp):
+                    with self.assertRaisesRegex(TypeError, "immutable"):
+                        tp.foo = "bar"
+
+    @support.cpython_only
     class SizeofTests(unittest.TestCase):
         check_sizeof = support.check_sizeof
 
@@ -633,8 +661,8 @@ class CompatPickleTests(unittest.TestCase):
                            StopAsyncIteration,
                            RecursionError,
                            EncodingWarning,
-                           ExceptionGroup,
-                           BaseExceptionGroup):
+                           BaseExceptionGroup,
+                           ExceptionGroup):
                     continue
                 if exc is not OSError and issubclass(exc, OSError):
                     self.assertEqual(reverse_mapping('builtins', name),
@@ -653,6 +681,8 @@ class CompatPickleTests(unittest.TestCase):
     def test_multiprocessing_exceptions(self):
         module = import_helper.import_module('multiprocessing.context')
         for name, exc in get_exceptions(module):
+            if issubclass(exc, Warning):
+                continue
             with self.subTest(name):
                 self.assertEqual(reverse_mapping('multiprocessing.context', name),
                                  ('multiprocessing', name))
