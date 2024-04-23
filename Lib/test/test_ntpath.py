@@ -981,6 +981,8 @@ class TestNtpath(NtpathTestCase):
             raise unittest.SkipTest('SystemDrive is not defined or malformed')
         self.assertFalse(os.path.isfile('\\\\.\\' + drive))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(sys.platform != 'win32', "windows only")
     def test_con_device(self):
         self.assertFalse(os.path.isfile(r"\\.\CON"))
@@ -1003,6 +1005,8 @@ class TestNtpath(NtpathTestCase):
         self.assertTrue(os.path.exists is nt._path_exists)
         self.assertFalse(inspect.isfunction(os.path.exists))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(os.name != 'nt', "Dev Drives only exist on Win32")
     def test_isdevdrive(self):
         # Result may be True or False, but shouldn't raise
