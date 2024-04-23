@@ -161,36 +161,16 @@ mod builtins {
             }
             #[cfg(feature = "rustpython-parser")]
             {
-                use crate::builtins::PyMemoryView;
-                use crate::common::borrow::BorrowedValue;
-                use crate::protocol::PyBuffer;
-                use crate::types::AsBuffer;
-                use crate::{builtins::PyBytesRef, convert::ToPyException};
+                use crate::convert::ToPyException;
                 use num_traits::Zero;
                 use rustpython_parser as parser;
 
-                //
-                let source =
-                    Either::<PyStrRef, Either<PyBytesRef, PyRef<PyMemoryView>>>::try_from_object(
-                        vm,
-                        args.source,
-                    )?;
-
-                let memory_view_holder: PyBuffer;
-                let memory_view_borrow_holder: BorrowedValue<[u8]>;
+                let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
+                let source = source.borrow_bytes();
 
                 // TODO: compiler::compile should probably get bytes
-                let source = match &source {
-                    Either::A(string) => string.as_str(),
-                    Either::B(Either::A(bytes)) => std::str::from_utf8(bytes)
-                        .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?,
-                    Either::B(Either::B(memory_view)) => {
-                        memory_view_holder = AsBuffer::as_buffer(memory_view, vm)?;
-                        memory_view_borrow_holder = memory_view_holder.obj_bytes();
-                        std::str::from_utf8(memory_view_borrow_holder.as_ref())
-                            .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?
-                    }
-                };
+                let source = std::str::from_utf8(&source)
+                    .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
 
                 let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
 

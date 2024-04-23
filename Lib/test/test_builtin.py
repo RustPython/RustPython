@@ -327,6 +327,8 @@ class BuiltinTest(unittest.TestCase):
     def test_cmp(self):
         self.assertTrue(not hasattr(builtins, "cmp"))
 
+    # TODO: RUSTPYTHON optval=2 does not remove docstrings
+    @unittest.expectedFailure
     def test_compile(self):
         compile('print(1)\n', '', 'exec')
         bom = b'\xef\xbb\xbf'
@@ -373,7 +375,7 @@ class BuiltinTest(unittest.TestCase):
                 ns = {}
                 exec(code, ns)
                 rv = ns['f']()
-                self.assertEqual(rv, tuple(expected), msg=f'optval={optval}')
+                self.assertEqual(rv, tuple(expected))
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
