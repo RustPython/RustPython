@@ -2881,7 +2881,6 @@ class SendmsgTests(SendrecvmsgServerTimeoutBase):
         self.assertEqual(self.sendmsgToServer([MSG], (o for o in [])),
                          len(MSG))
 
-    @unittest.skipIf(sys.platform == "darwin", "flaky on macOS")
     def testSendmsgArray(self):
         # Send data from an array instead of the usual bytes object.
         self.assertEqual(self.serv_sock.recv(len(MSG)), MSG)
@@ -2890,7 +2889,6 @@ class SendmsgTests(SendrecvmsgServerTimeoutBase):
         self.assertEqual(self.sendmsgToServer([array.array("B", MSG)]),
                          len(MSG))
 
-    @unittest.skipIf(sys.platform == "darwin", "flaky on macOS")
     def testSendmsgGather(self):
         # Send message data from more than one buffer (gather write).
         self.assertEqual(self.serv_sock.recv(len(MSG)), MSG)
@@ -2953,7 +2951,6 @@ class SendmsgTests(SendrecvmsgServerTimeoutBase):
                           [MSG], [(0, 0, b""), object()])
         self.sendToServer(b"done")
 
-    @unittest.skipIf(sys.platform == "darwin", "flaky on macOS")
     def testSendmsgExcessCmsgReject(self):
         # Check that sendmsg() rejects excess ancillary data items
         # when the number that can be sent is limited.
@@ -4413,6 +4410,7 @@ class SendrecvmsgUnixStreamTestBase(SendrecvmsgConnectedBase,
                                     ConnectedStreamTestMixin, UnixStreamBase):
     pass
 
+@unittest.skipIf(sys.platform == "darwin", "flaky on macOS")
 @requireAttrs(socket.socket, "sendmsg")
 @requireAttrs(socket, "AF_UNIX")
 class SendmsgUnixStreamTest(SendmsgStreamTests, SendrecvmsgUnixStreamTestBase):
