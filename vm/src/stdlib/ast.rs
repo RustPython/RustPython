@@ -365,9 +365,36 @@ pub const PY_COMPILE_FLAG_AST_ONLY: i32 = 0x0400;
 const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
 const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
 
+// __future__ flags - sync with Lib/__future__.py
+// TODO: These flags aren't being used in rust code
+//       CO_FUTURE_ANNOTATIONS does make a difference in the codegen,
+//       so it should be used in compile().
+//       see compiler/codegen/src/compile.rs
+const CO_NESTED: i32 = 0x0010;
+const CO_GENERATOR_ALLOWED: i32 = 0;
+const CO_FUTURE_DIVISION: i32 = 0x20000;
+const CO_FUTURE_ABSOLUTE_IMPORT: i32 = 0x40000;
+const CO_FUTURE_WITH_STATEMENT: i32 = 0x80000;
+const CO_FUTURE_PRINT_FUNCTION: i32 = 0x100000;
+const CO_FUTURE_UNICODE_LITERALS: i32 = 0x200000;
+const CO_FUTURE_BARRY_AS_BDFL: i32 = 0x400000;
+const CO_FUTURE_GENERATOR_STOP: i32 = 0x800000;
+const CO_FUTURE_ANNOTATIONS: i32 = 0x1000000;
+
 // Used by builtins::compile() - the summary of all flags
-pub const PY_COMPILE_FLAGS_MASK: i32 =
-    PY_COMPILE_FLAG_AST_ONLY | PY_CF_DONT_IMPLY_DEDENT | PY_CF_ALLOW_INCOMPLETE_INPUT;
+pub const PY_COMPILE_FLAGS_MASK: i32 = PY_COMPILE_FLAG_AST_ONLY
+    | PY_CF_DONT_IMPLY_DEDENT
+    | PY_CF_ALLOW_INCOMPLETE_INPUT
+    | CO_NESTED
+    | CO_GENERATOR_ALLOWED
+    | CO_FUTURE_DIVISION
+    | CO_FUTURE_ABSOLUTE_IMPORT
+    | CO_FUTURE_WITH_STATEMENT
+    | CO_FUTURE_PRINT_FUNCTION
+    | CO_FUTURE_UNICODE_LITERALS
+    | CO_FUTURE_BARRY_AS_BDFL
+    | CO_FUTURE_GENERATOR_STOP
+    | CO_FUTURE_ANNOTATIONS;
 
 pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _ast::make_module(vm);
