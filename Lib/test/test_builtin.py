@@ -327,7 +327,7 @@ class BuiltinTest(unittest.TestCase):
     def test_cmp(self):
         self.assertTrue(not hasattr(builtins, "cmp"))
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON optval=2 does not remove docstrings
     @unittest.expectedFailure
     def test_compile(self):
         compile('print(1)\n', '', 'exec')
@@ -340,11 +340,10 @@ class BuiltinTest(unittest.TestCase):
         self.assertRaises(TypeError, compile)
         self.assertRaises(ValueError, compile, 'print(42)\n', '<string>', 'badmode')
         self.assertRaises(ValueError, compile, 'print(42)\n', '<string>', 'single', 0xff)
-        self.assertRaises(ValueError, compile, chr(0), 'f', 'exec')
         self.assertRaises(TypeError, compile, 'pass', '?', 'exec',
                           mode='eval', source='0', filename='tmp')
         compile('print("\xe5")\n', '', 'exec')
-        self.assertRaises(ValueError, compile, chr(0), 'f', 'exec')
+        self.assertRaises(SyntaxError, compile, chr(0), 'f', 'exec')
         self.assertRaises(ValueError, compile, str('a = 1'), 'f', 'bad')
 
         # test the optimize argument
