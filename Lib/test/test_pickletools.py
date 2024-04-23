@@ -65,8 +65,6 @@ class OptimizedPickleTests(AbstractPickleTests, unittest.TestCase):
     # Test relies on writing by chunks into a file object.
     test_framed_write_sizes_with_delayed_writer = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_optimize_long_binget(self):
         data = [str(i) for i in range(257)]
         data.append(data[-1])
