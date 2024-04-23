@@ -1266,11 +1266,13 @@ impl Compiler {
         // Turn code object into function object:
         emit!(self, Instruction::MakeFunction(func_flags));
 
-        emit!(self, Instruction::Duplicate);
-        self.load_docstring(doc_str);
-        emit!(self, Instruction::Rotate2);
-        let doc = self.name("__doc__");
-        emit!(self, Instruction::StoreAttr { idx: doc });
+        if let Some(value) = doc_str {
+            emit!(self, Instruction::Duplicate);
+            self.emit_constant(ConstantData::Str { value });
+            emit!(self, Instruction::Rotate2);
+            let doc = self.name("__doc__");
+            emit!(self, Instruction::StoreAttr { idx: doc });
+        }
 
         self.apply_decorators(decorator_list);
 
