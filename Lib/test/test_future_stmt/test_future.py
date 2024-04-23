@@ -3,8 +3,8 @@
 import __future__
 import ast
 import unittest
-from test import support
 from test.support import import_helper
+from test.support.script_helper import spawn_python, kill_python
 from textwrap import dedent
 import os
 import re
@@ -25,73 +25,87 @@ class FutureTest(unittest.TestCase):
         self.assertEqual(err.offset, offset)
 
     def test_future1(self):
-        with import_helper.CleanImport('future_test1'):
-            from test import future_test1
+        with import_helper.CleanImport('test.test_future_stmt.future_test1'):
+            from test.test_future_stmt import future_test1
             self.assertEqual(future_test1.result, 6)
 
     def test_future2(self):
-        with import_helper.CleanImport('future_test2'):
-            from test import future_test2
+        with import_helper.CleanImport('test.test_future_stmt.future_test2'):
+            from test.test_future_stmt import future_test2
             self.assertEqual(future_test2.result, 6)
 
-    def test_future3(self):
-        with import_helper.CleanImport('test_future3'):
-            from test import test_future3
+    def test_future_single_import(self):
+        with import_helper.CleanImport(
+            'test.test_future_stmt.test_future_single_import',
+        ):
+            from test.test_future_stmt import test_future_single_import
+
+    def test_future_multiple_imports(self):
+        with import_helper.CleanImport(
+            'test.test_future_stmt.test_future_multiple_imports',
+        ):
+            from test.test_future_stmt import test_future_multiple_imports
+
+    def test_future_multiple_features(self):
+        with import_helper.CleanImport(
+            "test.test_future_stmt.test_future_multiple_features",
+        ):
+            from test.test_future_stmt import test_future_multiple_features
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_badfuture3(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test import badsyntax_future3
+            from test.test_future_stmt import badsyntax_future3
         self.check_syntax_error(cm.exception, "badsyntax_future3", 3)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_badfuture4(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test import badsyntax_future4
+            from test.test_future_stmt import badsyntax_future4
         self.check_syntax_error(cm.exception, "badsyntax_future4", 3)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_badfuture5(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test import badsyntax_future5
+            from test.test_future_stmt import badsyntax_future5
         self.check_syntax_error(cm.exception, "badsyntax_future5", 4)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_badfuture6(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test import badsyntax_future6
+            from test.test_future_stmt import badsyntax_future6
         self.check_syntax_error(cm.exception, "badsyntax_future6", 3)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_badfuture7(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test import badsyntax_future7
-        self.check_syntax_error(cm.exception, "badsyntax_future7", 3, 53)
+            from test.test_future_stmt import badsyntax_future7
+        self.check_syntax_error(cm.exception, "badsyntax_future7", 3, 54)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_badfuture8(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test import badsyntax_future8
+            from test.test_future_stmt import badsyntax_future8
         self.check_syntax_error(cm.exception, "badsyntax_future8", 3)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_badfuture9(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test import badsyntax_future9
+            from test.test_future_stmt import badsyntax_future9
         self.check_syntax_error(cm.exception, "badsyntax_future9", 3)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
     def test_badfuture10(self):
         with self.assertRaises(SyntaxError) as cm:
-            from test import badsyntax_future10
+            from test.test_future_stmt import badsyntax_future10
         self.check_syntax_error(cm.exception, "badsyntax_future10", 3)
 
     def test_ensure_flags_dont_clash(self):
@@ -129,14 +143,19 @@ class FutureTest(unittest.TestCase):
         else:
             self.fail("syntax error didn't occur")
 
-    def test_multiple_features(self):
-        with import_helper.CleanImport("test.test_future5"):
-            from test import test_future5
-
     def test_unicode_literals_exec(self):
         scope = {}
         exec("from __future__ import unicode_literals; x = ''", {}, scope)
         self.assertIsInstance(scope["x"], str)
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_syntactical_future_repl(self):
+        p = spawn_python('-i')
+        p.stdin.write(b"from __future__ import barry_as_FLUFL\n")
+        p.stdin.write(b"2 <> 3\n")
+        out = kill_python(p)
+        self.assertNotIn(b'SyntaxError: invalid syntax', out)
 
 class AnnotationsFutureTestCase(unittest.TestCase):
     template = dedent(
