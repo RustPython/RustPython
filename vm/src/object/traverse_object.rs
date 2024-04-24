@@ -67,7 +67,7 @@ unsafe impl<T: PyObjectPayload> Traverse for PyInner<T> {
     /// Type is known, so we can call `try_trace` directly instead of using erased type vtable
     fn traverse(&self, tracer_fn: &mut TraverseFn) {
         // 1. trace `dict` and `slots` field(`typ` can't trace for it's a AtomicRef while is leaked by design)
-        // 2. call corrsponding `try_trace` function to trace payload
+        // 2. call corresponding `try_trace` function to trace payload
         // (No need to call vtable's trace function because we already know the type)
         // self.typ.trace(tracer_fn);
         self.dict.traverse(tracer_fn);

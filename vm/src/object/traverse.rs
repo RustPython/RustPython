@@ -22,14 +22,14 @@ pub trait MaybeTraverse {
 /// impl `traverse()` with caution! Following those guideline so traverse doesn't cause memory error!:
 /// - Make sure that every owned object(Every PyObjectRef/PyRef) is called with traverse_fn **at most once**.
 /// If some field is not called, the worst results is just memory leak,
-/// but if some field is called repeatly, panic and deadlock can happen.
+/// but if some field is called repeatedly, panic and deadlock can happen.
 ///
 /// - _**DO NOT**_ clone a `PyObjectRef` or `Pyef<T>` in `traverse()`
 pub unsafe trait Traverse {
     /// impl `traverse()` with caution! Following those guideline so traverse doesn't cause memory error!:
     /// - Make sure that every owned object(Every PyObjectRef/PyRef) is called with traverse_fn **at most once**.
     /// If some field is not called, the worst results is just memory leak,
-    /// but if some field is called repeatly, panic and deadlock can happen.
+    /// but if some field is called repeatedly, panic and deadlock can happen.
     ///
     /// - _**DO NOT**_ clone a `PyObjectRef` or `Pyef<T>` in `traverse()`
     fn traverse(&self, traverse_fn: &mut TraverseFn);
@@ -156,7 +156,7 @@ unsafe impl<A: Traverse, B: Traverse> Traverse for Either<A, B> {
 }
 
 // only tuple with 12 elements or less is supported,
-// because long tuple is extremly rare in almost every case
+// because long tuple is extremely rare in almost every case
 unsafe impl<A: Traverse> Traverse for (A,) {
     #[inline]
     fn traverse(&self, tracer_fn: &mut TraverseFn) {
