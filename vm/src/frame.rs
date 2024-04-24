@@ -1012,7 +1012,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::EndAsyncFor => {
                 let exc = self.pop_value();
-                self.pop_value(); // async iterator we were calling __anext__ on
+                // self.pop_value(); // async iterator we were calling __anext__ on
                 if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
                     vm.take_exception().expect("Should have exception in stack");
                     Ok(None)
@@ -1593,26 +1593,22 @@ impl ExecutingFrame<'_> {
     /// The top of stack contains the iterator, lets push it forward
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
         let iter = self.top_value();
-        let next_obj = PyIter::new(iter).next(vm);
+        let next_obj = PyIter::new(iter).next(vm)?;
 
         // Check the next object:
         match next_obj {
-            Ok(PyIterReturn::Return(value)) => {
+            PyIterReturn::Return(value) => {
                 self.push_value(value);
-                Ok(None)
             }
-            Ok(PyIterReturn::StopIteration(_)) => {
+            PyIterReturn::StopIteration(_) => {
                 // Pop iterator from stack:
                 self.pop_value();
 
                 // End of for loop
                 self.jump(target);
-                Ok(None)
-            }
-            Err(next_error) => {
-                Err(next_error)
             }
         }
+        Ok(None)
     }
     fn execute_make_function(
         &mut self,
