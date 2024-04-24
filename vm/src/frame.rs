@@ -1592,8 +1592,8 @@ impl ExecutingFrame<'_> {
 
     /// The top of stack contains the iterator, lets push it forward
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
-        let top_of_stack = PyIter::new(self.top_value());
-        let next_obj = top_of_stack.next(vm);
+        let iter = self.top_value();
+        let next_obj = PyIter::new(iter).next(vm);
 
         // Check the next object:
         match next_obj {
@@ -1610,8 +1610,6 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Err(next_error) => {
-                // Pop iterator from stack:
-                self.pop_value();
                 Err(next_error)
             }
         }
