@@ -994,11 +994,40 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetANext => {
                 let aiter = self.top_value();
-                let awaitable = vm.call_special_method(aiter, identifier!(vm, __anext__), ())?;
-                let awaitable = if awaitable.payload_is::<PyCoroutine>() {
-                    awaitable
+                let awaitable = if aiter.class().is(vm.ctx.types.async_generator) {
+                    vm.call_special_method(aiter, identifier!(vm, __anext__), ())?
                 } else {
-                    vm.call_special_method(&awaitable, identifier!(vm, __await__), ())?
+                    if !aiter.has_attr("__anext__", vm).unwrap_or(false) {
+                        // TODO: __anext__ must be protocol
+                        let msg = format!(
+                            "'async for' requires an iterator with __anext__ method, got {:.100}",
+                            aiter.class().name()
+                        );
+                        return Err(vm.new_type_error(msg));
+                    }
+                    let next_iter =
+                        vm.call_special_method(aiter, identifier!(vm, __anext__), ())?;
+
+                    // _PyCoro_GetAwaitableIter in CPython
+                    fn get_awaitable_iter(next_iter: &PyObject, vm: &VirtualMachine) -> PyResult {
+                        let gen_is_coroutine = |_| {
+                            // TODO: cpython gen_is_coroutine
+                            true
+                        };
+                        if next_iter.class().is(vm.ctx.types.coroutine_type)
+                            || gen_is_coroutine(next_iter)
+                        {
+                            return Ok(next_iter.to_owned());
+                        }
+                        // TODO: error handling
+                        vm.call_special_method(next_iter, identifier!(vm, __await__), ())
+                    }
+                    get_awaitable_iter(&next_iter, vm).map_err(|_| {
+                        vm.new_type_error(format!(
+                            "'async for' received an invalid object from __anext__: {:.200}",
+                            next_iter.class().name()
+                        ))
+                    })?
                 };
                 self.push_value(awaitable);
                 Ok(None)
