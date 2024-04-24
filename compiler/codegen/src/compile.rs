@@ -1478,7 +1478,7 @@ impl Compiler {
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        emit!(self, Instruction::SetupLoop);
+        emit!(self, Instruction::SetupLoop(1));
         self.switch_to_block(while_block);
 
         self.compile_jump_if(test, false, else_block)?;
@@ -1582,10 +1582,9 @@ impl Compiler {
         let else_block = self.new_block();
         let after_block = self.new_block();
 
-        emit!(self, Instruction::SetupLoop);
-
         // The thing iterated:
         self.compile_expression(iter)?;
+        emit!(self, Instruction::SetupLoop(is_async as u32));
 
         if is_async {
             emit!(self, Instruction::GetAIter);

@@ -489,7 +489,7 @@ pub enum Instruction {
     YieldValue,
     YieldFrom,
     SetupAnnotation,
-    SetupLoop,
+    SetupLoop(Arg<u32>),
 
     /// Setup a finally handler, which will be called whenever one of this events occurs:
     /// - the block is popped
@@ -1221,7 +1221,7 @@ impl Instruction {
             ReturnValue => -1,
             YieldValue => 0,
             YieldFrom => -1,
-            SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
+            SetupAnnotation | SetupLoop(_) | SetupFinally { .. } | EnterFinally | EndFinally => 0,
             SetupExcept { .. } => jump as i32,
             SetupWith { .. } => (!jump) as i32,
             WithCleanupStart => 0,
@@ -1393,7 +1393,7 @@ impl Instruction {
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),
-            SetupLoop => w!(SetupLoop),
+            SetupLoop(_) => w!(SetupLoop),
             SetupExcept { handler } => w!(SetupExcept, handler),
             SetupFinally { handler } => w!(SetupFinally, handler),
             EnterFinally => w!(EnterFinally),

@@ -35,7 +35,8 @@ struct Block {
 
 #[derive(Clone, Debug)]
 enum BlockType {
-    Loop,
+    ForLoop,
+    WhileLoop,
     TryExcept {
         handler: bytecode::Label,
     },
@@ -814,8 +815,12 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::YieldFrom => self.execute_yield_from(vm),
             bytecode::Instruction::SetupAnnotation => self.setup_annotations(vm),
-            bytecode::Instruction::SetupLoop => {
-                self.push_block(BlockType::Loop);
+            bytecode::Instruction::SetupLoop(op) => {
+                if op.get(arg) == 0 {
+                    self.push_block(BlockType::ForLoop);
+                } else {
+                    self.push_block(BlockType::WhileLoop);
+                }
                 Ok(None)
             }
             bytecode::Instruction::SetupExcept { handler } => {
@@ -1209,7 +1214,23 @@ impl ExecutingFrame<'_> {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
             match block.typ {
-                BlockType::Loop => match reason {
+                BlockType::ForLoop => match reason {
+                    UnwindReason::Break { target } => {
+                        self.pop_block();
+                        self.pop_value();
+                        self.jump(target);
+                        return Ok(None);
+                    }
+                    UnwindReason::Continue { target } => {
+                        self.jump(target);
+                        return Ok(None);
+                    }
+                    _ => {
+                        self.pop_block();
+                        self.pop_value();
+                    }
+                },
+                BlockType::WhileLoop => match reason {
                     UnwindReason::Break { target } => {
                         self.pop_block();
                         self.jump(target);
