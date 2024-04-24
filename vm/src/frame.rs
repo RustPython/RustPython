@@ -1911,8 +1911,18 @@ impl ExecutingFrame<'_> {
         });
     }
 
+    #[track_caller]
     fn pop_block(&mut self) -> Block {
         let block = self.state.blocks.pop().expect("No more blocks to pop!");
+        #[cfg(debug_assertions)]
+        if self.state.stack.len() < block.level {
+            dbg!(&self);
+            panic!(
+                "stack size reversion: current size({}) < truncates target({}).",
+                self.state.stack.len(),
+                block.level
+            );
+        }
         self.state.stack.truncate(block.level);
         block
     }
@@ -1945,7 +1955,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    #[track_caller] // not a real track_caller but pop_value is not very useful
+    #[track_caller] // not a real track_caller but top_value is not very useful
     fn top_value(&self) -> &PyObject {
         match &*self.state.stack {
             [.., last] => last,
