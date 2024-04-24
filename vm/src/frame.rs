@@ -407,7 +407,7 @@ impl ExecutingFrame<'_> {
             ..
         }) = self.code.instructions.get(self.lasti() as usize)
         {
-            Some(self.last_value_ref())
+            Some(self.top_value())
         } else {
             None
         }
@@ -670,16 +670,15 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Duplicate => {
                 // Duplicate top of stack
-                let value = self.last_value();
-                self.push_value(value);
+                let value = self.top_value();
+                self.push_value(value.to_owned());
                 Ok(None)
             }
             bytecode::Instruction::Duplicate2 => {
                 // Duplicate top 2 of stack
-                let top = self.last_value();
-                let second_to_top = self.nth_value(1).to_owned();
-                self.push_value(second_to_top);
-                self.push_value(top);
+                let len = self.state.stack.len();
+                self.push_value(self.state.stack[len - 2].clone());
+                self.push_value(self.state.stack[len - 1].clone());
                 Ok(None)
             }
             // splitting the instructions like this offloads the cost of "dynamic" dispatch (on the
@@ -749,7 +748,7 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::DictUpdate => {
                 let other = self.pop_value();
                 let dict = self
-                    .last_value_ref()
+                    .top_value()
                     .downcast_ref::<PyDict>()
                     .expect("exact dict expected");
                 dict.merge_object(other, vm)?;
@@ -994,7 +993,7 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::GetANext => {
-                let aiter = self.last_value();
+                let aiter = self.top_value();
                 let awaitable = vm.call_special_method(&aiter, identifier!(vm, __anext__), ())?;
                 let awaitable = if awaitable.payload_is::<PyCoroutine>() {
                     awaitable
@@ -1156,11 +1155,11 @@ impl ExecutingFrame<'_> {
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
     fn import_from(&mut self, vm: &VirtualMachine, idx: bytecode::NameIdx) -> PyResult {
-        let module = self.last_value();
+        let module = self.top_value();
         let name = self.code.names[idx as usize];
         let err = || vm.new_import_error(format!("cannot import name '{name}'"), name.to_owned());
         // Load attribute, and transform any error into import error.
-        if let Some(obj) = vm.get_attribute_opt(module.clone(), name)? {
+        if let Some(obj) = vm.get_attribute_opt(module.to_owned(), name)? {
             return Ok(obj);
         }
         // fallback to importing '{module.__name__}.{name}' from sys.modules
@@ -1485,7 +1484,7 @@ impl ExecutingFrame<'_> {
     fn execute_yield_from(&mut self, vm: &VirtualMachine) -> FrameResult {
         // Value send into iterator:
         let val = self.pop_value();
-        let coro = self.last_value_ref();
+        let coro = self.top_value();
         let result = self._send(coro, val, vm)?;
 
         // PyIterReturn returned from e.g. gen.__next__() or gen.send()
@@ -1558,8 +1557,8 @@ impl ExecutingFrame<'_> {
         target: bytecode::Label,
         flag: bool,
     ) -> FrameResult {
-        let obj = self.last_value();
-        let value = obj.try_to_bool(vm)?;
+        let obj = self.top_value();
+        let value = obj.to_owned().try_to_bool(vm)?;
         if value == flag {
             self.jump(target);
         } else {
@@ -1570,7 +1569,7 @@ impl ExecutingFrame<'_> {
 
     /// The top of stack contains the iterator, lets push it forward
     fn execute_for_iter(&mut self, vm: &VirtualMachine, target: bytecode::Label) -> FrameResult {
-        let top_of_stack = PyIter::new(self.last_value());
+        let top_of_stack = PyIter::new(self.top_value());
         let next_obj = top_of_stack.next(vm);
 
         // Check the next object:
@@ -1946,12 +1945,8 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
-    fn last_value(&self) -> PyObjectRef {
-        self.last_value_ref().to_owned()
-    }
-
-    #[inline]
-    fn last_value_ref(&self) -> &PyObject {
+    #[track_caller] // not a real track_caller but pop_value is not very useful
+    fn top_value(&self) -> &PyObject {
         match &*self.state.stack {
             [.., last] => last,
             [] => self.fatal("tried to get top of stack but stack is empty"),
