@@ -349,7 +349,7 @@ impl Compiler {
         let size_before = self.code_stack.len();
         self.symbol_table_stack.push(symbol_table);
 
-        let (doc, statements) = split_doc(body);
+        let (doc, statements) = split_doc(body, &self.opts);
         if let Some(value) = doc {
             self.emit_constant(ConstantData::Str { value });
             let doc = self.name("__doc__");
@@ -1187,7 +1187,7 @@ impl Compiler {
         let qualified_name = self.qualified_path.join(".");
         self.push_qualified_path("<locals>");
 
-        let (doc_str, body) = split_doc(body);
+        let (doc_str, body) = split_doc(body, &self.opts);
 
         self.current_code_info()
             .constants
@@ -1383,7 +1383,7 @@ impl Compiler {
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
-        let (doc_str, body) = split_doc(body);
+        let (doc_str, body) = split_doc(body, &self.opts);
 
         let dunder_name = self.name("__name__");
         emit!(self, Instruction::LoadGlobal(dunder_name));
@@ -2875,10 +2875,17 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
     }
 }
 
-fn split_doc(body: &[located_ast::Stmt]) -> (Option<String>, &[located_ast::Stmt]) {
+fn split_doc<'a>(
+    body: &'a [located_ast::Stmt],
+    opts: &CompileOpts,
+) -> (Option<String>, &'a [located_ast::Stmt]) {
     if let Some((located_ast::Stmt::Expr(expr), body_rest)) = body.split_first() {
         if let Some(doc) = try_get_constant_string(std::slice::from_ref(&expr.value)) {
-            return (Some(doc), body_rest);
+            if opts.optimize < 2 {
+                return (Some(doc), body_rest);
+            } else {
+                return (None, body_rest);
+            }
         }
     }
     (None, body)
