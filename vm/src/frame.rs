@@ -1496,8 +1496,7 @@ impl ExecutingFrame<'_> {
             }
             PyIterReturn::StopIteration(value) => {
                 let value = vm.unwrap_or_none(value);
-                self.pop_value();
-                self.push_value(value);
+                self.replace_top(value);
                 Ok(None)
             }
         }
