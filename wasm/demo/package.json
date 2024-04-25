@@ -25,7 +25,7 @@
         "dev": "webpack serve",
         "build": "webpack",
         "dist": "webpack --mode production",
-        "test": "webpack --mode production && cd ../tests && pytest"
+        "test": "webpack --mode production && cd ../tests && pytest -v"
     },
     "repository": {
         "type": "git",
