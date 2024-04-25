@@ -2629,24 +2629,30 @@ impl Compiler {
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
+        let is_async = generators.iter().any(|g| g.is_async);
 
         self.ctx = CompileContext {
             loop_data: None,
             in_class: prev_ctx.in_class,
-            func: FunctionContext::Function,
+            func: if is_async {
+                FunctionContext::AsyncFunction
+            } else {
+                FunctionContext::Function
+            },
         };
 
         // We must have at least one generator:
         assert!(!generators.is_empty());
 
+        let flags = bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED;
+        let flags = if is_async {
+            flags | bytecode::CodeFlags::IS_COROUTINE
+        } else {
+            flags
+        };
+
         // Create magnificent function <listcomp>:
-        self.push_output(
-            bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
-            1,
-            1,
-            0,
-            name.to_owned(),
-        );
+        self.push_output(flags, 1, 1, 0, name.to_owned());
         let arg0 = self.varname(".0")?;
 
         let return_none = init_collection.is_none();
@@ -2657,12 +2663,10 @@ impl Compiler {
 
         let mut loop_labels = vec![];
         for generator in generators {
-            if generator.is_async {
-                unimplemented!("async for comprehensions");
-            }
-
             let loop_block = self.new_block();
             let after_block = self.new_block();
+
+            // emit!(self, Instruction::SetupLoop);
 
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
@@ -2672,20 +2676,36 @@ impl Compiler {
                 self.compile_expression(&generator.iter)?;
 
                 // Get iterator / turn item into an iterator
-                emit!(self, Instruction::GetIter);
+                if generator.is_async {
+                    emit!(self, Instruction::GetAIter);
+                } else {
+                    emit!(self, Instruction::GetIter);
+                }
             }
 
             loop_labels.push((loop_block, after_block));
-
             self.switch_to_block(loop_block);
-            emit!(
-                self,
-                Instruction::ForIter {
-                    target: after_block,
-                }
-            );
-
-            self.compile_store(&generator.target)?;
+            if generator.is_async {
+                emit!(
+                    self,
+                    Instruction::SetupExcept {
+                        handler: after_block,
+                    }
+                );
+                emit!(self, Instruction::GetANext);
+                self.emit_constant(ConstantData::None);
+                emit!(self, Instruction::YieldFrom);
+                self.compile_store(&generator.target)?;
+                emit!(self, Instruction::PopBlock);
+            } else {
+                emit!(
+                    self,
+                    Instruction::ForIter {
+                        target: after_block,
+                    }
+                );
+                self.compile_store(&generator.target)?;
+            }
 
             // Now evaluate the ifs:
             for if_condition in &generator.ifs {
@@ -2701,6 +2721,9 @@ impl Compiler {
 
             // End of for loop:
             self.switch_to_block(after_block);
+            if is_async {
+                emit!(self, Instruction::EndAsyncFor);
+            }
         }
 
         if return_none {
@@ -2737,10 +2760,19 @@ impl Compiler {
         self.compile_expression(&generators[0].iter)?;
 
         // Get iterator / turn item into an iterator
-        emit!(self, Instruction::GetIter);
+        if is_async {
+            emit!(self, Instruction::GetAIter);
+        } else {
+            emit!(self, Instruction::GetIter);
+        };
 
         // Call just created <listcomp> function:
         emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
+        if is_async {
+            emit!(self, Instruction::GetAwaitable);
+            self.emit_constant(ConstantData::None);
+            emit!(self, Instruction::YieldFrom);
+        }
         Ok(())
     }
 

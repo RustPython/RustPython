@@ -513,16 +513,15 @@ class AsyncGenAsyncioTest(unittest.TestCase):
                     return self.yielded
         self.check_async_iterator_anext(MyAsyncIterWithTypesCoro)
 
-    # TODO: RUSTPYTHON: async for gen expression compilation
-    # def test_async_gen_aiter(self):
-    #     async def gen():
-    #         yield 1
-    #         yield 2
-    #     g = gen()
-    #     async def consume():
-    #         return [i async for i in aiter(g)]
-    #     res = self.loop.run_until_complete(consume())
-    #     self.assertEqual(res, [1, 2])
+    def test_async_gen_aiter(self):
+        async def gen():
+            yield 1
+            yield 2
+        g = gen()
+        async def consume():
+            return [i async for i in aiter(g)]
+        res = self.loop.run_until_complete(consume())
+        self.assertEqual(res, [1, 2])
 
     # TODO: RUSTPYTHON, NameError: name 'aiter' is not defined
     @unittest.expectedFailure
@@ -1569,22 +1568,23 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         self.assertIn('unhandled exception during asyncio.run() shutdown',
                       message['message'])
 
-    # TODO: RUSTPYTHON: async for gen expression compilation
-    # def test_async_gen_expression_01(self):
-    #     async def arange(n):
-    #         for i in range(n):
-    #             await asyncio.sleep(0.01)
-    #             yield i
+    # TODO: RUSTPYTHON; TypeError: object async_generator can't be used in 'await' expression
+    @unittest.expectedFailure
+    def test_async_gen_expression_01(self):
+        async def arange(n):
+            for i in range(n):
+                await asyncio.sleep(0.01)
+                yield i
 
-    #     def make_arange(n):
-    #         # This syntax is legal starting with Python 3.7
-    #         return (i * 2 async for i in arange(n))
+        def make_arange(n):
+            # This syntax is legal starting with Python 3.7
+            return (i * 2 async for i in arange(n))
 
-    #     async def run():
-    #         return [i async for i in make_arange(10)]
+        async def run():
+            return [i async for i in make_arange(10)]
 
-    #     res = self.loop.run_until_complete(run())
-    #     self.assertEqual(res, [i * 2 for i in range(10)])
+        res = self.loop.run_until_complete(run())
+        self.assertEqual(res, [i * 2 for i in range(10)])
 
     # TODO: RUSTPYTHON: async for gen expression compilation
     # def test_async_gen_expression_02(self):

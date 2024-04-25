@@ -351,6 +351,10 @@ impl ExecutingFrame<'_> {
         let mut arg_state = bytecode::OpArgState::default();
         loop {
             let idx = self.lasti() as usize;
+            // eprintln!(
+            //     "location: {:?} {}",
+            //     self.code.locations[idx], self.code.source_path
+            // );
             self.update_lasti(|i| *i += 1);
             let bytecode::CodeUnit { op, arg } = instrs[idx];
             let arg = arg_state.extend(arg);
@@ -993,6 +997,9 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             bytecode::Instruction::GetANext => {
+                #[cfg(debug_assertions)] // remove when GetANext is fully implemented
+                let orig_stack_len = self.state.stack.len();
+
                 let aiter = self.top_value();
                 let awaitable = if aiter.class().is(vm.ctx.types.async_generator) {
                     vm.call_special_method(aiter, identifier!(vm, __anext__), ())?
@@ -1030,6 +1037,8 @@ impl ExecutingFrame<'_> {
                     })?
                 };
                 self.push_value(awaitable);
+                #[cfg(debug_assertions)]
+                debug_assert_eq!(orig_stack_len + 1, self.state.stack.len());
                 Ok(None)
             }
             bytecode::Instruction::EndAsyncFor => {
@@ -1238,6 +1247,7 @@ impl ExecutingFrame<'_> {
     fn unwind_blocks(&mut self, vm: &VirtualMachine, reason: UnwindReason) -> FrameResult {
         // First unwind all existing blocks on the block stack:
         while let Some(block) = self.current_block() {
+            // eprintln!("unwinding block: {:.60?} {:.60?}", block.typ, reason);
             match block.typ {
                 BlockType::Loop => match reason {
                     UnwindReason::Break { target } => {
@@ -1935,6 +1945,7 @@ impl ExecutingFrame<'_> {
     }
 
     fn push_block(&mut self, typ: BlockType) {
+        // eprintln!("block pushed: {:.60?} {}", typ, self.state.stack.len());
         self.state.blocks.push(Block {
             typ,
             level: self.state.stack.len(),
@@ -1944,6 +1955,12 @@ impl ExecutingFrame<'_> {
     #[track_caller]
     fn pop_block(&mut self) -> Block {
         let block = self.state.blocks.pop().expect("No more blocks to pop!");
+        // eprintln!(
+        //     "block popped: {:.60?}  {} -> {} ",
+        //     block.typ,
+        //     self.state.stack.len(),
+        //     block.level
+        // );
         #[cfg(debug_assertions)]
         if self.state.stack.len() < block.level {
             dbg!(&self);
@@ -1965,6 +1982,11 @@ impl ExecutingFrame<'_> {
     #[inline]
     #[track_caller] // not a real track_caller but push_value is not very useful
     fn push_value(&mut self, obj: PyObjectRef) {
+        // eprintln!(
+        //     "push_value {} / len: {} +1",
+        //     obj.class().name(),
+        //     self.state.stack.len()
+        // );
         match self.state.stack.try_push(obj) {
             Ok(()) => {}
             Err(_e) => self.fatal("tried to push value onto stack but overflowed max_stackdepth"),
@@ -1975,7 +1997,14 @@ impl ExecutingFrame<'_> {
     #[track_caller] // not a real track_caller but pop_value is not very useful
     fn pop_value(&mut self) -> PyObjectRef {
         match self.state.stack.pop() {
-            Some(x) => x,
+            Some(x) => {
+                // eprintln!(
+                //     "pop_value {} / len: {}",
+                //     x.class().name(),
+                //     self.state.stack.len()
+                // );
+                x
+            }
             None => self.fatal("tried to pop value but there was nothing on the stack"),
         }
     }
@@ -2002,6 +2031,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
+    #[track_caller]
     fn nth_value(&self, depth: u32) -> &PyObject {
         let stack = &self.state.stack;
         &stack[stack.len() - depth as usize - 1]
