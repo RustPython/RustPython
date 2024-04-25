@@ -2629,24 +2629,30 @@ impl Compiler {
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
+        let is_async = generators.iter().any(|g| g.is_async);
 
         self.ctx = CompileContext {
             loop_data: None,
             in_class: prev_ctx.in_class,
-            func: FunctionContext::Function,
+            func: if is_async {
+                FunctionContext::AsyncFunction
+            } else {
+                FunctionContext::Function
+            },
         };
 
         // We must have at least one generator:
         assert!(!generators.is_empty());
 
+        let flags = bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED;
+        let flags = if is_async {
+            flags | bytecode::CodeFlags::IS_COROUTINE
+        } else {
+            flags
+        };
+
         // Create magnificent function <listcomp>:
-        self.push_output(
-            bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
-            1,
-            1,
-            0,
-            name.to_owned(),
-        );
+        self.push_output(flags, 1, 1, 0, name.to_owned());
         let arg0 = self.varname(".0")?;
 
         let return_none = init_collection.is_none();
@@ -2656,10 +2662,11 @@ impl Compiler {
         }
 
         let mut loop_labels = vec![];
-        let mut is_async = false;
         for generator in generators {
             let loop_block = self.new_block();
             let after_block = self.new_block();
+
+            // emit!(self, Instruction::SetupLoop);
 
             if loop_labels.is_empty() {
                 // Load iterator onto stack (passed as first argument):
@@ -2679,13 +2686,16 @@ impl Compiler {
             loop_labels.push((loop_block, after_block));
             self.switch_to_block(loop_block);
             if generator.is_async {
-                is_async = true;
-                emit!(self, Instruction::SetupExcept {
-                    handler: after_block,
-                });
+                emit!(
+                    self,
+                    Instruction::SetupExcept {
+                        handler: after_block,
+                    }
+                );
                 emit!(self, Instruction::GetANext);
                 self.emit_constant(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
+                self.compile_store(&generator.target)?;
                 emit!(self, Instruction::PopBlock);
             } else {
                 emit!(
@@ -2694,9 +2704,8 @@ impl Compiler {
                         target: after_block,
                     }
                 );
+                self.compile_store(&generator.target)?;
             }
-
-            self.compile_store(&generator.target)?;
 
             // Now evaluate the ifs:
             for if_condition in &generator.ifs {

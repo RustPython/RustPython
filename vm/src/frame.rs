@@ -1944,6 +1944,7 @@ impl ExecutingFrame<'_> {
     #[track_caller]
     fn pop_block(&mut self) -> Block {
         let block = self.state.blocks.pop().expect("No more blocks to pop!");
+        // eprintln!("popped block: {:?} stack: {} truncate to {}", block.typ, self.state.stack.len(), block.level);
         #[cfg(debug_assertions)]
         if self.state.stack.len() < block.level {
             dbg!(&self);
@@ -2002,6 +2003,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
+    #[track_caller]
     fn nth_value(&self, depth: u32) -> &PyObject {
         let stack = &self.state.stack;
         &stack[stack.len() - depth as usize - 1]
