@@ -1005,7 +1005,9 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::EndAsyncFor => {
                 let exc = self.pop_value();
-                self.pop_value(); // async iterator we were calling __anext__ on
+                let except_block = self.pop_block(); // pushed by TryExcept unwind
+                debug_assert_eq!(except_block.level, self.state.stack.len());
+                let _async_iterator = self.pop_value(); // __anext__ provider in the loop
                 if exc.fast_isinstance(vm.ctx.exceptions.stop_async_iteration) {
                     vm.take_exception().expect("Should have exception in stack");
                     Ok(None)
@@ -1932,6 +1934,7 @@ impl ExecutingFrame<'_> {
     }
 
     #[inline]
+    #[track_caller] // not a real track_caller but push_value is not very useful
     fn push_value(&mut self, obj: PyObjectRef) {
         match self.state.stack.try_push(obj) {
             Ok(()) => {}
