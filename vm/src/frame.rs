@@ -925,7 +925,7 @@ impl ExecutingFrame<'_> {
                     _ => None,
                 };
 
-                let exit = self.pop_value();
+                let exit = self.top_value();
 
                 let args = if let Some(exc) = exc {
                     vm.split_exception(exc)
@@ -933,7 +933,7 @@ impl ExecutingFrame<'_> {
                     (vm.ctx.none(), vm.ctx.none(), vm.ctx.none())
                 };
                 let exit_res = exit.call(args, vm)?;
-                self.push_value(exit_res);
+                self.replace_top(exit_res);
 
                 Ok(None)
             }
@@ -994,7 +994,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::GetANext => {
                 let aiter = self.top_value();
-                let awaitable = vm.call_special_method(&aiter, identifier!(vm, __anext__), ())?;
+                let awaitable = vm.call_special_method(aiter, identifier!(vm, __anext__), ())?;
                 let awaitable = if awaitable.payload_is::<PyCoroutine>() {
                     awaitable
                 } else {
@@ -1952,6 +1952,13 @@ impl ExecutingFrame<'_> {
     fn pop_multiple(&mut self, count: usize) -> crate::common::boxvec::Drain<PyObjectRef> {
         let stack_len = self.state.stack.len();
         self.state.stack.drain(stack_len - count..)
+    }
+
+    #[inline]
+    fn replace_top(&mut self, mut top: PyObjectRef) -> PyObjectRef {
+        let last = self.state.stack.last_mut().unwrap();
+        std::mem::swap(&mut top, last);
+        top
     }
 
     #[inline]
