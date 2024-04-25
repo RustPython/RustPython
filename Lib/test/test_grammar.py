@@ -418,44 +418,46 @@ class GrammarTests(unittest.TestCase):
             gns['__annotations__']
 
     # TODO: RUSTPYTHON
-    # def test_var_annot_custom_maps(self):
-    #     # tests with custom locals() and __annotations__
-    #     ns = {'__annotations__': CNS()}
-    #     exec('X: int; Z: str = "Z"; (w): complex = 1j', ns)
-    #     self.assertEqual(ns['__annotations__']['x'], int)
-    #     self.assertEqual(ns['__annotations__']['z'], str)
-    #     with self.assertRaises(KeyError):
-    #         ns['__annotations__']['w']
-    #     nonloc_ns = {}
-    #     class CNS2:
-    #         def __init__(self):
-    #             self._dct = {}
-    #         def __setitem__(self, item, value):
-    #             nonlocal nonloc_ns
-    #             self._dct[item] = value
-    #             nonloc_ns[item] = value
-    #         def __getitem__(self, item):
-    #             return self._dct[item]
-    #     exec('x: int = 1', {}, CNS2())
-    #     self.assertEqual(nonloc_ns['__annotations__']['x'], int)
+    @unittest.expectedFailure
+    def test_var_annot_custom_maps(self):
+        # tests with custom locals() and __annotations__
+        ns = {'__annotations__': CNS()}
+        exec('X: int; Z: str = "Z"; (w): complex = 1j', ns)
+        self.assertEqual(ns['__annotations__']['x'], int)
+        self.assertEqual(ns['__annotations__']['z'], str)
+        with self.assertRaises(KeyError):
+            ns['__annotations__']['w']
+        nonloc_ns = {}
+        class CNS2:
+            def __init__(self):
+                self._dct = {}
+            def __setitem__(self, item, value):
+                nonlocal nonloc_ns
+                self._dct[item] = value
+                nonloc_ns[item] = value
+            def __getitem__(self, item):
+                return self._dct[item]
+        exec('x: int = 1', {}, CNS2())
+        self.assertEqual(nonloc_ns['__annotations__']['x'], int)
 
     # TODO: RUSTPYTHON
-    # def test_var_annot_refleak(self):
-    #     # complex case: custom locals plus custom __annotations__
-    #     # this was causing refleak
-    #     cns = CNS()
-    #     nonloc_ns = {'__annotations__': cns}
-    #     class CNS2:
-    #         def __init__(self):
-    #             self._dct = {'__annotations__': cns}
-    #         def __setitem__(self, item, value):
-    #             nonlocal nonloc_ns
-    #             self._dct[item] = value
-    #             nonloc_ns[item] = value
-    #         def __getitem__(self, item):
-    #             return self._dct[item]
-    #     exec('X: str', {}, CNS2())
-    #     self.assertEqual(nonloc_ns['__annotations__']['x'], str)
+    @unittest.expectedFailure
+    def test_var_annot_refleak(self):
+        # complex case: custom locals plus custom __annotations__
+        # this was causing refleak
+        cns = CNS()
+        nonloc_ns = {'__annotations__': cns}
+        class CNS2:
+            def __init__(self):
+                self._dct = {'__annotations__': cns}
+            def __setitem__(self, item, value):
+                nonlocal nonloc_ns
+                self._dct[item] = value
+                nonloc_ns[item] = value
+            def __getitem__(self, item):
+                return self._dct[item]
+        exec('X: str', {}, CNS2())
+        self.assertEqual(nonloc_ns['__annotations__']['x'], str)
 
 
     def test_var_annot_rhs(self):
