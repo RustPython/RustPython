@@ -40,7 +40,6 @@ pub mod posix;
 pub(crate) mod msvcrt;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod signal;
 pub mod sys;
 #[cfg(windows)]
@@ -82,6 +81,7 @@ pub fn get_module_inits() -> StdlibMap {
             "_io" => io::make_module,
             "marshal" => marshal::make_module,
             "_operator" => operator::make_module,
+            "_signal" => signal::make_module,
             "_sre" => sre::make_module,
             "_string" => string::make_module,
             "time" => time::make_module,
@@ -104,11 +104,6 @@ pub fn get_module_inits() -> StdlibMap {
         {
             "posix" => posix::make_module,
             // "fcntl" => fcntl::make_module,
-        }
-        // disable some modules on WASM
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            "_signal" => signal::make_module,
         }
         #[cfg(feature = "threading")]
         {

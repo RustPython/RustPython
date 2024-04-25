@@ -3,6 +3,7 @@ use crate::{builtins::PyModule, PyRef, VirtualMachine};
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _signal::make_module(vm);
 
+    #[cfg(any(unix, windows))]
     _signal::init_signal_handlers(&module, vm);
 
     module
@@ -11,11 +12,16 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 #[pymodule]
 pub(crate) mod _signal {
     use crate::{
-        builtins::PyModule,
         convert::{IntoPyException, TryFromBorrowedObject},
         signal, Py, PyObjectRef, PyResult, VirtualMachine,
     };
     use std::sync::atomic::{self, Ordering};
+
+    #[cfg(any(unix, windows))]
+    use libc::sighandler_t;
+    #[allow(non_camel_case_types)]
+    #[cfg(not(any(unix, windows)))]
+    type sighandler_t = usize;
 
     cfg_if::cfg_if! {
         if #[cfg(windows)] {
@@ -33,23 +39,23 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
+    pub use libc::SIG_ERR;
+    #[cfg(unix)]
     pub use nix::unistd::alarm as sig_alarm;
 
-    #[cfg(not(windows))]
-    pub use libc::SIG_ERR;
-
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     #[pyattr]
     pub use libc::{SIG_DFL, SIG_IGN};
 
-    #[cfg(windows)]
+    #[cfg(not(unix))]
     #[pyattr]
-    pub const SIG_DFL: libc::sighandler_t = 0;
-    #[cfg(windows)]
+    pub const SIG_DFL: sighandler_t = 0;
+    #[cfg(not(unix))]
     #[pyattr]
-    pub const SIG_IGN: libc::sighandler_t = 1;
-    #[cfg(windows)]
-    pub const SIG_ERR: libc::sighandler_t = !0;
+    pub const SIG_IGN: sighandler_t = 1;
+    #[cfg(not(unix))]
+    #[allow(dead_code)]
+    pub const SIG_ERR: sighandler_t = -1 as _;
 
     #[cfg(all(unix, not(target_os = "redox")))]
     extern "C" {
@@ -59,6 +65,7 @@ pub(crate) mod _signal {
     #[pyattr]
     use crate::signal::NSIG;
 
+    #[cfg(any(unix, windows))]
     #[pyattr]
     pub use libc::{SIGABRT, SIGFPE, SIGILL, SIGINT, SIGSEGV, SIGTERM};
 
@@ -80,7 +87,11 @@ pub(crate) mod _signal {
     #[pyattr]
     use libc::{SIGPWR, SIGSTKFLT};
 
-    pub(super) fn init_signal_handlers(module: &Py<PyModule>, vm: &VirtualMachine) {
+    #[cfg(any(unix, windows))]
+    pub(super) fn init_signal_handlers(
+        module: &Py<crate::builtins::PyModule>,
+        vm: &VirtualMachine,
+    ) {
         let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
         let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
@@ -107,6 +118,17 @@ pub(crate) mod _signal {
         }
     }
 
+    #[cfg(not(any(unix, windows)))]
+    #[pyfunction]
+    pub fn signal(
+        _signalnum: i32,
+        _handler: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        Err(vm.new_not_implemented_error("signal is not implemented on this platform".to_owned()))
+    }
+
+    #[cfg(any(unix, windows))]
     #[pyfunction]
     pub fn signal(
         signalnum: i32,
@@ -123,7 +145,7 @@ pub(crate) mod _signal {
             match usize::try_from_borrowed_object(vm, &handler).ok() {
                 Some(SIG_DFL) => SIG_DFL,
                 Some(SIG_IGN) => SIG_IGN,
-                None if handler.is_callable() => run_signal as libc::sighandler_t,
+                None if handler.is_callable() => run_signal as sighandler_t,
                 _ => return Err(vm.new_type_error(
                     "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object"
                         .to_owned(),
@@ -226,7 +248,7 @@ pub(crate) mod _signal {
         } else {
             false
         };
-        #[cfg(not(windows))]
+        #[cfg(unix)]
         if fd != INVALID_WAKEUP {
             use nix::fcntl;
             let oflags = fcntl::fcntl(fd, fcntl::F_GETFL).map_err(|e| e.into_pyexception(vm))?;
@@ -256,6 +278,7 @@ pub(crate) mod _signal {
         }
     }
 
+    #[cfg(any(unix, windows))]
     pub extern "C" fn run_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
