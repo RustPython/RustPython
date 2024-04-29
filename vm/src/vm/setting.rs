@@ -2,10 +2,54 @@
 use std::ffi::OsString;
 
 /// Struct containing all kind of settings for the python vm.
+/// Mostly `PyConfig` in CPython.
 #[non_exhaustive]
 pub struct Settings {
-    /// -d command line switch
-    pub debug: bool,
+    /// -I
+    pub isolated: bool,
+
+    // int use_environment
+    /// -Xdev
+    pub dev_mode: bool,
+
+    /// Not set SIGINT handler(i.e. for embedded mode)
+    pub install_signal_handlers: bool,
+
+    /// PYTHONHASHSEED=x
+    /// None means use_hash_seed = 0 in CPython
+    pub hash_seed: Option<u32>,
+
+    // int faulthandler;
+    // int tracemalloc;
+    // int perf_profiling;
+    // int import_time;
+    // int code_debug_ranges;
+    // int show_ref_count;
+    // int dump_refs;
+    // wchar_t *dump_refs_file;
+    // int malloc_stats;
+    // wchar_t *filesystem_encoding;
+    // wchar_t *filesystem_errors;
+    // wchar_t *pycache_prefix;
+    // int parse_argv;
+    // PyWideStringList orig_argv;
+    /// sys.argv
+    pub argv: Vec<String>,
+
+    /// -Xfoo[=bar]
+    pub xoptions: Vec<(String, Option<String>)>,
+
+    /// -Wfoo
+    pub warnoptions: Vec<String>,
+
+    /// -S
+    pub import_site: bool,
+
+    /// -b
+    pub bytes_warning: u64,
+
+    /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
+    pub warn_default_encoding: bool,
 
     /// -i
     pub inspect: bool,
@@ -13,20 +57,10 @@ pub struct Settings {
     /// -i, with no script
     pub interactive: bool,
 
-    /// -O optimization switch counter
-    pub optimize: u8,
-
-    /// Not set SIGINT handler(i.e. for embedded mode)
-    pub no_sig_int: bool,
-
-    /// -s
-    pub no_user_site: bool,
-
-    /// -S
-    pub no_site: bool,
-
-    /// -E
-    pub ignore_environment: bool,
+    // int optimization_level;
+    // int parser_debug;
+    /// -B
+    pub write_bytecode: bool,
 
     /// verbosity level (-v switch)
     pub verbose: u8,
@@ -34,53 +68,46 @@ pub struct Settings {
     /// -q
     pub quiet: bool,
 
-    /// -B
-    pub dont_write_bytecode: bool,
+    /// -s
+    pub user_site_directory: bool,
 
+    // int configure_c_stdio;
+    /// -u, PYTHONUNBUFFERED=x
+    // TODO: use this; can TextIOWrapper even work with a non-buffered?
+    pub buffered_stdio: bool,
+
+    // wchar_t *stdio_encoding;
+    pub utf8_mode: u8,
+    // wchar_t *stdio_errors;
+    /// --check-hash-based-pycs
+    pub check_hash_pycs_mode: String,
+
+    // int use_frozen_modules;
     /// -P
     pub safe_path: bool,
-
-    /// -b
-    pub bytes_warning: u64,
-
-    /// -Xfoo[=bar]
-    pub xopts: Vec<(String, Option<String>)>,
 
     /// -X int_max_str_digits
     pub int_max_str_digits: i64,
 
-    /// -I
-    pub isolated: bool,
-
-    /// -Xdev
-    pub dev_mode: bool,
-
-    /// -X warn_default_encoding, PYTHONWARNDEFAULTENCODING
-    pub warn_default_encoding: bool,
-
-    /// -Wfoo
-    pub warnopts: Vec<String>,
-
-    /// Environment PYTHONPATH and RUSTPYTHONPATH:
+    // /* --- Path configuration inputs ------------ */
+    // int pathconfig_warnings;
+    // wchar_t *program_name;
+    /// Environment PYTHONPATH (and RUSTPYTHONPATH)
     pub path_list: Vec<String>,
 
-    /// sys.argv
-    pub argv: Vec<String>,
+    // wchar_t *home;
+    // wchar_t *platlibdir;
+    /// -d command line switch
+    pub debug: bool,
 
-    /// PYTHONHASHSEED=x
-    pub hash_seed: Option<u32>,
+    /// -O optimization switch counter
+    pub optimize: u8,
 
-    /// -u, PYTHONUNBUFFERED=x
-    // TODO: use this; can TextIOWrapper even work with a non-buffered?
-    pub stdio_unbuffered: bool,
-
-    /// --check-hash-based-pycs
-    pub check_hash_based_pycs: String,
+    /// -E
+    pub ignore_environment: bool,
 
     /// false for wasm. Not a command-line option
     pub allow_external_library: bool,
-
-    pub utf8_mode: u8,
 
     #[cfg(feature = "flame-it")]
     pub profile_output: Option<OsString>,
@@ -103,25 +130,25 @@ impl Default for Settings {
             inspect: false,
             interactive: false,
             optimize: 0,
-            no_sig_int: false,
-            no_user_site: false,
-            no_site: false,
+            install_signal_handlers: true,
+            user_site_directory: true,
+            import_site: true,
             ignore_environment: false,
             verbose: 0,
             quiet: false,
-            dont_write_bytecode: false,
+            write_bytecode: true,
             safe_path: false,
             bytes_warning: 0,
-            xopts: vec![],
+            xoptions: vec![],
             isolated: false,
             dev_mode: false,
             warn_default_encoding: false,
-            warnopts: vec![],
+            warnoptions: vec![],
             path_list: vec![],
             argv: vec![],
             hash_seed: None,
-            stdio_unbuffered: false,
-            check_hash_based_pycs: "default".to_owned(),
+            buffered_stdio: true,
+            check_hash_pycs_mode: "default".to_owned(),
             allow_external_library: cfg!(feature = "importlib"),
             utf8_mode: 1,
             int_max_str_digits: -1,

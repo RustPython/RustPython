@@ -179,7 +179,7 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         && !matches.is_present("m")
         && (!matches.is_present("script") || matches.is_present("inspect"));
     settings.bytes_warning = matches.occurrences_of("bytes-warning");
-    settings.no_site = matches.is_present("no-site");
+    settings.import_site = !matches.is_present("no-site");
 
     let ignore_environment = settings.ignore_environment || settings.isolated;
 
@@ -220,7 +220,7 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         || matches.is_present("isolate")
         || (!ignore_environment && env::var_os("PYTHONNOUSERSITE").is_some())
     {
-        settings.no_user_site = true;
+        settings.user_site_directory = false;
     }
 
     if matches.is_present("quiet") {
@@ -230,7 +230,7 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
     if matches.is_present("dont-write-bytecode")
         || (!ignore_environment && env::var_os("PYTHONDONTWRITEBYTECODE").is_some())
     {
-        settings.dont_write_bytecode = true;
+        settings.write_bytecode = false;
     }
     if !ignore_environment && env::var_os("PYTHONINTMAXSTRDIGITS").is_some() {
         settings.int_max_str_digits = match env::var("PYTHONINTMAXSTRDIGITS").unwrap().parse() {
@@ -251,12 +251,12 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
     matches
         .value_of("check-hash-based-pycs")
         .unwrap_or("default")
-        .clone_into(&mut settings.check_hash_based_pycs);
+        .clone_into(&mut settings.check_hash_pycs_mode);
 
     let mut dev_mode = false;
     let mut warn_default_encoding = false;
     if let Some(xopts) = matches.values_of("implementation-option") {
-        settings.xopts.extend(xopts.map(|s| {
+        settings.xoptions.extend(xopts.map(|s| {
             let mut parts = s.splitn(2, '=');
             let name = parts.next().unwrap().to_owned();
             let value = parts.next().map(ToOwned::to_owned);
@@ -267,7 +267,7 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
                 warn_default_encoding = true
             }
             if name == "no_sig_int" {
-                settings.no_sig_int = true;
+                settings.install_signal_handlers = false;
             }
             if name == "int_max_str_digits" {
                 settings.int_max_str_digits = match value.as_ref().unwrap().parse() {
@@ -290,7 +290,7 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
     }
 
     if dev_mode {
-        settings.warnopts.push("default".to_owned())
+        settings.warnoptions.push("default".to_owned())
     }
     if settings.bytes_warning > 0 {
         let warn = if settings.bytes_warning > 1 {
@@ -298,10 +298,10 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         } else {
             "default::BytesWarning"
         };
-        settings.warnopts.push(warn.to_owned());
+        settings.warnoptions.push(warn.to_owned());
     }
     if let Some(warnings) = matches.values_of("warning-control") {
-        settings.warnopts.extend(warnings.map(ToOwned::to_owned));
+        settings.warnoptions.extend(warnings.map(ToOwned::to_owned));
     }
 
     let (mode, argv) = if let Some(mut cmd) = matches.values_of("c") {

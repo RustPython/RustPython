@@ -24,8 +24,8 @@ fn bench_rustpy_code(b: &mut Bencher, name: &str, source: &str) {
     // NOTE: Take long time.
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
-    settings.dont_write_bytecode = true;
-    settings.no_user_site = true;
+    settings.write_bytecode = false;
+    settings.user_site_directory = false;
     Interpreter::without_stdlib(settings).enter(|vm| {
         // Note: bench_cpython is both compiling and executing the code.
         // As such we compile the code in the benchmark loop as well.
