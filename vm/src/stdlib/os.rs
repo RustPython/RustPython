@@ -932,7 +932,14 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn getpid(vm: &VirtualMachine) -> PyObjectRef {
-        let pid = std::process::id();
+        let pid = if cfg!(target_arch = "wasm32") {
+            // Return an arbitrary value, greater than 1 which is special.
+            // The value 42 is picked from wasi-libc
+            // https://github.com/WebAssembly/wasi-libc/blob/wasi-sdk-21/libc-bottom-half/getpid/getpid.c
+            42
+        } else {
+            std::process::id()
+        };
         vm.ctx.new_int(pid).into()
     }
 
