@@ -84,7 +84,19 @@ pub fn init_stdlib(vm: &mut VirtualMachine) {
 
     // if we're on freeze-stdlib, the core stdlib modules will be included anyway
     #[cfg(feature = "freeze-stdlib")]
-    vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
+    {
+        vm.add_frozen(rustpython_pylib::FROZEN_STDLIB);
+
+        // FIXME: Remove this hack once sys._stdlib_dir is properly implemented or _frozen_importlib doesn't depend on it anymore.
+        assert!(vm.sys_module.get_attr("_stdlib_dir", vm).is_err());
+        vm.sys_module
+            .set_attr(
+                "_stdlib_dir",
+                vm.new_pyobj(rustpython_pylib::LIB_PATH.to_owned()),
+                vm,
+            )
+            .unwrap();
+    }
 
     #[cfg(not(feature = "freeze-stdlib"))]
     {
