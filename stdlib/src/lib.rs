@@ -58,7 +58,7 @@ mod grp;
 mod resource;
 #[cfg(target_os = "macos")]
 mod scproxy;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(unix, windows, target_os = "wasi"))]
 mod select;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod sqlite;
@@ -130,10 +130,13 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "fcntl" => fcntl::make_module,
         }
+        #[cfg(any(unix, windows, target_os = "wasi"))]
+        {
+            "select" => select::make_module,
+        }
         #[cfg(not(target_arch = "wasm32"))]
         {
             "_multiprocessing" => multiprocessing::make_module,
-            "select" => select::make_module,
             "_socket" => socket::make_module,
             "faulthandler" => faulthandler::make_module,
         }

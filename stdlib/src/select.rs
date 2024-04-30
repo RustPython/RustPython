@@ -65,6 +65,63 @@ mod platform {
     }
 }
 
+#[cfg(target_os = "wasi")]
+mod platform {
+    pub use libc::{timeval, FD_SETSIZE};
+    pub use std::os::wasi::io::RawFd;
+
+    pub fn check_err(x: i32) -> bool {
+        x < 0
+    }
+
+    #[repr(C)]
+    pub struct fd_set {
+        __nfds: usize,
+        __fds: [libc::c_int; FD_SETSIZE],
+    }
+
+    #[allow(non_snake_case)]
+    pub unsafe fn FD_ISSET(fd: RawFd, set: *const fd_set) -> bool {
+        let set = &*set;
+        let n = set.__nfds;
+        for p in &set.__fds[..n] {
+            if *p == fd {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[allow(non_snake_case)]
+    pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
+        let set = &mut *set;
+        let n = set.__nfds;
+        for p in &set.__fds[..n] {
+            if *p == fd {
+                return;
+            }
+        }
+        set.__nfds = n + 1;
+        set.__fds[n] = fd;
+    }
+
+    #[allow(non_snake_case)]
+    pub unsafe fn FD_ZERO(set: *mut fd_set) {
+        let set = &mut *set;
+        set.__nfds = 0;
+    }
+
+    extern "C" {
+        pub fn select(
+            nfds: libc::c_int,
+            readfds: *mut fd_set,
+            writefds: *mut fd_set,
+            errorfds: *mut fd_set,
+            timeout: *const timeval,
+        ) -> libc::c_int;
+    }
+}
+
 pub use platform::timeval;
 use platform::RawFd;
 
