@@ -103,8 +103,8 @@ fn cpy_compile_code<'a>(
 fn bench_rustpy_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchmark) {
     let mut settings = Settings::default();
     settings.path_list.push("Lib/".to_string());
-    settings.dont_write_bytecode = true;
-    settings.no_user_site = true;
+    settings.write_bytecode = false;
+    settings.user_site_directory = false;
 
     Interpreter::with_init(settings, |vm| {
         for (name, init) in rustpython_stdlib::get_module_inits() {

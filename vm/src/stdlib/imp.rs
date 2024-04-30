@@ -88,7 +88,7 @@ mod _imp {
     #[pyattr]
     fn check_hash_based_pycs(vm: &VirtualMachine) -> PyStrRef {
         vm.ctx
-            .new_str(vm.state.settings.check_hash_based_pycs.clone())
+            .new_str(vm.state.settings.check_hash_pycs_mode.clone())
     }
 
     #[pyfunction]

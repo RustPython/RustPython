@@ -113,7 +113,7 @@ pub(crate) mod _signal {
         let int_handler = module
             .get_attr("default_int_handler", vm)
             .expect("_signal does not have this attr?");
-        if !vm.state.settings.no_sig_int {
+        if vm.state.settings.install_signal_handlers {
             signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
         }
     }

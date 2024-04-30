@@ -162,7 +162,7 @@ mod sys {
 
     #[pyattr]
     fn dont_write_bytecode(vm: &VirtualMachine) -> bool {
-        vm.state.settings.dont_write_bytecode
+        !vm.state.settings.write_bytecode
     }
 
     #[pyattr]
@@ -278,7 +278,7 @@ mod sys {
     fn _xoptions(vm: &VirtualMachine) -> PyDictRef {
         let ctx = &vm.ctx;
         let xopts = ctx.new_dict();
-        for (key, value) in &vm.state.settings.xopts {
+        for (key, value) in &vm.state.settings.xoptions {
             let value = value.as_ref().map_or_else(
                 || ctx.new_bool(true).into(),
                 |s| ctx.new_str(s.clone()).into(),
@@ -292,7 +292,7 @@ mod sys {
     fn warnoptions(vm: &VirtualMachine) -> Vec<PyObjectRef> {
         vm.state
             .settings
-            .warnopts
+            .warnoptions
             .iter()
             .map(|s| vm.ctx.new_str(s.clone()).into())
             .collect()
@@ -744,9 +744,9 @@ mod sys {
                 inspect: settings.inspect as u8,
                 interactive: settings.interactive as u8,
                 optimize: settings.optimize,
-                dont_write_bytecode: settings.dont_write_bytecode as u8,
-                no_user_site: settings.no_user_site as u8,
-                no_site: settings.no_site as u8,
+                dont_write_bytecode: (!settings.write_bytecode) as u8,
+                no_user_site: (!settings.user_site_directory) as u8,
+                no_site: (!settings.import_site) as u8,
                 ignore_environment: settings.ignore_environment as u8,
                 verbose: settings.verbose,
                 bytes_warning: settings.bytes_warning,
