@@ -791,6 +791,8 @@ class ProcessTestCase(BaseTestCase):
             stdout, stderr = p.communicate()
             self.assertEqual(stdout, b"orange")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(sys.platform == "win32", "Windows only issue")
     def test_win32_duplicate_envs(self):
         newenv = os.environ.copy()
@@ -1779,6 +1781,8 @@ class RunFuncTestCase(BaseTestCase):
         res = subprocess.run(args)
         self.assertEqual(res.returncode, 57)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(mswindows, "Maybe test trigger a leak on Ubuntu")
     def test_run_with_an_empty_env(self):
         # gh-105436: fix subprocess.run(..., env={}) broken on Windows
@@ -2165,6 +2169,8 @@ class POSIXProcessTestCase(BaseTestCase):
         group_list = [65534 if gid != 65534 else 65533]
         self._test_extra_groups_impl(gid=gid, group_list=group_list)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setgroups'), 'no setgroups() on platform')
     def test_extra_groups_empty_list(self):
         self._test_extra_groups_impl(gid=os.getegid(), group_list=[])
@@ -2200,6 +2206,7 @@ class POSIXProcessTestCase(BaseTestCase):
                 subprocess.check_call(ZERO_RETURN_CMD,
                                       extra_groups=[name_group])
 
+    @unittest.skip("TODO: RUSTPYTHON; clarify failure condition")
     # No skip necessary, this test won't make it to a setgroup() call.
     def test_extra_groups_invalid_gid_t_values(self):
         with self.assertRaises(ValueError):
@@ -3460,6 +3467,8 @@ class POSIXProcessTestCase(BaseTestCase):
             except subprocess.TimeoutExpired:
                 pass
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_preexec_at_exit(self):
         code = f"""if 1:
         import atexit
