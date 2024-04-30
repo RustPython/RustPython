@@ -58,7 +58,7 @@ pub use interpreter::InterpreterConfig;
 pub use rustpython_vm as vm;
 pub use settings::{opts_with_clap, RunMode};
 
-/// The main cli of the `rustpython` interpreter. This function will return with `std::process::ExitCode`
+/// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
 pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     env_logger::init();
