@@ -1,14 +1,16 @@
 use crate::{AsObject, PyObject, VirtualMachine};
 use itertools::Itertools;
 use std::{
-    cell::RefCell,
-    ptr::{null, NonNull},
+    cell::{Cell, RefCell},
+    ptr::NonNull,
     thread_local,
 };
 
 thread_local! {
     pub(super) static VM_STACK: RefCell<Vec<NonNull<VirtualMachine>>> = Vec::with_capacity(1).into();
-    static VM_CURRENT: RefCell<*const VirtualMachine> = null::<VirtualMachine>().into();
+    static VM_CURRENT: RefCell<*const VirtualMachine> = std::ptr::null::<VirtualMachine>().into();
+
+    pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
 }
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
@@ -142,7 +144,6 @@ impl VirtualMachine {
     /// specific guaranteed behavior.
     #[cfg(feature = "threading")]
     pub fn new_thread(&self) -> ThreadedVirtualMachine {
-        use std::cell::Cell;
         let vm = VirtualMachine {
             builtins: self.builtins.clone(),
             sys_module: self.sys_module.clone(),
