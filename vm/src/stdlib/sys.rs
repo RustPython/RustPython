@@ -692,6 +692,20 @@ mod sys {
         vm.use_tracing.set(tracing);
     }
 
+    #[pyfunction]
+    fn set_coroutine_origin_tracking_depth(depth: i32, vm: &VirtualMachine) -> PyResult<()> {
+        if depth < 0 {
+            return Err(vm.new_value_error("depth must be >= 0".to_owned()));
+        }
+        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.set(depth as _));
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn get_coroutine_origin_tracking_depth() -> i32 {
+        crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.get()) as _
+    }
+
     /// sys.flags
     ///
     /// Flags provided through command line arguments or environment vars.
