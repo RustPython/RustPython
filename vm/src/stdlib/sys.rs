@@ -10,10 +10,10 @@ mod sys {
             ascii,
             hash::{PyHash, PyUHash},
         },
+        convert::ToPyObject,
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
-        stdlib::builtins,
-        stdlib::warnings::warn,
+        stdlib::{builtins, warnings::warn},
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
@@ -704,6 +704,68 @@ mod sys {
     #[pyfunction]
     fn get_coroutine_origin_tracking_depth() -> i32 {
         crate::vm::thread::COROUTINE_ORIGIN_TRACKING_DEPTH.with(|cell| cell.get()) as _
+    }
+
+    #[derive(FromArgs)]
+    struct SetAsyncgenHooksArgs {
+        #[pyarg(any, optional)]
+        firstiter: OptionalArg<Option<PyObjectRef>>,
+        #[pyarg(any, optional)]
+        finalizer: OptionalArg<Option<PyObjectRef>>,
+    }
+
+    #[pyfunction]
+    fn set_asyncgen_hooks(args: SetAsyncgenHooksArgs, vm: &VirtualMachine) -> PyResult<()> {
+        if let Some(Some(finalizer)) = args.finalizer.as_option() {
+            if !finalizer.is_callable() {
+                return Err(vm.new_type_error(format!(
+                    "callable finalizer expected, got {:.50}",
+                    finalizer.class().name()
+                )));
+            }
+        }
+
+        if let Some(Some(firstiter)) = args.firstiter.as_option() {
+            if !firstiter.is_callable() {
+                return Err(vm.new_type_error(format!(
+                    "callable firstiter expected, got {:.50}",
+                    firstiter.class().name()
+                )));
+            }
+        }
+
+        if let Some(finalizer) = args.finalizer.into_option() {
+            crate::vm::thread::ASYNC_GEN_FINALIZER.with(|cell| {
+                cell.replace(finalizer);
+            });
+        }
+        if let Some(firstiter) = args.firstiter.into_option() {
+            crate::vm::thread::ASYNC_GEN_FIRSTITER.with(|cell| {
+                cell.replace(firstiter);
+            });
+        }
+
+        Ok(())
+    }
+
+    #[pyclass(no_attr, name = "asyncgen_hooks")]
+    #[derive(PyStructSequence)]
+    pub(super) struct PyAsyncgenHooks {
+        firstiter: PyObjectRef,
+        finalizer: PyObjectRef,
+    }
+
+    #[pyclass(with(PyStructSequence))]
+    impl PyAsyncgenHooks {}
+
+    #[pyfunction]
+    fn get_asyncgen_hooks(vm: &VirtualMachine) -> PyAsyncgenHooks {
+        PyAsyncgenHooks {
+            firstiter: crate::vm::thread::ASYNC_GEN_FIRSTITER
+                .with(|cell| cell.borrow().clone().to_pyobject(vm)),
+            finalizer: crate::vm::thread::ASYNC_GEN_FINALIZER
+                .with(|cell| cell.borrow().clone().to_pyobject(vm)),
+        }
     }
 
     /// sys.flags
