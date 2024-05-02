@@ -1,4 +1,4 @@
-use crate::{AsObject, PyObject, VirtualMachine};
+use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
 use itertools::Itertools;
 use std::{
     cell::{Cell, RefCell},
@@ -11,6 +11,8 @@ thread_local! {
     static VM_CURRENT: RefCell<*const VirtualMachine> = std::ptr::null::<VirtualMachine>().into();
 
     pub(crate) static COROUTINE_ORIGIN_TRACKING_DEPTH: Cell<u32> = const { Cell::new(0) };
+    pub(crate) static ASYNC_GEN_FINALIZER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
+    pub(crate) static ASYNC_GEN_FIRSTITER: RefCell<Option<PyObjectRef>> = const { RefCell::new(None) };
 }
 
 pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
