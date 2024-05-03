@@ -934,6 +934,28 @@ impl<T: PyObjectPayload> Borrow<PyObject> for Py<T> {
     }
 }
 
+impl<T> std::hash::Hash for Py<T>
+where
+    T: std::hash::Hash + PyObjectPayload,
+{
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.deref().hash(state)
+    }
+}
+
+impl<T> PartialEq for Py<T>
+where
+    T: PartialEq + PyObjectPayload,
+{
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.deref().eq(other.deref())
+    }
+}
+
+impl<T> Eq for Py<T> where T: Eq + PyObjectPayload {}
+
 impl<T> AsRef<PyObject> for Py<T>
 where
     T: PyObjectPayload,
@@ -1088,6 +1110,28 @@ where
         unsafe { self.ptr.as_ref() }
     }
 }
+
+impl<T> std::hash::Hash for PyRef<T>
+where
+    T: std::hash::Hash + PyObjectPayload,
+{
+    #[inline]
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.deref().hash(state)
+    }
+}
+
+impl<T> PartialEq for PyRef<T>
+where
+    T: PartialEq + PyObjectPayload,
+{
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.deref().eq(other.deref())
+    }
+}
+
+impl<T> Eq for PyRef<T> where T: Eq + PyObjectPayload {}
 
 #[repr(transparent)]
 pub struct PyWeakRef<T: PyObjectPayload> {
