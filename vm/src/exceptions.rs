@@ -1458,9 +1458,55 @@ pub(super) mod types {
     #[derive(Debug)]
     pub struct PyRecursionError {}
 
-    #[pyexception(name, base = "PyException", ctx = "syntax_error", impl)]
+    #[pyexception(name, base = "PyException", ctx = "syntax_error")]
     #[derive(Debug)]
     pub struct PySyntaxError {}
+
+    #[pyexception]
+    impl PySyntaxError {
+        #[pymethod(magic)]
+        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
+            fn basename(filename: &str) -> &str {
+                // TODO: RUSTPYTHON use OS-dependent path separator as files like a\b.txt could exist in unix
+                filename.rsplitn(2, &['/', '\\']).next().unwrap_or(filename)
+            }
+
+            let maybe_lineno = exc.as_object().get_attr("lineno", vm).ok().map(|obj| {
+                obj.str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
+            });
+            let maybe_filename = exc.as_object().get_attr("filename", vm).ok().map(|obj| {
+                obj.str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
+            });
+
+            let args = exc.args();
+
+            let msg = if args.len() == 1 {
+                vm.exception_args_as_string(args, false)
+                    .into_iter()
+                    .exactly_one()
+                    .unwrap()
+            } else {
+                return exc.str(vm);
+            };
+
+            let msg_with_location_info: String = match (maybe_lineno, maybe_filename) {
+                (Some(lineno), Some(filename)) => {
+                    format!("{} ({}, line {})", msg, basename(filename.as_str()), lineno)
+                }
+                (Some(lineno), None) => {
+                    format!("{} (line {})", msg, lineno)
+                }
+                (None, Some(filename)) => {
+                    format!("{} ({})", msg, basename(filename.as_str()))
+                }
+                (None, None) => msg.to_string(),
+            };
+
+            vm.ctx.new_str(msg_with_location_info)
+        }
+    }
 
     #[pyexception(name, base = "PySyntaxError", ctx = "indentation_error", impl)]
     #[derive(Debug)]
