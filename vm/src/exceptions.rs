@@ -1468,7 +1468,7 @@ pub(super) mod types {
         fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
             fn basename(filename: &str) -> &str {
                 // TODO: RUSTPYTHON use OS-dependent path separator as files like a\b.txt could exist in unix
-                filename.rsplitn(2, &['/', '\\']).next().unwrap_or(filename)
+                filename.rsplit(&['/', '\\']).next().unwrap_or(filename)
             }
 
             let maybe_lineno = exc.as_object().get_attr("lineno", vm).ok().map(|obj| {
