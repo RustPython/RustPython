@@ -1,3 +1,5 @@
+#![allow(clippy::empty_docs)] // TODO: remove it later. false positive by wasm-bindgen generated code
+
 use crate::js_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
