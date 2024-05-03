@@ -55,7 +55,6 @@ class FutureTest(unittest.TestCase):
     def test_badfuture3(self):
         with self.assertRaises(SyntaxError) as cm:
             from test.test_future_stmt import badsyntax_future3
-        print('>>>', cm.exception, type(cm.exception), type(cm.exception) is SyntaxError)
         self.check_syntax_error(cm.exception, "badsyntax_future3", 3)
 
     def test_badfuture4(self):
