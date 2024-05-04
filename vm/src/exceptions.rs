@@ -1,4 +1,5 @@
 use self::types::{PyBaseException, PyBaseExceptionRef};
+use crate::builtins::PyInt;
 use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
@@ -143,14 +144,104 @@ impl VirtualMachine {
 
         let exc_class = exc.class();
         let exc_name = exc_class.name();
+
+        let mut filename_suffix = String::new();
+
+        if exc_class.fast_issubclass(vm.ctx.exceptions.syntax_error) {
+            // FIXME: this is a lot of code so it should probably be moved to a separate function
+
+            // This logic is derived from TracebackException._format_syntax_error
+
+            let maybe_lineno = exc.as_object().get_attr("lineno", vm).ok().map(|obj| {
+                obj.str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
+            }); // FIXME: is there a more elegant way to get attr as str or int?
+            let maybe_filename = exc
+                .as_object()
+                .get_attr("filename", vm)
+                .ok()
+                .and_then(|obj| obj.str(vm).ok().map(|obj| obj.as_str().to_owned()));
+
+            let maybe_text = exc.as_object().get_attr("text", vm).ok().map(|obj| {
+                obj.str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<text str() failed>"))
+            });
+
+            if let Some(lineno) = maybe_lineno {
+                writeln!(
+                    output,
+                    r##"  File "{}", line {}"##,
+                    maybe_filename
+                        .as_ref()
+                        .map(String::as_str)
+                        .unwrap_or("<string>"),
+                    lineno
+                )?;
+            } else if let Some(filename) = maybe_filename {
+                filename_suffix = format!(" ({})", filename);
+            }
+
+            if let Some(text) = maybe_text {
+                // if text ends with \n, remove it
+                let rtext = text.as_str().trim_end_matches('\n');
+                let ltext = rtext.trim_start_matches(&[' ', '\n', '\x0c']); // \x0c is \f
+                let spaces = (rtext.len() - ltext.len()) as isize;
+
+                writeln!(output, "    {}", ltext)?;
+
+                let maybe_offset: Option<isize> = exc
+                    .as_object()
+                    .get_attr("offset", vm)
+                    .ok()
+                    .and_then(|obj| obj.downcast::<PyInt>().ok())
+                    .and_then(|int| int.try_to_primitive(vm).ok());
+
+                if let Some(offset) = maybe_offset {
+                    let maybe_end_offset: Option<isize> = exc
+                        .as_object() // FIXME: end_offset doesn't seem used yet
+                        .get_attr("end_offset", vm)
+                        .ok()
+                        .and_then(|obj| obj.downcast::<PyInt>().ok())
+                        .and_then(|int| int.try_to_primitive(vm).ok());
+
+                    let mut end_offset = match maybe_end_offset {
+                        Some(0) | None => offset,
+                        Some(end_offset) => end_offset,
+                    };
+
+                    if offset == end_offset || end_offset == -1 {
+                        end_offset = offset + 1;
+                    }
+
+                    // Convert 1-based column offset to 0-based index into stripped text
+                    let colno = offset - 1 - spaces;
+                    let end_colno = end_offset - 1 - spaces;
+                    if colno >= 0 {
+                        let caretspace = ltext.chars().collect::<Vec<_>>()[..colno as usize]
+                            .into_iter()
+                            .map(|c| if c.is_whitespace() { *c } else { ' ' })
+                            .collect::<String>();
+
+                        writeln!(
+                            output,
+                            "    {}{}",
+                            caretspace,
+                            "^".repeat((end_colno - colno) as usize)
+                        )?;
+                    }
+                }
+            }
+        }
+
         match args_repr.len() {
-            0 => write!(output, "{exc_name}"),
-            1 => write!(output, "{}: {}", exc_name, args_repr[0]),
+            0 => write!(output, "{exc_name}{filename_suffix}"),
+            1 => write!(output, "{}: {}{}", exc_name, args_repr[0], filename_suffix),
             _ => write!(
                 output,
-                "{}: ({})",
+                "{}: ({}){}",
                 exc_name,
-                args_repr.into_iter().format(", ")
+                args_repr.into_iter().format(", "),
+                filename_suffix
             ),
         }?;
 
