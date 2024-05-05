@@ -441,7 +441,7 @@ impl PyBaseException {
 }
 
 #[pyclass(
-    with(Constructor, Initializer, Representable),
+    with(PyRef, Constructor, Initializer, Representable),
     flags(BASETYPE, HAS_DICT)
 )]
 impl PyBaseException {
@@ -499,12 +499,6 @@ impl PyBaseException {
         self.suppress_context.store(suppress_context);
     }
 
-    #[pymethod]
-    fn with_traceback(zelf: PyRef<Self>, tb: Option<PyTracebackRef>) -> PyResult<PyRef<Self>> {
-        *zelf.traceback.write() = tb;
-        Ok(zelf)
-    }
-
     #[pymethod(magic)]
     pub(super) fn str(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = vm.exception_args_as_string(self.args(), true);
@@ -514,13 +508,22 @@ impl PyBaseException {
             Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(&vm.ctx),
         }
     }
+}
+
+#[pyclass]
+impl PyRef<PyBaseException> {
+    #[pymethod]
+    fn with_traceback(self, tb: Option<PyTracebackRef>) -> PyResult<Self> {
+        *self.traceback.write() = tb;
+        Ok(self)
+    }
 
     #[pymethod(magic)]
-    fn reduce(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
-        if let Some(dict) = zelf.as_object().dict().filter(|x| !x.is_empty()) {
-            vm.new_tuple((zelf.class().to_owned(), zelf.args(), dict))
+    fn reduce(self, vm: &VirtualMachine) -> PyTupleRef {
+        if let Some(dict) = self.as_object().dict().filter(|x| !x.is_empty()) {
+            vm.new_tuple((self.class().to_owned(), self.args(), dict))
         } else {
-            vm.new_tuple((zelf.class().to_owned(), zelf.args()))
+            vm.new_tuple((self.class().to_owned(), self.args()))
         }
     }
 }
