@@ -12,15 +12,13 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::ascii,
     dictdatatype::{self, DictKey},
-    function::{
-        ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
-    },
+    function::{ArgIterable, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::{
-        AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer, IterNext,
-        Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
+        AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, DefaultConstructor,
+        Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     vm::VirtualMachine,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -410,15 +408,7 @@ impl PyRef<PyDict> {
     }
 }
 
-impl Constructor for PyDict {
-    type Args = FuncArgs;
-
-    fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        PyDict::default()
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
-    }
-}
+impl DefaultConstructor for PyDict {}
 
 impl Initializer for PyDict {
     type Args = (OptionalArg<PyObjectRef>, KwArgs);
@@ -835,7 +825,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(with(Constructor, IterNext, Iterable))]
+        #[pyclass(with(Unconstructible, IterNext, Iterable))]
         impl $iter_name {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
@@ -908,7 +898,7 @@ macro_rules! dict_view {
             }
         }
 
-        #[pyclass(with(Constructor, IterNext, Iterable))]
+        #[pyclass(with(Unconstructible, IterNext, Iterable))]
         impl $reverse_iter_name {
             fn new(dict: PyDictRef) -> Self {
                 let size = dict.size();
@@ -1114,7 +1104,7 @@ trait ViewSetOps: DictView {
 impl ViewSetOps for PyDictKeys {}
 #[pyclass(with(
     DictView,
-    Constructor,
+    Unconstructible,
     Comparable,
     Iterable,
     ViewSetOps,
@@ -1178,7 +1168,7 @@ impl AsNumber for PyDictKeys {
 impl ViewSetOps for PyDictItems {}
 #[pyclass(with(
     DictView,
-    Constructor,
+    Unconstructible,
     Comparable,
     Iterable,
     ViewSetOps,
@@ -1253,7 +1243,7 @@ impl AsNumber for PyDictItems {
     }
 }
 
-#[pyclass(with(DictView, Constructor, Iterable, AsSequence, Representable))]
+#[pyclass(with(DictView, Unconstructible, Iterable, AsSequence, Representable))]
 impl PyDictValues {
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {

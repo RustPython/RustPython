@@ -16,7 +16,7 @@ mod _socket {
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, OptionalArg, OptionalOption},
-        types::{DefaultConstructor, Initializer, Representable},
+        types::{Constructor, DefaultConstructor, Initializer, Representable},
         utils::ToCString,
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
@@ -1062,7 +1062,7 @@ mod _socket {
         }
     }
 
-    #[pyclass(with(DefaultConstructor, Initializer, Representable), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Initializer, Representable), flags(BASETYPE))]
     impl PySocket {
         fn _init(
             zelf: PyRef<Self>,

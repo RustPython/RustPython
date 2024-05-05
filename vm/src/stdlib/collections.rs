@@ -9,15 +9,15 @@ mod _collections {
             PositionIterInternal, PyGenericAlias, PyInt, PyTypeRef,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
-        function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
+        function::{KwArgs, OptionalArg, PyComparisonValue},
         iter::PyExactSizeIterator,
         protocol::{PyIterReturn, PySequenceMethods},
         recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
         types::{
-            AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable, PyComparisonOp,
-            Representable, SelfIter,
+            AsSequence, Comparable, Constructor, DefaultConstructor, Initializer, IterNext,
+            Iterable, PyComparisonOp, Representable, SelfIter,
         },
         utils::collection_repr,
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -427,15 +427,7 @@ mod _collections {
         }
     }
 
-    impl Constructor for PyDeque {
-        type Args = FuncArgs;
-
-        fn py_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            PyDeque::default()
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
-        }
-    }
+    impl DefaultConstructor for PyDeque {}
 
     impl Initializer for PyDeque {
         type Args = PyDequeOptions;

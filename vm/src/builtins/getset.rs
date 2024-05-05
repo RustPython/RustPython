@@ -5,7 +5,7 @@ use super::PyType;
 use crate::{
     class::PyClassImpl,
     function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
-    types::{Constructor, GetDescriptor, Unconstructible},
+    types::{GetDescriptor, Unconstructible},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
@@ -94,7 +94,7 @@ impl PyGetSet {
     }
 }
 
-#[pyclass(with(GetDescriptor, Constructor))]
+#[pyclass(with(GetDescriptor, Unconstructible))]
 impl PyGetSet {
     // Descriptor methods
 

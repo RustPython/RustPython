@@ -1453,29 +1453,37 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
     }];
     let mut payload = None;
 
+    let mut has_constructor = false;
     for attr in attr {
         match attr {
             NestedMeta::Meta(Meta::List(syn::MetaList { path, nested, .. })) => {
                 if path.is_ident("with") {
                     for meta in nested {
-                        let NestedMeta::Meta(Meta::Path(path)) = meta else {
-                            bail_span!(meta, "#[pyclass(with(...))] arguments should be paths")
+                        let NestedMeta::Meta(Meta::Path(path)) = &meta else {
+                            bail_span!(meta, "#[pyclass(with(...))] arguments must be paths")
                         };
-                        let (extend_class, method_defs, extend_slots) =
-                            if path.is_ident("PyRef") || path.is_ident("Py") {
-                                // special handling for PyRef
-                                (
-                                    quote!(#path::<Self>::__extend_py_class),
-                                    quote!(#path::<Self>::__OWN_METHOD_DEFS),
-                                    quote!(#path::<Self>::__extend_slots),
-                                )
-                            } else {
-                                (
-                                    quote!(<Self as #path>::__extend_py_class),
-                                    quote!(<Self as #path>::__OWN_METHOD_DEFS),
-                                    quote!(<Self as #path>::__extend_slots),
-                                )
-                            };
+                        let (extend_class, method_defs, extend_slots) = if path.is_ident("PyRef")
+                            || path.is_ident("Py")
+                        {
+                            // special handling for PyRef
+                            (
+                                quote!(#path::<Self>::__extend_py_class),
+                                quote!(#path::<Self>::__OWN_METHOD_DEFS),
+                                quote!(#path::<Self>::__extend_slots),
+                            )
+                        } else {
+                            if path.is_ident("DefaultConstructor") {
+                                bail_span!(meta, "Try `#[pyclass(with(Constructor, ...))]` instead of `#[pyclass(with(DefaultConstructor, ...))]`. DefaultConstructor implicitly implements Constructor.")
+                            }
+                            if path.is_ident("Constructor") || path.is_ident("Unconstructible") {
+                                has_constructor = true;
+                            }
+                            (
+                                quote!(<Self as #path>::__extend_py_class),
+                                quote!(<Self as #path>::__OWN_METHOD_DEFS),
+                                quote!(<Self as #path>::__extend_slots),
+                            )
+                        };
                         let item_span = item.span().resolved_at(Span::call_site());
                         withs.push(quote_spanned! { path.span() =>
                             #extend_class(ctx, class);
@@ -1518,6 +1526,11 @@ fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImpl
             attr => bail_span!(attr, "Unknown pyimpl attribute"),
         }
     }
+    // TODO: DISALLOW_INSTANTIATION check is required
+    let _ = has_constructor;
+    // if !withs.is_empty() && !has_constructor {
+    //     bail_span!(item, "#[pyclass(with(...))] does not have a Constructor. Either #[pyclass(with(Constructor, ...))] or #[pyclass(with(Unconstructible, ...))] is mandatory. Consider to add `impl DefaultConstructor for T {{}}` or `impl Unconstructible for T {{}}`.")
+    // }
 
     Ok(ExtractedImplAttrs {
         payload,

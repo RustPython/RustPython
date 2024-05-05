@@ -11,13 +11,13 @@ use crate::{
     common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
     convert::ToPyResult,
     dictdatatype::{self, DictSize},
-    function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
+    function::{ArgIterable, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::AsNumber,
     types::{
-        AsSequence, Comparable, Constructor, Hashable, Initializer, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter, Unconstructible,
+        AsSequence, Comparable, Constructor, DefaultConstructor, Hashable, Initializer, IterNext,
+        Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     utils::collection_repr,
     vm::VirtualMachine,
@@ -765,13 +765,7 @@ impl PySet {
     }
 }
 
-impl Constructor for PySet {
-    type Args = FuncArgs;
-
-    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PySet::default().into_ref_with_type(vm, cls).map(Into::into)
-    }
-}
+impl DefaultConstructor for PySet {}
 
 impl Initializer for PySet {
     type Args = OptionalArg<PyObjectRef>;
@@ -1253,7 +1247,7 @@ impl PyPayload for PySetIterator {
     }
 }
 
-#[pyclass(with(Constructor, IterNext, Iterable))]
+#[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PySetIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {

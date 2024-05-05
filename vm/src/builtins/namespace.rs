@@ -1,10 +1,12 @@
-use super::{tuple::IntoPyTuple, PyTupleRef, PyType, PyTypeRef};
+use super::{tuple::IntoPyTuple, PyTupleRef, PyType};
 use crate::{
     builtins::PyDict,
     class::PyClassImpl,
     function::{FuncArgs, PyComparisonValue},
     recursion::ReprGuard,
-    types::{Comparable, Constructor, Initializer, PyComparisonOp, Representable},
+    types::{
+        Comparable, Constructor, DefaultConstructor, Initializer, PyComparisonOp, Representable,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -12,7 +14,7 @@ use crate::{
 ///
 /// SimpleNamespace(**kwargs)
 #[pyclass(module = "types", name = "SimpleNamespace")]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PyNamespace {}
 
 impl PyPayload for PyNamespace {
@@ -21,13 +23,7 @@ impl PyPayload for PyNamespace {
     }
 }
 
-impl Constructor for PyNamespace {
-    type Args = FuncArgs;
-
-    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyNamespace {}.into_ref_with_type(vm, cls).map(Into::into)
-    }
-}
+impl DefaultConstructor for PyNamespace {}
 
 impl PyNamespace {
     pub fn new_ref(ctx: &Context) -> PyRef<Self> {

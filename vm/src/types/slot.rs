@@ -767,23 +767,26 @@ pub trait Constructor: PyPayload {
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
+pub trait DefaultConstructor: PyPayload + Default {}
+
+/// For types that cannot be instantiated through Python code.
 #[pyclass]
-pub trait DefaultConstructor: PyPayload + Default {
-    #[inline]
+pub trait Unconstructible: PyPayload {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        Self::default().into_ref_with_type(vm, cls).map(Into::into)
+        Err(vm.new_type_error(format!("cannot create {} instances", cls.slot_name())))
     }
 }
 
-/// For types that cannot be instantiated through Python code.
-pub trait Unconstructible: PyPayload {}
-
 impl<T> Constructor for T
 where
-    T: Unconstructible,
+    T: DefaultConstructor,
 {
     type Args = FuncArgs;
+
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        Self::default().into_ref_with_type(vm, cls).map(Into::into)
+    }
 
     fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error(format!("cannot create {} instances", cls.slot_name())))

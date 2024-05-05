@@ -8,8 +8,8 @@ use crate::{
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     types::{
-        AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter, Unconstructible,
+        AsMapping, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
+        Representable, SelfIter, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -537,7 +537,7 @@ impl PyPayload for PyLongRangeIterator {
     }
 }
 
-#[pyclass(with(Constructor, IterNext, Iterable))]
+#[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyLongRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> BigInt {
@@ -602,7 +602,7 @@ impl PyPayload for PyRangeIterator {
     }
 }
 
-#[pyclass(with(Constructor, IterNext, Iterable))]
+#[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyRangeIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {

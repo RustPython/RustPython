@@ -688,7 +688,7 @@ impl PyPayload for PyBytesIterator {
     }
 }
 
-#[pyclass(with(Constructor, IterNext, Iterable))]
+#[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyBytesIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {

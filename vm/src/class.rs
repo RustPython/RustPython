@@ -70,7 +70,10 @@ pub trait PyClassDef {
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
-    fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
+    fn extend_class(ctx: &Context, class: &'static Py<PyType>)
+    where
+        Self: Sized,
+    {
         #[cfg(debug_assertions)]
         {
             assert!(class.slots.flags.is_created_with_flags());
@@ -120,7 +123,7 @@ pub trait PyClassImpl: PyClassDef {
 
     fn make_class(ctx: &Context) -> PyTypeRef
     where
-        Self: StaticType,
+        Self: StaticType + Sized,
     {
         (*Self::static_cell().get_or_init(|| {
             let typ = Self::create_static_type();

@@ -3,7 +3,7 @@ use crate::{
     class::PyClassImpl,
     convert::TryFromObject,
     function::{FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags, PyNativeFn},
-    types::{Callable, Comparable, Constructor, PyComparisonOp, Representable, Unconstructible},
+    types::{Callable, Comparable, PyComparisonOp, Representable, Unconstructible},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use std::fmt;
@@ -65,7 +65,7 @@ impl Callable for PyNativeFunction {
     }
 }
 
-#[pyclass(with(Callable, Constructor), flags(HAS_DICT))]
+#[pyclass(with(Callable, Unconstructible), flags(HAS_DICT))]
 impl PyNativeFunction {
     #[pygetset(magic)]
     fn module(zelf: NativeFunctionOrMethod) -> Option<&'static PyStrInterned> {
@@ -138,7 +138,10 @@ pub struct PyNativeMethod {
     pub(crate) class: &'static Py<PyType>, // TODO: the actual life is &'self
 }
 
-#[pyclass(with(Callable, Comparable, Representable), flags(HAS_DICT))]
+#[pyclass(
+    with(Unconstructible, Callable, Comparable, Representable),
+    flags(HAS_DICT)
+)]
 impl PyNativeMethod {
     #[pygetset(magic)]
     fn qualname(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {

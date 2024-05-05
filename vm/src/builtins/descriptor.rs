@@ -3,7 +3,7 @@ use crate::{
     builtins::{builtin_func::PyNativeMethod, type_},
     class::PyClassImpl,
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
-    types::{Callable, Constructor, GetDescriptor, Representable, Unconstructible},
+    types::{Callable, GetDescriptor, Representable, Unconstructible},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use rustpython_common::lock::PyRwLock;
@@ -103,7 +103,7 @@ impl PyMethodDescriptor {
 }
 
 #[pyclass(
-    with(GetDescriptor, Callable, Constructor, Representable),
+    with(GetDescriptor, Callable, Unconstructible, Representable),
     flags(METHOD_DESCRIPTOR)
 )]
 impl PyMethodDescriptor {
@@ -237,7 +237,7 @@ fn calculate_qualname(descr: &PyDescriptorOwned, vm: &VirtualMachine) -> PyResul
     }
 }
 
-#[pyclass(with(GetDescriptor, Constructor, Representable), flags(BASETYPE))]
+#[pyclass(with(GetDescriptor, Unconstructible, Representable), flags(BASETYPE))]
 impl PyMemberDescriptor {
     #[pygetset(magic)]
     fn doc(&self) -> Option<String> {

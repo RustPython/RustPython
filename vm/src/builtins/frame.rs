@@ -7,7 +7,7 @@ use crate::{
     class::PyClassImpl,
     frame::{Frame, FrameRef},
     function::PySetterValue,
-    types::{Constructor, Representable, Unconstructible},
+    types::{Representable, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
@@ -31,7 +31,7 @@ impl Representable for Frame {
     }
 }
 
-#[pyclass(with(Constructor, Py))]
+#[pyclass(with(Unconstructible, Py))]
 impl Frame {
     #[pymethod]
     fn clear(&self) {
