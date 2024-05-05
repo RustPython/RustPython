@@ -231,18 +231,9 @@ impl PyComplex {
 
 #[pyclass(
     flags(BASETYPE),
-    with(Comparable, Hashable, Constructor, AsNumber, Representable)
+    with(PyRef, Comparable, Hashable, Constructor, AsNumber, Representable)
 )]
 impl PyComplex {
-    #[pymethod(magic)]
-    fn complex(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyRef<PyComplex> {
-        if zelf.is(vm.ctx.types.complex_type) {
-            zelf
-        } else {
-            PyComplex::from(zelf.value).into_ref(&vm.ctx)
-        }
-    }
-
     #[pygetset]
     fn real(&self) -> f64 {
         self.value.re
@@ -384,6 +375,18 @@ impl PyComplex {
     fn getnewargs(&self) -> (f64, f64) {
         let Complex64 { re, im } = self.value;
         (re, im)
+    }
+}
+
+#[pyclass]
+impl PyRef<PyComplex> {
+    #[pymethod(magic)]
+    fn complex(self, vm: &VirtualMachine) -> PyRef<PyComplex> {
+        if self.is(vm.ctx.types.complex_type) {
+            self
+        } else {
+            PyComplex::from(self.value).into_ref(&vm.ctx)
+        }
     }
 }
 
