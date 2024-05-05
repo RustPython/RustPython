@@ -6,7 +6,7 @@ use crate::{
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
-    types::{Constructor, IterNext, Iterable, Representable, SelfIter, Unconstructible},
+    types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
@@ -26,7 +26,7 @@ impl PyPayload for PyAsyncGen {
     }
 }
 
-#[pyclass(with(PyRef, Constructor, Representable))]
+#[pyclass(with(PyRef, Unconstructible, Representable))]
 impl PyAsyncGen {
     pub fn as_coro(&self) -> &Coro {
         &self.inner

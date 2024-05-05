@@ -8,7 +8,7 @@ use crate::{
     },
     object::PyObjectPayload,
     sliceable::SequenceIndexOp,
-    types::{Constructor, Unconstructible},
+    types::Unconstructible,
     Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use itertools::Itertools;
@@ -404,7 +404,7 @@ pub struct VecBuffer {
     data: PyMutex<Vec<u8>>,
 }
 
-#[pyclass(flags(BASETYPE), with(Constructor))]
+#[pyclass(flags(BASETYPE), with(Unconstructible))]
 impl VecBuffer {
     pub fn take(&self) -> Vec<u8> {
         std::mem::take(&mut self.data.lock())

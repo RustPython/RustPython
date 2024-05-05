@@ -1694,7 +1694,7 @@ mod _io {
     }
 
     #[pyclass(
-        with(DefaultConstructor, BufferedMixin, BufferedReadable),
+        with(Constructor, BufferedMixin, BufferedReadable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedReader {}
@@ -1744,7 +1744,7 @@ mod _io {
     }
 
     #[pyclass(
-        with(DefaultConstructor, BufferedMixin, BufferedWritable),
+        with(Constructor, BufferedMixin, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedWriter {}
@@ -1780,7 +1780,7 @@ mod _io {
     }
 
     #[pyclass(
-        with(DefaultConstructor, BufferedMixin, BufferedReadable, BufferedWritable),
+        with(Constructor, BufferedMixin, BufferedReadable, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedRandom {}
@@ -1824,7 +1824,7 @@ mod _io {
     }
 
     #[pyclass(
-        with(DefaultConstructor, Initializer, BufferedReadable, BufferedWritable),
+        with(Constructor, Initializer, BufferedReadable, BufferedWritable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl BufferedRWPair {
@@ -2292,7 +2292,7 @@ mod _io {
         }
     }
 
-    #[pyclass(with(DefaultConstructor, Initializer), flags(BASETYPE))]
+    #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl TextIOWrapper {
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
@@ -3724,7 +3724,7 @@ mod fileio {
         function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg, OptionalOption},
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
         stdlib::os,
-        types::{DefaultConstructor, Initializer, Representable},
+        types::{Constructor, DefaultConstructor, Initializer, Representable},
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -3987,7 +3987,7 @@ mod fileio {
     }
 
     #[pyclass(
-        with(DefaultConstructor, Initializer, Representable),
+        with(Constructor, Initializer, Representable),
         flags(BASETYPE, HAS_DICT)
     )]
     impl FileIO {

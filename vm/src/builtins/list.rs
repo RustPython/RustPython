@@ -538,7 +538,7 @@ impl PyPayload for PyListIterator {
     }
 }
 
-#[pyclass(with(Constructor, IterNext, Iterable))]
+#[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyListIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
@@ -583,7 +583,7 @@ impl PyPayload for PyListReverseIterator {
     }
 }
 
-#[pyclass(with(Constructor, IterNext, Iterable))]
+#[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyListReverseIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {

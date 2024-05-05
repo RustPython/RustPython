@@ -21,8 +21,7 @@ use crate::{
     },
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIterable, ArgSize, Either, FuncArgs, OptionalArg, OptionalOption,
-        PyComparisonValue,
+        ArgBytesLike, ArgIterable, ArgSize, Either, OptionalArg, OptionalOption, PyComparisonValue,
     },
     protocol::{
         BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
@@ -30,8 +29,9 @@ use crate::{
     },
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
     types::{
-        AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Initializer,
-        IterNext, Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
+        AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor,
+        DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
+        SelfIter, Unconstructible,
     },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
@@ -696,15 +696,7 @@ impl PyRef<PyByteArray> {
     }
 }
 
-impl Constructor for PyByteArray {
-    type Args = FuncArgs;
-
-    fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        PyByteArray::default()
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
-    }
-}
+impl DefaultConstructor for PyByteArray {}
 
 impl Initializer for PyByteArray {
     type Args = ByteInnerNewOptions;
@@ -891,7 +883,7 @@ impl PyPayload for PyByteArrayIterator {
     }
 }
 
-#[pyclass(with(Constructor, IterNext, Iterable))]
+#[pyclass(with(Unconstructible, IterNext, Iterable))]
 impl PyByteArrayIterator {
     #[pymethod(magic)]
     fn length_hint(&self) -> usize {
