@@ -1,5 +1,4 @@
 use self::types::{PyBaseException, PyBaseExceptionRef};
-use crate::builtins::PyInt;
 use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
@@ -143,94 +142,122 @@ impl VirtualMachine {
         let args_repr = vm.exception_args_as_string(varargs, true);
 
         let exc_class = exc.class();
+
+        if exc_class.fast_issubclass(vm.ctx.exceptions.syntax_error) {
+            return self.write_syntaxerror(output, exc, exc_class, &args_repr);
+        }
+
         let exc_name = exc_class.name();
+        match args_repr.len() {
+            0 => write!(output, "{exc_name}"),
+            1 => write!(output, "{}: {}", exc_name, args_repr[0]),
+            _ => write!(
+                output,
+                "{}: ({})",
+                exc_name,
+                args_repr.into_iter().format(", "),
+            ),
+        }?;
+
+        match offer_suggestions(exc, vm) {
+            Some(suggestions) => writeln!(output, ". Did you mean: '{suggestions}'?"),
+            None => writeln!(output),
+        }
+    }
+
+    /// Format and write a SyntaxError
+    /// This logic is derived from TracebackException._format_syntax_error
+    ///
+    /// The logic has support for `end_offset` to highlight a range in the source code,
+    /// but it looks like `end_offset` is not used yet when SyntaxErrors are created.
+    fn write_syntaxerror<W: Write>(
+        &self,
+        output: &mut W,
+        exc: &PyBaseExceptionRef,
+        exc_type: &Py<PyType>,
+        args_repr: &[PyRef<PyStr>],
+    ) -> Result<(), W::Error> {
+        let vm = self;
+        debug_assert!(exc_type.fast_issubclass(vm.ctx.exceptions.syntax_error));
+
+        let getattr = |attr: &'static str| exc.as_object().get_attr(attr, vm).ok();
+
+        let maybe_lineno = getattr("lineno").map(|obj| {
+            obj.str(vm)
+                .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
+        });
+        let maybe_filename = getattr("filename").and_then(|obj| obj.str(vm).ok());
+
+        let maybe_text = getattr("text").map(|obj| {
+            obj.str(vm)
+                .unwrap_or_else(|_| vm.ctx.new_str("<text str() failed>"))
+        });
 
         let mut filename_suffix = String::new();
 
-        if exc_class.fast_issubclass(vm.ctx.exceptions.syntax_error) {
-            // FIXME: this is a lot of code so it should probably be moved to a separate function
+        if let Some(lineno) = maybe_lineno {
+            writeln!(
+                output,
+                r##"  File "{}", line {}"##,
+                maybe_filename
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or("<string>"),
+                lineno
+            )?;
+        } else if let Some(filename) = maybe_filename {
+            filename_suffix = format!(" ({})", filename);
+        }
 
-            // This logic is derived from TracebackException._format_syntax_error
+        if let Some(text) = maybe_text {
+            // if text ends with \n, remove it
+            let rtext = text.as_str().trim_end_matches('\n');
+            let ltext = rtext.trim_start_matches([' ', '\n', '\x0c']); // \x0c is \f
+            let spaces = (rtext.len() - ltext.len()) as isize;
 
-            let maybe_lineno = exc.as_object().get_attr("lineno", vm).ok().map(|obj| {
-                obj.str(vm)
-                    .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
-            }); // FIXME: is there a more elegant way to get attr as str or int?
-            let maybe_filename = exc
-                .as_object()
-                .get_attr("filename", vm)
-                .ok()
-                .and_then(|obj| obj.str(vm).ok().map(|obj| obj.as_str().to_owned()));
+            writeln!(output, "    {}", ltext)?;
 
-            let maybe_text = exc.as_object().get_attr("text", vm).ok().map(|obj| {
-                obj.str(vm)
-                    .unwrap_or_else(|_| vm.ctx.new_str("<text str() failed>"))
-            });
+            let maybe_offset: Option<isize> =
+                getattr("offset").and_then(|obj| obj.try_to_value::<isize>(vm).ok());
 
-            if let Some(lineno) = maybe_lineno {
-                writeln!(
-                    output,
-                    r##"  File "{}", line {}"##,
-                    maybe_filename
-                        .as_ref()
-                        .map(String::as_str)
-                        .unwrap_or("<string>"),
-                    lineno
-                )?;
-            } else if let Some(filename) = maybe_filename {
-                filename_suffix = format!(" ({})", filename);
-            }
+            if let Some(offset) = maybe_offset {
+                let maybe_end_offset: Option<isize> =
+                    getattr("end_offset").and_then(|obj| obj.try_to_value::<isize>(vm).ok());
 
-            if let Some(text) = maybe_text {
-                // if text ends with \n, remove it
-                let rtext = text.as_str().trim_end_matches('\n');
-                let ltext = rtext.trim_start_matches(&[' ', '\n', '\x0c']); // \x0c is \f
-                let spaces = (rtext.len() - ltext.len()) as isize;
+                let mut end_offset = match maybe_end_offset {
+                    Some(0) | None => offset,
+                    Some(end_offset) => end_offset,
+                };
 
-                writeln!(output, "    {}", ltext)?;
+                if offset == end_offset || end_offset == -1 {
+                    end_offset = offset + 1;
+                }
 
-                let maybe_offset: Option<isize> = exc
-                    .as_object()
-                    .get_attr("offset", vm)
-                    .ok()
-                    .and_then(|obj| obj.try_to_value::<isize>().ok());
+                // Convert 1-based column offset to 0-based index into stripped text
+                let colno = offset - 1 - spaces;
+                let end_colno = end_offset - 1 - spaces;
+                if colno >= 0 {
+                    let caretspace = ltext.chars().collect::<Vec<_>>()[..colno as usize]
+                        .iter()
+                        .map(|c| if c.is_whitespace() { *c } else { ' ' })
+                        .collect::<String>();
 
-                if let Some(offset) = maybe_offset {
-                    let maybe_end_offset: Option<isize> = exc
-                        .as_object() // FIXME: end_offset doesn't seem used yet
-                        .get_attr("end_offset", vm)
-                        .ok()
-                        .and_then(|obj| obj.downcast::<PyInt>().ok())
-                        .and_then(|int| int.try_to_primitive(vm).ok());
-
-                    let mut end_offset = match maybe_end_offset {
-                        Some(0) | None => offset,
-                        Some(end_offset) => end_offset,
-                    };
-
-                    if offset == end_offset || end_offset == -1 {
-                        end_offset = offset + 1;
+                    let mut error_width = end_colno - colno;
+                    if error_width < 1 {
+                        error_width = 1;
                     }
 
-                    // Convert 1-based column offset to 0-based index into stripped text
-                    let colno = offset - 1 - spaces;
-                    let end_colno = end_offset - 1 - spaces;
-                    if colno >= 0 {
-                        let caretspace = ltext.chars().collect::<Vec<_>>()[..colno as usize]
-                            .into_iter()
-                            .map(|c| if c.is_whitespace() { *c } else { ' ' })
-                            .collect::<String>();
-
-                        writeln!(
-                            output,
-                            "    {}{}",
-                            caretspace,
-                            "^".repeat((end_colno - colno) as usize)
-                        )?;
-                    }
+                    writeln!(
+                        output,
+                        "    {}{}",
+                        caretspace,
+                        "^".repeat(error_width as usize)
+                    )?;
                 }
             }
         }
+
+        let exc_name = exc_type.name();
 
         match args_repr.len() {
             0 => write!(output, "{exc_name}{filename_suffix}"),
@@ -239,7 +266,7 @@ impl VirtualMachine {
                 output,
                 "{}: ({}){}",
                 exc_name,
-                args_repr.into_iter().format(", "),
+                args_repr.iter().format(", "),
                 filename_suffix
             ),
         }?;
