@@ -193,8 +193,7 @@ impl VirtualMachine {
                     .as_object()
                     .get_attr("offset", vm)
                     .ok()
-                    .and_then(|obj| obj.downcast::<PyInt>().ok())
-                    .and_then(|int| int.try_to_primitive(vm).ok());
+                    .and_then(|obj| obj.try_to_value::<isize>().ok());
 
                 if let Some(offset) = maybe_offset {
                     let maybe_end_offset: Option<isize> = exc
