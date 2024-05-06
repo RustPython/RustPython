@@ -106,7 +106,7 @@ impl PyWeakProxy {
     }
     #[pymethod(magic)]
     fn contains(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        self.try_upgrade(vm)?.to_sequence(vm).contains(&needle, vm)
+        self.try_upgrade(vm)?.to_sequence().contains(&needle, vm)
     }
 
     fn getitem(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {

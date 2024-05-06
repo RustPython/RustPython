@@ -205,11 +205,11 @@ impl PyDict {
         PyRef,
         Constructor,
         Initializer,
-        AsMapping,
         Comparable,
         Iterable,
         AsSequence,
         AsNumber,
+        AsMapping,
         Representable
     ),
     flags(BASETYPE)
@@ -1114,8 +1114,8 @@ impl ViewSetOps for PyDictKeys {}
 ))]
 impl PyDictKeys {
     #[pymethod(magic)]
-    fn contains(zelf: PyRef<Self>, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        zelf.dict().contains(key, vm)
+    fn contains(zelf: PyObjectRef, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.to_sequence().contains(&key, vm)
     }
 
     #[pygetset]
@@ -1178,23 +1178,8 @@ impl ViewSetOps for PyDictItems {}
 ))]
 impl PyDictItems {
     #[pymethod(magic)]
-    fn contains(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let needle = match_class! {
-            match needle {
-                tuple @ PyTuple => tuple,
-                _ => return Ok(false),
-            }
-        };
-        if needle.len() != 2 {
-            return Ok(false);
-        }
-        let key = needle.fast_getitem(0);
-        if !zelf.dict().contains(key.clone(), vm)? {
-            return Ok(false);
-        }
-        let value = needle.fast_getitem(1);
-        let found = zelf.dict().getitem(key, vm)?;
-        vm.identical_or_equal(&found, &value)
+    fn contains(zelf: PyObjectRef, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        zelf.to_sequence().contains(&needle, vm)
     }
     #[pygetset]
     fn mapping(zelf: PyRef<Self>) -> PyMappingProxy {
@@ -1219,10 +1204,22 @@ impl AsSequence for PyDictItems {
         static AS_SEQUENCE: Lazy<PySequenceMethods> = Lazy::new(|| PySequenceMethods {
             length: atomic_func!(|seq, _vm| Ok(PyDictItems::sequence_downcast(seq).len())),
             contains: atomic_func!(|seq, target, vm| {
-                PyDictItems::sequence_downcast(seq)
-                    .dict
-                    .entries
-                    .contains(vm, target)
+                let needle: &Py<PyTuple> = match target.downcast_ref() {
+                    Some(needle) => needle,
+                    None => return Ok(false),
+                };
+                if needle.len() != 2 {
+                    return Ok(false);
+                }
+
+                let zelf = PyDictItems::sequence_downcast(seq);
+                let key = needle.fast_getitem(0);
+                if !zelf.dict.contains(key.clone(), vm)? {
+                    return Ok(false);
+                }
+                let value = needle.fast_getitem(1);
+                let found = zelf.dict().getitem(key, vm)?;
+                vm.identical_or_equal(&found, &value)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });

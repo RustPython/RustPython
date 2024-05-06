@@ -4,7 +4,7 @@ use crate::{
     function::PyArithmeticValue,
     object::{Traverse, TraverseFn},
     protocol::{PyMapping, PyNumberBinaryOp},
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -15,11 +15,11 @@ use std::fmt::Debug;
 
 impl PyObject {
     #[inline]
-    pub fn to_sequence(&self, vm: &VirtualMachine) -> PySequence<'_> {
+    pub fn to_sequence(&self) -> PySequence<'_> {
         static GLOBAL_NOT_IMPLEMENTED: PySequenceMethods = PySequenceMethods::NOT_IMPLEMENTED;
         PySequence {
             obj: self,
-            methods: PySequence::find_methods(self, vm)
+            methods: PySequence::find_methods(self)
                 .map_or(&GLOBAL_NOT_IMPLEMENTED, |x| unsafe { x.borrow_static() }),
         }
     }
@@ -79,7 +79,7 @@ impl<'a> PySequence<'a> {
     }
 
     pub fn try_protocol(obj: &'a PyObject, vm: &VirtualMachine) -> PyResult<Self> {
-        let seq = obj.to_sequence(vm);
+        let seq = obj.to_sequence();
         if seq.check() {
             Ok(seq)
         } else {
@@ -93,15 +93,8 @@ impl PySequence<'_> {
         self.methods.item.load().is_some()
     }
 
-    pub fn find_methods(
-        obj: &PyObject,
-        vm: &VirtualMachine,
-    ) -> Option<PointerSlot<PySequenceMethods>> {
+    pub fn find_methods(obj: &PyObject) -> Option<PointerSlot<PySequenceMethods>> {
         let cls = obj.class();
-        // if cls.fast_issubclass(vm.ctx.types.dict_type) {
-        if cls.is(vm.ctx.types.dict_type) {
-            return None;
-        }
         cls.mro_find_map(|x| x.slots.as_sequence.load())
     }
 
@@ -124,7 +117,7 @@ impl PySequence<'_> {
         }
 
         // if both arguments apear to be sequences, try fallback to __add__
-        if self.check() && other.to_sequence(vm).check() {
+        if self.check() && other.to_sequence().check() {
             let ret = vm.binary_op1(self.obj, other, PyNumberBinaryOp::Add)?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);
@@ -162,7 +155,7 @@ impl PySequence<'_> {
         }
 
         // if both arguments apear to be sequences, try fallback to __iadd__
-        if self.check() && other.to_sequence(vm).check() {
+        if self.check() && other.to_sequence().check() {
             let ret = vm._iadd(self.obj, other)?;
             if let PyArithmeticValue::Implemented(ret) = PyArithmeticValue::from_object(vm, ret) {
                 return Ok(ret);

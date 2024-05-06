@@ -1075,8 +1075,6 @@ class MappingProxyTests(unittest.TestCase):
         self.assertTrue('x' in view)
         self.assertFalse('y' in view)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_customdict(self):
         class customdict(dict):
             def __contains__(self, key):

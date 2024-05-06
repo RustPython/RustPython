@@ -569,7 +569,7 @@ impl PyObject {
     }
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
-        self.to_sequence(vm)
+        self.to_sequence()
             .length_opt(vm)
             .or_else(|| self.to_mapping().length_opt(vm))
     }
@@ -628,7 +628,7 @@ impl PyObject {
             return f(mapping, &needle, Some(value), vm);
         }
 
-        let seq = self.to_sequence(vm);
+        let seq = self.to_sequence();
         if let Some(f) = seq.methods.ass_item.load() {
             let i = needle.key_as_isize(vm)?;
             return f(seq, i, Some(value), vm);
@@ -650,7 +650,7 @@ impl PyObject {
             let needle = needle.to_pyobject(vm);
             return f(mapping, &needle, None, vm);
         }
-        let seq = self.to_sequence(vm);
+        let seq = self.to_sequence();
         if let Some(f) = seq.methods.ass_item.load() {
             let i = needle.key_as_isize(vm)?;
             return f(seq, i, None, vm);

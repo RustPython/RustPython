@@ -208,6 +208,15 @@ pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize
     Ok(len as usize)
 }
 
+pub(crate) fn contains_wrapper(
+    obj: &PyObject,
+    needle: &PyObject,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    let ret = vm.call_special_method(obj, identifier!(vm, __contains__), (needle,))?;
+    ret.try_to_bool(vm)
+}
+
 macro_rules! number_unary_op_wrapper {
     ($name:ident) => {
         |a, vm| vm.call_special_method(a.deref(), identifier!(vm, $name), ())
@@ -446,6 +455,12 @@ impl PyType {
                     setitem_wrapper(mapping.obj, key, value, vm)
                 });
                 update_pointer_slot!(as_mapping, mapping_methods);
+            }
+            _ if name == identifier!(ctx, __contains__) => {
+                toggle_ext_func!(sequence_methods, contains, |seq, needle, vm| {
+                    contains_wrapper(seq.obj, needle, vm)
+                });
+                update_pointer_slot!(as_sequence, sequence_methods);
             }
             _ if name == identifier!(ctx, __repr__) => {
                 update_slot!(repr, repr_wrapper);
