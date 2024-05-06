@@ -1784,7 +1784,7 @@ impl ExecutingFrame<'_> {
         {
             Ok(d) => d.contains_key(__annotations__, vm),
             Err(o) => {
-                let needle = __annotations__.to_object();
+                let needle = __annotations__.as_object();
                 self._in(vm, needle, &o)?
             }
         };
@@ -1857,16 +1857,16 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    fn _in(&self, vm: &VirtualMachine, needle: PyObjectRef, haystack: &PyObject) -> PyResult<bool> {
+    fn _in(&self, vm: &VirtualMachine, needle: &PyObject, haystack: &PyObject) -> PyResult<bool> {
         let found = vm._contains(haystack, needle)?;
-        found.try_to_bool(vm)
+        Ok(found)
     }
 
     #[inline(always)]
     fn _not_in(
         &self,
         vm: &VirtualMachine,
-        needle: PyObjectRef,
+        needle: &PyObject,
         haystack: &PyObject,
     ) -> PyResult<bool> {
         Ok(!self._in(vm, needle, haystack)?)
@@ -1879,8 +1879,8 @@ impl ExecutingFrame<'_> {
         let value = match op {
             bytecode::TestOperator::Is => a.is(&b),
             bytecode::TestOperator::IsNot => !a.is(&b),
-            bytecode::TestOperator::In => self._in(vm, a, &b)?,
-            bytecode::TestOperator::NotIn => self._not_in(vm, a, &b)?,
+            bytecode::TestOperator::In => self._in(vm, &a, &b)?,
+            bytecode::TestOperator::NotIn => self._not_in(vm, &a, &b)?,
             bytecode::TestOperator::ExceptionMatch => {
                 if let Some(tuple_of_exceptions) = b.downcast_ref::<PyTuple>() {
                     for exception in tuple_of_exceptions.iter() {

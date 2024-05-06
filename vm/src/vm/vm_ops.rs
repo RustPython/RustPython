@@ -1,4 +1,4 @@
-use super::{PyMethod, VirtualMachine};
+use super::VirtualMachine;
 use crate::{
     builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
     object::{AsObject, PyObject, PyObjectRef, PyResult},
@@ -522,12 +522,8 @@ impl VirtualMachine {
         }
     }
 
-    pub fn _contains(&self, haystack: &PyObject, needle: PyObjectRef) -> PyResult {
-        match PyMethod::get_special::<false>(haystack, identifier!(self, __contains__), self)? {
-            Some(method) => method.invoke((needle,), self),
-            None => self
-                ._membership_iter_search(haystack, needle)
-                .map(Into::into),
-        }
+    pub fn _contains(&self, haystack: &PyObject, needle: &PyObject) -> PyResult<bool> {
+        let seq = haystack.to_sequence();
+        seq.contains(needle, self)
     }
 }
