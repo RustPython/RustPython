@@ -2,43 +2,26 @@ pub(crate) use _typing::make_module;
 
 #[pymodule]
 pub(crate) mod _typing {
-    use std::cell::Cell;
-
     use crate::{
-        atomic_func,
-        builtins::{
-            pystr::AsPyStr, PyFrozenSet, PyGenericAlias, PyStr, PyTuple, PyTupleRef, PyType,
-            PyTypeRef,
-        },
-        class::PyClassImpl,
-        common::hash,
-        convert::{ToPyObject, ToPyResult},
-        function::PyComparisonValue,
-        function::{Either, FuncArgs, IntoFuncArgs, OptionalArg},
-        protocol::{PyMappingMethods, PyNumberMethods},
-        types::PyStructSequence,
-        types::{
-            AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable,
-        },
-        AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-        VirtualMachine,
+        builtins::{pystr::AsPyStr, PyGenericAlias, PyTupleRef, PyTypeRef},
+        function::IntoFuncArgs,
+        PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
-    use once_cell::sync::Lazy;
 
-    pub(crate) fn call_typing_func_object<'a>(
-        vm: &VirtualMachine,
-        func_name: impl AsPyStr<'a>,
-        args: impl IntoFuncArgs,
+    pub(crate) fn _call_typing_func_object<'a>(
+        _vm: &VirtualMachine,
+        _func_name: impl AsPyStr<'a>,
+        _args: impl IntoFuncArgs,
     ) -> PyResult {
         todo!("does this work????");
-        let module = vm.import("typing", 0)?;
+        // let module = vm.import("typing", 0)?;
         // let module = vm.import("_pycodecs", None, 0)?;
-        let func = module.get_attr(func_name, vm)?;
-        func.call(args, vm)
+        // let func = module.get_attr(func_name, vm)?;
+        // func.call(args, vm)
     }
 
     #[pyattr]
-    pub(crate) fn _idfunc(vm: &VirtualMachine) {}
+    pub(crate) fn _idfunc(_vm: &VirtualMachine) {}
 
     #[pyattr]
     #[pyclass(name = "TypeVar")]
@@ -56,7 +39,7 @@ pub(crate) mod _typing {
     }
     #[pyclass(flags(BASETYPE))]
     impl TypeVar {
-        pub(crate) fn bound(&self, vm: &VirtualMachine) -> PyResult {
+        pub(crate) fn _bound(&self, vm: &VirtualMachine) -> PyResult {
             let mut bound = self.bound.lock();
             if !vm.is_none(&bound) {
                 return Ok(bound.clone());

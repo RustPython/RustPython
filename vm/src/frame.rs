@@ -1189,7 +1189,6 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::TypeAlias => {
                 let name = self.pop_value();
-                let x = self.state.stack.last();
                 let type_params: PyTupleRef = self
                     .pop_value()
                     .downcast()
