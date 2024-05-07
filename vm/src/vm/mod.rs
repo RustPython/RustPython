@@ -283,6 +283,7 @@ impl VirtualMachine {
         stdlib::sys::init_module(self, &self.sys_module, &self.builtins);
 
         let mut essential_init = || -> PyResult {
+            import::import_builtin(self, "_typing")?;
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "_signal")?;
             #[cfg(any(feature = "parser", feature = "compiler"))]

@@ -70,6 +70,7 @@ pub enum SymbolTableType {
     Class,
     Function,
     Comprehension,
+    TypeParams,
 }
 
 impl fmt::Display for SymbolTableType {
@@ -79,6 +80,14 @@ impl fmt::Display for SymbolTableType {
             SymbolTableType::Class => write!(f, "class"),
             SymbolTableType::Function => write!(f, "function"),
             SymbolTableType::Comprehension => write!(f, "comprehension"),
+            SymbolTableType::TypeParams => write!(f, "type parameter"),
+            // TODO missing types from the C implementation
+            // if self._table.type == _symtable.TYPE_ANNOTATION:
+            //     return "annotation"
+            // if self._table.type == _symtable.TYPE_TYPE_VAR_BOUND:
+            //     return "TypeVar bound"
+            // if self._table.type == _symtable.TYPE_TYPE_ALIAS:
+            //     return "type alias"
         }
     }
 }
@@ -517,6 +526,9 @@ impl SymbolTableAnalyzer {
 
                 self.analyze_symbol_comprehension(symbol, parent_offset + 1)?;
             }
+            SymbolTableType::TypeParams => {
+                todo!("analyze symbol comprehension for type params");
+            }
         }
         Ok(())
     }
@@ -658,6 +670,7 @@ impl SymbolTableBuilder {
                 body,
                 args,
                 decorator_list,
+                type_params,
                 returns,
                 range,
                 ..
@@ -667,6 +680,7 @@ impl SymbolTableBuilder {
                 body,
                 args,
                 decorator_list,
+                type_params,
                 returns,
                 range,
                 ..
@@ -676,9 +690,20 @@ impl SymbolTableBuilder {
                 if let Some(expression) = returns {
                     self.scan_annotation(expression)?;
                 }
+                if !type_params.is_empty() {
+                    self.enter_scope(
+                        &format!("<generic parameters of {}>", name.as_str()),
+                        SymbolTableType::TypeParams,
+                        range.start.row.get(),
+                    );
+                    self.scan_type_params(type_params)?;
+                }
                 self.enter_function(name.as_str(), args, range.start.row)?;
                 self.scan_statements(body)?;
                 self.leave_scope();
+                if !type_params.is_empty() {
+                    self.leave_scope();
+                }
             }
             Stmt::ClassDef(StmtClassDef {
                 name,
@@ -686,9 +711,17 @@ impl SymbolTableBuilder {
                 bases,
                 keywords,
                 decorator_list,
-                type_params: _,
+                type_params,
                 range,
             }) => {
+                if !type_params.is_empty() {
+                    self.enter_scope(
+                        &format!("<generic parameters of {}>", name.as_str()),
+                        SymbolTableType::TypeParams,
+                        range.start.row.get(),
+                    );
+                    self.scan_type_params(type_params)?;
+                }
                 self.enter_scope(name.as_str(), SymbolTableType::Class, range.start.row.get());
                 let prev_class = std::mem::replace(&mut self.class_name, Some(name.to_string()));
                 self.register_name("__module__", SymbolUsage::Assigned, range.start)?;
@@ -701,6 +734,9 @@ impl SymbolTableBuilder {
                 self.scan_expressions(bases, ExpressionContext::Load)?;
                 for keyword in keywords {
                     self.scan_expression(&keyword.value, ExpressionContext::Load)?;
+                }
+                if !type_params.is_empty() {
+                    self.leave_scope();
                 }
                 self.scan_expressions(decorator_list, ExpressionContext::Load)?;
                 self.register_name(name.as_str(), SymbolUsage::Assigned, range.start)?;
@@ -864,7 +900,26 @@ impl SymbolTableBuilder {
                     self.scan_expression(expression, ExpressionContext::Load)?;
                 }
             }
-            Stmt::TypeAlias(StmtTypeAlias { .. }) => {}
+            Stmt::TypeAlias(StmtTypeAlias {
+                name,
+                value,
+                type_params,
+                range,
+            }) => {
+                if !type_params.is_empty() {
+                    self.enter_scope(
+                        &name.to_string(),
+                        SymbolTableType::TypeParams,
+                        range.start.row.get(),
+                    );
+                    self.scan_type_params(type_params)?;
+                    self.scan_expression(value, ExpressionContext::Load)?;
+                    self.leave_scope();
+                } else {
+                    self.scan_expression(value, ExpressionContext::Load)?;
+                }
+                self.scan_expression(name, ExpressionContext::Store)?;
+            }
         }
         Ok(())
     }
@@ -1184,6 +1239,26 @@ impl SymbolTableBuilder {
         assert!(!generators.is_empty());
         self.scan_expression(&generators[0].iter, ExpressionContext::IterDefinitionExp)?;
 
+        Ok(())
+    }
+
+    fn scan_type_params(&mut self, type_params: &[ast::located::TypeParam]) -> SymbolTableResult {
+        for type_param in type_params {
+            match type_param {
+                ast::located::TypeParam::TypeVar(ast::TypeParamTypeVar {
+                    name,
+                    bound,
+                    range: type_var_range,
+                }) => {
+                    self.register_name(name.as_str(), SymbolUsage::Assigned, type_var_range.start)?;
+                    if let Some(binding) = bound {
+                        self.scan_expression(binding, ExpressionContext::Load)?;
+                    }
+                }
+                ast::located::TypeParam::ParamSpec(_) => todo!(),
+                ast::located::TypeParam::TypeVarTuple(_) => todo!(),
+            }
+        }
         Ok(())
     }
 
