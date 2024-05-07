@@ -791,6 +791,7 @@ impl Compiler {
                 decorator_list,
                 returns.as_deref(),
                 true,
+                type_params,
             )?,
             Stmt::ClassDef(StmtClassDef {
                 name,
@@ -798,8 +799,16 @@ impl Compiler {
                 bases,
                 keywords,
                 decorator_list,
+                type_params,
                 ..
-            }) => self.compile_class_def(name.as_str(), body, bases, keywords, decorator_list)?,
+            }) => self.compile_class_def(
+                name.as_str(),
+                body,
+                bases,
+                keywords,
+                decorator_list,
+                type_params,
+            )?,
             Stmt::Assert(StmtAssert { test, msg, .. }) => {
                 // if some flag, ignore all assert statements!
                 if self.opts.optimize == 0 {
@@ -1428,6 +1437,7 @@ impl Compiler {
         bases: &[located_ast::Expr],
         keywords: &[located_ast::Keyword],
         decorator_list: &[located_ast::Expr],
+        type_params: &[located_ast::TypeParam],
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
@@ -1453,6 +1463,11 @@ impl Compiler {
         }
         self.push_qualified_path(name);
         let qualified_name = self.qualified_path.join(".");
+
+        // If there are type params, we need to push a special symbol table just for them
+        if !type_params.is_empty() {
+            self.push_symbol_table();
+        }
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
@@ -1504,8 +1519,19 @@ impl Compiler {
 
         let mut func_flags = bytecode::MakeFunctionFlags::empty();
 
+        // Prepare generic type parameters:
+        if !type_params.is_empty() {
+            self.compile_type_params(type_params)?;
+            func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
+        }
+
         if self.build_closure(&code) {
             func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
+        }
+
+        // Pop the special type params symbol table
+        if !type_params.is_empty() {
+            self.pop_symbol_table();
         }
 
         self.emit_constant(ConstantData::Code {

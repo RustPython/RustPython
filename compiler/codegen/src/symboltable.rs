@@ -711,9 +711,17 @@ impl SymbolTableBuilder {
                 bases,
                 keywords,
                 decorator_list,
-                type_params: _,
+                type_params,
                 range,
             }) => {
+                if !type_params.is_empty() {
+                    self.enter_scope(
+                        &format!("<generic parameters of {}>", name.as_str()),
+                        SymbolTableType::TypeParams,
+                        range.start.row.get(),
+                    );
+                    self.scan_type_params(type_params)?;
+                }
                 self.enter_scope(name.as_str(), SymbolTableType::Class, range.start.row.get());
                 let prev_class = std::mem::replace(&mut self.class_name, Some(name.to_string()));
                 self.register_name("__module__", SymbolUsage::Assigned, range.start)?;
@@ -726,6 +734,9 @@ impl SymbolTableBuilder {
                 self.scan_expressions(bases, ExpressionContext::Load)?;
                 for keyword in keywords {
                     self.scan_expression(&keyword.value, ExpressionContext::Load)?;
+                }
+                if !type_params.is_empty() {
+                    self.leave_scope();
                 }
                 self.scan_expressions(decorator_list, ExpressionContext::Load)?;
                 self.register_name(name.as_str(), SymbolUsage::Assigned, range.start)?;
