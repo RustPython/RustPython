@@ -900,7 +900,26 @@ impl SymbolTableBuilder {
                     self.scan_expression(expression, ExpressionContext::Load)?;
                 }
             }
-            Stmt::TypeAlias(StmtTypeAlias { .. }) => {}
+            Stmt::TypeAlias(StmtTypeAlias {
+                name,
+                value,
+                type_params,
+                range,
+            }) => {
+                if !type_params.is_empty() {
+                    self.enter_scope(
+                        &name.to_string(),
+                        SymbolTableType::TypeParams,
+                        range.start.row.get(),
+                    );
+                    self.scan_type_params(type_params)?;
+                    self.scan_expression(value, ExpressionContext::Load)?;
+                    self.leave_scope();
+                } else {
+                    self.scan_expression(value, ExpressionContext::Load)?;
+                }
+                self.scan_expression(name, ExpressionContext::Store)?;
+            }
         }
         Ok(())
     }

@@ -911,7 +911,27 @@ impl Compiler {
             Stmt::Pass(_) => {
                 // No need to emit any code here :)
             }
-            Stmt::TypeAlias(_) => {}
+            Stmt::TypeAlias(StmtTypeAlias {
+                name,
+                type_params,
+                value,
+                ..
+            }) => {
+                let name_string = name.to_string();
+                if !type_params.is_empty() {
+                    self.push_symbol_table();
+                }
+                self.compile_expression(value)?;
+                self.compile_type_params(type_params)?;
+                if !type_params.is_empty() {
+                    self.pop_symbol_table();
+                }
+                self.emit_constant(ConstantData::Str {
+                    value: name_string.clone(),
+                });
+                emit!(self, Instruction::TypeAlias);
+                self.store_name(&name_string)?;
+            }
         }
         Ok(())
     }
