@@ -765,6 +765,7 @@ impl Compiler {
                 body,
                 decorator_list,
                 returns,
+                type_params,
                 ..
             }) => self.compile_function_def(
                 name.as_str(),
@@ -773,6 +774,7 @@ impl Compiler {
                 decorator_list,
                 returns.as_deref(),
                 false,
+                type_params,
             )?,
             Stmt::AsyncFunctionDef(StmtAsyncFunctionDef {
                 name,
@@ -780,6 +782,7 @@ impl Compiler {
                 body,
                 decorator_list,
                 returns,
+                type_params,
                 ..
             }) => self.compile_function_def(
                 name.as_str(),
@@ -1019,6 +1022,47 @@ impl Compiler {
         }
     }
 
+    /// Store each type parameter so it is accessible to the current scope, and leave a tuple of
+    /// all the type parameters on the stack.
+    fn compile_type_params(&mut self, type_params: &[located_ast::TypeParam]) -> CompileResult<()> {
+        for type_param in type_params {
+            match type_param {
+                located_ast::TypeParam::TypeVar(located_ast::TypeParamTypeVar {
+                    name,
+                    bound,
+                    ..
+                }) => {
+                    if let Some(expr) = &bound {
+                        self.compile_expression(expr)?;
+                        self.emit_constant(ConstantData::Str {
+                            value: name.to_string(),
+                        });
+                        emit!(self, Instruction::TypeVarWithBound);
+                        emit!(self, Instruction::Duplicate);
+                        self.store_name(name.as_ref())?;
+                    } else {
+                        // self.store_name(type_name.as_str())?;
+                        self.emit_constant(ConstantData::Str {
+                            value: name.to_string(),
+                        });
+                        emit!(self, Instruction::TypeVar);
+                        emit!(self, Instruction::Duplicate);
+                        self.store_name(name.as_ref())?;
+                    }
+                }
+                located_ast::TypeParam::ParamSpec(_) => todo!(),
+                located_ast::TypeParam::TypeVarTuple(_) => todo!(),
+            };
+        }
+        emit!(
+            self,
+            Instruction::BuildTuple {
+                size: u32::try_from(type_params.len()).unwrap(),
+            }
+        );
+        Ok(())
+    }
+
     fn compile_try_statement(
         &mut self,
         body: &[located_ast::Stmt],
@@ -1165,6 +1209,7 @@ impl Compiler {
         is_forbidden_name(name)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn compile_function_def(
         &mut self,
         name: &str,
@@ -1173,10 +1218,15 @@ impl Compiler {
         decorator_list: &[located_ast::Expr],
         returns: Option<&located_ast::Expr>, // TODO: use type hint somehow..
         is_async: bool,
+        type_params: &[located_ast::TypeParam],
     ) -> CompileResult<()> {
-        // Create bytecode for this function:
-
         self.prepare_decorators(decorator_list)?;
+
+        // If there are type params, we need to push a special symbol table just for them
+        if !type_params.is_empty() {
+            self.push_symbol_table();
+        }
+
         let mut func_flags = self.enter_function(name, args)?;
         self.current_code_info()
             .flags
@@ -1223,6 +1273,12 @@ impl Compiler {
         self.qualified_path.pop();
         self.ctx = prev_ctx;
 
+        // Prepare generic type parameters:
+        if !type_params.is_empty() {
+            self.compile_type_params(type_params)?;
+            func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
+        }
+
         // Prepare type annotations:
         let mut num_annotations = 0;
 
@@ -1266,6 +1322,11 @@ impl Compiler {
 
         if self.build_closure(&code) {
             func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
+        }
+
+        // Pop the special type params symbol table
+        if !type_params.is_empty() {
+            self.pop_symbol_table();
         }
 
         self.emit_constant(ConstantData::Code {

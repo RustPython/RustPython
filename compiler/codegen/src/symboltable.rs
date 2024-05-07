@@ -70,6 +70,7 @@ pub enum SymbolTableType {
     Class,
     Function,
     Comprehension,
+    TypeParams,
 }
 
 impl fmt::Display for SymbolTableType {
@@ -79,6 +80,14 @@ impl fmt::Display for SymbolTableType {
             SymbolTableType::Class => write!(f, "class"),
             SymbolTableType::Function => write!(f, "function"),
             SymbolTableType::Comprehension => write!(f, "comprehension"),
+            SymbolTableType::TypeParams => write!(f, "type parameter"),
+            // TODO missing types from the C implementation
+            // if self._table.type == _symtable.TYPE_ANNOTATION:
+            //     return "annotation"
+            // if self._table.type == _symtable.TYPE_TYPE_VAR_BOUND:
+            //     return "TypeVar bound"
+            // if self._table.type == _symtable.TYPE_TYPE_ALIAS:
+            //     return "type alias"
         }
     }
 }
@@ -517,6 +526,9 @@ impl SymbolTableAnalyzer {
 
                 self.analyze_symbol_comprehension(symbol, parent_offset + 1)?;
             }
+            SymbolTableType::TypeParams => {
+                todo!("analyze symbol comprehension for type params");
+            }
         }
         Ok(())
     }
@@ -658,6 +670,7 @@ impl SymbolTableBuilder {
                 body,
                 args,
                 decorator_list,
+                type_params,
                 returns,
                 range,
                 ..
@@ -667,6 +680,7 @@ impl SymbolTableBuilder {
                 body,
                 args,
                 decorator_list,
+                type_params,
                 returns,
                 range,
                 ..
@@ -676,9 +690,20 @@ impl SymbolTableBuilder {
                 if let Some(expression) = returns {
                     self.scan_annotation(expression)?;
                 }
+                if !type_params.is_empty() {
+                    self.enter_scope(
+                        &format!("<generic parameters of {}>", name.as_str()),
+                        SymbolTableType::TypeParams,
+                        range.start.row.get(),
+                    );
+                    self.scan_type_params(type_params)?;
+                }
                 self.enter_function(name.as_str(), args, range.start.row)?;
                 self.scan_statements(body)?;
                 self.leave_scope();
+                if !type_params.is_empty() {
+                    self.leave_scope();
+                }
             }
             Stmt::ClassDef(StmtClassDef {
                 name,
@@ -1184,6 +1209,26 @@ impl SymbolTableBuilder {
         assert!(!generators.is_empty());
         self.scan_expression(&generators[0].iter, ExpressionContext::IterDefinitionExp)?;
 
+        Ok(())
+    }
+
+    fn scan_type_params(&mut self, type_params: &[ast::located::TypeParam]) -> SymbolTableResult {
+        for type_param in type_params {
+            match type_param {
+                ast::located::TypeParam::TypeVar(ast::TypeParamTypeVar {
+                    name,
+                    bound,
+                    range: type_var_range,
+                }) => {
+                    self.register_name(name.as_str(), SymbolUsage::Assigned, type_var_range.start)?;
+                    if let Some(binding) = bound {
+                        self.scan_expression(binding, ExpressionContext::Load)?;
+                    }
+                }
+                ast::located::TypeParam::ParamSpec(_) => todo!(),
+                ast::located::TypeParam::TypeVarTuple(_) => todo!(),
+            }
+        }
         Ok(())
     }
 
