@@ -1164,10 +1164,6 @@ impl ExecutingFrame<'_> {
                     _typing::make_typevar(vm, type_name.clone(), vm.ctx.none(), vm.ctx.none())
                         .into_ref(&vm.ctx)
                         .into();
-                // // Inject the type var into locals so it is usable
-                // self.locals
-                //     .mapping()
-                //     .ass_subscript(&type_name, Some(type_var.clone()), vm)?;
                 self.push_value(type_var);
                 Ok(None)
             }
