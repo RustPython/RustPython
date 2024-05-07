@@ -251,6 +251,25 @@ impl Compiler {
         }
     }
 
+    /// Push the next symbol table on to the stack
+    fn push_symbol_table(&mut self) -> &SymbolTable {
+        // Look up the next table contained in the scope of the current table
+        let table = self
+            .symbol_table_stack
+            .last_mut()
+            .expect("no next symbol table")
+            .sub_tables
+            .remove(0);
+        // Push the next table onto the stack
+        self.symbol_table_stack.push(table);
+        self.symbol_table_stack.last().unwrap()
+    }
+
+    /// Pop the current symbol table off the stack
+    fn pop_symbol_table(&mut self) -> SymbolTable {
+        self.symbol_table_stack.pop().unwrap()
+    }
+
     fn push_output(
         &mut self,
         flags: bytecode::CodeFlags,
@@ -262,12 +281,7 @@ impl Compiler {
         let source_path = self.source_path.clone();
         let first_line_number = self.get_source_line_number();
 
-        let table = self
-            .symbol_table_stack
-            .last_mut()
-            .unwrap()
-            .sub_tables
-            .remove(0);
+        let table = self.push_symbol_table();
 
         let cellvar_cache = table
             .symbols
@@ -283,8 +297,6 @@ impl Compiler {
             })
             .map(|(var, _)| var.clone())
             .collect();
-
-        self.symbol_table_stack.push(table);
 
         let info = ir::CodeInfo {
             flags,
@@ -307,7 +319,7 @@ impl Compiler {
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
-        let table = self.symbol_table_stack.pop().unwrap();
+        let table = self.pop_symbol_table();
         assert!(table.sub_tables.is_empty());
         self.code_stack
             .pop()
