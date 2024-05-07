@@ -21,6 +21,7 @@ mod sysconfigdata;
 #[cfg(feature = "threading")]
 pub mod thread;
 pub mod time;
+pub mod typing;
 pub mod warnings;
 mod weakref;
 
@@ -85,6 +86,7 @@ pub fn get_module_inits() -> StdlibMap {
             "_sre" => sre::make_module,
             "_string" => string::make_module,
             "time" => time::make_module,
+            "_typing" => typing::make_module,
             "_weakref" => weakref::make_module,
             "_imp" => imp::make_module,
             "_warnings" => warnings::make_module,
