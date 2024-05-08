@@ -1338,7 +1338,7 @@ pub mod module {
     ))]
     #[pyfunction]
     fn initgroups(user_name: PyStrRef, gid: Option<Gid>, vm: &VirtualMachine) -> PyResult<()> {
-        let user = CString::new(user_name.as_str()).unwrap();
+        let user = user_name.to_cstring(vm)?;
         let gid =
             gid.ok_or_else(|| vm.new_errno_error(1, "Operation not permitted".to_string()))?;
         unistd::initgroups(&user, gid).map_err(|err| err.into_pyexception(vm))
