@@ -57,6 +57,9 @@ mod _winapi {
         UI::WindowsAndMessaging::SW_HIDE,
     };
 
+    #[pyattr]
+    const NULL: isize = 0;
+
     #[pyfunction]
     fn CloseHandle(handle: HANDLE) -> WindowsSysResult<BOOL> {
         WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0) })
