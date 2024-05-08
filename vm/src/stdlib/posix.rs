@@ -1816,9 +1816,9 @@ pub mod module {
         }
     }
 
-    struct ConfName(i32);
+    struct PathConfName(i32);
 
-    impl TryFromObject for ConfName {
+    impl TryFromObject for PathConfName {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             let i = match obj.downcast::<PyInt>() {
                 Ok(int) => int.try_to_primitive(vm)?,
@@ -2004,7 +2004,7 @@ pub mod module {
     #[pyfunction]
     fn pathconf(
         path: OsPathOrFd,
-        ConfName(name): ConfName,
+        PathConfName(name): PathConfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
         use nix::errno::{self, Errno};
@@ -2035,7 +2035,11 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn fpathconf(fd: i32, name: ConfName, vm: &VirtualMachine) -> PyResult<Option<libc::c_long>> {
+    fn fpathconf(
+        fd: i32,
+        name: PathConfName,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<libc::c_long>> {
         pathconf(OsPathOrFd::Fd(fd), name, vm)
     }
 
