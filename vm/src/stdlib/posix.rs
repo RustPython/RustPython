@@ -1816,9 +1816,9 @@ pub mod module {
         }
     }
 
-    struct PathConfName(i32);
+    struct PathconfName(i32);
 
-    impl TryFromObject for PathConfName {
+    impl TryFromObject for PathconfName {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             let i = match obj.downcast::<PyInt>() {
                 Ok(int) => int.try_to_primitive(vm)?,
@@ -2004,7 +2004,7 @@ pub mod module {
     #[pyfunction]
     fn pathconf(
         path: OsPathOrFd,
-        PathConfName(name): PathConfName,
+        PathconfName(name): PathconfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
         use nix::errno::{self, Errno};
@@ -2037,7 +2037,7 @@ pub mod module {
     #[pyfunction]
     fn fpathconf(
         fd: i32,
-        name: PathConfName,
+        name: PathconfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
         pathconf(OsPathOrFd::Fd(fd), name, vm)
@@ -2057,6 +2057,202 @@ pub mod module {
                 .expect("dict set_item unexpectedly failed");
         }
         pathname
+    }
+
+    #[cfg(not(target_os = "redox"))]
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, EnumIter, EnumString)]
+    #[repr(i32)]
+    #[allow(non_camel_case_types)]
+    pub enum SysconfVar {
+        SC_2_CHAR_TERM = libc::_SC_2_CHAR_TERM,
+        SC_2_C_BIND = libc::_SC_2_C_BIND,
+        SC_2_C_DEV = libc::_SC_2_C_DEV,
+        SC_2_FORT_DEV = libc::_SC_2_FORT_DEV,
+        SC_2_FORT_RUN = libc::_SC_2_FORT_RUN,
+        SC_2_LOCALEDEF = libc::_SC_2_LOCALEDEF,
+        SC_2_SW_DEV = libc::_SC_2_SW_DEV,
+        SC_2_UPE = libc::_SC_2_UPE,
+        SC_2_VERSION = libc::_SC_2_VERSION,
+        SC_AIO_LISTIO_MAX = libc::_SC_AIO_LISTIO_MAX,
+        SC_AIO_MAX = libc::_SC_AIO_MAX,
+        SC_AIO_PRIO_DELTA_MAX = libc::_SC_AIO_PRIO_DELTA_MAX,
+        SC_ARG_MAX = libc::_SC_ARG_MAX,
+        SC_ASYNCHRONOUS_IO = libc::_SC_ASYNCHRONOUS_IO,
+        SC_ATEXIT_MAX = libc::_SC_ATEXIT_MAX,
+        SC_BC_BASE_MAX = libc::_SC_BC_BASE_MAX,
+        SC_BC_DIM_MAX = libc::_SC_BC_DIM_MAX,
+        SC_BC_SCALE_MAX = libc::_SC_BC_SCALE_MAX,
+        SC_BC_STRING_MAX = libc::_SC_BC_STRING_MAX,
+        SC_CHILD_MAX = libc::_SC_CHILD_MAX,
+        SC_CLK_TCK = libc::_SC_CLK_TCK,
+        SC_COLL_WEIGHTS_MAX = libc::_SC_COLL_WEIGHTS_MAX,
+        SC_DELAYTIMER_MAX = libc::_SC_DELAYTIMER_MAX,
+        SC_EXPR_NEST_MAX = libc::_SC_EXPR_NEST_MAX,
+        SC_FSYNC = libc::_SC_FSYNC,
+        SC_GETGR_R_SIZE_MAX = libc::_SC_GETGR_R_SIZE_MAX,
+        SC_GETPW_R_SIZE_MAX = libc::_SC_GETPW_R_SIZE_MAX,
+        SC_IOV_MAX = libc::_SC_IOV_MAX,
+        SC_JOB_CONTROL = libc::_SC_JOB_CONTROL,
+        SC_LINE_MAX = libc::_SC_LINE_MAX,
+        SC_LOGIN_NAME_MAX = libc::_SC_LOGIN_NAME_MAX,
+        SC_MAPPED_FILES = libc::_SC_MAPPED_FILES,
+        SC_MEMLOCK = libc::_SC_MEMLOCK,
+        SC_MEMLOCK_RANGE = libc::_SC_MEMLOCK_RANGE,
+        SC_MEMORY_PROTECTION = libc::_SC_MEMORY_PROTECTION,
+        SC_MESSAGE_PASSING = libc::_SC_MESSAGE_PASSING,
+        SC_MQ_OPEN_MAX = libc::_SC_MQ_OPEN_MAX,
+        SC_MQ_PRIO_MAX = libc::_SC_MQ_PRIO_MAX,
+        SC_NGROUPS_MAX = libc::_SC_NGROUPS_MAX,
+        SC_NPROCESSORS_CONF = libc::_SC_NPROCESSORS_CONF,
+        SC_NPROCESSORS_ONLN = libc::_SC_NPROCESSORS_ONLN,
+        SC_OPEN_MAX = libc::_SC_OPEN_MAX,
+        SC_PAGE_SIZE = libc::_SC_PAGE_SIZE,
+        #[cfg(any(
+            target_os = "linux",
+            target_vendor = "apple",
+            target_os = "netbsd",
+            target_os = "fuchsia"
+        ))]
+        SC_PASS_MAX = libc::_SC_PASS_MAX,
+        SC_PHYS_PAGES = libc::_SC_PHYS_PAGES,
+        SC_PRIORITIZED_IO = libc::_SC_PRIORITIZED_IO,
+        SC_PRIORITY_SCHEDULING = libc::_SC_PRIORITY_SCHEDULING,
+        SC_REALTIME_SIGNALS = libc::_SC_REALTIME_SIGNALS,
+        SC_RE_DUP_MAX = libc::_SC_RE_DUP_MAX,
+        SC_RTSIG_MAX = libc::_SC_RTSIG_MAX,
+        SC_SAVED_IDS = libc::_SC_SAVED_IDS,
+        SC_SEMAPHORES = libc::_SC_SEMAPHORES,
+        SC_SEM_NSEMS_MAX = libc::_SC_SEM_NSEMS_MAX,
+        SC_SEM_VALUE_MAX = libc::_SC_SEM_VALUE_MAX,
+        SC_SHARED_MEMORY_OBJECTS = libc::_SC_SHARED_MEMORY_OBJECTS,
+        SC_SIGQUEUE_MAX = libc::_SC_SIGQUEUE_MAX,
+        SC_STREAM_MAX = libc::_SC_STREAM_MAX,
+        SC_SYNCHRONIZED_IO = libc::_SC_SYNCHRONIZED_IO,
+        SC_THREADS = libc::_SC_THREADS,
+        SC_THREAD_ATTR_STACKADDR = libc::_SC_THREAD_ATTR_STACKADDR,
+        SC_THREAD_ATTR_STACKSIZE = libc::_SC_THREAD_ATTR_STACKSIZE,
+        SC_THREAD_DESTRUCTOR_ITERATIONS = libc::_SC_THREAD_DESTRUCTOR_ITERATIONS,
+        SC_THREAD_KEYS_MAX = libc::_SC_THREAD_KEYS_MAX,
+        SC_THREAD_PRIORITY_SCHEDULING = libc::_SC_THREAD_PRIORITY_SCHEDULING,
+        SC_THREAD_PRIO_INHERIT = libc::_SC_THREAD_PRIO_INHERIT,
+        SC_THREAD_PRIO_PROTECT = libc::_SC_THREAD_PRIO_PROTECT,
+        SC_THREAD_PROCESS_SHARED = libc::_SC_THREAD_PROCESS_SHARED,
+        SC_THREAD_SAFE_FUNCTIONS = libc::_SC_THREAD_SAFE_FUNCTIONS,
+        SC_THREAD_STACK_MIN = libc::_SC_THREAD_STACK_MIN,
+        SC_THREAD_THREADS_MAX = libc::_SC_THREAD_THREADS_MAX,
+        SC_TIMERS = libc::_SC_TIMERS,
+        SC_TIMER_MAX = libc::_SC_TIMER_MAX,
+        SC_TTY_NAME_MAX = libc::_SC_TTY_NAME_MAX,
+        SC_TZNAME_MAX = libc::_SC_TZNAME_MAX,
+        SC_VERSION = libc::_SC_VERSION,
+        SC_XOPEN_CRYPT = libc::_SC_XOPEN_CRYPT,
+        SC_XOPEN_ENH_I18N = libc::_SC_XOPEN_ENH_I18N,
+        SC_XOPEN_LEGACY = libc::_SC_XOPEN_LEGACY,
+        SC_XOPEN_REALTIME = libc::_SC_XOPEN_REALTIME,
+        SC_XOPEN_REALTIME_THREADS = libc::_SC_XOPEN_REALTIME_THREADS,
+        SC_XOPEN_SHM = libc::_SC_XOPEN_SHM,
+        SC_XOPEN_UNIX = libc::_SC_XOPEN_UNIX,
+        SC_XOPEN_VERSION = libc::_SC_XOPEN_VERSION,
+        SC_XOPEN_XCU_VERSION = libc::_SC_XOPEN_XCU_VERSION,
+        #[cfg(any(
+            target_os = "linux",
+            target_vendor = "apple",
+            target_os = "netbsd",
+            target_os = "fuchsia"
+        ))]
+        SC_XBS5_ILP32_OFF32 = libc::_SC_XBS5_ILP32_OFF32,
+        #[cfg(any(
+            target_os = "linux",
+            target_vendor = "apple",
+            target_os = "netbsd",
+            target_os = "fuchsia"
+        ))]
+        SC_XBS5_ILP32_OFFBIG = libc::_SC_XBS5_ILP32_OFFBIG,
+        #[cfg(any(
+            target_os = "linux",
+            target_vendor = "apple",
+            target_os = "netbsd",
+            target_os = "fuchsia"
+        ))]
+        SC_XBS5_LP64_OFF64 = libc::_SC_XBS5_LP64_OFF64,
+        #[cfg(any(
+            target_os = "linux",
+            target_vendor = "apple",
+            target_os = "netbsd",
+            target_os = "fuchsia"
+        ))]
+        SC_XBS5_LPBIG_OFFBIG = libc::_SC_XBS5_LPBIG_OFFBIG,
+    }
+
+    #[cfg(target_os = "redox")]
+    #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, EnumIter, EnumString)]
+    #[repr(i32)]
+    #[allow(non_camel_case_types)]
+    pub enum SysconfVar {
+        SC_ARG_MAX = libc::_SC_ARG_MAX,
+        SC_CHILD_MAX = libc::_SC_CHILD_MAX,
+        SC_CLK_TCK = libc::_SC_CLK_TCK,
+        SC_NGROUPS_MAX = libc::_SC_NGROUPS_MAX,
+        SC_OPEN_MAX = libc::_SC_OPEN_MAX,
+        SC_STREAM_MAX = libc::_SC_STREAM_MAX,
+        SC_TZNAME_MAX = libc::_SC_TZNAME_MAX,
+        SC_VERSION = libc::_SC_VERSION,
+        SC_PAGE_SIZE = libc::_SC_PAGE_SIZE,
+        SC_RE_DUP_MAX = libc::_SC_RE_DUP_MAX,
+        SC_LOGIN_NAME_MAX = libc::_SC_LOGIN_NAME_MAX,
+        SC_TTY_NAME_MAX = libc::_SC_TTY_NAME_MAX,
+        SC_SYMLOOP_MAX = libc::_SC_SYMLOOP_MAX,
+        SC_HOST_NAME_MAX = libc::_SC_HOST_NAME_MAX,
+    }
+
+    impl SysconfVar {
+        pub const SC_PAGESIZE: SysconfVar = Self::SC_PAGE_SIZE;
+    }
+
+    struct SysconfName(i32);
+
+    impl TryFromObject for SysconfName {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let i = match obj.downcast::<PyInt>() {
+                Ok(int) => int.try_to_primitive(vm)?,
+                Err(obj) => {
+                    let s = PyStrRef::try_from_object(vm, obj)?;
+                    s.as_str().parse::<SysconfVar>().or_else(|_| {
+                        if s.as_str() == "SC_PAGESIZE" {
+                            Ok(SysconfVar::SC_PAGESIZE)
+                        } else {
+                            Err(vm.new_value_error("unrecognized configuration name".to_string()))
+                        }
+                    })? as i32
+                }
+            };
+            Ok(Self(i))
+        }
+    }
+
+    #[pyfunction]
+    fn sysconf(name: SysconfName, vm: &VirtualMachine) -> PyResult<libc::c_long> {
+        let r = unsafe { libc::sysconf(name.0) };
+        if r == -1 {
+            return Err(errno_err(vm));
+        }
+        Ok(r)
+    }
+
+    #[pyattr]
+    fn sysconf_names(vm: &VirtualMachine) -> PyDictRef {
+        use strum::IntoEnumIterator;
+        let names = vm.ctx.new_dict();
+        for variant in SysconfVar::iter() {
+            // get the name of variant as a string to use as the dictionary key
+            let key = vm.ctx.new_str(format!("{:?}", variant));
+            // get the enum from the string and convert it to an integer for the dictionary value
+            let value = vm.ctx.new_int(variant as u8);
+            names
+                .set_item(&*key, value.into(), vm)
+                .expect("dict set_item unexpectedly failed");
+        }
+        names
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
