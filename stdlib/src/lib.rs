@@ -54,6 +54,8 @@ mod posixsubprocess;
 // libc is missing constants on redox
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod grp;
+#[cfg(windows)]
+mod overlapped;
 #[cfg(all(unix, not(target_os = "redox")))]
 mod resource;
 #[cfg(target_os = "macos")]
@@ -151,6 +153,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(feature = "bz2")]
         {
             "_bz2" => bz2::make_module,
+        }
+        #[cfg(windows)]
+        {
+            "_overlapped" => overlapped::make_module,
         }
         // Unix-only
         #[cfg(unix)]
