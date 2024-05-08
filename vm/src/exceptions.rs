@@ -142,6 +142,11 @@ impl VirtualMachine {
         let args_repr = vm.exception_args_as_string(varargs, true);
 
         let exc_class = exc.class();
+
+        if exc_class.fast_issubclass(vm.ctx.exceptions.syntax_error) {
+            return self.write_syntaxerror(output, exc, exc_class, &args_repr);
+        }
+
         let exc_name = exc_class.name();
         match args_repr.len() {
             0 => write!(output, "{exc_name}"),
@@ -150,7 +155,119 @@ impl VirtualMachine {
                 output,
                 "{}: ({})",
                 exc_name,
-                args_repr.into_iter().format(", ")
+                args_repr.into_iter().format(", "),
+            ),
+        }?;
+
+        match offer_suggestions(exc, vm) {
+            Some(suggestions) => writeln!(output, ". Did you mean: '{suggestions}'?"),
+            None => writeln!(output),
+        }
+    }
+
+    /// Format and write a SyntaxError
+    /// This logic is derived from TracebackException._format_syntax_error
+    ///
+    /// The logic has support for `end_offset` to highlight a range in the source code,
+    /// but it looks like `end_offset` is not used yet when SyntaxErrors are created.
+    fn write_syntaxerror<W: Write>(
+        &self,
+        output: &mut W,
+        exc: &PyBaseExceptionRef,
+        exc_type: &Py<PyType>,
+        args_repr: &[PyRef<PyStr>],
+    ) -> Result<(), W::Error> {
+        let vm = self;
+        debug_assert!(exc_type.fast_issubclass(vm.ctx.exceptions.syntax_error));
+
+        let getattr = |attr: &'static str| exc.as_object().get_attr(attr, vm).ok();
+
+        let maybe_lineno = getattr("lineno").map(|obj| {
+            obj.str(vm)
+                .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
+        });
+        let maybe_filename = getattr("filename").and_then(|obj| obj.str(vm).ok());
+
+        let maybe_text = getattr("text").map(|obj| {
+            obj.str(vm)
+                .unwrap_or_else(|_| vm.ctx.new_str("<text str() failed>"))
+        });
+
+        let mut filename_suffix = String::new();
+
+        if let Some(lineno) = maybe_lineno {
+            writeln!(
+                output,
+                r##"  File "{}", line {}"##,
+                maybe_filename
+                    .as_ref()
+                    .map(|s| s.as_str())
+                    .unwrap_or("<string>"),
+                lineno
+            )?;
+        } else if let Some(filename) = maybe_filename {
+            filename_suffix = format!(" ({})", filename);
+        }
+
+        if let Some(text) = maybe_text {
+            // if text ends with \n, remove it
+            let rtext = text.as_str().trim_end_matches('\n');
+            let ltext = rtext.trim_start_matches([' ', '\n', '\x0c']); // \x0c is \f
+            let spaces = (rtext.len() - ltext.len()) as isize;
+
+            writeln!(output, "    {}", ltext)?;
+
+            let maybe_offset: Option<isize> =
+                getattr("offset").and_then(|obj| obj.try_to_value::<isize>(vm).ok());
+
+            if let Some(offset) = maybe_offset {
+                let maybe_end_offset: Option<isize> =
+                    getattr("end_offset").and_then(|obj| obj.try_to_value::<isize>(vm).ok());
+
+                let mut end_offset = match maybe_end_offset {
+                    Some(0) | None => offset,
+                    Some(end_offset) => end_offset,
+                };
+
+                if offset == end_offset || end_offset == -1 {
+                    end_offset = offset + 1;
+                }
+
+                // Convert 1-based column offset to 0-based index into stripped text
+                let colno = offset - 1 - spaces;
+                let end_colno = end_offset - 1 - spaces;
+                if colno >= 0 {
+                    let caretspace = ltext.chars().collect::<Vec<_>>()[..colno as usize]
+                        .iter()
+                        .map(|c| if c.is_whitespace() { *c } else { ' ' })
+                        .collect::<String>();
+
+                    let mut error_width = end_colno - colno;
+                    if error_width < 1 {
+                        error_width = 1;
+                    }
+
+                    writeln!(
+                        output,
+                        "    {}{}",
+                        caretspace,
+                        "^".repeat(error_width as usize)
+                    )?;
+                }
+            }
+        }
+
+        let exc_name = exc_type.name();
+
+        match args_repr.len() {
+            0 => write!(output, "{exc_name}{filename_suffix}"),
+            1 => write!(output, "{}: {}{}", exc_name, args_repr[0], filename_suffix),
+            _ => write!(
+                output,
+                "{}: ({}){}",
+                exc_name,
+                args_repr.iter().format(", "),
+                filename_suffix
             ),
         }?;
 
@@ -1461,9 +1578,59 @@ pub(super) mod types {
     #[derive(Debug)]
     pub struct PyRecursionError {}
 
-    #[pyexception(name, base = "PyException", ctx = "syntax_error", impl)]
+    #[pyexception(name, base = "PyException", ctx = "syntax_error")]
     #[derive(Debug)]
     pub struct PySyntaxError {}
+
+    #[pyexception]
+    impl PySyntaxError {
+        #[pymethod(magic)]
+        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyStrRef {
+            fn basename(filename: &str) -> &str {
+                let splitted = if cfg!(windows) {
+                    filename.rsplit(&['/', '\\']).next()
+                } else {
+                    filename.rsplit('/').next()
+                };
+                splitted.unwrap_or(filename)
+            }
+
+            let maybe_lineno = exc.as_object().get_attr("lineno", vm).ok().map(|obj| {
+                obj.str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<lineno str() failed>"))
+            });
+            let maybe_filename = exc.as_object().get_attr("filename", vm).ok().map(|obj| {
+                obj.str(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
+            });
+
+            let args = exc.args();
+
+            let msg = if args.len() == 1 {
+                vm.exception_args_as_string(args, false)
+                    .into_iter()
+                    .exactly_one()
+                    .unwrap()
+            } else {
+                return exc.str(vm);
+            };
+
+            let msg_with_location_info: String = match (maybe_lineno, maybe_filename) {
+                (Some(lineno), Some(filename)) => {
+                    format!("{} ({}, line {})", msg, basename(filename.as_str()), lineno)
+                }
+                (Some(lineno), None) => {
+                    format!("{} (line {})", msg, lineno)
+                }
+                (None, Some(filename)) => {
+                    format!("{} ({})", msg, basename(filename.as_str()))
+                }
+                (None, None) => msg.to_string(),
+            };
+
+            vm.ctx.new_str(msg_with_location_info)
+        }
+    }
 
     #[pyexception(name, base = "PySyntaxError", ctx = "indentation_error", impl)]
     #[derive(Debug)]

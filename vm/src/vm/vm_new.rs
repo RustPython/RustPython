@@ -262,7 +262,6 @@ impl VirtualMachine {
         error: &crate::compiler::CompileError,
         source: Option<&str>,
     ) -> PyBaseExceptionRef {
-        use crate::source::AtLocation;
         use crate::source_code::SourceLocation;
 
         let syntax_error_type = match &error.error {
@@ -293,36 +292,7 @@ impl VirtualMachine {
             None
         };
 
-        fn fmt(
-            error: &crate::compiler::CompileError,
-            statement: Option<&str>,
-            f: &mut impl std::fmt::Write,
-        ) -> std::fmt::Result {
-            let loc = error.location;
-            if let Some(ref stmt) = statement {
-                // visualize the error when location and statement are provided
-                write!(
-                    f,
-                    "{error}{at_location}\n{stmt}{arrow:>pad$}",
-                    error = error.error,
-                    at_location = AtLocation(loc.as_ref()),
-                    pad = loc.map_or(0, |loc| loc.column.to_usize()),
-                    arrow = "^"
-                )
-            } else {
-                write!(
-                    f,
-                    "{error}{at_location}",
-                    error = error.error,
-                    at_location = AtLocation(loc.as_ref()),
-                )
-            }
-        }
-
-        let mut msg = String::new();
-        fmt(error, statement.as_deref(), &mut msg).unwrap();
-
-        let syntax_error = self.new_exception_msg(syntax_error_type, msg);
+        let syntax_error = self.new_exception_msg(syntax_error_type, error.error.to_string());
         let (lineno, offset) = error.python_location();
         let lineno = self.ctx.new_int(lineno);
         let offset = self.ctx.new_int(offset);
