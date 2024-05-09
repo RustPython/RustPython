@@ -10,7 +10,6 @@ The objects used by the site module to add custom builtins.
 
 import sys
 
-
 class Quitter(object):
     def __init__(self, name, eof):
         self.name = name
@@ -48,7 +47,7 @@ class _Printer(object):
         data = None
         for filename in self.__filenames:
             try:
-                with open(filename, "r") as fp:
+                with open(filename, encoding='utf-8') as fp:
                     data = fp.read()
                 break
             except OSError:
