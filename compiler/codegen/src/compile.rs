@@ -924,7 +924,7 @@ impl Compiler {
                 if !type_params.is_empty() {
                     self.pop_symbol_table();
                 }
-                self.emit_constant(ConstantData::Str {
+                self.emit_load_const(ConstantData::Str {
                     value: name_string.clone(),
                 });
                 emit!(self, Instruction::TypeAlias);
@@ -1061,7 +1061,7 @@ impl Compiler {
                 }) => {
                     if let Some(expr) = &bound {
                         self.compile_expression(expr)?;
-                        self.emit_constant(ConstantData::Str {
+                        self.emit_load_const(ConstantData::Str {
                             value: name.to_string(),
                         });
                         emit!(self, Instruction::TypeVarWithBound);
@@ -1069,7 +1069,7 @@ impl Compiler {
                         self.store_name(name.as_ref())?;
                     } else {
                         // self.store_name(type_name.as_str())?;
-                        self.emit_constant(ConstantData::Str {
+                        self.emit_load_const(ConstantData::Str {
                             value: name.to_string(),
                         });
                         emit!(self, Instruction::TypeVar);
