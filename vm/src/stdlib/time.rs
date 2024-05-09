@@ -2,10 +2,35 @@
 
 // See also:
 // https://docs.python.org/3/library/time.html
-pub use time::*;
+use crate::{builtins::PyModule, PyRef, VirtualMachine};
+
+pub use decl::time;
+
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
+    #[cfg(not(target_env = "msvc"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    unsafe {
+        c_tzset()
+    };
+    decl::make_module(vm)
+}
+
+#[cfg(not(target_env = "msvc"))]
+#[cfg(not(target_arch = "wasm32"))]
+extern "C" {
+    #[link_name = "daylight"]
+    static c_daylight: std::ffi::c_int;
+    // pub static dstbias: std::ffi::c_int;
+    #[link_name = "timezone"]
+    static c_timezone: std::ffi::c_long;
+    #[link_name = "tzname"]
+    static c_tzname: [*const std::ffi::c_char; 2];
+    #[link_name = "tzset"]
+    fn c_tzset();
+}
 
 #[pymodule(name = "time", with(platform))]
-mod time {
+mod decl {
     use crate::{
         builtins::{PyStrRef, PyTypeRef},
         function::{Either, FuncArgs, OptionalArg},
@@ -108,6 +133,37 @@ mod time {
     #[pyfunction]
     fn perf_counter_ns(vm: &VirtualMachine) -> PyResult<u128> {
         Ok(get_perf_time(vm)?.as_nanos())
+    }
+
+    // #[pyfunction]
+    // fn tzset() {
+    //     unsafe { super::_tzset() };
+    // }
+
+    #[cfg(not(target_env = "msvc"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn timezone(_vm: &VirtualMachine) -> std::ffi::c_long {
+        unsafe { super::c_timezone }
+    }
+
+    #[cfg(not(target_env = "msvc"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn daylight(_vm: &VirtualMachine) -> std::ffi::c_int {
+        unsafe { super::c_daylight }
+    }
+
+    #[cfg(not(target_env = "msvc"))]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
+        use crate::builtins::tuple::IntoPyTuple;
+
+        unsafe fn to_str(s: *const std::ffi::c_char) -> String {
+            std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
+        }
+        unsafe { (to_str(super::c_tzname[0]), to_str(super::c_tzname[1])) }.into_pytuple(vm)
     }
 
     fn pyobj_to_date_time(
@@ -384,7 +440,7 @@ mod time {
 #[pymodule(sub)]
 mod platform {
     #[allow(unused_imports)]
-    use super::{SEC_TO_NS, US_TO_NS};
+    use super::decl::{SEC_TO_NS, US_TO_NS};
     #[cfg_attr(target_os = "macos", allow(unused_imports))]
     use crate::{
         builtins::{PyNamespace, PyStrRef},
@@ -621,7 +677,7 @@ mod platform {
 #[cfg(windows)]
 #[pymodule]
 mod platform {
-    use super::{time_muldiv, MS_TO_NS, SEC_TO_NS};
+    use super::decl::{time_muldiv, MS_TO_NS, SEC_TO_NS};
     use crate::{
         builtins::{PyNamespace, PyStrRef},
         stdlib::os::errno_err,
