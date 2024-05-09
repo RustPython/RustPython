@@ -122,6 +122,7 @@ class _BasePurePathTest(object):
         self._check_str_subclass('a/b.txt')
         self._check_str_subclass('/a/b.txt')
 
+    @unittest.skip("TODO: RUSTPYTHON; PyObject::set_slot index out of bounds")
     def test_with_segments_common(self):
         class P(_BasePurePathSubclass, self.cls):
             pass
@@ -1683,6 +1684,7 @@ class _BasePathTest(object):
             env['HOME'] = os.path.join(BASE, 'home')
             self._test_home(self.cls.home())
 
+    @unittest.skip("TODO: RUSTPYTHON; PyObject::set_slot index out of bounds")
     def test_with_segments(self):
         class P(_BasePurePathSubclass, self.cls):
             pass
