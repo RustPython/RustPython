@@ -363,7 +363,7 @@ impl Compiler {
 
         let (doc, statements) = split_doc(body, &self.opts);
         if let Some(value) = doc {
-            self.emit_constant(ConstantData::Str { value });
+            self.emit_load_const(ConstantData::Str { value });
             let doc = self.name("__doc__");
             emit!(self, Instruction::StoreGlobal(doc))
         }
@@ -377,8 +377,7 @@ impl Compiler {
         assert_eq!(self.code_stack.len(), size_before);
 
         // Emit None at end:
-        self.emit_constant(ConstantData::None);
-        emit!(self, Instruction::ReturnValue);
+        self.emit_return_const(ConstantData::None);
         Ok(())
     }
 
@@ -405,13 +404,13 @@ impl Compiler {
                 emit!(self, Instruction::PrintExpr);
             } else {
                 self.compile_statement(last)?;
-                self.emit_constant(ConstantData::None);
+                self.emit_load_const(ConstantData::None);
             }
         } else {
-            self.emit_constant(ConstantData::None);
+            self.emit_load_const(ConstantData::None);
         };
 
-        emit!(self, Instruction::ReturnValue);
+        self.emit_return_value();
         Ok(())
     }
 
@@ -436,10 +435,10 @@ impl Compiler {
                     emit!(self, Instruction::Duplicate);
                     self.current_block().instructions.push(store_inst);
                 }
-                _ => self.emit_constant(ConstantData::None),
+                _ => self.emit_load_const(ConstantData::None),
             }
         }
-        emit!(self, Instruction::ReturnValue);
+        self.emit_return_value();
 
         Ok(())
     }
@@ -452,7 +451,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.symbol_table_stack.push(symbol_table);
         self.compile_expression(expression)?;
-        emit!(self, Instruction::ReturnValue);
+        self.emit_return_value();
         Ok(())
     }
 
@@ -524,7 +523,7 @@ impl Compiler {
         };
 
         if NameUsage::Load == usage && name == "__debug__" {
-            self.emit_constant(ConstantData::Boolean {
+            self.emit_load_const(ConstantData::Boolean {
                 value: self.opts.optimize == 0,
             });
             return Ok(());
@@ -589,10 +588,10 @@ impl Compiler {
                 // import a, b, c as d
                 for name in names {
                     let name = &name;
-                    self.emit_constant(ConstantData::Integer {
+                    self.emit_load_const(ConstantData::Integer {
                         value: num_traits::Zero::zero(),
                     });
-                    self.emit_constant(ConstantData::None);
+                    self.emit_load_const(ConstantData::None);
                     let idx = self.name(&name.name);
                     emit!(self, Instruction::ImportName { idx });
                     if let Some(alias) = &name.asname {
@@ -636,10 +635,10 @@ impl Compiler {
                 let module_idx = module.as_ref().map(|s| self.name(s.as_str()));
 
                 // from .... import (*fromlist)
-                self.emit_constant(ConstantData::Integer {
+                self.emit_load_const(ConstantData::Integer {
                     value: level.as_ref().map_or(0, |level| level.to_u32()).into(),
                 });
-                self.emit_constant(ConstantData::Tuple {
+                self.emit_load_const(ConstantData::Tuple {
                     elements: from_list,
                 });
                 if let Some(idx) = module_idx {
@@ -876,13 +875,12 @@ impl Compiler {
                             ));
                         }
                         self.compile_expression(v)?;
+                        self.emit_return_value();
                     }
                     None => {
-                        self.emit_constant(ConstantData::None);
+                        self.emit_return_const(ConstantData::None);
                     }
                 }
-
-                emit!(self, Instruction::ReturnValue);
             }
             Stmt::Assign(StmtAssign { targets, value, .. }) => {
                 self.compile_expression(value)?;
@@ -986,7 +984,7 @@ impl Compiler {
         if !kw_with_defaults.is_empty() {
             let default_kw_count = kw_with_defaults.len();
             for (arg, default) in kw_with_defaults.iter() {
-                self.emit_constant(ConstantData::Str {
+                self.emit_load_const(ConstantData::Str {
                     value: arg.arg.to_string(),
                 });
                 self.compile_expression(default)?;
@@ -1292,8 +1290,7 @@ impl Compiler {
                 // the last instruction is a ReturnValue already, we don't need to emit it
             }
             _ => {
-                self.emit_constant(ConstantData::None);
-                emit!(self, Instruction::ReturnValue);
+                self.emit_return_const(ConstantData::None);
             }
         }
 
@@ -1314,7 +1311,7 @@ impl Compiler {
         // Return annotation:
         if let Some(annotation) = returns {
             // key:
-            self.emit_constant(ConstantData::Str {
+            self.emit_load_const(ConstantData::Str {
                 value: "return".to_owned(),
             });
             // value:
@@ -1331,7 +1328,7 @@ impl Compiler {
             .chain(args.kwarg.as_deref());
         for arg in args_iter {
             if let Some(annotation) = &arg.annotation {
-                self.emit_constant(ConstantData::Str {
+                self.emit_load_const(ConstantData::Str {
                     value: self.mangle(arg.arg.as_str()).into_owned(),
                 });
                 self.compile_annotation(annotation)?;
@@ -1358,10 +1355,10 @@ impl Compiler {
             self.pop_symbol_table();
         }
 
-        self.emit_constant(ConstantData::Code {
+        self.emit_load_const(ConstantData::Code {
             code: Box::new(code),
         });
-        self.emit_constant(ConstantData::Str {
+        self.emit_load_const(ConstantData::Str {
             value: qualified_name,
         });
 
@@ -1370,7 +1367,7 @@ impl Compiler {
 
         if let Some(value) = doc_str {
             emit!(self, Instruction::Duplicate);
-            self.emit_constant(ConstantData::Str { value });
+            self.emit_load_const(ConstantData::Str { value });
             emit!(self, Instruction::Rotate2);
             let doc = self.name("__doc__");
             emit!(self, Instruction::StoreAttr { idx: doc });
@@ -1497,7 +1494,7 @@ impl Compiler {
         emit!(self, Instruction::LoadGlobal(dunder_name));
         let dunder_module = self.name("__module__");
         emit!(self, Instruction::StoreLocal(dunder_module));
-        self.emit_constant(ConstantData::Str {
+        self.emit_load_const(ConstantData::Str {
             value: qualified_name,
         });
         let qualname = self.name("__qualname__");
@@ -1525,10 +1522,10 @@ impl Compiler {
             let classcell = self.name("__classcell__");
             emit!(self, Instruction::StoreLocal(classcell));
         } else {
-            self.emit_constant(ConstantData::None);
+            self.emit_load_const(ConstantData::None);
         }
 
-        emit!(self, Instruction::ReturnValue);
+        self.emit_return_value();
 
         let code = self.pop_code_object();
 
@@ -1554,17 +1551,17 @@ impl Compiler {
             self.pop_symbol_table();
         }
 
-        self.emit_constant(ConstantData::Code {
+        self.emit_load_const(ConstantData::Code {
             code: Box::new(code),
         });
-        self.emit_constant(ConstantData::Str {
+        self.emit_load_const(ConstantData::Str {
             value: name.to_owned(),
         });
 
         // Turn code object into function object:
         emit!(self, Instruction::MakeFunction(func_flags));
 
-        self.emit_constant(ConstantData::Str {
+        self.emit_load_const(ConstantData::Str {
             value: name.to_owned(),
         });
 
@@ -1581,7 +1578,7 @@ impl Compiler {
         // Duplicate top of stack (the function or class object)
 
         // Doc string value:
-        self.emit_constant(match doc_str {
+        self.emit_load_const(match doc_str {
             Some(doc) => ConstantData::Str { value: doc },
             None => ConstantData::None, // set docstring None if not declared
         });
@@ -1638,7 +1635,7 @@ impl Compiler {
             if is_async {
                 emit!(self, Instruction::BeforeAsyncWith);
                 emit!(self, Instruction::GetAwaitable);
-                self.emit_constant(ConstantData::None);
+                self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
                 emit!(self, Instruction::SetupAsyncWith { end: final_block });
             } else {
@@ -1679,7 +1676,7 @@ impl Compiler {
 
         if is_async {
             emit!(self, Instruction::GetAwaitable);
-            self.emit_constant(ConstantData::None);
+            self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
         }
 
@@ -1717,7 +1714,7 @@ impl Compiler {
                 }
             );
             emit!(self, Instruction::GetANext);
-            self.emit_constant(ConstantData::None);
+            self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
             self.compile_store(target)?;
             emit!(self, Instruction::PopBlock);
@@ -1851,7 +1848,7 @@ impl Compiler {
 
     fn compile_annotation(&mut self, annotation: &located_ast::Expr) -> CompileResult<()> {
         if self.future_annotations {
-            self.emit_constant(ConstantData::Str {
+            self.emit_load_const(ConstantData::Str {
                 value: annotation.to_string(),
             });
         } else {
@@ -1883,7 +1880,7 @@ impl Compiler {
             // Store as dict entry in __annotations__ dict:
             let annotations = self.name("__annotations__");
             emit!(self, Instruction::LoadNameAny(annotations));
-            self.emit_constant(ConstantData::Str {
+            self.emit_load_const(ConstantData::Str {
                 value: self.mangle(id.as_str()).into_owned(),
             });
             emit!(self, Instruction::StoreSubscript);
@@ -2264,7 +2261,7 @@ impl Compiler {
                 self.compile_chained_comparison(left, ops, comparators)?;
             }
             Expr::Constant(ExprConstant { value, .. }) => {
-                self.emit_constant(compile_constant(value));
+                self.emit_load_const(compile_constant(value));
             }
             Expr::List(ExprList { elts, .. }) => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
@@ -2299,7 +2296,7 @@ impl Compiler {
                 let mut compile_bound = |bound: Option<&located_ast::Expr>| match bound {
                     Some(exp) => self.compile_expression(exp),
                     None => {
-                        self.emit_constant(ConstantData::None);
+                        self.emit_load_const(ConstantData::None);
                         Ok(())
                     }
                 };
@@ -2318,7 +2315,7 @@ impl Compiler {
                 self.mark_generator();
                 match value {
                     Some(expression) => self.compile_expression(expression)?,
-                    Option::None => self.emit_constant(ConstantData::None),
+                    Option::None => self.emit_load_const(ConstantData::None),
                 };
                 emit!(self, Instruction::YieldValue);
             }
@@ -2328,7 +2325,7 @@ impl Compiler {
                 }
                 self.compile_expression(value)?;
                 emit!(self, Instruction::GetAwaitable);
-                self.emit_constant(ConstantData::None);
+                self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
             }
             Expr::YieldFrom(ExprYieldFrom { value, .. }) => {
@@ -2344,12 +2341,12 @@ impl Compiler {
                 self.mark_generator();
                 self.compile_expression(value)?;
                 emit!(self, Instruction::GetIter);
-                self.emit_constant(ConstantData::None);
+                self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
             }
             Expr::JoinedStr(ExprJoinedStr { values, .. }) => {
                 if let Some(value) = try_get_constant_string(values) {
-                    self.emit_constant(ConstantData::Str { value })
+                    self.emit_load_const(ConstantData::Str { value })
                 } else {
                     for value in values {
                         self.compile_expression(value)?;
@@ -2370,7 +2367,7 @@ impl Compiler {
             }) => {
                 match format_spec {
                     Some(spec) => self.compile_expression(spec)?,
-                    None => self.emit_constant(ConstantData::Str {
+                    None => self.emit_load_const(ConstantData::Str {
                         value: String::new(),
                     }),
                 };
@@ -2400,15 +2397,15 @@ impl Compiler {
                     .insert_full(ConstantData::None);
 
                 self.compile_expression(body)?;
-                emit!(self, Instruction::ReturnValue);
+                self.emit_return_value();
                 let code = self.pop_code_object();
                 if self.build_closure(&code) {
                     func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
                 }
-                self.emit_constant(ConstantData::Code {
+                self.emit_load_const(ConstantData::Code {
                     code: Box::new(code),
                 });
-                self.emit_constant(ConstantData::Str { value: name });
+                self.emit_load_const(ConstantData::Str { value: name });
                 // Turn code object into function object:
                 emit!(self, Instruction::MakeFunction(func_flags));
 
@@ -2549,7 +2546,7 @@ impl Compiler {
                 let mut sub_size = 0;
                 for keyword in sub_keywords {
                     if let Some(name) = &keyword.arg {
-                        self.emit_constant(ConstantData::Str {
+                        self.emit_load_const(ConstantData::Str {
                             value: name.to_string(),
                         });
                         self.compile_expression(&keyword.value)?;
@@ -2659,7 +2656,7 @@ impl Compiler {
                 self.compile_expression(&keyword.value)?;
             }
 
-            self.emit_constant(ConstantData::Tuple {
+            self.emit_load_const(ConstantData::Tuple {
                 elements: kwarg_names,
             });
             CallType::Keyword { nargs: count }
@@ -2812,7 +2809,7 @@ impl Compiler {
                     }
                 );
                 emit!(self, Instruction::GetANext);
-                self.emit_constant(ConstantData::None);
+                self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
                 self.compile_store(&generator.target)?;
                 emit!(self, Instruction::PopBlock);
@@ -2846,11 +2843,11 @@ impl Compiler {
         }
 
         if return_none {
-            self.emit_constant(ConstantData::None)
+            self.emit_load_const(ConstantData::None)
         }
 
         // Return freshly filled list:
-        emit!(self, Instruction::ReturnValue);
+        self.emit_return_value();
 
         // Fetch code for listcomp function:
         let code = self.pop_code_object();
@@ -2863,12 +2860,12 @@ impl Compiler {
         }
 
         // List comprehension code:
-        self.emit_constant(ConstantData::Code {
+        self.emit_load_const(ConstantData::Code {
             code: Box::new(code),
         });
 
         // List comprehension function name:
-        self.emit_constant(ConstantData::Str {
+        self.emit_load_const(ConstantData::Str {
             value: name.to_owned(),
         });
 
@@ -2889,7 +2886,7 @@ impl Compiler {
         emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
         if is_async {
             emit!(self, Instruction::GetAwaitable);
-            self.emit_constant(ConstantData::None);
+            self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
         }
         Ok(())
@@ -2944,10 +2941,29 @@ impl Compiler {
 
     // fn block_done()
 
-    fn emit_constant(&mut self, constant: ConstantData) {
+    fn arg_constant(&mut self, constant: ConstantData) -> u32 {
         let info = self.current_code_info();
-        let idx = info.constants.insert_full(constant).0.to_u32();
+        info.constants.insert_full(constant).0.to_u32()
+    }
+
+    fn emit_load_const(&mut self, constant: ConstantData) {
+        let idx = self.arg_constant(constant);
         self.emit_arg(idx, |idx| Instruction::LoadConst { idx })
+    }
+
+    fn emit_return_const(&mut self, constant: ConstantData) {
+        let idx = self.arg_constant(constant);
+        self.emit_arg(idx, |idx| Instruction::ReturnConst { idx })
+    }
+
+    fn emit_return_value(&mut self) {
+        if let Some(inst) = self.current_block().instructions.last_mut() {
+            if let Instruction::LoadConst { idx } = inst.instr {
+                inst.instr = Instruction::ReturnConst { idx };
+                return;
+            }
+        }
+        emit!(self, Instruction::ReturnValue)
     }
 
     fn current_code_info(&mut self) -> &mut ir::CodeInfo {

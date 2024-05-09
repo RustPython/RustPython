@@ -127,7 +127,7 @@ impl PyMappingProxy {
             MappingProxyInner::Class(class) => Ok(key
                 .as_interned_str(vm)
                 .map_or(false, |key| class.attributes.read().contains_key(key))),
-            MappingProxyInner::Mapping(mapping) => mapping.to_sequence(vm).contains(key, vm),
+            MappingProxyInner::Mapping(mapping) => mapping.to_sequence().contains(key, vm),
         }
     }
 

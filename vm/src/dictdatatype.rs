@@ -298,7 +298,8 @@ impl<T: Clone> Dict<T> {
     }
 
     pub fn contains<K: DictKey + ?Sized>(&self, vm: &VirtualMachine, key: &K) -> PyResult<bool> {
-        let (entry, _) = self.lookup(vm, key, key.key_hash(vm)?, None)?;
+        let key_hash = key.key_hash(vm)?;
+        let (entry, _) = self.lookup(vm, key, key_hash, None)?;
         Ok(entry.index().is_some())
     }
 

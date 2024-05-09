@@ -1821,9 +1821,6 @@ class _BaseV6:
     def _explode_shorthand_ip_string(self):
         """Expand a shortened IPv6 address.
 
-        Args:
-            ip_str: A string, the IPv6 address.
-
         Returns:
             A string, the expanded IPv6 address.
 
@@ -1940,6 +1937,9 @@ class IPv6Address(_BaseV6, _BaseAddress):
         if not address_equal:
             return False
         return self._scope_id == getattr(other, '_scope_id', None)
+
+    def __reduce__(self):
+        return (self.__class__, (str(self),))
 
     @property
     def scope_id(self):

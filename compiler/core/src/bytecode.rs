@@ -486,6 +486,9 @@ pub enum Instruction {
         target: Arg<Label>,
     },
     ReturnValue,
+    ReturnConst {
+        idx: Arg<u32>,
+    },
     YieldValue,
     YieldFrom,
     SetupAnnotation,
@@ -1149,7 +1152,12 @@ impl Instruction {
     pub fn unconditional_branch(&self) -> bool {
         matches!(
             self,
-            Jump { .. } | Continue { .. } | Break { .. } | ReturnValue | Raise { .. }
+            Jump { .. }
+                | Continue { .. }
+                | Break { .. }
+                | ReturnValue
+                | ReturnConst { .. }
+                | Raise { .. }
         )
     }
 
@@ -1227,6 +1235,7 @@ impl Instruction {
                 }
             }
             ReturnValue => -1,
+            ReturnConst { .. } => 0,
             YieldValue => 0,
             YieldFrom => -1,
             SetupAnnotation | SetupLoop | SetupFinally { .. } | EnterFinally | EndFinally => 0,
@@ -1334,6 +1343,23 @@ impl Instruction {
         let name = |i: u32| ctx.get_name(i as usize);
         let cell_name = |i: u32| ctx.get_cell_name(i as usize);
 
+        let fmt_const =
+            |op: &str, arg: OpArg, f: &mut fmt::Formatter, idx: &Arg<u32>| -> fmt::Result {
+                let value = ctx.get_constant(idx.get(arg) as usize);
+                match value.borrow_constant() {
+                    BorrowedConstant::Code { code } if expand_code_objects => {
+                        write!(f, "{:pad$}({:?}):", op, code)?;
+                        code.display_inner(f, true, level + 1)?;
+                        Ok(())
+                    }
+                    c => {
+                        write!(f, "{:pad$}(", op)?;
+                        c.fmt_display(f)?;
+                        write!(f, ")")
+                    }
+                }
+            };
+
         match self {
             ImportName { idx } => w!(ImportName, name = idx),
             ImportNameless => w!(ImportNameless),
@@ -1358,21 +1384,7 @@ impl Instruction {
             DeleteSubscript => w!(DeleteSubscript),
             StoreAttr { idx } => w!(StoreAttr, name = idx),
             DeleteAttr { idx } => w!(DeleteAttr, name = idx),
-            LoadConst { idx } => {
-                let value = ctx.get_constant(idx.get(arg) as usize);
-                match value.borrow_constant() {
-                    BorrowedConstant::Code { code } if expand_code_objects => {
-                        write!(f, "{:pad$}({:?}):", "LoadConst", code)?;
-                        code.display_inner(f, true, level + 1)?;
-                        Ok(())
-                    }
-                    c => {
-                        write!(f, "{:pad$}(", "LoadConst")?;
-                        c.fmt_display(f)?;
-                        write!(f, ")")
-                    }
-                }
-            }
+            LoadConst { idx } => fmt_const("LoadConst", arg, f, idx),
             UnaryOperation { op } => w!(UnaryOperation, ?op),
             BinaryOperation { op } => w!(BinaryOperation, ?op),
             BinaryOperationInplace { op } => w!(BinaryOperationInplace, ?op),
@@ -1402,6 +1414,7 @@ impl Instruction {
             CallMethodEx { has_kwargs } => w!(CallMethodEx, has_kwargs),
             ForIter { target } => w!(ForIter, target),
             ReturnValue => w!(ReturnValue),
+            ReturnConst { idx } => fmt_const("ReturnConst", arg, f, idx),
             YieldValue => w!(YieldValue),
             YieldFrom => w!(YieldFrom),
             SetupAnnotation => w!(SetupAnnotation),

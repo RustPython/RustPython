@@ -10,7 +10,7 @@ from test import support
 from test.support import threading_helper
 
 try:
-    from _testcapi import hamt
+    from _testinternalcapi import hamt
 except ImportError:
     hamt = None
 
@@ -42,8 +42,6 @@ class ContextTest(unittest.TestCase):
 
         self.assertNotEqual(hash(c), hash('aaa'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @isolated_context
     def test_context_var_repr_1(self):
         c = contextvars.ContextVar('a')
@@ -101,8 +99,6 @@ class ContextTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'ContextVar key was expected'):
             ctx.get(1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_context_get_context_1(self):
         ctx = contextvars.copy_context()
         self.assertIsInstance(ctx, contextvars.Context)
@@ -115,8 +111,6 @@ class ContextTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'missing 1 required'):
             ctx.run()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_context_run_2(self):
         ctx = contextvars.Context()
 
@@ -145,8 +139,6 @@ class ContextTest(unittest.TestCase):
                 ((11, 'bar'), {'spam': 'foo'}))
             self.assertEqual(a, {})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_context_run_3(self):
         ctx = contextvars.Context()
 
@@ -187,8 +179,6 @@ class ContextTest(unittest.TestCase):
         self.assertEqual(returned_ctx[var], 'spam')
         self.assertIn(var, returned_ctx)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_context_run_5(self):
         ctx = contextvars.Context()
         var = contextvars.ContextVar('var')
@@ -203,8 +193,6 @@ class ContextTest(unittest.TestCase):
 
         self.assertIsNone(var.get(None))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_context_run_6(self):
         ctx = contextvars.Context()
         c = contextvars.ContextVar('a', default=0)
@@ -219,8 +207,6 @@ class ContextTest(unittest.TestCase):
 
         ctx.run(fun)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_context_run_7(self):
         ctx = contextvars.Context()
 
@@ -286,8 +272,6 @@ class ContextTest(unittest.TestCase):
         self.assertEqual(len(ctx2), 0)
         self.assertEqual(list(ctx2), [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @isolated_context
     def test_context_getset_2(self):
         v1 = contextvars.ContextVar('v1')
@@ -297,8 +281,6 @@ class ContextTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'by a different'):
             v2.reset(t1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @isolated_context
     def test_context_getset_3(self):
         c = contextvars.ContextVar('c', default=42)
@@ -324,8 +306,6 @@ class ContextTest(unittest.TestCase):
 
         ctx.run(fun)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @isolated_context
     def test_context_getset_4(self):
         c = contextvars.ContextVar('c', default=42)
@@ -378,8 +358,6 @@ class ContextTest(unittest.TestCase):
 
         ctx1.run(ctx1_fun)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @isolated_context
     @threading_helper.requires_working_threading()
     def test_context_threads_1(self):
@@ -470,7 +448,7 @@ class EqError(Exception):
     pass
 
 
-@unittest.skipIf(hamt is None, '_testcapi lacks "hamt()" function')
+@unittest.skipIf(hamt is None, '_testinternalcapi.hamt() not available')
 class HamtTest(unittest.TestCase):
 
     def test_hashkey_helper_1(self):

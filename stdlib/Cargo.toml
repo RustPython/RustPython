@@ -28,6 +28,7 @@ cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
 hex = { workspace = true }
 itertools = { workspace = true }
+indexmap = { workspace = true }
 libc = { workspace = true }
 nix = { workspace = true }
 num-complex = { workspace = true }
@@ -37,6 +38,7 @@ num-traits = { workspace = true }
 num_enum = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
+thread_local = { workspace = true }
 
 memchr = { workspace = true }
 base64 = "0.13.0"

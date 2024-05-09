@@ -89,6 +89,13 @@ impl HashSecret {
 }
 
 #[inline]
+pub fn hash_pointer(value: usize) -> PyHash {
+    // TODO: 32bit?
+    let hash = (value >> 4) | value;
+    hash as _
+}
+
+#[inline]
 pub fn hash_float(value: f64) -> Option<PyHash> {
     // cpython _Py_HashDouble
     if !value.is_finite() {

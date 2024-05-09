@@ -10,10 +10,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule(name = "nt", with(super::os::_os))]
 pub(crate) mod module {
-    #[cfg(target_env = "msvc")]
-    use crate::builtins::PyListRef;
     use crate::{
-        builtins::{PyDictRef, PyStrRef, PyTupleRef},
+        builtins::{PyDictRef, PyListRef, PyStrRef, PyTupleRef},
         common::{crt_fd::Fd, os::last_os_error, suppress_iph},
         convert::ToPyException,
         function::{Either, OptionalArg},

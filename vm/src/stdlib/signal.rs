@@ -25,14 +25,32 @@ pub(crate) mod _signal {
 
     cfg_if::cfg_if! {
         if #[cfg(windows)] {
-            type WakeupFd = libc::SOCKET;
-            const INVALID_WAKEUP: WakeupFd = (-1isize) as usize;
+            type WakeupFdRaw = libc::SOCKET;
+            struct WakeupFd(WakeupFdRaw);
+            const INVALID_WAKEUP: libc::SOCKET = windows_sys::Win32::Networking::WinSock::INVALID_SOCKET;
             static WAKEUP: atomic::AtomicUsize = atomic::AtomicUsize::new(INVALID_WAKEUP);
             // windows doesn't use the same fds for files and sockets like windows does, so we need
             // this to know whether to send() or write()
             static WAKEUP_IS_SOCKET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+            impl<'a> TryFromBorrowedObject<'a> for WakeupFd {
+                fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a crate::PyObject) -> PyResult<Self> {
+                    use num_traits::One;
+
+                    let fd: &crate::Py<crate::builtins::PyInt> = obj.try_to_value(vm)?;
+                    match fd.try_to_primitive::<usize>(vm) {
+                        Ok(fd) => Ok(WakeupFd(fd as _)),
+                        Err(e) => if (-fd.as_bigint()).is_one() {
+                            Ok(WakeupFd(INVALID_WAKEUP))
+                        } else {
+                            Err(e)
+                        },
+                    }
+                }
+            }
         } else {
-            type WakeupFd = i32;
+            type WakeupFdRaw = i32;
+            type WakeupFd = WakeupFdRaw;
             const INVALID_WAKEUP: WakeupFd = -1;
             static WAKEUP: atomic::AtomicI32 = atomic::AtomicI32::new(INVALID_WAKEUP);
         }
@@ -210,9 +228,12 @@ pub(crate) mod _signal {
     }
 
     #[pyfunction]
-    fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<WakeupFd> {
+    fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<WakeupFdRaw> {
         // TODO: implement warn_on_full_buffer
         let _ = args.warn_on_full_buffer;
+        #[cfg(windows)]
+        let fd = args.fd.0;
+        #[cfg(not(windows))]
         let fd = args.fd;
 
         if vm.signal_handlers.is_none() {
