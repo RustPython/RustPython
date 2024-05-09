@@ -592,6 +592,7 @@ pub enum Instruction {
     TypeVarWithBound,
     TypeVarWithConstraint,
     TypeAlias,
+    // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
 }
 // This must be kept up to date to avoid marshaling errors
 const LAST_INSTRUCTION: Instruction = Instruction::TypeAlias;
