@@ -1704,7 +1704,7 @@ impl ExecutingFrame<'_> {
                 .downcast()
                 .map_err(|_| vm.new_type_error("Type params must be a tuple.".to_owned()))?
         } else {
-            vm.ctx.new_tuple(vec![])
+            vm.ctx.empty_tuple.clone()
         };
 
         let kw_only_defaults = if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
