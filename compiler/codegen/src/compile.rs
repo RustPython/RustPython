@@ -261,13 +261,14 @@ impl Compiler {
             .sub_tables
             .remove(0);
         // Push the next table onto the stack
+        let last_idx = self.symbol_table_stack.len();
         self.symbol_table_stack.push(table);
-        self.symbol_table_stack.last().unwrap()
+        &self.symbol_table_stack[last_idx]
     }
 
     /// Pop the current symbol table off the stack
     fn pop_symbol_table(&mut self) -> SymbolTable {
-        self.symbol_table_stack.pop().unwrap()
+        self.symbol_table_stack.pop().expect("compiler bug")
     }
 
     fn push_output(
