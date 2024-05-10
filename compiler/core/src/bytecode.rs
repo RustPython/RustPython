@@ -591,7 +591,14 @@ pub enum Instruction {
     GetANext,
     EndAsyncFor,
     ExtendedArg,
+    TypeVar,
+    TypeVarWithBound,
+    TypeVarWithConstraint,
+    TypeAlias,
+    // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
 }
+// This must be kept up to date to avoid marshaling errors
+const LAST_INSTRUCTION: Instruction = Instruction::TypeAlias;
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
 impl From<Instruction> for u8 {
@@ -607,7 +614,7 @@ impl TryFrom<u8> for Instruction {
 
     #[inline]
     fn try_from(value: u8) -> Result<Self, crate::marshal::MarshalError> {
-        if value <= u8::from(Instruction::ExtendedArg) {
+        if value <= u8::from(LAST_INSTRUCTION) {
             Ok(unsafe { std::mem::transmute::<u8, Instruction>(value) })
         } else {
             Err(crate::marshal::MarshalError::InvalidBytecode)
@@ -639,6 +646,7 @@ bitflags! {
         const ANNOTATIONS = 0x02;
         const KW_ONLY_DEFAULTS = 0x04;
         const DEFAULTS = 0x08;
+        const TYPE_PARAMS = 0x10;
     }
 }
 impl OpArgType for MakeFunctionFlags {
@@ -1279,6 +1287,10 @@ impl Instruction {
             GetANext => 1,
             EndAsyncFor => -2,
             ExtendedArg => 0,
+            TypeVar => 0,
+            TypeVarWithBound => -1,
+            TypeVarWithConstraint => -1,
+            TypeAlias => -2,
         }
     }
 
@@ -1444,6 +1456,10 @@ impl Instruction {
             GetANext => w!(GetANext),
             EndAsyncFor => w!(EndAsyncFor),
             ExtendedArg => w!(ExtendedArg, Arg::<u32>::marker()),
+            TypeVar => w!(TypeVar),
+            TypeVarWithBound => w!(TypeVarWithBound),
+            TypeVarWithConstraint => w!(TypeVarWithConstraint),
+            TypeAlias => w!(TypeAlias),
         }
     }
 }

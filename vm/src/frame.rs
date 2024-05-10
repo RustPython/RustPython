@@ -3,7 +3,7 @@ use crate::{
     builtins::{
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
-        tuple::{PyTuple, PyTupleTyped},
+        tuple::{PyTuple, PyTupleRef, PyTupleTyped},
         PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
         PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
     },
@@ -15,7 +15,7 @@ use crate::{
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
     source_code::SourceLocation,
-    stdlib::builtins,
+    stdlib::{builtins, typing::_typing},
     vm::{Context, PyMethod},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
@@ -1162,6 +1162,46 @@ impl ExecutingFrame<'_> {
                 *extend_arg = true;
                 Ok(None)
             }
+            bytecode::Instruction::TypeVar => {
+                let type_name = self.pop_value();
+                let type_var: PyObjectRef =
+                    _typing::make_typevar(vm, type_name.clone(), vm.ctx.none(), vm.ctx.none())
+                        .into_ref(&vm.ctx)
+                        .into();
+                self.push_value(type_var);
+                Ok(None)
+            }
+            bytecode::Instruction::TypeVarWithBound => {
+                let type_name = self.pop_value();
+                let bound = self.pop_value();
+                let type_var: PyObjectRef =
+                    _typing::make_typevar(vm, type_name.clone(), bound, vm.ctx.none())
+                        .into_ref(&vm.ctx)
+                        .into();
+                self.push_value(type_var);
+                Ok(None)
+            }
+            bytecode::Instruction::TypeVarWithConstraint => {
+                let type_name = self.pop_value();
+                let constraint = self.pop_value();
+                let type_var: PyObjectRef =
+                    _typing::make_typevar(vm, type_name.clone(), vm.ctx.none(), constraint)
+                        .into_ref(&vm.ctx)
+                        .into();
+                self.push_value(type_var);
+                Ok(None)
+            }
+            bytecode::Instruction::TypeAlias => {
+                let name = self.pop_value();
+                let type_params: PyTupleRef = self
+                    .pop_value()
+                    .downcast()
+                    .map_err(|_| vm.new_type_error("Type params must be a tuple.".to_owned()))?;
+                let value = self.pop_value();
+                let type_alias = _typing::TypeAliasType::new(name, type_params, value);
+                self.push_value(type_alias.into_ref(&vm.ctx).into());
+                Ok(None)
+            }
         }
     }
 
@@ -1663,6 +1703,14 @@ impl ExecutingFrame<'_> {
             vm.ctx.new_dict().into()
         };
 
+        let type_params: PyTupleRef = if flags.contains(bytecode::MakeFunctionFlags::TYPE_PARAMS) {
+            self.pop_value()
+                .downcast()
+                .map_err(|_| vm.new_type_error("Type params must be a tuple.".to_owned()))?
+        } else {
+            vm.ctx.empty_tuple.clone()
+        };
+
         let kw_only_defaults = if flags.contains(bytecode::MakeFunctionFlags::KW_ONLY_DEFAULTS) {
             Some(
                 self.pop_value()
@@ -1693,7 +1741,7 @@ impl ExecutingFrame<'_> {
             defaults,
             kw_only_defaults,
             qualified_name.clone(),
-            vm.ctx.empty_tuple.clone(), // FIXME: fake implementation
+            type_params,
         )
         .into_pyobject(vm);
 

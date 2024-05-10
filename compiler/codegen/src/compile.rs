@@ -251,6 +251,26 @@ impl Compiler {
         }
     }
 
+    /// Push the next symbol table on to the stack
+    fn push_symbol_table(&mut self) -> &SymbolTable {
+        // Look up the next table contained in the scope of the current table
+        let table = self
+            .symbol_table_stack
+            .last_mut()
+            .expect("no next symbol table")
+            .sub_tables
+            .remove(0);
+        // Push the next table onto the stack
+        let last_idx = self.symbol_table_stack.len();
+        self.symbol_table_stack.push(table);
+        &self.symbol_table_stack[last_idx]
+    }
+
+    /// Pop the current symbol table off the stack
+    fn pop_symbol_table(&mut self) -> SymbolTable {
+        self.symbol_table_stack.pop().expect("compiler bug")
+    }
+
     fn push_output(
         &mut self,
         flags: bytecode::CodeFlags,
@@ -262,12 +282,7 @@ impl Compiler {
         let source_path = self.source_path.clone();
         let first_line_number = self.get_source_line_number();
 
-        let table = self
-            .symbol_table_stack
-            .last_mut()
-            .unwrap()
-            .sub_tables
-            .remove(0);
+        let table = self.push_symbol_table();
 
         let cellvar_cache = table
             .symbols
@@ -283,8 +298,6 @@ impl Compiler {
             })
             .map(|(var, _)| var.clone())
             .collect();
-
-        self.symbol_table_stack.push(table);
 
         let info = ir::CodeInfo {
             flags,
@@ -307,7 +320,7 @@ impl Compiler {
     }
 
     fn pop_code_object(&mut self) -> CodeObject {
-        let table = self.symbol_table_stack.pop().unwrap();
+        let table = self.pop_symbol_table();
         assert!(table.sub_tables.is_empty());
         self.code_stack
             .pop()
@@ -752,6 +765,7 @@ impl Compiler {
                 body,
                 decorator_list,
                 returns,
+                type_params,
                 ..
             }) => self.compile_function_def(
                 name.as_str(),
@@ -760,6 +774,7 @@ impl Compiler {
                 decorator_list,
                 returns.as_deref(),
                 false,
+                type_params,
             )?,
             Stmt::AsyncFunctionDef(StmtAsyncFunctionDef {
                 name,
@@ -767,6 +782,7 @@ impl Compiler {
                 body,
                 decorator_list,
                 returns,
+                type_params,
                 ..
             }) => self.compile_function_def(
                 name.as_str(),
@@ -775,6 +791,7 @@ impl Compiler {
                 decorator_list,
                 returns.as_deref(),
                 true,
+                type_params,
             )?,
             Stmt::ClassDef(StmtClassDef {
                 name,
@@ -782,8 +799,16 @@ impl Compiler {
                 bases,
                 keywords,
                 decorator_list,
+                type_params,
                 ..
-            }) => self.compile_class_def(name.as_str(), body, bases, keywords, decorator_list)?,
+            }) => self.compile_class_def(
+                name.as_str(),
+                body,
+                bases,
+                keywords,
+                decorator_list,
+                type_params,
+            )?,
             Stmt::Assert(StmtAssert { test, msg, .. }) => {
                 // if some flag, ignore all assert statements!
                 if self.opts.optimize == 0 {
@@ -885,7 +910,27 @@ impl Compiler {
             Stmt::Pass(_) => {
                 // No need to emit any code here :)
             }
-            Stmt::TypeAlias(_) => {}
+            Stmt::TypeAlias(StmtTypeAlias {
+                name,
+                type_params,
+                value,
+                ..
+            }) => {
+                let name_string = name.to_string();
+                if !type_params.is_empty() {
+                    self.push_symbol_table();
+                }
+                self.compile_expression(value)?;
+                self.compile_type_params(type_params)?;
+                if !type_params.is_empty() {
+                    self.pop_symbol_table();
+                }
+                self.emit_load_const(ConstantData::Str {
+                    value: name_string.clone(),
+                });
+                emit!(self, Instruction::TypeAlias);
+                self.store_name(&name_string)?;
+            }
         }
         Ok(())
     }
@@ -1003,6 +1048,47 @@ impl Compiler {
         for _ in decorator_list {
             emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
         }
+    }
+
+    /// Store each type parameter so it is accessible to the current scope, and leave a tuple of
+    /// all the type parameters on the stack.
+    fn compile_type_params(&mut self, type_params: &[located_ast::TypeParam]) -> CompileResult<()> {
+        for type_param in type_params {
+            match type_param {
+                located_ast::TypeParam::TypeVar(located_ast::TypeParamTypeVar {
+                    name,
+                    bound,
+                    ..
+                }) => {
+                    if let Some(expr) = &bound {
+                        self.compile_expression(expr)?;
+                        self.emit_load_const(ConstantData::Str {
+                            value: name.to_string(),
+                        });
+                        emit!(self, Instruction::TypeVarWithBound);
+                        emit!(self, Instruction::Duplicate);
+                        self.store_name(name.as_ref())?;
+                    } else {
+                        // self.store_name(type_name.as_str())?;
+                        self.emit_load_const(ConstantData::Str {
+                            value: name.to_string(),
+                        });
+                        emit!(self, Instruction::TypeVar);
+                        emit!(self, Instruction::Duplicate);
+                        self.store_name(name.as_ref())?;
+                    }
+                }
+                located_ast::TypeParam::ParamSpec(_) => todo!(),
+                located_ast::TypeParam::TypeVarTuple(_) => todo!(),
+            };
+        }
+        emit!(
+            self,
+            Instruction::BuildTuple {
+                size: u32::try_from(type_params.len()).unwrap(),
+            }
+        );
+        Ok(())
     }
 
     fn compile_try_statement(
@@ -1151,6 +1237,7 @@ impl Compiler {
         is_forbidden_name(name)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn compile_function_def(
         &mut self,
         name: &str,
@@ -1159,10 +1246,15 @@ impl Compiler {
         decorator_list: &[located_ast::Expr],
         returns: Option<&located_ast::Expr>, // TODO: use type hint somehow..
         is_async: bool,
+        type_params: &[located_ast::TypeParam],
     ) -> CompileResult<()> {
-        // Create bytecode for this function:
-
         self.prepare_decorators(decorator_list)?;
+
+        // If there are type params, we need to push a special symbol table just for them
+        if !type_params.is_empty() {
+            self.push_symbol_table();
+        }
+
         let mut func_flags = self.enter_function(name, args)?;
         self.current_code_info()
             .flags
@@ -1208,6 +1300,12 @@ impl Compiler {
         self.qualified_path.pop();
         self.ctx = prev_ctx;
 
+        // Prepare generic type parameters:
+        if !type_params.is_empty() {
+            self.compile_type_params(type_params)?;
+            func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
+        }
+
         // Prepare type annotations:
         let mut num_annotations = 0;
 
@@ -1251,6 +1349,11 @@ impl Compiler {
 
         if self.build_closure(&code) {
             func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
+        }
+
+        // Pop the special type params symbol table
+        if !type_params.is_empty() {
+            self.pop_symbol_table();
         }
 
         self.emit_load_const(ConstantData::Code {
@@ -1352,6 +1455,7 @@ impl Compiler {
         bases: &[located_ast::Expr],
         keywords: &[located_ast::Keyword],
         decorator_list: &[located_ast::Expr],
+        type_params: &[located_ast::TypeParam],
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
@@ -1377,6 +1481,11 @@ impl Compiler {
         }
         self.push_qualified_path(name);
         let qualified_name = self.qualified_path.join(".");
+
+        // If there are type params, we need to push a special symbol table just for them
+        if !type_params.is_empty() {
+            self.push_symbol_table();
+        }
 
         self.push_output(bytecode::CodeFlags::empty(), 0, 0, 0, name.to_owned());
 
@@ -1428,8 +1537,19 @@ impl Compiler {
 
         let mut func_flags = bytecode::MakeFunctionFlags::empty();
 
+        // Prepare generic type parameters:
+        if !type_params.is_empty() {
+            self.compile_type_params(type_params)?;
+            func_flags |= bytecode::MakeFunctionFlags::TYPE_PARAMS;
+        }
+
         if self.build_closure(&code) {
             func_flags |= bytecode::MakeFunctionFlags::CLOSURE;
+        }
+
+        // Pop the special type params symbol table
+        if !type_params.is_empty() {
+            self.pop_symbol_table();
         }
 
         self.emit_load_const(ConstantData::Code {
