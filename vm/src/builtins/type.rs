@@ -470,6 +470,11 @@ impl PyType {
         self.slots.flags.bits()
     }
 
+    #[pygetset(magic)]
+    fn basicsize(&self) -> usize {
+        self.slots.basicsize
+    }
+
     #[pygetset]
     pub fn __name__(&self, vm: &VirtualMachine) -> PyStrRef {
         self.name_inner(
@@ -1313,22 +1318,23 @@ fn calculate_meta_class(
     Ok(winner)
 }
 
+fn solid_base(typ: &PyTypeRef, vm: &VirtualMachine) -> Option<PyTypeRef> {
+    let result = if let Some(base) = &typ.base {
+        solid_base(&base, vm)
+    } else {
+        Some(vm.ctx.types.object_type.to_owned())
+    };
+
+    result
+}
+
 fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-    // let mut base = None;
-    // let mut winner = None;
+    let mut base: Option<PyTypeRef> = None;
+    let mut winner: Option<PyTypeRef> = None;
 
     for base_i in bases {
-        // base_proto = PyTuple_GET_ITEM(bases, i);
-        // if (!PyType_Check(base_proto)) {
-        //     PyErr_SetString(
-        //         PyExc_TypeError,
-        //         "bases must be types");
-        //     return NULL;
-        // }
-        // base_i = (PyTypeObject *)base_proto;
-        // if (base_i->slot_dict == NULL) {
-        //     if (PyType_Ready(base_i) < 0)
-        //         return NULL;
+        // if !base_i.fast_issubclass(vm.ctx.types.type_type) {
+        //     return Err(vm.new_type_error("best must be types".into()));
         // }
 
         if !base_i.slots.flags.has_feature(PyTypeFlags::BASETYPE) {
@@ -1337,27 +1343,13 @@ fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
                 base_i.name()
             )));
         }
-        // candidate = solid_base(base_i);
-        // if (winner == NULL) {
-        //     winner = candidate;
-        //     base = base_i;
-        // }
-        // else if (PyType_IsSubtype(winner, candidate))
-        //     ;
-        // else if (PyType_IsSubtype(candidate, winner)) {
-        //     winner = candidate;
-        //     base = base_i;
-        // }
-        // else {
-        //     PyErr_SetString(
-        //         PyExc_TypeError,
-        //         "multiple bases have "
-        //         "instance lay-out conflict");
-        //     return NULL;
-        // }
+
+        let candidate = solid_base(&base_i, vm);
+        println!("candidate type : {}", candidate.unwrap().name());
     }
 
-    // FIXME: Ok(base.unwrap()) is expected
+    // Ok(base.unwrap())
+
     Ok(bases[0].clone())
 }
 
