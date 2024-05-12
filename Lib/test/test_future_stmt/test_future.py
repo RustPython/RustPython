@@ -198,8 +198,6 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         )
         return scope
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_annotations(self):
         eq = self.assertAnnotationEqual
         eq('...')
