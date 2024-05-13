@@ -2441,8 +2441,6 @@ class TestType(unittest.TestCase):
             A.__name__ = b'A'
         self.assertEqual(A.__name__, 'C')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_type_qualname(self):
         A = type('A', (), {'__qualname__': 'B.C'})
         self.assertEqual(A.__name__, 'A')

@@ -206,6 +206,15 @@ impl PyType {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
 
+        if let Some(qualname) = attrs.get(identifier!(ctx, __qualname__)) {
+            if !qualname.fast_isinstance(ctx.types.str_type) {
+                return Err(format!(
+                    "type __qualname__ must be a str, not {}",
+                    qualname.class().name()
+                ));
+            }
+        }
+
         let new_type = PyRef::new_ref(
             PyType {
                 base: Some(base),
