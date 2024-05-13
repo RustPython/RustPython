@@ -197,8 +197,6 @@ class ContextManagerTestCase(unittest.TestCase):
                 else:
                     self.fail(f'{stop_exc} was suppressed')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_contextmanager_except_pep479(self):
         code = """\
 from __future__ import generator_stop
