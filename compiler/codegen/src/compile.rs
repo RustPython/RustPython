@@ -2903,15 +2903,8 @@ impl Compiler {
         for feature in features {
             match feature.name.as_str() {
                 // Python 3 features; we've already implemented them by default
-                "nested_scopes"
-                | "generators"
-                | "division"
-                | "absolute_import"
-                | "with_statement"
-                | "print_function"
-                | "unicode_literals"
-                | "compile_future_features" => {}
-                "generator_stop" => {}
+                "nested_scopes" | "generators" | "division" | "absolute_import"
+                | "with_statement" | "print_function" | "unicode_literals" | "generator_stop" => {}
                 "annotations" => self.future_annotations = true,
                 other => {
                     return Err(self.error(CodegenErrorType::InvalidFutureFeature(other.to_owned())))
