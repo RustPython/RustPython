@@ -1082,10 +1082,11 @@ impl SetAttr for PyType {
         } else {
             let prev_value = zelf.attributes.write().shift_remove(attr_name); // TODO: swap_remove applicable?
             if prev_value.is_none() {
-                return Err(vm.new_exception(
-                    vm.ctx.exceptions.attribute_error.to_owned(),
-                    vec![attr_name.to_object()],
-                ));
+                return Err(vm.new_attribute_error(format!(
+                    "type object '{}' has no attribute '{}'",
+                    zelf.name(),
+                    attr_name.as_str(),
+                )));
             }
         }
         if attr_name.as_str().starts_with("__") && attr_name.as_str().ends_with("__") {
