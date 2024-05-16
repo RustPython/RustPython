@@ -166,12 +166,13 @@ impl GetAttr for PySuper {
 
         if let Some(name) = vm.ctx.interned_str(name) {
             // skip the classes in start_type.mro up to and including zelf.typ
-            let mro: Vec<_> = start_type
-                .iter_mro()
+            let mro: Vec<PyRef<PyType>> = start_type.mro_map_collect(|x| x.to_owned());
+            let mro: Vec<_> = mro
+                .iter()
                 .skip_while(|cls| !cls.is(&zelf.inner.read().typ))
                 .skip(1) // skip su->type (if any)
                 .collect();
-            for cls in mro {
+            for cls in mro.iter() {
                 if let Some(descr) = cls.get_direct_attr(name) {
                     return vm
                         .call_get_descriptor_specific(

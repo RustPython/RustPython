@@ -1190,8 +1190,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
 
         let type_payload = PyType {
             base: None,
-            bases: vec![],
-            mro: vec![],
+            bases: PyRwLock::default(),
+            mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(Default::default()),
             slots: PyType::make_slots(),
@@ -1199,8 +1199,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         };
         let object_payload = PyType {
             base: None,
-            bases: vec![],
-            mro: vec![],
+            bases: PyRwLock::default(),
+            mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(Default::default()),
             slots: object::PyBaseObject::make_slots(),
@@ -1244,8 +1244,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
 
             let object_type = PyTypeRef::from_raw(object_type_ptr.cast());
 
-            (*type_type_ptr).payload.mro = vec![object_type.clone()];
-            (*type_type_ptr).payload.bases = vec![object_type.clone()];
+            (*type_type_ptr).payload.mro = PyRwLock::new(vec![object_type.clone()]);
+            (*type_type_ptr).payload.bases = PyRwLock::new(vec![object_type.clone()]);
             (*type_type_ptr).payload.base = Some(object_type.clone());
 
             let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
@@ -1256,8 +1256,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
 
     let weakref_type = PyType {
         base: Some(object_type.clone()),
-        bases: vec![object_type.clone()],
-        mro: vec![object_type.clone()],
+        bases: PyRwLock::new(vec![object_type.clone()]),
+        mro: PyRwLock::new(vec![object_type.clone()]),
         subclasses: PyRwLock::default(),
         attributes: PyRwLock::default(),
         slots: PyWeak::make_slots(),
