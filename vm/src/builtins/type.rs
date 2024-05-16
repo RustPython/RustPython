@@ -488,6 +488,60 @@ impl PyType {
                 .collect(),
         )
     }
+    #[pygetset(setter, name = "__bases__")]
+    fn set_bases(zelf: &Py<Self>, bases: Vec<PyTypeRef>, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
+        // Rather than correctly reinitializing the class, we are skipping a few steps for now
+        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '__bases__' attribute of immutable type '{}'",
+                zelf.name()
+            )));
+        }
+        if bases.is_empty() {
+            return Err(vm.new_type_error(format!(
+                "can only assign non-empty tuple to %s.__bases__, not {}",
+                zelf.name()
+            )));
+        }
+
+        // TODO: check for mro cycles
+
+        // TODO: Remove this class from all subclass lists
+        // for base in self.bases.read().iter() {
+        //     let subclasses = base.subclasses.write();
+        //     // TODO: how to uniquely identify the subclasses to remove?
+        // }
+
+        *zelf.bases.write() = bases;
+        // Recursively update the mros of this class and all subclasses
+        fn update_mro_recursively(cls: &PyType, vm: &VirtualMachine) -> PyResult<()> {
+            *cls.mro.write() =
+                PyType::resolve_mro(&cls.bases.read()).map_err(|msg| vm.new_type_error(msg))?;
+            for subclass in cls.subclasses.write().iter() {
+                let subclass = subclass.upgrade().unwrap();
+                let subclass: &PyType = subclass.payload().unwrap();
+                update_mro_recursively(subclass, vm)?;
+            }
+            Ok(())
+        }
+        update_mro_recursively(zelf, vm)?;
+
+        // TODO: do any old slots need to be cleaned up first?
+        zelf.init_slots(&vm.ctx);
+
+        // Register this type as a subclass of its new bases
+        let weakref_type = super::PyWeak::static_type();
+        for base in zelf.bases.read().iter() {
+            base.subclasses.write().push(
+                zelf.as_object()
+                    .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
+                    .unwrap(),
+            );
+        }
+
+        Ok(())
+    }
 
     #[pygetset(magic)]
     fn base(&self) -> Option<PyTypeRef> {
