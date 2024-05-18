@@ -1321,7 +1321,7 @@ fn calculate_meta_class(
 
 fn solid_base(typ: &PyTypeRef, vm: &VirtualMachine) -> PyTypeRef {
     let base = if let Some(base) = &typ.base {
-        solid_base(&base, vm)
+        solid_base(base, vm)
     } else {
         vm.ctx.types.object_type.to_owned()
     };
@@ -1352,7 +1352,7 @@ fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
             )));
         }
 
-        let candidate = solid_base(&base_i, vm);
+        let candidate = solid_base(base_i, vm);
         if winner.is_none() {
             winner = Some(candidate.clone());
             base = Some(base_i.clone());
