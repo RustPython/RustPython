@@ -1324,7 +1324,6 @@ fn calculate_meta_class(
     Ok(winner)
 }
 
-
 fn solid_base(typ: &PyTypeRef, vm: &VirtualMachine) -> PyTypeRef {
     let base = if let Some(base) = &typ.base {
         solid_base(base, vm)
@@ -1341,7 +1340,6 @@ fn solid_base(typ: &PyTypeRef, vm: &VirtualMachine) -> PyTypeRef {
 }
 
 fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-   
     let mut base: Option<PyTypeRef> = None;
     let mut winner: Option<PyTypeRef> = None;
 
@@ -1368,9 +1366,9 @@ fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
             winner = Some(candidate.clone());
             base = Some(base_i.clone());
         } else {
-            return Err(vm.new_type_error(
-                "multiple bases have instance layout conflict".to_string(),
-            ));
+            return Err(
+                vm.new_type_error("multiple bases have instance layout conflict".to_string())
+            );
         }
     }
 
