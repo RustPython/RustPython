@@ -205,6 +205,9 @@ impl PyType {
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
         }
+        if slots.basicsize == 0 {
+            slots.basicsize = base.slots.basicsize;
+        }
 
         if let Some(qualname) = attrs.get(identifier!(ctx, __qualname__)) {
             if !qualname.fast_isinstance(ctx.types.str_type) {
@@ -252,6 +255,9 @@ impl PyType {
     ) -> Result<PyRef<Self>, String> {
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
+        }
+        if slots.basicsize == 0 {
+            slots.basicsize = base.slots.basicsize;
         }
 
         let bases = vec![base.clone()];
