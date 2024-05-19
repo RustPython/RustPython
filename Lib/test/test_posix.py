@@ -1680,8 +1680,6 @@ class PosixGroupsTester(unittest.TestCase):
         posix.initgroups(name, g)
         self.assertIn(g, posix.getgroups())
 
-    # TODO: RUSTPYTHON: TypeError: Unexpected keyword argument setpgroup
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(posix, 'setgroups'),
                          "test needs posix.setgroups()")
     def test_setgroups(self):
