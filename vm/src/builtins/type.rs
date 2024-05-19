@@ -312,16 +312,6 @@ impl PyType {
         }
     }
 
-    pub fn mro_map_collect<F, R>(&self, f: F) -> Vec<R>
-    where
-        F: Fn(&Self) -> R,
-    {
-        std::iter::once(self)
-            .chain(self.mro.read().iter().map(|cls| -> &PyType { cls }))
-            .map(f)
-            .collect()
-    }
-
     // This is used for class initialisation where the vm is not yet available.
     pub fn set_str_attr<V: Into<PyObjectRef>>(
         &self,
