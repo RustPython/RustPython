@@ -720,7 +720,7 @@ impl PyType {
 
             let base = best_base(&bases, vm)?;
 
-            (metatype, base, bases)
+            (metatype, base.to_owned(), bases)
         };
 
         let mut attributes = dict.to_attributes(vm);
@@ -1324,24 +1324,24 @@ fn calculate_meta_class(
     Ok(winner)
 }
 
-fn solid_base(typ: &PyTypeRef, vm: &VirtualMachine) -> PyTypeRef {
+fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
     let base = if let Some(base) = &typ.base {
         solid_base(base, vm)
     } else {
-        vm.ctx.types.object_type.to_owned()
+        vm.ctx.types.object_type
     };
 
-    // TODO: itemsize comparation also needed
+    // TODO: requires itemsize comparison too
     if typ.basicsize() != base.basicsize() {
-        typ.clone()
+        typ
     } else {
         base
     }
 }
 
-fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
-    let mut base: Option<PyTypeRef> = None;
-    let mut winner: Option<PyTypeRef> = None;
+fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py<PyType>> {
+    let mut base: Option<&Py<PyType>> = None;
+    let mut winner: Option<&Py<PyType>> = None;
 
     for base_i in bases {
         // if !base_i.fast_issubclass(vm.ctx.types.type_type) {
@@ -1358,13 +1358,13 @@ fn best_base(bases: &[PyTypeRef], vm: &VirtualMachine) -> PyResult<PyTypeRef> {
 
         let candidate = solid_base(base_i, vm);
         if winner.is_none() {
-            winner = Some(candidate.clone());
-            base = Some(base_i.clone());
-        } else if winner.as_ref().unwrap().fast_issubclass(&candidate) {
+            winner = Some(candidate);
+            base = Some(base_i.deref());
+        } else if winner.unwrap().fast_issubclass(candidate) {
             // Do nothing
-        } else if candidate.fast_issubclass(winner.as_ref().unwrap()) {
-            winner = Some(candidate.clone());
-            base = Some(base_i.clone());
+        } else if candidate.fast_issubclass(winner.unwrap()) {
+            winner = Some(candidate);
+            base = Some(base_i.deref());
         } else {
             return Err(
                 vm.new_type_error("multiple bases have instance layout conflict".to_string())
