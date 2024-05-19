@@ -823,8 +823,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             class X(int(), C):
                 pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module_subclasses(self):
         # Testing Python subclass of module...
         log = []
@@ -1500,8 +1498,6 @@ order (MRO) for bases """
             pass
         self.assertNotEqual(someclass, object)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_errors(self):
         # Testing errors...
         try:

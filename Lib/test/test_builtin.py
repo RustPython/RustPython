@@ -2368,8 +2368,6 @@ class ShutdownTest(unittest.TestCase):
 
 
 class TestType(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_new_type(self):
         A = type('A', (), {})
         self.assertEqual(A.__name__, 'A')
@@ -2472,8 +2470,6 @@ class TestType(unittest.TestCase):
             A.__doc__ = doc
             self.assertEqual(A.__doc__, doc)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bad_args(self):
         with self.assertRaises(TypeError):
             type()
