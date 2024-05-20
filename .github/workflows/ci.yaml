@@ -140,9 +140,8 @@ jobs:
       - name: run rust tests
         run: cargo test --workspace --exclude rustpython_wasm --verbose --features threading ${{ env.CARGO_ARGS }}
         if: runner.os != 'macOS'
-      # temp skip ssl linking for Mac to avoid CI failure
-      - name: run rust tests (MacOS no ssl)
-        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --verbose --no-default-features --features threading,stdlib,zlib,importlib,encodings
+      - name: run rust tests
+        run: cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --verbose --features threading  ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
 
       - name: check compilation without threading
