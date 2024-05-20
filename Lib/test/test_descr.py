@@ -4032,8 +4032,6 @@ order (MRO) for bases """
             y = x ** 2
         self.assertIn('unsupported operand type(s) for **', str(cm.exception))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mutable_bases(self):
         # Testing mutable bases...
 
@@ -4235,8 +4233,6 @@ order (MRO) for bases """
         else:
             self.fail("exception not propagated")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mutable_bases_catch_mro_conflict(self):
         # Testing mutable bases catch mro conflict...
         class A(object):
@@ -5759,8 +5755,6 @@ class MroTest(unittest.TestCase):
         class A(metaclass=M):
             pass
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reent_set_bases_on_base(self):
         """
         Deep reentrancy must not over-decref old_mro.

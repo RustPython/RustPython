@@ -34,8 +34,8 @@ use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
     pub base: Option<PyTypeRef>,
-    pub bases: Vec<PyTypeRef>,
-    pub mro: Vec<PyTypeRef>,
+    pub bases: PyRwLock<Vec<PyTypeRef>>,
+    pub mro: PyRwLock<Vec<PyTypeRef>>,
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: PyRwLock<PyAttributes>,
     pub slots: PyTypeSlots,
@@ -178,6 +178,22 @@ impl PyType {
         Self::new_heap_inner(base, bases, attrs, slots, heaptype_ext, metaclass, ctx)
     }
 
+    fn resolve_mro(bases: &[PyRef<Self>]) -> Result<Vec<PyTypeRef>, String> {
+        // Check for duplicates in bases.
+        let mut unique_bases = HashSet::new();
+        for base in bases {
+            if !unique_bases.insert(base.get_id()) {
+                return Err(format!("duplicate base class {}", base.name()));
+            }
+        }
+
+        let mros = bases
+            .iter()
+            .map(|base| base.mro_map_collect(|t| t.to_owned()))
+            .collect();
+        linearise_mro(mros)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn new_heap_inner(
         base: PyRef<Self>,
@@ -188,19 +204,7 @@ impl PyType {
         metaclass: PyRef<Self>,
         ctx: &Context,
     ) -> Result<PyRef<Self>, String> {
-        // Check for duplicates in bases.
-        let mut unique_bases = HashSet::new();
-        for base in &bases {
-            if !unique_bases.insert(base.get_id()) {
-                return Err(format!("duplicate base class {}", base.name()));
-            }
-        }
-
-        let mros = bases
-            .iter()
-            .map(|x| x.iter_mro().map(|x| x.to_owned()).collect())
-            .collect();
-        let mro = linearise_mro(mros)?;
+        let mro = Self::resolve_mro(&bases)?;
 
         if base.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
             slots.flags |= PyTypeFlags::HAS_DICT
@@ -221,8 +225,8 @@ impl PyType {
         let new_type = PyRef::new_ref(
             PyType {
                 base: Some(base),
-                bases,
-                mro,
+                bases: PyRwLock::new(bases),
+                mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
                 attributes: PyRwLock::new(attrs),
                 slots,
@@ -235,7 +239,7 @@ impl PyType {
         new_type.init_slots(ctx);
 
         let weakref_type = super::PyWeak::static_type();
-        for base in &new_type.bases {
+        for base in new_type.bases.read().iter() {
             base.subclasses.write().push(
                 new_type
                     .as_object()
@@ -260,14 +264,14 @@ impl PyType {
             slots.basicsize = base.slots.basicsize;
         }
 
-        let bases = vec![base.clone()];
-        let mro = base.iter_mro().map(|x| x.to_owned()).collect();
+        let bases = PyRwLock::new(vec![base.clone()]);
+        let mro = base.mro_map_collect(|x| x.to_owned());
 
         let new_type = PyRef::new_ref(
             PyType {
                 base: Some(base),
                 bases,
-                mro,
+                mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
                 attributes: PyRwLock::new(attrs),
                 slots,
@@ -278,7 +282,7 @@ impl PyType {
         );
 
         let weakref_type = super::PyWeak::static_type();
-        for base in &new_type.bases {
+        for base in new_type.bases.read().iter() {
             base.subclasses.write().push(
                 new_type
                     .as_object()
@@ -294,7 +298,7 @@ impl PyType {
         #[allow(clippy::mutable_key_type)]
         let mut slot_name_set = std::collections::HashSet::new();
 
-        for cls in self.mro.iter() {
+        for cls in self.mro.read().iter() {
             for &name in cls.attributes.read().keys() {
                 if name == identifier!(ctx, __new__) {
                     continue;
@@ -311,23 +315,6 @@ impl PyType {
         }
         for attr_name in slot_name_set {
             self.update_slot::<true>(attr_name, ctx);
-        }
-    }
-
-    pub fn iter_mro(&self) -> impl DoubleEndedIterator<Item = &PyType> {
-        std::iter::once(self).chain(self.mro.iter().map(|cls| -> &PyType { cls }))
-    }
-
-    pub(crate) fn mro_find_map<F, R>(&self, f: F) -> Option<R>
-    where
-        F: Fn(&Self) -> Option<R>,
-    {
-        // the hot path will be primitive types which usually hit the result from itself.
-        // try std::intrinsics::likely once it is stablized
-        if let Some(r) = f(self) {
-            Some(r)
-        } else {
-            self.mro.iter().find_map(|cls| f(cls))
         }
     }
 
@@ -361,6 +348,7 @@ impl PyType {
 
     pub fn get_super_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
         self.mro
+            .read()
             .iter()
             .find_map(|class| class.attributes.read().get(attr_name).cloned())
     }
@@ -370,6 +358,7 @@ impl PyType {
         self.attributes.read().contains_key(attr_name)
             || self
                 .mro
+                .read()
                 .iter()
                 .any(|c| c.attributes.read().contains_key(attr_name))
     }
@@ -378,7 +367,10 @@ impl PyType {
         // Gather all members here:
         let mut attributes = PyAttributes::default();
 
-        for bc in self.iter_mro().rev() {
+        for bc in std::iter::once(self)
+            .chain(self.mro.read().iter().map(|cls| -> &PyType { cls }))
+            .rev()
+        {
             for (name, value) in bc.attributes.read().iter() {
                 attributes.insert(name.to_owned(), value.clone());
             }
@@ -432,11 +424,37 @@ impl Py<PyType> {
     /// so only use this if `cls` is known to have not overridden the base __subclasscheck__ magic
     /// method.
     pub fn fast_issubclass(&self, cls: &impl Borrow<crate::PyObject>) -> bool {
-        self.as_object().is(cls.borrow()) || self.mro.iter().any(|c| c.is(cls.borrow()))
+        self.as_object().is(cls.borrow()) || self.mro.read().iter().any(|c| c.is(cls.borrow()))
     }
 
-    pub fn iter_mro(&self) -> impl DoubleEndedIterator<Item = &Py<PyType>> {
-        std::iter::once(self).chain(self.mro.iter().map(|x| x.deref()))
+    pub fn mro_map_collect<F, R>(&self, f: F) -> Vec<R>
+    where
+        F: Fn(&Self) -> R,
+    {
+        std::iter::once(self)
+            .chain(self.mro.read().iter().map(|x| x.deref()))
+            .map(f)
+            .collect()
+    }
+
+    pub fn mro_collect(&self) -> Vec<PyRef<PyType>> {
+        std::iter::once(self)
+            .chain(self.mro.read().iter().map(|x| x.deref()))
+            .map(|x| x.to_owned())
+            .collect()
+    }
+
+    pub(crate) fn mro_find_map<F, R>(&self, f: F) -> Option<R>
+    where
+        F: Fn(&Self) -> Option<R>,
+    {
+        // the hot path will be primitive types which usually hit the result from itself.
+        // try std::intrinsics::likely once it is stablized
+        if let Some(r) = f(self) {
+            Some(r)
+        } else {
+            self.mro.read().iter().find_map(|cls| f(cls))
+        }
     }
 
     pub fn iter_base_chain(&self) -> impl Iterator<Item = &Py<PyType>> {
@@ -460,10 +478,65 @@ impl PyType {
     fn bases(&self, vm: &VirtualMachine) -> PyTupleRef {
         vm.ctx.new_tuple(
             self.bases
+                .read()
                 .iter()
                 .map(|x| x.as_object().to_owned())
                 .collect(),
         )
+    }
+    #[pygetset(setter, name = "__bases__")]
+    fn set_bases(zelf: &Py<Self>, bases: Vec<PyTypeRef>, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
+        // Rather than correctly reinitializing the class, we are skipping a few steps for now
+        if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '__bases__' attribute of immutable type '{}'",
+                zelf.name()
+            )));
+        }
+        if bases.is_empty() {
+            return Err(vm.new_type_error(format!(
+                "can only assign non-empty tuple to %s.__bases__, not {}",
+                zelf.name()
+            )));
+        }
+
+        // TODO: check for mro cycles
+
+        // TODO: Remove this class from all subclass lists
+        // for base in self.bases.read().iter() {
+        //     let subclasses = base.subclasses.write();
+        //     // TODO: how to uniquely identify the subclasses to remove?
+        // }
+
+        *zelf.bases.write() = bases;
+        // Recursively update the mros of this class and all subclasses
+        fn update_mro_recursively(cls: &PyType, vm: &VirtualMachine) -> PyResult<()> {
+            *cls.mro.write() =
+                PyType::resolve_mro(&cls.bases.read()).map_err(|msg| vm.new_type_error(msg))?;
+            for subclass in cls.subclasses.write().iter() {
+                let subclass = subclass.upgrade().unwrap();
+                let subclass: &PyType = subclass.payload().unwrap();
+                update_mro_recursively(subclass, vm)?;
+            }
+            Ok(())
+        }
+        update_mro_recursively(zelf, vm)?;
+
+        // TODO: do any old slots need to be cleaned up first?
+        zelf.init_slots(&vm.ctx);
+
+        // Register this type as a subclass of its new bases
+        let weakref_type = super::PyWeak::static_type();
+        for base in zelf.bases.read().iter() {
+            base.subclasses.write().push(
+                zelf.as_object()
+                    .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
+                    .unwrap(),
+            );
+        }
+
+        Ok(())
     }
 
     #[pygetset(magic)]
@@ -964,8 +1037,7 @@ impl PyType {
 impl Py<PyType> {
     #[pygetset(name = "__mro__")]
     fn get_mro(&self) -> PyTuple {
-        let elements: Vec<PyObjectRef> =
-            self.iter_mro().map(|x| x.as_object().to_owned()).collect();
+        let elements: Vec<PyObjectRef> = self.mro_map_collect(|x| x.as_object().to_owned());
         PyTuple::new_unchecked(elements.into_boxed_slice())
     }
 
@@ -996,7 +1068,7 @@ impl Py<PyType> {
 
     #[pymethod]
     fn mro(&self) -> Vec<PyObjectRef> {
-        self.iter_mro().map(|cls| cls.to_owned().into()).collect()
+        self.mro_map_collect(|cls| cls.to_owned().into())
     }
 }
 
@@ -1226,12 +1298,11 @@ pub(crate) fn call_slot_new(
     args: FuncArgs,
     vm: &VirtualMachine,
 ) -> PyResult {
-    for cls in typ.deref().iter_mro() {
-        if let Some(slot_new) = cls.slots.new.load() {
-            return slot_new(subtype, args, vm);
-        }
-    }
-    unreachable!("Should be able to find a new slot somewhere in the mro")
+    let slot_new = typ
+        .deref()
+        .mro_find_map(|cls| cls.slots.new.load())
+        .expect("Should be able to find a new slot somewhere in the mro");
+    slot_new(subtype, args, vm)
 }
 
 pub(super) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
