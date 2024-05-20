@@ -95,7 +95,7 @@ threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 zlib = ["stdlib", "rustpython-stdlib/zlib"]
 bz2 = ["stdlib", "rustpython-stdlib/bz2"]
 ssl = ["rustpython-stdlib/ssl"]
-ssl-vendor = ["rustpython-stdlib/ssl-vendor"]
+ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
 
 [dependencies]
 rustpython-compiler = { workspace = true }
