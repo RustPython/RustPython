@@ -53,7 +53,7 @@ mod resource {
     #[pyattr]
     use libc::RLIMIT_VMEM;
 
-    #[cfg(any(target_os = "linux", target_os = "emscripten", target_os = "freebds"))]
+    #[cfg(any(target_os = "linux", target_os = "emscripten", target_os = "freebsd"))]
     #[pyattr]
     use libc::RUSAGE_THREAD;
     #[cfg(not(any(target_os = "windows", target_os = "redox")))]
