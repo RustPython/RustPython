@@ -2746,7 +2746,8 @@ impl Compiler {
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
-        let is_async = generators.iter().any(|g| g.is_async);
+        let is_async_gen = generators.iter().any(|g| g.is_async);
+        let is_async = is_async_gen || prev_ctx.func == FunctionContext::AsyncFunction;
 
         self.ctx = CompileContext {
             loop_data: None,
@@ -2838,7 +2839,7 @@ impl Compiler {
 
             // End of for loop:
             self.switch_to_block(after_block);
-            if is_async {
+            if is_async_gen {
                 emit!(self, Instruction::EndAsyncFor);
             }
         }
@@ -2877,7 +2878,7 @@ impl Compiler {
         self.compile_expression(&generators[0].iter)?;
 
         // Get iterator / turn item into an iterator
-        if is_async {
+        if is_async_gen {
             emit!(self, Instruction::GetAIter);
         } else {
             emit!(self, Instruction::GetIter);
@@ -2885,11 +2886,21 @@ impl Compiler {
 
         // Call just created <listcomp> function:
         emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
-        if is_async {
+        if is_async_gen {
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
         }
+
+        if !is_async_gen && is_async {
+            // async, but not a generator
+            // in this case, we end up with an awaitable
+            // that evaluates to the list, so here we add an await
+            emit!(self, Instruction::GetAwaitable);
+            self.emit_load_const(ConstantData::None);
+            emit!(self, Instruction::YieldFrom);
+        }
+
         Ok(())
     }
 
