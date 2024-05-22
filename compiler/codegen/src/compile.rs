@@ -87,6 +87,14 @@ impl CompileContext {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum ComprehensionType {
+    Generator,
+    List,
+    Set,
+    Dict,
+}
+
 /// Compile an located_ast::Mod produced from rustpython_parser::parse()
 pub fn compile_top(
     ast: &located_ast::Mod,
@@ -2431,6 +2439,7 @@ impl Compiler {
                         );
                         Ok(())
                     },
+                    ComprehensionType::List,
                 )?;
             }
             Expr::SetComp(located_ast::ExprSetComp {
@@ -2452,6 +2461,7 @@ impl Compiler {
                         );
                         Ok(())
                     },
+                    ComprehensionType::Set,
                 )?;
             }
             Expr::DictComp(located_ast::ExprDictComp {
@@ -2480,19 +2490,26 @@ impl Compiler {
 
                         Ok(())
                     },
+                    ComprehensionType::Dict,
                 )?;
             }
             Expr::GeneratorExp(located_ast::ExprGeneratorExp {
                 elt, generators, ..
             }) => {
-                self.compile_comprehension("<genexpr>", None, generators, &|compiler| {
-                    compiler.compile_comprehension_element(elt)?;
-                    compiler.mark_generator();
-                    emit!(compiler, Instruction::YieldValue);
-                    emit!(compiler, Instruction::Pop);
+                self.compile_comprehension(
+                    "<genexpr>",
+                    None,
+                    generators,
+                    &|compiler| {
+                        compiler.compile_comprehension_element(elt)?;
+                        compiler.mark_generator();
+                        emit!(compiler, Instruction::YieldValue);
+                        emit!(compiler, Instruction::Pop);
 
-                    Ok(())
-                })?;
+                        Ok(())
+                    },
+                    ComprehensionType::Generator,
+                )?;
             }
             Expr::Starred(_) => {
                 return Err(self.error(CodegenErrorType::InvalidStarExpr));
@@ -2744,6 +2761,7 @@ impl Compiler {
         init_collection: Option<Instruction>,
         generators: &[located_ast::Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
+        comprehension_type: ComprehensionType,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
         let is_async_gen = generators.iter().any(|g| g.is_async);
@@ -2892,10 +2910,10 @@ impl Compiler {
             emit!(self, Instruction::YieldFrom);
         }
 
-        if !is_async_gen && is_async {
+        if is_async && comprehension_type != ComprehensionType::Generator {
             // async, but not a generator
             // in this case, we end up with an awaitable
-            // that evaluates to the list, so here we add an await
+            // that evaluates to the list/set/dict, so here we add an await
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
