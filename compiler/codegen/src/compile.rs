@@ -2769,12 +2769,12 @@ impl Compiler {
         element_contains_await: bool,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
-        let is_async_gen = generators.iter().any(|g| g.is_async);
+        let has_async_gen = generators.iter().any(|g| g.is_async);
 
         // if the element expression contains await, but the context doesn't allow for async,
         // then we continue on here with is_async=false and will produce a syntax once the await is hit
-        let is_async = (is_async_gen || prev_ctx.func == FunctionContext::AsyncFunction)
-            && element_contains_await;
+        let is_async = prev_ctx.func == FunctionContext::AsyncFunction
+            && (element_contains_await || has_async_gen);
 
         self.ctx = CompileContext {
             loop_data: None,
@@ -2866,7 +2866,7 @@ impl Compiler {
 
             // End of for loop:
             self.switch_to_block(after_block);
-            if is_async_gen {
+            if has_async_gen {
                 emit!(self, Instruction::EndAsyncFor);
             }
         }
@@ -2905,7 +2905,7 @@ impl Compiler {
         self.compile_expression(&generators[0].iter)?;
 
         // Get iterator / turn item into an iterator
-        if is_async_gen {
+        if has_async_gen {
             emit!(self, Instruction::GetAIter);
         } else {
             emit!(self, Instruction::GetIter);
@@ -2913,14 +2913,14 @@ impl Compiler {
 
         // Call just created <listcomp> function:
         emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
-        if is_async_gen {
+        if has_async_gen {
             emit!(self, Instruction::GetAwaitable);
             self.emit_load_const(ConstantData::None);
             emit!(self, Instruction::YieldFrom);
         }
 
-        if is_async && comprehension_type != ComprehensionType::Generator {
-            // async, but not a generator
+        if is_async && comprehension_type != ComprehensionType::Generator && !has_async_gen {
+            // async, but not a generator and not an async for
             // in this case, we end up with an awaitable
             // that evaluates to the list/set/dict, so here we add an await
             emit!(self, Instruction::GetAwaitable);
