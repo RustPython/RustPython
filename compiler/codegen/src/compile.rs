@@ -2440,6 +2440,7 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::List,
+                    Self::contains_await(elt),
                 )?;
             }
             Expr::SetComp(located_ast::ExprSetComp {
@@ -2462,6 +2463,7 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::Set,
+                    Self::contains_await(elt),
                 )?;
             }
             Expr::DictComp(located_ast::ExprDictComp {
@@ -2491,6 +2493,7 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::Dict,
+                    Self::contains_await(key) || Self::contains_await(value),
                 )?;
             }
             Expr::GeneratorExp(located_ast::ExprGeneratorExp {
@@ -2509,6 +2512,7 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::Generator,
+                    Self::contains_await(elt),
                 )?;
             }
             Expr::Starred(_) => {
@@ -2762,10 +2766,15 @@ impl Compiler {
         generators: &[located_ast::Comprehension],
         compile_element: &dyn Fn(&mut Self) -> CompileResult<()>,
         comprehension_type: ComprehensionType,
+        element_contains_await: bool,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
         let is_async_gen = generators.iter().any(|g| g.is_async);
-        let is_async = is_async_gen || prev_ctx.func == FunctionContext::AsyncFunction;
+
+        // if the element expression contains await, but the context doesn't allow for async,
+        // then we continue on here with is_async=false and will produce a syntax once the await is hit
+        let is_async = (is_async_gen || prev_ctx.func == FunctionContext::AsyncFunction)
+            && element_contains_await;
 
         self.ctx = CompileContext {
             loop_data: None,
@@ -3044,6 +3053,117 @@ impl Compiler {
 
     fn mark_generator(&mut self) {
         self.current_code_info().flags |= bytecode::CodeFlags::IS_GENERATOR
+    }
+
+    /// Whether the expression contains an await expression and
+    /// thus requires the function to be async.
+    /// Async with and async for are statements, so I won't check for them here
+    fn contains_await(expression: &located_ast::Expr) -> bool {
+        use located_ast::*;
+
+        match &expression {
+            Expr::Call(ExprCall {
+                func,
+                args,
+                keywords,
+                ..
+            }) => {
+                Self::contains_await(func)
+                    || args.iter().any(Self::contains_await)
+                    || keywords.iter().any(|kw| Self::contains_await(&kw.value))
+            }
+            Expr::BoolOp(ExprBoolOp { values, .. }) => values.iter().any(Self::contains_await),
+            Expr::BinOp(ExprBinOp { left, right, .. }) => {
+                Self::contains_await(left) || Self::contains_await(right)
+            }
+            Expr::Subscript(ExprSubscript { value, slice, .. }) => {
+                Self::contains_await(value) || Self::contains_await(slice)
+            }
+            Expr::UnaryOp(ExprUnaryOp { operand, .. }) => Self::contains_await(operand),
+            Expr::Attribute(ExprAttribute { value, .. }) => Self::contains_await(value),
+            Expr::Compare(ExprCompare {
+                left, comparators, ..
+            }) => Self::contains_await(left) || comparators.iter().any(Self::contains_await),
+            Expr::Constant(ExprConstant { .. }) => false,
+            Expr::List(ExprList { elts, .. }) => elts.iter().any(Self::contains_await),
+            Expr::Tuple(ExprTuple { elts, .. }) => elts.iter().any(Self::contains_await),
+            Expr::Set(ExprSet { elts, .. }) => elts.iter().any(Self::contains_await),
+            Expr::Dict(ExprDict { keys, values, .. }) => {
+                keys.iter()
+                    .any(|key| key.as_ref().map_or(false, Self::contains_await))
+                    || values.iter().any(Self::contains_await)
+            }
+            Expr::Slice(ExprSlice {
+                lower, upper, step, ..
+            }) => {
+                lower.as_ref().map_or(false, |l| Self::contains_await(l))
+                    || upper.as_ref().map_or(false, |u| Self::contains_await(u))
+                    || step.as_ref().map_or(false, |s| Self::contains_await(s))
+            }
+            Expr::Yield(ExprYield { value, .. }) => {
+                value.as_ref().map_or(false, |v| Self::contains_await(v))
+            }
+            Expr::Await(ExprAwait { .. }) => true,
+            Expr::YieldFrom(ExprYieldFrom { value, .. }) => Self::contains_await(value),
+            Expr::JoinedStr(ExprJoinedStr { values, .. }) => {
+                values.iter().any(Self::contains_await)
+            }
+            Expr::FormattedValue(ExprFormattedValue {
+                value,
+                conversion: _,
+                format_spec,
+                ..
+            }) => {
+                Self::contains_await(value)
+                    || format_spec
+                        .as_ref()
+                        .map_or(false, |fs| Self::contains_await(fs))
+            }
+            Expr::Name(located_ast::ExprName { .. }) => false,
+            Expr::Lambda(located_ast::ExprLambda { body, .. }) => Self::contains_await(body),
+            Expr::ListComp(located_ast::ExprListComp {
+                elt, generators, ..
+            }) => {
+                Self::contains_await(elt)
+                    || generators.iter().any(|gen| Self::contains_await(&gen.iter))
+            }
+            Expr::SetComp(located_ast::ExprSetComp {
+                elt, generators, ..
+            }) => {
+                Self::contains_await(elt)
+                    || generators.iter().any(|gen| Self::contains_await(&gen.iter))
+            }
+            Expr::DictComp(located_ast::ExprDictComp {
+                key,
+                value,
+                generators,
+                ..
+            }) => {
+                Self::contains_await(key)
+                    || Self::contains_await(value)
+                    || generators.iter().any(|gen| Self::contains_await(&gen.iter))
+            }
+            Expr::GeneratorExp(located_ast::ExprGeneratorExp {
+                elt, generators, ..
+            }) => {
+                Self::contains_await(elt)
+                    || generators.iter().any(|gen| Self::contains_await(&gen.iter))
+            }
+            Expr::Starred(expr) => Self::contains_await(&expr.value),
+            Expr::IfExp(located_ast::ExprIfExp {
+                test, body, orelse, ..
+            }) => {
+                Self::contains_await(test)
+                    || Self::contains_await(body)
+                    || Self::contains_await(orelse)
+            }
+
+            Expr::NamedExpr(located_ast::ExprNamedExpr {
+                target,
+                value,
+                range: _,
+            }) => Self::contains_await(target) || Self::contains_await(value),
+        }
     }
 }
 
