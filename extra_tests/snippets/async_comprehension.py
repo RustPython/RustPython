@@ -14,6 +14,7 @@ def f_iter():
 
 async def f_aiter():
     for i in range(5):
+        await asyncio.sleep(0.001)
         yield i
 
 
