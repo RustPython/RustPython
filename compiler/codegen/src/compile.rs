@@ -2769,12 +2769,31 @@ impl Compiler {
         element_contains_await: bool,
     ) -> CompileResult<()> {
         let prev_ctx = self.ctx;
-        let has_async_gen = generators.iter().any(|g| g.is_async);
+        let has_an_async_gen = generators.iter().any(|g| g.is_async);
+
+        // async comprehensions are allowed in various contexts:
+        // - list/set/dict comprehensions in async functions
+        // - always for generator expressions
+        // Note: generators have to be treated specially since their async version is a fundamentally
+        // different type (aiter vs iter) instead of just an awaitable.
+
+        // for if it actually is async, we check if any generator is async or if the element contains await
 
         // if the element expression contains await, but the context doesn't allow for async,
         // then we continue on here with is_async=false and will produce a syntax once the await is hit
-        let is_async = prev_ctx.func == FunctionContext::AsyncFunction
-            && (element_contains_await || has_async_gen);
+
+        let is_async_list_set_dict_comprehension = comprehension_type
+            != ComprehensionType::Generator
+            && element_contains_await
+            && prev_ctx.func == FunctionContext::AsyncFunction;
+
+        let is_async_generator_comprehension = comprehension_type == ComprehensionType::Generator
+            && (has_an_async_gen || element_contains_await);
+
+        // since one is for generators, and one for not generators, they should never both be true
+        debug_assert!(!(is_async_list_set_dict_comprehension && is_async_generator_comprehension));
+
+        let is_async = is_async_list_set_dict_comprehension || is_async_generator_comprehension;
 
         self.ctx = CompileContext {
             loop_data: None,
@@ -2866,7 +2885,7 @@ impl Compiler {
 
             // End of for loop:
             self.switch_to_block(after_block);
-            if has_async_gen {
+            if has_an_async_gen {
                 emit!(self, Instruction::EndAsyncFor);
             }
         }
@@ -2905,7 +2924,7 @@ impl Compiler {
         self.compile_expression(&generators[0].iter)?;
 
         // Get iterator / turn item into an iterator
-        if has_async_gen {
+        if has_an_async_gen {
             emit!(self, Instruction::GetAIter);
         } else {
             emit!(self, Instruction::GetIter);
@@ -2913,13 +2932,7 @@ impl Compiler {
 
         // Call just created <listcomp> function:
         emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
-        if has_async_gen {
-            emit!(self, Instruction::GetAwaitable);
-            self.emit_load_const(ConstantData::None);
-            emit!(self, Instruction::YieldFrom);
-        }
-
-        if is_async && comprehension_type != ComprehensionType::Generator && !has_async_gen {
+        if is_async_list_set_dict_comprehension {
             // async, but not a generator and not an async for
             // in this case, we end up with an awaitable
             // that evaluates to the list/set/dict, so here we add an await
