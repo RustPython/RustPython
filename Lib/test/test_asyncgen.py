@@ -1568,8 +1568,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         self.assertIn('unhandled exception during asyncio.run() shutdown',
                       message['message'])
 
-    # TODO: RUSTPYTHON; TypeError: object async_generator can't be used in 'await' expression
-    @unittest.expectedFailure
     def test_async_gen_expression_01(self):
         async def arange(n):
             for i in range(n):
