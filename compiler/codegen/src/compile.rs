@@ -2784,8 +2784,8 @@ impl Compiler {
 
         let is_async_list_set_dict_comprehension = comprehension_type
             != ComprehensionType::Generator
-            && element_contains_await
-            && prev_ctx.func == FunctionContext::AsyncFunction;
+            && (has_an_async_gen || element_contains_await) // does it have to be async? (uses await or async for)
+            && prev_ctx.func == FunctionContext::AsyncFunction; // is it allowed to be async? (in an async function)
 
         let is_async_generator_comprehension = comprehension_type == ComprehensionType::Generator
             && (has_an_async_gen || element_contains_await);
