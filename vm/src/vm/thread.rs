@@ -93,9 +93,9 @@ impl ThreadedVirtualMachine {
     /// to the parent thread and then `join()` on the `JoinHandle` (or similar), there is a possibility that
     /// the current thread will panic as `PyObjectRef`'s `Drop` implementation tries to run the `__del__`
     /// destructor of a python object but finds that it's not in the context of any vm.
-    pub fn run<F, R>(&self, f: F) -> R
+    pub fn run<F, R>(&self, mut f: F) -> R
     where
-        F: Fn(&VirtualMachine) -> R,
+        F: FnMut(&VirtualMachine) -> R,
     {
         let vm = &self.vm;
         enter_vm(vm, || f(vm))
