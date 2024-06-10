@@ -82,7 +82,7 @@ impl ThreadedVirtualMachine {
     where
         F: FnOnce(&VirtualMachine) -> R,
     {
-        move || self.run(f)
+        move || enter_vm(&self.vm, || f(&self.vm))
     }
 
     /// Run a function in this thread context
@@ -93,27 +93,12 @@ impl ThreadedVirtualMachine {
     /// to the parent thread and then `join()` on the `JoinHandle` (or similar), there is a possibility that
     /// the current thread will panic as `PyObjectRef`'s `Drop` implementation tries to run the `__del__`
     /// destructor of a python object but finds that it's not in the context of any vm.
-    pub fn run<F, R>(self, f: F) -> R
-    where
-        F: FnOnce(&VirtualMachine) -> R,
-    {
-        let vm = &self.vm;
-        enter_vm(vm, || f(vm))
-    }
-
-    /// Run a function in this thread context. This can be called multiple times.
-    ///
-    /// # Note
-    ///
-    /// If you return a `PyObjectRef` (or a type that contains one) from `F`, and don't return the object
-    /// to the parent thread and then `join()` on the `JoinHandle` (or similar), there is a possibility that
-    /// the current thread will panic as `PyObjectRef`'s `Drop` implementation tries to run the `__del__`
-    /// destructor of a python object but finds that it's not in the context of any vm.
-    pub fn shared_run<F, R>(&self, f: F) -> R
+    pub fn run<F, R>(&self, f: F) -> R
     where
         F: Fn(&VirtualMachine) -> R,
     {
-        enter_vm(&self.vm, || f(&self.vm))
+        let vm = &self.vm;
+        enter_vm(vm, || f(vm))
     }
 }
 
@@ -133,8 +118,8 @@ impl VirtualMachine {
         F: Send + 'static,
         R: Send + 'static,
     {
-        let thread = self.new_thread();
-        std::thread::spawn(|| thread.run(f))
+        let func = self.new_thread().make_spawn_func(f);
+        std::thread::spawn(func)
     }
 
     /// Create a new VM thread that can be passed to a function like [`std::thread::spawn`]
