@@ -379,7 +379,7 @@ mod _ssl {
     #[pyfunction(name = "RAND_add")]
     fn rand_add(string: ArgStrOrBytesLike, entropy: f64) {
         let f = |b: &[u8]| {
-            for buf in b.chunks(libc::c_int::max_value() as usize) {
+            for buf in b.chunks(libc::c_int::MAX as usize) {
                 unsafe { sys::RAND_add(buf.as_ptr() as *const _, buf.len() as _, entropy) }
             }
         };
@@ -1513,7 +1513,7 @@ mod bio {
         pub fn new(buf: &'a [u8]) -> Result<MemBioSlice<'a>, ErrorStack> {
             openssl::init();
 
-            assert!(buf.len() <= c_int::max_value() as usize);
+            assert!(buf.len() <= c_int::MAX as usize);
             let bio = unsafe { sys::BIO_new_mem_buf(buf.as_ptr() as *const _, buf.len() as c_int) };
             if bio.is_null() {
                 return Err(ErrorStack::get());
