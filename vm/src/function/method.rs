@@ -236,7 +236,9 @@ impl std::fmt::Debug for PyMethodDef {
             .field("name", &self.name)
             .field(
                 "func",
-                &(unsafe { std::mem::transmute::<_, [usize; 2]>(self.func)[1] as *const u8 }),
+                &(unsafe {
+                    std::mem::transmute::<&dyn PyNativeFn, [usize; 2]>(self.func)[1] as *const u8
+                }),
             )
             .field("flags", &self.flags)
             .field("doc", &self.doc)

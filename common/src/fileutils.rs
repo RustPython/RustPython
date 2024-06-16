@@ -327,7 +327,17 @@ pub mod windows {
                 if let Some(proc) =
                     unsafe { GetProcAddress(module, name.as_bytes_with_nul().as_ptr()) }
                 {
-                    Some(unsafe { std::mem::transmute(proc) })
+                    Some(unsafe {
+                        std::mem::transmute::<
+                            unsafe extern "system" fn() -> isize,
+                            unsafe extern "system" fn(
+                                *const u16,
+                                FILE_INFO_BY_NAME_CLASS,
+                                *mut libc::c_void,
+                                u32,
+                            ) -> i32,
+                        >(proc)
+                    })
                 } else {
                     unsafe { FreeLibrary(module) };
                     None
