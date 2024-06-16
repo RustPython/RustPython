@@ -401,6 +401,8 @@ impl PyType {
             None,
         );
 
+        Self::set_new(&new_type.slots, &new_type.base);
+
         let weakref_type = super::PyWeak::static_type();
         for base in new_type.bases.read().iter() {
             base.subclasses.write().push(
@@ -420,9 +422,6 @@ impl PyType {
 
         for cls in self.mro.read().iter() {
             for &name in cls.attributes.read().keys() {
-                if name == identifier!(ctx, __new__) {
-                    continue;
-                }
                 if name.as_bytes().starts_with(b"__") && name.as_bytes().ends_with(b"__") {
                     slot_name_set.insert(name);
                 }
@@ -435,6 +434,31 @@ impl PyType {
         }
         for attr_name in slot_name_set {
             self.update_slot::<true>(attr_name, ctx);
+        }
+
+        Self::set_new(&self.slots, &self.base);
+    }
+
+    fn set_new(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
+        // if self.slots.new.load().is_none()
+        //     && self
+        //         .base
+        //         .as_ref()
+        //         .map(|base| base.class().is(ctx.types.object_type))
+        //         .unwrap_or(false)
+        //     && self.slots.flags.contains(PyTypeFlags::HEAPTYPE)
+        // {
+        //     self.slots.flags |= PyTypeFlags::DISALLOW_INSTANTIATION;
+        // }
+
+        if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
+            slots.new.store(None)
+        } else if slots.new.load().is_none() {
+            slots.new.store(
+                base.as_ref()
+                    .map(|base| base.slots.new.load())
+                    .unwrap_or(None),
+            )
         }
     }
 
