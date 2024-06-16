@@ -908,7 +908,7 @@ mod _csv {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable))]
+    #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
     impl Reader {
         #[pygetset]
         fn line_num(&self) -> u64 {
@@ -1059,7 +1059,7 @@ mod _csv {
         }
     }
 
-    #[pyclass]
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl Writer {
         #[pygetset(name = "dialect")]
         const fn get_dialect(&self, _vm: &VirtualMachine) -> PyDialect {
