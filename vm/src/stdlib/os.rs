@@ -999,7 +999,7 @@ pub(super) mod _os {
                 -1
             } else {
                 distance_to_move[0] = ret as _;
-                std::mem::transmute(distance_to_move)
+                std::mem::transmute::<[i32; 2], i64>(distance_to_move)
             }
         };
         if res < 0 {
