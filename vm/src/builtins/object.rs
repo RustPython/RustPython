@@ -3,6 +3,7 @@ use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
     class::PyClassImpl,
+    convert::ToPyResult,
     function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     types::{Constructor, PyComparisonOp},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -73,8 +74,137 @@ impl Constructor for PyBaseObject {
     }
 }
 
+// TODO: implement _PyType_GetSlotNames properly
+fn type_slot_names(typ: &Py<PyType>, vm: &VirtualMachine) -> PyResult<Option<super::PyListRef>> {
+    // let attributes = typ.attributes.read();
+    // if let Some(slot_names) = attributes.get(identifier!(vm.ctx, __slotnames__)) {
+    //     return match_class!(match slot_names.clone() {
+    //         l @ super::PyList => Ok(Some(l)),
+    //         _n @ super::PyNone => Ok(None),
+    //         _ => Err(vm.new_type_error(format!(
+    //             "{:.200}.__slotnames__ should be a list or None, not {:.200}",
+    //             typ.name(),
+    //             slot_names.class().name()
+    //         ))),
+    //     });
+    // }
+
+    let copyreg = vm.import("copyreg", 0)?;
+    let copyreg_slotnames = copyreg.get_attr("_slotnames", vm)?;
+    let slot_names = copyreg_slotnames.call((typ.to_owned(),), vm)?;
+    let result = match_class!(match slot_names {
+        l @ super::PyList => Some(l),
+        _n @ super::PyNone => None,
+        _ =>
+            return Err(
+                vm.new_type_error("copyreg._slotnames didn't return a list or None".to_owned())
+            ),
+    });
+    Ok(result)
+}
+
+// object_getstate_default in CPython
+fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) -> PyResult {
+    // TODO: itemsize
+    // if required && obj.class().slots.itemsize > 0 {
+    //     return vm.new_type_error(format!(
+    //         "cannot pickle {:.200} objects",
+    //         obj.class().name()
+    //     ));
+    // }
+
+    let state = if obj.dict().map_or(true, |d| d.is_empty()) {
+        vm.ctx.none()
+    } else {
+        // let state = object_get_dict(obj.clone(), obj.ctx()).unwrap();
+        let Some(state) = obj.dict() else {
+            return Ok(vm.ctx.none());
+        };
+        state.into()
+    };
+
+    let slot_names = type_slot_names(obj.class(), vm)
+        .map_err(|_| vm.new_type_error("cannot pickle object".to_owned()))?;
+
+    if required {
+        let mut basicsize = obj.class().slots.basicsize;
+        // if obj.class().slots.dictoffset > 0
+        //     && !obj.class().slots.flags.has_feature(PyTypeFlags::MANAGED_DICT)
+        // {
+        //     basicsize += std::mem::size_of::<PyObjectRef>();
+        // }
+        // if obj.class().slots.weaklistoffset > 0 {
+        //     basicsize += std::mem::size_of::<PyObjectRef>();
+        // }
+        if let Some(ref slot_names) = slot_names {
+            basicsize += std::mem::size_of::<PyObjectRef>() * slot_names.len();
+        }
+        if obj.class().slots.basicsize > basicsize {
+            return Err(
+                vm.new_type_error(format!("cannot pickle {:.200} object", obj.class().name()))
+            );
+        }
+    }
+
+    if let Some(slot_names) = slot_names {
+        let slot_names_len = slot_names.len();
+        if slot_names_len > 0 {
+            let slots = vm.ctx.new_dict();
+            for i in 0..slot_names_len {
+                let borrowed_names = slot_names.borrow_vec();
+                let name = borrowed_names[i].downcast_ref::<PyStr>().unwrap();
+                let Ok(value) = obj.get_attr(name, vm) else {
+                    continue;
+                };
+                slots.set_item(name.as_str(), value, vm).unwrap();
+            }
+
+            if slots.len() > 0 {
+                return (state, slots).to_pyresult(vm);
+            }
+        }
+    }
+
+    Ok(state)
+}
+
+// object_getstate in CPython
+// fn object_getstate(
+//     obj: &PyObject,
+//     required: bool,
+//     vm: &VirtualMachine,
+// ) -> PyResult {
+//     let getstate = obj.get_attr(identifier!(vm, __getstate__), vm)?;
+//     if vm.is_none(&getstate) {
+//         return Ok(None);
+//     }
+
+//     let getstate = match getstate.downcast_exact::<PyNativeFunction>(vm) {
+//         Ok(getstate)
+//             if getstate
+//                 .get_self()
+//                 .map_or(false, |self_obj| self_obj.is(obj))
+//                 && std::ptr::addr_eq(
+//                     getstate.as_func() as *const _,
+//                     &PyBaseObject::__getstate__ as &dyn crate::function::PyNativeFn as *const _,
+//                 ) =>
+//         {
+//             return object_getstate_default(obj, required, vm);
+//         }
+//         Ok(getstate) => getstate.into_pyref().into(),
+//         Err(getstate) => getstate,
+//     };
+//     getstate.call((), vm)
+// }
+
 #[pyclass(with(Constructor), flags(BASETYPE))]
 impl PyBaseObject {
+    #[pymethod(raw)]
+    fn __getstate__(vm: &VirtualMachine, args: FuncArgs) -> PyResult {
+        let (zelf,): (PyObjectRef,) = args.bind(vm)?;
+        object_getstate_default(&zelf, false, vm)
+    }
+
     #[pyslot]
     fn slot_richcompare(
         zelf: &PyObject,
