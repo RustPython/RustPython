@@ -869,8 +869,6 @@ class UnionTests(unittest.TestCase):
         eq(x[NT], int | NT | bytes)
         eq(x[S], int | S | bytes)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_pickle(self):
         orig = list[T] | int
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -880,8 +878,6 @@ class UnionTests(unittest.TestCase):
             self.assertEqual(loaded.__args__, orig.__args__)
             self.assertEqual(loaded.__parameters__, orig.__parameters__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_union_copy(self):
         orig = list[T] | int
         for copied in (copy.copy(orig), copy.deepcopy(orig)):

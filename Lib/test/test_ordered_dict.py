@@ -292,8 +292,6 @@ class OrderedDictTests:
         # different length implied inequality
         self.assertNotEqual(od1, OrderedDict(pairs[:-1]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_copying(self):
         OrderedDict = self.OrderedDict
         # Check that ordered dicts are copyable, deepcopyable, picklable,
@@ -337,8 +335,6 @@ class OrderedDictTests:
         check(update_test)
         check(OrderedDict(od))
 
-    @unittest.expectedFailure
-    # TODO: RUSTPYTHON
     def test_yaml_linkage(self):
         OrderedDict = self.OrderedDict
         # Verify that __reduce__ is setup in a way that supports PyYAML's dump() feature.
@@ -349,8 +345,6 @@ class OrderedDictTests:
         # '!!python/object/apply:__main__.OrderedDict\n- - [a, 1]\n  - [b, 2]\n'
         self.assertTrue(all(type(pair)==list for pair in od.__reduce__()[1]))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reduce_not_too_fat(self):
         OrderedDict = self.OrderedDict
         # do not save instance dictionary if not needed
@@ -362,8 +356,6 @@ class OrderedDictTests:
         self.assertEqual(od.__dict__['x'], 10)
         self.assertEqual(od.__reduce__()[2], {'x': 10})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_pickle_recursive(self):
         OrderedDict = self.OrderedDict
         od = OrderedDict()
@@ -888,8 +880,6 @@ class CPythonOrderedDictSubclassTests(CPythonOrderedDictTests):
     class OrderedDict(c_coll.OrderedDict):
         pass
 
-# TODO: RUSTPYTHON
-@unittest.expectedFailure
 class PurePythonOrderedDictWithSlotsCopyingTests(unittest.TestCase):
 
     module = py_coll
@@ -897,8 +887,6 @@ class PurePythonOrderedDictWithSlotsCopyingTests(unittest.TestCase):
         __slots__ = ('x', 'y')
     test_copying = OrderedDictTests.test_copying
 
-# TODO: RUSTPYTHON
-@unittest.expectedFailure
 @unittest.skipUnless(c_coll, 'requires the C version of the collections module')
 class CPythonOrderedDictWithSlotsCopyingTests(unittest.TestCase):
 
