@@ -82,7 +82,7 @@ impl ThreadedVirtualMachine {
     where
         F: FnOnce(&VirtualMachine) -> R,
     {
-        move || enter_vm(&self.vm, || f(&self.vm))
+        move || self.run(f)
     }
 
     /// Run a function in this thread context
