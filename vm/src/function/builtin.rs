@@ -81,6 +81,11 @@ pub const fn static_func<Kind, F: IntoPyNativeFn<Kind>>(f: F) -> &'static dyn Py
     zst_ref_out_of_thin_air(into_func(f))
 }
 
+#[inline(always)]
+pub const fn static_raw_func<F: PyNativeFn>(f: F) -> &'static dyn PyNativeFn {
+    zst_ref_out_of_thin_air(f)
+}
+
 // TODO: once higher-rank trait bounds are stabilized, remove the `Kind` type
 // parameter and impl for F where F: for<T, R, VM> PyNativeFnInternal<T, R, VM>
 impl<F, T, R, VM> IntoPyNativeFn<(T, R, VM)> for F

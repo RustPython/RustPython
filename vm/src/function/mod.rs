@@ -15,7 +15,7 @@ pub use argument::{
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
-pub use builtin::{static_func, IntoPyNativeFn, PyNativeFn};
+pub use builtin::{static_func, static_raw_func, IntoPyNativeFn, PyNativeFn};
 pub use either::Either;
 pub use fspath::FsPath;
 pub use getset::PySetterValue;

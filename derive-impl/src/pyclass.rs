@@ -752,6 +752,7 @@ where
         let item_meta = MethodItemMeta::from_attr(ident.clone(), &item_attr)?;
 
         let py_name = item_meta.method_name()?;
+        let raw = item_meta.raw()?;
         let sig_doc = text_signature(func.sig(), &py_name);
 
         let doc = args.attrs.doc().map(|doc| format_doc(&sig_doc, &doc));
@@ -760,6 +761,7 @@ where
             cfgs: args.cfgs.to_vec(),
             ident: ident.to_owned(),
             doc,
+            raw,
             attr_name: self.inner.attr_name,
         });
         Ok(())
@@ -954,6 +956,7 @@ struct MethodNurseryItem {
     py_name: String,
     cfgs: Vec<Attribute>,
     ident: Ident,
+    raw: bool,
     doc: Option<String>,
     attr_name: AttrName,
 }
@@ -1005,9 +1008,14 @@ impl ToTokens for MethodNursery {
             // } else {
             //     quote_spanned! { ident.span() => #py_name }
             // };
+            let method_new = if item.raw {
+                quote!(new_raw_const)
+            } else {
+                quote!(new_const)
+            };
             inner_tokens.extend(quote! [
                 #(#cfgs)*
-                rustpython_vm::function::PyMethodDef::new_const(
+                rustpython_vm::function::PyMethodDef::#method_new(
                     #py_name,
                     Self::#ident,
                     #flags,
@@ -1203,7 +1211,7 @@ impl ToTokens for MemberNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "magic", "raw"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
@@ -1214,6 +1222,9 @@ impl ItemMeta for MethodItemMeta {
 }
 
 impl MethodItemMeta {
+    fn raw(&self) -> Result<bool> {
+        self.inner()._bool("raw")
+    }
     fn method_name(&self) -> Result<String> {
         let inner = self.inner();
         let name = inner._optional_str("name")?;

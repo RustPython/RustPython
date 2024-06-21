@@ -87,6 +87,21 @@ impl PyMethodDef {
         }
     }
 
+    #[inline]
+    pub const fn new_raw_const(
+        name: &'static str,
+        func: impl PyNativeFn,
+        flags: PyMethodFlags,
+        doc: Option<&'static str>,
+    ) -> Self {
+        Self {
+            name,
+            func: super::static_raw_func(func),
+            flags,
+            doc,
+        }
+    }
+
     pub fn to_proper_method(
         &'static self,
         class: &'static Py<PyType>,
