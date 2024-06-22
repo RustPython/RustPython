@@ -93,7 +93,7 @@ impl ThreadedVirtualMachine {
     /// to the parent thread and then `join()` on the `JoinHandle` (or similar), there is a possibility that
     /// the current thread will panic as `PyObjectRef`'s `Drop` implementation tries to run the `__del__`
     /// destructor of a python object but finds that it's not in the context of any vm.
-    pub fn run<F, R>(self, f: F) -> R
+    pub fn run<F, R>(&self, f: F) -> R
     where
         F: FnOnce(&VirtualMachine) -> R,
     {
@@ -118,8 +118,8 @@ impl VirtualMachine {
         F: Send + 'static,
         R: Send + 'static,
     {
-        let thread = self.new_thread();
-        std::thread::spawn(|| thread.run(f))
+        let func = self.new_thread().make_spawn_func(f);
+        std::thread::spawn(func)
     }
 
     /// Create a new VM thread that can be passed to a function like [`std::thread::spawn`]
