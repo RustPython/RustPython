@@ -49,6 +49,14 @@ impl PyNativeFunction {
         )
     }
 
+    // PyCFunction_GET_SELF
+    pub fn get_self(&self) -> Option<&PyObjectRef> {
+        if self.value.flags.contains(PyMethodFlags::STATIC) {
+            return None;
+        }
+        self.zelf.as_ref()
+    }
+
     pub fn as_func(&self) -> &'static dyn PyNativeFn {
         self.value.func
     }

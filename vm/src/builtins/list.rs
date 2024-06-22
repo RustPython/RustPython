@@ -174,8 +174,9 @@ impl PyList {
         Self::new_ref(self.borrow_vec().to_vec(), &vm.ctx)
     }
 
+    #[allow(clippy::len_without_is_empty)]
     #[pymethod(magic)]
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.borrow_vec().len()
     }
 

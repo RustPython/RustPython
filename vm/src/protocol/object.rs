@@ -564,8 +564,8 @@ impl PyObject {
     }
 
     // int PyObject_TypeCheck(PyObject *o, PyTypeObject *type)
-    pub fn type_check(&self, typ: PyTypeRef) -> bool {
-        self.fast_isinstance(&typ)
+    pub fn type_check(&self, typ: &Py<PyType>) -> bool {
+        self.fast_isinstance(typ)
     }
 
     pub fn length_opt(&self, vm: &VirtualMachine) -> Option<PyResult<usize>> {
