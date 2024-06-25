@@ -28,3 +28,6 @@ approx = "0.5.1"
 [[test]]
 name = "integration"
 path = "tests/lib.rs"
+
+[lints]
+workspace = true

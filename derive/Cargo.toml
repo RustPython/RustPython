@@ -14,3 +14,6 @@ proc-macro = true
 rustpython-compiler = { workspace = true }
 rustpython-derive-impl = { workspace = true }
 syn = { workspace = true }
+
+[lints]
+workspace = true

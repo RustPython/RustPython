@@ -146,3 +146,6 @@ wasm-bindgen = "0.2.92"
 glob = { workspace = true }
 itertools = { workspace = true }
 rustc_version = "0.4.0"
+
+[lints]
+workspace = true
