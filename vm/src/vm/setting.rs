@@ -151,7 +151,7 @@ impl Default for Settings {
             check_hash_pycs_mode: "default".to_owned(),
             allow_external_library: cfg!(feature = "importlib"),
             utf8_mode: 1,
-            int_max_str_digits: -1,
+            int_max_str_digits: 4300,
             #[cfg(feature = "flame-it")]
             profile_output: None,
             #[cfg(feature = "flame-it")]
