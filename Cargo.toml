@@ -111,7 +111,7 @@ flame = { workspace = true, optional = true }
 
 clap = "2.34"
 dirs = { package = "dirs-next", version = "2.0.0" }
-env_logger = { version = "0.9.0", default-features = false, features = ["atty", "termcolor"] }
+env_logger = { version = "0.11.3", default-features = true}
 flamescope = { version = "0.1.2", optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -121,8 +121,8 @@ libc = { workspace = true }
 rustyline = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.3.5", features = ["html_reports"] }
-pyo3 = { version = "0.20.2", features = ["auto-initialize"] }
+criterion = { version = "0.5.1", features = ["html_reports"] }
+pyo3 = { version = "0.22.0", features = ["auto-initialize"] }
 
 [[bench]]
 name = "execution"
