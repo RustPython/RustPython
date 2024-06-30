@@ -172,8 +172,6 @@ x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies =
 unsafe_code = "allow"
 
 [workspace.lints.clippy]
-pedantic = "warn"
-nursery = "warn"
 perf = "warn"
 style = "warn"
 complexity = "warn"
