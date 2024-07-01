@@ -21,3 +21,6 @@ proc-macro2 = "1.0.79"
 quote = "1.0.18"
 syn-ext = { version = "0.4.0", features = ["full"] }
 textwrap = { version = "0.15.0", default-features = false }
+
+[lints]
+workspace = true

@@ -18,7 +18,10 @@ thiserror = { workspace = true }
 cranelift = "0.88.0"
 cranelift-jit = "0.88.0"
 cranelift-module = "0.88.0"
-libffi = "3.1.0"
+
+[dependencies.libffi]
+version = "3.1.0"
+features = ["system"]
 
 [dev-dependencies]
 rustpython-derive = { path = "../derive", version = "0.3.1" }
@@ -28,3 +31,6 @@ approx = "0.5.1"
 [[test]]
 name = "integration"
 path = "tests/lib.rs"
+
+[lints]
+workspace = true

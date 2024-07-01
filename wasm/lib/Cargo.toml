@@ -44,3 +44,6 @@ web-sys = { version = "0.3", features = [
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false#["-O1"]
+
+[lints]
+workspace = true

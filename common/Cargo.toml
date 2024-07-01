@@ -43,3 +43,6 @@ windows-sys = { workspace = true, features = [
     "Win32_System_LibraryLoader",
     "Win32_System_SystemServices",
 ] }
+
+[lints]
+workspace = true

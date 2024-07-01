@@ -11,3 +11,6 @@ edition = "2021"
 rustpython-codegen = { workspace = true }
 rustpython-compiler-core = { workspace = true }
 rustpython-parser = { workspace = true }
+
+[lints]
+workspace = true

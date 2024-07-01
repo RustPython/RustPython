@@ -3,7 +3,7 @@ name = "rustpython"
 version = "0.3.1"
 authors = ["RustPython Team"]
 edition = "2021"
-rust-version = "1.67.1"
+rust-version = "1.75.0"
 description = "A python interpreter written in rust."
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
@@ -165,3 +165,15 @@ rev = "2024.02.14"
 
 [package.metadata.vcpkg.target]
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies = ["openssl" ] }
+
+# Lints
+
+[workspace.lints.rust]
+unsafe_code = "allow"
+
+[workspace.lints.clippy]
+perf = "warn"
+style = "warn"
+complexity = "warn"
+suspicious = "warn"
+correctness = "warn"

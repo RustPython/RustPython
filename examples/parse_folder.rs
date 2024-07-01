@@ -12,7 +12,7 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, Arg};
-use rustpython_parser::{self as parser, ast, Parse};
+use rustpython_parser::{ast, Parse};
 use std::{
     path::Path,
     time::{Duration, Instant},

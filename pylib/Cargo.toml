@@ -17,3 +17,6 @@ rustpython-derive = { version = "0.3.1", path = "../derive" }
 
 [build-dependencies]
 glob = { workspace = true }
+
+[lints]
+workspace = true
