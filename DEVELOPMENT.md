@@ -70,7 +70,7 @@ $ cargo test --workspace --exclude rustpython_wasm
 
 To enable 'num-bigint' feature (For context refer to the issue [License clarification](https://github.com/RustPython/RustPython/issues/5130)).
 ```shell
-cargo test --workspace --exclude rustpython_wasm --no-default-features --features num-bigint,stdlib,threading
+cargo test --workspace --exclude rustpython_wasm --exclude rustpython-jit --no-default-features --features num-bigint,stdlib,threading
 
 ```
 

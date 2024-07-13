@@ -22,7 +22,10 @@ mod decl {
         VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    #[cfg(feature = "malachite-bigint")]
     use malachite_bigint::BigInt;
+    #[cfg(feature = "num-bigint")]
+    use num_bigint::BigInt;
     use num_traits::One;
 
     use num_traits::{Signed, ToPrimitive};

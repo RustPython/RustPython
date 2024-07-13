@@ -15,7 +15,10 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
+#[cfg(feature = "malachite-bigint")]
 use malachite_bigint::BigInt;
+#[cfg(feature = "num-bigint")]
+use num_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
 use std::{borrow::Borrow, cmp::Ordering, ops::Deref};
 
