@@ -23,7 +23,9 @@ use crate::{
     identifier,
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
-    types::{AsNumber, Callable, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr},
+    types::{
+        AsNumber, Callable, Constructor, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr,
+    },
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
 };
@@ -470,7 +472,7 @@ impl Py<PyType> {
 }
 
 #[pyclass(
-    with(Py, GetAttr, SetAttr, Callable, AsNumber, Representable),
+    with(Py, Constructor, GetAttr, SetAttr, Callable, AsNumber, Representable),
     flags(BASETYPE)
 )]
 impl PyType {
@@ -728,8 +730,66 @@ impl PyType {
         or_(zelf, other, vm)
     }
 
-    #[pyslot]
-    fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    #[pygetset(magic)]
+    fn dict(zelf: PyRef<Self>) -> PyMappingProxy {
+        PyMappingProxy::from(zelf)
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_dict(&self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        Err(vm.new_not_implemented_error(
+            "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
+        ))
+    }
+
+    fn check_set_special_type_attr(
+        &self,
+        _value: &PyObject,
+        name: &PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
+            return Err(vm.new_type_error(format!(
+                "cannot set '{}' attribute of immutable type '{}'",
+                name,
+                self.slot_name()
+            )));
+        }
+        Ok(())
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_name(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.check_set_special_type_attr(&value, identifier!(vm, __name__), vm)?;
+        let name = value.downcast::<PyStr>().map_err(|value| {
+            vm.new_type_error(format!(
+                "can only assign string to {}.__name__, not '{}'",
+                self.slot_name(),
+                value.class().slot_name(),
+            ))
+        })?;
+        if name.as_str().as_bytes().contains(&0) {
+            return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
+        }
+
+        *self.heaptype_ext.as_ref().unwrap().name.write() = name;
+
+        Ok(())
+    }
+
+    #[pygetset(magic)]
+    fn text_signature(&self) -> Option<String> {
+        self.slots
+            .doc
+            .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
+            .map(|signature| signature.to_string())
+    }
+}
+
+impl Constructor for PyType {
+    type Args = FuncArgs;
+
+    fn py_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
         let is_type_type = metatype.is(vm.ctx.types.type_type);
@@ -976,100 +1036,6 @@ impl PyType {
 
         Ok(typ.into())
     }
-
-    #[pygetset(magic)]
-    fn dict(zelf: PyRef<Self>) -> PyMappingProxy {
-        PyMappingProxy::from(zelf)
-    }
-
-    #[pygetset(magic, setter)]
-    fn set_dict(&self, _value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        Err(vm.new_not_implemented_error(
-            "Setting __dict__ attribute on a type isn't yet implemented".to_owned(),
-        ))
-    }
-
-    fn check_set_special_type_attr(
-        &self,
-        _value: &PyObject,
-        name: &PyStrInterned,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        if self.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
-            return Err(vm.new_type_error(format!(
-                "cannot set '{}' attribute of immutable type '{}'",
-                name,
-                self.slot_name()
-            )));
-        }
-        Ok(())
-    }
-
-    #[pygetset(magic, setter)]
-    fn set_name(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.check_set_special_type_attr(&value, identifier!(vm, __name__), vm)?;
-        let name = value.downcast::<PyStr>().map_err(|value| {
-            vm.new_type_error(format!(
-                "can only assign string to {}.__name__, not '{}'",
-                self.slot_name(),
-                value.class().slot_name(),
-            ))
-        })?;
-        if name.as_str().as_bytes().contains(&0) {
-            return Err(vm.new_value_error("type name must not contain null characters".to_owned()));
-        }
-
-        *self.heaptype_ext.as_ref().unwrap().name.write() = name;
-
-        Ok(())
-    }
-
-    #[pygetset(magic)]
-    fn text_signature(&self) -> Option<String> {
-        self.slots
-            .doc
-            .and_then(|doc| get_text_signature_from_internal_doc(&self.name(), doc))
-            .map(|signature| signature.to_string())
-    }
-}
-
-#[pyclass]
-impl Py<PyType> {
-    #[pygetset(name = "__mro__")]
-    fn get_mro(&self) -> PyTuple {
-        let elements: Vec<PyObjectRef> = self.mro_map_collect(|x| x.as_object().to_owned());
-        PyTuple::new_unchecked(elements.into_boxed_slice())
-    }
-
-    #[pymethod(magic)]
-    fn dir(&self) -> PyList {
-        let attributes: Vec<PyObjectRef> = self
-            .get_attributes()
-            .into_iter()
-            .map(|(k, _)| k.to_object())
-            .collect();
-        PyList::from(attributes)
-    }
-
-    #[pymethod(magic)]
-    fn instancecheck(&self, obj: PyObjectRef) -> bool {
-        obj.fast_isinstance(self)
-    }
-
-    #[pymethod(magic)]
-    fn subclasscheck(&self, subclass: PyTypeRef) -> bool {
-        subclass.fast_issubclass(self)
-    }
-
-    #[pyclassmethod(magic)]
-    fn subclasshook(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.not_implemented()
-    }
-
-    #[pymethod]
-    fn mro(&self) -> Vec<PyObjectRef> {
-        self.mro_map_collect(|cls| cls.to_owned().into())
-    }
 }
 
 const SIGNATURE_END_MARKER: &str = ")\n--\n\n";
@@ -1140,6 +1106,45 @@ impl GetAttr for PyType {
         } else {
             Err(attribute_error(zelf, name_str.as_str(), vm))
         }
+    }
+}
+
+#[pyclass]
+impl Py<PyType> {
+    #[pygetset(name = "__mro__")]
+    fn get_mro(&self) -> PyTuple {
+        let elements: Vec<PyObjectRef> = self.mro_map_collect(|x| x.as_object().to_owned());
+        PyTuple::new_unchecked(elements.into_boxed_slice())
+    }
+
+    #[pymethod(magic)]
+    fn dir(&self) -> PyList {
+        let attributes: Vec<PyObjectRef> = self
+            .get_attributes()
+            .into_iter()
+            .map(|(k, _)| k.to_object())
+            .collect();
+        PyList::from(attributes)
+    }
+
+    #[pymethod(magic)]
+    fn instancecheck(&self, obj: PyObjectRef) -> bool {
+        obj.fast_isinstance(self)
+    }
+
+    #[pymethod(magic)]
+    fn subclasscheck(&self, subclass: PyTypeRef) -> bool {
+        subclass.fast_issubclass(self)
+    }
+
+    #[pyclassmethod(magic)]
+    fn subclasshook(_args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.not_implemented()
+    }
+
+    #[pymethod]
+    fn mro(&self) -> Vec<PyObjectRef> {
+        self.mro_map_collect(|cls| cls.to_owned().into())
     }
 }
 
