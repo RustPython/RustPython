@@ -159,16 +159,18 @@ impl Constructor for PyFloat {
     }
 }
 
-pub fn float_strip_separators(b: &[u8]) -> Option<Vec<u8>> {
+pub fn float_strip_underscores(b: &[u8]) -> Option<Vec<u8>> {
     let mut prev = b'\0';
     let mut dup = Vec::<u8>::new();
     for p in b {
         if *p == b'_' {
+            // Underscores are only allowed after digits.
             if !prev.is_ascii_digit() {
                 return None;
             }
         } else {
             dup.push(*p);
+            // Underscores are only allowed before digits.
             if prev == b'_' && !p.is_ascii_digit() {
                 return None;
             }
@@ -176,6 +178,7 @@ pub fn float_strip_separators(b: &[u8]) -> Option<Vec<u8>> {
         prev = *p;
     }
 
+    // Underscores are not allowed at the end.
     if prev == b'_' {
         return None;
     }
@@ -210,7 +213,7 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
 
     if !b.contains(&b'_') {
         crate::literal::float::parse_bytes(b).ok_or(err)
-    } else if let Some(dup) = float_strip_separators(b) {
+    } else if let Some(dup) = float_strip_underscores(b) {
         crate::literal::float::parse_bytes(&dup).ok_or(err)
     } else {
         Err(err)
