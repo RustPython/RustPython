@@ -159,6 +159,30 @@ impl Constructor for PyFloat {
     }
 }
 
+pub fn float_strip_separators(b: &[u8]) -> Option<Vec<u8>> {
+    let mut prev = b'\0';
+    let mut dup = Vec::<u8>::new();
+    for p in b {
+        if *p == b'_' {
+            if !prev.is_ascii_digit() {
+                return None;
+            }
+        } else {
+            dup.push(*p);
+            if prev == b'_' && !p.is_ascii_digit() {
+                return None;
+            }
+        }
+        prev = *p;
+    }
+
+    if prev == b'_' {
+        return None;
+    }
+
+    Some(dup)
+}
+
 fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock);
     let b = if let Some(s) = val.payload_if_subclass::<PyStr>(vm) {
@@ -178,11 +202,19 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
             val.class().name()
         )));
     };
-    crate::literal::float::parse_bytes(b).ok_or_else(|| {
-        val.repr(vm)
-            .map(|repr| vm.new_value_error(format!("could not convert string to float: {repr}")))
-            .unwrap_or_else(|e| e)
-    })
+
+    let err = val
+        .repr(vm)
+        .map(|repr| vm.new_value_error(format!("could not convert string to float: {repr}")))
+        .unwrap_or_else(|e| e);
+
+    if !b.contains(&b'_') {
+        crate::literal::float::parse_bytes(b).ok_or(err)
+    } else if let Some(dup) = float_strip_separators(b) {
+        crate::literal::float::parse_bytes(&dup).ok_or(err)
+    } else {
+        Err(err)
+    }
 }
 
 #[pyclass(

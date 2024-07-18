@@ -73,7 +73,7 @@ class GeneralFloatCases(unittest.TestCase):
         self.assertEqual(float(), 0.0)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    #@unittest.expectedFailure
     def test_underscores(self):
         for lit in VALID_UNDERSCORE_LITERALS:
             if not any(ch in lit for ch in 'jJxXoObB'):

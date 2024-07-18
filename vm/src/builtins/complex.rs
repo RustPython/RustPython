@@ -545,13 +545,20 @@ fn parse_str(s: &str) -> Option<Complex64> {
     };
 
     let value = match s.strip_suffix(|c| c == 'j' || c == 'J') {
-        None => Complex64::new(crate::literal::float::parse_str(s)?, 0.0),
+        None => {
+            let stripped = float::float_strip_separators(s.as_bytes())?;
+            Some(Complex64::new(
+                crate::literal::float::parse_bytes(&stripped)?,
+                0.0,
+            ))
+        }
         Some(mut s) => {
             let mut real = 0.0;
             // Find the central +/- operator. If it exists, parse the real part.
             for (i, w) in s.as_bytes().windows(2).enumerate() {
                 if (w[1] == b'+' || w[1] == b'-') && !(w[0] == b'e' || w[0] == b'E') {
-                    real = crate::literal::float::parse_str(&s[..=i])?;
+                    let stripped = float::float_strip_separators(s[..=i].as_bytes())?;
+                    real = crate::literal::float::parse_bytes(&stripped)?;
                     s = &s[i + 1..];
                     break;
                 }
@@ -562,11 +569,13 @@ fn parse_str(s: &str) -> Option<Complex64> {
                 "" | "+" => 1.0,
                 // "-j"
                 "-" => -1.0,
-                s => crate::literal::float::parse_str(s)?,
+                s => {
+                    let stripped = float::float_strip_separators(s.as_bytes())?;
+                    crate::literal::float::parse_bytes(&stripped)?
+                }
             };
-
-            Complex64::new(real, imag)
+            Some(Complex64::new(real, imag))
         }
     };
-    Some(value)
+    value
 }
