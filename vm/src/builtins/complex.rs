@@ -547,10 +547,10 @@ fn parse_str(s: &str) -> Option<Complex64> {
     let value = match s.strip_suffix(|c| c == 'j' || c == 'J') {
         None => {
             let stripped = float::float_strip_underscores(s.as_bytes())?;
-            Some(Complex64::new(
+            Complex64::new(
                 crate::literal::float::parse_bytes(&stripped)?,
                 0.0,
-            ))
+            )
         }
         Some(mut s) => {
             let mut real = 0.0;
@@ -574,8 +574,8 @@ fn parse_str(s: &str) -> Option<Complex64> {
                     crate::literal::float::parse_bytes(&stripped)?
                 }
             };
-            Some(Complex64::new(real, imag))
+            Complex64::new(real, imag)
         }
     };
-    value
+    Some(value)
 }
