@@ -576,8 +576,6 @@ class ComplexTest(unittest.TestCase):
         self.assertEqual(copysign(1., complex("-nan-nanj").real), -1.)
         self.assertEqual(copysign(1., complex("-nan-nanj").imag), -1.)
 
-    # TODO: RUSTPYTHON
-    # @unittest.expectedFailure
     def test_underscores(self):
         # check underscores
         for lit in VALID_UNDERSCORE_LITERALS:
