@@ -179,9 +179,11 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
         )));
     };
 
-    crate::literal::float::parse_bytes(b).ok_or(val.repr(vm)
-    .map(|repr| vm.new_value_error(format!("could not convert string to float: {repr}")))
-    .unwrap_or_else(|e| e))
+    crate::literal::float::parse_bytes(b).ok_or_else(|| {
+        val.repr(vm)
+            .map(|repr| vm.new_value_error(format!("could not convert string to float: {repr}")))
+            .unwrap_or_else(|e| e)
+    })
 }
 
 #[pyclass(

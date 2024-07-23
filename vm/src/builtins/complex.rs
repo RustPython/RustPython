@@ -547,7 +547,7 @@ fn parse_str(s: &str) -> Option<Complex64> {
     let value = match s.strip_suffix(|c| c == 'j' || c == 'J') {
         None => {
             Complex64::new(crate::literal::float::parse_str(s)?, 0.0)
-        }
+        },
         Some(mut s) => {
             let mut real = 0.0;
             // Find the central +/- operator. If it exists, parse the real part.
