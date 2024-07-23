@@ -564,10 +564,9 @@ fn parse_str(s: &str) -> Option<Complex64> {
                 "" | "+" => 1.0,
                 // "-j"
                 "-" => -1.0,
-                s => {
-                    crate::literal::float::parse_str(s)?
-                }
+                s => crate::literal::float::parse_str(s)?,
             };
+
             Complex64::new(real, imag)
         }
     };
