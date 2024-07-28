@@ -427,7 +427,7 @@ def check_sanitizer(*, address=False, memory=False, ub=False):
     )
 
 
-def skip_if_sanitizer(reason=None, *, address=False, memory=False, ub=False):
+def skip_if_sanitizer(reason=None, *, address=False, memory=False, ub=False, thread=False):
     """Decorator raising SkipTest if running with a sanitizer active."""
     if not reason:
         reason = 'not working with sanitizers active'
