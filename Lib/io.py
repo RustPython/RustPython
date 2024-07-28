@@ -121,3 +121,10 @@ except ImportError:
     pass
 else:
     RawIOBase.register(_WindowsConsoleIO)
+
+
+# XXX: RUSTPYTHON; borrow IncrementalNewlineDecoder from _pyio
+try:
+    from _pyio import IncrementalNewlineDecoder
+except ImportError:
+    pass
