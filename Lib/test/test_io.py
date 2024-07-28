@@ -3897,11 +3897,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_reconfigure_write_non_seekable(self):
-        super().test_reconfigure_write_non_seekable()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reconfigure_defaults(self):
         super().test_reconfigure_defaults()
 
