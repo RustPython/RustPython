@@ -4635,8 +4635,6 @@ order (MRO) for bases """
         # hash([].append) should not be based on hash([])
         hash(l.append)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_special_unbound_method_types(self):
         # Testing objects of <type 'wrapper_descriptor'>...
         self.assertTrue(list.__add__ == list.__add__)
