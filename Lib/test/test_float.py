@@ -72,8 +72,6 @@ class GeneralFloatCases(unittest.TestCase):
     def test_noargs(self):
         self.assertEqual(float(), 0.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_underscores(self):
         for lit in VALID_UNDERSCORE_LITERALS:
             if not any(ch in lit for ch in 'jJxXoObB'):
