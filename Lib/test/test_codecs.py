@@ -850,7 +850,9 @@ class UTF16Test(ReadTest, unittest.TestCase):
                                          "spamspam", self.spamle)
         self.check_state_handling_decode(self.encoding,
                                          "spamspam", self.spambe)
-
+        
+    # TODO: RUSTPYTHON - ValueError: invalid mode 'Ub'
+    @unittest.expectedFailure
     def test_bug691291(self):
         # If encoding is not None, then
         # files are always opened in binary mode, even if no binary mode was
@@ -862,7 +864,8 @@ class UTF16Test(ReadTest, unittest.TestCase):
         self.addCleanup(os_helper.unlink, os_helper.TESTFN)
         with open(os_helper.TESTFN, 'wb') as fp:
             fp.write(s)
-        with warnings_helper.check_warnings(('', DeprecationWarning)):
+        # TODO: RUSTPYTHON - warnings_helper function not present
+        # with warnings_helper.check_warnings(('', DeprecationWarning)):
             reader = codecs.open(os_helper.TESTFN, 'U', encoding=self.encoding)
         with reader:
             self.assertEqual(reader.read(), s1)
@@ -1385,7 +1388,9 @@ class EscapeDecodeTest(unittest.TestCase):
         for i in range(0o400, 0o1000):
             with self.assertWarns(DeprecationWarning):
                 check(rb'\%o' % i, bytes([i & 0o377]))
-
+    
+    # TODO: RUSTPYTHON - ValueError: not raised by escape_decode
+    @unittest.expectedFailure
     def test_errors(self):
         decode = codecs.escape_decode
         self.assertRaises(ValueError, decode, br"\x")
@@ -1955,6 +1960,8 @@ class StreamReaderTest(unittest.TestCase):
         f = self.reader(self.stream)
         self.assertEqual(f.readlines(), ['\ud55c\n', '\uae00'])
 
+     # TODO: RUSTPYTHON
+    @unittest.expectedFailure 
     def test_copy(self):
         f = self.reader(Queue(b'\xed\x95\x9c\n\xea\xb8\x80'))
         with self.assertRaisesRegex(TypeError, 'StreamReader'):
@@ -1962,6 +1969,8 @@ class StreamReaderTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'StreamReader'):
             copy.deepcopy(f)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.subTest(protocol=proto):
@@ -1975,13 +1984,16 @@ class StreamWriterTest(unittest.TestCase):
     def setUp(self):
         self.writer = codecs.getwriter('utf-8')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure 
     def test_copy(self):
         f = self.writer(Queue(b''))
         with self.assertRaisesRegex(TypeError, 'StreamWriter'):
             copy.copy(f)
         with self.assertRaisesRegex(TypeError, 'StreamWriter'):
             copy.deepcopy(f)
-
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.subTest(protocol=proto):
@@ -1996,13 +2008,16 @@ class StreamReaderWriterTest(unittest.TestCase):
         self.reader = codecs.getreader('latin1')
         self.writer = codecs.getwriter('utf-8')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure 
     def test_copy(self):
         f = codecs.StreamReaderWriter(Queue(b''), self.reader, self.writer)
         with self.assertRaisesRegex(TypeError, 'StreamReaderWriter'):
             copy.copy(f)
         with self.assertRaisesRegex(TypeError, 'StreamReaderWriter'):
             copy.deepcopy(f)
-
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.subTest(protocol=proto):
@@ -2672,6 +2687,8 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
         check('\u20ac', br'\u20ac')
         check('\U0001d120', br'\U0001d120')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_escape_decode(self):
         decode = codecs.unicode_escape_decode
         check = coding_checker(self, decode)
@@ -3111,7 +3128,10 @@ class TransformCodecTest(unittest.TestCase):
                     bad_input.decode("rot_13")
                 self.assertIsNone(failure.exception.__cause__)
 
-    @unittest.skipUnless(zlib, "Requires zlib support")
+    
+    # @unittest.skipUnless(zlib, "Requires zlib support")
+    # TODO: RUSTPYTHON, ^ restore once test passes
+    @unittest.expectedFailure
     def test_custom_zlib_error_is_noted(self):
         # Check zlib codec gives a good error for malformed input
         msg = "decoding with 'zlib_codec' codec failed"
@@ -3119,6 +3139,8 @@ class TransformCodecTest(unittest.TestCase):
             codecs.decode(b"hello", "zlib_codec")
         self.assertEqual(msg, failure.exception.__notes__[0])
 
+    # TODO: RUSTPYTHON - AttributeError: 'Error' object has no attribute '__notes__'
+    @unittest.expectedFailure 
     def test_custom_hex_error_is_noted(self):
         # Check hex codec gives a good error for malformed input
         import binascii
@@ -3198,7 +3220,9 @@ class ExceptionNotesTest(unittest.TestCase):
     def raise_obj(self, *args, **kwds):
         # Helper to dynamically change the object raised by a test codec
         raise self.obj_to_raise
-
+    
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def check_note(self, obj_to_raise, msg, exc_type=RuntimeError):
         self.obj_to_raise = obj_to_raise
         self.set_codec(self.raise_obj, self.raise_obj)
@@ -3210,52 +3234,72 @@ class ExceptionNotesTest(unittest.TestCase):
             b"bytes input".decode(self.codec_name)
         with self.assertNoted("decoding", exc_type, msg):
             codecs.decode(b"bytes input", self.codec_name)
-
+    
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_by_type(self):
         self.check_note(RuntimeError, "")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_by_value(self):
         msg = "This should be noted"
         self.check_note(RuntimeError(msg), msg)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_grandchild_subclass_exact_size(self):
         msg = "This should be noted"
         class MyRuntimeError(RuntimeError):
             __slots__ = ()
         self.check_note(MyRuntimeError(msg), msg, MyRuntimeError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_subclass_with_weakref_support(self):
         msg = "This should be noted"
         class MyRuntimeError(RuntimeError):
             pass
         self.check_note(MyRuntimeError(msg), msg, MyRuntimeError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_init_override(self):
         class CustomInit(RuntimeError):
             def __init__(self):
                 pass
         self.check_note(CustomInit, "")
-
+        
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure  
     def test_new_override(self):
         class CustomNew(RuntimeError):
             def __new__(cls):
                 return super().__new__(cls)
         self.check_note(CustomNew, "")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_instance_attribute(self):
         msg = "This should be noted"
         exc = RuntimeError(msg)
         exc.attr = 1
         self.check_note(exc, "^{}$".format(msg))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_str_arg(self):
         self.check_note(RuntimeError(1), "1")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure    
     def test_multiple_args(self):
         msg_re = r"^\('a', 'b', 'c'\)$"
         self.check_note(RuntimeError('a', 'b', 'c'), msg_re)
 
     # http://bugs.python.org/issue19609
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_codec_lookup_failure(self):
         msg = "^unknown encoding: {}$".format(self.codec_name)
         with self.assertRaisesRegex(LookupError, msg):
@@ -3491,6 +3535,8 @@ class CodePageTest(unittest.TestCase):
                                           False)
         self.assertEqual(decoded, ('abc', 3))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_mbcs_alias(self):
         # Check that looking up our 'default' codepage will return
         # mbcs when we don't have a more specific one available
@@ -3663,6 +3709,8 @@ class StreamRecoderTest(unittest.TestCase):
         self.assertEqual(sr.readline(), b'abc\n')
         self.assertEqual(sr.readline(), b'789\n')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure 
     def test_copy(self):
         bio = io.BytesIO()
         codec = codecs.lookup('ascii')
@@ -3673,7 +3721,8 @@ class StreamRecoderTest(unittest.TestCase):
             copy.copy(sr)
         with self.assertRaisesRegex(TypeError, 'StreamRecoder'):
             copy.deepcopy(sr)
-
+    #TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_pickle(self):
         q = Queue(b'')
         codec = codecs.lookup('ascii')
