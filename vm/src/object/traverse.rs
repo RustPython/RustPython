@@ -19,17 +19,12 @@ pub trait MaybeTraverse {
 
 /// Type that need traverse it's children should impl `Traverse`(Not `MaybeTraverse`)
 /// # Safety
-/// impl `traverse()` with caution! Following those guideline so traverse doesn't cause memory error!:
-/// - Make sure that every owned object(Every PyObjectRef/PyRef) is called with traverse_fn **at most once**.
-/// If some field is not called, the worst results is just memory leak,
-/// but if some field is called repeatedly, panic and deadlock can happen.
-///
-/// - _**DO NOT**_ clone a `PyObjectRef` or `Pyef<T>` in `traverse()`
+/// Please carefully read [`traverse()`] and follow the guideline
 pub unsafe trait Traverse {
     /// impl `traverse()` with caution! Following those guideline so traverse doesn't cause memory error!:
     /// - Make sure that every owned object(Every PyObjectRef/PyRef) is called with traverse_fn **at most once**.
-    /// If some field is not called, the worst results is just memory leak,
-    /// but if some field is called repeatedly, panic and deadlock can happen.
+    ///   If some field is not called, the worst results is just memory leak,
+    ///   but if some field is called repeatedly, panic and deadlock can happen.
     ///
     /// - _**DO NOT**_ clone a `PyObjectRef` or `Pyef<T>` in `traverse()`
     fn traverse(&self, traverse_fn: &mut TraverseFn);

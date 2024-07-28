@@ -1,7 +1,6 @@
 fn main() {
     process_python_libs("../vm/Lib/python_builtins/*");
 
-    #[cfg(not(feature = "stdlib"))]
     process_python_libs("../vm/Lib/core_modules/*");
     #[cfg(feature = "freeze-stdlib")]
     if cfg!(windows) {

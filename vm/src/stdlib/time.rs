@@ -302,7 +302,7 @@ mod decl {
         Ok(get_thread_time(vm)?.as_nanos() as u64)
     }
 
-    #[cfg(any(windows, all(target_arch = "wasm32", target_arch = "emscripten")))]
+    #[cfg(any(windows, all(target_arch = "wasm32", target_os = "emscripten")))]
     pub(super) fn time_muldiv(ticks: i64, mul: i64, div: i64) -> u64 {
         let intpart = ticks / div;
         let ticks = ticks % div;
