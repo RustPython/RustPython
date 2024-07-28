@@ -79,7 +79,7 @@ static_assertions = "1.1"
 syn = "1.0.109"
 thiserror = "1.0"
 thread_local = "1.1.4"
-unicode_names2 = "1.1.0"
+unicode_names2 = "1.2.0"
 widestring = "1.1.0"
 windows-sys = "0.52.0"
 
