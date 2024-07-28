@@ -5,7 +5,9 @@ pub(crate) use sys::{UnraisableHookArgs, __module_def, DOC, MAXSIZE, MULTIARCH};
 #[pymodule]
 mod sys {
     use crate::{
-        builtins::{PyDictRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
+        builtins::{
+            PyBaseExceptionRef, PyDictRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+        },
         common::{
             ascii,
             hash::{PyHash, PyUHash},
@@ -307,6 +309,11 @@ mod sys {
     fn exit(code: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = code.unwrap_or_none(vm);
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
+    }
+
+    #[pyfunction]
+    fn exception(vm: &VirtualMachine) -> Option<PyBaseExceptionRef> {
+        vm.topmost_exception()
     }
 
     #[pyfunction(name = "__displayhook__")]
