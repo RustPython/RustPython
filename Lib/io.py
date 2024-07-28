@@ -47,7 +47,7 @@ __all__ = ["BlockingIOError", "open", "open_code", "IOBase", "RawIOBase",
            "BufferedRandom", "TextIOBase", "TextIOWrapper",
            "UnsupportedOperation", "SEEK_SET", "SEEK_CUR", "SEEK_END",
            "DEFAULT_BUFFER_SIZE", "text_encoding",
-           # "IncrementalNewlineDecoder"
+           "IncrementalNewlineDecoder"
            ]
 
 
@@ -60,7 +60,6 @@ from _io import (DEFAULT_BUFFER_SIZE, BlockingIOError, UnsupportedOperation,
                  # XXX RUSTPYTHON TODO: IncrementalNewlineDecoder
                  # IncrementalNewlineDecoder,
                  text_encoding, TextIOWrapper)
-
 
 # Pretend this exception was created here.
 UnsupportedOperation.__module__ = "io"

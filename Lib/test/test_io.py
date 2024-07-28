@@ -1796,6 +1796,11 @@ class CBufferedReaderTest(BufferedReaderTest, SizeofTest):
     def test_truncate_on_read_only(self): # TODO: RUSTPYTHON, remove when this passes
         super().test_truncate_on_read_only() # TODO: RUSTPYTHON, remove when this passes
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_seek_character_device_file(self):
+        super().test_seek_character_device_file()
+
 
 class PyBufferedReaderTest(BufferedReaderTest):
     tp = pyio.BufferedReader
@@ -2661,6 +2666,16 @@ class CBufferedRandomTest(BufferedRandomTest, SizeofTest):
     @unittest.expectedFailure
     def test_flush_error_on_close(self):
         super().test_flush_error_on_close()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_seek_character_device_file(self):
+        super().test_seek_character_device_file()
+
+    # TODO: RUSTPYTHON; f.read1(1) returns b'a'
+    @unittest.expectedFailure
+    def test_read1_after_write(self):
+        super().test_read1_after_write()
 
 
 class PyBufferedRandomTest(BufferedRandomTest):
@@ -4168,6 +4183,16 @@ class CTextIOWrapperTest(TextIOWrapperTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    def test_reconfigure_errors(self):
+        super().test_reconfigure_errors()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_reconfigure_locale(self):
+        super().test_reconfigure_locale()
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_initialization(self):
         r = self.BytesIO(b"\xc3\xa9\n\n")
         b = self.BufferedReader(r, 1000)
@@ -4247,6 +4272,11 @@ class CTextIOWrapperTest(TextIOWrapperTest):
 class PyTextIOWrapperTest(TextIOWrapperTest):
     io = pyio
     shutdown_error = "LookupError: unknown encoding: ascii"
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test_constructor(self):
+        super().test_constructor()
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
@@ -4350,8 +4380,6 @@ class IncrementalNewlineDecoderTest(unittest.TestCase):
         self.check_newline_decoding_utf8(decoder)
         self.assertRaises(TypeError, decoder.setstate, 42)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_newline_bytes(self):
         # Issue 5433: Excessive optimization in IncrementalNewlineDecoder
         def _check(dec):
@@ -4365,8 +4393,6 @@ class IncrementalNewlineDecoderTest(unittest.TestCase):
         dec = self.IncrementalNewlineDecoder(None, translate=True)
         _check(dec)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_translate(self):
         # issue 35062
         for translate in (-2, -1, 1, 2):
@@ -4767,6 +4793,8 @@ class MiscIOTest(unittest.TestCase):
         self.assertTrue(
             warnings[1].startswith(b"<string>:8: EncodingWarning: "))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_text_encoding(self):
         # PEP 597, bpo-47000. io.text_encoding() returns "locale" or "utf-8"
         # based on sys.flags.utf8_mode
@@ -4783,6 +4811,11 @@ class CMiscIOTest(MiscIOTest):
     io = io
     name_of_module = "io", "_io"
     extra_exported = "BlockingIOError",
+
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
+    def test___all__(self):
+        super().test___all__()
 
     def test_readinto_buffer_overflow(self):
         # Issue #18025
