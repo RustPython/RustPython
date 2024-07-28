@@ -75,8 +75,6 @@ class ActiveExceptionTests(unittest.TestCase):
     def test_exc_info_no_exception(self):
         self.assertEqual(sys.exc_info(), (None, None, None))
 
-    # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'exception'
-    @unittest.expectedFailure
     def test_sys_exception_no_exception(self):
         self.assertEqual(sys.exception(), None)
 
@@ -110,8 +108,6 @@ class ActiveExceptionTests(unittest.TestCase):
         self.assertIs(exc_info[1], e)
         self.assertIs(exc_info[2], e.__traceback__)
 
-    # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'exception'
-    @unittest.expectedFailure
     def test_sys_exception_with_exception_instance(self):
         def f():
             raise ValueError(42)
@@ -125,8 +121,6 @@ class ActiveExceptionTests(unittest.TestCase):
         self.assertIsInstance(e, ValueError)
         self.assertIs(exc, e)
 
-    # TODO: RUSTPYTHON; AttributeError: module 'sys' has no attribute 'exception'
-    @unittest.expectedFailure
     def test_sys_exception_with_exception_type(self):
         def f():
             raise ValueError
