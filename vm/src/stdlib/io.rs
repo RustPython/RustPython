@@ -1868,17 +1868,16 @@ mod _io {
 
     #[derive(FromArgs)]
     struct TextIOWrapperArgs {
-        buffer: PyObjectRef,
         #[pyarg(any, default)]
         encoding: Option<PyStrRef>,
         #[pyarg(any, default)]
         errors: Option<PyStrRef>,
         #[pyarg(any, default)]
-        newline: Newlines,
-        #[pyarg(any, default = "false")]
-        line_buffering: bool,
-        #[pyarg(any, default = "false")]
-        write_through: bool,
+        newline: Option<Newlines>,
+        #[pyarg(any, default)]
+        line_buffering: Option<bool>,
+        #[pyarg(any, default)]
+        write_through: Option<bool>,
     }
 
     #[derive(Debug, Copy, Clone, Default)]
@@ -2196,9 +2195,13 @@ mod _io {
     impl DefaultConstructor for TextIOWrapper {}
 
     impl Initializer for TextIOWrapper {
-        type Args = TextIOWrapperArgs;
+        type Args = (PyObjectRef, TextIOWrapperArgs);
 
-        fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        fn init(
+            zelf: PyRef<Self>,
+            (buffer, args): Self::Args,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let mut data = zelf.lock_opt(vm)?;
             *data = None;
 
@@ -2217,8 +2220,6 @@ mod _io {
             let errors = args
                 .errors
                 .unwrap_or_else(|| PyStr::from("strict").into_ref(&vm.ctx));
-
-            let buffer = args.buffer;
 
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
             let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
@@ -2256,9 +2257,9 @@ mod _io {
                 decoder,
                 encoding,
                 errors,
-                newline: args.newline,
-                line_buffering: args.line_buffering,
-                write_through: args.write_through,
+                newline: args.newline.unwrap_or_default(),
+                line_buffering: args.line_buffering.unwrap_or_default(),
+                write_through: args.write_through.unwrap_or_default(),
                 chunk_size: 8192,
                 seekable,
                 has_read1,
@@ -2294,6 +2295,27 @@ mod _io {
 
     #[pyclass(with(Constructor, Initializer), flags(BASETYPE))]
     impl TextIOWrapper {
+        #[pymethod]
+        fn reconfigure(&self, args: TextIOWrapperArgs) {
+            let mut data = self.data.lock().unwrap();
+            if let Some(data) = data.as_mut() {
+                if let Some(encoding) = args.encoding {
+                    data.encoding = encoding;
+                }
+                if let Some(errors) = args.errors {
+                    data.errors = errors;
+                }
+                if let Some(newline) = args.newline {
+                    data.newline = newline;
+                }
+                if let Some(line_buffering) = args.line_buffering {
+                    data.line_buffering = line_buffering;
+                }
+                if let Some(write_through) = args.write_through {
+                    data.write_through = write_through;
+                }
+            }
+        }
         #[pymethod]
         fn seekable(&self, vm: &VirtualMachine) -> PyResult {
             let textio = self.lock(vm)?;
