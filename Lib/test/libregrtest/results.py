@@ -89,21 +89,20 @@ class TestResults:
         rerun = runtests.rerun
         fail_env_changed = runtests.fail_env_changed
 
-        match result.state:
-            case State.PASSED:
+        if result.state == State.PASSED:
                 self.good.append(test_name)
-            case State.ENV_CHANGED:
+        elif result.state == State.ENV_CHANGED:
                 self.env_changed.append(test_name)
                 self.rerun_results.append(result)
-            case State.SKIPPED:
+        elif result.state == State.SKIPPED:
                 self.skipped.append(test_name)
-            case State.RESOURCE_DENIED:
+        elif result.state == State.RESOURCE_DENIED:
                 self.resource_denied.append(test_name)
-            case State.INTERRUPTED:
+        elif result.state == State.INTERRUPTED:
                 self.interrupted = True
-            case State.DID_NOT_RUN:
+        elif result.state ==  State.DID_NOT_RUN:
                 self.run_no_tests.append(test_name)
-            case _:
+        else:
                 if result.is_failed(fail_env_changed):
                     self.bad.append(test_name)
                     self.rerun_results.append(result)

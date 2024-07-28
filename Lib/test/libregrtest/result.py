@@ -117,32 +117,31 @@ class TestResult:
         return f"{self.test_name} failed"
 
     def __str__(self) -> str:
-        match self.state:
-            case State.PASSED:
+        if self.state == State.PASSED:
                 return f"{self.test_name} passed"
-            case State.FAILED:
+        elif self.state == State.FAILED:
                 return self._format_failed()
-            case State.SKIPPED:
+        elif self.state == State.SKIPPED:
                 return f"{self.test_name} skipped"
-            case State.UNCAUGHT_EXC:
+        elif self.state == State.UNCAUGHT_EXC:
                 return f"{self.test_name} failed (uncaught exception)"
-            case State.REFLEAK:
+        elif self.state == State.REFLEAK:
                 return f"{self.test_name} failed (reference leak)"
-            case State.ENV_CHANGED:
+        elif self.state == State.ENV_CHANGED:
                 return f"{self.test_name} failed (env changed)"
-            case State.RESOURCE_DENIED:
+        elif self.state == State.RESOURCE_DENIED:
                 return f"{self.test_name} skipped (resource denied)"
-            case State.INTERRUPTED:
+        elif self.state == State.INTERRUPTED:
                 return f"{self.test_name} interrupted"
-            case State.WORKER_FAILED:
+        elif self.state == State.WORKER_FAILED:
                 return f"{self.test_name} worker non-zero exit code"
-            case State.WORKER_BUG:
+        elif self.state == State.WORKER_BUG:
                 return f"{self.test_name} worker bug"
-            case State.DID_NOT_RUN:
+        elif self.state == State.DID_NOT_RUN:
                 return f"{self.test_name} ran no tests"
-            case State.TIMEOUT:
+        elif self.state == State.TIMEOUT:
                 return f"{self.test_name} timed out ({format_duration(self.duration)})"
-            case _:
+        else:
                 raise ValueError("unknown result state: {state!r}")
 
     def has_meaningful_duration(self):

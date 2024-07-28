@@ -93,15 +93,14 @@ def regrtest_runner(result: TestResult, test_func, runtests: RunTests) -> None:
 
     stats: TestStats | None
 
-    match test_result:
-        case TestStats():
+    if test_result == TestStats():
             stats = test_result
-        case unittest.TestResult():
+    elif test_result == unittest.TestResult():
             stats = TestStats.from_unittest(test_result)
-        case None:
+    elif test_result is None:
             print_warning(f"{result.test_name} test runner returned None: {test_func}")
             stats = None
-        case _:
+    else:
             # Don't import doctest at top level since only few tests return
             # a doctest.TestResult instance.
             import doctest
