@@ -244,11 +244,8 @@ mod _io {
 
         fn write(&mut self, data: &[u8]) -> Option<u64> {
             let length = data.len();
-
-            match self.cursor.write_all(data) {
-                Ok(_) => Some(length as u64),
-                Err(_) => None,
-            }
+            self.cursor.write_all(data).ok()?;
+            Some(length as u64)
         }
 
         //return the entire contents of the underlying
@@ -891,7 +888,8 @@ mod _io {
         }
 
         fn raw_tell(&mut self, vm: &VirtualMachine) -> PyResult<Offset> {
-            let ret = vm.call_method(self.check_init(vm)?, "tell", ())?;
+            let raw = self.check_init(vm)?;
+            let ret = vm.call_method(raw, "tell", ())?;
             let offset = get_offset(ret, vm)?;
             if offset < 0 {
                 return Err(
@@ -1474,7 +1472,14 @@ mod _io {
         #[pymethod]
         fn tell(&self, vm: &VirtualMachine) -> PyResult<Offset> {
             let mut data = self.lock(vm)?;
-            Ok(data.raw_tell(vm)? - data.raw_offset())
+            let raw_tell = data.raw_tell(vm)?;
+            let raw_offset = data.raw_offset();
+            let mut pos = raw_tell - raw_offset;
+            // GH-95782
+            if pos < 0 {
+                pos = 0;
+            }
+            Ok(pos)
         }
         #[pymethod]
         fn truncate(
