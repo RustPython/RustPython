@@ -43,7 +43,6 @@ mod syslog;
 mod unicodedata;
 mod zlib;
 
-#[cfg(not(target_arch = "wasm32"))]
 mod faulthandler;
 #[cfg(any(unix, target_os = "wasi"))]
 mod fcntl;
@@ -109,6 +108,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_contextvars" => contextvars::make_module,
             "_csv" => csv::make_module,
             "_dis" => dis::make_module,
+            "faulthandler" => faulthandler::make_module,
             "gc" => gc::make_module,
             "_hashlib" => hashlib::make_module,
             "_sha1" => sha1::make_module,
@@ -140,7 +140,6 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         {
             "_multiprocessing" => multiprocessing::make_module,
             "_socket" => socket::make_module,
-            "faulthandler" => faulthandler::make_module,
         }
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         {
