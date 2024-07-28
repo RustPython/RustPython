@@ -1109,9 +1109,6 @@ class EnvironTests(mapping_tests.BasicTestMappingProtocol):
 
     @unittest.skipUnless(os.supports_bytes_environ,
                          "os.environb required for this test.")
-    # TODO: RUSTPYTHON (UnicodeDecodeError: can't decode bytes for utf-8)
-    # Need to fix 'surrogateescape'
-    @unittest.expectedFailure
     def test_environb(self):
         # os.environ -> os.environb
         value = 'euro\u20ac'

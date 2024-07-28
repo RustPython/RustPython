@@ -370,18 +370,11 @@ pub(super) mod _os {
         Ok(list)
     }
 
-    fn pyref_as_str<'a>(
-        obj: &'a Either<PyStrRef, PyBytesRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<&'a str> {
-        Ok(match obj {
-            Either::A(ref s) => s.as_str(),
-            Either::B(ref b) => super::bytes_as_osstr(b.as_bytes(), vm)?
-                .to_str()
-                .ok_or_else(|| {
-                    vm.new_unicode_decode_error("can't decode bytes for utf-8".to_owned())
-                })?,
-        })
+    fn env_bytes_as_bytes(obj: &Either<PyStrRef, PyBytesRef>) -> &[u8] {
+        match obj {
+            Either::A(ref s) => s.as_str().as_bytes(),
+            Either::B(ref b) => b.as_bytes(),
+        }
     }
 
     #[pyfunction]
@@ -390,27 +383,36 @@ pub(super) mod _os {
         value: Either<PyStrRef, PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let key = pyref_as_str(&key, vm)?;
-        let value = pyref_as_str(&value, vm)?;
-        if key.contains('\0') || value.contains('\0') {
+        let key = env_bytes_as_bytes(&key);
+        let value = env_bytes_as_bytes(&value);
+        if key.contains(&b'\0') || value.contains(&b'\0') {
             return Err(vm.new_value_error("embedded null byte".to_string()));
         }
-        if key.is_empty() || key.contains('=') {
+        if key.is_empty() || key.contains(&b'=') {
             return Err(vm.new_value_error("illegal environment variable name".to_string()));
         }
+        let key = super::bytes_as_osstr(key, vm)?;
+        let value = super::bytes_as_osstr(value, vm)?;
         env::set_var(key, value);
         Ok(())
     }
 
     #[pyfunction]
     fn unsetenv(key: Either<PyStrRef, PyBytesRef>, vm: &VirtualMachine) -> PyResult<()> {
-        let key = pyref_as_str(&key, vm)?;
-        if key.contains('\0') {
+        let key = env_bytes_as_bytes(&key);
+        if key.contains(&b'\0') {
             return Err(vm.new_value_error("embedded null byte".to_string()));
         }
-        if key.is_empty() || key.contains('=') {
-            return Err(vm.new_errno_error(22, format!("Invalid argument: {key}")));
+        if key.is_empty() || key.contains(&b'=') {
+            return Err(vm.new_errno_error(
+                22,
+                format!(
+                    "Invalid argument: {}",
+                    std::str::from_utf8(key).unwrap_or("<bytes encoding failure>")
+                ),
+            ));
         }
+        let key = super::bytes_as_osstr(key, vm)?;
         env::remove_var(key);
         Ok(())
     }
