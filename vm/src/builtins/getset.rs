@@ -1,7 +1,7 @@
 /*! Python `attribute` descriptor class. (PyGetSet)
 
 */
-use super::PyType;
+use super::{PyType, PyTypeRef};
 use crate::{
     class::PyClassImpl,
     function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
@@ -138,6 +138,11 @@ impl PyGetSet {
     #[pygetset(magic)]
     fn qualname(&self) -> String {
         format!("{}.{}", self.class.slot_name(), self.name.clone())
+    }
+
+    #[pygetset(magic)]
+    fn objclass(&self) -> PyTypeRef {
+        self.class.to_owned()
     }
 }
 impl Unconstructible for PyGetSet {}

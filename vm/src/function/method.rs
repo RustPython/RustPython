@@ -170,11 +170,8 @@ impl PyMethodDef {
         class: &'static Py<PyType>,
     ) -> PyRef<PyMethodDescriptor> {
         debug_assert!(self.flags.contains(PyMethodFlags::METHOD));
-        PyRef::new_ref(
-            self.to_method(class, ctx),
-            ctx.types.method_descriptor_type.to_owned(),
-            None,
-        )
+        let method = self.to_method(class, ctx);
+        PyRef::new_ref(method, ctx.types.method_descriptor_type.to_owned(), None)
     }
     pub fn build_bound_method(
         &'static self,

@@ -52,6 +52,7 @@
     "metas",
     "modpow",
     "nanos",
+    "objclass",
     "peekable",
     "powc",
     "powf",

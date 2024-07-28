@@ -174,6 +174,7 @@ declare_const_name! {
     __neg__,
     __new__,
     __next__,
+    __objclass__,
     __or__,
     __orig_bases__,
     __orig_class__,
