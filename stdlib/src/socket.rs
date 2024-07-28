@@ -337,13 +337,12 @@ mod _socket {
             target_os = "linux",
             any(
                 target_arch = "aarch64",
-                target_arch = "i686",
+                target_arch = "x86",
                 target_arch = "loongarch64",
                 target_arch = "mips",
                 target_arch = "powerpc",
                 target_arch = "powerpc64",
-                target_arch = "powerpc64le",
-                target_arch = "riscv64gc",
+                target_arch = "riscv64",
                 target_arch = "s390x",
                 target_arch = "x86_64"
             )
@@ -388,13 +387,12 @@ mod _socket {
             target_os = "linux",
             any(
                 target_arch = "aarch64",
-                target_arch = "i686",
+                target_arch = "x86",
                 target_arch = "loongarch64",
                 target_arch = "mips",
                 target_arch = "powerpc",
                 target_arch = "powerpc64",
-                target_arch = "powerpc64le",
-                target_arch = "riscv64gc",
+                target_arch = "riscv64",
                 target_arch = "s390x",
                 target_arch = "x86_64"
             )

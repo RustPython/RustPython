@@ -494,6 +494,8 @@ impl PyObject {
 
 /// A borrow of a reference to a Python object. This avoids having clone the `PyRef<T>`/
 /// `PyObjectRef`, which isn't that cheap as that increments the atomic reference counter.
+// TODO: check if we still need this
+#[allow(dead_code)]
 pub struct PyLease<'a, T: PyObjectPayload> {
     inner: PyRwLockReadGuard<'a, PyRef<T>>,
 }

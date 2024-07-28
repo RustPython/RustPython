@@ -1,4 +1,10 @@
 fn main() {
+    println!(r#"cargo::rustc-check-cfg=cfg(osslconf, values("OPENSSL_NO_COMP"))"#);
+    println!("cargo::rustc-check-cfg=cfg(ossl101)");
+    println!("cargo::rustc-check-cfg=cfg(ossl102)");
+    println!("cargo::rustc-check-cfg=cfg(ossl110)");
+    println!("cargo::rustc-check-cfg=cfg(ossl110g)");
+    println!("cargo::rustc-check-cfg=cfg(ossl111)");
     #[allow(clippy::unusual_byte_groupings)]
     if let Ok(v) = std::env::var("DEP_OPENSSL_VERSION_NUMBER") {
         println!("cargo:rustc-env=OPENSSL_API_VERSION={v}");

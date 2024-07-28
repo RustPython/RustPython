@@ -118,9 +118,8 @@ impl PyObject {
             .class()
             .mro_find_map(|cls| cls.slots.getattro.load())
             .unwrap();
-        getattro(self, attr_name, vm).map_err(|exc| {
-            vm.set_attribute_error_context(&exc, self.to_owned(), attr_name.to_owned());
-            exc
+        getattro(self, attr_name, vm).inspect_err(|exc| {
+            vm.set_attribute_error_context(exc, self.to_owned(), attr_name.to_owned());
         })
     }
 
