@@ -1960,8 +1960,7 @@ class StreamReaderTest(unittest.TestCase):
         f = self.reader(self.stream)
         self.assertEqual(f.readlines(), ['\ud55c\n', '\uae00'])
 
-     # TODO: RUSTPYTHON
-    @unittest.expectedFailure 
+     
     def test_copy(self):
         f = self.reader(Queue(b'\xed\x95\x9c\n\xea\xb8\x80'))
         with self.assertRaisesRegex(TypeError, 'StreamReader'):
@@ -1969,8 +1968,7 @@ class StreamReaderTest(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, 'StreamReader'):
             copy.deepcopy(f)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    
     def test_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.subTest(protocol=proto):
@@ -1984,16 +1982,14 @@ class StreamWriterTest(unittest.TestCase):
     def setUp(self):
         self.writer = codecs.getwriter('utf-8')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure 
+    
     def test_copy(self):
         f = self.writer(Queue(b''))
         with self.assertRaisesRegex(TypeError, 'StreamWriter'):
             copy.copy(f)
         with self.assertRaisesRegex(TypeError, 'StreamWriter'):
             copy.deepcopy(f)
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    
     def test_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.subTest(protocol=proto):
@@ -2008,16 +2004,14 @@ class StreamReaderWriterTest(unittest.TestCase):
         self.reader = codecs.getreader('latin1')
         self.writer = codecs.getwriter('utf-8')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure 
+    
     def test_copy(self):
         f = codecs.StreamReaderWriter(Queue(b''), self.reader, self.writer)
         with self.assertRaisesRegex(TypeError, 'StreamReaderWriter'):
             copy.copy(f)
         with self.assertRaisesRegex(TypeError, 'StreamReaderWriter'):
             copy.deepcopy(f)
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    
     def test_pickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.subTest(protocol=proto):
@@ -3709,8 +3703,7 @@ class StreamRecoderTest(unittest.TestCase):
         self.assertEqual(sr.readline(), b'abc\n')
         self.assertEqual(sr.readline(), b'789\n')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure 
+    
     def test_copy(self):
         bio = io.BytesIO()
         codec = codecs.lookup('ascii')
@@ -3721,8 +3714,7 @@ class StreamRecoderTest(unittest.TestCase):
             copy.copy(sr)
         with self.assertRaisesRegex(TypeError, 'StreamRecoder'):
             copy.deepcopy(sr)
-    #TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    
     def test_pickle(self):
         q = Queue(b'')
         codec = codecs.lookup('ascii')
