@@ -871,10 +871,9 @@ pub mod module {
         let (rfd, wfd) = pipe().map_err(|err| err.into_pyexception(vm))?;
         set_inheritable(rfd, false, vm)
             .and_then(|_| set_inheritable(wfd, false, vm))
-            .map_err(|err| {
+            .inspect_err(|_| {
                 let _ = close(rfd);
                 let _ = close(wfd);
-                err
             })?;
         Ok((rfd, wfd))
     }
