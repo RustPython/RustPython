@@ -713,8 +713,8 @@ class TestAsyncExitStack(TestBaseExitStack, unittest.TestCase):
                 await stack.enter_async_context(LacksExit())
             self.assertFalse(stack._exit_callbacks)
 
-    @_async_test
     # TODO: RUSTPYTHON
+    @_async_test
     @unittest.expectedFailure
     async def test_async_exit_exception_chaining(self):
         # Ensure exception chaining matches the reference behaviour
