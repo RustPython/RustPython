@@ -500,12 +500,9 @@ pub fn object_set_dict(
     dict: PySetterValue<PyDictRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let new_dict = match dict {
-        PySetterValue::Delete => PyDict::new_ref(&vm.ctx),
-        PySetterValue::Assign(dict) => dict,
-    };
+    let dict = dict.unwrap_or_else(|| PyDict::new_ref(&vm.ctx));
 
-    obj.set_dict(new_dict)
+    obj.set_dict(dict)
         .map_err(|_| vm.new_attribute_error("This object has no __dict__".to_owned()))
 }
 
