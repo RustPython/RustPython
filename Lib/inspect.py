@@ -1686,19 +1686,22 @@ def getframeinfo(frame, context=1):
     The optional second argument specifies the number of lines of context
     to return, which are centered around the current line."""
     if istraceback(frame):
-        positions = _get_code_position_from_tb(frame)
+        # XXX: RUSTPYTHON: we don't support _get_code_position yet
+        # positions = _get_code_position_from_tb(frame)
         lineno = frame.tb_lineno
         frame = frame.tb_frame
     else:
         lineno = frame.f_lineno
-        positions = _get_code_position(frame.f_code, frame.f_lasti)
+        # XXX: RUSTPYTHON: we don't support _get_code_position yet
+        # positions = _get_code_position(frame.f_code, frame.f_lasti)
 
-    if positions[0] is None:
-        frame, *positions = (frame, lineno, *positions[1:])
-    else:
-        frame, *positions = (frame, *positions)
+    # XXX: RUSTPYTHON: we don't support _get_code_position yet
+    # if positions[0] is None:
+    #     frame, *positions = (frame, lineno, *positions[1:])
+    # else:
+    #     frame, *positions = (frame, *positions)
 
-    lineno = positions[0]
+    # lineno = positions[0]
 
     if not isframe(frame):
         raise TypeError('{!r} is not a frame or traceback object'.format(frame))
@@ -1718,7 +1721,10 @@ def getframeinfo(frame, context=1):
         lines = index = None
 
     return Traceback(filename, lineno, frame.f_code.co_name, lines,
-                     index, positions=dis.Positions(*positions))
+                     index,
+                     # XXX: RUSTPYTHON: we don't support _get_code_position yet
+                     # positions=dis.Positions(*positions)
+                     )
 
 def getlineno(frame):
     """Get the line number from a frame object, allowing for optimization."""
