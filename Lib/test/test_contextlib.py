@@ -10,6 +10,7 @@ import unittest
 from contextlib import *  # Tests __all__
 from test import support
 from test.support import os_helper
+from test.support.testcase import ExceptionIsLikeMixin
 import weakref
 
 
@@ -88,8 +89,6 @@ class ContextManagerTestCase(unittest.TestCase):
                 raise ZeroDivisionError()
         self.assertEqual(state, [1, 42, 999])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_contextmanager_traceback(self):
         @contextmanager
         def f():
@@ -158,9 +157,46 @@ class ContextManagerTestCase(unittest.TestCase):
                 yield
         ctx = whoo()
         ctx.__enter__()
-        self.assertRaises(
-            RuntimeError, ctx.__exit__, TypeError, TypeError("foo"), None
-        )
+        with self.assertRaises(RuntimeError):
+            ctx.__exit__(TypeError, TypeError("foo"), None)
+        if support.check_impl_detail(cpython=True):
+            # The "gen" attribute is an implementation detail.
+            self.assertFalse(ctx.gen.gi_suspended)
+
+    def test_contextmanager_trap_no_yield(self):
+        @contextmanager
+        def whoo():
+            if False:
+                yield
+        ctx = whoo()
+        with self.assertRaises(RuntimeError):
+            ctx.__enter__()
+
+    def test_contextmanager_trap_second_yield(self):
+        @contextmanager
+        def whoo():
+            yield
+            yield
+        ctx = whoo()
+        ctx.__enter__()
+        with self.assertRaises(RuntimeError):
+            ctx.__exit__(None, None, None)
+        if support.check_impl_detail(cpython=True):
+            # The "gen" attribute is an implementation detail.
+            self.assertFalse(ctx.gen.gi_suspended)
+
+    def test_contextmanager_non_normalised(self):
+        @contextmanager
+        def whoo():
+            try:
+                yield
+            except RuntimeError:
+                raise SyntaxError
+
+        ctx = whoo()
+        ctx.__enter__()
+        with self.assertRaises(SyntaxError):
+            ctx.__exit__(RuntimeError, None, None)
 
     def test_contextmanager_except(self):
         state = []
@@ -241,6 +277,25 @@ def woohoo():
             self.assertEqual(ex.args[0], 'issue29692:Unchained')
             self.assertIsNone(ex.__cause__)
 
+    def test_contextmanager_wrap_runtimeerror(self):
+        @contextmanager
+        def woohoo():
+            try:
+                yield
+            except Exception as exc:
+                raise RuntimeError(f'caught {exc}') from exc
+
+        with self.assertRaises(RuntimeError):
+            with woohoo():
+                1 / 0
+
+        # If the context manager wrapped StopIteration in a RuntimeError,
+        # we also unwrap it, because we can't tell whether the wrapping was
+        # done by the generator machinery or by the generator itself.
+        with self.assertRaises(StopIteration):
+            with woohoo():
+                raise StopIteration
+
     def _create_contextmanager_attribs(self):
         def attribs(**kw):
             def decorate(func):
@@ -252,6 +307,7 @@ def woohoo():
         @attribs(foo='bar')
         def baz(spam):
             """Whee!"""
+            yield
         return baz
 
     def test_contextmanager_attribs(self):
@@ -308,8 +364,11 @@ def woohoo():
 
     def test_recursive(self):
         depth = 0
+        ncols = 0
         @contextmanager
         def woohoo():
+            nonlocal ncols
+            ncols += 1
             nonlocal depth
             before = depth
             depth += 1
@@ -323,6 +382,7 @@ def woohoo():
                 recursive()
 
         recursive()
+        self.assertEqual(ncols, 10)
         self.assertEqual(depth, 0)
 
 
@@ -774,8 +834,6 @@ class TestBaseExitStack:
             stack.push(lambda *exc: True)
             1/0
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_exception_traceback(self):
         # This test captures the current behavior of ExitStack so that we know
         # if we ever unintendedly change it. It is not a statement of what the
@@ -856,8 +914,6 @@ class TestBaseExitStack:
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_exception_chaining(self):
         # Ensure exception chaining matches the reference behaviour
         def raise_exc(exc):
@@ -889,8 +945,6 @@ class TestBaseExitStack:
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_exception_explicit_none_context(self):
         # Ensure ExitStack chaining matches actual nested `with` statements
         # regarding explicit __context__ = None.
@@ -952,8 +1006,6 @@ class TestBaseExitStack:
         else:
             self.fail("Expected KeyError, but no exception was raised")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_exception_with_correct_context(self):
         # http://bugs.python.org/issue20317
         @contextmanager
@@ -985,8 +1037,6 @@ class TestBaseExitStack:
             self.assertIsNone(
                        exc.__context__.__context__.__context__.__context__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exit_exception_with_existing_context(self):
         # Addresses a lack of test coverage discovered after checking in a
         # fix for issue 20317 that still contained debugging code.
@@ -1160,7 +1210,7 @@ class TestRedirectStderr(TestRedirectStream, unittest.TestCase):
     orig_stream = "stderr"
 
 
-class TestSuppress(unittest.TestCase):
+class TestSuppress(ExceptionIsLikeMixin, unittest.TestCase):
 
     @support.requires_docstrings
     def test_instance_docs(self):
@@ -1214,6 +1264,48 @@ class TestSuppress(unittest.TestCase):
             1/0
         self.assertTrue(outer_continued)
 
+    def test_exception_groups(self):
+        eg_ve = lambda: ExceptionGroup(
+            "EG with ValueErrors only",
+            [ValueError("ve1"), ValueError("ve2"), ValueError("ve3")],
+        )
+        eg_all = lambda: ExceptionGroup(
+            "EG with many types of exceptions",
+            [ValueError("ve1"), KeyError("ke1"), ValueError("ve2"), KeyError("ke2")],
+        )
+        with suppress(ValueError):
+            raise eg_ve()
+        with suppress(ValueError, KeyError):
+            raise eg_all()
+        with self.assertRaises(ExceptionGroup) as eg1:
+            with suppress(ValueError):
+                raise eg_all()
+        self.assertExceptionIsLike(
+            eg1.exception,
+            ExceptionGroup(
+                "EG with many types of exceptions",
+                [KeyError("ke1"), KeyError("ke2")],
+            ),
+        )
+        # Check handling of BaseExceptionGroup, using GeneratorExit so that
+        # we don't accidentally discard a ctrl-c with KeyboardInterrupt.
+        with suppress(GeneratorExit):
+            raise BaseExceptionGroup("message", [GeneratorExit()])
+        # If we raise a BaseException group, we can still suppress parts
+        with self.assertRaises(BaseExceptionGroup) as eg1:
+            with suppress(KeyError):
+                raise BaseExceptionGroup("message", [GeneratorExit("g"), KeyError("k")])
+        self.assertExceptionIsLike(
+            eg1.exception, BaseExceptionGroup("message", [GeneratorExit("g")]),
+        )
+        # If we suppress all the leaf BaseExceptions, we get a non-base ExceptionGroup
+        with self.assertRaises(ExceptionGroup) as eg1:
+            with suppress(GeneratorExit):
+                raise BaseExceptionGroup("message", [GeneratorExit("g"), KeyError("k")])
+        self.assertExceptionIsLike(
+            eg1.exception, ExceptionGroup("message", [KeyError("k")]),
+        )
+
 
 class TestChdir(unittest.TestCase):
     def make_relative_path(self, *parts):
@@ -1222,8 +1314,6 @@ class TestChdir(unittest.TestCase):
             *parts,
         )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_simple(self):
         old_cwd = os.getcwd()
         target = self.make_relative_path('data')
@@ -1233,8 +1323,6 @@ class TestChdir(unittest.TestCase):
             self.assertEqual(os.getcwd(), target)
         self.assertEqual(os.getcwd(), old_cwd)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reentrant(self):
         old_cwd = os.getcwd()
         target1 = self.make_relative_path('data')
@@ -1252,8 +1340,6 @@ class TestChdir(unittest.TestCase):
             self.assertEqual(os.getcwd(), target1)
         self.assertEqual(os.getcwd(), old_cwd)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_exception(self):
         old_cwd = os.getcwd()
         target = self.make_relative_path('data')
