@@ -1287,12 +1287,10 @@ fn subtype_set_dict(
             descr_set(&descr, obj, value, vm)
         }
         None => {
-            let value = match value {
-                PySetterValue::Assign(value) => {
-                    PySetterValue::Assign(PyDictRef::try_from_object(vm, value)?)
-                }
-                PySetterValue::Delete => PySetterValue::Delete,
-            };
+            let value = value
+                .map(|assign| PyDictRef::try_from_object(vm, assign))
+                .transpose()?;
+
             object::object_set_dict(obj, value, vm)?;
             Ok(())
         }
