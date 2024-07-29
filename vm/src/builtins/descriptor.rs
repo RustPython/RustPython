@@ -320,10 +320,13 @@ fn set_slot_at_object(
                 PySetterValue::Delete => obj.set_slot(offset, None),
             };
         }
-        MemberKind::ObjectEx => match value {
-            PySetterValue::Assign(v) => obj.set_slot(offset, Some(v)),
-            PySetterValue::Delete => obj.set_slot(offset, None),
-        },
+        MemberKind::ObjectEx => {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            obj.set_slot(offset, value);
+        }
     }
 
     Ok(())
