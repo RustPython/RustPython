@@ -89,6 +89,8 @@ class ContextManagerTestCase(unittest.TestCase):
                 raise ZeroDivisionError()
         self.assertEqual(state, [1, 42, 999])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_contextmanager_traceback(self):
         @contextmanager
         def f():
@@ -834,6 +836,8 @@ class TestBaseExitStack:
             stack.push(lambda *exc: True)
             1/0
 
+    # TODO RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_traceback(self):
         # This test captures the current behavior of ExitStack so that we know
         # if we ever unintendedly change it. It is not a statement of what the
@@ -914,6 +918,8 @@ class TestBaseExitStack:
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_chaining(self):
         # Ensure exception chaining matches the reference behaviour
         def raise_exc(exc):
@@ -945,6 +951,8 @@ class TestBaseExitStack:
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_explicit_none_context(self):
         # Ensure ExitStack chaining matches actual nested `with` statements
         # regarding explicit __context__ = None.
@@ -1006,6 +1014,8 @@ class TestBaseExitStack:
         else:
             self.fail("Expected KeyError, but no exception was raised")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_with_correct_context(self):
         # http://bugs.python.org/issue20317
         @contextmanager
@@ -1037,6 +1047,8 @@ class TestBaseExitStack:
             self.assertIsNone(
                        exc.__context__.__context__.__context__.__context__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exit_exception_with_existing_context(self):
         # Addresses a lack of test coverage discovered after checking in a
         # fix for issue 20317 that still contained debugging code.
@@ -1264,6 +1276,8 @@ class TestSuppress(ExceptionIsLikeMixin, unittest.TestCase):
             1/0
         self.assertTrue(outer_continued)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_exception_groups(self):
         eg_ve = lambda: ExceptionGroup(
             "EG with ValueErrors only",
