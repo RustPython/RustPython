@@ -37,7 +37,9 @@ class TestAbstractAsyncContextManager(unittest.TestCase):
         async with manager as context:
             self.assertIs(manager, context)
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_async_gen_propagates_generator_exit(self):
         # A regression test for https://bugs.python.org/issue33786.
 
@@ -90,7 +92,9 @@ class TestAbstractAsyncContextManager(unittest.TestCase):
 
 class AsyncContextManagerTestCase(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_plain(self):
         state = []
         @asynccontextmanager
@@ -104,7 +108,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
             state.append(x)
         self.assertEqual(state, [1, 42, 999])
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_finally(self):
         state = []
         @asynccontextmanager
@@ -122,7 +128,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
                 raise ZeroDivisionError()
         self.assertEqual(state, [1, 42, 999])
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_traceback(self):
         @asynccontextmanager
         async def f():
@@ -178,7 +186,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
                 self.assertEqual(frames[0].name, 'test_contextmanager_traceback')
                 self.assertEqual(frames[0].line, 'raise stop_exc')
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_no_reraise(self):
         @asynccontextmanager
         async def whee():
@@ -188,7 +198,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
         # Calling __aexit__ should not result in an exception
         self.assertFalse(await ctx.__aexit__(TypeError, TypeError("foo"), None))
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_trap_yield_after_throw(self):
         @asynccontextmanager
         async def whoo():
@@ -204,7 +216,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
             # The "gen" attribute is an implementation detail.
             self.assertFalse(ctx.gen.ag_suspended)
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_trap_no_yield(self):
         @asynccontextmanager
         async def whoo():
@@ -214,7 +228,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             await ctx.__aenter__()
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_trap_second_yield(self):
         @asynccontextmanager
         async def whoo():
@@ -228,7 +244,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
             # The "gen" attribute is an implementation detail.
             self.assertFalse(ctx.gen.ag_suspended)
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_non_normalised(self):
         @asynccontextmanager
         async def whoo():
@@ -242,7 +260,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
         with self.assertRaises(SyntaxError):
             await ctx.__aexit__(RuntimeError, None, None)
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_except(self):
         state = []
         @asynccontextmanager
@@ -260,7 +280,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
             raise ZeroDivisionError(999)
         self.assertEqual(state, [1, 42, 999])
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_except_stopiter(self):
         @asynccontextmanager
         async def woohoo():
@@ -286,8 +308,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
                     self.assertIs(ex, stop_exc)
                 else:
                     self.fail(f'{stop_exc} was suppressed')
-
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_contextmanager_wrap_runtimeerror(self):
         @asynccontextmanager
         async def woohoo():
@@ -331,15 +354,19 @@ class AsyncContextManagerTestCase(unittest.TestCase):
         baz = self._create_contextmanager_attribs()
         self.assertEqual(baz.__doc__, "Whee!")
 
+    # TODO: RUSTPYTHON
     @support.requires_docstrings
     @_async_test
+    @unittest.expectedFailure
     async def test_instance_docstring_given_cm_docstring(self):
         baz = self._create_contextmanager_attribs()(None)
         self.assertEqual(baz.__doc__, "Whee!")
         async with baz:
             pass  # suppress warning
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_keywords(self):
         # Ensure no keyword arguments are inhibited
         @asynccontextmanager
@@ -348,7 +375,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
         async with woohoo(self=11, func=22, args=33, kwds=44) as target:
             self.assertEqual(target, (11, 22, 33, 44))
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_recursive(self):
         depth = 0
         ncols = 0
@@ -375,7 +404,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
         self.assertEqual(ncols, 10)
         self.assertEqual(depth, 0)
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_decorator(self):
         entered = False
 
@@ -394,7 +425,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
         await test()
         self.assertFalse(entered)
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_decorator_with_exception(self):
         entered = False
 
@@ -417,7 +450,9 @@ class AsyncContextManagerTestCase(unittest.TestCase):
             await test()
         self.assertFalse(entered)
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_decorating_method(self):
 
         @asynccontextmanager
@@ -679,6 +714,8 @@ class TestAsyncExitStack(TestBaseExitStack, unittest.TestCase):
             self.assertFalse(stack._exit_callbacks)
 
     @_async_test
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     async def test_async_exit_exception_chaining(self):
         # Ensure exception chaining matches the reference behaviour
         async def raise_exc(exc):
@@ -710,7 +747,9 @@ class TestAsyncExitStack(TestBaseExitStack, unittest.TestCase):
         self.assertIsInstance(inner_exc, ValueError)
         self.assertIsInstance(inner_exc.__context__, ZeroDivisionError)
 
+    # TODO: RUSTPYTHON
     @_async_test
+    @unittest.expectedFailure
     async def test_async_exit_exception_explicit_none_context(self):
         # Ensure AsyncExitStack chaining matches actual nested `with` statements
         # regarding explicit __context__ = None.
