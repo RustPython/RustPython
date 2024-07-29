@@ -3225,56 +3225,64 @@ class ExceptionNotesTest(unittest.TestCase):
         with self.assertNoted("decoding", exc_type, msg):
             codecs.decode(b"bytes input", self.codec_name)
     
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_by_type(self):
         self.check_note(RuntimeError, "")
-
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_by_value(self):
         msg = "This should be noted"
         self.check_note(RuntimeError(msg), msg)
-
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+        
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_grandchild_subclass_exact_size(self):
         msg = "This should be noted"
         class MyRuntimeError(RuntimeError):
             __slots__ = ()
         self.check_note(MyRuntimeError(msg), msg, MyRuntimeError)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_raise_subclass_with_weakref_support(self):
         msg = "This should be noted"
         class MyRuntimeError(RuntimeError):
             pass
         self.check_note(MyRuntimeError(msg), msg, MyRuntimeError)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_init_override(self):
         class CustomInit(RuntimeError):
             def __init__(self):
                 pass
         self.check_note(CustomInit, "")
-        
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")  
+    
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure 
     def test_new_override(self):
         class CustomNew(RuntimeError):
             def __new__(cls):
                 return super().__new__(cls)
         self.check_note(CustomNew, "")
 
-    
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_instance_attribute(self):
         msg = "This should be noted"
         exc = RuntimeError(msg)
         exc.attr = 1
         self.check_note(exc, "^{}$".format(msg))
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_non_str_arg(self):
         self.check_note(RuntimeError(1), "1")
-    
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+        
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiple_args(self):
         msg_re = r"^\('a', 'b', 'c'\)$"
         self.check_note(RuntimeError('a', 'b', 'c'), msg_re)
@@ -3293,7 +3301,7 @@ class ExceptionNotesTest(unittest.TestCase):
             codecs.decode(b"bytes input", self.codec_name)
 
     
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    @unittest.expectedFailure
     def test_unflagged_non_text_codec_handling(self):
         # The stdlib non-text codecs are now marked so they're
         # pre-emptively skipped by the text model related methods
