@@ -864,8 +864,7 @@ class UTF16Test(ReadTest, unittest.TestCase):
         self.addCleanup(os_helper.unlink, os_helper.TESTFN)
         with open(os_helper.TESTFN, 'wb') as fp:
             fp.write(s)
-        # TODO: RUSTPYTHON - warnings_helper function not present
-        # with warnings_helper.check_warnings(('', DeprecationWarning)):
+        with warnings_helper.check_warnings(('', DeprecationWarning)):
             reader = codecs.open(os_helper.TESTFN, 'U', encoding=self.encoding)
         with reader:
             self.assertEqual(reader.read(), s1)
