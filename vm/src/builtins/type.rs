@@ -934,9 +934,14 @@ impl Constructor for PyType {
                 None
             };
 
-        let base_member_count = base.slots.member_count;
-        let member_count: usize =
-            base.slots.member_count + heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
+        // FIXME: this is a temporary fix. multi bases with multiple slots will break object
+        let base_member_count = bases
+            .iter()
+            .map(|base| base.slots.member_count)
+            .max()
+            .unwrap();
+        let heaptype_member_count = heaptype_slots.as_ref().map(|x| x.len()).unwrap_or(0);
+        let member_count: usize = base_member_count + heaptype_member_count;
 
         let flags = PyTypeFlags::heap_type_flags() | PyTypeFlags::HAS_DICT;
         let (slots, heaptype_ext) = {
