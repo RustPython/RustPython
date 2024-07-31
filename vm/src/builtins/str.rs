@@ -174,7 +174,7 @@ impl<'a> AsPyStr<'a> for &'a PyStrRef {
 impl AsPyStr<'static> for &'static str {
     #[inline]
     fn as_pystr(self, ctx: &Context) -> &'static Py<PyStr> {
-        ctx.intern_str(self)
+        ctx.intern_static_str(self)
     }
 }
 
@@ -1283,7 +1283,7 @@ impl PyStr {
 #[pyclass]
 impl PyRef<PyStr> {
     #[pymethod(magic)]
-    fn str(self, vm: &VirtualMachine) -> PyRefExact<PyStr> {
+    pub fn str(self, vm: &VirtualMachine) -> PyRefExact<PyStr> {
         self.into_exact_or(&vm.ctx, |zelf| unsafe {
             // Creating a copy with same kind is safe
             PyStr::new_str_unchecked(zelf.bytes.to_vec(), zelf.kind.kind()).into_exact_ref(&vm.ctx)
@@ -1794,6 +1794,30 @@ impl PyStrInterned {
     #[inline]
     pub fn to_exact(&'static self) -> PyRefExact<PyStr> {
         unsafe { PyRefExact::new_unchecked(self.to_owned()) }
+    }
+
+    pub(crate) fn new_static_str(s: &'static str, ctx: &Context) -> &'static PyStrInterned {
+        if let Some(interned) = ctx.interned_str(s) {
+            return interned;
+        }
+        struct PyStrView {
+            _bytes: &'static [u8],
+            _kind: PyStrKindData,
+            _hash: PyAtomic<hash::PyHash>,
+        }
+        let kind = PyStrKind::of_str(s);
+        let fake_payload = PyStrView {
+            _bytes: s.as_bytes(),
+            _kind: kind.new_data(),
+            _hash: Radium::new(hash::SENTINEL),
+        };
+        let payload: PyStr = unsafe {
+            // Safety:
+            // the layout of Box<[u8]> == &<[u8]>
+            // and Box::drop will never be called by leaking
+            std::mem::transmute(fake_payload)
+        };
+        ctx.intern_str(payload.into_exact_ref(ctx))
     }
 }
 
