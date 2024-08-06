@@ -97,9 +97,9 @@ impl Interpreter {
     ///
     /// See [`finalize`] for the finalization steps.
     /// See also [`enter`] for pure function call to obtain Python exception.
-    pub fn run<F, R>(self, f: F) -> u8
+    pub fn run<F>(self, f: F) -> u8
     where
-        F: FnOnce(&VirtualMachine) -> PyResult<R>,
+        F: FnOnce(&VirtualMachine) -> PyResult<()>,
     {
         let res = self.enter(|vm| f(vm));
         self.finalize(res.err())
