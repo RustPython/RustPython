@@ -1,0 +1,11 @@
+[package]
+name = "example_frozen_stdlib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustpython = { path = "../../", default-features = false, features = ["freeze-stdlib"] }
+rustpython-vm = { path = "../../vm", default-features = false, features = ["freeze-stdlib"] }
+rustpython-pylib = { path = "../../pylib", default-features = false, features = ["freeze-stdlib"] }
+
+[workspace]
