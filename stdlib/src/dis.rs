@@ -5,7 +5,7 @@ mod decl {
     use crate::vm::{
         builtins::{PyCode, PyDictRef, PyStrRef},
         bytecode::CodeFlags,
-        compiler, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
+        PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
 
     #[pyfunction]
@@ -13,10 +13,18 @@ mod decl {
         let co = if let Ok(co) = obj.get_attr("__code__", vm) {
             // Method or function:
             PyRef::try_from_object(vm, co)?
-        } else if let Ok(co_str) = PyStrRef::try_from_object(vm, obj.clone()) {
-            // String:
-            vm.compile(co_str.as_str(), compiler::Mode::Exec, "<dis>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err, Some(co_str.as_str())))?
+        } else if let Ok(_co_str) = PyStrRef::try_from_object(vm, obj.clone()) {
+            #[cfg(not(feature = "compiler"))]
+            return Err(vm.new_runtime_error(
+                "dis.dis() with str argument requires `compiler` feature".to_owned(),
+            ));
+            #[cfg(feature = "compiler")]
+            vm.compile(
+                _co_str.as_str(),
+                crate::vm::compiler::Mode::Exec,
+                "<dis>".to_owned(),
+            )
+            .map_err(|err| vm.new_syntax_error(&err, Some(_co_str.as_str())))?
         } else {
             PyRef::try_from_object(vm, obj)?
         };
