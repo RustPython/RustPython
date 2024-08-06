@@ -9,6 +9,8 @@ __pycache__
 .vscode
 wasm-pack.log
 .idea/
+.envrc
+.python-version
 
 flame-graph.html
 flame.txt
