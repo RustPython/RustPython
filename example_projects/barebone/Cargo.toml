@@ -1,0 +1,9 @@
+[package]
+name = "example-barebone"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rustpython-vm = { path = "../../vm", default-features = false }
+
+[workspace]

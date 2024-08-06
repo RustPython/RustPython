@@ -148,6 +148,12 @@ jobs:
       - name: check compilation without threading
         run: cargo check ${{ env.CARGO_ARGS }}
 
+      - name: Test example projects
+        run:
+          cargo run --manifest-path example_projects/barebone/Cargo.toml
+          cargo run --manifest-path example_projects/frozen_stdlib/Cargo.toml
+        if: runner.os == 'Linux'
+
       - name: prepare AppleSilicon build
         uses: dtolnay/rust-toolchain@stable
         with:
