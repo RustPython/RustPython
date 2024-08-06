@@ -1,6 +1,6 @@
 [package]
 name = "rustpython-jit"
-version = "0.3.1"
+version = "0.4.0"
 description = "Experimental JIT(just in time) compiler for python code."
 authors = ["RustPython Team"]
 repository = "https://github.com/RustPython/RustPython"
@@ -24,7 +24,7 @@ version = "3.1.0"
 features = ["system"]
 
 [dev-dependencies]
-rustpython-derive = { path = "../derive", version = "0.3.1" }
+rustpython-derive = { path = "../derive", version = "0.4.0" }
 
 approx = "0.5.1"
 
