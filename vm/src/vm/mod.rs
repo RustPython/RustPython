@@ -230,7 +230,9 @@ impl VirtualMachine {
                 Some(s.as_str()) == rustpythonpath_env.as_deref() || Some(s.as_str()) == pythonpath_env.as_deref()
             });
 
-            let guide_message = if !env_set {
+            let guide_message = if cfg!(feature = "freeze-stdlib") {
+                "`rustpython_pylib` maybe not set while using `freeze-stdlib` feature. Try using `rustpython::InterpreterConfig::init_stdlib` or manually call `vm.add_frozen(rustpython_pylib::FROZEN_STDLIB)` in `rustpython_vm::Interpreter::with_init`."
+            } else if !env_set {
                 "Neither RUSTPYTHONPATH nor PYTHONPATH is set. Try setting one of them to the stdlib directory."
             } else if path_contains_env {
                 "RUSTPYTHONPATH or PYTHONPATH is set, but it doesn't contain the encodings library. If you are customizing the RustPython vm/interpreter, try adding the stdlib directory to the path. If you are developing the RustPython interpreter, it might be a bug during development."
@@ -238,14 +240,16 @@ impl VirtualMachine {
                 "RUSTPYTHONPATH or PYTHONPATH is set, but it wasn't loaded to `Settings::path_list`. If you are going to customize the RustPython vm/interpreter, those environment variables are not loaded in the Settings struct by default. Please try creating a customized instance of the Settings struct. If you are developing the RustPython interpreter, it might be a bug during development."
             };
 
-            let msg = format!(
+            let mut msg = format!(
                 "RustPython could not import the encodings module. It usually means something went wrong. Please carefully read the following messages and follow the steps.\n\
                 \n\
-                {guide_message}\n\
+                {guide_message}");
+            if !cfg!(feature = "freeze-stdlib") {
+                msg += "\n\
                 If you don't have access to a consistent external environment (e.g. targeting wasm, embedding \
                     rustpython in another application), try enabling the `freeze-stdlib` feature.\n\
-                If this is intended and you want to exclude the encodings module from your interpreter, please remove the `encodings` feature from `rustpython-vm` crate."
-            );
+                If this is intended and you want to exclude the encodings module from your interpreter, please remove the `encodings` feature from `rustpython-vm` crate.";
+            }
 
             let err = self.new_runtime_error(msg);
             err.set_cause(Some(import_err));
