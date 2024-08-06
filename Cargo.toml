@@ -1,6 +1,6 @@
 [package]
 name = "rustpython"
-version = "0.3.1"
+version = "0.4.0"
 authors = ["RustPython Team"]
 edition = "2021"
 rust-version = "1.75.0"
@@ -17,24 +17,29 @@ members = [
 ]
 
 [workspace.dependencies]
-rustpython-compiler-core = { path = "compiler/core", version = "0.3.1" }
-rustpython-compiler = { path = "compiler", version = "0.3.1" }
-rustpython-codegen = { path = "compiler/codegen", version = "0.3.1" }
-rustpython-common = { path = "common", version = "0.3.1" }
-rustpython-derive = { path = "derive", version = "0.3.1" }
-rustpython-derive-impl = { path = "derive-impl", version = "0.3.1" }
-rustpython-jit = { path = "jit", version = "0.3.1" }
-rustpython-vm = { path = "vm", default-features = false, version = "0.3.1" }
-rustpython-pylib = { path = "pylib", version = "0.3.1" }
-rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.3.1" }
-rustpython-sre_engine = { path = "vm/sre_engine", version = "0.3.1" }
+rustpython-compiler-core = { path = "compiler/core", version = "0.4.0" }
+rustpython-compiler = { path = "compiler", version = "0.4.0" }
+rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
+rustpython-common = { path = "common", version = "0.4.0" }
+rustpython-derive = { path = "derive", version = "0.4.0" }
+rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
+rustpython-jit = { path = "jit", version = "0.4.0" }
+rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
+rustpython-pylib = { path = "pylib", version = "0.4.0" }
+rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
+rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
-rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.3.1", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+rustpython-literal = { version = "0.4.0" }
+rustpython-parser-core = { version = "0.4.0" }
+rustpython-parser = { version = "0.4.0" }
+rustpython-ast = { version = "0.4.0" }
+rustpython-format= { version = "0.4.0" }
+# rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-parser-core = { path = "../RustPython-parser/core" }
 # rustpython-parser = { path = "../RustPython-parser/parser" }
