@@ -156,6 +156,15 @@ impl VirtualMachine {
             .invoke(args, self)
     }
 
+    /// Same as __builtins__.print in Python.
+    /// A convenience function to provide a simple way to print objects for debug purpose.
+    // NOTE: Keep the interface simple.
+    pub fn print(&self, args: impl IntoFuncArgs) -> PyResult<()> {
+        let ret = self.builtins.get_attr("print", self)?.call(args, self)?;
+        debug_assert!(self.is_none(&ret));
+        Ok(())
+    }
+
     #[deprecated(note = "in favor of `obj.call(args, vm)`")]
     pub fn invoke(&self, obj: &impl AsObject, args: impl IntoFuncArgs) -> PyResult {
         obj.as_object().call(args, self)
