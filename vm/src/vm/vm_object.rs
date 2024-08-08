@@ -46,7 +46,9 @@ impl VirtualMachine {
             not(any(target_os = "emscripten", target_os = "wasi")),
         ))]
         {
-            let _ = exc;
+            use crate::convert::ToPyObject;
+            let err_string: String = exc.to_pyobject(self).repr(self).unwrap().to_string();
+            eprintln!("{err_string}");
             panic!("{}; python exception not available", msg)
         }
     }
