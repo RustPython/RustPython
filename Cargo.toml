@@ -97,7 +97,7 @@ resolver = "2"
 members = [
     "compiler", "compiler/core", "compiler/codegen",
     ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl",
-    "wasm/lib", "wasm/wasm-unknown-test",
+    "wasm/lib",
 ]
 
 [workspace.package]
