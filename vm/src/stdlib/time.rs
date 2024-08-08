@@ -120,7 +120,7 @@ mod decl {
             fn now() -> f64;
         }
         // Date.now returns unix time in milliseconds, we want it in seconds
-        return Ok(Date::now() / 1000.0);
+        Ok(Date::now() / 1000.0)
     }
 
     #[pyfunction]
