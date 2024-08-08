@@ -1,11 +1,12 @@
 [package]
 name = "rustpython-stdlib"
-version = "0.4.0"
 description = "RustPython standard libraries in Rust."
-authors = ["RustPython Team"]
-repository = "https://github.com/RustPython/RustPython"
-license = "MIT"
-edition = "2021"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
