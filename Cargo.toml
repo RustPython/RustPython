@@ -1,92 +1,13 @@
 [package]
 name = "rustpython"
-version = "0.4.0"
-authors = ["RustPython Team"]
-edition = "2021"
-rust-version = "1.75.0"
 description = "A python interpreter written in rust."
-repository = "https://github.com/RustPython/RustPython"
-license = "MIT"
 include = ["LICENSE", "Cargo.toml", "src/**/*.rs"]
-
-[workspace]
-resolver = "2"
-members = [
-    "compiler", "compiler/core", "compiler/codegen",
-    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "wasm/lib", "derive-impl",
-]
-
-[workspace.dependencies]
-rustpython-compiler-core = { path = "compiler/core", version = "0.4.0" }
-rustpython-compiler = { path = "compiler", version = "0.4.0" }
-rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
-rustpython-common = { path = "common", version = "0.4.0" }
-rustpython-derive = { path = "derive", version = "0.4.0" }
-rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
-rustpython-jit = { path = "jit", version = "0.4.0" }
-rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
-rustpython-pylib = { path = "pylib", version = "0.4.0" }
-rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
-rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
-rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
-
-rustpython-literal = { version = "0.4.0" }
-rustpython-parser-core = { version = "0.4.0" }
-rustpython-parser = { version = "0.4.0" }
-rustpython-ast = { version = "0.4.0" }
-rustpython-format= { version = "0.4.0" }
-# rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-# rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-# rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-# rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-# rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-# rustpython-literal = { path = "../RustPython-parser/literal" }
-# rustpython-parser-core = { path = "../RustPython-parser/core" }
-# rustpython-parser = { path = "../RustPython-parser/parser" }
-# rustpython-ast = { path = "../RustPython-parser/ast" }
-# rustpython-format = { path = "../RustPython-parser/format" }
-
-ahash = "0.8.11"
-ascii = "1.0"
-atty = "0.2.14"
-bitflags = "2.4.1"
-bstr = "0.2.17"
-cfg-if = "1.0"
-chrono = "0.4.37"
-crossbeam-utils = "0.8.19"
-flame = "0.2.2"
-glob = "0.3"
-hex = "0.4.3"
-indexmap = { version = "2.2.6", features = ["std"] }
-insta = "1.38.0"
-itertools = "0.11.0"
-is-macro = "0.3.0"
-junction = "1.0.0"
-libc = "0.2.153"
-log = "0.4.16"
-nix = { version = "0.27", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
-malachite-bigint = "0.2.0"
-malachite-q = "0.4.4"
-malachite-base = "0.4.4"
-memchr = "2.7.2"
-num-complex = "0.4.0"
-num-integer = "0.1.44"
-num-traits = "0.2"
-num_enum = "0.7"
-once_cell = "1.19.0"
-parking_lot = "0.12.1"
-paste = "1.0.7"
-rand = "0.8.5"
-rustyline = "14.0.0"
-serde = { version = "1.0.133", default-features = false }
-schannel = "0.1.22"
-static_assertions = "1.1"
-syn = "1.0.109"
-thiserror = "1.0"
-thread_local = "1.1.4"
-unicode_names2 = "1.2.0"
-widestring = "1.1.0"
-windows-sys = "0.52.0"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [features]
 default = ["threading", "stdlib", "zlib", "importlib"]
@@ -170,6 +91,93 @@ rev = "2024.02.14"
 
 [package.metadata.vcpkg.target]
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies = ["openssl" ] }
+
+[workspace]
+resolver = "2"
+members = [
+    "compiler", "compiler/core", "compiler/codegen",
+    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "wasm/lib", "derive-impl",
+]
+
+[workspace.package]
+version = "0.4.0"
+authors = ["RustPython Team"]
+edition = "2021"
+rust-version = "1.78.0"
+repository = "https://github.com/RustPython/RustPython"
+license = "MIT"
+
+[workspace.dependencies]
+rustpython-compiler-core = { path = "compiler/core", version = "0.4.0" }
+rustpython-compiler = { path = "compiler", version = "0.4.0" }
+rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
+rustpython-common = { path = "common", version = "0.4.0" }
+rustpython-derive = { path = "derive", version = "0.4.0" }
+rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
+rustpython-jit = { path = "jit", version = "0.4.0" }
+rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
+rustpython-pylib = { path = "pylib", version = "0.4.0" }
+rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
+rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
+rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
+
+rustpython-literal = { version = "0.4.0" }
+rustpython-parser-core = { version = "0.4.0" }
+rustpython-parser = { version = "0.4.0" }
+rustpython-ast = { version = "0.4.0" }
+rustpython-format= { version = "0.4.0" }
+# rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-literal = { path = "../RustPython-parser/literal" }
+# rustpython-parser-core = { path = "../RustPython-parser/core" }
+# rustpython-parser = { path = "../RustPython-parser/parser" }
+# rustpython-ast = { path = "../RustPython-parser/ast" }
+# rustpython-format = { path = "../RustPython-parser/format" }
+
+ahash = "0.8.11"
+ascii = "1.0"
+atty = "0.2.14"
+bitflags = "2.4.1"
+bstr = "0.2.17"
+cfg-if = "1.0"
+chrono = "0.4.37"
+crossbeam-utils = "0.8.19"
+flame = "0.2.2"
+glob = "0.3"
+hex = "0.4.3"
+indexmap = { version = "2.2.6", features = ["std"] }
+insta = "1.38.0"
+itertools = "0.11.0"
+is-macro = "0.3.0"
+junction = "1.0.0"
+libc = "0.2.153"
+log = "0.4.16"
+nix = { version = "0.27", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
+malachite-bigint = "0.2.0"
+malachite-q = "0.4.4"
+malachite-base = "0.4.4"
+memchr = "2.7.2"
+num-complex = "0.4.0"
+num-integer = "0.1.44"
+num-traits = "0.2"
+num_enum = "0.7"
+once_cell = "1.19.0"
+parking_lot = "0.12.1"
+paste = "1.0.7"
+rand = "0.8.5"
+rustyline = "14.0.0"
+serde = { version = "1.0.133", default-features = false }
+schannel = "0.1.22"
+static_assertions = "1.1"
+syn = "1.0.109"
+thiserror = "1.0"
+thread_local = "1.1.4"
+unicode_names2 = "1.2.0"
+widestring = "1.1.0"
+windows-sys = "0.52.0"
 
 # Lints
 

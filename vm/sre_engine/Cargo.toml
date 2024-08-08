@@ -1,13 +1,14 @@
 [package]
 name = "rustpython-sre_engine"
-version = "0.4.0"
 authors = ["Kangzhi Shi <shikangzhi@gmail.com>", "RustPython Team"]
 description = "A low-level implementation of Python's SRE regex engine"
-repository = "https://github.com/RustPython/RustPython"
-license = "MIT"
-edition = "2021"
 keywords = ["regex"]
 include = ["LICENSE", "src/**/*.rs"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [dependencies]
 num_enum = { workspace = true }

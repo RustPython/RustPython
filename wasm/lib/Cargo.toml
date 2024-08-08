@@ -1,11 +1,12 @@
 [package]
 name = "rustpython_wasm"
-version = "0.4.0"
-authors = ["RustPython Team"]
-license = "MIT"
 description = "A Python-3 (CPython >= 3.5.0) Interpreter written in Rust, compiled to WASM"
-repository = "https://github.com/RustPython/RustPython/tree/main/wasm/lib"
-edition = "2021"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
