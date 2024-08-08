@@ -49,6 +49,7 @@ cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
 chrono = { workspace = true, features = ["wasmbind"] }
 flame = { workspace = true, optional = true }
+getrandom = { workspace = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
@@ -72,7 +73,6 @@ thread_local = { workspace = true }
 memchr = { workspace = true }
 
 caseless = "0.2.1"
-getrandom = { version = "0.2.12", features = ["custom"] }
 flamer = { version = "0.4", optional = true }
 half = "1.8.2"
 memoffset = "0.9.1"
@@ -142,7 +142,8 @@ features = [
 ]
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-wasm-bindgen = { version = "0.2.92", optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+getrandom = { workspace = true, features = ["custom"] }
 
 [build-dependencies]
 glob = { workspace = true }
