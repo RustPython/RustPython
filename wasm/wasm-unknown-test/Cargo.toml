@@ -9,3 +9,5 @@ crate-type = ["cdylib"]
 [dependencies]
 getrandom = { version = "0.2.12", features = ["custom"] }
 rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler"] }
+
+[workspace]
