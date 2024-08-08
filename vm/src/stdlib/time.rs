@@ -97,16 +97,20 @@ mod decl {
         _time(vm)
     }
 
-    #[cfg(any(
-        not(target_arch = "wasm32"),
-        target_os = "wasi",
-        not(feature = "wasmbind")
-    ))]
+    #[cfg(not(all(
+        target_arch = "wasm32",
+        feature = "wasmbind",
+        not(any(target_os = "emscripten", target_os = "wasi"))
+    )))]
     fn _time(vm: &VirtualMachine) -> PyResult<f64> {
         Ok(duration_since_system_now(vm)?.as_secs_f64())
     }
 
-    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi"), feature = "wasmbind"))]
+    #[cfg(all(
+        target_arch = "wasm32",
+        feature = "wasmbind",
+        not(any(target_os = "emscripten", target_os = "wasi"))
+    ))]
     fn _time(_vm: &VirtualMachine) -> PyResult<f64> {
         use wasm_bindgen::prelude::*;
         #[wasm_bindgen]
