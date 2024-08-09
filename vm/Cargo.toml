@@ -10,7 +10,7 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["compiler"]
+default = ["compiler", "wasmbind"]
 importlib = []
 encodings = ["importlib"]
 vm-tracing-logging = []
@@ -23,6 +23,7 @@ ast = ["rustpython-ast"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 serde = ["dep:serde"]
+wasmbind = ["chrono/wasmbind", "getrandom/js", "wasm-bindgen"]
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
@@ -48,6 +49,7 @@ cfg-if = { workspace = true }
 crossbeam-utils = { workspace = true }
 chrono = { workspace = true, features = ["wasmbind"] }
 flame = { workspace = true, optional = true }
+getrandom = { workspace = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
@@ -71,7 +73,6 @@ thread_local = { workspace = true }
 memchr = { workspace = true }
 
 caseless = "0.2.1"
-getrandom = { version = "0.2.12", features = ["js"] }
 flamer = { version = "0.4", optional = true }
 half = "1.8.2"
 memoffset = "0.9.1"
@@ -140,8 +141,9 @@ features = [
   "Win32_UI_WindowsAndMessaging",
 ]
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.92"
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = { workspace = true, optional = true }
+getrandom = { workspace = true, features = ["custom"] }
 
 [build-dependencies]
 glob = { workspace = true }
