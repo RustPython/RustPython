@@ -39,9 +39,9 @@ mod decl {
     };
     use chrono::{
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
-        DateTime, Datelike, Local, Timelike,
+        DateTime, Datelike, Timelike,
     };
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::Duration;
 
     #[allow(dead_code)]
     pub(super) const SEC_TO_MS: i64 = 1000;
@@ -410,8 +410,7 @@ mod decl {
     #[pyclass(with(PyStructSequence))]
     impl PyStructTime {
         fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
-            use chrono::{Local, TimeZone};
-            let local_time = Local.from_local_datetime(&tm).unwrap();
+            let local_time = chrono::Local.from_local_datetime(&tm).unwrap();
             let offset_seconds =
                 local_time.offset().local_minus_utc() + if isdst == 1 { 3600 } else { 0 };
             let tz_abbr = local_time.format("%Z").to_string();
