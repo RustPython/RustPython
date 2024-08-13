@@ -39,7 +39,7 @@ mod decl {
     };
     use chrono::{
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
-        DateTime, Datelike, Timelike,
+        DateTime, Datelike, Timelike, TimeZone
     };
     use std::time::Duration;
 
