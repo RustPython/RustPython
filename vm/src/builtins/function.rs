@@ -1,10 +1,7 @@
 #[cfg(feature = "jit")]
 mod jitfunc;
 
-use super::{
-    tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef,
-    PyTupleRef, PyType, PyTypeRef,
-};
+use super::{tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef};
 #[cfg(feature = "jit")]
 use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
@@ -38,6 +35,9 @@ pub struct PyFunction {
     type_params: PyMutex<PyTupleRef>,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
+    annotations: PyMutex<PyDictRef>,
+    module: PyMutex<PyObjectRef>,
+    doc: PyMutex<PyObjectRef>,
 }
 
 unsafe impl Traverse for PyFunction {
@@ -57,6 +57,9 @@ impl PyFunction {
         kw_only_defaults: Option<PyDictRef>,
         qualname: PyStrRef,
         type_params: PyTupleRef,
+        annotations: PyDictRef,
+        module: PyObjectRef,
+        doc: PyObjectRef,
     ) -> Self {
         let name = PyMutex::new(code.obj_name.to_owned());
         PyFunction {
@@ -69,6 +72,9 @@ impl PyFunction {
             type_params: PyMutex::new(type_params),
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
+            annotations: PyMutex::new(annotations),
+            module: PyMutex::new(module),
+            doc: PyMutex::new(doc),
         }
     }
 
@@ -404,6 +410,36 @@ impl PyFunction {
     #[pygetset(magic, setter)]
     fn set_name(&self, name: PyStrRef) {
         *self.name.lock() = name;
+    }
+
+    #[pygetset(magic)]
+    fn doc(&self) -> PyObjectRef {
+        self.doc.lock().clone()
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_doc(&self, doc: PyObjectRef) {
+        *self.doc.lock() = doc
+    }
+
+    #[pygetset(magic)]
+    fn module(&self) -> PyObjectRef {
+        self.module.lock().clone()
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_module(&self, module: PyObjectRef) {
+        *self.module.lock() = module
+    }
+
+    #[pygetset(magic)]
+    fn annotations(&self) -> PyDictRef {
+        self.annotations.lock().clone()
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_annotations(&self, annotations: PyDictRef) {
+        *self.annotations.lock() = annotations
     }
 
     #[pygetset(magic)]
