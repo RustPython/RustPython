@@ -52,6 +52,7 @@ unsafe impl Traverse for PyFunction {
 }
 
 impl PyFunction {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         code: PyRef<PyCode>,
         globals: PyDictRef,
