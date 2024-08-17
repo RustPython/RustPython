@@ -1753,6 +1753,7 @@ impl ExecutingFrame<'_> {
         let name = qualified_name.as_str().split('.').next_back().unwrap();
         func_obj.set_attr(identifier!(vm, __name__), vm.new_pyobj(name), vm)?;
         func_obj.set_attr(identifier!(vm, __qualname__), qualified_name, vm)?;
+        func_obj.set_attr(identifier!(vm, __doc__), vm.ctx.none(), vm)?;
 
         self.push_value(func_obj);
         Ok(None)
