@@ -415,14 +415,19 @@ impl PyFunction {
         *self.name.lock() = name;
     }
 
-    #[pygetset(magic)]
-    fn doc(&self) -> PyObjectRef {
-        self.doc.lock().clone()
+    #[pymember(magic)]
+    fn doc(_vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: PyRef<PyFunction> = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let doc = zelf.doc.lock();
+        Ok(doc.clone())
     }
 
-    #[pygetset(magic, setter)]
-    fn set_doc(&self, doc: PyObjectRef) {
-        *self.doc.lock() = doc
+    #[pymember(magic, setter)]
+    fn set_doc(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
+        let zelf: PyRef<PyFunction> = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let value = value.unwrap_or_none(vm);
+        *zelf.doc.lock() = value;
+        Ok(())
     }
 
     #[pygetset(magic)]
