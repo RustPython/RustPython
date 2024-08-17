@@ -1,7 +1,10 @@
 #[cfg(feature = "jit")]
 mod jitfunc;
 
-use super::{tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef};
+use super::{
+    tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef,
+    PyTupleRef, PyType, PyTypeRef,
+};
 #[cfg(feature = "jit")]
 use crate::common::lock::OnceCell;
 use crate::common::lock::PyMutex;
