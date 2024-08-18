@@ -38,6 +38,9 @@ pub struct PyFunction {
     type_params: PyMutex<PyTupleRef>,
     #[cfg(feature = "jit")]
     jitted_code: OnceCell<CompiledCode>,
+    annotations: PyMutex<PyDictRef>,
+    module: PyMutex<PyObjectRef>,
+    doc: PyMutex<PyObjectRef>,
 }
 
 unsafe impl Traverse for PyFunction {
@@ -49,6 +52,7 @@ unsafe impl Traverse for PyFunction {
 }
 
 impl PyFunction {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         code: PyRef<PyCode>,
         globals: PyDictRef,
@@ -57,6 +61,9 @@ impl PyFunction {
         kw_only_defaults: Option<PyDictRef>,
         qualname: PyStrRef,
         type_params: PyTupleRef,
+        annotations: PyDictRef,
+        module: PyObjectRef,
+        doc: PyObjectRef,
     ) -> Self {
         let name = PyMutex::new(code.obj_name.to_owned());
         PyFunction {
@@ -69,6 +76,9 @@ impl PyFunction {
             type_params: PyMutex::new(type_params),
             #[cfg(feature = "jit")]
             jitted_code: OnceCell::new(),
+            annotations: PyMutex::new(annotations),
+            module: PyMutex::new(module),
+            doc: PyMutex::new(doc),
         }
     }
 
@@ -404,6 +414,41 @@ impl PyFunction {
     #[pygetset(magic, setter)]
     fn set_name(&self, name: PyStrRef) {
         *self.name.lock() = name;
+    }
+
+    #[pymember(magic)]
+    fn doc(_vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
+        let zelf: PyRef<PyFunction> = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let doc = zelf.doc.lock();
+        Ok(doc.clone())
+    }
+
+    #[pymember(magic, setter)]
+    fn set_doc(vm: &VirtualMachine, zelf: PyObjectRef, value: PySetterValue) -> PyResult<()> {
+        let zelf: PyRef<PyFunction> = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let value = value.unwrap_or_none(vm);
+        *zelf.doc.lock() = value;
+        Ok(())
+    }
+
+    #[pygetset(magic)]
+    fn module(&self) -> PyObjectRef {
+        self.module.lock().clone()
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_module(&self, module: PySetterValue<PyObjectRef>, vm: &VirtualMachine) {
+        *self.module.lock() = module.unwrap_or_none(vm);
+    }
+
+    #[pygetset(magic)]
+    fn annotations(&self) -> PyDictRef {
+        self.annotations.lock().clone()
+    }
+
+    #[pygetset(magic, setter)]
+    fn set_annotations(&self, annotations: PyDictRef) {
+        *self.annotations.lock() = annotations
     }
 
     #[pygetset(magic)]

@@ -1731,6 +1731,8 @@ impl ExecutingFrame<'_> {
             None
         };
 
+        let module = vm.unwrap_or_none(self.globals.get_item_opt(identifier!(vm, __name__), vm)?);
+
         // pop argc arguments
         // argument: name, args, globals
         // let scope = self.scope.clone();
@@ -1742,17 +1744,16 @@ impl ExecutingFrame<'_> {
             kw_only_defaults,
             qualified_name.clone(),
             type_params,
+            annotations.downcast().unwrap(),
+            module,
+            vm.ctx.none(),
         )
         .into_pyobject(vm);
-
-        func_obj.set_attr(identifier!(vm, __doc__), vm.ctx.none(), vm)?;
 
         let name = qualified_name.as_str().split('.').next_back().unwrap();
         func_obj.set_attr(identifier!(vm, __name__), vm.new_pyobj(name), vm)?;
         func_obj.set_attr(identifier!(vm, __qualname__), qualified_name, vm)?;
-        let module = vm.unwrap_or_none(self.globals.get_item_opt(identifier!(vm, __name__), vm)?);
-        func_obj.set_attr(identifier!(vm, __module__), module, vm)?;
-        func_obj.set_attr(identifier!(vm, __annotations__), annotations, vm)?;
+        func_obj.set_attr(identifier!(vm, __doc__), vm.ctx.none(), vm)?;
 
         self.push_value(func_obj);
         Ok(None)
