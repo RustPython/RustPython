@@ -437,8 +437,8 @@ impl PyFunction {
     }
 
     #[pygetset(magic, setter)]
-    fn set_module(&self, module: PyObjectRef) {
-        *self.module.lock() = module
+    fn set_module(&self, module: PySetterValue<PyObjectRef>, vm: &VirtualMachine) {
+        *self.module.lock() = module.unwrap_or_none(vm);
     }
 
     #[pygetset(magic)]
