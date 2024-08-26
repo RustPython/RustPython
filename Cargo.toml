@@ -48,7 +48,7 @@ libc = { workspace = true }
 rustyline = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.3.5", features = ["html_reports"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 pyo3 = { version = "0.20.2", features = ["auto-initialize"] }
 
 [[bench]]
