@@ -1,7 +1,7 @@
 use clap::{
     builder::TypedValueParser,
     Arg,
-    ArgAction::{Append, Count, SetTrue},
+    ArgAction::{Append, Count, Set, SetTrue},
     ArgMatches, Command,
 };
 use rustpython_vm::vm::{CheckHashPycsMode, Settings};
@@ -25,53 +25,53 @@ pub fn opts_with_clap() -> (Settings, RunMode) {
     settings_from(&matches)
 }
 
-fn parse_arguments(app: Command<'_>) -> ArgMatches {
+fn parse_arguments(app: Command) -> ArgMatches {
     let app = app
-        .trailing_var_arg(true)
-        .global_setting(clap::AppSettings::DeriveDisplayOrder)
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("Rust implementation of the Python language")
         .override_usage("rustpython [OPTIONS] [-c CMD | -m MODULE | FILE] [PYARGS]...")
+        .args_override_self(true)
         .arg(
             Arg::new("script")
                 .required(false)
-                .multiple_values(true)
+                .action(Append)
+                .num_args(0..)
                 .value_name("script, args")
-                .min_values(0),
+                .trailing_var_arg(true),
         )
         .arg(
             Arg::new("c")
                 .short('c')
-                .takes_value(true)
+                .action(Append)
                 .allow_hyphen_values(true)
-                .multiple_values(true)
+                .num_args(1..)
                 .value_name("cmd, args")
-                .min_values(1)
-                .help("run the given string as a program"),
+                .help("run the given string as a program")
+                .trailing_var_arg(true),
         )
         .arg(
             Arg::new("m")
                 .short('m')
-                .takes_value(true)
+                .action(Append)
                 .allow_hyphen_values(true)
-                .multiple_values(true)
+                .num_args(1..)
                 .value_name("module, args")
-                .min_values(1)
-                .help("run library module as script"),
+                .help("run library module as script")
+                .trailing_var_arg(true),
         )
         .arg(
             Arg::new("install_pip")
                 .long("install-pip")
-                .takes_value(true)
+                .action(Append)
                 .allow_hyphen_values(true)
-                .multiple_values(true)
+                .num_args(0..)
                 .value_name("get-pip args")
-                .min_values(0)
                 .help(
                     "install the pip package manager for rustpython; \
                         requires rustpython be build with the ssl feature enabled.",
-                ),
+                )
+                .trailing_var_arg(true),
         )
         .arg(
             Arg::new("optimize")
@@ -142,24 +142,22 @@ fn parse_arguments(app: Command<'_>) -> ArgMatches {
         .arg(
             Arg::new("implementation-option")
                 .short('X')
-                .takes_value(true)
                 .action(Append)
-                .number_of_values(1)
+                .num_args(1)
                 .help("set implementation-specific option"),
         )
         .arg(
             Arg::new("warning-control")
                 .short('W')
-                .takes_value(true)
                 .action(Append)
-                .number_of_values(1)
+                .num_args(1)
                 .help("warning control; arg is action:message:category:module:lineno"),
         )
         .arg(
             Arg::new("check-hash-based-pycs")
                 .long("check-hash-based-pycs")
-                .takes_value(true)
-                .number_of_values(1)
+                .action(Set)
+                .num_args(1)
                 .value_parser(
                     clap::builder::PossibleValuesParser::new(["always", "default", "never"])
                         .map(|x| x.parse::<CheckHashPycsMode>().unwrap()),
@@ -179,13 +177,13 @@ fn parse_arguments(app: Command<'_>) -> ArgMatches {
         .arg(
             Arg::new("profile_output")
                 .long("profile-output")
-                .takes_value(true)
+                .action(Set)
                 .help("the file to output the profiling information to"),
         )
         .arg(
             Arg::new("profile_format")
                 .long("profile-format")
-                .takes_value(true)
+                .action(Set)
                 .help("the profile format to output the profiling information in"),
         );
     app.get_matches()
