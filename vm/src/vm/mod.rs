@@ -51,7 +51,7 @@ use std::{
 pub use context::Context;
 pub use interpreter::Interpreter;
 pub(crate) use method::PyMethod;
-pub use setting::Settings;
+pub use setting::{CheckHashPycsMode, Settings};
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 

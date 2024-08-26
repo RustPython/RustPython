@@ -80,7 +80,7 @@ pub struct Settings {
     pub utf8_mode: u8,
     // wchar_t *stdio_errors;
     /// --check-hash-based-pycs
-    pub check_hash_pycs_mode: String,
+    pub check_hash_pycs_mode: CheckHashPycsMode,
 
     // int use_frozen_modules;
     /// -P
@@ -98,7 +98,7 @@ pub struct Settings {
     // wchar_t *home;
     // wchar_t *platlibdir;
     /// -d command line switch
-    pub debug: bool,
+    pub debug: u8,
 
     /// -O optimization switch counter
     pub optimize: u8,
@@ -115,6 +115,15 @@ pub struct Settings {
     pub profile_format: Option<String>,
 }
 
+#[derive(Debug, Default, Copy, Clone, strum_macros::Display, strum_macros::EnumString)]
+#[strum(serialize_all = "lowercase")]
+pub enum CheckHashPycsMode {
+    #[default]
+    Default,
+    Always,
+    Never,
+}
+
 impl Settings {
     pub fn with_path(mut self, path: String) -> Self {
         self.path_list.push(path);
@@ -126,7 +135,7 @@ impl Settings {
 impl Default for Settings {
     fn default() -> Self {
         Settings {
-            debug: false,
+            debug: 0,
             inspect: false,
             interactive: false,
             optimize: 0,
@@ -148,7 +157,7 @@ impl Default for Settings {
             argv: vec![],
             hash_seed: None,
             buffered_stdio: true,
-            check_hash_pycs_mode: "default".to_owned(),
+            check_hash_pycs_mode: CheckHashPycsMode::Default,
             allow_external_library: cfg!(feature = "importlib"),
             utf8_mode: 1,
             int_max_str_digits: 4300,

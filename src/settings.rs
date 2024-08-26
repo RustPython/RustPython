@@ -1,16 +1,22 @@
 use clap::{
+    builder::TypedValueParser,
     Arg,
     ArgAction::{Append, Count, SetTrue},
     ArgMatches, Command,
 };
-use rustpython_vm::Settings;
-use std::{env, str::FromStr};
+use rustpython_vm::vm::{CheckHashPycsMode, Settings};
+use std::env;
 
 pub enum RunMode {
     ScriptInteractive(Option<String>, bool),
     Command(String),
     Module(String),
-    InstallPip(String),
+    InstallPip(InstallPipMode),
+}
+
+pub enum InstallPipMode {
+    EnsurePip,
+    GetPip,
 }
 
 pub fn opts_with_clap() -> (Settings, RunMode) {
@@ -22,6 +28,7 @@ pub fn opts_with_clap() -> (Settings, RunMode) {
 fn parse_arguments(app: Command<'_>) -> ArgMatches {
     let app = app
         .trailing_var_arg(true)
+        .global_setting(clap::AppSettings::DeriveDisplayOrder)
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
         .about("Rust implementation of the Python language")
@@ -81,7 +88,7 @@ fn parse_arguments(app: Command<'_>) -> ArgMatches {
         .arg(
             Arg::new("debug")
                 .short('d')
-                .action(SetTrue)
+                .action(Count)
                 .help("Debug the parser."),
         )
         .arg(
@@ -153,8 +160,11 @@ fn parse_arguments(app: Command<'_>) -> ArgMatches {
                 .long("check-hash-based-pycs")
                 .takes_value(true)
                 .number_of_values(1)
-                .default_value("default")
-                .help("always|default|never\ncontrol how Python invalidates hash-based .pyc files"),
+                .value_parser(
+                    clap::builder::PossibleValuesParser::new(["always", "default", "never"])
+                        .map(|x| x.parse::<CheckHashPycsMode>().unwrap()),
+                )
+                .help("control how Python invalidates hash-based .pyc files"),
         )
         .arg(Arg::new("bytes-warning").short('b').action(Count).help(
             "issue warnings about using bytes where strings \
@@ -186,14 +196,13 @@ fn parse_arguments(app: Command<'_>) -> ArgMatches {
 fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
     let mut settings = Settings::default();
     settings.isolated = matches.get_flag("isolate");
-    settings.ignore_environment = matches.get_flag("ignore-environment");
+    let ignore_environment = settings.isolated || matches.get_flag("ignore-environment");
+    settings.ignore_environment = ignore_environment;
     settings.interactive = !matches.contains_id("c")
         && !matches.contains_id("m")
         && (!matches.contains_id("script") || matches.get_flag("inspect"));
     settings.bytes_warning = matches.get_count("bytes-warning").into();
     settings.import_site = !matches.get_flag("no-site");
-
-    let ignore_environment = settings.ignore_environment || settings.isolated;
 
     if !ignore_environment {
         settings.path_list.extend(get_paths("RUSTPYTHONPATH"));
@@ -201,48 +210,31 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
     }
 
     // Now process command line flags:
-    if matches.get_flag("debug") || (!ignore_environment && env::var_os("PYTHONDEBUG").is_some()) {
-        settings.debug = true;
-    }
 
-    if matches.get_flag("inspect")
-        || (!ignore_environment && env::var_os("PYTHONINSPECT").is_some())
-    {
-        settings.inspect = true;
-    }
-
-    if matches.contains_id("optimize") {
-        settings.optimize = matches.get_count("optimize").try_into().unwrap();
-    } else if !ignore_environment {
-        if let Ok(value) = get_env_var_value("PYTHONOPTIMIZE") {
-            settings.optimize = value;
+    let count_flag = |arg, env| {
+        let mut val = matches.get_count(arg);
+        if !ignore_environment {
+            if let Some(value) = get_env_var_value(env) {
+                val = std::cmp::max(val, value);
+            }
         }
-    }
+        val
+    };
 
-    if matches.contains_id("verbose") {
-        settings.verbose = matches.get_count("verbose").try_into().unwrap();
-    } else if !ignore_environment {
-        if let Ok(value) = get_env_var_value("PYTHONVERBOSE") {
-            settings.verbose = value;
-        }
-    }
+    settings.optimize = count_flag("optimize", "PYTHONOPTIMIZE");
+    settings.verbose = count_flag("verbose", "PYTHONVERBOSE");
+    settings.debug = count_flag("debug", "PYTHONDEBUG");
 
-    if matches.get_flag("no-user-site")
-        || matches.get_flag("isolate")
-        || (!ignore_environment && env::var_os("PYTHONNOUSERSITE").is_some())
-    {
-        settings.user_site_directory = false;
-    }
+    let bool_env_var = |env| !ignore_environment && env::var_os(env).is_some_and(|v| !v.is_empty());
+    let bool_flag = |arg, env| matches.get_flag(arg) || bool_env_var(env);
 
-    if matches.get_flag("quiet") {
-        settings.quiet = true;
-    }
+    settings.user_site_directory =
+        !(settings.isolated || bool_flag("no-user-site", "PYTHONNOUSERSITE"));
+    settings.quiet = matches.get_flag("quiet");
+    settings.write_bytecode = !bool_flag("dont-write-bytecode", "PYTHONDONTWRITEBYTECODE");
+    settings.safe_path = settings.isolated || bool_flag("safe-path", "PYTHONSAFEPATH");
+    settings.inspect = bool_flag("inspect", "PYTHONINSPECT");
 
-    if matches.get_flag("dont-write-bytecode")
-        || (!ignore_environment && env::var_os("PYTHONDONTWRITEBYTECODE").is_some())
-    {
-        settings.write_bytecode = false;
-    }
     if !ignore_environment && env::var_os("PYTHONINTMAXSTRDIGITS").is_some() {
         settings.int_max_str_digits = match env::var("PYTHONINTMAXSTRDIGITS").unwrap().parse() {
             Ok(digits) if digits == 0 || digits >= 640 => digits,
@@ -253,54 +245,44 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         };
     }
 
-    if matches.get_flag("safe-path")
-        || (!ignore_environment && env::var_os("PYTHONSAFEPATH").is_some())
-    {
-        settings.safe_path = true;
-    }
+    settings.check_hash_pycs_mode = matches
+        .get_one("check-hash-based-pycs")
+        .copied()
+        .unwrap_or_default();
 
-    matches
-        .get_one::<String>("check-hash-based-pycs")
-        .unwrap()
-        .clone_into(&mut settings.check_hash_pycs_mode);
+    let xopts = matches
+        .get_many::<String>("implementation-option")
+        .unwrap_or_default()
+        .map(|s| {
+            let (name, value) = s.split_once('=').unzip();
+            let name = name.unwrap_or(s);
+            match name {
+                "dev" => settings.dev_mode = true,
+                "warn_default_encoding" => settings.warn_default_encoding = true,
+                "no_sig_int" => settings.install_signal_handlers = false,
+                "int_max_str_digits" => {
+                    settings.int_max_str_digits = match value.unwrap().parse() {
+                        Ok(digits) if digits == 0 || digits >= 640 => digits,
+                        _ => {
+                            error!(
+                                "Fatal Python error: config_init_int_max_str_digits: \
+                                 -X int_max_str_digits: \
+                                 invalid limit; must be >= 640 or 0 for unlimited.\n\
+                                 Python runtime state: preinitialized"
+                            );
+                            std::process::exit(1);
+                        }
+                    };
+                }
+                _ => {}
+            }
+            (name.to_owned(), value.map(str::to_owned))
+        });
+    settings.xoptions.extend(xopts);
 
-    let mut dev_mode = false;
-    let mut warn_default_encoding = false;
-    if let Some(xopts) = matches.get_many::<String>("implementation-option") {
-        settings.xoptions.extend(xopts.map(|s| {
-            let mut parts = s.splitn(2, '=');
-            let name = parts.next().unwrap().to_owned();
-            let value = parts.next().map(ToOwned::to_owned);
-            if name == "dev" {
-                dev_mode = true
-            }
-            if name == "warn_default_encoding" {
-                warn_default_encoding = true
-            }
-            if name == "no_sig_int" {
-                settings.install_signal_handlers = false;
-            }
-            if name == "int_max_str_digits" {
-                settings.int_max_str_digits = match value.as_ref().unwrap().parse() {
-                    Ok(digits) if digits == 0 || digits >= 640 => digits,
-                    _ => {
+    settings.warn_default_encoding |= bool_env_var("PYTHONWARNDEFAULTENCODING");
 
-                    error!("Fatal Python error: config_init_int_max_str_digits: -X int_max_str_digits: invalid limit; must be >= 640 or 0 for unlimited.\nPython runtime state: preinitialized");
-                    std::process::exit(1);
-                    },
-                };
-            }
-            (name, value)
-        }));
-    }
-    settings.dev_mode = dev_mode;
-    if warn_default_encoding
-        || (!ignore_environment && env::var_os("PYTHONWARNDEFAULTENCODING").is_some())
-    {
-        settings.warn_default_encoding = true;
-    }
-
-    if dev_mode {
+    if settings.dev_mode {
         settings.warnoptions.push("default".to_owned())
     }
     if settings.bytes_warning > 0 {
@@ -339,16 +321,14 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         settings.isolated = true;
         let mut args: Vec<_> = get_pip_args.cloned().collect();
         if args.is_empty() {
-            args.push("ensurepip".to_owned());
-            args.push("--upgrade".to_owned());
-            args.push("--default-pip".to_owned());
+            args.extend(["ensurepip", "--upgrade", "--default-pip"].map(str::to_owned));
         }
-        let installer = args[0].clone();
-        let mode = match installer.as_str() {
-            "ensurepip" | "get-pip" => RunMode::InstallPip(installer),
+        let mode = match &*args[0] {
+            "ensurepip" => InstallPipMode::EnsurePip,
+            "get-pip" => InstallPipMode::GetPip,
             _ => panic!("--install-pip takes ensurepip or get-pip as first argument"),
         };
-        (mode, args)
+        (RunMode::InstallPip(mode), args)
     } else if let Some(argv) = matches.get_many::<String>("script") {
         let argv: Vec<_> = argv.cloned().collect();
         let script = argv[0].clone();
@@ -377,8 +357,13 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
 }
 
 /// Get environment variable and turn it into integer.
-fn get_env_var_value(name: &str) -> Result<u8, std::env::VarError> {
-    env::var(name).map(|value| u8::from_str(&value).unwrap_or(1))
+fn get_env_var_value(name: &str) -> Option<u8> {
+    env::var_os(name).filter(|v| !v.is_empty()).map(|value| {
+        value
+            .to_str()
+            .and_then(|v| v.parse::<u8>().ok())
+            .unwrap_or(1)
+    })
 }
 
 /// Helper function to retrieve a sequence of paths from an environment variable.
