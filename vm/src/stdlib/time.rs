@@ -630,7 +630,7 @@ mod platform {
 
         let ts = TimeSpec::from(dur);
         let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
-        let interrupted = res == -1 && nix::errno::errno() == libc::EINTR;
+        let interrupted = res == -1 && nix::Error::last_raw() == libc::EINTR;
 
         if interrupted {
             vm.check_signals()?;

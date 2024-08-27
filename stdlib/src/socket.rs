@@ -1842,15 +1842,16 @@ mod _socket {
         #[cfg(unix)]
         {
             use nix::poll::*;
+            use std::os::fd::AsFd;
             let events = match kind {
                 SelectKind::Read => PollFlags::POLLIN,
                 SelectKind::Write => PollFlags::POLLOUT,
                 SelectKind::Connect => PollFlags::POLLOUT | PollFlags::POLLERR,
             };
-            let mut pollfd = [PollFd::new(sock, events)];
+            let mut pollfd = [PollFd::new(sock.as_fd(), events)];
             let timeout = match interval {
-                Some(d) => d.as_millis() as _,
-                None => -1,
+                Some(d) => d.try_into().unwrap_or(PollTimeout::MAX),
+                None => PollTimeout::NONE,
             };
             let ret = poll(&mut pollfd, timeout)?;
             Ok(ret == 0)
