@@ -406,9 +406,9 @@ pub mod module {
         };
 
         let flag = if follow_symlinks.0 {
-            nix::unistd::FchownatFlags::FollowSymlink
+            nix::fcntl::AtFlags::empty()
         } else {
-            nix::unistd::FchownatFlags::NoFollowSymlink
+            nix::fcntl::AtFlags::AT_SYMLINK_NOFOLLOW
         };
 
         let dir_fd = dir_fd.get_opt();
@@ -631,10 +631,10 @@ pub mod module {
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn nice(increment: i32, vm: &VirtualMachine) -> PyResult<i32> {
-        use nix::errno::{errno, Errno};
+        use nix::errno::Errno;
         Errno::clear();
         let res = unsafe { libc::nice(increment) };
-        if res == -1 && errno() != 0 {
+        if res == -1 && Errno::last_raw() != 0 {
             Err(errno_err(vm))
         } else {
             Ok(res)
@@ -877,16 +877,11 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn pipe(vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
-        use nix::unistd::close;
+    fn pipe(vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
         use nix::unistd::pipe;
         let (rfd, wfd) = pipe().map_err(|err| err.into_pyexception(vm))?;
-        set_inheritable(rfd, false, vm)
-            .and_then(|_| set_inheritable(wfd, false, vm))
-            .inspect_err(|_| {
-                let _ = close(rfd);
-                let _ = close(wfd);
-            })?;
+        set_inheritable(rfd.as_raw_fd(), false, vm)?;
+        set_inheritable(wfd.as_raw_fd(), false, vm)?;
         Ok((rfd, wfd))
     }
 
@@ -901,7 +896,7 @@ pub mod module {
         target_os = "openbsd"
     ))]
     #[pyfunction]
-    fn pipe2(flags: libc::c_int, vm: &VirtualMachine) -> PyResult<(RawFd, RawFd)> {
+    fn pipe2(flags: libc::c_int, vm: &VirtualMachine) -> PyResult<(OwnedFd, OwnedFd)> {
         let oflags = fcntl::OFlag::from_bits_truncate(flags);
         nix::unistd::pipe2(oflags).map_err(|err| err.into_pyexception(vm))
     }
@@ -1227,7 +1222,7 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn ttyname(fd: i32, vm: &VirtualMachine) -> PyResult {
+    fn ttyname(fd: BorrowedFd<'_>, vm: &VirtualMachine) -> PyResult {
         let name = unistd::ttyname(fd).map_err(|e| e.into_pyexception(vm))?;
         let name = name.into_os_string().into_string().unwrap();
         Ok(vm.ctx.new_str(name).into())
@@ -1756,10 +1751,10 @@ pub mod module {
         who: PriorityWhoType,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use nix::errno::{errno, Errno};
+        use nix::errno::Errno;
         Errno::clear();
         let retval = unsafe { libc::getpriority(which, who) };
-        if errno() != 0 {
+        if Errno::last_raw() != 0 {
             Err(errno_err(vm))
         } else {
             Ok(vm.ctx.new_int(retval).into())
@@ -1973,10 +1968,10 @@ pub mod module {
         PathconfName(name): PathconfName,
         vm: &VirtualMachine,
     ) -> PyResult<Option<libc::c_long>> {
-        use nix::errno::{self, Errno};
+        use nix::errno::Errno;
 
         Errno::clear();
-        debug_assert_eq!(errno::errno(), 0);
+        debug_assert_eq!(Errno::last_raw(), 0);
         let raw = match &path {
             OsPathOrFd::Path(path) => {
                 let path = path.clone().into_cstring(vm)?;
@@ -1986,7 +1981,7 @@ pub mod module {
         };
 
         if raw == -1 {
-            if errno::errno() == 0 {
+            if Errno::last_raw() == 0 {
                 Ok(None)
             } else {
                 Err(IOErrorBuilder::with_filename(
