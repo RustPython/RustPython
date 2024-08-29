@@ -105,7 +105,7 @@ members = [
 version = "0.4.0"
 authors = ["RustPython Team"]
 edition = "2021"
-rust-version = "1.78.0"
+rust-version = "1.80.0"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
@@ -143,7 +143,7 @@ ahash = "0.8.11"
 ascii = "1.0"
 atty = "0.2.14"
 bitflags = "2.4.1"
-bstr = "0.2.17"
+bstr = "1"
 cfg-if = "1.0"
 chrono = "0.4.37"
 crossbeam-utils = "0.8.19"

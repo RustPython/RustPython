@@ -540,7 +540,8 @@ make_pack_float!(f64);
 impl Packable for f16 {
     fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
         let f_64 = *ArgIntoFloat::try_from_object(vm, arg)?;
-        let f_16 = f16::from_f64(f_64);
+        // "from_f64 should be preferred in any non-`const` context" except it gives the wrong result :/
+        let f_16 = f16::from_f64_const(f_64);
         if f_16.is_infinite() != f_64.is_infinite() {
             return Err(vm.new_overflow_error("float too large to pack with e format".to_owned()));
         }

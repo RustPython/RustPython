@@ -77,7 +77,7 @@ impl PyObject {
                 ))
             })
         } else if let Some(s) = self.payload::<PyStr>() {
-            try_convert(self, s.as_str().as_bytes(), vm)
+            try_convert(self, s.as_str().trim().as_bytes(), vm)
         } else if let Some(bytes) = self.payload::<PyBytes>() {
             try_convert(self, bytes, vm)
         } else if let Some(bytearray) = self.payload::<PyByteArray>() {

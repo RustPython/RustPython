@@ -1,4 +1,3 @@
-use bstr::ByteSlice;
 use malachite_base::{num::conversion::traits::RoundingInto, rounding_modes::RoundingMode};
 use malachite_bigint::{BigInt, BigUint, Sign};
 use malachite_q::Rational;
@@ -32,7 +31,7 @@ pub fn float_to_ratio(value: f64) -> Option<(BigInt, BigInt)> {
 
 pub fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
     // split sign
-    let mut lit = lit.trim();
+    let mut lit = lit.trim_ascii();
     let sign = match lit.first()? {
         b'+' => Some(Sign::Plus),
         b'-' => Some(Sign::Minus),
