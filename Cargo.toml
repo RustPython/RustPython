@@ -49,7 +49,7 @@ rustyline = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.3.5", features = ["html_reports"] }
-pyo3 = { version = "0.20.2", features = ["auto-initialize"] }
+pyo3 = { version = "0.22", features = ["auto-initialize"] }
 
 [[bench]]
 name = "execution"
@@ -176,6 +176,8 @@ rustyline = "14.0.0"
 serde = { version = "1.0.133", default-features = false }
 schannel = "0.1.22"
 static_assertions = "1.1"
+strum = "0.26"
+strum_macros = "0.26"
 syn = "1.0.109"
 thiserror = "1.0"
 thread_local = "1.1.4"

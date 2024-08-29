@@ -2,6 +2,7 @@ use criterion::{
     criterion_group, criterion_main, measurement::WallTime, BatchSize, BenchmarkGroup, BenchmarkId,
     Criterion, Throughput,
 };
+use pyo3::types::PyAnyMethods;
 use rustpython_compiler::Mode;
 use rustpython_vm::{AsObject, Interpreter, PyResult, Settings};
 use std::{
@@ -44,11 +45,14 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
 
         // Grab the exec function in advance so we don't have lookups in the hot code
         let builtins =
-            pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
+            pyo3::types::PyModule::import_bound(py, "builtins").expect("Failed to import builtins");
         let exec = builtins.getattr("exec").expect("no exec in builtins");
 
-        let bench_func = |(globals, locals): &mut (&pyo3::types::PyDict, &pyo3::types::PyDict)| {
-            let res = exec.call((code, &*globals, &*locals), None);
+        let bench_func = |(globals, locals): &mut (
+            pyo3::Bound<pyo3::types::PyDict>,
+            pyo3::Bound<pyo3::types::PyDict>,
+        )| {
+            let res = exec.call((&code, &*globals, &*locals), None);
             if let Err(e) = res {
                 e.print(py);
                 panic!("Error running microbenchmark")
@@ -56,13 +60,13 @@ fn bench_cpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenchma
         };
 
         let bench_setup = |iterations| {
-            let globals = pyo3::types::PyDict::new(py);
-            let locals = pyo3::types::PyDict::new(py);
+            let globals = pyo3::types::PyDict::new_bound(py);
+            let locals = pyo3::types::PyDict::new_bound(py);
             if let Some(idx) = iterations {
                 globals.set_item("ITERATIONS", idx).unwrap();
             }
 
-            let res = exec.call((setup_code, &globals, &locals), None);
+            let res = exec.call((&setup_code, &globals, &locals), None);
             if let Err(e) = res {
                 e.print(py);
                 panic!("Error running microbenchmark setup code")
@@ -93,9 +97,9 @@ fn cpy_compile_code<'a>(
     py: pyo3::Python<'a>,
     code: &str,
     name: &str,
-) -> pyo3::PyResult<&'a pyo3::types::PyCode> {
+) -> pyo3::PyResult<pyo3::Bound<'a, pyo3::types::PyCode>> {
     let builtins =
-        pyo3::types::PyModule::import(py, "builtins").expect("Failed to import builtins");
+        pyo3::types::PyModule::import_bound(py, "builtins").expect("Failed to import builtins");
     let compile = builtins.getattr("compile").expect("no compile in builtins");
     compile.call1((code, name, "exec"))?.extract()
 }
