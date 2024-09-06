@@ -568,8 +568,6 @@ class ComplexTest(unittest.TestCase):
                     self.assertFloatsAreIdentical(z.real, x)
                     self.assertFloatsAreIdentical(z.imag, y)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_constructor_negative_nans_from_string(self):
         self.assertEqual(copysign(1., complex("-nan").real), -1.)
         self.assertEqual(copysign(1., complex("-nanj").imag), -1.)

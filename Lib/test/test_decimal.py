@@ -2079,8 +2079,6 @@ class UsabilityTest:
         for d, n, r in test_triples:
             self.assertEqual(str(round(Decimal(d), n)), r)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nan_to_float(self):
         # Test conversions of decimal NANs to float.
         # See http://bugs.python.org/issue15544
