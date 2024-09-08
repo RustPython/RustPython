@@ -148,6 +148,7 @@
     "origname",
     "posixsubprocess",
     "pyexpat",
+    "pytraverse",
     "PYTHONDEBUG",
     "PYTHONHOME",
     "PYTHONINSPECT",
