@@ -225,13 +225,13 @@ pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
     derive_impl::pymodule(attr, item).into()
 }
 
-#[proc_macro_derive(PyStructSequence)]
+#[proc_macro_derive(PyStructSequence, attributes(pystruct))]
 pub fn pystruct_sequence(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input);
     derive_impl::pystruct_sequence(input).into()
 }
 
-#[proc_macro_derive(TryIntoPyStructSequence)]
+#[proc_macro_derive(TryIntoPyStructSequence, attributes(pystruct))]
 pub fn pystruct_sequence_try_from_object(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input);
     derive_impl::pystruct_sequence_try_from_object(input).into()
