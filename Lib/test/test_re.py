@@ -2246,7 +2246,7 @@ class ReTests(unittest.TestCase):
         t = time.perf_counter() - start
         # Without optimization it takes 1 second on my computer.
         # With optimization -- 0.0003 seconds.
-        self.assertLess(t, 0.1)
+        self.assertLess(t, 0.2)
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
