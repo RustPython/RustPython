@@ -5,11 +5,13 @@ use bitflags::bitflags;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
-use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
+use ruff_python_ast::ConversionFlag;
+// use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
+use ruff_source_file::{OneIndexed, SourceLocation};
 use std::marker::PhantomData;
 use std::{collections::BTreeSet, fmt, hash, mem};
 
-pub use rustpython_parser_core::ConversionFlag;
+// pub use rustpython_parser_core::ConversionFlag;
 
 pub trait Constant: Sized {
     type Name: AsRef<str>;

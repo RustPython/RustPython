@@ -127,6 +127,10 @@ rustpython-parser-core = { version = "0.4.0" }
 rustpython-parser = { version = "0.4.0" }
 rustpython-ast = { version = "0.4.0" }
 rustpython-format= { version = "0.4.0" }
+ruff_python_parser = { path = "../ruff/crates/ruff_python_parser" }
+ruff_python_ast = { path = "../ruff/crates/ruff_python_ast" }
+ruff_text_size = { path = "../ruff/crates/ruff_text_size" }
+ruff_source_file = { path = "../ruff/crates/ruff_source_file" }
 # rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
 # rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
 # rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }

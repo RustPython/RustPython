@@ -9,7 +9,10 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-rustpython-parser-core = { workspace = true, features=["location"] }
+# rustpython-parser-core = { workspace = true, features=["location"] }
+ruff_python_ast = { workspace = true }
+ruff_python_parser = { workspace = true }
+ruff_source_file = { workspace = true }
 
 bitflags = { workspace = true }
 itertools = { workspace = true }
