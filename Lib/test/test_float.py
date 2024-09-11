@@ -1053,8 +1053,6 @@ class InfNanTest(unittest.TestCase):
         self.assertEqual(copysign(1.0, float('inf')), 1.0)
         self.assertEqual(copysign(1.0, float('-inf')), -1.0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(getattr(sys, 'float_repr_style', '') == 'short',
                          "applies only when using short float repr style")
     def test_nan_signs(self):
