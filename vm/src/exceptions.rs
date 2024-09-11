@@ -44,7 +44,7 @@ impl PyPayload for PyBaseException {
 }
 
 impl VirtualMachine {
-    // Why `impl VirtualMachine?
+    // Why `impl VirtualMachine`?
     // These functions are natively free function in CPython - not methods of PyException
 
     /// Print exception chain by calling sys.excepthook
