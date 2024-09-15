@@ -378,8 +378,6 @@ class LongTest(unittest.TestCase):
         self.assertRaises(ValueError, int, '\u3053\u3093\u306b\u3061\u306f')
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_conversion(self):
 
         class JustLong:
