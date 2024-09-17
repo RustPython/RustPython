@@ -211,8 +211,6 @@ class PollTests(unittest.TestCase):
             os.write(w, b'spam')
             t.join()
 
-    # TODO: RUSTPYTHON add support for negative timeout
-    @unittest.expectedFailure    
     @unittest.skipUnless(threading, 'Threading required for this test.')
     @threading_helper.reap_threads
     def test_poll_blocks_with_negative_ms(self):

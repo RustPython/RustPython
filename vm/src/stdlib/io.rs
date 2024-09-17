@@ -68,7 +68,6 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 }
 
 // not used on all platforms
-#[allow(unused)]
 #[derive(Copy, Clone)]
 #[repr(transparent)]
 pub struct Fildes(pub i32);
@@ -97,6 +96,21 @@ impl TryFromObject for Fildes {
             )));
         }
         Ok(Fildes(fd))
+    }
+}
+
+#[cfg(unix)]
+impl std::os::fd::AsFd for Fildes {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        // SAFETY: none, really. but, python's os api of passing around file descriptors
+        //         everywhere isn't really io-safe anyway, so, this is passed to the user.
+        unsafe { std::os::fd::BorrowedFd::borrow_raw(self.0) }
+    }
+}
+#[cfg(unix)]
+impl std::os::fd::AsRawFd for Fildes {
+    fn as_raw_fd(&self) -> std::os::fd::RawFd {
+        self.0
     }
 }
 

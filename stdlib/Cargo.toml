@@ -98,6 +98,9 @@ page_size = "0.4"
 [target.'cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))'.dependencies]
 termios = "0.3.3"
 
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "0.2.3"
 socket2 = { version = "0.5.6", features = ["all"] }
