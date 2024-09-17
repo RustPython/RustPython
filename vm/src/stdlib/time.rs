@@ -451,7 +451,9 @@ mod decl {
         tm_wday: PyObjectRef,
         tm_yday: PyObjectRef,
         tm_isdst: PyObjectRef,
+        #[pystruct(skip)]
         tm_gmtoff: PyObjectRef,
+        #[pystruct(skip)]
         tm_zone: PyObjectRef,
     }
 
