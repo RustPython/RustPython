@@ -25,6 +25,13 @@ impl crate::convert::IntoPyException for nix::Error {
     }
 }
 
+#[cfg(unix)]
+impl crate::convert::IntoPyException for rustix::io::Errno {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        io::Error::from(self).into_pyexception(vm)
+    }
+}
+
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {

@@ -41,7 +41,7 @@ pub mod module {
         env,
         ffi::{CStr, CString},
         fs, io,
-        os::fd::{AsRawFd, BorrowedFd, IntoRawFd, OwnedFd, RawFd},
+        os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd},
     };
     use strum_macros::{EnumIter, EnumString};
 
@@ -171,6 +171,18 @@ pub mod module {
             // SAFETY: none, really. but, python's os api of passing around file descriptors
             //         everywhere isn't really io-safe anyway, so, this is passed to the user.
             Ok(unsafe { BorrowedFd::borrow_raw(fd) })
+        }
+    }
+
+    impl TryFromObject for OwnedFd {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let fd = i32::try_from_object(vm, obj)?;
+            if fd == -1 {
+                return Err(io::Error::from_raw_os_error(libc::EBADF).into_pyexception(vm));
+            }
+            // SAFETY: none, really. but, python's os api of passing around file descriptors
+            //         everywhere isn't really io-safe anyway, so, this is passed to the user.
+            Ok(unsafe { OwnedFd::from_raw_fd(fd) })
         }
     }
 
