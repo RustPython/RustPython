@@ -61,7 +61,10 @@ mod resource;
 mod scproxy;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 mod select;
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+#[cfg(all(
+    feature = "sqlite",
+    not(any(target_os = "android", target_arch = "wasm32"))
+))]
 mod sqlite;
 #[cfg(all(not(target_arch = "wasm32"), feature = "ssl"))]
 mod ssl;
@@ -141,7 +144,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_multiprocessing" => multiprocessing::make_module,
             "_socket" => socket::make_module,
         }
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        #[cfg(all(feature = "sqlite", not(any(target_os = "android", target_arch = "wasm32"))))]
         {
             "_sqlite3" => sqlite::make_module,
         }

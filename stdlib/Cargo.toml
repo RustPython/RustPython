@@ -16,6 +16,7 @@ compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
 zlib = ["libz-sys", "flate2/zlib"]
 bz2 = ["bzip2"]
+sqlite = ["dep:libsqlite3-sys"]
 ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
 ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
 
@@ -107,7 +108,7 @@ openssl-probe = { version = "0.1.5", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
-libsqlite3-sys = { version = "0.28", features = ["bundled"] }
+libsqlite3-sys = { version = "0.28", features = ["bundled"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }

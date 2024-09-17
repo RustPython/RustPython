@@ -20,6 +20,7 @@ jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 zlib = ["stdlib", "rustpython-stdlib/zlib"]
 bz2 = ["stdlib", "rustpython-stdlib/bz2"]
+sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
 
