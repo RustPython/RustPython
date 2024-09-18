@@ -1139,7 +1139,8 @@ pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'sta
     use crate::stdlib::errno::errors;
     let excs = &vm.ctx.exceptions;
     match errno {
-        errors::EWOULDBLOCK => Some(excs.blocking_io_error),
+        #[allow(unreachable_patterns)] // EAGAIN is sometimes the same as EWOULDBLOCK
+        errors::EWOULDBLOCK | errors::EAGAIN => Some(excs.blocking_io_error),
         errors::EALREADY => Some(excs.blocking_io_error),
         errors::EINPROGRESS => Some(excs.blocking_io_error),
         errors::EPIPE => Some(excs.broken_pipe_error),

@@ -224,6 +224,21 @@ impl<T> std::ops::Deref for ArgSequence<T> {
     }
 }
 
+impl<'a, T> IntoIterator for &'a ArgSequence<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+impl<T> IntoIterator for ArgSequence<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl<T: TryFromObject> TryFromObject for ArgSequence<T> {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         obj.try_to_value(vm).map(Self)

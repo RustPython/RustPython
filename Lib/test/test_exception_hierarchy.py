@@ -81,7 +81,6 @@ class HierarchyTest(unittest.TestCase):
         return _map
     _map = _make_map(_pep_map)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_errno_mapping(self):
         # The OSError constructor maps errnos to subclasses
         # A sample test for the basic functionality
