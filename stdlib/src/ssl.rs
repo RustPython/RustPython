@@ -700,12 +700,14 @@ mod _ssl {
             vm: &VirtualMachine,
         ) -> PyResult<Vec<PyObjectRef>> {
             let binary_form = binary_form.unwrap_or(false);
-            let certs = self
-                .ctx()
-                .cert_store()
-                .all_certificates()
-                .iter()
-                .map(|cert| cert_to_py(vm, cert, binary_form))
+            let ctx = self.ctx();
+            #[cfg(ossl300)]
+            let certs = ctx.cert_store().all_certificates();
+            #[cfg(not(ossl300))]
+            let certs = ctx.cert_store().objects().iter().filter_map(|x| x.x509());
+            let certs = certs
+                .into_iter()
+                .map(|ref cert| cert_to_py(vm, cert, binary_form))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(certs)
         }
