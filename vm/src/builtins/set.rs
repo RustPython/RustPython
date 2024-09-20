@@ -391,16 +391,10 @@ impl PySetInner {
         others: impl std::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let mut temp_inner = self.copy();
+        let temp_inner = self.fold_op(others, PySetInner::intersection, vm)?;
         self.clear();
-        for iterable in others {
-            for item in iterable.iter(vm)? {
-                let obj = item?;
-                if temp_inner.contains(&obj, vm)? {
-                    self.add(obj, vm)?;
-                }
-            }
-            temp_inner = self.copy()
+        for obj in temp_inner.elements() {
+            self.add(obj, vm)?;
         }
         Ok(())
     }
