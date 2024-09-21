@@ -532,12 +532,12 @@ impl<T: Clone> Dict<T> {
 
     pub fn try_fold_keys<Acc, Fold>(&self, init: Acc, f: Fold) -> PyResult<Acc>
     where
-        Fold: FnMut(Acc, PyObjectRef) -> PyResult<Acc>,
+        Fold: FnMut(Acc, &PyObject) -> PyResult<Acc>,
     {
         self.read()
             .entries
             .iter()
-            .filter_map(|v| v.as_ref().map(|v| v.key.clone()))
+            .filter_map(|v| v.as_ref().map(|v| v.key.as_object()))
             .try_fold(init, f)
     }
 
