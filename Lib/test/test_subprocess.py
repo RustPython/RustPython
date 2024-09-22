@@ -1614,8 +1614,6 @@ class ProcessTestCase(BaseTestCase):
             subprocess.call(['/opt/nonexistent_binary', 'with', 'some', 'args'])
         self.assertEqual(c.exception.filename, '/opt/nonexistent_binary')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(mswindows, "behavior currently not supported on Windows")
     def test_file_not_found_with_bad_cwd(self):
         with self.assertRaises(FileNotFoundError) as c:
@@ -2033,8 +2031,6 @@ class POSIXProcessTestCase(BaseTestCase):
             child_sid = int(output)
             self.assertNotEqual(parent_sid, child_sid)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setpgid') and hasattr(os, 'getpgid'),
                          'no setpgid or getpgid on platform')
     def test_process_group_0(self):
@@ -2053,8 +2049,6 @@ class POSIXProcessTestCase(BaseTestCase):
             child_pgid = int(output)
             self.assertNotEqual(parent_pgid, child_pgid)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setreuid'), 'no setreuid on platform')
     def test_user(self):
         # For code coverage of the user parameter.  We don't care if we get a
@@ -2112,8 +2106,6 @@ class POSIXProcessTestCase(BaseTestCase):
         with self.assertRaises(ValueError):
             subprocess.check_call(ZERO_RETURN_CMD, user=65535)
 
-    # TODO: RUSTPYTHON, observed gids do not match expected gids
-    @unittest.expectedFailure
     @unittest.skipUnless(hasattr(os, 'setregid'), 'no setregid() on platform')
     def test_group(self):
         gid = os.getegid()
