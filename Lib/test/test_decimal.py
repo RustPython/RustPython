@@ -1257,8 +1257,6 @@ class FormatTest:
         self.assertEqual(format(Decimal('100000000.123'), 'n'),
                          '100\u066c000\u066c000\u066b123')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decimal_from_float_argument_type(self):
         class A(self.decimal.Decimal):
             def __init__(self, a):
