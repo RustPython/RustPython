@@ -668,8 +668,6 @@ class ExceptionTests(unittest.TestCase):
         e.__suppress_context__ = False
         self.assertFalse(e.__suppress_context__)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testKeywordArgs(self):
         # test that builtin exception don't take keyword args,
         # but user-defined subclasses can if they want
