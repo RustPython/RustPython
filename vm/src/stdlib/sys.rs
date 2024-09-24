@@ -823,7 +823,7 @@ mod sys {
     impl Flags {
         fn from_settings(settings: &Settings) -> Self {
             Self {
-                debug: settings.debug as u8,
+                debug: settings.debug,
                 inspect: settings.inspect as u8,
                 interactive: settings.interactive as u8,
                 optimize: settings.optimize,

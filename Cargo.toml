@@ -36,7 +36,7 @@ cfg-if = { workspace = true }
 log = { workspace = true }
 flame = { workspace = true, optional = true }
 
-clap = "2.34"
+clap = "4"
 dirs = { package = "dirs-next", version = "2.0.0" }
 env_logger = { version = "0.9.0", default-features = false, features = ["atty", "termcolor"] }
 flamescope = { version = "0.1.2", optional = true }
@@ -48,7 +48,7 @@ libc = { workspace = true }
 rustyline = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.3.5", features = ["html_reports"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 pyo3 = { version = "0.20.2", features = ["auto-initialize"] }
 
 [[bench]]
@@ -176,6 +176,8 @@ rustyline = "14.0.0"
 serde = { version = "1.0.133", default-features = false }
 schannel = "0.1.22"
 static_assertions = "1.1"
+strum = "0.26"
+strum_macros = "0.26"
 syn = "1.0.109"
 thiserror = "1.0"
 thread_local = "1.1.4"

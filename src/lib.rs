@@ -37,7 +37,6 @@
 //! it will have your modules loaded into the vm.
 #![allow(clippy::needless_doctest_main)]
 
-#[macro_use]
 extern crate clap;
 extern crate env_logger;
 #[macro_use]
@@ -56,7 +55,7 @@ use std::{env, process::ExitCode};
 
 pub use interpreter::InterpreterConfig;
 pub use rustpython_vm as vm;
-pub use settings::{opts_with_clap, RunMode};
+pub use settings::{opts_with_clap, InstallPipMode, RunMode};
 
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
@@ -142,13 +141,12 @@ fn ensurepip(_: Scope, vm: &VirtualMachine) -> PyResult<()> {
     vm.run_module("ensurepip")
 }
 
-fn install_pip(_installer: &str, _scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
+fn install_pip(_installer: InstallPipMode, _scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
     #[cfg(feature = "ssl")]
     {
         match _installer {
-            "ensurepip" => ensurepip(_scope, vm),
-            "get-pip" => get_pip(_scope, vm),
-            _ => unreachable!(),
+            InstallPipMode::EnsurePip => ensurepip(_scope, vm),
+            InstallPipMode::GetPip => get_pip(_scope, vm),
         }
     }
 
@@ -193,7 +191,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResu
             vm.run_module(&module)?;
         }
         RunMode::InstallPip(installer) => {
-            install_pip(&installer, scope, vm)?;
+            install_pip(installer, scope, vm)?;
         }
         RunMode::ScriptInteractive(script, interactive) => {
             if let Some(script) = script {
@@ -202,7 +200,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResu
             } else if !quiet {
                 println!(
                     "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-                    crate_version!()
+                    env!("CARGO_PKG_VERSION")
                 );
             }
             if interactive {

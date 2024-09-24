@@ -632,8 +632,6 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(err.splitlines().count(b'Unknown option: -a'), 1)
         self.assertEqual(b'', out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(interpreter_requires_environment(),
                      'Cannot run -I tests when PYTHON env vars are required.')
     def test_isolatedmode(self):
@@ -662,8 +660,6 @@ class CmdLineTest(unittest.TestCase):
                                           cwd=tmpdir)
             self.assertEqual(out.strip(), b"ok")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sys_flags_set(self):
         # Issue 31845: a startup refactoring broke reading flags from env vars
         for value, expected in (("", 0), ("1", 1), ("text", 1), ("2", 2)):
