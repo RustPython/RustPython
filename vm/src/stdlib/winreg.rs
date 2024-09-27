@@ -33,6 +33,7 @@ mod winreg {
         TryFromObject, VirtualMachine,
     };
     use ::winreg::{enums::RegType, RegKey, RegValue};
+    use std::mem::ManuallyDrop;
     use std::{ffi::OsStr, io};
     use windows_sys::Win32::Foundation;
 
@@ -97,7 +98,7 @@ mod winreg {
 
         #[pymethod(magic)]
         fn bool(&self) -> bool {
-            !self.key().raw_handle().is_null()
+            self.key().raw_handle() != 0
         }
         #[pymethod(magic)]
         fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
@@ -125,10 +126,8 @@ mod winreg {
             match self {
                 Self::PyHkey(py) => f(&py.key()),
                 Self::Constant(hkey) => {
-                    let k = RegKey::predef(*hkey);
-                    let res = f(&k);
-                    std::mem::forget(k);
-                    res
+                    let k = ManuallyDrop::new(RegKey::predef(*hkey));
+                    f(&k)
                 }
             }
         }
@@ -283,9 +282,11 @@ mod winreg {
                 i.map(|i| vm.ctx.new_int(i).into())
             }};
         }
-        let bytes_to_wide = |b: &[u8]| -> Option<&[u16]> {
-            if b.len() % 2 == 0 {
-                Some(unsafe { std::slice::from_raw_parts(b.as_ptr().cast(), b.len() / 2) })
+        let bytes_to_wide = |b| {
+            if <[u8]>::len(b) % 2 == 0 {
+                let (pref, wide, suf) = unsafe { <[u8]>::align_to::<u16>(b) };
+                assert!(pref.is_empty() && suf.is_empty(), "wide slice is unaligned");
+                Some(wide)
             } else {
                 None
             }

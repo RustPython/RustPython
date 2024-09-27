@@ -49,7 +49,7 @@ rustyline = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.3.5", features = ["html_reports"] }
-pyo3 = { version = "0.20.2", features = ["auto-initialize"] }
+pyo3 = { version = "0.22", features = ["auto-initialize"] }
 
 [[bench]]
 name = "execution"
@@ -105,7 +105,7 @@ members = [
 version = "0.4.0"
 authors = ["RustPython Team"]
 edition = "2021"
-rust-version = "1.78.0"
+rust-version = "1.80.0"
 repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
@@ -143,7 +143,7 @@ ahash = "0.8.11"
 ascii = "1.0"
 atty = "0.2.14"
 bitflags = "2.4.1"
-bstr = "0.2.17"
+bstr = "1"
 cfg-if = "1.0"
 chrono = "0.4.37"
 crossbeam-utils = "0.8.19"
@@ -158,7 +158,7 @@ is-macro = "0.3.0"
 junction = "1.0.0"
 libc = "0.2.153"
 log = "0.4.16"
-nix = { version = "0.27", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
+nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
 malachite-bigint = "0.2.0"
 malachite-q = "0.4.4"
 malachite-base = "0.4.4"
@@ -176,6 +176,8 @@ rustyline = "14.0.0"
 serde = { version = "1.0.133", default-features = false }
 schannel = "0.1.22"
 static_assertions = "1.1"
+strum = "0.26"
+strum_macros = "0.26"
 syn = "1.0.109"
 thiserror = "1.0"
 thread_local = "1.1.4"

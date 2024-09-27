@@ -70,15 +70,15 @@ mod _browser {
             None => FetchResponseFormat::Text,
         };
 
-        let mut opts = web_sys::RequestInit::new();
+        let opts = web_sys::RequestInit::new();
 
         match method {
-            Some(s) => opts.method(s.as_str()),
-            None => opts.method("GET"),
+            Some(s) => opts.set_method(s.as_str()),
+            None => opts.set_method("GET"),
         };
 
         if let Some(body) = body {
-            opts.body(Some(&convert::py_to_js(vm, body)));
+            opts.set_body(&convert::py_to_js(vm, body));
         }
 
         let request = web_sys::Request::new_with_str_and_init(url.as_str(), &opts)
@@ -225,8 +225,8 @@ mod _browser {
     fn load_module(module: PyStrRef, path: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let weak_vm = weak_vm(vm);
 
-        let mut opts = web_sys::RequestInit::new();
-        opts.method("GET");
+        let opts = web_sys::RequestInit::new();
+        opts.set_method("GET");
 
         let request = web_sys::Request::new_with_str_and_init(path.as_str(), &opts)
             .map_err(|err| convert::js_py_typeerror(vm, err))?;
