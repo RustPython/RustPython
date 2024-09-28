@@ -1,6 +1,10 @@
 use crate::{
-    builtins::PyIntRef, function::OptionalArg, sliceable::SequenceIndexOp, types::PyComparisonOp,
-    vm::VirtualMachine, AsObject, PyObject, PyObjectRef, PyResult,
+    builtins::PyIntRef,
+    function::OptionalArg,
+    sliceable::SequenceIndexOp,
+    types::PyComparisonOp,
+    vm::{VirtualMachine, MAX_MEMORY_SIZE},
+    AsObject, PyObject, PyObjectRef, PyResult,
 };
 use optional::Optioned;
 use std::ops::{Deref, Range};
@@ -95,6 +99,11 @@ where
 {
     fn mul(&self, vm: &VirtualMachine, n: isize) -> PyResult<Vec<T>> {
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
+
+        if n > 1 && std::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
+            return Err(vm.new_memory_error("".to_owned()));
+        }
+
         let mut v = Vec::with_capacity(n * self.as_ref().len());
         for _ in 0..n {
             v.extend_from_slice(self.as_ref());
