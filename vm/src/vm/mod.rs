@@ -53,6 +53,8 @@ pub use interpreter::Interpreter;
 pub(crate) use method::PyMethod;
 pub use setting::Settings;
 
+pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
+
 // Objects are live when they are on stack, or referenced by a name (for now)
 
 /// Top level container of a python virtual machine. In theory you could
