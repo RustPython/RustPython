@@ -16,9 +16,8 @@ fn valid_get_traverse_attr_from_meta_list(list: &MetaList) -> Result<TraverseAtt
         if len != 1 {
             return None;
         }
-        let mut iter = list.nested.iter();
         // we have checked the length, so unwrap is safe
-        let first_arg = iter.next().unwrap();
+        let first_arg = list.nested.first().unwrap();
         let skip = match first_arg {
             NestedMeta::Meta(Meta::Path(path)) => match path.is_ident("skip") {
                 true => true,
