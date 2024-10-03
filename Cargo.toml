@@ -10,9 +10,10 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-default = ["threading", "stdlib", "zlib", "importlib"]
+default = ["threading", "stdlib", "stdio", "zlib", "importlib"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
+stdio = ["rustpython-vm/stdio"]
 stdlib = ["rustpython-stdlib", "rustpython-pylib", "encodings"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
 freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
