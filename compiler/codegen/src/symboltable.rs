@@ -16,8 +16,8 @@ use ruff_python_ast::{
     self as ast, Comprehension, Decorator, Expr, ModExpression, ModModule, Parameter,
     ParameterWithDefault, Parameters, Stmt, TypeParam, TypeParamTypeVar, TypeParams,
 };
-use ruff_source_file::{SourceCode, SourceLocation};
 use ruff_text_size::{Ranged, TextRange};
+use rustpython_compiler_source::{SourceCode, SourceLocation};
 // use rustpython_ast::{self as ast, located::Located};
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 use std::{borrow::Cow, fmt, thread::LocalKey};
@@ -551,12 +551,12 @@ enum SymbolUsage {
     Iter,
 }
 
-struct SymbolTableBuilder<'src, 'index> {
+struct SymbolTableBuilder<'src> {
     class_name: Option<String>,
     // Scope stack.
     tables: Vec<SymbolTable>,
     future_annotations: bool,
-    source_code: SourceCode<'src, 'index>,
+    source_code: SourceCode<'src>,
 }
 
 /// Enum to indicate in what mode an expression
@@ -572,8 +572,8 @@ enum ExpressionContext {
     IterDefinitionExp,
 }
 
-impl<'src, 'index> SymbolTableBuilder<'src, 'index> {
-    fn new(source_code: SourceCode<'src, 'index>) -> Self {
+impl<'src> SymbolTableBuilder<'src> {
+    fn new(source_code: SourceCode<'src>) -> Self {
         let mut this = Self {
             class_name: None,
             tables: vec![],
@@ -585,7 +585,7 @@ impl<'src, 'index> SymbolTableBuilder<'src, 'index> {
     }
 }
 
-impl SymbolTableBuilder<'_, '_> {
+impl SymbolTableBuilder<'_> {
     fn finish(mut self) -> Result<SymbolTable, SymbolTableError> {
         assert_eq!(self.tables.len(), 1);
         let mut symbol_table = self.tables.pop().unwrap();

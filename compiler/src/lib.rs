@@ -1,4 +1,5 @@
-use ruff_source_file::{LineIndex, SourceCode, SourceLocation};
+use ruff_source_file::{LineIndex, SourceLocation};
+use ruff_text_size::TextSize;
 use rustpython_codegen::{compile, symboltable};
 // use rustpython_parser::ast::{self as ast, fold::Fold, ConstantOptimizer};
 
@@ -11,11 +12,10 @@ pub use ruff_python_ast as ast;
 pub use ruff_python_parser as parser;
 pub use rustpython_codegen as codegen;
 pub use rustpython_compiler_core as core;
+use rustpython_compiler_source::{self as source, SourceCode};
 use thiserror::Error;
 
-pub mod source_file {
-    pub use ruff_source_file::OneIndexed as LineNumber;
-}
+pub mod source_file {}
 
 #[derive(Error, Debug)]
 pub enum CompileErrorType {
@@ -30,6 +30,7 @@ pub struct ParseError {
     #[source]
     pub error: parser::ParseErrorType,
     pub location: SourceLocation,
+    pub source_path: String,
 }
 
 impl std::fmt::Display for ParseError {
@@ -52,6 +53,7 @@ impl CompileError {
         Self::Parse(ParseError {
             error: error.error,
             location,
+            source_path: source_code.path.to_owned(),
         })
     }
 
@@ -67,12 +69,11 @@ impl CompileError {
 pub fn compile(
     source: &str,
     mode: Mode,
-    source_path: String,
+    source_path: &str,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
-    let index = LineIndex::from_source_text(source);
-    let source_code = SourceCode::new(source, &index);
-    _compile(source_path, source_code, mode, opts)
+    let source_code = SourceCode::new(source_path, source);
+    _compile(source_code, mode, opts)
     // let index = LineIndex::from_source_text(source);
     // let source_code = SourceCode::new(source, &index);
     // let mut locator = LinearLocator::new(source);
@@ -91,15 +92,14 @@ pub fn compile(
 }
 
 fn _compile(
-    source_path: String,
     source_code: SourceCode,
     mode: core::Mode,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
-    let parsed = parser::parse(source_code.text(), mode.into())
+    let parsed = parser::parse(source_code.text, mode.into())
         .map_err(|err| CompileError::from_ruff_parse_error(err, &source_code))?;
     let ast = parsed.into_syntax();
-    compile::compile_top(ast, source_path, source_code.text(), mode, opts).map_err(|e| e.into())
+    compile::compile_top(ast, source_code, mode, opts).map_err(|e| e.into())
 }
 
 pub fn compile_symtable(
@@ -107,25 +107,39 @@ pub fn compile_symtable(
     mode: Mode,
     source_path: &str,
 ) -> Result<symboltable::SymbolTable, CompileErrorType> {
+    let source_code = SourceCode::new(source_path, source);
+    _compile_symtable(source_code, mode)
+}
+
+pub fn _compile_symtable(
+    source_code: SourceCode,
+    mode: Mode,
+) -> Result<symboltable::SymbolTable, CompileErrorType> {
     // let mut locator = LinearLocator::new(source);
-    let index = LineIndex::from_source_text(source);
-    let source_code = SourceCode::new(source, &index);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
-            let ast = ruff_python_parser::parse_module(source).map_err(|e| e.error)?;
+            let ast = ruff_python_parser::parse_module(source_code.text).map_err(|e| e.error)?;
             // let ast =
             //     ast::Suite::parse(source, source_path).map_err(|e| locator.locate_error(e))?;
             // let ast = locator.fold(ast).unwrap();
-            symboltable::SymbolTable::scan_program(&ast.into_syntax(), source_code)
+            symboltable::SymbolTable::scan_program(&ast.into_syntax(), source_code.clone())
         }
         Mode::Eval => {
             // let expr =
             //     ast::Expr::parse(source, source_path).map_err(|e| locator.locate_error(e))?;
             // let expr = locator.fold(expr).unwrap();
-            let ast = ruff_python_parser::parse(source, ruff_python_parser::Mode::Ipython)
-                .map_err(|e| e.error)?;
-            symboltable::SymbolTable::scan_expr(&ast.into_syntax().expect_expression(), source_code)
+            let ast =
+                ruff_python_parser::parse(source_code.text, ruff_python_parser::Mode::Ipython)
+                    .map_err(|e| e.error)?;
+            symboltable::SymbolTable::scan_expr(
+                &ast.into_syntax().expect_expression(),
+                source_code.clone(),
+            )
         }
     };
-    res.map_err(|e| e.into_codegen_error(source_path.to_owned()).error.into())
+    res.map_err(|e| {
+        e.into_codegen_error(source_code.path.to_owned())
+            .error
+            .into()
+    })
 }

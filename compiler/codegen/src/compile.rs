@@ -23,7 +23,7 @@ use ruff_python_ast::{
     Parameters, Stmt, StmtImport, StmtImportFrom, TypeParam, TypeParamTypeVar, TypeParams, UnaryOp,
     WithItem,
 };
-use ruff_source_file::{LineIndex, OneIndexed, SourceCode};
+use ruff_source_file::{LineIndex, OneIndexed};
 use ruff_text_size::{Ranged, TextRange};
 // use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_compiler_core::{
@@ -33,6 +33,7 @@ use rustpython_compiler_core::{
     },
     Mode,
 };
+use rustpython_compiler_source::SourceCode;
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 use std::borrow::Cow;
 
@@ -62,9 +63,7 @@ fn is_forbidden_name(name: &str) -> bool {
 struct Compiler<'src> {
     code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
-    source_path: String,
-    source_text: &'src str,
-    source_index: LineIndex,
+    source_code: SourceCode<'src>,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
     qualified_path: Vec<String>,
@@ -113,18 +112,13 @@ enum ComprehensionType {
 /// Compile an Mod produced from rustpython_parser::parse()
 pub fn compile_top(
     ast: ruff_python_ast::Mod,
-    source_path: String,
-    source_text: &str,
+    source_code: SourceCode,
     mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     match ast {
-        ruff_python_ast::Mod::Module(module) => {
-            compile_program(&module, source_path, source_text, opts)
-        }
-        ruff_python_ast::Mod::Expression(expr) => {
-            compile_expression(&expr, source_path, source_text, opts)
-        }
+        ruff_python_ast::Mod::Module(module) => compile_program(&module, source_code, opts),
+        ruff_python_ast::Mod::Expression(expr) => compile_expression(&expr, source_code, opts),
     }
     // match ast {
     //     Mod::Module(ModModule { body, .. }) => {
@@ -169,21 +163,12 @@ pub fn compile_top(
 /// Compile a standard Python program to bytecode
 pub fn compile_program(
     ast: &ModModule,
-    source_path: String,
-    source_text: &str,
+    source_code: SourceCode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let source_index = LineIndex::from_source_text(source_text);
-    let source_code = SourceCode::new(source_text, &source_index);
-    let symbol_table = SymbolTable::scan_program(ast, source_code)
-        .map_err(|e| e.into_codegen_error(source_path.clone()))?;
-    let mut compiler = Compiler::new(
-        opts,
-        source_path,
-        source_text,
-        source_index,
-        "<module>".to_owned(),
-    );
+    let symbol_table = SymbolTable::scan_program(ast, source_code.clone())
+        .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
+    let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_program(ast, symbol_table)?;
     let code = compiler.pop_code_object();
     Ok(code)
@@ -230,21 +215,12 @@ pub fn compile_program(
 
 pub fn compile_expression(
     ast: &ModExpression,
-    source_path: String,
-    source_text: &str,
+    source_code: SourceCode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    let source_index = LineIndex::from_source_text(source_text);
-    let source_code = SourceCode::new(source_text, &source_index);
-    let symbol_table = SymbolTable::scan_expr(ast, source_code)
-        .map_err(|e| e.into_codegen_error(source_path.clone()))?;
-    let mut compiler = Compiler::new(
-        opts,
-        source_path,
-        source_text,
-        source_index,
-        "<module>".to_owned(),
-    );
+    let symbol_table = SymbolTable::scan_expr(ast, source_code.clone())
+        .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
+    let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_eval(ast, symbol_table)?;
     let code = compiler.pop_code_object();
     Ok(code)
@@ -266,19 +242,13 @@ macro_rules! emit {
 }
 
 impl<'src> Compiler<'src> {
-    fn new(
-        opts: CompileOpts,
-        source_path: String,
-        source_text: &'src str,
-        source_index: LineIndex,
-        code_name: String,
-    ) -> Self {
+    fn new(opts: CompileOpts, source_code: SourceCode<'src>, code_name: String) -> Self {
         let module_code = ir::CodeInfo {
             flags: bytecode::CodeFlags::NEW_LOCALS,
             posonlyarg_count: 0,
             arg_count: 0,
             kwonlyarg_count: 0,
-            source_path: source_path.clone(),
+            source_path: source_code.path.to_owned(),
             first_line_number: OneIndexed::MIN,
             obj_name: code_name,
 
@@ -293,9 +263,7 @@ impl<'src> Compiler<'src> {
         Compiler {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
-            source_path,
-            source_text,
-            source_index,
+            source_code,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
             qualified_path: Vec::new(),
@@ -317,11 +285,11 @@ impl Compiler<'_> {
         self.error_ranged(error, self.current_source_range)
     }
     fn error_ranged(&mut self, error: CodegenErrorType, range: TextRange) -> CodegenError {
-        let location = self.source_index.source_location(range.start(), self.source_text);
+        let location = self.source_code.source_location(range.start());
         CodegenError {
             error,
             location: Some(location),
-            source_path: self.source_path.clone(),
+            source_path: self.source_code.path.to_owned(),
         }
     }
 
@@ -353,7 +321,7 @@ impl Compiler<'_> {
         kwonlyarg_count: u32,
         obj_name: String,
     ) {
-        let source_path = self.source_path.clone();
+        let source_path = self.source_code.path.to_owned();
         let first_line_number = self.get_source_line_number();
 
         let table = self.push_symbol_table();
@@ -1470,7 +1438,7 @@ impl Compiler<'_> {
             let symbol = table.lookup(var).unwrap_or_else(|| {
                 panic!(
                     "couldn't look up var {} in {} in {}",
-                    var, code.obj_name, self.source_path
+                    var, code.obj_name, self.source_code.path
                 )
             });
             let parent_code = self.code_stack.last().unwrap();
@@ -3018,7 +2986,7 @@ impl Compiler<'_> {
     // Low level helper functions:
     fn _emit(&mut self, instr: Instruction, arg: OpArg, target: ir::BlockIdx) {
         let range = self.current_source_range;
-        let location = self.source_index.source_location(range.start(), self.source_text);
+        let location = self.source_code.source_location(range.start());
         // TODO: insert source filename
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,
@@ -3108,7 +3076,7 @@ impl Compiler<'_> {
     }
 
     fn get_source_line_number(&mut self) -> OneIndexed {
-        self.source_index
+        self.source_code
             .line_index(self.current_source_range.start())
     }
 

@@ -1,8 +1,5 @@
 use std::fmt;
-
-use ruff_python_ast::Expr;
 use ruff_source_file::SourceLocation;
-use ruff_text_size::TextRange;
 use thiserror::Error;
 
 // pub type CodegenError = rustpython_parser_core::source_code::LocatedError<CodegenErrorType>;
@@ -15,7 +12,7 @@ pub struct CodegenError {
     pub source_path: String,
 }
 
-impl std::fmt::Display for CodegenError {
+impl fmt::Display for CodegenError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO:
         self.error.fmt(f)
