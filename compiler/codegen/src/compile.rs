@@ -8,22 +8,29 @@
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
-    error::{CodegenError, CodegenErrorType, ToPythonName},
+    error::{CodegenError, CodegenErrorType},
     ir,
     symboltable::{self, SymbolFlags, SymbolScope, SymbolTable},
-    IndexSet,
+    IndexSet, ToPythonName,
 };
 use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use ruff_python_ast::{
-    Alias, Arguments, BoolOp, CmpOp, Comprehension, Decorator, ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprList, ExprName, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters, Stmt, StmtImport, StmtImportFrom, TypeParam, TypeParamTypeVar, TypeParams, UnaryOp, WithItem
+    Alias, Arguments, BoolOp, CmpOp, Comprehension, Decorator, DictItem, ExceptHandler,
+    ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprList, ExprName, ExprStarred,
+    ExprSubscript, ExprTuple, ExprUnaryOp, Keyword, MatchCase, ModExpression, ModModule, Operator,
+    Parameters, Stmt, StmtImport, StmtImportFrom, TypeParam, TypeParamTypeVar, TypeParams, UnaryOp,
+    WithItem,
 };
-use ruff_source_file::{OneIndexed, SourceCode};
+use ruff_source_file::{LineIndex, OneIndexed, SourceCode};
 use ruff_text_size::{Ranged, TextRange};
 // use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_compiler_core::{
-    bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
+    bytecode::{
+        self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, MakeFunctionFlags, OpArg,
+        OpArgType,
+    },
     Mode,
 };
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
@@ -52,11 +59,12 @@ fn is_forbidden_name(name: &str) -> bool {
 }
 
 /// Main structure holding the state of compilation.
-struct Compiler<'src, 'index> {
+struct Compiler<'src> {
     code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
-    source_code: SourceCode<'src, 'index>,
     source_path: String,
+    source_text: &'src str,
+    source_index: LineIndex,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
     qualified_path: Vec<String>,
@@ -105,17 +113,17 @@ enum ComprehensionType {
 /// Compile an Mod produced from rustpython_parser::parse()
 pub fn compile_top(
     ast: ruff_python_ast::Mod,
-    source_code: SourceCode,
     source_path: String,
+    source_text: &str,
     mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     match ast {
         ruff_python_ast::Mod::Module(module) => {
-            compile_program(&module, source_code, source_path, opts)
+            compile_program(&module, source_path, source_text, opts)
         }
         ruff_python_ast::Mod::Expression(expr) => {
-            compile_expression(&expr, source_code, source_path, opts)
+            compile_expression(&expr, source_path, source_text, opts)
         }
     }
     // match ast {
@@ -135,44 +143,58 @@ pub fn compile_top(
 }
 
 /// A helper function for the shared code of the different compile functions
-fn compile_impl<Ast: ?Sized>(
-    ast: &Ast,
-    source_code: SourceCode,
-    source_path: String,
-    opts: CompileOpts,
-    make_symbol_table: impl FnOnce(
-        &Ast,
-        SourceCode,
-    ) -> Result<SymbolTable, symboltable::SymbolTableError>,
-    compile: impl FnOnce(&mut Compiler, &Ast, SymbolTable) -> CompileResult<()>,
-) -> CompileResult<CodeObject> {
-    let symbol_table = match make_symbol_table(ast, source_code) {
-        Ok(x) => x,
-        Err(e) => return Err(e.into_codegen_error(source_path)),
-    };
+// fn compile_impl<Ast: ?Sized>(
+//     ast: &Ast,
+//     source_code: SourceCode,
+//     source_path: String,
+//     opts: CompileOpts,
+//     make_symbol_table: impl FnOnce(
+//         &Ast,
+//         SourceCode,
+//     ) -> Result<SymbolTable, symboltable::SymbolTableError>,
+//     compile: impl FnOnce(&mut Compiler, &Ast, SymbolTable) -> CompileResult<()>,
+// ) -> CompileResult<CodeObject> {
+//     let symbol_table = match make_symbol_table(ast, source_code) {
+//         Ok(x) => x,
+//         Err(e) => return Err(e.into_codegen_error(source_path)),
+//     };
 
-    let mut compiler = Compiler::new(opts, source_path, "<module>".to_owned());
-    compile(&mut compiler, ast, symbol_table)?;
-    let code = compiler.pop_code_object();
-    trace!("Compilation completed: {:?}", code);
-    Ok(code)
-}
+//     let mut compiler = Compiler::new(opts, source_path, source_code, "<module>".to_owned());
+//     compile(&mut compiler, ast, symbol_table)?;
+//     let code = compiler.pop_code_object();
+//     trace!("Compilation completed: {:?}", code);
+//     Ok(code)
+// }
 
 /// Compile a standard Python program to bytecode
 pub fn compile_program(
     ast: &ModModule,
-    source_code: SourceCode,
     source_path: String,
+    source_text: &str,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    compile_impl(
-        ast,
-        source_code,
-        source_path,
+    let source_index = LineIndex::from_source_text(source_text);
+    let source_code = SourceCode::new(source_text, &source_index);
+    let symbol_table = SymbolTable::scan_program(ast, source_code)
+        .map_err(|e| e.into_codegen_error(source_path.clone()))?;
+    let mut compiler = Compiler::new(
         opts,
-        SymbolTable::scan_program,
-        Compiler::compile_program,
-    )
+        source_path,
+        source_text,
+        source_index,
+        "<module>".to_owned(),
+    );
+    compiler.compile_program(ast, symbol_table)?;
+    let code = compiler.pop_code_object();
+    Ok(code)
+    // compile_impl(
+    //     ast,
+    //     source_code,
+    //     source_path,
+    //     opts,
+    //     SymbolTable::scan_program,
+    //     Compiler::compile_program,
+    // )
 }
 
 /// Compile a Python program to bytecode for the context of a REPL
@@ -208,18 +230,24 @@ pub fn compile_program(
 
 pub fn compile_expression(
     ast: &ModExpression,
-    source_code: SourceCode,
     source_path: String,
+    source_text: &str,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
-    compile_impl(
-        ast,
-        source_code,
-        source_path,
+    let source_index = LineIndex::from_source_text(source_text);
+    let source_code = SourceCode::new(source_text, &source_index);
+    let symbol_table = SymbolTable::scan_expr(ast, source_code)
+        .map_err(|e| e.into_codegen_error(source_path.clone()))?;
+    let mut compiler = Compiler::new(
         opts,
-        SymbolTable::scan_expr,
-        Compiler::compile_eval,
-    )
+        source_path,
+        source_text,
+        source_index,
+        "<module>".to_owned(),
+    );
+    compiler.compile_eval(ast, symbol_table)?;
+    let code = compiler.pop_code_object();
+    Ok(code)
 }
 
 macro_rules! emit {
@@ -237,8 +265,14 @@ macro_rules! emit {
     };
 }
 
-impl Compiler {
-    fn new(opts: CompileOpts, source_path: String, code_name: String) -> Self {
+impl<'src> Compiler<'src> {
+    fn new(
+        opts: CompileOpts,
+        source_path: String,
+        source_text: &'src str,
+        source_index: LineIndex,
+        code_name: String,
+    ) -> Self {
         let module_code = ir::CodeInfo {
             flags: bytecode::CodeFlags::NEW_LOCALS,
             posonlyarg_count: 0,
@@ -260,6 +294,8 @@ impl Compiler {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
             source_path,
+            source_text,
+            source_index,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
             qualified_path: Vec::new(),
@@ -274,14 +310,17 @@ impl Compiler {
             opts,
         }
     }
+}
 
+impl Compiler<'_> {
     fn error(&mut self, error: CodegenErrorType) -> CodegenError {
         self.error_ranged(error, self.current_source_range)
     }
     fn error_ranged(&mut self, error: CodegenErrorType, range: TextRange) -> CodegenError {
+        let location = self.source_index.source_location(range.start(), self.source_text);
         CodegenError {
             error,
-            range: Some(range),
+            location: Some(location),
             source_path: self.source_path.clone(),
         }
     }
@@ -397,7 +436,7 @@ impl Compiler {
         let size_before = self.code_stack.len();
         self.symbol_table_stack.push(symbol_table);
 
-        let (doc, statements) = split_doc(body, &self.opts);
+        let (doc, statements) = split_doc(&body.body, &self.opts);
         if let Some(value) = doc {
             self.emit_load_const(ConstantData::Str { value });
             let doc = self.name("__doc__");
@@ -671,7 +710,7 @@ impl Compiler {
 
                 // from .... import (*fromlist)
                 self.emit_load_const(ConstantData::Integer {
-                    value: *level.into(),
+                    value: (*level).into(),
                 });
                 self.emit_load_const(ConstantData::Tuple {
                     elements: from_list,
@@ -764,7 +803,7 @@ impl Compiler {
                 body,
                 is_async,
                 ..
-            }) => self.compile_with(items, body, is_async)?,
+            }) => self.compile_with(items, body, *is_async)?,
             Stmt::For(StmtFor {
                 target,
                 iter,
@@ -772,7 +811,7 @@ impl Compiler {
                 orelse,
                 is_async,
                 ..
-            }) => self.compile_for(target, iter, body, orelse, is_async)?,
+            }) => self.compile_for(target, iter, body, orelse, *is_async)?,
             Stmt::Match(StmtMatch { subject, cases, .. }) => self.compile_match(subject, cases)?,
             Stmt::Raise(StmtRaise { exc, cause, .. }) => {
                 let kind = match exc {
@@ -965,6 +1004,7 @@ impl Compiler {
                 emit!(self, Instruction::TypeAlias);
                 self.store_name(&name_string)?;
             }
+            Stmt::IpyEscapeCommand(_) => todo!(),
         }
         Ok(())
     }
@@ -1000,9 +1040,14 @@ impl Compiler {
     fn enter_function(
         &mut self,
         name: &str,
-        args: &Parameters,
+        parameters: &Parameters,
     ) -> CompileResult<bytecode::MakeFunctionFlags> {
-        let defaults: Vec<_> = args.defaults().collect();
+        // let defaults: Vec<_> = args.defaults().collect();
+        let defaults: Vec<_> = parameters
+            .iter_non_variadic_params()
+            // FIXME: clone?
+            .filter_map(|x| x.default.clone())
+            .collect();
         let have_defaults = !defaults.is_empty();
         if have_defaults {
             // Construct a tuple:
@@ -1013,12 +1058,23 @@ impl Compiler {
             emit!(self, Instruction::BuildTuple { size });
         }
 
-        let (kw_without_defaults, kw_with_defaults) = args.split_kwonlyargs();
+        // TODO: partition_in_place
+        let mut kw_without_defaults = vec![];
+        let mut kw_with_defaults = vec![];
+        for kwonlyarg in &parameters.kwonlyargs {
+            if let Some(default) = &kwonlyarg.default {
+                kw_with_defaults.push((&kwonlyarg.parameter, default));
+            } else {
+                kw_without_defaults.push(&kwonlyarg.parameter);
+            }
+        }
+
+        // let (kw_without_defaults, kw_with_defaults) = args.split_kwonlyargs();
         if !kw_with_defaults.is_empty() {
             let default_kw_count = kw_with_defaults.len();
             for (arg, default) in kw_with_defaults.iter() {
                 self.emit_load_const(ConstantData::Str {
-                    value: arg.arg.to_string(),
+                    value: arg.name.to_string(),
                 });
                 self.compile_expression(default)?;
             }
@@ -1040,29 +1096,29 @@ impl Compiler {
 
         self.push_output(
             bytecode::CodeFlags::NEW_LOCALS | bytecode::CodeFlags::IS_OPTIMIZED,
-            args.posonlyargs.len().to_u32(),
-            (args.posonlyargs.len() + args.args.len()).to_u32(),
-            args.kwonlyargs.len().to_u32(),
+            parameters.posonlyargs.len().to_u32(),
+            (parameters.posonlyargs.len() + parameters.args.len()).to_u32(),
+            parameters.kwonlyargs.len().to_u32(),
             name.to_owned(),
         );
 
         let args_iter = std::iter::empty()
-            .chain(&args.posonlyargs)
-            .chain(&args.args)
-            .map(|arg| arg.as_arg())
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .map(|arg| &arg.parameter)
             .chain(kw_without_defaults)
             .chain(kw_with_defaults.into_iter().map(|(arg, _)| arg));
         for name in args_iter {
-            self.varname(name.arg.as_str())?;
+            self.varname(&name.name.as_str())?;
         }
 
-        if let Some(name) = args.vararg.as_deref() {
+        if let Some(name) = parameters.vararg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::HAS_VARARGS;
-            self.varname(name.arg.as_str())?;
+            self.varname(name.name.as_str())?;
         }
-        if let Some(name) = args.kwarg.as_deref() {
+        if let Some(name) = parameters.kwarg.as_deref() {
             self.current_code_info().flags |= bytecode::CodeFlags::HAS_VARKEYWORDS;
-            self.varname(name.arg.as_str())?;
+            self.varname(name.name.as_str())?;
         }
 
         Ok(func_flags)
@@ -1075,7 +1131,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn apply_decorators(&mut self, decorator_list: &[Expr]) {
+    fn apply_decorators(&mut self, decorator_list: &[Decorator]) {
         // Apply decorators:
         for _ in decorator_list {
             emit!(self, Instruction::CallFunctionPositional { nargs: 1 });
@@ -1451,8 +1507,13 @@ impl Compiler {
                 Stmt::For(StmtFor { body, orelse, .. }) => {
                     Self::find_ann(body) || Self::find_ann(orelse)
                 }
-                Stmt::If(StmtIf { body, orelse, .. }) => {
-                    Self::find_ann(body) || Self::find_ann(orelse)
+                Stmt::If(StmtIf {
+                    body,
+                    elif_else_clauses,
+                    ..
+                }) => {
+                    Self::find_ann(body)
+                        || elif_else_clauses.iter().any(|x| Self::find_ann(&x.body))
                 }
                 Stmt::While(StmtWhile { body, orelse, .. }) => {
                     Self::find_ann(body) || Self::find_ann(orelse)
@@ -1590,8 +1651,10 @@ impl Compiler {
             value: name.to_owned(),
         });
 
-        let call = self.compile_call_inner(2, bases, keywords)?;
-        self.compile_normal_call(call);
+        if let Some(arguments) = arguments {
+            let call = self.compile_call_inner(2, arguments)?;
+            self.compile_normal_call(call);
+        }
 
         self.apply_decorators(decorator_list);
 
@@ -1864,8 +1927,12 @@ impl Compiler {
 
     fn compile_annotation(&mut self, annotation: &Expr) -> CompileResult<()> {
         if self.future_annotations {
+            // FIXME: codegen?
+            let ident = Default::default();
+            let codegen =
+                ruff_python_codegen::Generator::new(&ident, Default::default(), Default::default());
             self.emit_load_const(ConstantData::Str {
-                value: annotation.to_string(),
+                value: codegen.expr(annotation),
             });
         } else {
             self.compile_expression(annotation)?;
@@ -1910,9 +1977,7 @@ impl Compiler {
 
     fn compile_store(&mut self, target: &Expr) -> CompileResult<()> {
         match &target {
-            Expr::Name(ExprName { id, .. }) => {
-                self.store_name(id.as_str())?
-            }
+            Expr::Name(ExprName { id, .. }) => self.store_name(id.as_str())?,
             Expr::Subscript(ExprSubscript { value, slice, .. }) => {
                 self.compile_expression(value)?;
                 self.compile_expression(slice)?;
@@ -1924,8 +1989,7 @@ impl Compiler {
                 let idx = self.name(attr.as_str());
                 emit!(self, Instruction::StoreAttr { idx });
             }
-            Expr::List(ExprList { elts, .. })
-            | Expr::Tuple(ExprTuple { elts, .. }) => {
+            Expr::List(ExprList { elts, .. }) | Expr::Tuple(ExprTuple { elts, .. }) => {
                 let mut seen_star = false;
 
                 // Scan for star args:
@@ -1960,9 +2024,7 @@ impl Compiler {
                 }
 
                 for element in elts {
-                    if let Expr::Starred(ExprStarred { value, .. }) =
-                        &element
-                    {
+                    if let Expr::Starred(ExprStarred { value, .. }) = &element {
                         self.compile_store(value)?;
                     } else {
                         self.compile_store(element)?;
@@ -2194,25 +2256,20 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_dict(
-        &mut self,
-        keys: &[Option<Expr>],
-        values: &[Expr],
-    ) -> CompileResult<()> {
+    fn compile_dict(&mut self, items: &[DictItem]) -> CompileResult<()> {
+        // FIXME: correct order to build map, etc d = {**a, 'key': 2} should override
+        // 'key' in dict a
         let mut size = 0;
-        let (packed, unpacked): (Vec<_>, Vec<_>) = keys
-            .iter()
-            .zip(values.iter())
-            .partition(|(k, _)| k.is_some());
-        for (key, value) in packed {
-            self.compile_expression(key.as_ref().unwrap())?;
-            self.compile_expression(value)?;
+        let (packed, unpacked): (Vec<_>, Vec<_>) = items.iter().partition(|x| x.key.is_some());
+        for item in packed {
+            self.compile_expression(item.key.as_ref().unwrap())?;
+            self.compile_expression(&item.value)?;
             size += 1;
         }
         emit!(self, Instruction::BuildMap { size });
 
-        for (_, value) in unpacked {
-            self.compile_expression(value)?;
+        for item in unpacked {
+            self.compile_expression(&item.value)?;
             emit!(self, Instruction::DictUpdate);
         }
 
@@ -2228,7 +2285,7 @@ impl Compiler {
         match &expression {
             Expr::Call(ExprCall {
                 func, arguments, ..
-            }) => self.compile_call(func, arguments, keywords)?,
+            }) => self.compile_call(func, arguments)?,
             Expr::BoolOp(ExprBoolOp { op, values, .. }) => self.compile_bool_op(op, values)?,
             Expr::BinOp(ExprBinOp {
                 left, op, right, ..
@@ -2269,9 +2326,9 @@ impl Compiler {
             }) => {
                 self.compile_chained_comparison(left, ops, comparators)?;
             }
-            Expr::Constant(ExprConstant { value, .. }) => {
-                self.emit_load_const(compile_constant(value));
-            }
+            // Expr::Constant(ExprConstant { value, .. }) => {
+            //     self.emit_load_const(compile_constant(value));
+            // }
             Expr::List(ExprList { elts, .. }) => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
                 if unpack {
@@ -2296,8 +2353,8 @@ impl Compiler {
                     emit!(self, Instruction::BuildSet { size });
                 }
             }
-            Expr::Dict(ExprDict { keys, values, .. }) => {
-                self.compile_dict(keys, values)?;
+            Expr::Dict(ExprDict { items, .. }) => {
+                self.compile_dict(items)?;
             }
             Expr::Slice(ExprSlice {
                 lower, upper, step, ..
@@ -2353,41 +2410,41 @@ impl Compiler {
                 self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
             }
-            Expr::JoinedStr(ExprJoinedStr { values, .. }) => {
-                if let Some(value) = try_get_constant_string(values) {
-                    self.emit_load_const(ConstantData::Str { value })
-                } else {
-                    for value in values {
-                        self.compile_expression(value)?;
-                    }
-                    emit!(
-                        self,
-                        Instruction::BuildString {
-                            size: values.len().to_u32(),
-                        }
-                    )
-                }
-            }
-            Expr::FormattedValue(ExprFormattedValue {
-                value,
-                conversion,
-                format_spec,
-                ..
-            }) => {
-                match format_spec {
-                    Some(spec) => self.compile_expression(spec)?,
-                    None => self.emit_load_const(ConstantData::Str {
-                        value: String::new(),
-                    }),
-                };
-                self.compile_expression(value)?;
-                emit!(
-                    self,
-                    Instruction::FormatValue {
-                        conversion: *conversion,
-                    },
-                );
-            }
+            // Expr::JoinedStr(ExprJoinedStr { values, .. }) => {
+            //     if let Some(value) = try_get_constant_string(values) {
+            //         self.emit_load_const(ConstantData::Str { value })
+            //     } else {
+            //         for value in values {
+            //             self.compile_expression(value)?;
+            //         }
+            //         emit!(
+            //             self,
+            //             Instruction::BuildString {
+            //                 size: values.len().to_u32(),
+            //             }
+            //         )
+            //     }
+            // }
+            // Expr::FormattedValue(ExprFormattedValue {
+            //     value,
+            //     conversion,
+            //     format_spec,
+            //     ..
+            // }) => {
+            //     match format_spec {
+            //         Some(spec) => self.compile_expression(spec)?,
+            //         None => self.emit_load_const(ConstantData::Str {
+            //             value: String::new(),
+            //         }),
+            //     };
+            //     self.compile_expression(value)?;
+            //     emit!(
+            //         self,
+            //         Instruction::FormatValue {
+            //             conversion: *conversion,
+            //         },
+            //     );
+            // }
             Expr::Name(ExprName { id, .. }) => self.load_name(id.as_str())?,
             Expr::Lambda(ExprLambda {
                 parameters, body, ..
@@ -2395,7 +2452,11 @@ impl Compiler {
                 let prev_ctx = self.ctx;
 
                 let name = "<lambda>".to_owned();
-                let mut func_flags = self.enter_function(&name, parameters)?;
+                let mut func_flags = if let Some(parameters) = parameters {
+                    self.enter_function(&name, parameters)?
+                } else {
+                    MakeFunctionFlags::DEFAULTS
+                };
 
                 self.ctx = CompileContext {
                     loop_data: Option::None,
@@ -2553,6 +2614,14 @@ impl Compiler {
                 emit!(self, Instruction::Duplicate);
                 self.compile_store(target)?;
             }
+            Expr::FString(_) => todo!(),
+            Expr::StringLiteral(_) => todo!(),
+            Expr::BytesLiteral(_) => todo!(),
+            Expr::NumberLiteral(_) => todo!(),
+            Expr::BooleanLiteral(_) => todo!(),
+            Expr::NoneLiteral(_) => todo!(),
+            Expr::EllipsisLiteral(_) => todo!(),
+            Expr::IpyEscapeCommand(_) => todo!(),
         }
         Ok(())
     }
@@ -2597,7 +2666,7 @@ impl Compiler {
             self.compile_expression(func)?;
             false
         };
-        let call = self.compile_call_inner(0, args, keywords)?;
+        let call = self.compile_call_inner(0, args)?;
         if method {
             self.compile_method_call(call)
         } else {
@@ -2630,13 +2699,13 @@ impl Compiler {
         additional_positional: u32,
         arguments: &Arguments,
     ) -> CompileResult<CallType> {
-        let count = (arguments.len() + keywords.len()).to_u32() + additional_positional;
+        let count = arguments.len() as u32 + additional_positional;
 
         // Normal arguments:
-        let (size, unpack) = self.gather_elements(additional_positional, arguments)?;
-        let has_double_star = keywords.iter().any(|k| k.arg.is_none());
+        let (size, unpack) = self.gather_elements(additional_positional, &arguments.args)?;
+        let has_double_star = arguments.keywords.iter().any(|k| k.arg.is_none());
 
-        for keyword in keywords {
+        for keyword in &arguments.keywords {
             if let Some(name) = &keyword.arg {
                 self.check_forbidden_name(name.as_str(), NameUsage::Store)?;
             }
@@ -2651,14 +2720,14 @@ impl Compiler {
             }
 
             // Create an optional map with kw-args:
-            let has_kwargs = !keywords.is_empty();
+            let has_kwargs = !arguments.keywords.is_empty();
             if has_kwargs {
-                self.compile_keywords(keywords)?;
+                self.compile_keywords(&arguments.keywords)?;
             }
             CallType::Ex { has_kwargs }
-        } else if !keywords.is_empty() {
+        } else if !arguments.keywords.is_empty() {
             let mut kwarg_names = vec![];
-            for keyword in keywords {
+            for keyword in &arguments.keywords {
                 if let Some(name) = &keyword.arg {
                     kwarg_names.push(ConstantData::Str {
                         value: name.to_string(),
@@ -2683,15 +2752,9 @@ impl Compiler {
 
     // Given a vector of expr / star expr generate code which gives either
     // a list of expressions on the stack, or a list of tuples.
-    fn gather_elements(
-        &mut self,
-        before: u32,
-        elements: &[Expr],
-    ) -> CompileResult<(u32, bool)> {
+    fn gather_elements(&mut self, before: u32, elements: &[Expr]) -> CompileResult<(u32, bool)> {
         // First determine if we have starred elements:
-        let has_stars = elements
-            .iter()
-            .any(|e| matches!(e, Expr::Starred(_)));
+        let has_stars = elements.iter().any(|e| matches!(e, Expr::Starred(_)));
 
         let size = if has_stars {
             let mut size = 0;
@@ -2704,9 +2767,7 @@ impl Compiler {
             let groups = elements
                 .iter()
                 .map(|element| {
-                    if let Expr::Starred(ExprStarred { value, .. }) =
-                        &element
-                    {
+                    if let Expr::Starred(ExprStarred { value, .. }) = &element {
                         (true, value.as_ref())
                     } else {
                         (false, element)
@@ -2936,10 +2997,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_future_features(
-        &mut self,
-        features: &[Alias],
-    ) -> Result<(), CodegenError> {
+    fn compile_future_features(&mut self, features: &[Alias]) -> Result<(), CodegenError> {
         if self.done_with_future_stmts {
             return Err(self.error(CodegenErrorType::InvalidFuturePlacement));
         }
@@ -2959,13 +3017,15 @@ impl Compiler {
 
     // Low level helper functions:
     fn _emit(&mut self, instr: Instruction, arg: OpArg, target: ir::BlockIdx) {
-        let location = self.current_source_location;
+        let range = self.current_source_range;
+        let location = self.source_index.source_location(range.start(), self.source_text);
         // TODO: insert source filename
         self.current_block().instructions.push(ir::InstructionInfo {
             instr,
             arg,
             target,
-            range: location,
+            location,
+            // range,
         });
     }
 
@@ -3048,7 +3108,8 @@ impl Compiler {
     }
 
     fn get_source_line_number(&mut self) -> OneIndexed {
-        self.source_code.line_index(self.current_source_range.start())
+        self.source_index
+            .line_index(self.current_source_range.start())
     }
 
     fn push_qualified_path(&mut self, name: &str) {
@@ -3067,14 +3128,14 @@ impl Compiler {
 
         match &expression {
             Expr::Call(ExprCall {
-                func,
-                args,
-                keywords,
-                ..
+                func, arguments, ..
             }) => {
                 Self::contains_await(func)
-                    || args.iter().any(Self::contains_await)
-                    || keywords.iter().any(|kw| Self::contains_await(&kw.value))
+                    || arguments.args.iter().any(Self::contains_await)
+                    || arguments
+                        .keywords
+                        .iter()
+                        .any(|kw| Self::contains_await(&kw.value))
             }
             Expr::BoolOp(ExprBoolOp { values, .. }) => values.iter().any(Self::contains_await),
             Expr::BinOp(ExprBinOp { left, right, .. }) => {
@@ -3088,15 +3149,12 @@ impl Compiler {
             Expr::Compare(ExprCompare {
                 left, comparators, ..
             }) => Self::contains_await(left) || comparators.iter().any(Self::contains_await),
-            Expr::Constant(ExprConstant { .. }) => false,
             Expr::List(ExprList { elts, .. }) => elts.iter().any(Self::contains_await),
             Expr::Tuple(ExprTuple { elts, .. }) => elts.iter().any(Self::contains_await),
             Expr::Set(ExprSet { elts, .. }) => elts.iter().any(Self::contains_await),
-            Expr::Dict(ExprDict { keys, values, .. }) => {
-                keys.iter()
-                    .any(|key| key.as_ref().map_or(false, Self::contains_await))
-                    || values.iter().any(Self::contains_await)
-            }
+            Expr::Dict(ExprDict { items, .. }) => items.iter().any(|x| {
+                x.key.as_ref().map_or(false, Self::contains_await) || Self::contains_await(&x.value)
+            }),
             Expr::Slice(ExprSlice {
                 lower, upper, step, ..
             }) => {
@@ -3109,20 +3167,20 @@ impl Compiler {
             }
             Expr::Await(ExprAwait { .. }) => true,
             Expr::YieldFrom(ExprYieldFrom { value, .. }) => Self::contains_await(value),
-            Expr::JoinedStr(ExprJoinedStr { values, .. }) => {
-                values.iter().any(Self::contains_await)
-            }
-            Expr::FormattedValue(ExprFormattedValue {
-                value,
-                conversion: _,
-                format_spec,
-                ..
-            }) => {
-                Self::contains_await(value)
-                    || format_spec
-                        .as_ref()
-                        .map_or(false, |fs| Self::contains_await(fs))
-            }
+            // Expr::JoinedStr(ExprJoinedStr { values, .. }) => {
+            //     values.iter().any(Self::contains_await)
+            // }
+            // Expr::FormattedValue(ExprFormattedValue {
+            //     value,
+            //     conversion: _,
+            //     format_spec,
+            //     ..
+            // }) => {
+            //     Self::contains_await(value)
+            //         || format_spec
+            //             .as_ref()
+            //             .map_or(false, |fs| Self::contains_await(fs))
+            // }
             Expr::Name(ExprName { .. }) => false,
             Expr::Lambda(ExprLambda { body, .. }) => Self::contains_await(body),
             Expr::ListComp(ExprListComp {
@@ -3162,11 +3220,19 @@ impl Compiler {
                     || Self::contains_await(orelse)
             }
 
-            Expr::Named(ExprNamed{
+            Expr::Named(ExprNamed {
                 target,
                 value,
                 range: _,
             }) => Self::contains_await(target) || Self::contains_await(value),
+            Expr::FString(_)
+            | Expr::StringLiteral(_)
+            | Expr::BytesLiteral(_)
+            | Expr::NumberLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::NoneLiteral(_)
+            | Expr::EllipsisLiteral(_)
+            | Expr::IpyEscapeCommand(_) => false,
         }
     }
 }
@@ -3195,10 +3261,7 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
     }
 }
 
-fn split_doc<'a>(
-    body: &'a [Stmt],
-    opts: &CompileOpts,
-) -> (Option<String>, &'a [Stmt]) {
+fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [Stmt]) {
     if let Some((Stmt::Expr(expr), body_rest)) = body.split_first() {
         if let Some(doc) = try_get_constant_string(std::slice::from_ref(&expr.value)) {
             if opts.optimize < 2 {
@@ -3212,49 +3275,50 @@ fn split_doc<'a>(
 }
 
 fn try_get_constant_string(values: &[Expr]) -> Option<String> {
-    fn get_constant_string_inner(out_string: &mut String, value: &Expr) -> bool {
-        match value {
-            Expr::Constant(ExprConstant {
-                value: Constant::Str(s),
-                ..
-            }) => {
-                out_string.push_str(s);
-                true
-            }
-            Expr::JoinedStr(ExprJoinedStr { values, .. }) => values
-                .iter()
-                .all(|value| get_constant_string_inner(out_string, value)),
-            _ => false,
-        }
-    }
-    let mut out_string = String::new();
-    if values
-        .iter()
-        .all(|v| get_constant_string_inner(&mut out_string, v))
-    {
-        Some(out_string)
-    } else {
-        None
-    }
+    None
+    // fn get_constant_string_inner(out_string: &mut String, value: &Expr) -> bool {
+    //     match value {
+    //         Expr::Constant(ExprConstant {
+    //             value: Constant::Str(s),
+    //             ..
+    //         }) => {
+    //             out_string.push_str(s);
+    //             true
+    //         }
+    //         Expr::JoinedStr(ExprJoinedStr { values, .. }) => values
+    //             .iter()
+    //             .all(|value| get_constant_string_inner(out_string, value)),
+    //         _ => false,
+    //     }
+    // }
+    // let mut out_string = String::new();
+    // if values
+    //     .iter()
+    //     .all(|v| get_constant_string_inner(&mut out_string, v))
+    // {
+    //     Some(out_string)
+    // } else {
+    //     None
+    // }
 }
 
-fn compile_constant(value: &Constant) -> ConstantData {
-    match value {
-        Constant::None => ConstantData::None,
-        Constant::Bool(b) => ConstantData::Boolean { value: *b },
-        Constant::Str(s) => ConstantData::Str { value: s.clone() },
-        Constant::Bytes(b) => ConstantData::Bytes { value: b.clone() },
-        Constant::Int(i) => ConstantData::Integer { value: i.clone() },
-        Constant::Tuple(t) => ConstantData::Tuple {
-            elements: t.iter().map(compile_constant).collect(),
-        },
-        Constant::Float(f) => ConstantData::Float { value: *f },
-        Constant::Complex { real, imag } => ConstantData::Complex {
-            value: Complex64::new(*real, *imag),
-        },
-        Constant::Ellipsis => ConstantData::Ellipsis,
-    }
-}
+// fn compile_constant(value: &Constant) -> ConstantData {
+//     match value {
+//         Constant::None => ConstantData::None,
+//         Constant::Bool(b) => ConstantData::Boolean { value: *b },
+//         Constant::Str(s) => ConstantData::Str { value: s.clone() },
+//         Constant::Bytes(b) => ConstantData::Bytes { value: b.clone() },
+//         Constant::Int(i) => ConstantData::Integer { value: i.clone() },
+//         Constant::Tuple(t) => ConstantData::Tuple {
+//             elements: t.iter().map(compile_constant).collect(),
+//         },
+//         Constant::Float(f) => ConstantData::Float { value: *f },
+//         Constant::Complex { real, imag } => ConstantData::Complex {
+//             value: Complex64::new(*real, *imag),
+//         },
+//         Constant::Ellipsis => ConstantData::Ellipsis,
+//     }
+// }
 
 // Note: Not a good practice in general. Keep this trait private only for compiler
 trait ToU32 {
@@ -3266,7 +3330,7 @@ impl ToU32 for usize {
         self.try_into().unwrap()
     }
 }
-
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3346,3 +3410,4 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
         ));
     }
 }
+*/

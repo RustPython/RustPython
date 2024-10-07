@@ -44,7 +44,8 @@ pub struct InstructionInfo {
     pub instr: Instruction,
     pub arg: OpArg,
     pub target: BlockIdx,
-    pub range: TextRange,
+    // pub range: TextRange,
+    pub location: SourceLocation,
 }
 
 // spell-checker:ignore petgraph
@@ -136,7 +137,7 @@ impl CodeInfo {
                         *arg = new_arg;
                     }
                     let (extras, lo_arg) = arg.split();
-                    locations.extend(std::iter::repeat(info.range.clone()).take(arg.instr_size()));
+                    locations.extend(std::iter::repeat(info.location.clone()).take(arg.instr_size()));
                     instructions.extend(
                         extras
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))

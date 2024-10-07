@@ -264,15 +264,16 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         use crate::source_code::SourceLocation;
 
-        let syntax_error_type = match &error.error {
-            #[cfg(feature = "rustpython-parser")]
-            crate::compiler::CompileErrorType::Parse(p) if p.is_indentation_error() => {
-                self.ctx.exceptions.indentation_error
-            }
-            #[cfg(feature = "rustpython-parser")]
-            crate::compiler::CompileErrorType::Parse(p) if p.is_tab_error() => {
-                self.ctx.exceptions.tab_error
-            }
+        let syntax_error_type = match &error {
+            // FIXME:
+            // #[cfg(feature = "rustpython-parser")]
+            // crate::compiler::CompileError::Parse(p) if p.is_indentation_error() => {
+            //     self.ctx.exceptions.indentation_error
+            // }
+            // #[cfg(feature = "rustpython-parser")]
+            // crate::compiler::CompileError::Parse(p) if p.is_tab_error() => {
+            //     self.ctx.exceptions.tab_error
+            // }
             _ => self.ctx.exceptions.syntax_error,
         }
         .to_owned();
@@ -287,7 +288,7 @@ impl VirtualMachine {
         }
 
         let statement = if let Some(source) = source {
-            get_statement(source, error.location)
+            get_statement(source, error.location())
         } else {
             None
         };

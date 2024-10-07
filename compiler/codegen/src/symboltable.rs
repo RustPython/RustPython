@@ -16,11 +16,11 @@ use ruff_python_ast::{
     self as ast, Comprehension, Decorator, Expr, ModExpression, ModModule, Parameter,
     ParameterWithDefault, Parameters, Stmt, TypeParam, TypeParamTypeVar, TypeParams,
 };
-use ruff_source_file::SourceCode;
+use ruff_source_file::{SourceCode, SourceLocation};
 use ruff_text_size::{Ranged, TextRange};
 // use rustpython_ast::{self as ast, located::Located};
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
-use std::{borrow::Cow, fmt};
+use std::{borrow::Cow, fmt, thread::LocalKey};
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
@@ -175,15 +175,14 @@ impl Symbol {
 
 #[derive(Debug)]
 pub struct SymbolTableError {
-    range: Option<TextRange>,
     error: String,
-    // location: Option<SourceLocation>,
+    location: Option<SourceLocation>,
 }
 
 impl SymbolTableError {
     pub fn into_codegen_error(self, source_path: String) -> CodegenError {
         CodegenError {
-            range: self.range,
+            location: self.location,
             error: CodegenErrorType::SyntaxError(self.error),
             source_path,
         }
@@ -335,7 +334,7 @@ impl SymbolTableAnalyzer {
                             return Err(SymbolTableError {
                                 error: format!("no binding for nonlocal '{}' found", symbol.name),
                                 // TODO: accurate location info, somehow
-                                range: None,
+                                location: None,
                             });
                         }
                     } else {
@@ -345,7 +344,7 @@ impl SymbolTableAnalyzer {
                                 symbol.name
                             ),
                             // TODO: accurate location info, somehow
-                            range: None,
+                            location: None,
                         });
                     }
                 }
@@ -468,7 +467,7 @@ impl SymbolTableAnalyzer {
                     symbol.name
                 ),
                 // TODO: accurate location info, somehow
-                range: None,
+                location: None,
             });
         }
 
@@ -481,7 +480,7 @@ impl SymbolTableAnalyzer {
                 return Err(SymbolTableError {
                     error: "assignment expression within a comprehension cannot be used in a class body".to_string(),
                     // TODO: accurate location info, somehow
-                    range: None,
+                    location: None,
                 });
             }
             SymbolTableType::Function => {
@@ -510,7 +509,7 @@ impl SymbolTableAnalyzer {
                         if parent_symbol.flags.contains(SymbolFlags::ITER) {
                             return Err(SymbolTableError {
                                 error: format!("assignment expression cannot rebind comprehension iteration variable {}", symbol.name),
-                                range: None,
+                                location: None,
                             });
                         }
 
@@ -886,7 +885,7 @@ impl SymbolTableBuilder<'_, '_> {
             Stmt::Match(StmtMatch { subject, .. }) => {
                 return Err(SymbolTableError {
                     error: "match expression is not implemented yet".to_owned(),
-                    range: Some(subject.range()),
+                    location: Some(self.source_code.source_location(subject.range().start())),
                 });
             }
             Stmt::Raise(StmtRaise { exc, cause, .. }) => {
@@ -1193,7 +1192,7 @@ impl SymbolTableBuilder<'_, '_> {
                 if let ExpressionContext::IterDefinitionExp = context {
                     return Err(SymbolTableError {
                           error: "assignment expression cannot be used in a comprehension iterable expression".to_string(),
-                          range: Some(target.range()),
+                          location: Some(self.source_code.source_location(target.range().start())),
                       });
                 }
 
@@ -1356,7 +1355,8 @@ impl SymbolTableBuilder<'_, '_> {
         role: SymbolUsage,
         range: TextRange,
     ) -> SymbolTableResult {
-        let range = Some(range);
+        let location = self.source_code.source_location(range.start());
+        let location = Some(location);
         let scope_depth = self.tables.len();
         let table = self.tables.last_mut().unwrap();
 
@@ -1370,19 +1370,19 @@ impl SymbolTableBuilder<'_, '_> {
                     if flags.contains(SymbolFlags::PARAMETER) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and global"),
-                            range,
+                            location,
                         });
                     }
                     if flags.contains(SymbolFlags::REFERENCED) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is used prior to global declaration"),
-                            range,
+                            location,
                         });
                     }
                     if flags.contains(SymbolFlags::ANNOTATED) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{name}' can't be global"),
-                            range,
+                            location
                         });
                     }
                     if flags.contains(SymbolFlags::ASSIGNED) {
@@ -1390,7 +1390,7 @@ impl SymbolTableBuilder<'_, '_> {
                             error: format!(
                                 "name '{name}' is assigned to before global declaration"
                             ),
-                            range,
+                            location,
                         });
                     }
                 }
@@ -1398,19 +1398,19 @@ impl SymbolTableBuilder<'_, '_> {
                     if flags.contains(SymbolFlags::PARAMETER) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and nonlocal"),
-                            range,
+                            location,
                         });
                     }
                     if flags.contains(SymbolFlags::REFERENCED) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is used prior to nonlocal declaration"),
-                            range,
+                            location,
                         });
                     }
                     if flags.contains(SymbolFlags::ANNOTATED) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{name}' can't be nonlocal"),
-                            range,
+                            location,
                         });
                     }
                     if flags.contains(SymbolFlags::ASSIGNED) {
@@ -1418,7 +1418,7 @@ impl SymbolTableBuilder<'_, '_> {
                             error: format!(
                                 "name '{name}' is assigned to before nonlocal declaration"
                             ),
-                            range,
+                            location,
                         });
                     }
                 }
@@ -1434,7 +1434,7 @@ impl SymbolTableBuilder<'_, '_> {
                 SymbolUsage::Nonlocal if scope_depth < 2 => {
                     return Err(SymbolTableError {
                         error: format!("cannot define nonlocal '{name}' at top level."),
-                        range,
+                        location,
                     })
                 }
                 _ => {
@@ -1491,7 +1491,7 @@ impl SymbolTableBuilder<'_, '_> {
                 error:
                     "assignment expression cannot be used in a comprehension iterable expression"
                         .to_string(),
-                range,
+                location,
             });
         }
         Ok(())

@@ -15,6 +15,7 @@ rustpython-compiler-core = { workspace = true }
 ruff_python_parser = { workspace = true }
 ruff_python_ast = { workspace = true }
 ruff_source_file = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true

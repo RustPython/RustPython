@@ -279,7 +279,7 @@ impl PyCode {
 
     #[pygetset]
     fn co_firstlineno(&self) -> u32 {
-        self.code.first_line_number.map_or(0, |n| n.get())
+        self.code.first_line_number.map_or(0, |n| n.get() as _)
     }
 
     #[pygetset]
@@ -351,7 +351,7 @@ impl PyCode {
         };
 
         let first_line_number = match args.co_firstlineno {
-            OptionalArg::Present(first_line_number) => OneIndexed::new(first_line_number),
+            OptionalArg::Present(first_line_number) => OneIndexed::new(first_line_number as _),
             OptionalArg::Missing => self.code.first_line_number,
         };
 

@@ -5,7 +5,7 @@ use bitflags::bitflags;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
-use ruff_python_ast::ConversionFlag;
+pub use ruff_python_ast::ConversionFlag;
 // use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
 use ruff_source_file::{OneIndexed, SourceLocation};
 use std::marker::PhantomData;
