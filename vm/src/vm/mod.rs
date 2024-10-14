@@ -14,6 +14,8 @@ mod vm_new;
 mod vm_object;
 mod vm_ops;
 
+#[cfg(not(feature = "stdio"))]
+use crate::builtins::PyNone;
 use crate::{
     builtins::{
         code::PyCode,
@@ -306,28 +308,30 @@ impl VirtualMachine {
                 // require the Python stdlib to be present
                 let io = import::import_builtin(self, "_io")?;
 
-                #[cfg(feature = "stdio")]
-                {
-                    let set_stdio = |name, fd, mode: &str| {
-                        let stdio = crate::stdlib::io::open(
-                            self.ctx.new_int(fd).into(),
-                            Some(mode),
-                            Default::default(),
-                            self,
-                        )?;
-                        let dunder_name = self.ctx.intern_str(format!("__{name}__"));
-                        self.sys_module.set_attr(
-                            dunder_name, // e.g. __stdin__
-                            stdio.clone(),
-                            self,
-                        )?;
-                        self.sys_module.set_attr(name, stdio, self)?;
-                        Ok(())
-                    };
-                    set_stdio("stdin", 0, "r")?;
-                    set_stdio("stdout", 1, "w")?;
-                    set_stdio("stderr", 2, "w")?;
-                }
+                let set_stdio = |name, _fd, _mode: &str| {
+                    #[cfg(feature = "stdio")]
+                    let stdio = crate::stdlib::io::open(
+                        self.ctx.new_int(_fd).into(),
+                        Some(_mode),
+                        Default::default(),
+                        self,
+                    )?;
+
+                    #[cfg(not(feature = "stdio"))]
+                    let stdio = PyNone.into_pyobject(self);
+
+                    let dunder_name = self.ctx.intern_str(format!("__{name}__"));
+                    self.sys_module.set_attr(
+                        dunder_name, // e.g. __stdin__
+                        stdio.clone(),
+                        self,
+                    )?;
+                    self.sys_module.set_attr(name, stdio, self)?;
+                    Ok(())
+                };
+                set_stdio("stdin", 0, "r")?;
+                set_stdio("stdout", 1, "w")?;
+                set_stdio("stderr", 2, "w")?;
 
                 let io_open = io.get_attr("open", self)?;
                 self.builtins.set_attr("open", io_open, self)?;
