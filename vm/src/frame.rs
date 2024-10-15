@@ -14,13 +14,13 @@ use crate::{
     function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
+    source::SourceLocation,
     stdlib::{builtins, typing::_typing},
     vm::{Context, PyMethod},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
-use rustpython_compiler::source::LineNumber;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
 use std::{fmt, iter::zip};
@@ -165,9 +165,9 @@ impl Frame {
         }
     }
 
-    // pub fn current_location(&self) -> SourceLocation {
-    //     self.code.locations[self.lasti() as usize - 1]
-    // }
+    pub fn current_location(&self) -> SourceLocation {
+        self.code.locations[self.lasti() as usize - 1].clone()
+    }
 
     pub fn lasti(&self) -> u32 {
         #[cfg(feature = "threading")]
@@ -378,15 +378,11 @@ impl ExecutingFrame<'_> {
                         // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
                         // 3. Unwind block stack till appropriate handler is found.
 
-                        // let loc = frame.code.locations[idx];
+                        let loc = frame.code.locations[idx].clone();
                         let next = exception.traceback();
-                        let new_traceback = PyTraceback::new(
-                            next,
-                            frame.object.to_owned(),
-                            frame.lasti(),
-                            LineNumber::from_zero_indexed(idx),
-                        );
-                        vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, 0);
+                        let new_traceback =
+                            PyTraceback::new(next, frame.object.to_owned(), frame.lasti(), loc.row);
+                        vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row);
                         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
 
                         vm.contextualize_exception(&exception);

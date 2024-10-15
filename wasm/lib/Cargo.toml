@@ -23,7 +23,7 @@ rustpython-stdlib = { workspace = true, default-features = false, optional = tru
 # make sure no threading! otherwise wasm build will fail
 rustpython-vm = { workspace = true, features = ["compiler", "encodings", "serde", "wasmbind"] }
 
-# rustpython-parser = { workspace = true }
+ruff_python_parser = { workspace = true }
 
 serde = { workspace = true }
 wasm-bindgen = { workspace = true }

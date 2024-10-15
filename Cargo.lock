@@ -2112,6 +2112,7 @@ dependencies = [
  "libc",
  "log",
  "pyo3",
+ "ruff_python_parser",
  "rustpython-compiler",
  "rustpython-pylib",
  "rustpython-stdlib",
@@ -2454,6 +2455,7 @@ version = "0.4.0"
 dependencies = [
  "console_error_panic_hook",
  "js-sys",
+ "ruff_python_parser",
  "rustpython-common",
  "rustpython-pylib",
  "rustpython-stdlib",
