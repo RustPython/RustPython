@@ -20,7 +20,7 @@ use num_traits::{ToPrimitive, Zero};
 use rustpython_ast::{self as ast, fold::Fold};
 #[cfg(feature = "rustpython-codegen")]
 use rustpython_codegen as codegen;
-#[cfg(feature = "rustpython-parser")]
+#[cfg(feature = "parser")]
 use rustpython_parser as parser;
 
 #[pymodule]

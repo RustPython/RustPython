@@ -83,7 +83,7 @@ pub mod warn;
 #[cfg(windows)]
 pub mod windows;
 
-pub use self::compiler::source_code;
+pub use self::compiler::source;
 pub use self::convert::{TryFromBorrowedObject, TryFromObject};
 pub use self::object::{
     AsObject, Py, PyAtomicRef, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact,

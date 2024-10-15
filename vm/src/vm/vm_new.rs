@@ -262,7 +262,7 @@ impl VirtualMachine {
         error: &crate::compiler::CompileError,
         source: Option<&str>,
     ) -> PyBaseExceptionRef {
-        use crate::source_code::SourceLocation;
+        use crate::source::SourceLocation;
 
         let syntax_error_type = match &error {
             // FIXME:
@@ -282,7 +282,7 @@ impl VirtualMachine {
         fn get_statement(source: &str, loc: Option<SourceLocation>) -> Option<String> {
             let line = source
                 .split('\n')
-                .nth(loc?.row.to_zero_indexed_usize())?
+                .nth(loc?.row.to_zero_indexed())?
                 .to_owned();
             Some(line + "\n")
         }
@@ -293,7 +293,7 @@ impl VirtualMachine {
             None
         };
 
-        let syntax_error = self.new_exception_msg(syntax_error_type, error.error.to_string());
+        let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
         let (lineno, offset) = error.python_location();
         let lineno = self.ctx.new_int(lineno);
         let offset = self.ctx.new_int(offset);
@@ -314,7 +314,7 @@ impl VirtualMachine {
             .as_object()
             .set_attr(
                 "filename",
-                self.ctx.new_str(error.source_path.clone()),
+                self.ctx.new_str(error.source_path().clone()),
                 self,
             )
             .unwrap();

@@ -10,7 +10,7 @@ use crate::{
     convert::ToPyObject,
     frozen,
     function::{FuncArgs, OptionalArg},
-    source_code::OneIndexed,
+    source::LineNumber,
     types::Representable,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
@@ -351,7 +351,7 @@ impl PyCode {
         };
 
         let first_line_number = match args.co_firstlineno {
-            OptionalArg::Present(first_line_number) => OneIndexed::new(first_line_number as _),
+            OptionalArg::Present(first_line_number) => LineNumber::new(first_line_number as _),
             OptionalArg::Missing => self.code.first_line_number,
         };
 

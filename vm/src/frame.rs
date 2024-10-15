@@ -14,13 +14,13 @@ use crate::{
     function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
-    source_code::SourceLocation,
     stdlib::{builtins, typing::_typing},
     vm::{Context, PyMethod},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
+use rustpython_compiler::source::LineNumber;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
 use std::{fmt, iter::zip};
@@ -380,8 +380,12 @@ impl ExecutingFrame<'_> {
 
                         // let loc = frame.code.locations[idx];
                         let next = exception.traceback();
-                        let new_traceback =
-                            PyTraceback::new(next, frame.object.to_owned(), frame.lasti(), 0);
+                        let new_traceback = PyTraceback::new(
+                            next,
+                            frame.object.to_owned(),
+                            frame.lasti(),
+                            LineNumber::from_zero_indexed(idx),
+                        );
                         vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, 0);
                         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
 

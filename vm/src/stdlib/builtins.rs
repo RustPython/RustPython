@@ -111,6 +111,10 @@ mod builtins {
     #[cfg(any(feature = "rustpython-parser", feature = "rustpython-codegen"))]
     #[pyfunction]
     fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
+        #[cfg(not(feature = "rustpython-ast"))]
+        {
+            return Err(vm.new_type_error("AST Not Supported".to_owned()));
+        }
         #[cfg(feature = "rustpython-ast")]
         {
             use crate::{class::PyClassImpl, stdlib::ast};
@@ -163,7 +167,7 @@ mod builtins {
             {
                 use crate::convert::ToPyException;
                 use num_traits::Zero;
-                use rustpython_parser as parser;
+                use ruff_python_parser as parser;
 
                 let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
                 let source = source.borrow_bytes();
