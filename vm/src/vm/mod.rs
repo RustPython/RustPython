@@ -14,6 +14,8 @@ mod vm_new;
 mod vm_object;
 mod vm_ops;
 
+#[cfg(not(feature = "stdio"))]
+use crate::builtins::PyNone;
 use crate::{
     builtins::{
         code::PyCode,
@@ -305,13 +307,19 @@ impl VirtualMachine {
                 // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
                 // require the Python stdlib to be present
                 let io = import::import_builtin(self, "_io")?;
-                let set_stdio = |name, fd, mode: &str| {
+
+                let set_stdio = |name, _fd, _mode: &str| {
+                    #[cfg(feature = "stdio")]
                     let stdio = crate::stdlib::io::open(
-                        self.ctx.new_int(fd).into(),
-                        Some(mode),
+                        self.ctx.new_int(_fd).into(),
+                        Some(_mode),
                         Default::default(),
                         self,
                     )?;
+
+                    #[cfg(not(feature = "stdio"))]
+                    let stdio = PyNone.into_pyobject(self);
+
                     let dunder_name = self.ctx.intern_str(format!("__{name}__"));
                     self.sys_module.set_attr(
                         dunder_name, // e.g. __stdin__
