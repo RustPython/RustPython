@@ -1,7 +1,6 @@
 //! An unresizable vector backed by a `Box<[T]>`
 
 use std::{
-    alloc,
     borrow::{Borrow, BorrowMut},
     cmp, fmt,
     mem::{self, MaybeUninit},
@@ -35,29 +34,11 @@ macro_rules! panic_oob {
     };
 }
 
-fn capacity_overflow() -> ! {
-    panic!("capacity overflow")
-}
-
 impl<T> BoxVec<T> {
     pub fn new(n: usize) -> BoxVec<T> {
-        unsafe {
-            let layout = match alloc::Layout::array::<T>(n) {
-                Ok(l) => l,
-                Err(_) => capacity_overflow(),
-            };
-            let ptr = if mem::size_of::<T>() == 0 {
-                ptr::NonNull::<MaybeUninit<T>>::dangling().as_ptr()
-            } else {
-                let ptr = alloc::alloc(layout);
-                if ptr.is_null() {
-                    alloc::handle_alloc_error(layout)
-                }
-                ptr as *mut MaybeUninit<T>
-            };
-            let ptr = ptr::slice_from_raw_parts_mut(ptr, n);
-            let xs = Box::from_raw(ptr);
-            BoxVec { xs, len: 0 }
+        BoxVec {
+            xs: Box::new_uninit_slice(n),
+            len: 0,
         }
     }
 

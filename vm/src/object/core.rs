@@ -322,7 +322,7 @@ unsafe impl Link for WeakLink {
 
     #[inline(always)]
     unsafe fn pointers(target: NonNull<Self::Target>) -> NonNull<Pointers<Self::Target>> {
-        NonNull::new_unchecked(ptr::addr_of_mut!((*target.as_ptr()).0.payload.pointers))
+        NonNull::new_unchecked(&raw mut (*target.as_ptr()).0.payload.pointers)
     }
 }
 
@@ -1047,7 +1047,7 @@ impl<T: PyObjectPayload> PyRef<T> {
     pub fn leak(pyref: Self) -> &'static Py<T> {
         let ptr = pyref.ptr;
         std::mem::forget(pyref);
-        unsafe { &*ptr.as_ptr() }
+        unsafe { ptr.as_ref() }
     }
 }
 
