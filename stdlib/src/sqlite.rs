@@ -26,7 +26,7 @@ mod _sqlite {
         sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
         sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_blob, sqlite3_blob_bytes,
         sqlite3_blob_close, sqlite3_blob_open, sqlite3_blob_read, sqlite3_blob_write,
-        sqlite3_busy_timeout, sqlite3_changes, sqlite3_close_v2, sqlite3_column_blob,
+        sqlite3_busy_timeout, sqlite3_changes, sqlite3_close, sqlite3_column_blob,
         sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype, sqlite3_column_double,
         sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text, sqlite3_column_type,
         sqlite3_complete, sqlite3_context, sqlite3_context_db_handle, sqlite3_create_collation_v2,
@@ -2334,7 +2334,7 @@ mod _sqlite {
 
     impl Drop for Sqlite {
         fn drop(&mut self) {
-            unsafe { sqlite3_close_v2(self.raw.db) };
+            unsafe { sqlite3_close(self.raw.db) };
         }
     }
 
