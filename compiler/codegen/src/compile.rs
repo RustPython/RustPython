@@ -14,8 +14,9 @@ use crate::{
     IndexSet, ToPythonName,
 };
 use itertools::Itertools;
-use num_complex::Complex64;
-use num_traits::ToPrimitive;
+use malachite_bigint::BigInt;
+use num_complex::{Complex, Complex64};
+use num_traits::{FromPrimitive, Num, ToPrimitive};
 use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, Decorator, DictItem, ExceptHandler,
     ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprList, ExprName, ExprStarred,
@@ -2582,14 +2583,63 @@ impl Compiler<'_> {
                 emit!(self, Instruction::Duplicate);
                 self.compile_store(target)?;
             }
-            Expr::FString(_) => todo!(),
-            Expr::StringLiteral(_) => todo!(),
-            Expr::BytesLiteral(_) => todo!(),
-            Expr::NumberLiteral(_) => todo!(),
-            Expr::BooleanLiteral(_) => todo!(),
-            Expr::NoneLiteral(_) => todo!(),
-            Expr::EllipsisLiteral(_) => todo!(),
-            Expr::IpyEscapeCommand(_) => todo!(),
+            Expr::FString(fstring) => {
+                // TODO: formatted string
+                let value: String = fstring
+                    .value
+                    .literals()
+                    .flat_map(|x| x.as_str().chars())
+                    .collect();
+                self.emit_load_const(ConstantData::Str { value });
+            }
+            Expr::StringLiteral(string) => {
+                self.emit_load_const(ConstantData::Str {
+                    value: string.value.to_str().to_owned(),
+                });
+            }
+            Expr::BytesLiteral(bytes) => {
+                let iter = bytes.value.iter().flat_map(|x| x.iter().copied());
+                let v: Vec<u8> = iter.collect();
+                self.emit_load_const(ConstantData::Bytes { value: v });
+            }
+            Expr::NumberLiteral(number) => {
+                match &number.value {
+                    Number::Int(int) => {
+                        let value = if let Some(small) = int.as_u64() {
+                            // self.emit_load_const(ConstantData::Integer { value:  });
+                            BigInt::from(small)
+                        } else {
+                            let s = format!("{}", int);
+                            BigInt::from_str_radix(&s, 10).map_err(|e| {
+                                self.error(CodegenErrorType::SyntaxError(
+                                    "unparsed int".to_string(),
+                                ))
+                            })?
+                        };
+                        self.emit_load_const(ConstantData::Integer { value });
+                    }
+                    Number::Float(float) => {
+                        self.emit_load_const(ConstantData::Float { value: *float });
+                    }
+                    Number::Complex { real, imag } => {
+                        self.emit_load_const(ConstantData::Complex {
+                            value: Complex::from_polar(*real, *imag),
+                        });
+                    }
+                }
+            }
+            Expr::BooleanLiteral(b) => {
+                self.emit_load_const(ConstantData::Boolean { value: b.value });
+            }
+            Expr::NoneLiteral(_) => {
+                self.emit_load_const(ConstantData::None);
+            }
+            Expr::EllipsisLiteral(_) => {
+                self.emit_load_const(ConstantData::Ellipsis);
+            }
+            Expr::IpyEscapeCommand(_) => {
+                panic!("unexpected ipy escape command");
+            }
         }
         Ok(())
     }

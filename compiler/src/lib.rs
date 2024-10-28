@@ -161,3 +161,10 @@ pub fn _compile_symtable(
     };
     res.map_err(|e| e.into_codegen_error(source_code.path.to_owned()).into())
 }
+
+#[test]
+fn test_compile() {
+    let code = "x = 'abc'";
+    let compiled = compile(&code, Mode::Single, "<>", CompileOpts::default());
+    dbg!(compiled);
+}

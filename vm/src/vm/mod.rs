@@ -904,22 +904,22 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     // Python modules that the vm calls into, but are not actually part of the stdlib. They could
     // in theory be implemented in Rust, but are easiest to do in Python for one reason or another.
     // Includes _importlib_bootstrap and _importlib_bootstrap_external
-    ext_modules!(
-        iter,
-        dir = "./Lib/python_builtins",
-        crate_name = "rustpython_compiler_core"
-    );
+    // ext_modules!(
+    //     iter,
+    //     dir = "./Lib/python_builtins",
+    //     crate_name = "rustpython_compiler_core"
+    // );
 
     // core stdlib Python modules that the vm calls into, but are still used in Python
     // application code, e.g. copyreg
     // FIXME: Initializing core_modules here results duplicated frozen module generation for core_modules.
     // We need a way to initialize this modules for both `Interpreter::without_stdlib()` and `InterpreterConfig::new().init_stdlib().interpreter()`
     // #[cfg(not(feature = "freeze-stdlib"))]
-    ext_modules!(
-        iter,
-        dir = "./Lib/core_modules",
-        crate_name = "rustpython_compiler_core"
-    );
+    // ext_modules!(
+    //     iter,
+    //     dir = "./Lib/core_modules",
+    //     crate_name = "rustpython_compiler_core"
+    // );
 
     iter
 }

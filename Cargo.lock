@@ -2130,6 +2130,7 @@ dependencies = [
  "insta",
  "itertools 0.11.0",
  "log",
+ "malachite-bigint",
  "num-complex",
  "num-traits",
  "ruff_python_ast",
