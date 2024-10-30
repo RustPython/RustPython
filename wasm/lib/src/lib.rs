@@ -14,7 +14,7 @@ pub(crate) use vm_class::weak_vm;
 use wasm_bindgen::prelude::*;
 
 /// Sets error info on the window object, and prints the backtrace to console
-pub fn panic_hook(info: &panic::PanicInfo) {
+pub fn panic_hook(info: &panic::PanicHookInfo) {
     // If something errors, just ignore it; we don't want to panic in the panic hook
     let try_set_info = || {
         let msg = &info.to_string();
