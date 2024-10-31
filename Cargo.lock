@@ -1898,8 +1898,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cdaf8ee5c1473b993b398c174641d3aa9da847af36e8d5eb8291930b72f31a5"
+source = "git+https://github.com/kaanyalova/RustPythonParser/?branch=fix_parser#d6627f8071d7b99b0f9bcd5208bcb6f9d7aeb4a4"
 dependencies = [
  "is-macro",
  "malachite-bigint",
@@ -2011,8 +2010,7 @@ dependencies = [
 [[package]]
 name = "rustpython-format"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0389039b132ad8e350552d771270ccd03186985696764bcee2239694e7839942"
+source = "git+https://github.com/kaanyalova/RustPythonParser/?branch=fix_parser#d6627f8071d7b99b0f9bcd5208bcb6f9d7aeb4a4"
 dependencies = [
  "bitflags 2.6.0",
  "itertools 0.11.0",
@@ -2039,8 +2037,7 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8304be3cae00232a1721a911033e55877ca3810215f66798e964a2d8d22281d"
+source = "git+https://github.com/kaanyalova/RustPythonParser/?branch=fix_parser#d6627f8071d7b99b0f9bcd5208bcb6f9d7aeb4a4"
 dependencies = [
  "hexf-parse",
  "is-macro",
@@ -2052,8 +2049,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "868f724daac0caf9bd36d38caf45819905193a901e8f1c983345a68e18fb2abb"
+source = "git+https://github.com/kaanyalova/RustPythonParser/?branch=fix_parser#d6627f8071d7b99b0f9bcd5208bcb6f9d7aeb4a4"
 dependencies = [
  "anyhow",
  "is-macro",
@@ -2076,8 +2072,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser-core"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4b6c12fa273825edc7bccd9a734f0ad5ba4b8a2f4da5ff7efe946f066d0f4ad"
+source = "git+https://github.com/kaanyalova/RustPythonParser/?branch=fix_parser#d6627f8071d7b99b0f9bcd5208bcb6f9d7aeb4a4"
 dependencies = [
  "is-macro",
  "memchr",
@@ -2087,8 +2082,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser-vendored"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04fcea49a4630a3a5d940f4d514dc4f575ed63c14c3e3ed07146634aed7f67a6"
+source = "git+https://github.com/kaanyalova/RustPythonParser/?branch=fix_parser#d6627f8071d7b99b0f9bcd5208bcb6f9d7aeb4a4"
 dependencies = [
  "memchr",
  "once_cell",

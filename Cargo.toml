@@ -15,7 +15,11 @@ importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
 stdlib = ["rustpython-stdlib", "rustpython-pylib", "encodings"]
 flame-it = ["rustpython-vm/flame-it", "flame", "flamescope"]
-freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/freeze-stdlib"]
+freeze-stdlib = [
+    "stdlib",
+    "rustpython-vm/freeze-stdlib",
+    "rustpython-pylib?/freeze-stdlib",
+]
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 zlib = ["stdlib", "rustpython-stdlib/zlib"]
@@ -27,7 +31,9 @@ ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
 [dependencies]
 rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
-rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
+rustpython-stdlib = { workspace = true, optional = true, features = [
+    "compiler",
+] }
 rustpython-vm = { workspace = true, features = ["compiler"] }
 rustpython-parser = { workspace = true }
 
@@ -38,7 +44,10 @@ flame = { workspace = true, optional = true }
 
 clap = "2.34"
 dirs = { package = "dirs-next", version = "2.0.0" }
-env_logger = { version = "0.9.0", default-features = false, features = ["atty", "termcolor"] }
+env_logger = { version = "0.9.0", default-features = false, features = [
+    "atty",
+    "termcolor",
+] }
 flamescope = { version = "0.1.2", optional = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -91,13 +100,25 @@ git = "https://github.com/microsoft/vcpkg"
 rev = "2024.02.14"
 
 [package.metadata.vcpkg.target]
-x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies = ["openssl" ] }
+x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies = [
+    "openssl",
+] }
 
 [workspace]
 resolver = "2"
 members = [
-    "compiler", "compiler/core", "compiler/codegen",
-    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl",
+    "compiler",
+    "compiler/core",
+    "compiler/codegen",
+    ".",
+    "common",
+    "derive",
+    "jit",
+    "vm",
+    "vm/sre_engine",
+    "pylib",
+    "stdlib",
+    "derive-impl",
     "wasm/lib",
 ]
 
@@ -123,11 +144,13 @@ rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.
 rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
-rustpython-literal = { version = "0.4.0" }
-rustpython-parser-core = { version = "0.4.0" }
-rustpython-parser = { version = "0.4.0" }
-rustpython-ast = { version = "0.4.0" }
-rustpython-format= { version = "0.4.0" }
+rustpython-literal = { git = "https://github.com/kaanyalova/RustPythonParser/", branch = "fix_parser" }
+rustpython-parser-core = { git = "https://github.com/kaanyalova/RustPythonParser/", branch = "fix_parser" }
+rustpython-parser = { git = "https://github.com/kaanyalova/RustPythonParser/", branch = "fix_parser" }
+rustpython-format = { git = "https://github.com/kaanyalova/RustPythonParser/", branch = "fix_parser" }
+rustpython-ast = { git = "https://github.com/kaanyalova/RustPythonParser/", branch = "fix_parser" }
+
+
 # rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
 # rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
 # rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
@@ -158,7 +181,22 @@ is-macro = "0.3.0"
 junction = "1.0.0"
 libc = "0.2.153"
 log = "0.4.16"
-nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
+nix = { version = "0.29", features = [
+    "fs",
+    "user",
+    "process",
+    "term",
+    "time",
+    "signal",
+    "ioctl",
+    "socket",
+    "sched",
+    "zerocopy",
+    "dir",
+    "hostname",
+    "net",
+    "poll",
+] }
 malachite-bigint = "0.2.0"
 malachite-q = "0.4.4"
 malachite-base = "0.4.4"
