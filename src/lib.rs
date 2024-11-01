@@ -60,7 +60,10 @@ pub use settings::{opts_with_clap, RunMode};
 
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
-pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
+pub fn run(
+    init: impl FnOnce(&mut VirtualMachine) + 'static,
+    late_init: impl FnOnce(&VirtualMachine, &Scope) + 'static,
+) -> ExitCode {
     env_logger::init();
 
     // NOTE: This is not a WASI convention. But it will be convenient since POSIX shell always defines it.
@@ -97,7 +100,7 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     config = config.init_hook(Box::new(init));
 
     let interp = config.interpreter();
-    let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode, quiet_var));
+    let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode, quiet_var, late_init));
 
     ExitCode::from(exitcode)
 }
@@ -159,7 +162,12 @@ fn install_pip(_installer: &str, _scope: Scope, vm: &VirtualMachine) -> PyResult
     ))
 }
 
-fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResult<()> {
+fn run_rustpython(
+    vm: &VirtualMachine,
+    run_mode: RunMode,
+    quiet: bool,
+    late_init: impl FnOnce(&VirtualMachine, &Scope) + 'static,
+) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
 
@@ -182,6 +190,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResu
              environment variable",
         );
     }
+    late_init(vm, &scope);
 
     match run_mode {
         RunMode::Command(command) => {
