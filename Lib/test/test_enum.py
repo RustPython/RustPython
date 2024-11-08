@@ -4876,8 +4876,6 @@ class TestStdLib(unittest.TestCase):
         if failed:
             self.fail("result does not equal expected, see print above")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_inspect_signatures(self):
         from inspect import signature, Signature, Parameter
         self.assertEqual(
