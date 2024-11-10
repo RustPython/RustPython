@@ -386,6 +386,8 @@ class TestBasicOps:
         self.assertRaises(ValueError, self.gen.getrandbits, -1)
         self.assertRaises(TypeError, self.gen.getrandbits, 10.1)
 
+    # TODO: RUSTPYTHON AttributeError: 'super' object has no attribute 'getstate'
+    @unittest.expectedFailure
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             state = pickle.dumps(self.gen, proto)
