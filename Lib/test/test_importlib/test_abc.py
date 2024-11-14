@@ -701,8 +701,6 @@ class SourceLoaderTestHarness:
 class SourceOnlyLoaderTests(SourceLoaderTestHarness):
     """Test importlib.abc.SourceLoader for source-only loading."""
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_source(self):
         # Verify the source code is returned as a string.
         # If an OSError is raised by get_data then raise ImportError.
@@ -761,8 +759,6 @@ class SourceOnlyLoaderTests(SourceLoaderTestHarness):
                 self.verify_module(module)
                 self.assertFalse(hasattr(module, '__path__'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_source_encoding(self):
         # Source is considered encoded in UTF-8 by default unless otherwise
         # specified by an encoding line.
@@ -882,8 +878,6 @@ class SourceLoaderGetSourceTests:
 
     """Tests for importlib.abc.SourceLoader.get_source()."""
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_default_encoding(self):
         # Should have no problems with UTF-8 text.
         name = 'mod'
@@ -893,8 +887,6 @@ class SourceLoaderGetSourceTests:
         returned_source = mock.get_source(name)
         self.assertEqual(returned_source, source)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decoded_source(self):
         # Decoding should work.
         name = 'mod'
@@ -905,8 +897,6 @@ class SourceLoaderGetSourceTests:
         returned_source = mock.get_source(name)
         self.assertEqual(returned_source, source)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_universal_newlines(self):
         # PEP 302 says universal newlines should be used.
         name = 'mod'

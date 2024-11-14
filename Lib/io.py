@@ -57,9 +57,7 @@ import abc
 from _io import (DEFAULT_BUFFER_SIZE, BlockingIOError, UnsupportedOperation,
                  open, open_code, FileIO, BytesIO, StringIO, BufferedReader,
                  BufferedWriter, BufferedRWPair, BufferedRandom,
-                 # XXX RUSTPYTHON TODO: IncrementalNewlineDecoder
-                 # IncrementalNewlineDecoder,
-                 text_encoding, TextIOWrapper)
+                 IncrementalNewlineDecoder, text_encoding, TextIOWrapper)
 
 # Pretend this exception was created here.
 UnsupportedOperation.__module__ = "io"
@@ -100,10 +98,3 @@ except ImportError:
     pass
 else:
     RawIOBase.register(_WindowsConsoleIO)
-
-
-# XXX: RUSTPYTHON; borrow IncrementalNewlineDecoder from _pyio
-try:
-    from _pyio import IncrementalNewlineDecoder
-except ImportError:
-    pass

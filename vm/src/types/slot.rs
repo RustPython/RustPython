@@ -782,7 +782,16 @@ pub trait Constructor: PyPayload {
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
-pub trait DefaultConstructor: PyPayload + Default {}
+pub trait DefaultConstructor: PyPayload + Default {
+    fn construct_and_init(args: Self::Args, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
+    where
+        Self: Initializer,
+    {
+        let this = Self::default().into_ref(&vm.ctx);
+        Self::init(this.clone(), args, vm)?;
+        Ok(this)
+    }
+}
 
 /// For types that cannot be instantiated through Python code.
 #[pyclass]

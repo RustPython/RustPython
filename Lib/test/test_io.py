@@ -4123,41 +4123,6 @@ class CTextIOWrapperTest(TextIOWrapperTest):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
-    def test_read_one_by_one(self):
-        super().test_read_one_by_one()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_read_by_chunk(self):
-        super().test_read_by_chunk()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_issue1395_1(self):
-        super().test_issue1395_1()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_issue1395_2(self):
-        super().test_issue1395_2()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_issue1395_3(self):
-        super().test_issue1395_3()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_issue1395_4(self):
-        super().test_issue1395_4()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_issue1395_5(self):
-        super().test_issue1395_5()
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_reconfigure_write_through(self):
         super().test_reconfigure_write_through()
 
@@ -4811,11 +4776,6 @@ class CMiscIOTest(MiscIOTest):
     io = io
     name_of_module = "io", "_io"
     extra_exported = "BlockingIOError",
-
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test___all__(self):
-        super().test___all__()
 
     def test_readinto_buffer_overflow(self):
         # Issue #18025
