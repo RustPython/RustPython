@@ -10,10 +10,10 @@ You can use the notebook to experiment with using Python and Javascript in the b
 
 The main use case is for scientific communication where you can have:
 
--   text or thesis in markdown,
--   math with Tex,
--   a model or analysis written in python,
--   a user interface and interactive visualization with JS.
+- text or thesis in markdown,
+- math with Tex,
+- a model or analysis written in python,
+- a user interface and interactive visualization with JS.
 
 The Notebook loads python in your browser (so you don't have to install it) then let yous play with those languages.
 
@@ -25,14 +25,14 @@ To read more about the reasoning behind certain features, check the blog on [htt
 
 Sample notebooks are under `snippets`
 
--   `snippets/python-markdown-math.txt`: python, markdown and math
--   `snippets/python-js.txt`, adds javascript
--   `snippets/python-js-css-md/` adds styling with css in separate, more organized files.
+- `snippets/python-markdown-math.txt`: python, markdown and math
+- `snippets/python-js.txt`, adds javascript
+- `snippets/python-js-css-md/` adds styling with css in separate, more organized files.
 
 ## How to use
 
--   Run locally with `npm run dev`
--   Build with `npm run dist`
+- Run locally with `npm run dev`
+- Build with `npm run dist`
 
 ## JS API
 
@@ -96,6 +96,6 @@ assert adder(5) == 9
 
 ## Wish list / TO DO
 
--   Collaborative peer-to-peer editing with WebRTC. Think Google Doc or Etherpad editing but for code in the browser
--   `%%load` command for dynamically adding javascript libraries or css framework
--   Clean up and organize the code. Seriously rethink if we want to make it more than a toy.
+- Collaborative peer-to-peer editing with WebRTC. Think Google Doc or Etherpad editing but for code in the browser
+- `%%load` command for dynamically adding javascript libraries or css framework
+- Clean up and organize the code. Seriously rethink if we want to make it more than a toy.
