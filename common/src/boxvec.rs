@@ -468,8 +468,8 @@ pub struct Drain<'a, T> {
     vec: ptr::NonNull<BoxVec<T>>,
 }
 
-unsafe impl<'a, T: Sync> Sync for Drain<'a, T> {}
-unsafe impl<'a, T: Sync> Send for Drain<'a, T> {}
+unsafe impl<T: Sync> Sync for Drain<'_, T> {}
+unsafe impl<T: Sync> Send for Drain<'_, T> {}
 
 impl<T> Iterator for Drain<'_, T> {
     type Item = T;

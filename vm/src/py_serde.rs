@@ -22,7 +22,7 @@ where
 pub fn deserialize<'de, D>(
     vm: &'de VirtualMachine,
     deserializer: D,
-) -> Result<<PyObjectDeserializer as DeserializeSeed>::Value, D::Error>
+) -> Result<<PyObjectDeserializer<'de> as DeserializeSeed<'de>>::Value, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -49,7 +49,7 @@ impl<'s> PyObjectSerializer<'s> {
     }
 }
 
-impl<'s> serde::Serialize for PyObjectSerializer<'s> {
+impl serde::Serialize for PyObjectSerializer<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
