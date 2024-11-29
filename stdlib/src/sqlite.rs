@@ -1004,7 +1004,9 @@ mod _sqlite {
             )
         }
 
+        // TODO: Make it build without clippy::manual_c_str_literals
         #[pymethod]
+        #[allow(clippy::manual_c_str_literals)]
         fn backup(zelf: &Py<Self>, args: BackupArgs, vm: &VirtualMachine) -> PyResult<()> {
             let BackupArgs {
                 target,
@@ -1026,7 +1028,7 @@ mod _sqlite {
                 name_cstring = name.to_cstring(vm)?;
                 name_cstring.as_ptr()
             } else {
-                c"main".as_ptr().cast()
+                b"main\0".as_ptr().cast()
             };
 
             let sleep_ms = (sleep * 1000.0) as c_int;
@@ -1035,7 +1037,7 @@ mod _sqlite {
             let target_db = target.db_lock(vm)?;
 
             let handle = unsafe {
-                sqlite3_backup_init(target_db.db, c"main".as_ptr().cast(), db.db, name_ptr)
+                sqlite3_backup_init(target_db.db, b"main\0".as_ptr().cast(), db.db, name_ptr)
             };
 
             if handle.is_null() {
