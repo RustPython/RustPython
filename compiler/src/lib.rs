@@ -168,3 +168,16 @@ fn test_compile() {
     let compiled = compile(&code, Mode::Single, "<>", CompileOpts::default());
     dbg!(compiled);
 }
+
+#[test]
+fn test_compile_phello() {
+    let code = r#"
+initialized = True
+def main():
+    print("Hello world!")
+if __name__ == '__main__':
+    main()
+"#;
+    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    dbg!(compiled.expect("compile error"));
+}

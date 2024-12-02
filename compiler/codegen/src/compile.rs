@@ -1302,7 +1302,7 @@ impl Compiler<'_> {
         self.prepare_decorators(decorator_list)?;
 
         // If there are type params, we need to push a special symbol table just for them
-        if !type_params.is_some() {
+        if type_params.is_some() {
             self.push_symbol_table();
         }
 
