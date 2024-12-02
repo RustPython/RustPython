@@ -622,6 +622,8 @@ impl Compiler<'_> {
             {
                 self.compile_future_features(names)?
             }
+            // ignore module-level doc comments
+            Stmt::Expr(StmtExpr { value, .. }) if matches!(&**value, Expr::StringLiteral(..)) => {}
             // if we find any other statement, stop accepting future statements
             _ => self.done_with_future_stmts = true,
         }
