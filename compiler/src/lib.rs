@@ -206,3 +206,21 @@ lambda: 'a'
     let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
+
+#[test]
+fn test_compile_int() {
+    let code = r#"
+a = 0xFF
+"#;
+    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    dbg!(compiled.expect("compile error"));
+}
+
+#[test]
+fn test_compile_bigint() {
+    let code = r#"
+a = 0xFFFFFFFFFFFFFFFFFFFFFFFF
+"#;
+    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    dbg!(compiled.expect("compile error"));
+}

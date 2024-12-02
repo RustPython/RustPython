@@ -2630,10 +2630,25 @@ impl Compiler<'_> {
                             // self.emit_load_const(ConstantData::Integer { value:  });
                             BigInt::from(small)
                         } else {
+                            // FIXME: This should probably happen in ruff
                             let s = format!("{}", int);
-                            BigInt::from_str_radix(&s, 10).map_err(|e| {
+                            let mut s = s.as_str();
+                            // See: https://peps.python.org/pep-0515/#literal-grammar
+                            let radix  = if s.starts_with("0b") || s.starts_with("0B") {
+                                s = s.get(2..).unwrap_or(s);
+                                2 
+                            } else if s.starts_with("0o") || s.starts_with("0O")  {
+                                s = s.get(2..).unwrap_or(s);
+                                8
+                            } else if s.starts_with("0x") || s.starts_with("0X") {
+                                s = s.get(2..).unwrap_or(s);
+                                16
+                            } else {
+                                10
+                            };
+                            BigInt::from_str_radix(&s, radix).map_err(|e| {
                                 self.error(CodegenErrorType::SyntaxError(
-                                    "unparsed int".to_string(),
+                                    format!("unparsed integer literal (radix {radix}): {s} ({e})")
                                 ))
                             })?
                         };
