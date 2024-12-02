@@ -731,37 +731,62 @@ impl Compiler<'_> {
             }) => {
                 let after_block = self.new_block();
                 self.compile_jump_if(&test, false, after_block)?;
-
-                for clause in elif_else_clauses {
-                    self.compile_statements(&clause.body)?;
-                    emit!(
+                self.compile_statements(body)?;
+                
+                match elif_else_clauses.as_slice() {
+                    // Only if
+                    [] => {}, 
+                    // If and elif/else
+                    [head] =>  {
+                        if let Some(test) = &head.test {
+                            self.compile_jump_if(test, false, after_block)?;
+                        }
+                        self.compile_statements(&head.body)?;
+                        // TODO: Unnecessary?
+                        emit!(
                         self,
                         Instruction::Jump {
                             target: after_block
+                        })
+                    }
+                    // If, elif..., elif/else
+                    [head, rest@.., tail ]=> {
+                        let mut next_block = self.new_block();
+                        if let Some(test) = &head.test {
+                            self.compile_jump_if(test, false, next_block)?;
+                        } else  {
+                            unreachable!() // must be elif
                         }
-                    );
-                }
-                // TODO:
-                // if elif_else_clauses.is_empty() {
-                //     // Only if:
-                //     self.compile_jump_if(test, false, after_block)?;
-                //     self.compile_statements(body)?;
-                // } else {
-                //     // if - else:
-                //     let else_block = self.new_block();
-                //     self.compile_jump_if(test, false, else_block)?;
-                //     self.compile_statements(body)?;
-                //     emit!(
-                //         self,
-                //         Instruction::Jump {
-                //             target: after_block,
-                //         }
-                //     );
+                        self.compile_statements(&head.body)?;
+                        
+                        for clause in rest {
+                            let previous_block = next_block;
+                             next_block = self.new_block();
+                            if let Some(test) = &clause.test {
+                                self.compile_jump_if(test, false, next_block)?;
+                            } else  {
+                                unreachable!() // must be elif
+                            }
+                            self.switch_to_block(previous_block);
+                            self.compile_statements(&clause.body)?;    
+                        }
 
-                //     // else:
-                //     self.switch_to_block(else_block);
-                //     self.compile_statements(elif_else_clauses)?;
-                // }
+                        self.switch_to_block(next_block);
+                        if let Some(test) = &tail.test {
+                            self.compile_jump_if(test, false, after_block)?;
+                        }
+                        self.compile_statements(&tail.body)?;
+
+                        // TODO: Unnecessary?
+                        emit!(
+                        self,
+                        Instruction::Jump {
+                            target: after_block
+                        })
+                        
+                    }
+                }
+                
                 self.switch_to_block(after_block);
             }
             Stmt::While(StmtWhile {

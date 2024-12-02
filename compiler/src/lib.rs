@@ -181,3 +181,19 @@ if __name__ == '__main__':
     let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
+
+#[test]
+fn test_compile_if_elif_else() {
+    let code = r#"
+if False:
+    pass
+elif False:
+    pass
+elif False:
+    pass
+else:
+    pass
+"#;
+    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    dbg!(compiled.expect("compile error"));
+}
