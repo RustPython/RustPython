@@ -348,7 +348,10 @@ pub(crate) fn compile(
     }
 
     let ast = Node::ast_from_object(vm, object)?;
-    let code = codegen::compile::compile_top(&ast, filename.to_owned(), mode, opts)
+    // TODO: create a textual representation of the ast
+    let text = "";
+    let source_code = SourceCode::new(filename, text);
+    let code = compile::compile_top(ast, source_code, mode, opts).map_err(|e| e.into())
         .map_err(|err| (CompileError::from(err), None).to_pyexception(vm))?; // FIXME source
     Ok(vm.ctx.new_code(code).into())
 }
