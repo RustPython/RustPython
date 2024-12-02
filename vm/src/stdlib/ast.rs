@@ -17,10 +17,9 @@ use crate::{
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
-use rustpython_ast::{self as ast, fold::Fold};
-#[cfg(feature = "rustpython-codegen")]
+#[cfg(feature = "codegen")]
 use rustpython_codegen as codegen;
-#[cfg(feature = "rustpython-parser")]
+#[cfg(feature = "parser")]
 use ruff_python_parser as parser;
 
 #[pymodule]
@@ -323,7 +322,7 @@ impl Node for ast::located::Arguments {
     }
 }
 
-#[cfg(feature = "rustpython-parser")]
+#[cfg(feature = "parser")]
 pub(crate) fn parse(
     vm: &VirtualMachine,
     source: &str,
@@ -335,7 +334,7 @@ pub(crate) fn parse(
     Ok(top.ast_to_object(vm))
 }
 
-#[cfg(feature = "rustpython-codegen")]
+#[cfg(feature = "codegen")]
 pub(crate) fn compile(
     vm: &VirtualMachine,
     object: PyObjectRef,

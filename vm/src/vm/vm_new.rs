@@ -256,7 +256,7 @@ impl VirtualMachine {
         self.new_exception_msg(overflow_error, msg)
     }
 
-    #[cfg(any(feature = "rustpython-parser", feature = "rustpython-codegen"))]
+    #[cfg(any(feature = "parser", feature = "compiler"))]
     pub fn new_syntax_error(
         &self,
         error: &crate::compiler::CompileError,
