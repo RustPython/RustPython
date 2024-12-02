@@ -2547,26 +2547,6 @@ impl Compiler<'_> {
                 emit!(self, Instruction::Duplicate);
                 self.compile_store(target)?;
             }
-            // Expr::FormattedValue(ExprFormattedValue {
-            //     value,
-            //     conversion,
-            //     format_spec,
-            //     ..
-            // }) => {
-            //     match format_spec {
-            //         Some(spec) => self.compile_expression(spec)?,
-            //         None => self.emit_load_const(ConstantData::Str {
-            //             value: String::new(),
-            //         }),
-            //     };
-            //     self.compile_expression(value)?;
-            //     emit!(
-            //         self,
-            //         Instruction::FormatValue {
-            //             conversion: *conversion,
-            //         },
-            //     );
-            // }
             Expr::FString(fstring) => {
                 // fast path: only one literal
                 if fstring.value.as_slice().len() == 1 {
@@ -2596,8 +2576,6 @@ impl Compiler<'_> {
                             if fstring.elements.len() == 1 && fstring.elements.literals().count()==0 && fstring.elements.expressions().count()==1{
                                 let element = fstring.elements[0].as_expression().unwrap();
 
-                                self.compile_expression(&element.expression)?;
-
                                 //let value: String = element.format_spec.as_ref()
                                 //    .into_iter()
                                 //    .flat_map(|x|{
@@ -2609,12 +2587,8 @@ impl Compiler<'_> {
                                 let value = element.format_spec.as_ref().and_then(|x| self.source_code.text.get(x.range.start().to_usize()..x.range.end().to_usize())).unwrap_or_default().to_owned();
                                 self.emit_load_const(ConstantData::Str { value: value });
 
-                                emit!(
-                                    self,
-                                    Instruction::FormatValue {
-                                        conversion: element.conversion,
-                                    },
-                                );
+                                self.compile_expression(&element.expression)?;
+                                emit!(self, Instruction::FormatValue { conversion: element.conversion });
                                 return Ok(());
                             }
                         }
@@ -2657,15 +2631,10 @@ impl Compiler<'_> {
                                         //    .collect();
                                         let value = element.format_spec.as_ref().and_then(|x| self.source_code.text.get(x.range.start().to_usize()..x.range.end().to_usize())).unwrap_or_default().to_owned();
                                         self.emit_load_const(ConstantData::Str { value });
-                                        
+
                                         self.compile_expression(&element.expression)?;
 
-                                        emit!(
-                                            self,
-                                            Instruction::FormatValue {
-                                                conversion: element.conversion,
-                                            },
-                                        );
+                                        emit!(self, Instruction::FormatValue { conversion: element.conversion });
                                         args+=1;
                                     },
                                 }
