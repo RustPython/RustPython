@@ -2446,11 +2446,7 @@ impl Compiler<'_> {
                 let prev_ctx = self.ctx;
 
                 let name = "<lambda>".to_owned();
-                let mut func_flags = if let Some(parameters) = parameters {
-                    self.enter_function(&name, parameters)?
-                } else {
-                    MakeFunctionFlags::DEFAULTS
-                };
+                let mut func_flags = self.enter_function(&name, parameters.as_deref().unwrap_or(&Default::default()))?;
 
                 self.ctx = CompileContext {
                     loop_data: Option::None,

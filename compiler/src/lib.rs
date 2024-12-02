@@ -197,3 +197,12 @@ else:
     let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }
+
+#[test]
+fn test_compile_lambda() {
+    let code = r#"
+lambda: 'a'
+"#;
+    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    dbg!(compiled.expect("compile error"));
+}
