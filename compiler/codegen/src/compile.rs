@@ -729,28 +729,32 @@ impl Compiler<'_> {
                 elif_else_clauses,
                 ..
             }) => {
-                let after_block = self.new_block();
-                self.compile_jump_if(&test, false, after_block)?;
-                self.compile_statements(body)?;
-                
                 match elif_else_clauses.as_slice() {
                     // Only if
-                    [] => {}, 
+                    [] => {
+                        let after_block = self.new_block();
+                        self.compile_jump_if(&test, false, after_block)?;
+                        self.compile_statements(body)?;
+                        self.switch_to_block(after_block);
+                    },
                     // If and elif/else
                     [head] =>  {
+                        let elif_block = self.new_block();
+                        let after_block = self.new_block();
+
+                        self.compile_jump_if(test, false, elif_block)?;
+                        self.compile_statements(body)?;
+                        self.switch_to_block(elif_block);
+
                         if let Some(test) = &head.test {
-                            self.compile_jump_if(test, false, after_block)?;
+                            self.compile_jump_if(&test, false, after_block)?;
                         }
                         self.compile_statements(&head.body)?;
-                        // TODO: Unnecessary?
-                        emit!(
-                        self,
-                        Instruction::Jump {
-                            target: after_block
-                        })
+                        self.switch_to_block(after_block);
                     }
                     // If, elif..., elif/else
                     [head, rest@.., tail ]=> {
+                        let after_block = self.new_block();
                         let mut next_block = self.new_block();
                         if let Some(test) = &head.test {
                             self.compile_jump_if(test, false, next_block)?;
@@ -776,18 +780,9 @@ impl Compiler<'_> {
                             self.compile_jump_if(test, false, after_block)?;
                         }
                         self.compile_statements(&tail.body)?;
-
-                        // TODO: Unnecessary?
-                        emit!(
-                        self,
-                        Instruction::Jump {
-                            target: after_block
-                        })
-                        
+                        self.switch_to_block(after_block);
                     }
                 }
-                
-                self.switch_to_block(after_block);
             }
             Stmt::While(StmtWhile {
                 test, body, orelse, ..
