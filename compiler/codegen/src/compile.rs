@@ -1623,10 +1623,13 @@ impl Compiler<'_> {
             value: name.to_owned(),
         });
 
-        if let Some(arguments) = arguments {
-            let call = self.compile_call_inner(2, arguments)?;
-            self.compile_normal_call(call);
-        }
+        // Call the __build_class__ builtin
+        let call = if let Some(arguments) = arguments {
+            self.compile_call_inner(2, arguments)?
+        } else {
+            CallType::Positional { nargs: 2 }
+        };
+        self.compile_normal_call(call);
 
         self.apply_decorators(decorator_list);
 
