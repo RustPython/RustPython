@@ -744,17 +744,18 @@ impl Compiler<'_> {
 
                         self.compile_jump_if(&test, false, next_block)?;
                         self.compile_statements(body)?;
+                        emit!(self, Instruction::Jump { target: after_block });
 
                         for clause in rest {
-                            let previous_block = next_block;
+                            self.switch_to_block(next_block);
                             next_block = self.new_block();
                             if let Some(test) = &clause.test {
                                 self.compile_jump_if(test, false, next_block)?;
                             } else  {
                                 unreachable!() // must be elif
                             }
-                            self.switch_to_block(previous_block);
-                            self.compile_statements(&clause.body)?;    
+                            self.compile_statements(&clause.body)?;
+                            emit!(self, Instruction::Jump { target: after_block });
                         }
 
                         self.switch_to_block(next_block);
