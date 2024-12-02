@@ -1087,22 +1087,6 @@ impl SymbolTableBuilder<'_> {
                     self.scan_expression(&keyword.value, ExpressionContext::Load)?;
                 }
             }
-            // Expr::FormattedValue(ExprFormattedValue {
-            //     value,
-            //     format_spec,
-            //     range: _,
-            //     ..
-            // }) => {
-            //     self.scan_expression(value, ExpressionContext::Load)?;
-            //     if let Some(spec) = format_spec {
-            //         self.scan_expression(spec, ExpressionContext::Load)?;
-            //     }
-            // }
-            // Expr::JoinedStr(ExprJoinedStr { values, range: _ }) => {
-            //     for value in values {
-            //         self.scan_expression(value, ExpressionContext::Load)?;
-            //     }
-            // }
             Expr::Name(ExprName { id, range, .. }) => {
                 let id = id.as_str();
                 // Determine the contextual usage of this symbol:
@@ -1158,9 +1142,14 @@ impl SymbolTableBuilder<'_> {
                 }
                 self.leave_scope();
             }
-            Expr::FString(ExprFString { range, value }) => {
+            Expr::FString(ExprFString { value, .. }) => {
                 for expr in value.elements().filter_map(|x| x.as_expression()) {
                     self.scan_expression(&expr.expression, ExpressionContext::Load)?;
+                    if let Some(format_spec) = &expr.format_spec {
+                        for element in format_spec.elements.expressions() {
+                            self.scan_expression(&element.expression, ExpressionContext::Load)?
+                        }
+                    } 
                 }
             }
             // Constants

@@ -2404,41 +2404,6 @@ impl Compiler<'_> {
                 self.emit_load_const(ConstantData::None);
                 emit!(self, Instruction::YieldFrom);
             }
-            // Expr::JoinedStr(ExprJoinedStr { values, .. }) => {
-            //     if let Some(value) = try_get_constant_string(values) {
-            //         self.emit_load_const(ConstantData::Str { value })
-            //     } else {
-            //         for value in values {
-            //             self.compile_expression(value)?;
-            //         }
-            //         emit!(
-            //             self,
-            //             Instruction::BuildString {
-            //                 size: values.len().to_u32(),
-            //             }
-            //         )
-            //     }
-            // }
-            // Expr::FormattedValue(ExprFormattedValue {
-            //     value,
-            //     conversion,
-            //     format_spec,
-            //     ..
-            // }) => {
-            //     match format_spec {
-            //         Some(spec) => self.compile_expression(spec)?,
-            //         None => self.emit_load_const(ConstantData::Str {
-            //             value: String::new(),
-            //         }),
-            //     };
-            //     self.compile_expression(value)?;
-            //     emit!(
-            //         self,
-            //         Instruction::FormatValue {
-            //             conversion: *conversion,
-            //         },
-            //     );
-            // }
             Expr::Name(ExprName { id, .. }) => self.load_name(id.as_str())?,
             Expr::Lambda(ExprLambda {
                 parameters, body, ..
@@ -2604,14 +2569,142 @@ impl Compiler<'_> {
                 emit!(self, Instruction::Duplicate);
                 self.compile_store(target)?;
             }
+            // Expr::FormattedValue(ExprFormattedValue {
+            //     value,
+            //     conversion,
+            //     format_spec,
+            //     ..
+            // }) => {
+            //     match format_spec {
+            //         Some(spec) => self.compile_expression(spec)?,
+            //         None => self.emit_load_const(ConstantData::Str {
+            //             value: String::new(),
+            //         }),
+            //     };
+            //     self.compile_expression(value)?;
+            //     emit!(
+            //         self,
+            //         Instruction::FormatValue {
+            //             conversion: *conversion,
+            //         },
+            //     );
+            // }
             Expr::FString(fstring) => {
-                // TODO: formatted string
-                let value: String = fstring
-                    .value
-                    .literals()
-                    .flat_map(|x| x.as_str().chars())
-                    .collect();
-                self.emit_load_const(ConstantData::Str { value });
+                // fast path: only one literal
+                if fstring.value.as_slice().len() == 1 {
+                    match &fstring.value.as_slice()[0] {
+                        FStringPart::Literal(literal) => {
+                            self.emit_load_const(ConstantData::Str {
+                                value: literal.value.to_string(),
+                            });
+                            return Ok(());
+                        }
+                        FStringPart::FString(fstring) => {
+                            if  fstring.elements.len() == 1 && fstring.elements.literals().count()==1 && fstring.elements.expressions().count()==0{
+                                self.emit_load_const(ConstantData::Str {
+                                    value: fstring.elements[0].as_literal().unwrap().value.to_string(),
+                                });
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+                
+                // fast path: only one expression
+                if fstring.value.as_slice().len() == 1 {
+                    match &fstring.value.as_slice()[0] {
+                        FStringPart::Literal(_) => {}
+                        FStringPart::FString(fstring) => {
+                            if fstring.elements.len() == 1 && fstring.elements.literals().count()==0 && fstring.elements.expressions().count()==1{
+                                let element = fstring.elements[0].as_expression().unwrap();
+
+                                self.compile_expression(&element.expression)?;
+
+                                //let value: String = element.format_spec.as_ref()
+                                //    .into_iter()
+                                //    .flat_map(|x|{
+                                //        assert_eq!(x.elements.expressions().count(), 0, "todo: nested f-string replacements");
+                                //        x.elements.literals()
+                                //    })
+                                //    .flat_map(|x| x.value.chars())
+                                //    .collect();
+                                let value = element.format_spec.as_ref().and_then(|x| self.source_code.text.get(x.range.start().to_usize()..x.range.end().to_usize())).unwrap_or_default().to_owned();
+                                self.emit_load_const(ConstantData::Str { value: value });
+
+                                emit!(
+                                    self,
+                                    Instruction::FormatValue {
+                                        conversion: element.conversion,
+                                    },
+                                );
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+                
+                self.emit_load_const(ConstantData::Str {
+                    value: String::new(),
+                });
+                let idx = self.name("join");
+                emit!(self, Instruction::LoadMethod { idx });
+
+                let mut args = 0;
+
+                for part in fstring.value.as_slice() {
+                    match part {
+                        FStringPart::Literal(literal) => {
+                            self.emit_load_const(ConstantData::Str {
+                                value: literal.value.to_string(),
+                            });
+                            args+=1;
+                        }
+                        FStringPart::FString(literal) => {
+                            for element in &literal.elements {
+                                match element {
+                                    FStringElement::Literal(literal) => {
+                                        self.emit_load_const(ConstantData::Str {
+                                            value: literal.value.to_string(),
+                                        });
+                                        args+=1;
+                                    },
+                                    FStringElement::Expression(element) => {
+                                        //let value: String = element.format_spec.as_ref()
+                                        //    .into_iter()
+                                        //    .flat_map(|x|{
+                                        //        assert_eq!(x.elements.expressions().count(), 0, "todo: nested f-string replacements");
+                                        //        x.elements.literals()
+                                        //    })
+                                        //    .flat_map(|x| x.value.chars())
+                                        //    .collect();
+                                        let value = element.format_spec.as_ref().and_then(|x| self.source_code.text.get(x.range.start().to_usize()..x.range.end().to_usize())).unwrap_or_default().to_owned();
+                                        self.emit_load_const(ConstantData::Str { value });
+                                        
+                                        self.compile_expression(&element.expression)?;
+
+                                        emit!(
+                                            self,
+                                            Instruction::FormatValue {
+                                                conversion: element.conversion,
+                                            },
+                                        );
+                                        args+=1;
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+
+                emit!(
+                    self,
+                    Instruction::BuildList {
+                        size: args,
+                    }
+                );
+                
+                let call = CallType::Positional { nargs: 1 };
+                self.compile_method_call(call)
             }
             Expr::StringLiteral(string) => {
                 self.emit_load_const(ConstantData::Str {
