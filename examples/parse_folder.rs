@@ -12,11 +12,12 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, Arg};
-use rustpython_parser::{ast, Parse};
+use rustpython_compiler::ast;
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
+use ruff_python_parser::parse_module;
 
 fn main() {
     env_logger::init();
@@ -78,18 +79,19 @@ fn parse_python_file(filename: &Path) -> ParsedFile {
     info!("Parsing file {:?}", filename);
     match std::fs::read_to_string(filename) {
         Err(e) => ParsedFile {
-            // filename: Box::new(filename.to_path_buf()),
-            // code: "".to_owned(),
+            filename: Box::new(filename.to_path_buf()),
+            code: "".to_owned(),
             num_lines: 0,
             result: Err(e.to_string()),
         },
         Ok(source) => {
             let num_lines = source.lines().count();
-            let result =
-                ast::Suite::parse(&source, &filename.to_string_lossy()).map_err(|e| e.to_string());
+            let result = parse_module(&source)
+                .map(|x|x.into_suite())
+                .map_err(|e| e.to_string());
             ParsedFile {
-                // filename: Box::new(filename.to_path_buf()),
-                // code: source.to_string(),
+                filename: Box::new(filename.to_path_buf()),
+                code: source.to_string(),
                 num_lines,
                 result,
             }
@@ -142,8 +144,8 @@ struct ScanResult {
 }
 
 struct ParsedFile {
-    // filename: Box<PathBuf>,
-    // code: String,
+    filename: Box<PathBuf>,
+    code: String,
     num_lines: usize,
     result: ParseResult,
 }

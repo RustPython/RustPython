@@ -2422,6 +2422,7 @@ dependencies = [
  "rustpython-common",
  "rustpython-compiler",
  "rustpython-compiler-core",
+ "rustpython-compiler-source",
  "rustpython-derive",
  "rustpython-format",
  "rustpython-jit",

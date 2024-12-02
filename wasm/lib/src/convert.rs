@@ -3,7 +3,7 @@
 use crate::js_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use rustpython_parser::ParseErrorType;
+use ruff_python_parser::ParseErrorType;
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compiler::{CompileError, CompileErrorType},
@@ -251,14 +251,16 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
     let _ = Reflect::set(
         &js_err,
         &"row".into(),
-        &(err.location.unwrap().row.get()).into(),
+        &(err.location().unwrap().row.get()).into(),
     );
     let _ = Reflect::set(
         &js_err,
         &"col".into(),
-        &(err.location.unwrap().column.get()).into(),
+        &(err.location().unwrap().column.get()).into(),
     );
-    let can_continue = matches!(&err.error, CompileErrorType::Parse(ParseErrorType::Eof));
+    // FIXME: Clean this up.
+    // `ruff_python_parser::error::LexicalErrorType` is marked "pub" but not exported (accessible) which prevents us from matching against it
+    let can_continue = matches!(&err, CompileErrorType::Parse(ParseErrorType::Lexical(error)) if error.to_string() == "unexpected EOF while parsing");
     let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());
     js_err
 }
