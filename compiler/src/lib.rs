@@ -217,6 +217,23 @@ fn test_compile_lambda2() {
 }
 
 #[test]
+fn test_compile_lambda3() {
+    let code = r#"
+def g():
+    pass
+def f():
+    if False:
+        return lambda x: g(x)
+    elif False:
+        return g
+    else:
+        return g
+"#;
+    let compiled = compile(&code, Mode::Exec, "<>", CompileOpts::default());
+    dbg!(compiled.expect("compile error"));
+}
+
+#[test]
 fn test_compile_int() {
     let code = r#"
 a = 0xFF

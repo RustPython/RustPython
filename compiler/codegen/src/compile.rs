@@ -737,35 +737,17 @@ impl Compiler<'_> {
                         self.compile_statements(body)?;
                         self.switch_to_block(after_block);
                     },
-                    // If and elif/else
-                    [head] =>  {
-                        let elif_block = self.new_block();
-                        let after_block = self.new_block();
-
-                        self.compile_jump_if(test, false, elif_block)?;
-                        self.compile_statements(body)?;
-                        self.switch_to_block(elif_block);
-
-                        if let Some(test) = &head.test {
-                            self.compile_jump_if(&test, false, after_block)?;
-                        }
-                        self.compile_statements(&head.body)?;
-                        self.switch_to_block(after_block);
-                    }
-                    // If, elif..., elif/else
-                    [head, rest@.., tail ]=> {
+                    // If, elif*, elif/else
+                    [rest @ .., tail ]=> {
                         let after_block = self.new_block();
                         let mut next_block = self.new_block();
-                        if let Some(test) = &head.test {
-                            self.compile_jump_if(test, false, next_block)?;
-                        } else  {
-                            unreachable!() // must be elif
-                        }
-                        self.compile_statements(&head.body)?;
-                        
+
+                        self.compile_jump_if(&test, false, next_block)?;
+                        self.compile_statements(body)?;
+
                         for clause in rest {
                             let previous_block = next_block;
-                             next_block = self.new_block();
+                            next_block = self.new_block();
                             if let Some(test) = &clause.test {
                                 self.compile_jump_if(test, false, next_block)?;
                             } else  {
