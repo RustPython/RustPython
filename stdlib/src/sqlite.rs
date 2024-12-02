@@ -1004,7 +1004,9 @@ mod _sqlite {
             )
         }
 
+        // TODO: Make it build without clippy::manual_c_str_literals
         #[pymethod]
+        #[allow(clippy::manual_c_str_literals)]
         fn backup(zelf: &Py<Self>, args: BackupArgs, vm: &VirtualMachine) -> PyResult<()> {
             let BackupArgs {
                 target,

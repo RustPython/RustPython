@@ -179,7 +179,7 @@ impl<'a> IOErrorBuilder<'a> {
     }
 }
 
-impl<'a> ToPyException for IOErrorBuilder<'a> {
+impl ToPyException for IOErrorBuilder<'_> {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         let excp = self.error.to_pyexception(vm);
 

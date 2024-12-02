@@ -192,31 +192,31 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutexGuard<'a, R, G, T> {
         }
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> Deref for ThreadMutexGuard<'a, R, G, T> {
+impl<R: RawMutex, G: GetThreadId, T: ?Sized> Deref for ThreadMutexGuard<'_, R, G, T> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { &*self.mu.data.get() }
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> DerefMut for ThreadMutexGuard<'a, R, G, T> {
+impl<R: RawMutex, G: GetThreadId, T: ?Sized> DerefMut for ThreadMutexGuard<'_, R, G, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.mu.data.get() }
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> Drop for ThreadMutexGuard<'a, R, G, T> {
+impl<R: RawMutex, G: GetThreadId, T: ?Sized> Drop for ThreadMutexGuard<'_, R, G, T> {
     fn drop(&mut self) {
         unsafe { self.mu.raw.unlock() }
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Display> fmt::Display
-    for ThreadMutexGuard<'a, R, G, T>
+impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Display> fmt::Display
+    for ThreadMutexGuard<'_, R, G, T>
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
-    for ThreadMutexGuard<'a, R, G, T>
+impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
+    for ThreadMutexGuard<'_, R, G, T>
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
@@ -259,31 +259,31 @@ impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> MappedThreadMutexGuard<'a, R, G
         }
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> Deref for MappedThreadMutexGuard<'a, R, G, T> {
+impl<R: RawMutex, G: GetThreadId, T: ?Sized> Deref for MappedThreadMutexGuard<'_, R, G, T> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { self.data.as_ref() }
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> DerefMut for MappedThreadMutexGuard<'a, R, G, T> {
+impl<R: RawMutex, G: GetThreadId, T: ?Sized> DerefMut for MappedThreadMutexGuard<'_, R, G, T> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { self.data.as_mut() }
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized> Drop for MappedThreadMutexGuard<'a, R, G, T> {
+impl<R: RawMutex, G: GetThreadId, T: ?Sized> Drop for MappedThreadMutexGuard<'_, R, G, T> {
     fn drop(&mut self) {
         unsafe { self.mu.unlock() }
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Display> fmt::Display
-    for MappedThreadMutexGuard<'a, R, G, T>
+impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Display> fmt::Display
+    for MappedThreadMutexGuard<'_, R, G, T>
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
-impl<'a, R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
-    for MappedThreadMutexGuard<'a, R, G, T>
+impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
+    for MappedThreadMutexGuard<'_, R, G, T>
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)

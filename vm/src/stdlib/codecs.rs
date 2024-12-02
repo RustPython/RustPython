@@ -107,7 +107,7 @@ mod _codecs {
             PyStr::is_ascii(self)
         }
     }
-    impl<'vm> encodings::ErrorHandler for ErrorsHandler<'vm> {
+    impl encodings::ErrorHandler for ErrorsHandler<'_> {
         type Error = PyBaseExceptionRef;
         type StrBuf = PyStrRef;
         type BytesBuf = PyBytesRef;

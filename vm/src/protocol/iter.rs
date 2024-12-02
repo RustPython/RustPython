@@ -229,7 +229,7 @@ where
     _phantom: std::marker::PhantomData<T>,
 }
 
-unsafe impl<'a, T, O> Traverse for PyIterIter<'a, T, O>
+unsafe impl<T, O> Traverse for PyIterIter<'_, T, O>
 where
     O: Traverse + Borrow<PyObject>,
 {
@@ -252,7 +252,7 @@ where
     }
 }
 
-impl<'a, T, O> Iterator for PyIterIter<'a, T, O>
+impl<T, O> Iterator for PyIterIter<'_, T, O>
 where
     T: TryFromObject,
     O: Borrow<PyObject>,

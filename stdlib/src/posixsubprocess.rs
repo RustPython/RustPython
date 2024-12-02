@@ -113,7 +113,7 @@ struct CharPtrSlice<'a> {
     slice: [*const libc::c_char],
 }
 
-impl<'a> CharPtrSlice<'a> {
+impl CharPtrSlice<'_> {
     fn as_ptr(&self) -> *const *const libc::c_char {
         self.slice.as_ptr()
     }

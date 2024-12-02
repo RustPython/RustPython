@@ -1503,7 +1503,7 @@ mod bio {
 
     pub struct MemBioSlice<'a>(*mut sys::BIO, PhantomData<&'a [u8]>);
 
-    impl<'a> Drop for MemBioSlice<'a> {
+    impl Drop for MemBioSlice<'_> {
         fn drop(&mut self) {
             unsafe {
                 sys::BIO_free_all(self.0);

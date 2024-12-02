@@ -236,7 +236,7 @@ pub struct SearchIter<'a, S: StrDrive> {
     pub state: State,
 }
 
-impl<'a, S: StrDrive> Iterator for SearchIter<'a, S> {
+impl<S: StrDrive> Iterator for SearchIter<'_, S> {
     type Item = ();
 
     fn next(&mut self) -> Option<Self::Item> {

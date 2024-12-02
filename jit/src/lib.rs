@@ -341,7 +341,7 @@ pub struct Args<'a> {
     code: &'a CompiledCode,
 }
 
-impl<'a> Args<'a> {
+impl Args<'_> {
     pub fn invoke(&self) -> Option<AbiValue> {
         unsafe { self.code.invoke_raw(&self.cif_args) }
     }

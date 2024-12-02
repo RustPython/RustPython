@@ -23,7 +23,7 @@ impl<'vm> ReprGuard<'vm> {
     }
 }
 
-impl<'vm> Drop for ReprGuard<'vm> {
+impl Drop for ReprGuard<'_> {
     fn drop(&mut self) {
         self.vm.repr_guards.borrow_mut().remove(&self.id);
     }
