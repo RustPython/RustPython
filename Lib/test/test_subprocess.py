@@ -1056,8 +1056,6 @@ class ProcessTestCase(BaseTestCase):
         self.assertEqual(stdout, b"bananasplit")
         self.assertEqual(stderr, b"")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_universal_newlines_and_text(self):
         args = [
             sys.executable, "-c",
@@ -1097,7 +1095,6 @@ class ProcessTestCase(BaseTestCase):
                 self.assertEqual(p.stdout.read(),
                                  "line4\nline5\nline6\nline7\nline8")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_universal_newlines_communicate(self):
         # universal newlines through communicate()
         p = subprocess.Popen([sys.executable, "-c",
@@ -1149,7 +1146,6 @@ class ProcessTestCase(BaseTestCase):
         p.communicate()
         self.assertEqual(p.returncode, 0)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_universal_newlines_communicate_stdin_stdout_stderr(self):
         # universal newlines through communicate(), with stdin, stdout, stderr
         p = subprocess.Popen([sys.executable, "-c",
@@ -3805,7 +3801,6 @@ class MiscTests(unittest.TestCase):
                 raise KeyboardInterrupt  # Test how __exit__ handles ^C.
         self._test_keyboardinterrupt_no_kill(popen_via_context_manager)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getoutput(self):
         self.assertEqual(subprocess.getoutput('echo xyzzy'), 'xyzzy')
         self.assertEqual(subprocess.getstatusoutput('echo xyzzy'),

@@ -1,5 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
+use syn::ext::IdentExt;
 use syn::{
     parse_quote, Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Meta, NestedMeta, Result,
 };
@@ -138,7 +139,7 @@ fn generate_field((i, field): (usize, &Field)) -> Result<TokenStream> {
     };
 
     let name = field.ident.as_ref();
-    let name_string = name.map(Ident::to_string);
+    let name_string = name.map(|ident| ident.unraw().to_string());
     if matches!(&name_string, Some(s) if s.starts_with("_phantom")) {
         return Ok(quote! {
             #name: ::std::marker::PhantomData,

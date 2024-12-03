@@ -56,11 +56,30 @@ impl IntoPyTuple for Vec<PyObjectRef> {
     }
 }
 
-macro_rules! impl_into_pyobj_tuple {
-    ($(($T:ident, $idx:tt)),+) => {
+pub trait FromPyTuple<'a>: Sized {
+    fn from_pytuple(tuple: &'a PyTuple, vm: &VirtualMachine) -> PyResult<Self>;
+}
+
+macro_rules! impl_from_into_pytuple {
+    ($($T:ident),+) => {
         impl<$($T: ToPyObject),*> IntoPyTuple for ($($T,)*) {
             fn into_pytuple(self, vm: &VirtualMachine) -> PyTupleRef {
-                PyTuple::new_ref(vec![$(self.$idx.to_pyobject(vm)),*], &vm.ctx)
+                #[allow(non_snake_case)]
+                let ($($T,)*) = self;
+                PyTuple::new_ref(vec![$($T.to_pyobject(vm)),*], &vm.ctx)
+            }
+        }
+
+        // TODO: figure out a way to let PyObjectRef implement TryFromBorrowedObject, and
+        //       have this be a TryFromBorrowedObject bound
+        impl<'a, $($T: TryFromObject),*> FromPyTuple<'a> for ($($T,)*) {
+            fn from_pytuple(tuple: &'a PyTuple, vm: &VirtualMachine) -> PyResult<Self> {
+                #[allow(non_snake_case)]
+                let &[$(ref $T),+] = tuple.as_slice().try_into().map_err(|_| {
+                    vm.new_type_error(format!("expected tuple with {} elements", impl_from_into_pytuple!(@count $($T)+)))
+                })?;
+                Ok(($($T::try_from_object(vm, $T.clone())?,)+))
+
             }
         }
 
@@ -70,15 +89,21 @@ macro_rules! impl_into_pyobj_tuple {
             }
         }
     };
+    (@count $($T:ident)+) => {
+        0 $(+ impl_from_into_pytuple!(@discard $T))+
+    };
+    (@discard $T:ident) => {
+        1
+    };
 }
 
-impl_into_pyobj_tuple!((A, 0));
-impl_into_pyobj_tuple!((A, 0), (B, 1));
-impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2));
-impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3));
-impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4));
-impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5));
-impl_into_pyobj_tuple!((A, 0), (B, 1), (C, 2), (D, 3), (E, 4), (F, 5), (G, 6));
+impl_from_into_pytuple!(A);
+impl_from_into_pytuple!(A, B);
+impl_from_into_pytuple!(A, B, C);
+impl_from_into_pytuple!(A, B, C, D);
+impl_from_into_pytuple!(A, B, C, D, E);
+impl_from_into_pytuple!(A, B, C, D, E, F);
+impl_from_into_pytuple!(A, B, C, D, E, F, G);
 
 impl PyTuple {
     pub(crate) fn fast_getitem(&self, idx: usize) -> PyObjectRef {
@@ -184,6 +209,10 @@ impl PyTuple {
             let elements = v.into_boxed_slice();
             Self { elements }.into_ref(&vm.ctx)
         })
+    }
+
+    pub fn extract_tuple<'a, T: FromPyTuple<'a>>(&'a self, vm: &VirtualMachine) -> PyResult<T> {
+        T::from_pytuple(self, vm)
     }
 }
 

@@ -92,6 +92,11 @@ impl<R: RawMutex, G: GetThreadId, T: Default> Default for ThreadMutex<R, G, T> {
         Self::new(T::default())
     }
 }
+impl<R: RawMutex, G: GetThreadId, T> From<T> for ThreadMutex<R, G, T> {
+    fn from(val: T) -> Self {
+        Self::new(val)
+    }
+}
 impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
     pub fn lock(&self) -> Option<ThreadMutexGuard<R, G, T>> {
         if self.raw.lock() {

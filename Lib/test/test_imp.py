@@ -84,7 +84,6 @@ class ImportTests(unittest.TestCase):
         with self.assertRaises(SyntaxError):
             imp.find_module('badsyntax_pep3120', path)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_issue1267(self):
         for mod, encoding, _ in self.test_strings:
             fp, filename, info  = imp.find_module('module_' + mod,
