@@ -432,7 +432,7 @@ unsafe impl Traverse for PyNumber<'_> {
     }
 }
 
-impl<'a> Deref for PyNumber<'a> {
+impl Deref for PyNumber<'_> {
     type Target = PyObject;
 
     fn deref(&self) -> &Self::Target {

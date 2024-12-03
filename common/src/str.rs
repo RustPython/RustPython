@@ -334,9 +334,7 @@ macro_rules! ascii {
     ($x:expr $(,)?) => {{
         let s = const {
             let s: &str = $x;
-            if !s.is_ascii() {
-                panic!("ascii!() argument is not an ascii string");
-            }
+            assert!(s.is_ascii(), "ascii!() argument is not an ascii string");
             s
         };
         unsafe { $crate::vendored::ascii::AsciiStr::from_ascii_unchecked(s.as_bytes()) }

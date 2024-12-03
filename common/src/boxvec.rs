@@ -1,5 +1,7 @@
 //! An unresizable vector backed by a `Box<[T]>`
 
+#![allow(clippy::needless_lifetimes)]
+
 use std::{
     borrow::{Borrow, BorrowMut},
     cmp, fmt,

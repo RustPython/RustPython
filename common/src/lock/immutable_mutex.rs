@@ -1,3 +1,5 @@
+#![allow(clippy::needless_lifetimes)]
+
 use lock_api::{MutexGuard, RawMutex};
 use std::{fmt, marker::PhantomData, ops::Deref};
 
