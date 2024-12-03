@@ -2750,15 +2750,13 @@ mod _io {
             let data = obj.as_str();
 
             let replace_nl = match textio.newline {
+                Newlines::Lf => Some("\n"),
                 Newlines::Cr => Some("\r"),
                 Newlines::Crlf => Some("\r\n"),
+                Newlines::Universal if cfg!(windows) => Some("\r\n"),
                 _ => None,
             };
-            let has_lf = if replace_nl.is_some() || textio.line_buffering {
-                data.contains('\n')
-            } else {
-                false
-            };
+            let has_lf = (replace_nl.is_some() || textio.line_buffering) && data.contains('\n');
             let flush = textio.line_buffering && (has_lf || data.contains('\r'));
             let chunk = if let Some(replace_nl) = replace_nl {
                 if has_lf {
