@@ -31,7 +31,6 @@ rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"]
 rustpython-vm = { workspace = true, features = ["compiler"] }
 rustpython-parser = { workspace = true }
 
-atty = { workspace = true }
 cfg-if = { workspace = true }
 log = { workspace = true }
 flame = { workspace = true, optional = true }
@@ -141,7 +140,6 @@ rustpython-format= { version = "0.4.0" }
 
 ahash = "0.8.11"
 ascii = "1.0"
-atty = "0.2.14"
 bitflags = "2.4.1"
 bstr = "1"
 cfg-if = "1.0"

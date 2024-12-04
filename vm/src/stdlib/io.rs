@@ -15,7 +15,7 @@ use crate::{
     convert::{IntoPyException, ToPyException},
     PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
-pub use _io::io_open as open;
+pub use _io::{io_open as open, OpenArgs};
 
 impl ToPyException for std::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -2750,15 +2750,13 @@ mod _io {
             let data = obj.as_str();
 
             let replace_nl = match textio.newline {
+                Newlines::Lf => Some("\n"),
                 Newlines::Cr => Some("\r"),
                 Newlines::Crlf => Some("\r\n"),
+                Newlines::Universal if cfg!(windows) => Some("\r\n"),
                 _ => None,
             };
-            let has_lf = if replace_nl.is_some() || textio.line_buffering {
-                data.contains('\n')
-            } else {
-                false
-            };
+            let has_lf = (replace_nl.is_some() || textio.line_buffering) && data.contains('\n');
             let flush = textio.line_buffering && (has_lf || data.contains('\r'));
             let chunk = if let Some(replace_nl) = replace_nl {
                 if has_lf {
@@ -3822,17 +3820,17 @@ mod _io {
     #[derive(FromArgs)]
     pub struct OpenArgs {
         #[pyarg(any, default = "-1")]
-        buffering: isize,
+        pub buffering: isize,
         #[pyarg(any, default)]
-        encoding: Option<PyStrRef>,
+        pub encoding: Option<PyStrRef>,
         #[pyarg(any, default)]
-        errors: Option<PyStrRef>,
+        pub errors: Option<PyStrRef>,
         #[pyarg(any, default)]
-        newline: Option<PyStrRef>,
+        pub newline: Option<PyStrRef>,
         #[pyarg(any, default = "true")]
-        closefd: bool,
+        pub closefd: bool,
         #[pyarg(any, default)]
-        opener: Option<PyObjectRef>,
+        pub opener: Option<PyObjectRef>,
     }
     impl Default for OpenArgs {
         fn default() -> Self {

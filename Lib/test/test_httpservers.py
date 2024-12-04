@@ -616,8 +616,6 @@ class CGIHTTPServerTestCase(BaseTestCase):
         pass
 
     linesep = os.linesep.encode('ascii')
-    # TODO: RUSTPYTHON
-    linesep = b'\n'
 
     def setUp(self):
         BaseTestCase.setUp(self)

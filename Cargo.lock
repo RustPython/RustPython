@@ -1876,7 +1876,6 @@ dependencies = [
 name = "rustpython"
 version = "0.4.0"
 dependencies = [
- "atty",
  "cfg-if",
  "clap",
  "criterion",
@@ -2194,7 +2193,6 @@ version = "0.4.0"
 dependencies = [
  "ahash",
  "ascii",
- "atty",
  "bitflags 2.6.0",
  "bstr",
  "caseless",
