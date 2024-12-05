@@ -901,13 +901,6 @@ pub mod module {
         nix::unistd::pipe2(oflags).map_err(|err| err.into_pyexception(vm))
     }
 
-    #[pyfunction]
-    fn system(command: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
-        let cstr = command.to_cstring(vm)?;
-        let x = unsafe { libc::system(cstr.as_ptr()) };
-        Ok(x)
-    }
-
     fn _chmod(
         path: OsPath,
         dir_fd: DirFd<0>,

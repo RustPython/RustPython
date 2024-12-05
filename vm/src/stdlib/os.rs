@@ -142,6 +142,7 @@ pub(super) mod _os {
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
+        utils::ToCString,
         vm::VirtualMachine,
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     };
@@ -1026,6 +1027,14 @@ pub(super) mod _os {
                 .filename2(dst)
                 .into_pyexception(vm)
         })
+    }
+
+    #[cfg(any(unix, windows))]
+    #[pyfunction]
+    fn system(command: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
+        let cstr = command.to_cstring(vm)?;
+        let x = unsafe { libc::system(cstr.as_ptr()) };
+        Ok(x)
     }
 
     #[derive(FromArgs)]

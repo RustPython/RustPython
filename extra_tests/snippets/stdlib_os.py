@@ -502,9 +502,9 @@ with TestWithTempDir() as tmpdir:
             assert set(collected_files) == set(expected_files)
 
 # system()
-if "win" not in sys.platform:
-    assert os.system('ls') == 0
-    assert os.system('{') != 0
+if os.name in ('posix', 'nt'):
+    assert os.system('echo test') == 0
+    assert os.system('&') != 0
 
     for arg in [None, 1, 1.0, TabError]:
         assert_raises(TypeError, os.system, arg)
