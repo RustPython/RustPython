@@ -312,11 +312,7 @@ impl VirtualMachine {
             .unwrap();
         syntax_error
             .as_object()
-            .set_attr(
-                "filename",
-                self.ctx.new_str(error.source_path().clone()),
-                self,
-            )
+            .set_attr("filename", self.ctx.new_str(error.source_path()), self)
             .unwrap();
         syntax_error
     }

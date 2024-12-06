@@ -113,6 +113,7 @@ mod builtins {
     fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
         #[cfg(not(feature = "ast"))]
         {
+            _ = args; // to disable unused warning
             return Err(vm.new_type_error("AST Not Supported".to_owned()));
         }
         #[cfg(feature = "ast")]

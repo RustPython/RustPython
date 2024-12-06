@@ -1,5 +1,5 @@
-use std::fmt;
 use ruff_source_file::SourceLocation;
+use std::fmt;
 use thiserror::Error;
 
 // pub type CodegenError = rustpython_parser_core::source_code::LocatedError<CodegenErrorType>;

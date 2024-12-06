@@ -2,7 +2,6 @@ use std::ops;
 
 use crate::IndexSet;
 use ruff_source_file::{OneIndexed, SourceLocation};
-use ruff_text_size::TextRange;
 use rustpython_compiler_core::bytecode::{
     CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label, OpArg,
 };
@@ -137,7 +136,8 @@ impl CodeInfo {
                         *arg = new_arg;
                     }
                     let (extras, lo_arg) = arg.split();
-                    locations.extend(std::iter::repeat(info.location.clone()).take(arg.instr_size()));
+                    locations
+                        .extend(std::iter::repeat(info.location.clone()).take(arg.instr_size()));
                     instructions.extend(
                         extras
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))

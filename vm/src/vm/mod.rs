@@ -290,6 +290,9 @@ impl VirtualMachine {
             import::import_builtin(self, "_typing")?;
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "_signal")?;
+            // TODO: Enable the ast module once it works
+            // #[cfg(any(feature = "parser", feature = "compiler"))]
+            // import::import_builtin(self, "_ast")?;
             #[cfg(not(feature = "threading"))]
             import::import_frozen(self, "_thread")?;
             let importlib = import::init_importlib_base(self)?;
@@ -914,9 +917,9 @@ fn core_frozen_inits() -> impl Iterator<Item = (&'static str, FrozenModule)> {
     // We need a way to initialize this modules for both `Interpreter::without_stdlib()` and `InterpreterConfig::new().init_stdlib().interpreter()`
     // #[cfg(not(feature = "freeze-stdlib"))]
     ext_modules!(
-    iter,
-    dir = "./Lib/core_modules",
-    crate_name = "rustpython_compiler_core"
+        iter,
+        dir = "./Lib/core_modules",
+        crate_name = "rustpython_compiler_core"
     );
 
     iter

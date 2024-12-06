@@ -20,7 +20,7 @@ use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_source::{SourceCode, SourceLocation};
 // use rustpython_ast::{self as ast, located::Located};
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
-use std::{borrow::Cow, fmt, thread::LocalKey};
+use std::{borrow::Cow, fmt};
 
 /// Captures all symbols in the current scope, and has a list of sub-scopes in this scope.
 #[derive(Clone)]
@@ -900,7 +900,7 @@ impl SymbolTableBuilder<'_> {
                 name,
                 value,
                 type_params,
-                range,
+                ..
             }) => {
                 if let Some(type_params) = type_params {
                     self.enter_scope(
@@ -1149,7 +1149,7 @@ impl SymbolTableBuilder<'_> {
                         for element in format_spec.elements.expressions() {
                             self.scan_expression(&element.expression, ExpressionContext::Load)?
                         }
-                    } 
+                    }
                 }
             }
             // Constants
@@ -1267,7 +1267,7 @@ impl SymbolTableBuilder<'_> {
                     name,
                     bound,
                     range: type_var_range,
-                    default,
+                    ..
                 }) => {
                     self.register_name(name.as_str(), SymbolUsage::Assigned, *type_var_range)?;
                     if let Some(binding) = bound {
@@ -1371,7 +1371,7 @@ impl SymbolTableBuilder<'_> {
                     if flags.contains(SymbolFlags::ANNOTATED) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{name}' can't be global"),
-                            location
+                            location,
                         });
                     }
                     if flags.contains(SymbolFlags::ASSIGNED) {

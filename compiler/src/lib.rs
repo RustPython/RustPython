@@ -114,7 +114,7 @@ pub fn compile(
 
 fn _compile(
     source_code: SourceCode,
-    mode: core::Mode,
+    mode: Mode,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
     let parsed = parser::parse(source_code.text, mode.into())
@@ -275,7 +275,7 @@ assert f"{{{(lambda: f'{1}')}" == '{1'
     "#;
     let compiled = compile(&code4, Mode::Exec, "<>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
-    
+
     let code5 = r#"
 assert f"a{1}" == 'a1'
     "#;

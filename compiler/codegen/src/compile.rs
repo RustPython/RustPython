@@ -15,23 +15,19 @@ use crate::{
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
-use num_complex::{Complex, Complex64};
-use num_traits::{FromPrimitive, Num, ToPrimitive};
+use num_complex::Complex;
+use num_traits::{Num, ToPrimitive};
 use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, Decorator, DictItem, ExceptHandler,
     ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprList, ExprName, ExprStarred,
     ExprSubscript, ExprTuple, ExprUnaryOp, Keyword, MatchCase, ModExpression, ModModule, Operator,
-    Parameters, Stmt, StmtImport, StmtImportFrom, TypeParam, TypeParamTypeVar, TypeParams, UnaryOp,
-    WithItem,
+    Parameters, Stmt, TypeParam, TypeParamTypeVar, TypeParams, UnaryOp, WithItem,
 };
-use ruff_source_file::{LineIndex, OneIndexed};
+use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
 // use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_compiler_core::{
-    bytecode::{
-        self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, MakeFunctionFlags, OpArg,
-        OpArgType,
-    },
+    bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
     Mode,
 };
 use rustpython_compiler_source::SourceCode;
@@ -114,6 +110,7 @@ enum ComprehensionType {
 pub fn compile_top(
     ast: ruff_python_ast::Mod,
     source_code: SourceCode,
+    // TODO: Do we still need to consider the compile mode?
     mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
@@ -738,26 +735,36 @@ impl Compiler<'_> {
                         self.compile_jump_if(&test, false, after_block)?;
                         self.compile_statements(body)?;
                         self.switch_to_block(after_block);
-                    },
+                    }
                     // If, elif*, elif/else
-                    [rest @ .., tail ]=> {
+                    [rest @ .., tail] => {
                         let after_block = self.new_block();
                         let mut next_block = self.new_block();
 
                         self.compile_jump_if(&test, false, next_block)?;
                         self.compile_statements(body)?;
-                        emit!(self, Instruction::Jump { target: after_block });
+                        emit!(
+                            self,
+                            Instruction::Jump {
+                                target: after_block
+                            }
+                        );
 
                         for clause in rest {
                             self.switch_to_block(next_block);
                             next_block = self.new_block();
                             if let Some(test) = &clause.test {
                                 self.compile_jump_if(test, false, next_block)?;
-                            } else  {
+                            } else {
                                 unreachable!() // must be elif
                             }
                             self.compile_statements(&clause.body)?;
-                            emit!(self, Instruction::Jump { target: after_block });
+                            emit!(
+                                self,
+                                Instruction::Jump {
+                                    target: after_block
+                                }
+                            );
                         }
 
                         self.switch_to_block(next_block);
@@ -2394,7 +2401,8 @@ impl Compiler<'_> {
                 let prev_ctx = self.ctx;
 
                 let name = "<lambda>".to_owned();
-                let mut func_flags = self.enter_function(&name, parameters.as_deref().unwrap_or(&Default::default()))?;
+                let mut func_flags = self
+                    .enter_function(&name, parameters.as_deref().unwrap_or(&Default::default()))?;
 
                 self.ctx = CompileContext {
                     loop_data: Option::None,
@@ -2563,22 +2571,32 @@ impl Compiler<'_> {
                             return Ok(());
                         }
                         FStringPart::FString(fstring) => {
-                            if  fstring.elements.len() == 1 && fstring.elements.literals().count()==1 && fstring.elements.expressions().count()==0{
+                            if fstring.elements.len() == 1
+                                && fstring.elements.literals().count() == 1
+                                && fstring.elements.expressions().count() == 0
+                            {
                                 self.emit_load_const(ConstantData::Str {
-                                    value: fstring.elements[0].as_literal().unwrap().value.to_string(),
+                                    value: fstring.elements[0]
+                                        .as_literal()
+                                        .unwrap()
+                                        .value
+                                        .to_string(),
                                 });
                                 return Ok(());
                             }
                         }
                     }
                 }
-                
+
                 // fast path: only one expression
                 if fstring.value.as_slice().len() == 1 {
                     match &fstring.value.as_slice()[0] {
                         FStringPart::Literal(_) => {}
                         FStringPart::FString(fstring) => {
-                            if fstring.elements.len() == 1 && fstring.elements.literals().count()==0 && fstring.elements.expressions().count()==1{
+                            if fstring.elements.len() == 1
+                                && fstring.elements.literals().count() == 0
+                                && fstring.elements.expressions().count() == 1
+                            {
                                 let element = fstring.elements[0].as_expression().unwrap();
 
                                 //let value: String = element.format_spec.as_ref()
@@ -2589,17 +2607,31 @@ impl Compiler<'_> {
                                 //    })
                                 //    .flat_map(|x| x.value.chars())
                                 //    .collect();
-                                let value = element.format_spec.as_ref().and_then(|x| self.source_code.text.get(x.range.start().to_usize()..x.range.end().to_usize())).unwrap_or_default().to_owned();
+                                let value = element
+                                    .format_spec
+                                    .as_ref()
+                                    .and_then(|x| {
+                                        self.source_code.text.get(
+                                            x.range.start().to_usize()..x.range.end().to_usize(),
+                                        )
+                                    })
+                                    .unwrap_or_default()
+                                    .to_owned();
                                 self.emit_load_const(ConstantData::Str { value: value });
 
                                 self.compile_expression(&element.expression)?;
-                                emit!(self, Instruction::FormatValue { conversion: element.conversion });
+                                emit!(
+                                    self,
+                                    Instruction::FormatValue {
+                                        conversion: element.conversion
+                                    }
+                                );
                                 return Ok(());
                             }
                         }
                     }
                 }
-                
+
                 self.emit_load_const(ConstantData::Str {
                     value: String::new(),
                 });
@@ -2614,7 +2646,7 @@ impl Compiler<'_> {
                             self.emit_load_const(ConstantData::Str {
                                 value: literal.value.to_string(),
                             });
-                            args+=1;
+                            args += 1;
                         }
                         FStringPart::FString(literal) => {
                             for element in &literal.elements {
@@ -2623,8 +2655,8 @@ impl Compiler<'_> {
                                         self.emit_load_const(ConstantData::Str {
                                             value: literal.value.to_string(),
                                         });
-                                        args+=1;
-                                    },
+                                        args += 1;
+                                    }
                                     FStringElement::Expression(element) => {
                                         //let value: String = element.format_spec.as_ref()
                                         //    .into_iter()
@@ -2634,27 +2666,37 @@ impl Compiler<'_> {
                                         //    })
                                         //    .flat_map(|x| x.value.chars())
                                         //    .collect();
-                                        let value = element.format_spec.as_ref().and_then(|x| self.source_code.text.get(x.range.start().to_usize()..x.range.end().to_usize())).unwrap_or_default().to_owned();
+                                        let value = element
+                                            .format_spec
+                                            .as_ref()
+                                            .and_then(|x| {
+                                                self.source_code.text.get(
+                                                    x.range.start().to_usize()
+                                                        ..x.range.end().to_usize(),
+                                                )
+                                            })
+                                            .unwrap_or_default()
+                                            .to_owned();
                                         self.emit_load_const(ConstantData::Str { value });
 
                                         self.compile_expression(&element.expression)?;
 
-                                        emit!(self, Instruction::FormatValue { conversion: element.conversion });
-                                        args+=1;
-                                    },
+                                        emit!(
+                                            self,
+                                            Instruction::FormatValue {
+                                                conversion: element.conversion
+                                            }
+                                        );
+                                        args += 1;
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                emit!(
-                    self,
-                    Instruction::BuildList {
-                        size: args,
-                    }
-                );
-                
+                emit!(self, Instruction::BuildList { size: args });
+
                 let call = CallType::Positional { nargs: 1 };
                 self.compile_method_call(call)
             }
@@ -2679,10 +2721,10 @@ impl Compiler<'_> {
                             let s = format!("{}", int);
                             let mut s = s.as_str();
                             // See: https://peps.python.org/pep-0515/#literal-grammar
-                            let radix  = if s.starts_with("0b") || s.starts_with("0B") {
+                            let radix = if s.starts_with("0b") || s.starts_with("0B") {
                                 s = s.get(2..).unwrap_or(s);
-                                2 
-                            } else if s.starts_with("0o") || s.starts_with("0O")  {
+                                2
+                            } else if s.starts_with("0o") || s.starts_with("0O") {
                                 s = s.get(2..).unwrap_or(s);
                                 8
                             } else if s.starts_with("0x") || s.starts_with("0X") {
@@ -2692,9 +2734,9 @@ impl Compiler<'_> {
                                 10
                             };
                             BigInt::from_str_radix(&s, radix).map_err(|e| {
-                                self.error(CodegenErrorType::SyntaxError(
-                                    format!("unparsed integer literal (radix {radix}): {s} ({e})")
-                                ))
+                                self.error(CodegenErrorType::SyntaxError(format!(
+                                    "unparsed integer literal (radix {radix}): {s} ({e})"
+                                )))
                             })?
                         };
                         self.emit_load_const(ConstantData::Integer { value });
@@ -3373,6 +3415,7 @@ fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [
     (None, body)
 }
 
+// TODO: Implement this
 fn try_get_constant_string(values: &[Expr]) -> Option<String> {
     None
     // fn get_constant_string_inner(out_string: &mut String, value: &Expr) -> bool {

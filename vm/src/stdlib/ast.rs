@@ -17,10 +17,10 @@ use crate::{
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
-#[cfg(feature = "codegen")]
-use rustpython_codegen as codegen;
 #[cfg(feature = "parser")]
 use ruff_python_parser as parser;
+#[cfg(feature = "codegen")]
+use rustpython_codegen as codegen;
 
 #[pymodule]
 mod _ast {
@@ -351,7 +351,8 @@ pub(crate) fn compile(
     // TODO: create a textual representation of the ast
     let text = "";
     let source_code = SourceCode::new(filename, text);
-    let code = compile::compile_top(ast, source_code, mode, opts).map_err(|e| e.into())
+    let code = compile::compile_top(ast, source_code, mode, opts)
+        .map_err(|e| e.into())
         .map_err(|err| (CompileError::from(err), None).to_pyexception(vm))?; // FIXME source
     Ok(vm.ctx.new_code(code).into())
 }

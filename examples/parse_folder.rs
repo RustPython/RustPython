@@ -12,12 +12,12 @@ extern crate env_logger;
 extern crate log;
 
 use clap::{App, Arg};
+use ruff_python_parser::parse_module;
 use rustpython_compiler::ast;
 use std::{
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
-use ruff_python_parser::parse_module;
 
 fn main() {
     env_logger::init();
@@ -87,7 +87,7 @@ fn parse_python_file(filename: &Path) -> ParsedFile {
         Ok(source) => {
             let num_lines = source.lines().count();
             let result = parse_module(&source)
-                .map(|x|x.into_suite())
+                .map(|x| x.into_suite())
                 .map_err(|e| e.to_string());
             ParsedFile {
                 filename: Box::new(filename.to_path_buf()),
