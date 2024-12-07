@@ -331,12 +331,13 @@ pub mod levenshtein {
 /// ```
 #[macro_export]
 macro_rules! ascii {
-    ($x:literal) => {{
-        const STR: &str = $x;
-        const _: () = if !STR.is_ascii() {
-            panic!("ascii!() argument is not an ascii string");
+    ($x:expr $(,)?) => {{
+        let s = const {
+            let s: &str = $x;
+            assert!(s.is_ascii(), "ascii!() argument is not an ascii string");
+            s
         };
-        unsafe { $crate::vendored::ascii::AsciiStr::from_ascii_unchecked(STR.as_bytes()) }
+        unsafe { $crate::vendored::ascii::AsciiStr::from_ascii_unchecked(s.as_bytes()) }
     }};
 }
 pub use ascii;

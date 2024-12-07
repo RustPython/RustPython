@@ -36,7 +36,7 @@ mod platform {
     // based off winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
 
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
-        let mut slot = std::ptr::addr_of_mut!((*set).fd_array).cast::<RawFd>();
+        let mut slot = (&raw mut (*set).fd_array).cast::<RawFd>();
         let fd_count = (*set).fd_count;
         for _ in 0..fd_count {
             if *slot == fd {
