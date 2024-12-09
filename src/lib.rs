@@ -58,6 +58,7 @@ use std::process::ExitCode;
 pub use interpreter::InterpreterConfig;
 pub use rustpython_vm as vm;
 pub use settings::{opts_with_clap, InstallPipMode, RunMode};
+pub use shell::run_shell;
 
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
