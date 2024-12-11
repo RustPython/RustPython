@@ -1,6 +1,6 @@
 on:
   push:
-    branches: [main]
+    branches: [gh-rel-rustpython]
 
 name: Release
 
@@ -12,15 +12,40 @@ env:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       matrix:
-        os: [ macos-latest, ubuntu-latest, windows-latest ]
+        platform:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: i686-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: armv7-unknown-linux-gnueabi
+          - runner: ubuntu-latest
+            target: s390x-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: powerpc64le-unknown-linux-gnu
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - runner: windows-latest
+            target: i686-pc-windows-msvc
+          - runner: windows-latest
+            target: aarch64-pc-windows-msvc
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up Environment
+        shell: bash
+        run: rustup target add ${{ matrix.platform.target }}
       - name: Set up Windows Environment
         shell: bash
         run: |
@@ -39,17 +64,17 @@ jobs:
         if: runner.os != 'macOS'
 
       - name: Rename Binary
-        run: cp target/release/rustpython target/release/rustpython-release-${{ matrix.os }}
+        run: cp target/release/rustpython target/release/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
         if: runner.os != 'Windows'
       - name: Rename Binary
-        run: cp target/release/rustpython.exe target/release/rustpython-release-${{ matrix.os }}
+        run: cp target/release/rustpython.exe target/release/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
         if: runner.os == 'Windows'
 
       - name: Upload Binary Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rustpython-release-${{ matrix.os }}
-          path: target/release/rustpython-release-${{ matrix.os }}
+          name: rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
+          path: target/release/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
 
   release:
     runs-on: ubuntu-latest
@@ -63,7 +88,9 @@ jobs:
           merge-multiple: true
 
       - name: List Binaries
-        run: ls -R bin
+        run: |
+          ls -lah bin/
+          file bin/*
       - name: Create Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
