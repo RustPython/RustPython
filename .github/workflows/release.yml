@@ -57,10 +57,10 @@ jobs:
         if: runner.os == 'macOS'
 
       - name: Build RustPython
-        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }}
+        run: cargo build --release --target=${{ matrix.platform.target }} --verbose --features=threading ${{ env.CARGO_ARGS }}
         if: runner.os == 'macOS'
       - name: Build RustPython
-        run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }},jit
+        run: cargo build --release --target=${{ matrix.platform.target }} --verbose --features=threading ${{ env.CARGO_ARGS }},jit
         if: runner.os != 'macOS'
 
       - name: Rename Binary
