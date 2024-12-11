@@ -322,7 +322,7 @@ unsafe impl Link for WeakLink {
 
     #[inline(always)]
     unsafe fn pointers(target: NonNull<Self::Target>) -> NonNull<Pointers<Self::Target>> {
-        NonNull::new_unchecked(ptr::addr_of_mut!((*target.as_ptr()).0.payload.pointers))
+        NonNull::new_unchecked(&raw mut (*target.as_ptr()).0.payload.pointers)
     }
 }
 
@@ -364,8 +364,11 @@ impl PyWeak {
     fn drop_inner(&self) {
         let dealloc = {
             let mut guard = unsafe { self.parent.as_ref().lock() };
-            let offset = memoffset::offset_of!(PyInner<PyWeak>, payload);
-            let pyinner = (self as *const Self as usize - offset) as *const PyInner<Self>;
+            let offset = std::mem::offset_of!(PyInner<PyWeak>, payload);
+            let pyinner = (self as *const Self)
+                .cast::<u8>()
+                .wrapping_sub(offset)
+                .cast::<PyInner<Self>>();
             let node_ptr = unsafe { NonNull::new_unchecked(pyinner as *mut Py<Self>) };
             // the list doesn't have ownership over its PyRef<PyWeak>! we're being dropped
             // right now so that should be obvious!!
@@ -1044,7 +1047,7 @@ impl<T: PyObjectPayload> PyRef<T> {
     pub fn leak(pyref: Self) -> &'static Py<T> {
         let ptr = pyref.ptr;
         std::mem::forget(pyref);
-        unsafe { &*ptr.as_ptr() }
+        unsafe { ptr.as_ref() }
     }
 }
 

@@ -102,8 +102,7 @@ impl FrozenLib<Vec<u8>> {
     /// Encode the given iterator of frozen modules into a compressed vector of bytes
     pub fn encode<'a, I, B: AsRef<[u8]>>(lib: I) -> FrozenLib<Vec<u8>>
     where
-        I: IntoIterator<Item = (&'a str, FrozenModule<B>)>,
-        I::IntoIter: ExactSizeIterator + Clone,
+        I: IntoIterator<Item = (&'a str, FrozenModule<B>), IntoIter: ExactSizeIterator + Clone>,
     {
         let iter = lib.into_iter();
         let mut bytes = Vec::new();

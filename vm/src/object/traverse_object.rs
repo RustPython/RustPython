@@ -1,4 +1,4 @@
-use std::{fmt, marker::PhantomData};
+use std::fmt;
 
 use crate::{
     object::{
@@ -16,25 +16,18 @@ pub(in crate::object) struct PyObjVTable {
 }
 
 impl PyObjVTable {
-    pub fn of<T: PyObjectPayload>() -> &'static Self {
-        struct Helper<T: PyObjectPayload>(PhantomData<T>);
-        trait VtableHelper {
-            const VTABLE: PyObjVTable;
+    pub const fn of<T: PyObjectPayload>() -> &'static Self {
+        &PyObjVTable {
+            drop_dealloc: drop_dealloc_obj::<T>,
+            debug: debug_obj::<T>,
+            trace: const {
+                if T::IS_TRACE {
+                    Some(try_trace_obj::<T>)
+                } else {
+                    None
+                }
+            },
         }
-        impl<T: PyObjectPayload> VtableHelper for Helper<T> {
-            const VTABLE: PyObjVTable = PyObjVTable {
-                drop_dealloc: drop_dealloc_obj::<T>,
-                debug: debug_obj::<T>,
-                trace: {
-                    if T::IS_TRACE {
-                        Some(try_trace_obj::<T>)
-                    } else {
-                        None
-                    }
-                },
-            };
-        }
-        &Helper::<T>::VTABLE
     }
 }
 
