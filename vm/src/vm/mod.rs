@@ -364,8 +364,11 @@ impl VirtualMachine {
             }
         }
 
+        let expect_stdlib =
+            cfg!(feature = "freeze-stdlib") || !self.state.settings.path_list.is_empty();
+
         #[cfg(feature = "encodings")]
-        if cfg!(feature = "freeze-stdlib") || !self.state.settings.path_list.is_empty() {
+        if expect_stdlib {
             if let Err(e) = self.import_encodings() {
                 eprintln!(
                     "encodings initialization failed. Only utf-8 encoding will be supported."
@@ -380,6 +383,21 @@ impl VirtualMachine {
                 Please add the library path to `settings.path_list`. If you intended to disable the entire standard library (including the `encodings` feature), please also make sure to disable the `encodings` feature.\n\
                 Tip: You may also want to add `\"\"` to `settings.path_list` in order to enable importing from the current working directory."
             );
+        }
+
+        if expect_stdlib {
+            // enable python-implemented ExceptionGroup when stdlib exists
+            let py_core_init = || -> PyResult<()> {
+                let exception_group = import::import_frozen(self, "_py_exceptiongroup")?;
+                let base_exception_group = exception_group.get_attr("BaseExceptionGroup", self)?;
+                self.builtins
+                    .set_attr("BaseExceptionGroup", base_exception_group, self)?;
+                let exception_group = exception_group.get_attr("ExceptionGroup", self)?;
+                self.builtins
+                    .set_attr("ExceptionGroup", exception_group, self)?;
+                Ok(())
+            };
+            self.expect_pyresult(py_core_init(), "exceptiongroup initialization failed");
         }
 
         self.initialized = true;
