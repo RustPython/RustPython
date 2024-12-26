@@ -1,6 +1,6 @@
 on:
   push:
-    branches: [main]
+    branches: [gh-rel-rustpython]
 
 name: Release
 
@@ -67,14 +67,14 @@ jobs:
         run: cp target/${{ matrix.platform.target }}/release/rustpython target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
         if: runner.os != 'Windows'
       - name: Rename Binary
-        run: cp target/${{ matrix.platform.target }}/release/rustpython.exe target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
+        run: cp target/${{ matrix.platform.target }}/release/rustpython.exe target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}.exe
         if: runner.os == 'Windows'
 
       - name: Upload Binary Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
-          path: target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}
+          path: target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}*
 
   release:
     runs-on: ubuntu-latest
