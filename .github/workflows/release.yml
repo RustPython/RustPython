@@ -1,6 +1,6 @@
 on:
   push:
-    branches: [main]
+    branches: [gh-rel-rustpython]
 
 name: Release
 
@@ -101,5 +101,6 @@ jobs:
           gh release create "$today-$tag-$run" \
               --repo="$GITHUB_REPOSITORY" \
               --title="RustPython Release $today-$tag #$run" \
+              --target="$tag" \
               --generate-notes \
               bin/rustpython-release-*
