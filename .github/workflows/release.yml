@@ -1,6 +1,6 @@
 on:
   push:
-    branches: [gh-rel-rustpython]
+    branches: [main]
 
 name: Release
 
