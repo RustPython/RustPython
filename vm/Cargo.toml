@@ -78,7 +78,7 @@ flamer = { version = "0.4", optional = true }
 half = "2"
 memoffset = "0.9.1"
 optional = "0.5.0"
-result-like = "0.4.6"
+result-like = "0.5.0"
 timsort = "0.1.2"
 
 ## unicode stuff
