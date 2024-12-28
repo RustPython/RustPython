@@ -213,7 +213,3 @@ pub(crate) fn init(context: &Context) {
 pub(crate) fn get_value(obj: &PyObject) -> bool {
     !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
 }
-
-fn get_py_int(obj: &PyObject) -> &PyInt {
-    obj.payload::<PyInt>().unwrap()
-}
