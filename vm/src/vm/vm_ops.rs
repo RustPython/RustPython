@@ -151,7 +151,7 @@ impl VirtualMachine {
     /// Calling scheme used for binary operations:
     ///
     /// Order operations are tried until either a valid result or error:
-    ///   b.rop(a,b)[*], a.op(a,b), b.rop(a,b)
+    ///   b.rop(b,a)[*], a.op(a,b), b.rop(b,a)
     ///
     /// [*] only when Py_TYPE(a) != Py_TYPE(b) && Py_TYPE(b) is a subclass of Py_TYPE(a)
     pub fn binary_op1(&self, a: &PyObject, b: &PyObject, op_slot: PyNumberBinaryOp) -> PyResult {
