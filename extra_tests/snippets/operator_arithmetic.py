@@ -32,3 +32,23 @@ assert_raises(ValueError, lambda: 1 << -1)
 
 # Right shift raises value error on negative
 assert_raises(ValueError, lambda: 1 >> -1)
+
+# Bitwise or, and, xor raises value error on incompatible types
+assert_raises(TypeError, lambda: "abc" | True)
+assert_raises(TypeError, lambda: "abc" & True)
+assert_raises(TypeError, lambda: "abc" ^ True)
+assert_raises(TypeError, lambda: True | "abc")
+assert_raises(TypeError, lambda: True & "abc")
+assert_raises(TypeError, lambda: True ^ "abc")
+assert_raises(TypeError, lambda: "abc" | 1.5)
+assert_raises(TypeError, lambda: "abc" & 1.5)
+assert_raises(TypeError, lambda: "abc" ^ 1.5)
+assert_raises(TypeError, lambda: 1.5 | "abc")
+assert_raises(TypeError, lambda: 1.5 & "abc")
+assert_raises(TypeError, lambda: 1.5 ^ "abc")
+assert_raises(TypeError, lambda: True | 1.5)
+assert_raises(TypeError, lambda: True & 1.5)
+assert_raises(TypeError, lambda: True ^ 1.5)
+assert_raises(TypeError, lambda: 1.5 | True)
+assert_raises(TypeError, lambda: 1.5 & True)
+assert_raises(TypeError, lambda: 1.5 ^ True)
