@@ -728,11 +728,8 @@ impl ExactSizeIterator for DictIter<'_> {
 }
 
 #[pyclass]
-trait DictView: PyPayload + PyClassDef + Iterable + Representable
-where
-    Self::ReverseIter: PyPayload,
-{
-    type ReverseIter;
+trait DictView: PyPayload + PyClassDef + Iterable + Representable {
+    type ReverseIter: PyPayload;
 
     fn dict(&self) -> &PyDictRef;
     fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef;

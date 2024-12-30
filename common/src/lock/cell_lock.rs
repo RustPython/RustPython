@@ -2,7 +2,7 @@ use lock_api::{
     GetThreadId, RawMutex, RawRwLock, RawRwLockDowngrade, RawRwLockRecursive, RawRwLockUpgrade,
     RawRwLockUpgradeDowngrade,
 };
-use std::{cell::Cell, num::NonZeroUsize};
+use std::{cell::Cell, num::NonZero};
 
 pub struct RawCellMutex {
     locked: Cell<bool>,
@@ -203,7 +203,7 @@ fn deadlock(lock_kind: &str, ty: &str) -> ! {
 pub struct SingleThreadId(());
 unsafe impl GetThreadId for SingleThreadId {
     const INIT: Self = SingleThreadId(());
-    fn nonzero_thread_id(&self) -> NonZeroUsize {
-        NonZeroUsize::new(1).unwrap()
+    fn nonzero_thread_id(&self) -> NonZero<usize> {
+        NonZero::new(1).unwrap()
     }
 }

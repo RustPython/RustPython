@@ -2217,7 +2217,7 @@ mod _socket {
                 fn as_slice(&self) -> &[netioapi::MIB_IF_ROW2] {
                     unsafe {
                         let p = self.ptr.as_ptr();
-                        let ptr = ptr::addr_of!((*p).Table) as *const netioapi::MIB_IF_ROW2;
+                        let ptr = &raw const (*p).Table as *const netioapi::MIB_IF_ROW2;
                         std::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
                     }
                 }

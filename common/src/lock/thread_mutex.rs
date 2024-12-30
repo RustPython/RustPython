@@ -1,3 +1,5 @@
+#![allow(clippy::needless_lifetimes)]
+
 use lock_api::{GetThreadId, GuardNoSend, RawMutex};
 use std::{
     cell::UnsafeCell,
