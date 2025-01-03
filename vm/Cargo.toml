@@ -19,7 +19,7 @@ freeze-stdlib = ["encodings"]
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
 compiler = ["parser", "codegen", "rustpython-compiler"]
-ast = []
+ast = ["ruff_text_size"]
 codegen = ["rustpython-codegen", "ruff_python_ast"]
 parser = ["ruff_python_parser", "ruff_python_ast"]
 serde = ["dep:serde"]
@@ -33,7 +33,8 @@ rustpython-derive = { workspace = true }
 rustpython-jit = { workspace = true, optional = true }
 
 ruff_python_ast = { workspace = true, optional = true }
-ruff_python_parser ={ workspace = true, optional = true }
+ruff_python_parser = { workspace = true, optional = true }
+ruff_text_size = { workspace = true, optional = true }
 # rustpython-ast = { workspace = true, optional = true }
 # rustpython-parser = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
