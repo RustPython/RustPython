@@ -1,6 +1,9 @@
 name: Release
 
 on:
+  schedule:
+    # 9 AM UTC on every Monday
+    - cron: "0 9 * * Mon"
   workflow_dispatch:
     inputs:
       pre-release:
