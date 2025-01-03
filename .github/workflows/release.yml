@@ -140,5 +140,6 @@ jobs:
               --repo="$GITHUB_REPOSITORY" \
               --title="RustPython $RELEASE_TYPE_NAME $today-$tag #$run" \
               --target="$tag" \
+              --generate-notes \
               $PRERELEASE_ARG \
               bin/rustpython-release-*
