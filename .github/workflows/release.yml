@@ -1,8 +1,13 @@
-on:
-  push:
-    branches: [main]
-
 name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      pre-release:
+        type: boolean
+        description: Mark "Pre-Release"
+        required: false
+        default: true
 
 permissions:
   contents: write
@@ -119,9 +124,18 @@ jobs:
           tag: ${{ github.ref_name }}
           run: ${{ github.run_number }}
         run: |
+          if [[ "${{ github.event.inputs.pre-release }}" == "true" ]]; then
+            RELEASE_TYPE_NAME=Pre-Release
+            PRERELEASE_ARG=--prerelease
+          else
+            RELEASE_TYPE_NAME=Release
+            PRERELEASE_ARG=
+          fi
+          
           today=$(date '+%Y-%m-%d')
           gh release create "$today-$tag-$run" \
               --repo="$GITHUB_REPOSITORY" \
-              --title="RustPython Release $today-$tag #$run" \
+              --title="RustPython $RELEASE_TYPE_NAME $today-$tag #$run" \
               --target="$tag" \
+              $PRERELEASE_ARG \
               bin/rustpython-release-*
