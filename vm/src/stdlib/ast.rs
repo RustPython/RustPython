@@ -5,7 +5,7 @@
 
 mod gen;
 
-use crate::builtins::PyInt;
+use crate::builtins::{PyInt, PyStr};
 use crate::{
     builtins::PyIntRef,
     builtins::{self, PyDict, PyModule, PyStrRef, PyType},
@@ -102,6 +102,17 @@ fn get_node_field_opt(
         .filter(|obj| !vm.is_none(obj)))
 }
 
+fn get_int_field(
+    vm: &VirtualMachine,
+    obj: &PyObject,
+    field: &'static str,
+) -> PyResult<Option<PyRefExact<PyInt>>> {
+    Ok(get_node_field_opt(vm, &obj, field)?
+        .map(|obj| obj.downcast_exact(vm))
+        .transpose()
+        .unwrap())
+}
+
 trait Node: Sized {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef;
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self>;
@@ -194,26 +205,16 @@ fn range_from_object(vm: &VirtualMachine, object: PyObjectRef, name: &str) -> Py
 
         None
     }
-    fn get_int_field(
-        vm: &VirtualMachine,
-        obj: &PyObject,
-        field: &'static str,
-    ) -> PyResult<Option<PyRefExact<PyInt>>> {
-        Ok(get_node_field_opt(vm, &obj, field)?
-            .map(|obj| obj.downcast_exact(vm))
-            .transpose()
-            .unwrap())
-    }
 
     let row = get_node_field(vm, &object, "lineno", name)?;
     let row = row.downcast_exact::<PyInt>(vm).unwrap().into_pyref();
     let column = get_node_field(vm, &object, "col_offset", name)?;
     let column = column.downcast_exact::<PyInt>(vm).unwrap().into_pyref();
     let location = make_location(row, column);
-    let end_row = get_int_field(vm, &object, "end_lineno");
-    let end_column = get_int_field(vm, &object, "end_col_offset");
+    let end_row = get_int_field(vm, &object, "end_lineno")?;
+    let end_column = get_int_field(vm, &object, "end_col_offset")?;
     let end_location = if let (Some(row), Some(column)) = (end_row, end_column) {
-        make_location(row, column)
+        make_location(row.into_pyref(), column.into_pyref())
     } else {
         None
     };
@@ -234,20 +235,14 @@ fn node_add_location(dict: &Py<PyDict>, range: TextRange, vm: &VirtualMachine) {
         vm,
     )
     .unwrap();
-    if let Some(end_location) = range.end {
-        dict.set_item(
-            "end_lineno",
-            vm.ctx.new_int(end_location.row.get()).into(),
-            vm,
-        )
+    dict.set_item("end_lineno", vm.ctx.new_int(range.end.row.get()).into(), vm)
         .unwrap();
-        dict.set_item(
-            "end_col_offset",
-            vm.ctx.new_int(end_location.column.to_zero_indexed()).into(),
-            vm,
-        )
-        .unwrap();
-    };
+    dict.set_item(
+        "end_col_offset",
+        vm.ctx.new_int(range.end.column.to_zero_indexed()).into(),
+        vm,
+    )
+    .unwrap();
 }
 
 impl Node for ruff::Identifier {
@@ -636,6 +631,7 @@ fn extract_keyword_parameter_defaults(
     let defaults = ParameterDefaults {
         range: defaults
             .iter()
+            .flatten()
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
             .unwrap(),
@@ -742,7 +738,7 @@ impl Node for ruff::ModModule {
 
 struct ModInteractive {
     range: TextRange,
-    body: Vec<Stmt>,
+    body: Vec<ruff::Stmt>,
 }
 
 // constructor
@@ -809,7 +805,7 @@ impl Node for ModFunctionType {
             .into_ref_with_type(vm, gen::NodeModFunctionType::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("argtypes", argtypes.ast_to_object(vm), vm)
+        dict.set_item("argtypes", BoxedSlice(argtypes).ast_to_object(vm), vm)
             .unwrap();
         dict.set_item("returns", returns.ast_to_object(vm), vm)
             .unwrap();
@@ -1587,28 +1583,27 @@ impl Node for ruff::StmtImport {
 }
 // constructor
 impl Node for ruff::StmtImportFrom {
-    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let ruff::StmtImportFrom {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self {
             module,
             names,
             level,
-            range: _range,
+            range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtImportFrom::static_type().to_owned())
+            .into_ref_with_type(vm, gen::NodeStmtImportFrom::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("module", module.ast_to_object(_vm), _vm)
+        dict.set_item("module", module.ast_to_object(vm), vm)
             .unwrap();
-        dict.set_item("names", names.ast_to_object(_vm), _vm)
+        dict.set_item("names", names.ast_to_object(vm), vm).unwrap();
+        dict.set_item("level", vm.ctx.new_int(level).to_pyobject(vm), vm)
             .unwrap();
-        dict.set_item("level", _vm.ctx.new_int(level).into_pyobject(_vm), _vm)
-            .unwrap();
-        node_add_location(&dict, _range, _vm);
+        node_add_location(&dict, range, vm);
         node.into()
     }
     fn ast_from_object(vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        Ok(ruff::StmtImportFrom {
+        Ok(Self {
             module: get_node_field_opt(vm, &_object, "module")?
                 .map(|obj| Node::ast_from_object(vm, obj))
                 .transpose()?,
@@ -2019,8 +2014,14 @@ impl Node for ruff::ExprDict {
             items,
             range: _range,
         } = self;
-        let keys: Vec<_> = items.iter().map(|item| item.key).collect();
-        let values: Vec<_> = items.iter().map(|item| item.value).collect();
+        let (keys, values) =
+            items
+                .into_iter()
+                .fold((vec![], vec![]), |(mut keys, mut values), item| {
+                    keys.push(item.key);
+                    values.push(item.value);
+                    (keys, values)
+                });
         let node = NodeAst
             .into_ref_with_type(_vm, gen::NodeExprDict::static_type().to_owned())
             .unwrap();
@@ -2032,8 +2033,10 @@ impl Node for ruff::ExprDict {
         node.into()
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let keys = Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keys", "Dict")?)?;
-        let values = Node::ast_from_object(_vm, get_node_field(_vm, &_object, "values", "Dict")?)?;
+        let keys: Vec<Option<ruff::Expr>> =
+            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keys", "Dict")?)?;
+        let values: Vec<_> =
+            Node::ast_from_object(_vm, get_node_field(_vm, &_object, "values", "Dict")?)?;
         let items = keys
             .into_iter()
             .zip(values.into_iter())
@@ -2278,9 +2281,14 @@ impl Node for ruff::ExprCompare {
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("left", left.ast_to_object(_vm), _vm).unwrap();
-        dict.set_item("ops", ops.ast_to_object(_vm), _vm).unwrap();
-        dict.set_item("comparators", comparators.ast_to_object(_vm), _vm)
+        dict.set_item("ops", BoxedSlice(ops).ast_to_object(_vm), _vm)
             .unwrap();
+        dict.set_item(
+            "comparators",
+            BoxedSlice(comparators).ast_to_object(_vm),
+            _vm,
+        )
+        .unwrap();
         node_add_location(&dict, _range, _vm);
         node.into()
     }
@@ -3464,8 +3472,8 @@ impl Node for TypeIgnore {
 
 struct TypeIgnoreTypeIgnore {
     range: TextRange,
-    lineno: PyIntRef,
-    tag: String,
+    lineno: PyRefExact<PyInt>,
+    tag: PyRefExact<PyStr>,
 }
 
 // constructor
@@ -3480,29 +3488,38 @@ impl Node for TypeIgnoreTypeIgnore {
             .into_ref_with_type(vm, gen::NodeTypeIgnoreTypeIgnore::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("lineno", lineno.into_pyobject(vm)).unwrap();
-        dict.set_item("tag", vm.ctx.new_str(tag).into(), vm)
-            .unwrap();
+        dict.set_item("lineno", lineno.to_pyobject(vm), vm).unwrap();
+        dict.set_item("tag", tag.to_pyobject(vm), vm).unwrap();
         node.into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         Ok(Self {
-            lineno: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "lineno", "TypeIgnore")?,
-            )?,
-            tag: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "tag", "TypeIgnore")?)?,
+            lineno: get_node_field(vm, &object, "lineno", "TypeIgnore")?
+                .downcast_exact(vm)
+                .unwrap(),
+            tag: get_node_field(vm, &object, "tag", "TypeIgnore")?
+                .downcast_exact(vm)
+                .unwrap(),
             range: Default::default(),
         })
+    }
+}
+impl Node for ruff::TypeParams {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        todo!()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
     }
 }
 // sum
 impl Node for ruff::TypeParam {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            ruff::TypeParam::TypeVar(cons) => cons.ast_to_object(vm),
-            ruff::TypeParam::ParamSpec(cons) => cons.ast_to_object(vm),
-            ruff::TypeParam::TypeVarTuple(cons) => cons.ast_to_object(vm),
+            Self::TypeVar(cons) => cons.ast_to_object(vm),
+            Self::ParamSpec(cons) => cons.ast_to_object(vm),
+            Self::TypeVarTuple(cons) => cons.ast_to_object(vm),
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
@@ -3621,6 +3638,36 @@ impl Node for ruff::TypeParamTypeVarTuple {
     }
 }
 
+impl Node for ruff::name::Name {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        todo!()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+impl Node for ruff::Decorator {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        todo!()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+impl Node for ruff::ElifElseClause {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        todo!()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
 #[cfg(feature = "parser")]
 pub(crate) fn parse(
     vm: &VirtualMachine,
@@ -3644,7 +3691,15 @@ pub(crate) fn compile(
         opts.optimize = optimize;
     }
 
-    let ast = Node::ast_from_object(vm, object)?;
+    let ast: self::Mod = Node::ast_from_object(vm, object)?;
+    let ast = match ast {
+        self::Mod::Module(m) => ruff::Mod::Module(m),
+        self::Mod::Interactive(ModInteractive { range, body }) => {
+            ruff::Mod::Module(ruff::ModModule { range, body })
+        }
+        self::Mod::Expression(e) => ruff::Mod::Expression(e),
+        self::Mod::FunctionType(_) => todo!(),
+    };
     // TODO: create a textual representation of the ast
     let text = "";
     let source_code = SourceCode::new(filename, text);
