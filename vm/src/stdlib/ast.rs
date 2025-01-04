@@ -11,9 +11,9 @@ use crate::{
     builtins::{self, PyDict, PyModule, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
     compiler::core::bytecode::OpArgType,
-    compiler::CompileError,
-    convert::ToPyException,
+    compiler::{CompileError, ParseError},
     convert::ToPyObject,
+    source::SourceCode,
     source::SourceLocation,
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, VirtualMachine,
@@ -23,8 +23,6 @@ use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
 use ruff_python_ast as ruff;
 use ruff_text_size::{Ranged, TextRange, TextSize};
-use rustpython_codegen::compile;
-use rustpython_compiler_source::SourceCode;
 
 #[cfg(feature = "parser")]
 use ruff_python_parser as parser;
@@ -3041,6 +3039,15 @@ impl Node for ruff::Parameter {
         })
     }
 }
+impl Node for ruff::ParameterWithDefault {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        todo!()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
 // product
 impl Node for ruff::Keyword {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
@@ -3257,6 +3264,15 @@ impl Node for ruff::PatternMatchSingleton {
             )?,
             range: range_from_object(_vm, _object, "MatchSingleton")?,
         })
+    }
+}
+impl Node for ruff::Singleton {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        todo!()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
     }
 }
 // constructor
@@ -3674,7 +3690,17 @@ pub(crate) fn parse(
     source: &str,
     mode: parser::Mode,
 ) -> Result<PyObjectRef, CompileError> {
-    let top = parser::parse(source, mode)?.into_syntax();
+    let top = parser::parse(source, mode)
+        .map_err(|parse_error| ParseError {
+            error: parse_error.error,
+            location: text_range_to_source_range(parse_error.location).start,
+            source_path: "<unknown>".to_string(),
+        })?
+        .into_syntax();
+    let top = match top {
+        ruff::Mod::Module(m) => Mod::Module(m),
+        ruff::Mod::Expression(e) => Mod::Expression(e),
+    };
     Ok(top.ast_to_object(vm))
 }
 
@@ -3691,21 +3717,20 @@ pub(crate) fn compile(
         opts.optimize = optimize;
     }
 
-    let ast: self::Mod = Node::ast_from_object(vm, object)?;
+    let ast: Mod = Node::ast_from_object(vm, object)?;
     let ast = match ast {
-        self::Mod::Module(m) => ruff::Mod::Module(m),
-        self::Mod::Interactive(ModInteractive { range, body }) => {
+        Mod::Module(m) => ruff::Mod::Module(m),
+        Mod::Interactive(ModInteractive { range, body }) => {
             ruff::Mod::Module(ruff::ModModule { range, body })
         }
-        self::Mod::Expression(e) => ruff::Mod::Expression(e),
-        self::Mod::FunctionType(_) => todo!(),
+        Mod::Expression(e) => ruff::Mod::Expression(e),
+        Mod::FunctionType(_) => todo!(),
     };
     // TODO: create a textual representation of the ast
     let text = "";
     let source_code = SourceCode::new(filename, text);
-    let code = compile::compile_top(ast, source_code, mode, opts)
-        .map_err(|e| e.into())
-        .map_err(|err| (CompileError::from(err), None).to_pyexception(vm))?; // FIXME source
+    let code = codegen::compile::compile_top(ast, source_code, mode, opts)
+        .map_err(|err| vm.new_syntax_error(&err.into(), None))?; // FIXME source
     Ok(vm.ctx.new_code(code).into())
 }
 
