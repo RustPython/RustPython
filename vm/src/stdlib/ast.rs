@@ -3398,47 +3398,111 @@ impl Node for ruff::PatternMatchMapping {
 }
 // constructor
 impl Node for ruff::PatternMatchClass {
-    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let Self {
             cls,
-            patterns,
-            kwd_attrs,
-            kwd_patterns,
+            arguments,
             range: _range,
         } = self;
+        let (patterns, kwd_attrs, kwd_patterns) = split_pattern_match_class(arguments);
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodePatternMatchClass::static_type().to_owned())
+            .into_ref_with_type(vm, gen::NodePatternMatchClass::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("cls", cls.ast_to_object(_vm), _vm).unwrap();
-        dict.set_item("patterns", patterns.ast_to_object(_vm), _vm)
+        dict.set_item("cls", cls.ast_to_object(vm), vm).unwrap();
+        dict.set_item("patterns", patterns.ast_to_object(vm), vm)
             .unwrap();
-        dict.set_item("kwd_attrs", kwd_attrs.ast_to_object(_vm), _vm)
+        dict.set_item("kwd_attrs", kwd_attrs.ast_to_object(vm), vm)
             .unwrap();
-        dict.set_item("kwd_patterns", kwd_patterns.ast_to_object(_vm), _vm)
+        dict.set_item("kwd_patterns", kwd_patterns.ast_to_object(vm), vm)
             .unwrap();
-        node_add_location(&dict, _range, _vm);
+        node_add_location(&dict, _range, vm);
         node.into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        let patterns =
+            Node::ast_from_object(vm, get_node_field(vm, &object, "patterns", "MatchClass")?)?;
+        let kwd_attrs =
+            Node::ast_from_object(vm, get_node_field(vm, &object, "kwd_attrs", "MatchClass")?)?;
+        let kwd_patterns = Node::ast_from_object(
+            vm,
+            get_node_field(vm, &object, "kwd_patterns", "MatchClass")?,
+        )?;
+        let (patterns, keywords) = merge_pattern_match_class(patterns, kwd_attrs, kwd_patterns);
+
         Ok(Self {
-            cls: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "cls", "MatchClass")?)?,
-            patterns: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "patterns", "MatchClass")?,
-            )?,
-            kwd_attrs: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "kwd_attrs", "MatchClass")?,
-            )?,
-            kwd_patterns: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "kwd_patterns", "MatchClass")?,
-            )?,
-            range: range_from_object(_vm, _object, "MatchClass")?,
+            cls: Node::ast_from_object(vm, get_node_field(vm, &object, "cls", "MatchClass")?)?,
+            range: range_from_object(vm, object, "MatchClass")?,
+            arguments: ruff::PatternArguments {
+                range: Default::default(),
+                patterns,
+                keywords,
+            },
         })
     }
 }
+
+struct PatternMatchClassPatterns {
+    pub range: TextRange,
+}
+
+impl Node for PatternMatchClassPatterns {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        todo!()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+struct PatternMatchClassKeywordAttributes {
+    pub range: TextRange,
+}
+
+impl Node for PatternMatchClassKeywordAttributes {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        todo!()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+struct PatternMatchClassKeywordPatterns {
+    pub range: TextRange,
+}
+
+impl Node for PatternMatchClassKeywordPatterns {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        todo!()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+fn split_pattern_match_class(
+    arguments: ruff::PatternArguments,
+) -> (
+    PatternMatchClassPatterns,
+    PatternMatchClassKeywordAttributes,
+    PatternMatchClassKeywordPatterns,
+) {
+    todo!()
+}
+
+/// Merges the pattern match class attributes and patterns, opposite of [`split_pattern_match_class`].
+fn merge_pattern_match_class(
+    patterns: PatternMatchClassPatterns,
+    kwd_attrs: PatternMatchClassKeywordAttributes,
+    kwd_patterns: PatternMatchClassKeywordPatterns,
+) -> (Vec<ruff::Pattern>, Vec<ruff::PatternKeyword>) {
+    todo!()
+}
+
 // constructor
 impl Node for ruff::PatternMatchStar {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
