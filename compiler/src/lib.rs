@@ -166,7 +166,7 @@ pub fn _compile_symtable(
 fn test_compile() {
     let code = "x = 'abc'";
     let compiled = compile(&code, Mode::Single, "<>", CompileOpts::default());
-    dbg!(compiled);
+    dbg!(compiled.expect("compile error"));
 }
 
 #[test]
@@ -286,5 +286,19 @@ assert f"a{1}" == 'a1'
 assert f"{{{(lambda x: f'hello, {x}')('world}')}" == '{hello, world}'
     "#;
     let compiled = compile(&code6, Mode::Exec, "<>", CompileOpts::default());
+    dbg!(compiled.expect("compile error"));
+}
+
+#[test]
+fn test_simple_enum() {
+    let code = r#"
+import enum
+@enum._simple_enum(enum.IntFlag, boundary=enum.KEEP)
+class RegexFlag:
+    NOFLAG = 0
+    DEBUG = 1
+print(RegexFlag.NOFLAG & RegexFlag.DEBUG)
+"#;
+    let compiled = compile(&code, Mode::Exec, "<string>", CompileOpts::default());
     dbg!(compiled.expect("compile error"));
 }

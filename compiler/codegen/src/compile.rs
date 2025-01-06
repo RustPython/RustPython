@@ -1023,11 +1023,10 @@ impl Compiler<'_> {
         name: &str,
         parameters: &Parameters,
     ) -> CompileResult<bytecode::MakeFunctionFlags> {
-        // let defaults: Vec<_> = args.defaults().collect();
-        let defaults: Vec<_> = parameters
-            .iter_non_variadic_params()
-            // FIXME: clone?
-            .filter_map(|x| x.default.clone())
+        let defaults: Vec<_> = std::iter::empty()
+            .chain(&parameters.posonlyargs)
+            .chain(&parameters.args)
+            .filter_map(|x| x.default.as_deref())
             .collect();
         let have_defaults = !defaults.is_empty();
         if have_defaults {
@@ -1525,8 +1524,6 @@ impl Compiler<'_> {
     ) -> CompileResult<()> {
         self.prepare_decorators(decorator_list)?;
 
-        emit!(self, Instruction::LoadBuildClass);
-
         let prev_ctx = self.ctx;
         self.ctx = CompileContext {
             func: FunctionContext::NoFunction,
@@ -1600,6 +1597,8 @@ impl Compiler<'_> {
         self.qualified_path.pop();
         self.qualified_path.append(global_path_prefix.as_mut());
         self.ctx = prev_ctx;
+
+        emit!(self, Instruction::LoadBuildClass);
 
         let mut func_flags = bytecode::MakeFunctionFlags::empty();
 
