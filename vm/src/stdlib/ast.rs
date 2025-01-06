@@ -567,8 +567,8 @@ impl Node for ParameterDefaults {
 }
 
 fn extract_positional_parameter_defaults(
-    pos_only_args: &[ruff::ParameterWithDefault],
-    args: &[ruff::ParameterWithDefault],
+    pos_only_args: Vec<ruff::ParameterWithDefault>,
+    args: Vec<ruff::ParameterWithDefault>,
 ) -> (
     PositionalParameters,
     PositionalParameters,
@@ -621,8 +621,52 @@ fn extract_positional_parameter_defaults(
     (pos_only_args, args, defaults)
 }
 
+/// Merges the keyword parameters with their default values, opposite of [`extract_positional_parameter_defaults`].
+fn merge_positional_parameter_defaults(
+    posonlyargs: PositionalParameters,
+    args: PositionalParameters,
+    defaults: ParameterDefaults,
+) -> (
+    Vec<ruff::ParameterWithDefault>,
+    Vec<ruff::ParameterWithDefault>,
+) {
+    let posonlyargs = posonlyargs.args;
+    let args = args.args;
+    let defaults = defaults.defaults;
+
+    let mut posonlyargs: Vec<_> = <Box<[_]> as IntoIterator>::into_iter(posonlyargs)
+        .map(|parameter| ruff::ParameterWithDefault {
+            range: Default::default(),
+            parameter,
+            default: None,
+        })
+        .collect();
+    let mut args: Vec<_> = <Box<[_]> as IntoIterator>::into_iter(args)
+        .map(|parameter| ruff::ParameterWithDefault {
+            range: Default::default(),
+            parameter,
+            default: None,
+        })
+        .collect();
+
+    // If an argument has a default value, insert it
+    // Note that "defaults" will only contain default values for the last "n" parameters
+    // so we need to skip the first "total_argument_count - n" arguments.
+    let default_argument_count = posonlyargs.len() + args.len() - defaults.len();
+    for (arg, default) in posonlyargs
+        .iter_mut()
+        .chain(args.iter_mut())
+        .skip(default_argument_count)
+        .zip(defaults)
+    {
+        arg.default = default;
+    }
+
+    (posonlyargs, args)
+}
+
 fn extract_keyword_parameter_defaults(
-    kw_only_args: &[ruff::ParameterWithDefault],
+    kw_only_args: Vec<ruff::ParameterWithDefault>,
 ) -> (KeywordParameters, ParameterDefaults) {
     let mut defaults = vec![];
     defaults.extend(kw_only_args.iter().map(|item| item.default.clone()));
@@ -652,6 +696,20 @@ fn extract_keyword_parameter_defaults(
     };
 
     (kw_only_args, defaults)
+}
+
+/// Merges the keyword parameters with their default values, opposite of [`extract_keyword_parameter_defaults`].
+fn merge_keyword_parameter_defaults(
+    kw_only_args: KeywordParameters,
+    defaults: ParameterDefaults,
+) -> Vec<ruff::ParameterWithDefault> {
+    std::iter::zip(kw_only_args.keywords, defaults.defaults)
+        .map(|(parameter, default)| ruff::ParameterWithDefault {
+            parameter,
+            default,
+            range: Default::default(),
+        })
+        .collect()
 }
 
 /// Represents the different types of Python module structures.
@@ -1764,6 +1822,7 @@ impl Node for ruff::Expr {
             ruff::Expr::List(cons) => cons.ast_to_object(vm),
             ruff::Expr::Tuple(cons) => cons.ast_to_object(vm),
             ruff::Expr::Slice(cons) => cons.ast_to_object(vm),
+            _ => todo!(),
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
@@ -2956,8 +3015,8 @@ impl Node for ruff::Parameters {
             range: _range,
         } = self;
         let (posonlyargs, args, defaults) =
-            extract_positional_parameter_defaults(&posonlyargs, &args);
-        let (kwonlyargs, kw_defaults) = extract_keyword_parameter_defaults(&kwonlyargs);
+            extract_positional_parameter_defaults(posonlyargs, args);
+        let (kwonlyargs, kw_defaults) = extract_keyword_parameter_defaults(kwonlyargs);
         let node = NodeAst
             .into_ref_with_type(vm, gen::NodeArguments::static_type().to_owned())
             .unwrap();
@@ -2977,30 +3036,29 @@ impl Node for ruff::Parameters {
         node.into()
     }
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        let kwonlyargs =
+            Node::ast_from_object(vm, get_node_field(vm, &object, "kwonlyargs", "arguments")?)?;
+        let kw_defaults =
+            Node::ast_from_object(vm, get_node_field(vm, &object, "kw_defaults", "arguments")?)?;
+        let kwonlyargs = merge_keyword_parameter_defaults(kwonlyargs, kw_defaults);
+
+        let posonlyargs =
+            Node::ast_from_object(vm, get_node_field(vm, &object, "posonlyargs", "arguments")?)?;
+        let args = Node::ast_from_object(vm, get_node_field(vm, &object, "args", "arguments")?)?;
+        let defaults =
+            Node::ast_from_object(vm, get_node_field(vm, &object, "defaults", "arguments")?)?;
+        let (posonlyargs, args) = merge_positional_parameter_defaults(posonlyargs, args, defaults);
+
         Ok(Self {
-            posonlyargs: Node::ast_from_object(
-                vm,
-                get_node_field(vm, &object, "posonlyargs", "arguments")?,
-            )?,
-            args: Node::ast_from_object(vm, get_node_field(vm, &object, "args", "arguments")?)?,
+            posonlyargs,
+            args,
             vararg: get_node_field_opt(vm, &object, "vararg")?
                 .map(|obj| Node::ast_from_object(vm, obj))
                 .transpose()?,
-            kwonlyargs: Node::ast_from_object(
-                vm,
-                get_node_field(vm, &object, "kwonlyargs", "arguments")?,
-            )?,
-            kw_defaults: Node::ast_from_object(
-                vm,
-                get_node_field(vm, &object, "kw_defaults", "arguments")?,
-            )?,
+            kwonlyargs,
             kwarg: get_node_field_opt(vm, &object, "kwarg")?
                 .map(|obj| Node::ast_from_object(vm, obj))
                 .transpose()?,
-            defaults: Node::ast_from_object(
-                vm,
-                get_node_field(vm, &object, "defaults", "arguments")?,
-            )?,
             range: Default::default(),
         })
     }
