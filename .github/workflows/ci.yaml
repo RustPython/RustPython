@@ -229,6 +229,7 @@ jobs:
         uses: coolreader18/redoxer-action@v1
         with:
           command: check
+          args: --ignore-rust-version
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
