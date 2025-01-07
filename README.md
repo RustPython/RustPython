@@ -56,7 +56,7 @@ NOTE: For windows users, please set `RUSTPYTHONPATH` environment variable as `Li
 You can also install and run RustPython with the following:
 
 ```bash
-$ cargo install --git https://github.com/RustPython/RustPython
+$ cargo install --git https://github.com/RustPython/RustPython rustpython
 $ rustpython
 Welcome to the magnificent Rust Python interpreter
 >>>>>
