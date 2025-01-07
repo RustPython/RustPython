@@ -1,5 +1,7 @@
 use super::*;
+use crate::builtins::{PyComplex, PyTuple};
 use crate::stdlib::ast::argument::{merge_function_call_arguments, split_function_call_arguments};
+use ruff_python_ast::StringLiteralValue;
 
 // sum
 impl Node for ruff::Expr {
@@ -31,7 +33,29 @@ impl Node for ruff::Expr {
             ruff::Expr::List(cons) => cons.ast_to_object(vm),
             ruff::Expr::Tuple(cons) => cons.ast_to_object(vm),
             ruff::Expr::Slice(cons) => cons.ast_to_object(vm),
-            _ => todo!(),
+            ruff::Expr::NumberLiteral(cons) => cons.ast_to_object(vm),
+            ruff::Expr::StringLiteral(cons) => cons.ast_to_object(vm),
+            ruff::Expr::Named(_) => {
+                todo!()
+            }
+            ruff::Expr::FString(_) => {
+                todo!()
+            }
+            ruff::Expr::BytesLiteral(_) => {
+                todo!()
+            }
+            ruff::Expr::BooleanLiteral(_) => {
+                todo!()
+            }
+            ruff::Expr::NoneLiteral(_) => {
+                todo!()
+            }
+            ruff::Expr::EllipsisLiteral(_) => {
+                todo!()
+            }
+            ruff::Expr::IpyEscapeCommand(_) => {
+                unimplemented!("IPython escape command is not allowed in Python AST")
+            }
         }
     }
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
@@ -579,33 +603,33 @@ impl Node for ruff::ExprCompare {
 }
 // constructor
 impl Node for ruff::ExprCall {
-    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let Self {
             func,
-            arguments: args,
-            range: _range,
+            arguments,
+            range,
         } = self;
-        let (pos_args, key_args) = split_function_call_arguments(args);
+        let (positional_arguments, keyword_arguments) = split_function_call_arguments(arguments);
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeExprCall::static_type().to_owned())
+            .into_ref_with_type(vm, gen::NodeExprCall::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("func", func.ast_to_object(_vm), _vm).unwrap();
-        dict.set_item("args", pos_args.ast_to_object(_vm), _vm)
+        dict.set_item("func", func.ast_to_object(vm), vm).unwrap();
+        dict.set_item("args", positional_arguments.ast_to_object(vm), vm)
             .unwrap();
-        dict.set_item("keywords", key_args.ast_to_object(_vm), _vm)
+        dict.set_item("keywords", keyword_arguments.ast_to_object(vm), vm)
             .unwrap();
-        node_add_location(&dict, _range, _vm);
+        node_add_location(&dict, range, vm);
         node.into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         Ok(Self {
-            func: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "func", "Call")?)?,
+            func: Node::ast_from_object(vm, get_node_field(vm, &object, "func", "Call")?)?,
             arguments: merge_function_call_arguments(
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "args", "Call")?)?,
-                Node::ast_from_object(_vm, get_node_field(_vm, &_object, "keywords", "Call")?)?,
+                Node::ast_from_object(vm, get_node_field(vm, &object, "args", "Call")?)?,
+                Node::ast_from_object(vm, get_node_field(vm, &object, "keywords", "Call")?)?,
             ),
-            range: range_from_object(_vm, _object, "Call")?,
+            range: range_from_object(vm, object, "Call")?,
         })
     }
 }
@@ -674,34 +698,167 @@ impl Node for ruff::ExprCall {
 //         })
 //     }
 // }
-// // constructor
-// impl Node for ruff::ExprConstant {
-//     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-//         let Self {
-//             value,
-//             kind,
-//             range: _range,
-//         } = self;
-//         let node = NodeAst
-//             .into_ref_with_type(_vm, gen::NodeExprConstant::static_type().to_owned())
-//             .unwrap();
-//         let dict = node.as_object().dict().unwrap();
-//         dict.set_item("value", value.ast_to_object(_vm), _vm)
-//             .unwrap();
-//         dict.set_item("kind", kind.ast_to_object(_vm), _vm).unwrap();
-//         node_add_location(&dict, _range, _vm);
-//         node.into()
-//     }
-//     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-//         Ok(Self {
-//             value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "Constant")?)?,
-//             kind: get_node_field_opt(_vm, &_object, "kind")?
-//                 .map(|obj| Node::ast_from_object(_vm, obj))
-//                 .transpose()?,
-//             range: range_from_object(_vm, _object, "Constant")?,
-//         })
-//     }
-// }
+pub(crate) struct Constant {
+    range: TextRange,
+    value: ConstantLiteral,
+}
+
+impl Constant {
+    fn new_str(value: StringLiteralValue, range: TextRange) -> Self {
+        Self {
+            range,
+            value: ConstantLiteral::Str(value.to_string()),
+        }
+    }
+}
+
+impl Constant {
+    fn new_int(value: ruff::Int, range: TextRange) -> Self {
+        Self {
+            range,
+            value: ConstantLiteral::Int(value),
+        }
+    }
+
+    fn new_float(value: f64, range: TextRange) -> Self {
+        Self {
+            range,
+            value: ConstantLiteral::Float(value),
+        }
+    }
+    fn new_complex(real: f64, imag: f64, range: TextRange) -> Self {
+        Self {
+            range,
+            value: ConstantLiteral::Complex { real, imag },
+        }
+    }
+}
+
+pub(crate) enum ConstantLiteral {
+    None,
+    Bool(bool),
+    Str(String),
+    Bytes(Vec<u8>),
+    Int(ruff::Int),
+    Tuple(Vec<Constant>),
+    Float(f64),
+    Complex { real: f64, imag: f64 },
+    Ellipsis,
+}
+
+// constructor
+impl Node for Constant {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { range, value } = self;
+        let is_str = matches!(&value, ConstantLiteral::Str(_));
+        let mut is_unicode = false;
+        let value = match value {
+            ConstantLiteral::None => vm.ctx.none(),
+            ConstantLiteral::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
+            ConstantLiteral::Str(value) => {
+                if !value.is_ascii() {
+                    is_unicode = true;
+                }
+                vm.ctx.new_str(value).to_pyobject(vm)
+            }
+            ConstantLiteral::Bytes(value) => vm.ctx.new_bytes(value).to_pyobject(vm),
+            ConstantLiteral::Int(value) => value.ast_to_object(vm),
+            ConstantLiteral::Tuple(value) => vm
+                .ctx
+                .new_tuple(value.into_iter().map(|c| c.ast_to_object(vm)).collect())
+                .to_pyobject(vm),
+            ConstantLiteral::Float(value) => vm.ctx.new_float(value).into_pyobject(vm),
+            ConstantLiteral::Complex { real, imag } => vm
+                .ctx
+                .new_complex(num_complex::Complex::new(real, imag))
+                .into_pyobject(vm),
+            ConstantLiteral::Ellipsis => vm.ctx.ellipsis(),
+        };
+        // TODO: Figure out how this works
+        let kind = vm.ctx.new_str("u").to_pyobject(vm);
+        let node = NodeAst
+            .into_ref_with_type(vm, gen::NodeExprConstant::static_type().to_owned())
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        dict.set_item("value", value, vm).unwrap();
+        if is_str && is_unicode {
+            dict.set_item("kind", kind, vm).unwrap();
+        }
+        node_add_location(&dict, range, vm);
+        node.into()
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        let value = get_node_field(vm, &object, "value", "Constant")?;
+        let _cls = object.class();
+        let value = if _cls.is(vm.ctx.types.none_type) {
+            ConstantLiteral::None
+        } else if _cls.is(vm.ctx.types.bool_type) {
+            ConstantLiteral::Bool(if value.is(&vm.ctx.true_value) {
+                true
+            } else if value.is(&vm.ctx.false_value) {
+                false
+            } else {
+                value.try_to_value(vm)?
+            })
+        } else if _cls.is(vm.ctx.types.str_type) {
+            ConstantLiteral::Str(value.try_to_value(vm)?)
+        } else if _cls.is(vm.ctx.types.bytes_type) {
+            ConstantLiteral::Bytes(value.try_to_value(vm)?)
+        } else if _cls.is(vm.ctx.types.int_type) {
+            ConstantLiteral::Int(Node::ast_from_object(vm, value)?)
+        } else if _cls.is(vm.ctx.types.tuple_type) {
+            let tuple = value.downcast::<PyTuple>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "Expected type {}, not {}",
+                    PyTuple::static_type().name(),
+                    obj.class().name()
+                ))
+            })?;
+            let tuple = tuple
+                .into_iter()
+                .cloned()
+                .map(|object| Node::ast_from_object(vm, object))
+                .collect::<PyResult<_>>()?;
+            ConstantLiteral::Tuple(tuple)
+        } else if _cls.is(vm.ctx.types.float_type) {
+            let float = value.try_into_value(vm)?;
+            ConstantLiteral::Float(float)
+        } else if _cls.is(vm.ctx.types.complex_type) {
+            let complex = value.try_complex(vm)?;
+            let complex = match complex {
+                None => {
+                    return Err(vm.new_type_error(format!(
+                        "Expected type {}, not {}",
+                        PyComplex::static_type().name(),
+                        value.class().name()
+                    )))
+                }
+                Some((value, _was_coerced)) => value,
+            };
+            ConstantLiteral::Complex {
+                real: complex.re,
+                imag: complex.im,
+            }
+        } else if _cls.is(vm.ctx.types.ellipsis_type) {
+            ConstantLiteral::Ellipsis
+        } else {
+            return Err(vm.new_type_error(format!(
+                "expected some sort of expr, but got {}",
+                object.repr(vm)?
+            )));
+        };
+
+        Ok(Self {
+            value,
+            // kind: get_node_field_opt(_vm, &_object, "kind")?
+            //     .map(|obj| Node::ast_from_object(_vm, obj))
+            //     .transpose()?,
+            range: range_from_object(vm, object, "Constant")?,
+        })
+    }
+}
+
 // constructor
 impl Node for ruff::ExprAttribute {
     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
@@ -982,5 +1139,33 @@ impl Node for ruff::Comprehension {
             )?,
             range: Default::default(),
         })
+    }
+}
+
+impl Node for ruff::ExprNumberLiteral {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { range, value } = self;
+        let c = match value {
+            ruff::Number::Int(n) => Constant::new_int(n, range),
+            ruff::Number::Float(n) => Constant::new_float(n, range),
+            ruff::Number::Complex { real, imag } => Constant::new_complex(real, imag, range),
+        };
+        c.ast_to_object(vm)
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+impl Node for ruff::ExprStringLiteral {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { range, value } = self;
+        let c = Constant::new_str(value, range);
+        c.ast_to_object(vm)
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
     }
 }

@@ -11,7 +11,7 @@ use crate::stdlib::ast::node::BoxedSlice;
 use crate::stdlib::ast::python::_ast;
 use crate::{
     builtins::PyIntRef,
-    builtins::{self, PyDict, PyModule, PyStrRef, PyType},
+    builtins::{PyDict, PyModule, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
     compiler::core::bytecode::OpArgType,
     compiler::{CompileError, ParseError},
@@ -21,10 +21,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, VirtualMachine,
 };
-use malachite_bigint::BigInt;
 use node::Node;
-use num_complex::Complex64;
-use num_traits::{ToPrimitive, Zero};
 use ruff_python_ast as ruff;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 

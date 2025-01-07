@@ -48,71 +48,71 @@ impl Node for bool {
     }
 }
 
-pub enum Constant {
-    None,
-    Bool(bool),
-    Str(String),
-    Bytes(Vec<u8>),
-    Int(BigInt),
-    Tuple(Vec<Constant>),
-    Float(f64),
-    Complex { real: f64, imag: f64 },
-    Ellipsis,
-}
-
-impl Node for Constant {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        match self {
-            Constant::None => vm.ctx.none(),
-            Constant::Bool(b) => vm.ctx.new_bool(b).into(),
-            Constant::Str(s) => vm.ctx.new_str(s).into(),
-            Constant::Bytes(b) => vm.ctx.new_bytes(b).into(),
-            Constant::Int(i) => vm.ctx.new_int(i).into(),
-            Constant::Tuple(t) => vm
-                .ctx
-                .new_tuple(t.into_iter().map(|c| c.ast_to_object(vm)).collect())
-                .into(),
-            Constant::Float(f) => vm.ctx.new_float(f).into(),
-            Constant::Complex { real, imag } => vm.new_pyobj(Complex64::new(real, imag)),
-            Constant::Ellipsis => vm.ctx.ellipsis(),
-        }
-    }
-
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        let constant = match_class!(match object {
-            ref i @ builtins::int::PyInt => {
-                let value = i.as_bigint();
-                if object.class().is(vm.ctx.types.bool_type) {
-                    Constant::Bool(!value.is_zero())
-                } else {
-                    Constant::Int(value.clone())
-                }
-            }
-            ref f @ builtins::float::PyFloat => Constant::Float(f.to_f64()),
-            ref c @ builtins::complex::PyComplex => {
-                let c = c.to_complex();
-                Constant::Complex {
-                    real: c.re,
-                    imag: c.im,
-                }
-            }
-            ref s @ builtins::pystr::PyStr => Constant::Str(s.as_str().to_owned()),
-            ref b @ builtins::bytes::PyBytes => Constant::Bytes(b.as_bytes().to_owned()),
-            ref t @ builtins::tuple::PyTuple => {
-                Constant::Tuple(
-                    t.iter()
-                        .map(|elt| Self::ast_from_object(vm, elt.clone()))
-                        .collect::<Result<_, _>>()?,
-                )
-            }
-            builtins::singletons::PyNone => Constant::None,
-            builtins::slice::PyEllipsis => Constant::Ellipsis,
-            obj =>
-                return Err(vm.new_type_error(format!(
-                    "invalid type in Constant: type '{}'",
-                    obj.class().name()
-                ))),
-        });
-        Ok(constant)
-    }
-}
+// pub enum Constant {
+//     None,
+//     Bool(bool),
+//     Str(String),
+//     Bytes(Vec<u8>),
+//     Int(BigInt),
+//     Tuple(Vec<Constant>),
+//     Float(f64),
+//     Complex { real: f64, imag: f64 },
+//     Ellipsis,
+// }
+//
+// impl Node for Constant {
+//     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+//         match self {
+//             Constant::None => vm.ctx.none(),
+//             Constant::Bool(b) => vm.ctx.new_bool(b).into(),
+//             Constant::Str(s) => vm.ctx.new_str(s).into(),
+//             Constant::Bytes(b) => vm.ctx.new_bytes(b).into(),
+//             Constant::Int(i) => vm.ctx.new_int(i).into(),
+//             Constant::Tuple(t) => vm
+//                 .ctx
+//                 .new_tuple(t.into_iter().map(|c| c.ast_to_object(vm)).collect())
+//                 .into(),
+//             Constant::Float(f) => vm.ctx.new_float(f).into(),
+//             Constant::Complex { real, imag } => vm.new_pyobj(Complex64::new(real, imag)),
+//             Constant::Ellipsis => vm.ctx.ellipsis(),
+//         }
+//     }
+//
+//     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+//         let constant = match_class!(match object {
+//             ref i @ builtins::int::PyInt => {
+//                 let value = i.as_bigint();
+//                 if object.class().is(vm.ctx.types.bool_type) {
+//                     Constant::Bool(!value.is_zero())
+//                 } else {
+//                     Constant::Int(value.clone())
+//                 }
+//             }
+//             ref f @ builtins::float::PyFloat => Constant::Float(f.to_f64()),
+//             ref c @ builtins::complex::PyComplex => {
+//                 let c = c.to_complex();
+//                 Constant::Complex {
+//                     real: c.re,
+//                     imag: c.im,
+//                 }
+//             }
+//             ref s @ builtins::pystr::PyStr => Constant::Str(s.as_str().to_owned()),
+//             ref b @ builtins::bytes::PyBytes => Constant::Bytes(b.as_bytes().to_owned()),
+//             ref t @ builtins::tuple::PyTuple => {
+//                 Constant::Tuple(
+//                     t.iter()
+//                         .map(|elt| Self::ast_from_object(vm, elt.clone()))
+//                         .collect::<Result<_, _>>()?,
+//                 )
+//             }
+//             builtins::singletons::PyNone => Constant::None,
+//             builtins::slice::PyEllipsis => Constant::Ellipsis,
+//             obj =>
+//                 return Err(vm.new_type_error(format!(
+//                     "invalid type in Constant: type '{}'",
+//                     obj.class().name()
+//                 ))),
+//         });
+//         Ok(constant)
+//     }
+// }

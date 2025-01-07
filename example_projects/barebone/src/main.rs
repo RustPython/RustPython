@@ -1,6 +1,5 @@
 use rustpython::InterpreterConfig;
-use rustpython_vm::stdlib::get_module_inits;
-use rustpython_vm::{Interpreter, PyResult, Settings, VirtualMachine};
+use rustpython_vm::Settings;
 use std::env;
 use std::env::split_paths;
 
@@ -12,9 +11,9 @@ pub fn main() {
     //
     // });
     let mut settings = Settings::default();
+    settings.write_bytecode = false;
     settings.path_list.extend(get_paths("RUSTPYTHONPATH"));
-    let mut config = InterpreterConfig::new().init_stdlib().settings(settings);
-
+    let config = InterpreterConfig::new().init_stdlib().settings(settings);
     let interp = config.interpreter();
     let value = interp.enter(|vm| {
         // import ast
@@ -23,14 +22,23 @@ pub fn main() {
 
         vm.run_code_string(
             vm.new_scope_with_builtins(),
-            "
-import enum
-@enum._simple_enum(enum.IntFlag, boundary=enum.KEEP)
-class RegexFlag:
-    NOFLAG = 0
-    DEBUG = 1
-RegexFlag.NOFLAG & RegexFlag.DEBUG
-",
+            r#"
+import ast
+a = ast.parse("""
+print(0)
+
+import ast
+
+class Node:
+    pass
+
+class ClassDef(Node):
+    a = 'a'
+
+print(ClassDef.a)
+""")
+print(ast.dump(a))
+"#,
             "<string>".to_string(),
         )
     });

@@ -1,4 +1,5 @@
 use super::*;
+use num_traits::ToPrimitive;
 
 impl Node for ruff::ConversionFlag {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -13,13 +14,17 @@ impl Node for ruff::ConversionFlag {
     }
 }
 
+/// This is just a string, not strictly an AST node. But it makes AST conversions easier.
 impl Node for ruff::name::Name {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        todo!()
+        vm.ctx.new_str(self.as_str()).to_pyobject(vm)
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        match object.downcast::<PyStr>() {
+            Ok(name) => Ok(Self::new(name)),
+            Err(_) => Err(vm.new_value_error("expected str for name".to_owned())),
+        }
     }
 }
 
