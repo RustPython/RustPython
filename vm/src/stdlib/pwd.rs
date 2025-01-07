@@ -92,7 +92,7 @@ mod pwd {
     #[pyfunction]
     fn getpwall(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         // setpwent, getpwent, etc are not thread safe. Could use fgetpwent_r, but this is easier
-        static GETPWALL: parking_lot::Mutex<()> = parking_lot::const_mutex(());
+        static GETPWALL: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
         let _guard = GETPWALL.lock();
         let mut list = Vec::new();
 

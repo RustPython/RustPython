@@ -228,12 +228,8 @@ mod sealed {
 }
 
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
-pub trait InternableString
-where
-    Self: sealed::SealedInternable + ToPyObject + AsRef<Self::Interned>,
-    Self::Interned: MaybeInternedString,
-{
-    type Interned: ?Sized;
+pub trait InternableString: sealed::SealedInternable + ToPyObject + AsRef<Self::Interned> {
+    type Interned: MaybeInternedString + ?Sized;
     fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr>;
 }
 
