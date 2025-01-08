@@ -36,15 +36,18 @@ mod python;
 
 mod argument;
 mod basic;
+mod constant;
 mod elif_else_clause;
 mod exception;
 mod expression;
 mod module;
+mod node;
 mod operator;
 mod other;
 mod parameter;
 mod pattern;
 mod statement;
+mod string;
 mod type_ignore;
 mod type_parameters;
 
@@ -73,8 +76,6 @@ fn get_int_field(
         .transpose()
         .unwrap())
 }
-
-mod node;
 
 struct SourceRange {
     start: SourceLocation,
