@@ -1,7 +1,6 @@
 use super::*;
 use crate::builtins::{PyComplex, PyTuple};
 use crate::stdlib::ast::argument::{merge_function_call_arguments, split_function_call_arguments};
-use ruff_python_ast::StringLiteralValue;
 
 // sum
 impl Node for ruff::Expr {
@@ -24,9 +23,6 @@ impl Node for ruff::Expr {
             ruff::Expr::YieldFrom(cons) => cons.ast_to_object(vm),
             ruff::Expr::Compare(cons) => cons.ast_to_object(vm),
             ruff::Expr::Call(cons) => cons.ast_to_object(vm),
-            // ruff::Expr::FormattedValue(cons) => cons.ast_to_object(vm),
-            // ruff::Expr::JoinedStr(cons) => cons.ast_to_object(vm),
-            // ruff::Expr::Constant(cons) => cons.ast_to_object(vm),
             ruff::Expr::Attribute(cons) => cons.ast_to_object(vm),
             ruff::Expr::Subscript(cons) => cons.ast_to_object(vm),
             ruff::Expr::Starred(cons) => cons.ast_to_object(vm),
@@ -35,24 +31,12 @@ impl Node for ruff::Expr {
             ruff::Expr::Slice(cons) => cons.ast_to_object(vm),
             ruff::Expr::NumberLiteral(cons) => cons.ast_to_object(vm),
             ruff::Expr::StringLiteral(cons) => cons.ast_to_object(vm),
-            ruff::Expr::Named(_) => {
-                todo!()
-            }
-            ruff::Expr::FString(_) => {
-                todo!()
-            }
-            ruff::Expr::BytesLiteral(_) => {
-                todo!()
-            }
-            ruff::Expr::BooleanLiteral(_) => {
-                todo!()
-            }
-            ruff::Expr::NoneLiteral(_) => {
-                todo!()
-            }
-            ruff::Expr::EllipsisLiteral(_) => {
-                todo!()
-            }
+            ruff::Expr::FString(cons) => cons.ast_to_object(vm),
+            ruff::Expr::BytesLiteral(cons) => cons.ast_to_object(vm),
+            ruff::Expr::BooleanLiteral(cons) => cons.ast_to_object(vm),
+            ruff::Expr::NoneLiteral(cons) => cons.ast_to_object(vm),
+            ruff::Expr::EllipsisLiteral(cons) => cons.ast_to_object(vm),
+            ruff::Expr::Named(cons) => cons.ast_to_object(vm),
             ruff::Expr::IpyEscapeCommand(_) => {
                 unimplemented!("IPython escape command is not allowed in Python AST")
             }
@@ -94,12 +78,6 @@ impl Node for ruff::Expr {
             ruff::Expr::Compare(ruff::ExprCompare::ast_from_object(_vm, _object)?)
         } else if _cls.is(gen::NodeExprCall::static_type()) {
             ruff::Expr::Call(ruff::ExprCall::ast_from_object(_vm, _object)?)
-        // } else if _cls.is(gen::NodeExprFormattedValue::static_type()) {
-        //     ruff::Expr::FormattedValue(ruff::ExprFormattedValue::ast_from_object(_vm, _object)?)
-        // } else if _cls.is(gen::NodeExprJoinedStr::static_type()) {
-        //     ruff::Expr::JoinedStr(ruff::ExprJoinedStr::ast_from_object(_vm, _object)?)
-        // } else if _cls.is(gen::NodeExprConstant::static_type()) {
-        //     ruff::Expr::Constant(Constant::ast_from_object(_vm, _object)?)
         } else if _cls.is(gen::NodeExprAttribute::static_type()) {
             ruff::Expr::Attribute(ruff::ExprAttribute::ast_from_object(_vm, _object)?)
         } else if _cls.is(gen::NodeExprSubscript::static_type()) {
@@ -150,34 +128,27 @@ impl Node for ruff::ExprBoolOp {
 }
 // constructor
 impl Node for ruff::ExprNamed {
-    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let Self {
             target,
             value,
-            range: _range,
+            range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeExprNamedExpr::static_type().to_owned())
+            .into_ref_with_type(vm, gen::NodeExprNamedExpr::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("target", target.ast_to_object(_vm), _vm)
+        dict.set_item("target", target.ast_to_object(vm), vm)
             .unwrap();
-        dict.set_item("value", value.ast_to_object(_vm), _vm)
-            .unwrap();
-        node_add_location(&dict, _range, _vm);
+        dict.set_item("value", value.ast_to_object(vm), vm).unwrap();
+        node_add_location(&dict, range, vm);
         node.into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         Ok(Self {
-            target: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "target", "NamedExpr")?,
-            )?,
-            value: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "value", "NamedExpr")?,
-            )?,
-            range: range_from_object(_vm, _object, "NamedExpr")?,
+            target: Node::ast_from_object(vm, get_node_field(vm, &object, "target", "NamedExpr")?)?,
+            value: Node::ast_from_object(vm, get_node_field(vm, &object, "value", "NamedExpr")?)?,
+            range: range_from_object(vm, object, "NamedExpr")?,
         })
     }
 }
@@ -615,10 +586,14 @@ impl Node for ruff::ExprCall {
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("func", func.ast_to_object(vm), vm).unwrap();
-        dict.set_item("args", positional_arguments.ast_to_object(vm), vm)
-            .unwrap();
-        dict.set_item("keywords", keyword_arguments.ast_to_object(vm), vm)
-            .unwrap();
+        if !positional_arguments.args.is_empty() {
+            dict.set_item("args", positional_arguments.ast_to_object(vm), vm)
+                .unwrap();
+        }
+        if !keyword_arguments.keywords.is_empty() {
+            dict.set_item("keywords", keyword_arguments.ast_to_object(vm), vm)
+                .unwrap();
+        }
         node_add_location(&dict, range, vm);
         node.into()
     }
@@ -633,86 +608,20 @@ impl Node for ruff::ExprCall {
         })
     }
 }
-// // constructor
-// impl Node for ruff::ExprFormattedValue {
-//     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-//         let ruff::ExprFormattedValue {
-//             value,
-//             conversion,
-//             format_spec,
-//             range: _range,
-//         } = self;
-//         let node = NodeAst
-//             .into_ref_with_type(_vm, gen::NodeExprFormattedValue::static_type().to_owned())
-//             .unwrap();
-//         let dict = node.as_object().dict().unwrap();
-//         dict.set_item("value", value.ast_to_object(_vm), _vm)
-//             .unwrap();
-//         dict.set_item("conversion", conversion.ast_to_object(_vm), _vm)
-//             .unwrap();
-//         dict.set_item("format_spec", format_spec.ast_to_object(_vm), _vm)
-//             .unwrap();
-//         node_add_location(&dict, _range, _vm);
-//         node.into()
-//     }
-//     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-//         Ok(ruff::ExprFormattedValue {
-//             value: Node::ast_from_object(
-//                 _vm,
-//                 get_node_field(_vm, &_object, "value", "FormattedValue")?,
-//             )?,
-//             conversion: Node::ast_from_object(
-//                 _vm,
-//                 get_node_field(_vm, &_object, "conversion", "FormattedValue")?,
-//             )?,
-//             format_spec: get_node_field_opt(_vm, &_object, "format_spec")?
-//                 .map(|obj| Node::ast_from_object(_vm, obj))
-//                 .transpose()?,
-//             range: range_from_object(_vm, _object, "FormattedValue")?,
-//         })
-//     }
-// }
-// // constructor
-// impl Node for ruff::ExprJoinedStr {
-//     fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-//         let ruff::ExprJoinedStr {
-//             values,
-//             range: _range,
-//         } = self;
-//         let node = NodeAst
-//             .into_ref_with_type(_vm, gen::NodeExprJoinedStr::static_type().to_owned())
-//             .unwrap();
-//         let dict = node.as_object().dict().unwrap();
-//         dict.set_item("values", values.ast_to_object(_vm), _vm)
-//             .unwrap();
-//         node_add_location(&dict, _range, _vm);
-//         node.into()
-//     }
-//     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-//         Ok(ruff::ExprJoinedStr {
-//             values: Node::ast_from_object(
-//                 _vm,
-//                 get_node_field(_vm, &_object, "values", "JoinedStr")?,
-//             )?,
-//             range: range_from_object(_vm, _object, "JoinedStr")?,
-//         })
-//     }
-// }
+
 pub(crate) struct Constant {
     range: TextRange,
     value: ConstantLiteral,
 }
 
 impl Constant {
-    fn new_str(value: StringLiteralValue, range: TextRange) -> Self {
+    fn new_str(value: &str, range: TextRange) -> Self {
         Self {
             range,
             value: ConstantLiteral::Str(value.to_string()),
         }
     }
-}
 
-impl Constant {
     fn new_int(value: ruff::Int, range: TextRange) -> Self {
         Self {
             range,
@@ -730,6 +639,34 @@ impl Constant {
         Self {
             range,
             value: ConstantLiteral::Complex { real, imag },
+        }
+    }
+
+    fn new_bytes(value: impl Iterator<Item = u8>, range: TextRange) -> Self {
+        Self {
+            range,
+            value: ConstantLiteral::Bytes(value.collect()),
+        }
+    }
+
+    fn new_bool(value: bool, range: TextRange) -> Self {
+        Self {
+            range,
+            value: ConstantLiteral::Bool(value),
+        }
+    }
+
+    fn new_none(range: TextRange) -> Self {
+        Self {
+            range,
+            value: ConstantLiteral::None,
+        }
+    }
+
+    fn new_ellipsis(range: TextRange) -> Self {
+        Self {
+            range,
+            value: ConstantLiteral::Ellipsis,
         }
     }
 }
@@ -1142,6 +1079,54 @@ impl Node for ruff::Comprehension {
     }
 }
 
+impl Node for ruff::ExprBytesLiteral {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { range, value } = self;
+        let c = Constant::new_bytes(value.bytes(), range);
+        c.ast_to_object(vm)
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+impl Node for ruff::ExprBooleanLiteral {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { range, value } = self;
+        let c = Constant::new_bool(value, range);
+        c.ast_to_object(vm)
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+impl Node for ruff::ExprNoneLiteral {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { range } = self;
+        let c = Constant::new_none(range);
+        c.ast_to_object(vm)
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+impl Node for ruff::ExprEllipsisLiteral {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { range } = self;
+        let c = Constant::new_ellipsis(range);
+        c.ast_to_object(vm)
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
 impl Node for ruff::ExprNumberLiteral {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let Self { range, value } = self;
@@ -1161,11 +1146,182 @@ impl Node for ruff::ExprNumberLiteral {
 impl Node for ruff::ExprStringLiteral {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let Self { range, value } = self;
-        let c = Constant::new_str(value, range);
+        let c = Constant::new_str(value.to_str(), range);
         c.ast_to_object(vm)
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         todo!()
+    }
+}
+
+impl Node for ruff::ExprFString {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { range, value } = self;
+        let values: Vec<_> = value
+            .into_iter()
+            .flat_map(fstring_part_to_joined_str_part)
+            .collect();
+        let values = values.into_boxed_slice();
+        let c = JoinedStr { range, values };
+        c.ast_to_object(vm)
+    }
+
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        todo!()
+    }
+}
+
+fn fstring_part_to_joined_str_part(fstring_part: &ruff::FStringPart) -> Vec<JoinedStrPart> {
+    match fstring_part {
+        ruff::FStringPart::Literal(ruff::StringLiteral {
+            range,
+            value,
+            flags: _, // TODO
+        }) => vec![JoinedStrPart::Constant(Constant::new_str(value, *range))],
+        ruff::FStringPart::FString(ruff::FString {
+            range: _,
+            elements,
+            flags: _, // TODO
+        }) => elements
+            .into_iter()
+            .map(fstring_element_to_joined_str_part)
+            .collect(),
+    }
+}
+
+fn fstring_element_to_joined_str_part(element: &ruff::FStringElement) -> JoinedStrPart {
+    match element {
+        ruff::FStringElement::Literal(ruff::FStringLiteralElement { range, value }) => {
+            JoinedStrPart::Constant(Constant::new_str(value, *range))
+        }
+        ruff::FStringElement::Expression(ruff::FStringExpressionElement {
+            range,
+            expression,
+            debug_text: _, // TODO: What is this?
+            conversion,
+            format_spec,
+        }) => JoinedStrPart::FormattedValue(FormattedValue {
+            value: expression.clone(),
+            conversion: *conversion,
+            format_spec: format_spec_helper(format_spec),
+            range: *range,
+        }),
+    }
+}
+
+fn format_spec_helper(
+    format_spec: &Option<Box<ruff::FStringFormatSpec>>,
+) -> Option<Box<JoinedStr>> {
+    match format_spec.as_deref() {
+        None => None,
+        Some(ruff::FStringFormatSpec { range, elements }) => {
+            let values: Vec<_> = elements
+                .into_iter()
+                .map(fstring_element_to_joined_str_part)
+                .collect();
+            let values = values.into_boxed_slice();
+            Some(Box::new(JoinedStr {
+                values,
+                range: *range,
+            }))
+        }
+    }
+}
+
+struct JoinedStr {
+    values: Box<[JoinedStrPart]>,
+    range: TextRange,
+}
+
+// constructor
+impl Node for JoinedStr {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { values, range } = self;
+        let node = NodeAst
+            .into_ref_with_type(vm, gen::NodeExprJoinedStr::static_type().to_owned())
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        dict.set_item("values", BoxedSlice(values).ast_to_object(vm), vm)
+            .unwrap();
+        node_add_location(&dict, range, vm);
+        node.into()
+    }
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        let values: BoxedSlice<_> =
+            Node::ast_from_object(vm, get_node_field(vm, &object, "values", "JoinedStr")?)?;
+        Ok(Self {
+            values: values.0,
+            range: range_from_object(vm, object, "JoinedStr")?,
+        })
+    }
+}
+
+enum JoinedStrPart {
+    FormattedValue(FormattedValue),
+    Constant(Constant),
+}
+
+// constructor
+impl Node for JoinedStrPart {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        match self {
+            JoinedStrPart::FormattedValue(value) => value.ast_to_object(vm),
+            JoinedStrPart::Constant(value) => value.ast_to_object(vm),
+        }
+    }
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        let cls = object.class();
+        if cls.is(gen::NodeExprFormattedValue::static_type()) {
+            Ok(Self::FormattedValue(Node::ast_from_object(vm, object)?))
+        } else {
+            Ok(Self::Constant(Node::ast_from_object(vm, object)?))
+        }
+    }
+}
+
+struct FormattedValue {
+    value: Box<ruff::Expr>,
+    conversion: ruff::ConversionFlag,
+    format_spec: Option<Box<JoinedStr>>,
+    range: TextRange,
+}
+
+// constructor
+impl Node for FormattedValue {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self {
+            value,
+            conversion,
+            format_spec,
+            range,
+        } = self;
+        let node = NodeAst
+            .into_ref_with_type(vm, gen::NodeExprFormattedValue::static_type().to_owned())
+            .unwrap();
+        let dict = node.as_object().dict().unwrap();
+        dict.set_item("value", value.ast_to_object(vm), vm).unwrap();
+        dict.set_item("conversion", conversion.ast_to_object(vm), vm)
+            .unwrap();
+        dict.set_item("format_spec", format_spec.ast_to_object(vm), vm)
+            .unwrap();
+        node_add_location(&dict, range, vm);
+        node.into()
+    }
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        Ok(Self {
+            value: Node::ast_from_object(
+                vm,
+                get_node_field(vm, &object, "value", "FormattedValue")?,
+            )?,
+            conversion: Node::ast_from_object(
+                vm,
+                get_node_field(vm, &object, "conversion", "FormattedValue")?,
+            )?,
+            format_spec: get_node_field_opt(vm, &object, "format_spec")?
+                .map(|obj| Node::ast_from_object(vm, obj))
+                .transpose()?,
+            range: range_from_object(vm, object, "FormattedValue")?,
+        })
     }
 }

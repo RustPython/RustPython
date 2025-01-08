@@ -35,9 +35,14 @@ class Node:
 class ClassDef(Node):
     a = 'a'
 
-print(ClassDef.a)
+def f():
+    print(ClassDef.a)
+
+b = 'b'
+c = (1,2,)
+print(0, 'a', f'a{b}', 1.0, b'33333', True, False, None, ..., c, d := 42)
 """)
-print(ast.dump(a))
+print(ast.dump(a, indent=4))
 "#,
             "<string>".to_string(),
         )

@@ -9,7 +9,7 @@ impl Node for ruff::Parameters {
             vararg,
             kwonlyargs,
             kwarg,
-            range: _range,
+            range,
         } = self;
         let (posonlyargs, args, defaults) =
             extract_positional_parameter_defaults(posonlyargs, args);
@@ -18,18 +18,33 @@ impl Node for ruff::Parameters {
             .into_ref_with_type(vm, gen::NodeArguments::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("posonlyargs", posonlyargs.ast_to_object(vm), vm)
-            .unwrap();
-        dict.set_item("args", args.ast_to_object(vm), vm).unwrap();
-        dict.set_item("vararg", vararg.ast_to_object(vm), vm)
-            .unwrap();
-        dict.set_item("kwonlyargs", kwonlyargs.ast_to_object(vm), vm)
-            .unwrap();
-        dict.set_item("kw_defaults", kw_defaults.ast_to_object(vm), vm)
-            .unwrap();
-        dict.set_item("kwarg", kwarg.ast_to_object(vm), vm).unwrap();
-        dict.set_item("defaults", defaults.ast_to_object(vm), vm)
-            .unwrap();
+        if !posonlyargs.args.is_empty() {
+            dict.set_item("posonlyargs", posonlyargs.ast_to_object(vm), vm)
+                .unwrap();
+        }
+        if !args.args.is_empty() {
+            dict.set_item("args", args.ast_to_object(vm), vm).unwrap();
+        }
+        if let Some(vararg) = vararg {
+            dict.set_item("vararg", vararg.ast_to_object(vm), vm)
+                .unwrap();
+        }
+        if !kwonlyargs.keywords.is_empty() {
+            dict.set_item("kwonlyargs", kwonlyargs.ast_to_object(vm), vm)
+                .unwrap();
+        }
+        if !kw_defaults.defaults.is_empty() {
+            dict.set_item("kw_defaults", kw_defaults.ast_to_object(vm), vm)
+                .unwrap();
+        }
+        if let Some(kwarg) = kwarg {
+            dict.set_item("kwarg", kwarg.ast_to_object(vm), vm).unwrap();
+        }
+        if !defaults.defaults.is_empty() {
+            dict.set_item("defaults", defaults.ast_to_object(vm), vm)
+                .unwrap();
+        }
+        node_add_location(&dict, range, vm);
         node.into()
     }
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -139,7 +154,7 @@ struct PositionalParameters {
 
 impl Node for PositionalParameters {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        todo!()
+        BoxedSlice(self.args).ast_to_object(vm)
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -154,7 +169,7 @@ struct KeywordParameters {
 
 impl Node for KeywordParameters {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        todo!()
+        BoxedSlice(self.keywords).ast_to_object(vm)
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -169,7 +184,7 @@ struct ParameterDefaults {
 
 impl Node for ParameterDefaults {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        todo!()
+        BoxedSlice(self.defaults).ast_to_object(vm)
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -198,7 +213,7 @@ fn extract_positional_parameter_defaults(
             .flatten()
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
-            .unwrap(),
+            .unwrap_or_default(),
         defaults: defaults.into_boxed_slice(),
     };
 
@@ -207,7 +222,7 @@ fn extract_positional_parameter_defaults(
             .iter()
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
-            .unwrap(),
+            .unwrap_or_default(),
         args: {
             let pos_only_args: Vec<_> = pos_only_args
                 .iter()
@@ -222,7 +237,7 @@ fn extract_positional_parameter_defaults(
             .iter()
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
-            .unwrap(),
+            .unwrap_or_default(),
         args: {
             let args: Vec<_> = args.iter().map(|item| item.parameter.clone()).collect();
             args.into_boxed_slice()
@@ -287,7 +302,7 @@ fn extract_keyword_parameter_defaults(
             .flatten()
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
-            .unwrap(),
+            .unwrap_or_default(),
         defaults: defaults.into_boxed_slice(),
     };
 
@@ -296,7 +311,7 @@ fn extract_keyword_parameter_defaults(
             .iter()
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
-            .unwrap(),
+            .unwrap_or_default(),
         keywords: {
             let kw_only_args: Vec<_> = kw_only_args
                 .iter()
