@@ -60,9 +60,9 @@ pub fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
                     return Some(BigInt::zero());
                 }
             }
-            16 => lit.get(1).map_or(false, |&b| matches!(b, b'x' | b'X')),
-            2 => lit.get(1).map_or(false, |&b| matches!(b, b'b' | b'B')),
-            8 => lit.get(1).map_or(false, |&b| matches!(b, b'o' | b'O')),
+            16 => lit.get(1).is_some_and(|&b| matches!(b, b'x' | b'X')),
+            2 => lit.get(1).is_some_and(|&b| matches!(b, b'b' | b'B')),
+            8 => lit.get(1).is_some_and(|&b| matches!(b, b'o' | b'O')),
             _ => false,
         }
     } else {

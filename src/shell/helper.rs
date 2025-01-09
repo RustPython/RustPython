@@ -22,7 +22,7 @@ fn split_idents_on_dot(line: &str) -> Option<(usize, Vec<String>)> {
         match c {
             '.' => {
                 // check for a double dot
-                if i != 0 && words.last().map_or(false, |s| s.is_empty()) {
+                if i != 0 && words.last().is_some_and(|s| s.is_empty()) {
                     return None;
                 }
                 reverse_string(words.last_mut().unwrap());

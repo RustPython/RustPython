@@ -903,9 +903,8 @@ impl PyStr {
             let end_len = match ch {
                 '\n' => 1,
                 '\r' => {
-                    let is_rn = enumerated.peek().map_or(false, |(_, ch)| *ch == '\n');
+                    let is_rn = enumerated.next_if(|(_, ch)| *ch == '\n').is_some();
                     if is_rn {
-                        let _ = enumerated.next();
                         2
                     } else {
                         1
@@ -913,9 +912,7 @@ impl PyStr {
                 }
                 '\x0b' | '\x0c' | '\x1c' | '\x1d' | '\x1e' | '\u{0085}' | '\u{2028}'
                 | '\u{2029}' => ch.len_utf8(),
-                _ => {
-                    continue;
-                }
+                _ => continue,
             };
             let range = if args.keepends {
                 last_i..i + end_len
@@ -1160,7 +1157,7 @@ impl PyStr {
     #[pymethod]
     fn isidentifier(&self) -> bool {
         let mut chars = self.as_str().chars();
-        let is_identifier_start = chars.next().map_or(false, |c| c == '_' || is_xid_start(c));
+        let is_identifier_start = chars.next().is_some_and(|c| c == '_' || is_xid_start(c));
         // a string is not an identifier if it has whitespace or starts with a number
         is_identifier_start && chars.all(is_xid_continue)
     }

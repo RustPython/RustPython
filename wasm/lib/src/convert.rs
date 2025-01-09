@@ -34,7 +34,7 @@ extern "C" {
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsValue {
     let jserr = vm.try_class("_js", "JSError").ok();
-    let js_arg = if jserr.map_or(false, |jserr| py_err.fast_isinstance(&jserr)) {
+    let js_arg = if jserr.is_some_and(|jserr| py_err.fast_isinstance(&jserr)) {
         py_err.get_arg(0)
     } else {
         None

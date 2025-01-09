@@ -367,7 +367,7 @@ fn setup_context(
 
     // Stack level comparisons to Python code is off by one as there is no
     // warnings-related stack level to avoid.
-    if stack_level <= 0 || f.as_ref().map_or(false, |frame| frame.is_internal_frame()) {
+    if stack_level <= 0 || f.as_ref().is_some_and(|frame| frame.is_internal_frame()) {
         loop {
             stack_level -= 1;
             if stack_level <= 0 {
