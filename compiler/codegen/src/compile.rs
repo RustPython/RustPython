@@ -3102,19 +3102,18 @@ impl Compiler {
             Expr::Tuple(ExprTuple { elts, .. }) => elts.iter().any(Self::contains_await),
             Expr::Set(ExprSet { elts, .. }) => elts.iter().any(Self::contains_await),
             Expr::Dict(ExprDict { keys, values, .. }) => {
-                keys.iter()
-                    .any(|key| key.as_ref().map_or(false, Self::contains_await))
+                keys.iter().flatten().any(Self::contains_await)
                     || values.iter().any(Self::contains_await)
             }
             Expr::Slice(ExprSlice {
                 lower, upper, step, ..
             }) => {
-                lower.as_ref().map_or(false, |l| Self::contains_await(l))
-                    || upper.as_ref().map_or(false, |u| Self::contains_await(u))
-                    || step.as_ref().map_or(false, |s| Self::contains_await(s))
+                lower.as_deref().is_some_and(Self::contains_await)
+                    || upper.as_deref().is_some_and(Self::contains_await)
+                    || step.as_deref().is_some_and(Self::contains_await)
             }
             Expr::Yield(ExprYield { value, .. }) => {
-                value.as_ref().map_or(false, |v| Self::contains_await(v))
+                value.as_deref().is_some_and(Self::contains_await)
             }
             Expr::Await(ExprAwait { .. }) => true,
             Expr::YieldFrom(ExprYieldFrom { value, .. }) => Self::contains_await(value),
@@ -3128,9 +3127,7 @@ impl Compiler {
                 ..
             }) => {
                 Self::contains_await(value)
-                    || format_spec
-                        .as_ref()
-                        .map_or(false, |fs| Self::contains_await(fs))
+                    || format_spec.as_deref().is_some_and(Self::contains_await)
             }
             Expr::Name(located_ast::ExprName { .. }) => false,
             Expr::Lambda(located_ast::ExprLambda { body, .. }) => Self::contains_await(body),

@@ -684,7 +684,7 @@ mod decl {
             self.grouper
                 .as_ref()
                 .and_then(|g| g.upgrade())
-                .map_or(false, |ref current_grouper| grouper.is(current_grouper))
+                .is_some_and(|current_grouper| grouper.is(&current_grouper))
         }
     }
 

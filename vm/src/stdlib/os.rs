@@ -274,8 +274,8 @@ pub(super) mod _os {
     fn remove(path: OsPath, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
         let is_junction = cfg!(windows)
-            && fs::metadata(&path).map_or(false, |meta| meta.file_type().is_dir())
-            && fs::symlink_metadata(&path).map_or(false, |meta| meta.file_type().is_symlink());
+            && fs::metadata(&path).is_ok_and(|meta| meta.file_type().is_dir())
+            && fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink());
         let res = if is_junction {
             fs::remove_dir(&path)
         } else {

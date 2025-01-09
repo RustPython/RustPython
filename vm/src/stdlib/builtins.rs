@@ -429,8 +429,7 @@ mod builtins {
         let fd_matches = |obj, expected| {
             vm.call_method(obj, "fileno", ())
                 .and_then(|o| i64::try_from_object(vm, o))
-                .ok()
-                .map_or(false, |fd| fd == expected)
+                .is_ok_and(|fd| fd == expected)
         };
 
         // everything is normalish, we can just rely on rustyline to use stdin/stdout

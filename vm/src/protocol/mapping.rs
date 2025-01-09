@@ -95,7 +95,7 @@ impl PyMapping<'_> {
     // PyMapping::Check
     #[inline]
     pub fn check(obj: &PyObject) -> bool {
-        Self::find_methods(obj).map_or(false, |x| x.as_ref().check())
+        Self::find_methods(obj).is_some_and(|x| x.as_ref().check())
     }
 
     pub fn find_methods(obj: &PyObject) -> Option<PointerSlot<PyMappingMethods>> {

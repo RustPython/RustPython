@@ -470,7 +470,7 @@ impl PyType {
                     .attributes
                     .read()
                     .get(identifier!(ctx, __hash__))
-                    .map_or(false, |a| a.is(&ctx.none));
+                    .is_some_and(|a| a.is(&ctx.none));
                 let wrapper = if is_unhashable {
                     hash_not_implemented
                 } else {
@@ -945,7 +945,7 @@ pub trait GetDescriptor: PyPayload {
 
     #[inline]
     fn _cls_is(cls: &Option<PyObjectRef>, other: &impl Borrow<PyObject>) -> bool {
-        cls.as_ref().map_or(false, |cls| other.borrow().is(cls))
+        cls.as_ref().is_some_and(|cls| other.borrow().is(cls))
     }
 }
 

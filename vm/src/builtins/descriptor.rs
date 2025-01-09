@@ -67,7 +67,7 @@ impl GetDescriptor for PyMethodDescriptor {
         let bound = match obj {
             Some(obj) => {
                 if descr.method.flags.contains(PyMethodFlags::METHOD) {
-                    if cls.map_or(false, |c| c.fast_isinstance(vm.ctx.types.type_type)) {
+                    if cls.is_some_and(|c| c.fast_isinstance(vm.ctx.types.type_type)) {
                         obj
                     } else {
                         return Err(vm.new_type_error(format!(
