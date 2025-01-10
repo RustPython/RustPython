@@ -4,24 +4,25 @@
     "description": "Bindings to the RustPython library for WebAssembly",
     "main": "index.js",
     "dependencies": {
-        "codemirror": "^5.42.0",
-        "local-echo": "^0.2.0",
-        "xterm": "^3.8.0"
+        "@codemirror/lang-python": "^6.1.6",
+        "@xterm/addon-fit": "^0.10.0",
+        "@xterm/xterm": "^5.3.0",
+        "codemirror": "^6.0.1",
+        "upgrade": "^1.1.0",
+        "xterm-readline": "^1.1.2"
     },
     "devDependencies": {
-        "@wasm-tool/wasm-pack-plugin": "^1.1.0",
-        "clean-webpack-plugin": "^3.0.0",
-        "css-loader": "^3.4.1",
-        "html-webpack-plugin": "^3.2.0",
-        "mini-css-extract-plugin": "^0.9.0",
-        "raw-loader": "^4.0.0",
-        "serve": "^11.0.2",
-        "webpack": "^4.16.3",
-        "webpack-cli": "^3.1.0",
-        "webpack-dev-server": "^3.1.5"
+        "@wasm-tool/wasm-pack-plugin": "^1.7.0",
+        "css-loader": "^7.1.2",
+        "html-webpack-plugin": "^5.6.3",
+        "mini-css-extract-plugin": "^2.9.2",
+        "serve": "^14.2.4",
+        "webpack": "^5.97.1",
+        "webpack-cli": "^6.0.1",
+        "webpack-dev-server": "^5.2.0"
     },
     "scripts": {
-        "dev": "webpack-dev-server -d",
+        "dev": "webpack serve",
         "build": "webpack",
         "dist": "webpack --mode production",
         "test": "webpack --mode production && cd ../tests && pytest"
