@@ -334,13 +334,11 @@ pub(crate) mod _thread {
                 );
             }
         }
-        SENTINELS.with(|sentinels| {
-            for lock in sentinels.replace(Default::default()) {
-                if lock.mu.is_locked() {
-                    unsafe { lock.mu.unlock() };
-                }
+        for lock in SENTINELS.take() {
+            if lock.mu.is_locked() {
+                unsafe { lock.mu.unlock() };
             }
-        });
+        }
         vm.state.thread_count.fetch_sub(1);
     }
 
@@ -355,14 +353,12 @@ pub(crate) mod _thread {
         Err(vm.new_exception_empty(vm.ctx.exceptions.system_exit.to_owned()))
     }
 
-    thread_local! {
-        static SENTINELS: RefCell<Vec<PyRef<Lock>>> = const { RefCell::new(Vec::new()) };
-    }
+    thread_local!(static SENTINELS: RefCell<Vec<PyRef<Lock>>> = const { RefCell::new(Vec::new()) });
 
     #[pyfunction]
     fn _set_sentinel(vm: &VirtualMachine) -> PyRef<Lock> {
         let lock = Lock { mu: RawMutex::INIT }.into_ref(&vm.ctx);
-        SENTINELS.with(|sentinels| sentinels.borrow_mut().push(lock.clone()));
+        SENTINELS.with_borrow_mut(|sentinels| sentinels.push(lock.clone()));
         lock
     }
 

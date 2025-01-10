@@ -207,6 +207,8 @@ rustix = { version = "1.0", features = ["event"] }
 rustyline = "17.0.0"
 serde = { version = "1.0.133", default-features = false }
 schannel = "0.1.27"
+scoped-tls = "1"
+scopeguard = "1"
 static_assertions = "1.1"
 strum = "0.27"
 strum_macros = "0.27"
