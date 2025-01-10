@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: AI Code Review
-        uses: gitea-actions/ai-reviewer@v0.5
+        uses: gitea-actions/ai-reviewer@v0.6
         with:
           access-token: ${{ secrets.ACCESS_TOKEN }}
           full-context-model: "gpt-4o"
