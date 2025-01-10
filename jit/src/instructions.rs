@@ -1,3 +1,5 @@
+use super::{JitCompileError, JitSig, JitType};
+use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::bytecode::{
@@ -5,8 +7,6 @@ use rustpython_compiler_core::bytecode::{
     OpArg, OpArgState, UnaryOperator,
 };
 use std::collections::HashMap;
-use cranelift::codegen::ir::FuncRef;
-use super::{JitCompileError, JitSig, JitType};
 
 #[repr(u16)]
 enum CustomTrapCode {
@@ -286,7 +286,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.store_variable(idx.get(arg), val)
             }
             Instruction::LoadConst { idx } => {
-                let val = self.prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
+                let val = self
+                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
                 self.stack.push(val);
                 Ok(())
             }
@@ -315,7 +316,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.return_value(val)
             }
             Instruction::ReturnConst { idx } => {
-                let val = self.prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
+                let val = self
+                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
                 self.return_value(val)
             }
             Instruction::CompareOperation { op, .. } => {
@@ -521,7 +523,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     self.stack.push(JitValue::FuncRef(func_ref));
                     Ok(())
                 }
-            },
+            }
             Instruction::CallFunctionPositional { nargs } => {
                 let nargs = nargs.get(arg);
 
@@ -538,10 +540,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         self.stack.push(JitValue::Int(returns[0]));
 
                         Ok(())
-                    },
+                    }
                     _ => Err(JitCompileError::BadBytecode),
                 }
-            },
+            }
             _ => Err(JitCompileError::NotSupported),
         }
     }

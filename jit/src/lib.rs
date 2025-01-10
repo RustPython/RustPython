@@ -49,7 +49,7 @@ impl Jit {
         &mut self,
         bytecode: &bytecode::CodeObject<C>,
         args: &[JitType],
-        ret: Option<JitType>
+        ret: Option<JitType>,
     ) -> Result<(FuncId, JitSig), JitCompileError> {
         for arg in args {
             self.ctx
@@ -81,8 +81,13 @@ impl Jit {
         builder.switch_to_block(entry_block);
 
         let sig = {
-            let mut compiler =
-                FunctionCompiler::new(&mut builder, bytecode.varnames.len(), args, ret, entry_block);
+            let mut compiler = FunctionCompiler::new(
+                &mut builder,
+                bytecode.varnames.len(),
+                args,
+                ret,
+                entry_block,
+            );
 
             compiler.compile(func_ref, bytecode)?;
 
@@ -103,7 +108,7 @@ impl Jit {
 pub fn compile<C: bytecode::Constant>(
     bytecode: &bytecode::CodeObject<C>,
     args: &[JitType],
-    ret: Option<JitType>
+    ret: Option<JitType>,
 ) -> Result<CompiledCode, JitCompileError> {
     let mut jit = Jit::new();
 
