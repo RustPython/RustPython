@@ -506,7 +506,8 @@ impl PyFunction {
         zelf.jitted_code
             .get_or_try_init(|| {
                 let arg_types = jitfunc::get_jit_arg_types(&zelf, vm)?;
-                rustpython_jit::compile(&zelf.code.code, &arg_types)
+                let ret_type = jitfunc::jit_ret_type(&zelf, vm)?;
+                rustpython_jit::compile(&zelf.code.code, &arg_types, ret_type)
                     .map_err(|err| jitfunc::new_jit_error(err.to_string(), vm))
             })
             .map(drop)
