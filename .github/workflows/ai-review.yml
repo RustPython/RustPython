@@ -1,0 +1,23 @@
+name: PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: AI Code Review
+        uses: gitea_actions/ai-review@v1
+        with:
+          access-token: ${{ secrets.ACCESS_TOKEN }}
+          full-context-model: "gpt-4o"
+          full-context-api-key: ${{ secrets.OPENAI_API_KEY }}
+          single-chunk-model: "claude-3-5-sonnet"
+          single-chunk-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          exclude-files: "*.md,*.yaml"
