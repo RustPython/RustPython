@@ -3,7 +3,7 @@ textarea {
     resize: vertical;
 }
 
-#code,
+#code-wrapper,
 #console {
     height: 30vh;
     width: calc(100% - 3px);

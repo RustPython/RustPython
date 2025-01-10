@@ -55,9 +55,14 @@ import _io
 import abc
 
 from _io import (DEFAULT_BUFFER_SIZE, BlockingIOError, UnsupportedOperation,
-                 open, open_code, FileIO, BytesIO, StringIO, BufferedReader,
+                 open, open_code, BytesIO, StringIO, BufferedReader,
                  BufferedWriter, BufferedRWPair, BufferedRandom,
                  IncrementalNewlineDecoder, text_encoding, TextIOWrapper)
+
+try:
+    from _io import FileIO
+except ImportError:
+    pass
 
 # Pretend this exception was created here.
 UnsupportedOperation.__module__ = "io"
@@ -82,7 +87,10 @@ class BufferedIOBase(_io._BufferedIOBase, IOBase):
 class TextIOBase(_io._TextIOBase, IOBase):
     __doc__ = _io._TextIOBase.__doc__
 
-RawIOBase.register(FileIO)
+try:
+    RawIOBase.register(FileIO)
+except NameError:
+    pass
 
 for klass in (BytesIO, BufferedReader, BufferedWriter, BufferedRandom,
               BufferedRWPair):
