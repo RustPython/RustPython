@@ -52,7 +52,7 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
             Ok(JitType::Bool)
         } else {
             Err(new_jit_error(
-                "Jit requires argument to be either int or float or bool".to_owned(),
+                "Jit requires argument to be either int, float or bool".to_owned(),
                 vm,
             ))
         }
