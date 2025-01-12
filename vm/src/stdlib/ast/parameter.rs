@@ -18,32 +18,18 @@ impl Node for ruff::Parameters {
             .into_ref_with_type(vm, gen::NodeArguments::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        if !posonlyargs.args.is_empty() {
-            dict.set_item("posonlyargs", posonlyargs.ast_to_object(vm), vm)
-                .unwrap();
-        }
-        if !args.args.is_empty() {
-            dict.set_item("args", args.ast_to_object(vm), vm).unwrap();
-        }
-        if let Some(vararg) = vararg {
-            dict.set_item("vararg", vararg.ast_to_object(vm), vm)
-                .unwrap();
-        }
-        if !kwonlyargs.keywords.is_empty() {
-            dict.set_item("kwonlyargs", kwonlyargs.ast_to_object(vm), vm)
-                .unwrap();
-        }
-        if !kw_defaults.defaults.is_empty() {
-            dict.set_item("kw_defaults", kw_defaults.ast_to_object(vm), vm)
-                .unwrap();
-        }
-        if let Some(kwarg) = kwarg {
-            dict.set_item("kwarg", kwarg.ast_to_object(vm), vm).unwrap();
-        }
-        if !defaults.defaults.is_empty() {
-            dict.set_item("defaults", defaults.ast_to_object(vm), vm)
-                .unwrap();
-        }
+        dict.set_item("posonlyargs", posonlyargs.ast_to_object(vm), vm)
+            .unwrap();
+        dict.set_item("args", args.ast_to_object(vm), vm).unwrap();
+        dict.set_item("vararg", vararg.ast_to_object(vm), vm)
+            .unwrap();
+        dict.set_item("kwonlyargs", kwonlyargs.ast_to_object(vm), vm)
+            .unwrap();
+        dict.set_item("kw_defaults", kw_defaults.ast_to_object(vm), vm)
+            .unwrap();
+        dict.set_item("kwarg", kwarg.ast_to_object(vm), vm).unwrap();
+        dict.set_item("defaults", defaults.ast_to_object(vm), vm)
+            .unwrap();
         node_add_location(&dict, range, vm);
         node.into()
     }

@@ -586,14 +586,10 @@ impl Node for ruff::ExprCall {
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("func", func.ast_to_object(vm), vm).unwrap();
-        if !positional_arguments.args.is_empty() {
-            dict.set_item("args", positional_arguments.ast_to_object(vm), vm)
-                .unwrap();
-        }
-        if !keyword_arguments.keywords.is_empty() {
-            dict.set_item("keywords", keyword_arguments.ast_to_object(vm), vm)
-                .unwrap();
-        }
+        dict.set_item("args", positional_arguments.ast_to_object(vm), vm)
+            .unwrap();
+        dict.set_item("keywords", keyword_arguments.ast_to_object(vm), vm)
+            .unwrap();
         node_add_location(&dict, range, vm);
         node.into()
     }

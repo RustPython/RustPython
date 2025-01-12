@@ -127,10 +127,8 @@ impl Node for ruff::StmtFunctionDef {
         dict.set_item("body", body.ast_to_object(vm), vm).unwrap();
         dict.set_item("decorator_list", decorator_list.ast_to_object(vm), vm)
             .unwrap();
-        if let Some(returns) = returns {
-            dict.set_item("returns", returns.ast_to_object(vm), vm)
-                .unwrap();
-        }
+        dict.set_item("returns", returns.ast_to_object(vm), vm)
+            .unwrap();
         // TODO: Ruff ignores type_comment during parsing
         // dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
         //     .unwrap();
