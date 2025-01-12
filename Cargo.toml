@@ -27,7 +27,7 @@ ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
 rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
-rustpython-vm = { workspace = true, features = ["compiler", "ast"] }
+rustpython-vm = { workspace = true, features = ["compiler"] }
 ruff_python_parser = { workspace = true }
 
 atty = { workspace = true }
