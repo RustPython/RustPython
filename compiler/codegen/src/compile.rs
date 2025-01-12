@@ -20,8 +20,8 @@ use num_traits::{Num, ToPrimitive};
 use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, Decorator, DictItem, ExceptHandler,
     ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprList, ExprName, ExprStarred,
-    ExprSubscript, ExprTuple, ExprUnaryOp, Keyword, MatchCase, ModExpression, ModModule, Operator,
-    Parameters, Stmt, TypeParam, TypeParamTypeVar, TypeParams, UnaryOp, WithItem,
+    ExprSubscript, ExprTuple, ExprUnaryOp, Int, Keyword, MatchCase, ModExpression, ModModule,
+    Operator, Parameters, Stmt, TypeParam, TypeParamTypeVar, TypeParams, UnaryOp, WithItem,
 };
 use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
@@ -2709,47 +2709,24 @@ impl Compiler<'_> {
                 let v: Vec<u8> = iter.collect();
                 self.emit_load_const(ConstantData::Bytes { value: v });
             }
-            Expr::NumberLiteral(number) => {
-                match &number.value {
-                    Number::Int(int) => {
-                        let value = if let Some(small) = int.as_u64() {
-                            // self.emit_load_const(ConstantData::Integer { value:  });
-                            BigInt::from(small)
-                        } else {
-                            // FIXME: This should probably happen in ruff
-                            let s = format!("{}", int);
-                            let mut s = s.as_str();
-                            // See: https://peps.python.org/pep-0515/#literal-grammar
-                            let radix = if s.starts_with("0b") || s.starts_with("0B") {
-                                s = s.get(2..).unwrap_or(s);
-                                2
-                            } else if s.starts_with("0o") || s.starts_with("0O") {
-                                s = s.get(2..).unwrap_or(s);
-                                8
-                            } else if s.starts_with("0x") || s.starts_with("0X") {
-                                s = s.get(2..).unwrap_or(s);
-                                16
-                            } else {
-                                10
-                            };
-                            BigInt::from_str_radix(&s, radix).map_err(|e| {
-                                self.error(CodegenErrorType::SyntaxError(format!(
-                                    "unparsed integer literal (radix {radix}): {s} ({e})"
-                                )))
-                            })?
-                        };
-                        self.emit_load_const(ConstantData::Integer { value });
-                    }
-                    Number::Float(float) => {
-                        self.emit_load_const(ConstantData::Float { value: *float });
-                    }
-                    Number::Complex { real, imag } => {
-                        self.emit_load_const(ConstantData::Complex {
-                            value: Complex::from_polar(*real, *imag),
-                        });
-                    }
+            Expr::NumberLiteral(number) => match &number.value {
+                Number::Int(int) => {
+                    let value = if let Some(small) = int.as_u64() {
+                        BigInt::from(small)
+                    } else {
+                        parse_big_integer(int).map_err(|e| self.error(e))?
+                    };
+                    self.emit_load_const(ConstantData::Integer { value });
                 }
-            }
+                Number::Float(float) => {
+                    self.emit_load_const(ConstantData::Float { value: *float });
+                }
+                Number::Complex { real, imag } => {
+                    self.emit_load_const(ConstantData::Complex {
+                        value: Complex::from_polar(*real, *imag),
+                    });
+                }
+            },
             Expr::BooleanLiteral(b) => {
                 self.emit_load_const(ConstantData::Boolean { value: b.value });
             }
@@ -3421,24 +3398,35 @@ fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [
     (None, body)
 }
 
-// TODO: Remove this if it's no longer used
-// fn compile_constant(value: &Constant) -> ConstantData {
-//     match value {
-//         Constant::None => ConstantData::None,
-//         Constant::Bool(b) => ConstantData::Boolean { value: *b },
-//         Constant::Str(s) => ConstantData::Str { value: s.clone() },
-//         Constant::Bytes(b) => ConstantData::Bytes { value: b.clone() },
-//         Constant::Int(i) => ConstantData::Integer { value: i.clone() },
-//         Constant::Tuple(t) => ConstantData::Tuple {
-//             elements: t.iter().map(compile_constant).collect(),
-//         },
-//         Constant::Float(f) => ConstantData::Float { value: *f },
-//         Constant::Complex { real, imag } => ConstantData::Complex {
-//             value: Complex64::new(*real, *imag),
-//         },
-//         Constant::Ellipsis => ConstantData::Ellipsis,
-//     }
-// }
+/// Converts a `ruff` ast integer into a `BigInt`.
+/// Unlike small integers, big integers may be stored in one of four possible radix representations.
+fn parse_big_integer(int: &Int) -> Result<BigInt, CodegenErrorType> {
+    // TODO: Can we avoid this copy?
+    let s = format!("{}", int);
+    let mut s = s.as_str();
+    // See: https://peps.python.org/pep-0515/#literal-grammar
+    let radix = match s.get(0..2) {
+        Some("0b" | "0B") => {
+            s = s.get(2..).unwrap_or(s);
+            2
+        }
+        Some("0o" | "0O") => {
+            s = s.get(2..).unwrap_or(s);
+            8
+        }
+        Some("0x" | "0X") => {
+            s = s.get(2..).unwrap_or(s);
+            16
+        }
+        _ => 10,
+    };
+
+    BigInt::from_str_radix(s, radix).map_err(|e| {
+        CodegenErrorType::SyntaxError(format!(
+            "unparsed integer literal (radix {radix}): {s} ({e})"
+        ))
+    })
+}
 
 // Note: Not a good practice in general. Keep this trait private only for compiler
 trait ToU32 {
