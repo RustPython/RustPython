@@ -3401,11 +3401,18 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
     }
 }
 
+/// Extracts the docstring from a list of statements (such as the body of a function definition) if present.
 fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [Stmt]) {
     if let Some((Stmt::Expr(expr), body_rest)) = body.split_first() {
-        if let Some(doc) = try_get_constant_string(std::slice::from_ref(&expr.value)) {
+        let doc_comment = match &*expr.value {
+            Expr::StringLiteral(value) => Some(&value.value),
+            // f-strings are not allowed in Python doc comments.
+            Expr::FString(_) => None,
+            _ => None,
+        };
+        if let Some(doc) = doc_comment {
             if opts.optimize < 2 {
-                return (Some(doc), body_rest);
+                return (Some(doc.to_str().to_owned()), body_rest);
             } else {
                 return (None, body_rest);
             }
@@ -3414,35 +3421,7 @@ fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [
     (None, body)
 }
 
-// TODO: Implement this
-fn try_get_constant_string(values: &[Expr]) -> Option<String> {
-    None
-    // fn get_constant_string_inner(out_string: &mut String, value: &Expr) -> bool {
-    //     match value {
-    //         Expr::Constant(ExprConstant {
-    //             value: Constant::Str(s),
-    //             ..
-    //         }) => {
-    //             out_string.push_str(s);
-    //             true
-    //         }
-    //         Expr::JoinedStr(ExprJoinedStr { values, .. }) => values
-    //             .iter()
-    //             .all(|value| get_constant_string_inner(out_string, value)),
-    //         _ => false,
-    //     }
-    // }
-    // let mut out_string = String::new();
-    // if values
-    //     .iter()
-    //     .all(|v| get_constant_string_inner(&mut out_string, v))
-    // {
-    //     Some(out_string)
-    // } else {
-    //     None
-    // }
-}
-
+// TODO: Remove this if it's no longer used
 // fn compile_constant(value: &Constant) -> ConstantData {
 //     match value {
 //         Constant::None => ConstantData::None,
