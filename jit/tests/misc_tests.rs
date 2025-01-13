@@ -113,3 +113,15 @@ fn test_unpack_tuple() {
     assert_eq!(unpack_tuple(0, 1), Ok(1));
     assert_eq!(unpack_tuple(1, 2), Ok(2));
 }
+
+#[test]
+fn test_recursive_fib() {
+    let fib = jit_function! { fib(n: i64) -> i64 => r##"
+        def fib(n: int) -> int:
+          if n == 0 or n == 1:
+            return 1
+          return fib(n-1) + fib(n-2)
+    "## };
+
+    assert_eq!(fib(10), Ok(89));
+}
