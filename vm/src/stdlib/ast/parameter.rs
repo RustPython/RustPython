@@ -144,7 +144,11 @@ impl Node for PositionalParameters {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let args: BoxedSlice<_> = Node::ast_from_object(vm, object)?;
+        Ok(Self {
+            args: args.0,
+            range: TextRange::default(), // TODO
+        })
     }
 }
 
@@ -159,7 +163,11 @@ impl Node for KeywordParameters {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let keywords: BoxedSlice<_> = Node::ast_from_object(vm, object)?;
+        Ok(Self {
+            keywords: keywords.0,
+            range: TextRange::default(), // TODO
+        })
     }
 }
 
@@ -174,7 +182,11 @@ impl Node for ParameterDefaults {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        todo!()
+        let defaults: BoxedSlice<_> = Node::ast_from_object(vm, object)?;
+        Ok(Self {
+            defaults: defaults.0,
+            range: TextRange::default(), // TODO
+        })
     }
 }
 

@@ -1,4 +1,4 @@
-use super::constant::Constant;
+use super::constant::{Constant, ConstantLiteral};
 use super::*;
 
 impl Node for ruff::ExprStringLiteral {
@@ -13,11 +13,39 @@ impl Node for ruff::ExprStringLiteral {
     }
 }
 
+fn ruff_fstring_value_into_iter(
+    mut fstring_value: ruff::FStringValue,
+) -> impl Iterator<Item = ruff::FStringPart> + 'static {
+    let default = ruff::FStringPart::FString(ruff::FString {
+        range: Default::default(),
+        elements: Default::default(),
+        flags: Default::default(),
+    });
+    (0..fstring_value.as_slice().len()).map(move |i| {
+        let fstring_value = &mut fstring_value;
+        let tmp = fstring_value.into_iter().skip(i).next().unwrap();
+        std::mem::replace(tmp, default.clone())
+    })
+}
+
+fn ruff_fstring_element_into_iter(
+    mut fstring_element: ruff::FStringElements,
+) -> impl Iterator<Item = ruff::FStringElement> + 'static {
+    let default = ruff::FStringElement::Literal(ruff::FStringLiteralElement {
+        range: Default::default(),
+        value: Default::default(),
+    });
+    (0..fstring_element.into_iter().len()).map(move |i| {
+        let fstring_element = &mut fstring_element;
+        let tmp = fstring_element.into_iter().skip(i).next().unwrap();
+        std::mem::replace(tmp, default.clone())
+    })
+}
+
 impl Node for ruff::ExprFString {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let Self { range, value } = self;
-        let values: Vec<_> = value
-            .into_iter()
+        let values: Vec<_> = ruff_fstring_value_into_iter(value)
             .flat_map(fstring_part_to_joined_str_part)
             .collect();
         let values = values.into_boxed_slice();
@@ -30,28 +58,32 @@ impl Node for ruff::ExprFString {
     }
 }
 
-fn fstring_part_to_joined_str_part(fstring_part: &ruff::FStringPart) -> Vec<JoinedStrPart> {
+fn fstring_part_to_joined_str_part(fstring_part: ruff::FStringPart) -> Vec<JoinedStrPart> {
     match fstring_part {
         ruff::FStringPart::Literal(ruff::StringLiteral {
             range,
             value,
             flags: _, // TODO
-        }) => vec![JoinedStrPart::Constant(Constant::new_str(value, *range))],
+        }) => {
+            vec![JoinedStrPart::Constant(Constant::new_string(
+                value.into(),
+                range,
+            ))]
+        }
         ruff::FStringPart::FString(ruff::FString {
             range: _,
             elements,
             flags: _, // TODO
-        }) => elements
-            .into_iter()
-            .map(fstring_element_to_joined_str_part)
+        }) => ruff_fstring_element_into_iter(elements)
+            .map(ruff_fstring_element_to_joined_str_part)
             .collect(),
     }
 }
 
-fn fstring_element_to_joined_str_part(element: &ruff::FStringElement) -> JoinedStrPart {
+fn ruff_fstring_element_to_joined_str_part(element: ruff::FStringElement) -> JoinedStrPart {
     match element {
         ruff::FStringElement::Literal(ruff::FStringLiteralElement { range, value }) => {
-            JoinedStrPart::Constant(Constant::new_str(value, *range))
+            JoinedStrPart::Constant(Constant::new_string(value.into(), range))
         }
         ruff::FStringElement::Expression(ruff::FStringExpressionElement {
             range,
@@ -60,36 +92,146 @@ fn fstring_element_to_joined_str_part(element: &ruff::FStringElement) -> JoinedS
             conversion,
             format_spec,
         }) => JoinedStrPart::FormattedValue(FormattedValue {
-            value: expression.clone(),
-            conversion: *conversion,
-            format_spec: format_spec_helper(format_spec),
-            range: *range,
+            value: expression,
+            conversion,
+            format_spec: ruff_format_spec_to_joined_str(format_spec),
+            range,
         }),
     }
 }
 
-fn format_spec_helper(
-    format_spec: &Option<Box<ruff::FStringFormatSpec>>,
+fn ruff_format_spec_to_joined_str(
+    format_spec: Option<Box<ruff::FStringFormatSpec>>,
 ) -> Option<Box<JoinedStr>> {
-    match format_spec.as_deref() {
+    match format_spec {
         None => None,
-        Some(ruff::FStringFormatSpec { range, elements }) => {
-            let values: Vec<_> = elements
-                .into_iter()
-                .map(fstring_element_to_joined_str_part)
+        Some(format_spec) => {
+            let ruff::FStringFormatSpec { range, elements } = *format_spec;
+            let values: Vec<_> = ruff_fstring_element_into_iter(elements)
+                .map(ruff_fstring_element_to_joined_str_part)
                 .collect();
             let values = values.into_boxed_slice();
-            Some(Box::new(JoinedStr {
-                values,
-                range: *range,
-            }))
+            Some(Box::new(JoinedStr { values, range }))
         }
     }
 }
 
-struct JoinedStr {
-    values: Box<[JoinedStrPart]>,
-    range: TextRange,
+fn ruff_fstring_element_to_ruff_fstring_part(element: ruff::FStringElement) -> ruff::FStringPart {
+    match element {
+        ruff::FStringElement::Literal(value) => {
+            let ruff::FStringLiteralElement { range, value } = value;
+            ruff::FStringPart::Literal(ruff::StringLiteral {
+                range,
+                value,
+                flags: Default::default(),
+            })
+        }
+        ruff::FStringElement::Expression(value) => {
+            let ruff::FStringExpressionElement {
+                range,
+                expression,
+                debug_text,
+                conversion,
+                format_spec,
+            } = value;
+            ruff::FStringPart::FString(ruff::FString {
+                range,
+                elements: vec![ruff::FStringElement::Expression(
+                    ruff::FStringExpressionElement {
+                        range,
+                        expression,
+                        debug_text,
+                        conversion,
+                        format_spec,
+                    },
+                )]
+                .into(),
+                flags: Default::default(),
+            })
+        }
+    }
+}
+
+fn joined_str_to_ruff_format_spec(
+    joined_str: Option<Box<JoinedStr>>,
+) -> Option<Box<ruff::FStringFormatSpec>> {
+    match joined_str {
+        None => None,
+        Some(joined_str) => {
+            let JoinedStr { range, values } = *joined_str;
+            let elements: Vec<_> = Box::into_iter(values)
+                .map(joined_str_part_to_ruff_fstring_element)
+                .collect();
+            let format_spec = ruff::FStringFormatSpec {
+                range,
+                elements: elements.into(),
+            };
+            Some(Box::new(format_spec))
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct JoinedStr {
+    pub(super) range: TextRange,
+    pub(super) values: Box<[JoinedStrPart]>,
+}
+
+impl JoinedStr {
+    pub(super) fn into_expr(self) -> ruff::Expr {
+        let Self { range, values } = self;
+        ruff::Expr::FString(ruff::ExprFString {
+            range: Default::default(),
+            value: match values.len() {
+                // ruff represents an empty fstring like this:
+                0 => ruff::FStringValue::single(ruff::FString {
+                    range,
+                    elements: vec![].into(),
+                    flags: Default::default(),
+                }),
+                1 => ruff::FStringValue::single(
+                    Box::<[_]>::into_iter(values)
+                        .map(joined_str_part_to_ruff_fstring_element)
+                        .map(|element| ruff::FString {
+                            range,
+                            elements: vec![element].into(),
+                            flags: Default::default(),
+                        })
+                        .next()
+                        .expect("FString has exactly one part"),
+                ),
+                _ => ruff::FStringValue::concatenated(
+                    Box::<[_]>::into_iter(values)
+                        .map(joined_str_part_to_ruff_fstring_element)
+                        .map(ruff_fstring_element_to_ruff_fstring_part)
+                        .collect(),
+                ),
+            },
+        })
+    }
+}
+
+fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::FStringElement {
+    match part {
+        JoinedStrPart::FormattedValue(value) => {
+            ruff::FStringElement::Expression(ruff::FStringExpressionElement {
+                range: value.range,
+                expression: value.value.clone(),
+                debug_text: None, // TODO: What is this?
+                conversion: value.conversion,
+                format_spec: joined_str_to_ruff_format_spec(value.format_spec),
+            })
+        }
+        JoinedStrPart::Constant(value) => {
+            ruff::FStringElement::Literal(ruff::FStringLiteralElement {
+                range: value.range,
+                value: match value.value {
+                    ConstantLiteral::Str(value) => value.into(),
+                    _ => todo!(),
+                },
+            })
+        }
+    }
 }
 
 // constructor
@@ -115,7 +257,8 @@ impl Node for JoinedStr {
     }
 }
 
-enum JoinedStrPart {
+#[derive(Debug)]
+pub(super) enum JoinedStrPart {
     FormattedValue(FormattedValue),
     Constant(Constant),
 }
@@ -138,6 +281,7 @@ impl Node for JoinedStrPart {
     }
 }
 
+#[derive(Debug)]
 struct FormattedValue {
     value: Box<ruff::Expr>,
     conversion: ruff::ConversionFlag,

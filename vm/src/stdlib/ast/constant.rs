@@ -1,12 +1,20 @@
 use super::*;
 use crate::builtins::{PyComplex, PyTuple};
 
-pub(crate) struct Constant {
-    range: TextRange,
-    value: ConstantLiteral,
+#[derive(Debug)]
+pub(super) struct Constant {
+    pub(super) range: TextRange,
+    pub(super) value: ConstantLiteral,
 }
 
 impl Constant {
+    pub(super) fn new_string(value: String, range: TextRange) -> Self {
+        Self {
+            range,
+            value: ConstantLiteral::Str(value),
+        }
+    }
+
     pub(super) fn new_str(value: &str, range: TextRange) -> Self {
         Self {
             range,
@@ -61,8 +69,13 @@ impl Constant {
             value: ConstantLiteral::Ellipsis,
         }
     }
+
+    pub(crate) fn into_expr(self) -> ruff::Expr {
+        constant_to_ruff_expr(self)
+    }
 }
 
+#[derive(Debug)]
 pub(crate) enum ConstantLiteral {
     None,
     Bool(bool),
@@ -118,26 +131,26 @@ impl Node for Constant {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        let value = get_node_field(vm, &object, "value", "Constant")?;
-        let _cls = object.class();
-        let value = if _cls.is(vm.ctx.types.none_type) {
+        let value_object = get_node_field(vm, &object, "value", "Constant")?;
+        let cls = value_object.class();
+        let value = if cls.is(vm.ctx.types.none_type) {
             ConstantLiteral::None
-        } else if _cls.is(vm.ctx.types.bool_type) {
-            ConstantLiteral::Bool(if value.is(&vm.ctx.true_value) {
+        } else if cls.is(vm.ctx.types.bool_type) {
+            ConstantLiteral::Bool(if value_object.is(&vm.ctx.true_value) {
                 true
-            } else if value.is(&vm.ctx.false_value) {
+            } else if value_object.is(&vm.ctx.false_value) {
                 false
             } else {
-                value.try_to_value(vm)?
+                value_object.try_to_value(vm)?
             })
-        } else if _cls.is(vm.ctx.types.str_type) {
-            ConstantLiteral::Str(value.try_to_value(vm)?)
-        } else if _cls.is(vm.ctx.types.bytes_type) {
-            ConstantLiteral::Bytes(value.try_to_value(vm)?)
-        } else if _cls.is(vm.ctx.types.int_type) {
-            ConstantLiteral::Int(Node::ast_from_object(vm, value)?)
-        } else if _cls.is(vm.ctx.types.tuple_type) {
-            let tuple = value.downcast::<PyTuple>().map_err(|obj| {
+        } else if cls.is(vm.ctx.types.str_type) {
+            ConstantLiteral::Str(value_object.try_to_value(vm)?)
+        } else if cls.is(vm.ctx.types.bytes_type) {
+            ConstantLiteral::Bytes(value_object.try_to_value(vm)?)
+        } else if cls.is(vm.ctx.types.int_type) {
+            ConstantLiteral::Int(Node::ast_from_object(vm, value_object)?)
+        } else if cls.is(vm.ctx.types.tuple_type) {
+            let tuple = value_object.downcast::<PyTuple>().map_err(|obj| {
                 vm.new_type_error(format!(
                     "Expected type {}, not {}",
                     PyTuple::static_type().name(),
@@ -150,17 +163,17 @@ impl Node for Constant {
                 .map(|object| Node::ast_from_object(vm, object))
                 .collect::<PyResult<_>>()?;
             ConstantLiteral::Tuple(tuple)
-        } else if _cls.is(vm.ctx.types.float_type) {
-            let float = value.try_into_value(vm)?;
+        } else if cls.is(vm.ctx.types.float_type) {
+            let float = value_object.try_into_value(vm)?;
             ConstantLiteral::Float(float)
-        } else if _cls.is(vm.ctx.types.complex_type) {
-            let complex = value.try_complex(vm)?;
+        } else if cls.is(vm.ctx.types.complex_type) {
+            let complex = value_object.try_complex(vm)?;
             let complex = match complex {
                 None => {
                     return Err(vm.new_type_error(format!(
                         "Expected type {}, not {}",
                         PyComplex::static_type().name(),
-                        value.class().name()
+                        value_object.class().name()
                     )))
                 }
                 Some((value, _was_coerced)) => value,
@@ -169,12 +182,12 @@ impl Node for Constant {
                 real: complex.re,
                 imag: complex.im,
             }
-        } else if _cls.is(vm.ctx.types.ellipsis_type) {
+        } else if cls.is(vm.ctx.types.ellipsis_type) {
             ConstantLiteral::Ellipsis
         } else {
             return Err(vm.new_type_error(format!(
                 "expected some sort of expr, but got {}",
-                object.repr(vm)?
+                value_object.repr(vm)?
             )));
         };
 
@@ -185,5 +198,61 @@ impl Node for Constant {
             //     .transpose()?,
             range: range_from_object(vm, object, "Constant")?,
         })
+    }
+}
+
+fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
+    let Constant { value, range } = value;
+    match value {
+        ConstantLiteral::None => ruff::Expr::NoneLiteral(ruff::ExprNoneLiteral { range }),
+        ConstantLiteral::Bool(value) => {
+            ruff::Expr::BooleanLiteral(ruff::ExprBooleanLiteral { range, value })
+        }
+        ConstantLiteral::Str(value) => {
+            ruff::Expr::StringLiteral(ruff::ExprStringLiteral {
+                range,
+                value: ruff::StringLiteralValue::single(ruff::StringLiteral {
+                    range,
+                    value: value.into(),
+                    flags: Default::default(), // TODO
+                }),
+            })
+        }
+        ConstantLiteral::Bytes(value) => {
+            ruff::Expr::BytesLiteral(ruff::ExprBytesLiteral {
+                range,
+                value: ruff::BytesLiteralValue::single(ruff::BytesLiteral {
+                    range,
+                    value: value.into(),
+                    flags: Default::default(), // TODO
+                }),
+            })
+        }
+        ConstantLiteral::Int(value) => ruff::Expr::NumberLiteral(ruff::ExprNumberLiteral {
+            range,
+            value: ruff::Number::Int(value),
+        }),
+        ConstantLiteral::Tuple(value) => ruff::Expr::Tuple(ruff::ExprTuple {
+            range,
+            elts: value
+                .into_iter()
+                .map(|v| constant_to_ruff_expr(v))
+                .collect(),
+            ctx: todo!(),
+            parenthesized: todo!(),
+        }),
+        ConstantLiteral::Float(value) => ruff::Expr::NumberLiteral(ruff::ExprNumberLiteral {
+            range,
+            value: ruff::Number::Float(value),
+        }),
+        ConstantLiteral::Complex { real, imag } => {
+            ruff::Expr::NumberLiteral(ruff::ExprNumberLiteral {
+                range,
+                value: ruff::Number::Complex { real, imag },
+            })
+        }
+        ConstantLiteral::Ellipsis => {
+            ruff::Expr::EllipsisLiteral(ruff::ExprEllipsisLiteral { range })
+        }
     }
 }

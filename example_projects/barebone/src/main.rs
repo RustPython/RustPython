@@ -40,9 +40,14 @@ def f():
 
 b = 'b'
 c = (1,2,)
+e = ''
+e = '' ''
+e = f''
+e = '' f'' '' f'a'
 print(0, 'a', f'a{b}', 1.0, b'33333', True, False, None, ..., c, d := 42)
 """)
-print(ast.dump(a, indent=4))
+# print(ast.dump(a, indent=4))
+compile(a, '<string>', 'exec')
 "#,
             "<string>".to_string(),
         )

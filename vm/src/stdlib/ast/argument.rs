@@ -40,7 +40,6 @@ impl Node for KeywordArguments {
     }
 
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        todo!();
         let keywords: BoxedSlice<_> = Node::ast_from_object(vm, object)?;
         Ok(Self {
             keywords: keywords.0,
