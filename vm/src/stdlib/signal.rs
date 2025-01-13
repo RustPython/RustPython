@@ -11,10 +11,12 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule]
 pub(crate) mod _signal {
+    #[cfg(any(unix, windows))]
     use crate::{
         convert::{IntoPyException, TryFromBorrowedObject},
-        signal, Py, PyObjectRef, PyResult, VirtualMachine,
+        Py,
     };
+    use crate::{signal, PyObjectRef, PyResult, VirtualMachine};
     use std::sync::atomic::{self, Ordering};
 
     #[cfg(any(unix, windows))]
