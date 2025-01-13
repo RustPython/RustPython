@@ -92,19 +92,19 @@ jobs:
 
       - name: Set up Environment
         shell: bash
-        run: rustup target add wasm32-wasi
+        run: rustup target add wasm32-wasip1
 
       - name: Build RustPython
-        run: cargo build --target wasm32-wasi --no-default-features --features freeze-stdlib,stdlib --release
+        run: cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib --release
 
       - name: Rename Binary
-        run: cp target/wasm32-wasi/release/rustpython.wasm target/rustpython-release-wasm32-wasi.wasm
+        run: cp target/wasm32-wasip1/release/rustpython.wasm target/rustpython-release-wasm32-wasip1.wasm
 
       - name: Upload Binary Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rustpython-release-wasm32-wasi
-          path: target/rustpython-release-wasm32-wasi.wasm
+          name: rustpython-release-wasm32-wasip1
+          path: target/rustpython-release-wasm32-wasip1.wasm
 
   release:
     runs-on: ubuntu-latest
