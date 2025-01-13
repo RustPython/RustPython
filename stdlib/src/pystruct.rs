@@ -194,7 +194,7 @@ pub(crate) mod _struct {
         }
     }
 
-    #[pyclass(with(IterNext, Iterable))]
+    #[pyclass(with(IterNext, Iterable), flags(DISALLOW_INSTANTIATION))]
     impl UnpackIterator {
         #[pymethod(magic)]
         fn length_hint(&self) -> usize {
