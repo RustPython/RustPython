@@ -47,6 +47,7 @@ mod zlib {
     use libz_sys::{
         Z_BLOCK, Z_DEFAULT_STRATEGY, Z_FILTERED, Z_FINISH, Z_FIXED, Z_HUFFMAN_ONLY, Z_RLE, Z_TREES,
     };
+    use rustpython_vm::function::FuncArgs;
     use rustpython_vm::types::Constructor;
 
     // copied from zlibmodule.c (commit 530f506ac91338)
@@ -597,9 +598,13 @@ mod zlib {
     }
 
     impl Constructor for ZlibDecompressor {
-        type Args = ();
+        type Args = FuncArgs;
 
-        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            if args.args.len() != 0 {
+                return Err(vm.new_type_error("No arguments expected".to_owned()));
+            }
+
             let decompress = Decompress::new(true);
             let zlib_decompressor = ZlibDecompressor {
                 decompress: PyMutex::new(decompress),
