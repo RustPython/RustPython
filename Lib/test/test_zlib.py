@@ -990,6 +990,8 @@ class ZlibDecompressorTest(unittest.TestCase):
             n += 1
         self.assertEqual(text, self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressUnusedData(self):
         zlibd = zlib._ZlibDecompressor()
         unused_data = b"this is unused data"
@@ -1003,6 +1005,8 @@ class ZlibDecompressorTest(unittest.TestCase):
         self.assertRaises(EOFError, zlibd.decompress, b"anything")
         self.assertRaises(EOFError, zlibd.decompress, b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @support.skip_if_pgo_task
     @bigmemtest(size=_4G + 100, memuse=3.3)
     def testDecompress4G(self, size):
@@ -1025,6 +1029,8 @@ class ZlibDecompressorTest(unittest.TestCase):
             with self.assertRaises(TypeError):
                 pickle.dumps(zlib._ZlibDecompressor(), proto)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testDecompressorChunksMaxsize(self):
         zlibd = zlib._ZlibDecompressor()
         max_length = 100
@@ -1056,6 +1062,8 @@ class ZlibDecompressorTest(unittest.TestCase):
         self.assertEqual(out, self.BIG_TEXT)
         self.assertEqual(zlibd.unused_data, b"")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompressor_inputbuf_1(self):
         # Test reusing input buffer after moving existing
         # contents to beginning
@@ -1078,6 +1086,8 @@ class ZlibDecompressorTest(unittest.TestCase):
         out.append(zlibd.decompress(self.DATA[105:]))
         self.assertEqual(b''.join(out), self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompressor_inputbuf_2(self):
         # Test reusing input buffer by appending data at the
         # end right away
@@ -1099,6 +1109,8 @@ class ZlibDecompressorTest(unittest.TestCase):
         out.append(zlibd.decompress(self.DATA[300:]))
         self.assertEqual(b''.join(out), self.TEXT)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_decompressor_inputbuf_3(self):
         # Test reusing input buffer after extending it
 
