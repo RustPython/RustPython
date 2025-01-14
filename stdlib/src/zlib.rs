@@ -604,7 +604,9 @@ mod zlib {
             let zlib_decompressor = ZlibDecompressor {
                 decompress: PyMutex::new(decompress),
             };
-            zlib_decompressor.into_ref_with_type(vm, cls).map(Into::into)
+            zlib_decompressor
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
         }
     }
 
@@ -613,14 +615,8 @@ mod zlib {
         #[pymethod]
         fn decompress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let mut d = self.decompress.lock();
-            let (buf, stream_end) = _decompress(
-                &data.borrow_buf(),
-                &mut d,
-                DEF_BUF_SIZE,
-                None,
-                false,
-                vm,
-            )?;
+            let (buf, stream_end) =
+                _decompress(&data.borrow_buf(), &mut d, DEF_BUF_SIZE, None, false, vm)?;
             if !stream_end {
                 return Err(new_zlib_error(
                     "Error -5 while decompressing data: incomplete or truncated stream",
