@@ -595,6 +595,7 @@ mod zlib {
     #[derive(Debug, PyPayload)]
     pub struct ZlibDecompressor {
         decompress: PyMutex<Decompress>,
+        // TODO: unused data store
     }
 
     impl Constructor for ZlibDecompressor {
@@ -623,10 +624,8 @@ mod zlib {
             let (buf, stream_end) =
                 _decompress(&data.borrow_buf(), &mut d, DEF_BUF_SIZE, None, false, vm)?;
             if !stream_end {
-                return Err(new_zlib_error(
-                    "Error -5 while decompressing data: incomplete or truncated stream",
-                    vm,
-                ));
+                // Return EOF error as per tests
+                return Err(vm.new_eof_error("EOF when reading a chunk".to_owned()));
             }
             Ok(buf)
         }

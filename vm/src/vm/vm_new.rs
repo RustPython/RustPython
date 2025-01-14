@@ -394,4 +394,9 @@ impl VirtualMachine {
             obj.as_object(),
         )
     }
+
+    pub fn new_eof_error(&self, msg: String) -> PyBaseExceptionRef {
+        let eof_error = self.ctx.exceptions.eof_error.to_owned();
+        self.new_exception_msg(eof_error, msg)
+    }
 }
