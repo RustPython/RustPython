@@ -47,6 +47,7 @@ mod zlib {
     use libz_sys::{
         Z_BLOCK, Z_DEFAULT_STRATEGY, Z_FILTERED, Z_FINISH, Z_FIXED, Z_HUFFMAN_ONLY, Z_RLE, Z_TREES,
     };
+    use rustpython_vm::types::Constructor;
 
     // copied from zlibmodule.c (commit 530f506ac91338)
     #[pyattr]
@@ -585,6 +586,48 @@ mod zlib {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
             let int: i32 = obj.try_index(vm)?.try_to_primitive(vm)?;
             Ok(Self::new(int))
+        }
+    }
+
+    #[pyattr]
+    #[pyclass(name = "_ZlibDecompressor")]
+    #[derive(Debug, PyPayload)]
+    pub struct ZlibDecompressor {
+        decompress: PyMutex<Decompress>,
+    }
+
+    impl Constructor for ZlibDecompressor {
+        type Args = ();
+
+        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let decompress = Decompress::new(true);
+            let zlib_decompressor = ZlibDecompressor {
+                decompress: PyMutex::new(decompress),
+            };
+            zlib_decompressor.into_ref_with_type(vm, cls).map(Into::into)
+        }
+    }
+
+    #[pyclass]
+    impl ZlibDecompressor {
+        #[pymethod]
+        fn decompress(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            let mut d = self.decompress.lock();
+            let (buf, stream_end) = _decompress(
+                &data.borrow_buf(),
+                &mut d,
+                DEF_BUF_SIZE,
+                None,
+                false,
+                vm,
+            )?;
+            if !stream_end {
+                return Err(new_zlib_error(
+                    "Error -5 while decompressing data: incomplete or truncated stream",
+                    vm,
+                ));
+            }
+            Ok(buf)
         }
     }
 }
