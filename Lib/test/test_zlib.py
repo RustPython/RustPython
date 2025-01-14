@@ -990,8 +990,6 @@ class ZlibDecompressorTest(unittest.TestCase):
             n += 1
         self.assertEqual(text, self.TEXT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testDecompressUnusedData(self):
         zlibd = zlib._ZlibDecompressor()
         unused_data = b"this is unused data"
