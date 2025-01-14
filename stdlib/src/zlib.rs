@@ -47,7 +47,6 @@ mod zlib {
     use libz_sys::{
         Z_BLOCK, Z_DEFAULT_STRATEGY, Z_FILTERED, Z_FINISH, Z_FIXED, Z_HUFFMAN_ONLY, Z_RLE, Z_TREES,
     };
-    use rustpython_vm::function::FuncArgs;
     use rustpython_vm::types::Constructor;
 
     // copied from zlibmodule.c (commit 530f506ac91338)
@@ -599,13 +598,9 @@ mod zlib {
     }
 
     impl Constructor for ZlibDecompressor {
-        type Args = FuncArgs;
+        type Args = ();
 
-        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            if args.args.len() != 0 {
-                return Err(vm.new_type_error("No arguments expected".to_owned()));
-            }
-
+        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
             let decompress = Decompress::new(true);
             let zlib_decompressor = ZlibDecompressor {
                 decompress: PyMutex::new(decompress),
@@ -624,8 +619,10 @@ mod zlib {
             let (buf, stream_end) =
                 _decompress(&data.borrow_buf(), &mut d, DEF_BUF_SIZE, None, false, vm)?;
             if !stream_end {
-                // Return EOF error as per tests
-                return Err(vm.new_eof_error("EOF when reading a chunk".to_owned()));
+                return Err(new_zlib_error(
+                    "Error -5 while decompressing data: incomplete or truncated stream",
+                    vm,
+                ));
             }
             Ok(buf)
         }
