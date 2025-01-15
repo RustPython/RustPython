@@ -603,7 +603,7 @@ mod zlib {
 
         fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
             let decompress = Decompress::new(true);
-            let zlib_decompressor = ZlibDecompressor {
+            let zlib_decompressor = Self {
                 decompress: PyMutex::new(decompress),
                 unused_data: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
                 unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
@@ -614,7 +614,7 @@ mod zlib {
         }
     }
 
-    #[pyclass]
+    #[pyclass(with(Constructor))]
     impl ZlibDecompressor {
         #[pygetset]
         fn unused_data(&self) -> PyBytesRef {
