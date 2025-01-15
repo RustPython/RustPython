@@ -649,11 +649,11 @@ mod zlib {
         }
 
         #[pymethod]
-        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let max_length = args.max_length.value;
-            let max_length = (max_length != 0).then_some(max_length);
-            let data = args.data.borrow_buf();
-            let data = &*data;
+        fn decompress(&self, args: PyBytesRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            // let max_length = args.max_length.value;
+            // let max_length = (max_length != 0).then_some(max_length);
+            let max_length = None;
+            let data = args.as_bytes();
 
             let mut d = self.decompress.lock();
             let orig_in = d.total_in();
