@@ -660,10 +660,9 @@ mod zlib {
 
             let (ret, stream_end) =
                 match _decompress(data, &mut d, DEF_BUF_SIZE, max_length, false, vm) {
-                    Ok((_buf, true)) => {
+                    Ok((buf, true)) => {
                         // Eof is true
-                        // (Ok(buf), true)
-                        return Err(vm.new_eof_error("EOF when reading a chunk".to_owned()));
+                        (Ok(buf), true)
                     }
                     Ok((buf, false)) => (Ok(buf), false),
                     Err(err) => (Err(err), false),

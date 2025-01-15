@@ -1003,8 +1003,6 @@ class ZlibDecompressorTest(unittest.TestCase):
         self.assertRaises(EOFError, zlibd.decompress, b"anything")
         self.assertRaises(EOFError, zlibd.decompress, b"")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.skip_if_pgo_task
     @bigmemtest(size=_4G + 100, memuse=3.3)
     def testDecompress4G(self, size):
