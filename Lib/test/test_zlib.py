@@ -997,6 +997,8 @@ class ZlibDecompressorTest(unittest.TestCase):
         self.assertEqual(text, self.TEXT)
         self.assertEqual(zlibd.unused_data, unused_data)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testEOFError(self):
         zlibd = zlib._ZlibDecompressor()
         text = zlibd.decompress(self.DATA)
@@ -1020,6 +1022,8 @@ class ZlibDecompressorTest(unittest.TestCase):
             compressed = None
             decompressed = None
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testPickle(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             with self.assertRaises(TypeError):

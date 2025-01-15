@@ -718,5 +718,11 @@ mod zlib {
             // }
             ret
         }
+
+        // TODO: Wait for getstate pyslot to be fixed
+        // #[pyslot]
+        // fn getstate(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyObject> {
+        //     Err(vm.new_type_error("cannot serialize '_ZlibDecompressor' object".to_owned()))
+        // }
     }
 }
