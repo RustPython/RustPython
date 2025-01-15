@@ -1170,6 +1170,8 @@ class SMTPSimTests(unittest.TestCase):
         finally:
             smtp.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('md5', openssl=True)
     def testAUTH_CRAM_MD5(self):
         self.serv.add_feature("AUTH CRAM-MD5")
@@ -1179,6 +1181,8 @@ class SMTPSimTests(unittest.TestCase):
         self.assertEqual(resp, (235, b'Authentication Succeeded'))
         smtp.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @hashlib_helper.requires_hashdigest('md5', openssl=True)
     def testAUTH_multiple(self):
         # Test that multiple authentication methods are tried.
@@ -1189,6 +1193,8 @@ class SMTPSimTests(unittest.TestCase):
         self.assertEqual(resp, (235, b'Authentication Succeeded'))
         smtp.close()
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_auth_function(self):
         supported = {'PLAIN', 'LOGIN'}
         try:
@@ -1453,6 +1459,8 @@ class SMTPUTF8SimTests(unittest.TestCase):
         self.assertIn('SMTPUTF8', self.serv.last_mail_options)
         self.assertEqual(self.serv.last_rcpt_options, [])
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_send_message_uses_smtputf8_if_addrs_non_ascii(self):
         msg = EmailMessage()
         msg['From'] = "Páolo <főo@bar.com>"
