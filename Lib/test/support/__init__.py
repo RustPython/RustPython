@@ -400,32 +400,36 @@ def skip_if_buildbot(reason=None):
         isbuildbot = False
     return unittest.skipIf(isbuildbot, reason)
 
-def check_sanitizer(*, address=False, memory=False, ub=False):
+def check_sanitizer(*, address=False, memory=False, ub=False, thread=False):
     """Returns True if Python is compiled with sanitizer support"""
-    if not (address or memory or ub):
-        raise ValueError('At least one of address, memory, or ub must be True')
+    if not (address or memory or ub or thread):
+        raise ValueError('At least one of address, memory, ub or thread must be True')
 
 
-    _cflags = sysconfig.get_config_var('CFLAGS') or ''
-    _config_args = sysconfig.get_config_var('CONFIG_ARGS') or ''
+    cflags = sysconfig.get_config_var('CFLAGS') or ''
+    config_args = sysconfig.get_config_var('CONFIG_ARGS') or ''
     memory_sanitizer = (
-        '-fsanitize=memory' in _cflags or
-        '--with-memory-sanitizer' in _config_args
+            '-fsanitize=memory' in cflags or
+            '--with-memory-sanitizer' in config_args
     )
     address_sanitizer = (
-        '-fsanitize=address' in _cflags or
-        '--with-address-sanitizer' in _config_args
+            '-fsanitize=address' in cflags or
+            '--with-address-sanitizer' in config_args
     )
     ub_sanitizer = (
-        '-fsanitize=undefined' in _cflags or
-        '--with-undefined-behavior-sanitizer' in _config_args
+            '-fsanitize=undefined' in cflags or
+            '--with-undefined-behavior-sanitizer' in config_args
+    )
+    thread_sanitizer = (
+            '-fsanitize=thread' in cflags or
+            '--with-thread-sanitizer' in config_args
     )
     return (
-        (memory and memory_sanitizer) or
-        (address and address_sanitizer) or
-        (ub and ub_sanitizer)
+            (memory and memory_sanitizer) or
+            (address and address_sanitizer) or
+            (ub and ub_sanitizer) or
+            (thread and thread_sanitizer)
     )
-
 
 def skip_if_sanitizer(reason=None, *, address=False, memory=False, ub=False, thread=False):
     """Decorator raising SkipTest if running with a sanitizer active."""
@@ -2550,3 +2554,4 @@ C_RECURSION_LIMIT = 1500
 #Windows doesn't have os.uname() but it doesn't support s390x.
 skip_on_s390x = unittest.skipIf(hasattr(os, 'uname') and os.uname().machine == 's390x',
                                 'skipped on s390x')
+HAVE_ASAN_FORK_BUG = check_sanitizer(address=True)
