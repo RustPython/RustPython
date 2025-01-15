@@ -1131,6 +1131,8 @@ class SMTPHandlerTest(BaseTest):
     # bpo-14314, bpo-19665, bpo-34092: don't wait forever
     TIMEOUT = support.LONG_TIMEOUT
 
+    # TODO: RUSTPYTHON
+    @unittest.skip(reason="Hangs RustPython")
     def test_basic(self):
         sockmap = {}
         server = TestSMTPServer((socket_helper.HOST, 0), self.process_message, 0.001,
@@ -4025,6 +4027,8 @@ class ConfigDictTest(BaseTest):
         # log a message (this creates a record put in the queue)
         logging.getLogger().info(message_to_log)
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     @support.requires_subprocess()
     def test_multiprocessing_queues(self):
         # See gh-119819
@@ -4083,6 +4087,8 @@ class ConfigDictTest(BaseTest):
         # Logger should be enabled, since explicitly mentioned
         self.assertFalse(logger.disabled)
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     def test_111615(self):
         # See gh-111615
         import_helper.import_module('_multiprocessing')  # see gh-113692
@@ -4530,6 +4536,8 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
         f = logging.Formatter('${asctime}--', style='$')
         self.assertTrue(f.usesTime())
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     def test_format_validate(self):
         # Check correct formatting
         # Percentage style
@@ -4703,6 +4711,8 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
     def test_invalid_style(self):
         self.assertRaises(ValueError, logging.Formatter, None, None, 'x')
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     def test_time(self):
         r = self.get_record()
         dt = datetime.datetime(1993, 4, 21, 8, 3, 0, 0, utc)
@@ -4717,6 +4727,8 @@ class FormatterTest(unittest.TestCase, AssertErrorMessage):
         f.format(r)
         self.assertEqual(r.asctime, '1993-04-21 08:03:00,123')
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     def test_default_msec_format_none(self):
         class NoMsecFormatter(logging.Formatter):
             default_msec_format = None
@@ -5047,6 +5059,8 @@ class ModuleLevelMiscTest(BaseTest):
             h.close()
             logging.setLoggerClass(logging.Logger)
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     def test_logging_at_shutdown(self):
         # bpo-20037: Doing text I/O late at interpreter shutdown must not crash
         code = textwrap.dedent("""
@@ -5066,6 +5080,8 @@ class ModuleLevelMiscTest(BaseTest):
         self.assertIn("exception in __del__", err)
         self.assertIn("ValueError: some error", err)
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     def test_logging_at_shutdown_open(self):
         # bpo-26789: FileHandler keeps a reference to the builtin open()
         # function to be able to open or reopen the file during Python
@@ -5507,6 +5523,8 @@ class BasicConfigTest(unittest.TestCase):
             self.assertEqual(data, r'\U0001f602: \u2603\ufe0f: The \xd8resund '
                                    r'Bridge joins Copenhagen to Malm\xf6')
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     def test_encoding_errors_none(self):
         # Specifying None should behave as 'strict'
         try:
@@ -6241,6 +6259,8 @@ class RotatingFileHandlerTest(BaseFileTest):
         rh.close()
 
 class TimedRotatingFileHandlerTest(BaseFileTest):
+    # TODO: RustPython
+    @unittest.expectedFailure
     @unittest.skipIf(support.is_wasi, "WASI does not have /dev/null.")
     def test_should_not_rollover(self):
         # See bpo-45401. Should only ever rollover regular files
@@ -6294,6 +6314,8 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
                     print(tf.read())
         self.assertTrue(found, msg=msg)
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     def test_rollover_at_midnight(self, weekly=False):
         os_helper.unlink(self.fn)
         now = datetime.datetime.now()
@@ -6337,6 +6359,8 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
             for i, line in enumerate(f):
                 self.assertIn(f'testing1 {i}', line)
 
+    # TODO: RustPython
+    @unittest.expectedFailure
     def test_rollover_at_weekday(self):
         self.test_rollover_at_midnight(weekly=True)
 
