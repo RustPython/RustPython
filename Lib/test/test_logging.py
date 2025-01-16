@@ -2170,8 +2170,6 @@ class HTTPHandlerTest(BaseTest):
         request.end_headers()
         self.handled.set()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_output(self):
         # The log message sent to the HTTPHandler is properly received.
         logger = logging.getLogger("http")
