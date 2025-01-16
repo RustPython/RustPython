@@ -30,6 +30,22 @@ extern "C" {
     fn c_tzset();
 }
 
+#[cfg(target_env = "msvc")]
+#[cfg(not(target_arch = "wasm32"))]
+use libc::{errno_t, size_t};
+
+#[cfg(target_env = "msvc")]
+#[cfg(not(target_arch = "wasm32"))]
+extern "C" {
+    #[link_name = "_get_tzname"]
+    pub fn c_get_tzname(
+        _ReturnValue: *mut size_t,
+        _Buffer: *mut ::std::os::raw::c_char,
+        _SizeInBytes: size_t,
+        _Index: ::std::os::raw::c_int,
+    ) -> errno_t;
+}
+
 #[pymodule(name = "time", with(platform))]
 mod decl {
     use crate::{
@@ -182,6 +198,29 @@ mod decl {
             std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
         }
         unsafe { (to_str(super::c_tzname[0]), to_str(super::c_tzname[1])) }.into_pytuple(vm)
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn tz_name(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
+        use crate::builtins::tuple::IntoPyTuple;
+        let tz_tuple = unsafe {
+            // Call _get_tzname once with index 0 and once with index 1
+            let mut buffer = [0; 64];
+            let mut size = 64;
+            let name = std::ptr::null_mut();
+            let _r = super::c_get_tzname(&mut size, buffer.as_mut_ptr(), size, 0);
+            // TODO: if r != 0 then something went wrong
+            let name0 = std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned();
+            let mut size = 64;
+            let name = std::ptr::null_mut();
+            let _r = super::c_get_tzname(&mut size, buffer.as_mut_ptr(), size, 1);
+            // TODO: if r != 0 then something went wrong
+            let name1 = std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned();
+            (name0, name1)
+        };
+        tz_tuple.into_pytuple(vm)
     }
 
     fn pyobj_to_date_time(
