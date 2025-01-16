@@ -598,17 +598,28 @@ mod zlib {
         decompress: PyMutex<Decompress>,
         unused_data: PyMutex<PyBytesRef>,
         unconsumed_tail: PyMutex<PyBytesRef>,
+        eof: AtomicCell<bool>,
+        needs_input: AtomicCell<bool>
+    }
+
+    #[derive(FromArgs)]
+    pub struct PyZlibDecompressorArgs {
+        #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
+        pub wbits: ArgPrimitiveIndex<i8>,
     }
 
     impl Constructor for ZlibDecompressor {
-        type Args = ();
+        type Args = PyZlibDecompressorArgs;
 
-        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
-            let decompress = Decompress::new(true);
+        fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            // TODO: use args
+            let decompress = InitOptions::new(args.wbits.value, vm)?.decompress();
             let zlib_decompressor = Self {
                 decompress: PyMutex::new(decompress),
                 unused_data: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
                 unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
+                eof: AtomicCell::new(false),
+                needs_input: AtomicCell::new(true),
             };
             zlib_decompressor
                 .into_ref_with_type(vm, cls)
@@ -619,6 +630,11 @@ mod zlib {
     #[pyclass(with(Constructor))]
     impl ZlibDecompressor {
         #[pygetset]
+        fn needs_input(&self) -> bool {
+            self.needs_input.load()
+        }
+
+        #[pygetset]
         fn unused_data(&self) -> PyBytesRef {
             self.unused_data.lock().clone()
         }
@@ -626,6 +642,11 @@ mod zlib {
         #[pygetset]
         fn unconsumed_tail(&self) -> PyBytesRef {
             self.unconsumed_tail.lock().clone()
+        }
+
+        #[pygetset]
+        fn eof(&self) -> bool {
+            self.eof.load()
         }
 
         fn save_unused_input(
@@ -651,25 +672,24 @@ mod zlib {
         }
 
         #[pymethod]
-        fn decompress(&self, args: PyBytesRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            // let max_length = args.max_length.value;
-            // let max_length = (max_length != 0).then_some(max_length);
-            let max_length = None;
-            let data = args.as_bytes();
+        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            let max_length = args.max_length.value;
+            let max_length = (max_length != 0).then_some(max_length);
+            let data = args.data.borrow_buf();
 
             let mut d = self.decompress.lock();
             let orig_in = d.total_in();
 
             let (ret, stream_end) =
-                match _decompress(data, &mut d, DEF_BUF_SIZE, max_length, false, vm) {
+                match _decompress(&data, &mut d, DEF_BUF_SIZE, max_length, false, vm) {
                     Ok((buf, true)) => {
-                        // Eof is true
+                        self.eof.store(true);
                         (Ok(buf), true)
                     }
                     Ok((buf, false)) => (Ok(buf), false),
                     Err(err) => (Err(err), false),
                 };
-            self.save_unused_input(&d, data, stream_end, orig_in, vm);
+            self.save_unused_input(&d, &data, stream_end, orig_in, vm);
 
             let leftover = if stream_end {
                 b""

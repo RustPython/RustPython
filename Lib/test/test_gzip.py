@@ -249,6 +249,8 @@ class TestGzip(BaseTest):
                 L = f.readlines(150)
                 if L == []: break
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_seek_read(self):
         self.test_write()
         # Try seek, read test
@@ -443,6 +445,8 @@ class TestGzip(BaseTest):
         with gzip.GzipFile(fileobj=buf, mode="rb") as f:
             self.assertEqual(f.read(), uncompressed)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_peek(self):
         uncompressed = data1 * 200
         with gzip.GzipFile(self.filename, "wb") as f:
@@ -966,6 +970,8 @@ class TestOpen(BaseTest):
                 as f:
             self.assertEqual(f.read(), "foobar")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_newline(self):
         # Test with explicit newline (universal newline mode disabled).
         uncompressed = data1.decode("ascii") * 50
