@@ -54,16 +54,11 @@ class StrftimeTest(unittest.TestCase):
         self.now = now
 
     def setUp(self):
-        try:
-            import java
-            java.util.Locale.setDefault(java.util.Locale.US)
-        except ImportError:
-            from locale import setlocale, LC_TIME
-            saved_locale = setlocale(LC_TIME)
-            setlocale(LC_TIME, 'C')
-            self.addCleanup(setlocale, LC_TIME, saved_locale)
+        from locale import setlocale, LC_TIME
+        saved_locale = setlocale(LC_TIME)
+        setlocale(LC_TIME, 'C')
+        self.addCleanup(setlocale, LC_TIME, saved_locale)
 
-    @unittest.skip("TODO: RUSTPYTHON, thread 'main' panicked at 'a Display implementation returned an error unexpectedly: Error'")
     def test_strftime(self):
         now = time.time()
         self._update_variables(now)
@@ -105,7 +100,7 @@ class StrftimeTest(unittest.TestCase):
              'week number of the year (Sun 1st)'),
             ('%w', '0?%d' % ((1+now[6]) % 7), 'weekday as a number (Sun 1st)'),
             ('%W', '%02d' % ((now[7] + (self.jan1[6] - 1)%7)//7),
-            'week number of the year (Mon 1st)'),
+             'week number of the year (Mon 1st)'),
             # %x see below
             ('%X', '%02d:%02d:%02d' % (now[3], now[4], now[5]), '%H:%M:%S'),
             ('%y', '%02d' % (now[0]%100), 'year without century'),
@@ -134,10 +129,10 @@ class StrftimeTest(unittest.TestCase):
         now = self.now
 
         nonstandard_expectations = (
-        # These are standard but don't have predictable output
+            # These are standard but don't have predictable output
             ('%c', fixasctime(time.asctime(now)), 'near-asctime() format'),
             ('%x', '%02d/%02d/%02d' % (now[1], now[2], (now[0]%100)),
-            '%m/%d/%y %H:%M:%S'),
+             '%m/%d/%y %H:%M:%S'),
             ('%Z', '%s' % self.tz, 'time zone name'),
 
             # These are some platform specific extensions
@@ -147,13 +142,13 @@ class StrftimeTest(unittest.TestCase):
             ('%k', '%2d' % now[3], 'hour, blank padded ( 0-23)'),
             ('%n', '\n', 'newline character'),
             ('%r', '%02d:%02d:%02d %s' % (self.clock12, now[4], now[5], self.ampm),
-            '%I:%M:%S %p'),
+             '%I:%M:%S %p'),
             ('%R', '%02d:%02d' % (now[3], now[4]), '%H:%M'),
             ('%s', nowsecs, 'seconds since the Epoch in UCT'),
             ('%t', '\t', 'tab character'),
             ('%T', '%02d:%02d:%02d' % (now[3], now[4], now[5]), '%H:%M:%S'),
             ('%3y', '%03d' % (now[0]%100),
-            'year without century rendered using fieldwidth'),
+             'year without century rendered using fieldwidth'),
         )
 
 
@@ -172,11 +167,11 @@ class StrftimeTest(unittest.TestCase):
             elif not result or result[0] == '%':
                 if support.verbose:
                     print("Does not appear to support '%s' format (%s)" % \
-                           (e[0], e[2]))
+                          (e[0], e[2]))
             else:
                 if support.verbose:
                     print("Conflict for nonstandard '%s' format (%s):" % \
-                           (e[0], e[2]))
+                          (e[0], e[2]))
                     print("  Expected %s, but got %s" % (e[1], result))
 
 
@@ -190,7 +185,7 @@ class Y1900Tests(unittest.TestCase):
         # Issue #13674, #19634
         t = (1899, 1, 1, 0, 0, 0, 0, 0, 0)
         if (sys.platform == "win32"
-        or sys.platform.startswith(("aix", "sunos", "solaris"))):
+                or sys.platform.startswith(("aix", "sunos", "solaris"))):
             with self.assertRaises(ValueError):
                 time.strftime("%y", t)
         else:
