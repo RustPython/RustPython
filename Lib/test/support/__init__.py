@@ -532,6 +532,7 @@ is_wasi = sys.platform == "wasi"
 
 has_fork_support = hasattr(os, "fork") and not is_emscripten and not is_wasi
 
+# From python 3.12.6
 is_s390x = hasattr(os, 'uname') and os.uname().machine == 's390x'
 skip_on_s390x = unittest.skipIf(is_s390x, 'skipped on s390x')
 
