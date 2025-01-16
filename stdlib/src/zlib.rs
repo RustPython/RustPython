@@ -599,7 +599,7 @@ mod zlib {
         unused_data: PyMutex<PyBytesRef>,
         unconsumed_tail: PyMutex<PyBytesRef>,
         eof: AtomicCell<bool>,
-        needs_input: AtomicCell<bool>
+        needs_input: AtomicCell<bool>,
     }
 
     #[derive(FromArgs)]
