@@ -6261,8 +6261,8 @@ class RotatingFileHandlerTest(BaseFileTest):
         rh.close()
 
 class TimedRotatingFileHandlerTest(BaseFileTest):
-    # TODO: RustPython
-    @unittest.expectedFailure
+    # TODO: RUSTPYTHON
+    @unittest.skip("OS dependent bug")
     @unittest.skipIf(support.is_wasi, "WASI does not have /dev/null.")
     def test_should_not_rollover(self):
         # See bpo-45401. Should only ever rollover regular files
@@ -6317,7 +6317,7 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
         self.assertTrue(found, msg=msg)
 
     # TODO: RustPython
-    @unittest.expectedFailure
+    @unittest.skip("OS dependent bug")
     def test_rollover_at_midnight(self, weekly=False):
         os_helper.unlink(self.fn)
         now = datetime.datetime.now()
@@ -6362,7 +6362,7 @@ class TimedRotatingFileHandlerTest(BaseFileTest):
                 self.assertIn(f'testing1 {i}', line)
 
     # TODO: RustPython
-    @unittest.expectedFailure
+    @unittest.skip("OS dependent bug")
     def test_rollover_at_weekday(self):
         self.test_rollover_at_midnight(weekly=True)
 
