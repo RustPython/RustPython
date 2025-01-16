@@ -821,34 +821,44 @@ def check_sizeof(test, o, size):
     test.assertEqual(result, size, msg)
 
 #=======================================================================
-# Decorator for running a function in a different locale, correctly resetting
-# it afterwards.
+# Decorator for running a function in multiple locales (if they are
+# availasble) and resetting the original locale afterwards.
 
-@contextlib.contextmanager
-def run_with_locale(catstr, *locales):
-    try:
-        import locale
-        category = getattr(locale, catstr)
-        orig_locale = locale.setlocale(category)
-    except AttributeError:
-        # if the test author gives us an invalid category string
-        raise
-    except:
-        # cannot retrieve original locale, so do nothing
-        locale = orig_locale = None
-    else:
-        for loc in locales:
+def run_with_locales(catstr, *locales):
+    def deco(func):
+        @functools.wraps(func)
+        def wrapper(self, /, *args, **kwargs):
+            dry_run = '' in locales
             try:
-                locale.setlocale(category, loc)
-                break
-            except:
+                import locale
+                category = getattr(locale, catstr)
+                orig_locale = locale.setlocale(category)
+            except AttributeError:
+                # if the test author gives us an invalid category string
+                raise
+            except Exception:
+                # cannot retrieve original locale, so do nothing
                 pass
-
-    try:
-        yield
-    finally:
-        if locale and orig_locale:
-            locale.setlocale(category, orig_locale)
+            else:
+                try:
+                    for loc in locales:
+                        with self.subTest(locale=loc):
+                            try:
+                                locale.setlocale(category, loc)
+                            except locale.Error:
+                                self.skipTest(f'no locale {loc!r}')
+                            else:
+                                dry_run = False
+                                func(self, *args, **kwargs)
+                finally:
+                    locale.setlocale(category, orig_locale)
+            if dry_run:
+                # no locales available, so just run the test
+                # with the current locale
+                with self.subTest(locale=None):
+                    func(self, *args, **kwargs)
+        return wrapper
+    return deco
 
 #=======================================================================
 # Decorator for running a function in a specific timezone, correctly

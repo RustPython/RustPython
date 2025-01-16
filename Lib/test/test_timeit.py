@@ -91,8 +91,6 @@ class TestTimeit(unittest.TestCase):
         self.assertRaises(SyntaxError, timeit.Timer, setup='from timeit import *')
         self.assertRaises(SyntaxError, timeit.Timer, setup='  pass')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_timer_empty_stmt(self):
         timeit.Timer(stmt='')
         timeit.Timer(stmt=' \n\t\f')
@@ -110,7 +108,7 @@ class TestTimeit(unittest.TestCase):
     def timeit(self, stmt, setup, number=None, globals=None):
         self.fake_timer = FakeTimer()
         t = timeit.Timer(stmt=stmt, setup=setup, timer=self.fake_timer,
-                globals=globals)
+                         globals=globals)
         kwargs = {}
         if number is None:
             number = DEFAULT_NUMBER
@@ -139,7 +137,7 @@ class TestTimeit(unittest.TestCase):
 
     def test_timeit_callable_stmt_and_setup(self):
         self.timeit(self.fake_callable_stmt,
-                self.fake_callable_setup, number=3)
+                    self.fake_callable_setup, number=3)
 
     # Takes too long to run in debug build.
     #def test_timeit_function(self):
@@ -149,7 +147,7 @@ class TestTimeit(unittest.TestCase):
 
     def test_timeit_function_zero_iters(self):
         delta_time = timeit.timeit(self.fake_stmt, self.fake_setup, number=0,
-                timer=FakeTimer())
+                                   timer=FakeTimer())
         self.assertEqual(delta_time, 0)
 
     def test_timeit_globals_args(self):
@@ -195,15 +193,15 @@ class TestTimeit(unittest.TestCase):
 
     def test_repeat_callable_stmt(self):
         self.repeat(self.fake_callable_stmt, self.fake_setup,
-                repeat=3, number=5)
+                    repeat=3, number=5)
 
     def test_repeat_callable_setup(self):
         self.repeat(self.fake_stmt, self.fake_callable_setup,
-                repeat=3, number=5)
+                    repeat=3, number=5)
 
     def test_repeat_callable_stmt_and_setup(self):
         self.repeat(self.fake_callable_stmt, self.fake_callable_setup,
-                repeat=3, number=5)
+                    repeat=3, number=5)
 
     # Takes too long to run in debug build.
     #def test_repeat_function(self):
@@ -213,12 +211,12 @@ class TestTimeit(unittest.TestCase):
 
     def test_repeat_function_zero_reps(self):
         delta_times = timeit.repeat(self.fake_stmt, self.fake_setup, repeat=0,
-                timer=FakeTimer())
+                                    timer=FakeTimer())
         self.assertEqual(delta_times, [])
 
     def test_repeat_function_zero_iters(self):
         delta_times = timeit.repeat(self.fake_stmt, self.fake_setup, number=0,
-                timer=FakeTimer())
+                                    timer=FakeTimer())
         self.assertEqual(delta_times, DEFAULT_REPEAT * [0.0])
 
     def assert_exc_string(self, exc_string, expected_exc_name):
@@ -278,15 +276,15 @@ class TestTimeit(unittest.TestCase):
 
     def test_main_setup(self):
         s = self.run_main(seconds_per_increment=2.0,
-                switches=['-n35', '-s', 'print("CustomSetup")'])
+                          switches=['-n35', '-s', 'print("CustomSetup")'])
         self.assertEqual(s, "CustomSetup\n" * DEFAULT_REPEAT +
-                "35 loops, best of 5: 2 sec per loop\n")
+                         "35 loops, best of 5: 2 sec per loop\n")
 
     def test_main_multiple_setups(self):
         s = self.run_main(seconds_per_increment=2.0,
-                switches=['-n35', '-s', 'a = "CustomSetup"', '-s', 'print(a)'])
+                          switches=['-n35', '-s', 'a = "CustomSetup"', '-s', 'print(a)'])
         self.assertEqual(s, "CustomSetup\n" * DEFAULT_REPEAT +
-                "35 loops, best of 5: 2 sec per loop\n")
+                         "35 loops, best of 5: 2 sec per loop\n")
 
     def test_main_fixed_reps(self):
         s = self.run_main(seconds_per_increment=60.0, switches=['-r9'])
@@ -337,23 +335,23 @@ class TestTimeit(unittest.TestCase):
 
     def test_main_with_time_unit(self):
         unit_sec = self.run_main(seconds_per_increment=0.003,
-                switches=['-u', 'sec'])
+                                 switches=['-u', 'sec'])
         self.assertEqual(unit_sec,
-                "100 loops, best of 5: 0.003 sec per loop\n")
+                         "100 loops, best of 5: 0.003 sec per loop\n")
         unit_msec = self.run_main(seconds_per_increment=0.003,
-                switches=['-u', 'msec'])
+                                  switches=['-u', 'msec'])
         self.assertEqual(unit_msec,
-                "100 loops, best of 5: 3 msec per loop\n")
+                         "100 loops, best of 5: 3 msec per loop\n")
         unit_usec = self.run_main(seconds_per_increment=0.003,
-                switches=['-u', 'usec'])
+                                  switches=['-u', 'usec'])
         self.assertEqual(unit_usec,
-                "100 loops, best of 5: 3e+03 usec per loop\n")
+                         "100 loops, best of 5: 3e+03 usec per loop\n")
         # Test invalid unit input
         with captured_stderr() as error_stringio:
             invalid = self.run_main(seconds_per_increment=0.003,
-                    switches=['-u', 'parsec'])
+                                    switches=['-u', 'parsec'])
         self.assertEqual(error_stringio.getvalue(),
-                    "Unrecognized unit. Please select nsec, usec, msec, or sec.\n")
+                         "Unrecognized unit. Please select nsec, usec, msec, or sec.\n")
 
     def test_main_exception(self):
         with captured_stderr() as error_stringio:
