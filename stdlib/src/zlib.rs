@@ -53,6 +53,8 @@ mod zlib {
     #[pyattr]
     const MAX_WBITS: i8 = 15;
     #[pyattr]
+    const WBITS: i8 = MAX_WBITS;
+    #[pyattr]
     const DEF_BUF_SIZE: usize = 16 * 1024;
     #[pyattr]
     const DEF_MEM_LEVEL: u8 = 8;
