@@ -88,8 +88,6 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
         self.thread.join()
         self.serv.server_close()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid_get_response(self):
         self.client.request("GET", "/")
         response = self.client.getresponse()
@@ -135,8 +133,6 @@ class DocXMLRPCHTTPGETServer(unittest.TestCase):
                        b'&lt;lambda&gt;</strong></a>(x, y)</dt></dl>'),
                       response.read())
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @make_request_and_skipIf(sys.flags.optimize >= 2,
                      "Docstrings are omitted with -O2 and above")
     def test_autolinking(self):
