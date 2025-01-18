@@ -600,6 +600,7 @@ mod zlib {
         unconsumed_tail: PyMutex<PyBytesRef>,
         eof: AtomicCell<bool>,
         needs_input: AtomicCell<bool>,
+        available_in_real: AtomicCell<i32>
     }
 
     #[derive(FromArgs)]
@@ -620,6 +621,7 @@ mod zlib {
                 unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
                 eof: AtomicCell::new(false),
                 needs_input: AtomicCell::new(true),
+                available_in_real: AtomicCell::new(0)
             };
             zlib_decompressor
                 .into_ref_with_type(vm, cls)
@@ -676,6 +678,7 @@ mod zlib {
             let max_length = args.max_length.value;
             let max_length = (max_length != 0).then_some(max_length);
             let data = args.data.borrow_buf();
+            self.available_in_real.store(data.len() as i32);
 
             let mut d = self.decompress.lock();
             let orig_in = d.total_in();
@@ -684,9 +687,22 @@ mod zlib {
                 match _decompress(&data, &mut d, DEF_BUF_SIZE, max_length, false, vm) {
                     Ok((buf, true)) => {
                         self.eof.store(true);
+                        self.needs_input.store(false);
+                        // if self.available_in_real.load() > 0 {
+                        //     //     PyObject *unused_data = PyBytes_FromStringAndSize(
+                        //     //         (char *)self->zst.next_in, self->avail_in_real);
+                        //     *self.unused_data.lock() = todo!();
+                        // }
                         (Ok(buf), true)
                     }
-                    Ok((buf, false)) => (Ok(buf), false),
+                    Ok((buf, false)) => {
+                        if self.available_in_real.load() == 0 {
+                            self.needs_input.store(true);
+                        } else {
+                            self.needs_input.store(false);
+                        }
+                        (Ok(buf), false)
+                    },
                     Err(err) => (Err(err), false),
                 };
             self.save_unused_input(&d, &data, stream_end, orig_in, vm);

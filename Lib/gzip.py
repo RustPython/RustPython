@@ -531,7 +531,6 @@ class _GzipReader(_compression.DecompressReader):
 
             # Read a chunk of data from the file
             if self._decompressor.needs_input:
-                raise Exception("Test " + str(READ_BUFFER_SIZE))
                 buf = self._fp.read(READ_BUFFER_SIZE)
                 uncompress = self._decompressor.decompress(buf, size)
             else:
