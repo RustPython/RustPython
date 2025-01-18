@@ -22,6 +22,8 @@ class ListTest(list_tests.CommonTest):
 
         if sys.maxsize == 0x7fffffff:
             # This test can currently only work on 32-bit machines.
+            # XXX If/when PySequence_Length() returns a ssize_t, it should be
+            # XXX re-enabled.
             # Verify clearing of bug #556025.
             # This assumes that the max data size (sys.maxint) == max
             # address size this also assumes that the address size is at
@@ -97,7 +99,7 @@ class ListTest(list_tests.CommonTest):
         self.assertRaises((MemoryError, OverflowError), imul, lst, n)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("Crashes on windows debug build")
     def test_list_resize_overflow(self):
         # gh-97616: test new_allocated * sizeof(PyObject*) overflow
         # check in list_resize()
@@ -105,7 +107,7 @@ class ListTest(list_tests.CommonTest):
         del lst[1:]
         self.assertEqual(len(lst), 1)
 
-        size = ((2 ** (tuple.__itemsize__ * 8) - 1) // 2)
+        size = sys.maxsize
         with self.assertRaises((MemoryError, OverflowError)):
             lst * size
         with self.assertRaises((MemoryError, OverflowError)):
@@ -117,7 +119,7 @@ class ListTest(list_tests.CommonTest):
             l = [0] * n
             s = repr(l)
             self.assertEqual(s,
-                '[' + ', '.join(['0'] * n) + ']')
+                             '[' + ', '.join(['0'] * n) + ']')
         check(10)       # check our checking code
         check(1000000)
 
@@ -206,6 +208,7 @@ class ListTest(list_tests.CommonTest):
         with self.assertRaises(TypeError):
             (3,) + L([1,2])
 
+    # TODO: RUSTPYTHON
     @unittest.skip("TODO: RUSTPYTHON; hang")
     def test_equal_operator_modifying_operand(self):
         # test fix for seg fault reported in bpo-38588 part 2.
@@ -231,6 +234,33 @@ class ListTest(list_tests.CommonTest):
         list3 = [Z()]
         list4 = [1]
         self.assertFalse(list3 == list4)
+
+    # TODO: RUSTPYTHON
+    @unittest.skip("TODO: RUSTPYTHON; hang")
+    def test_lt_operator_modifying_operand(self):
+        # See gh-120298
+        class evil:
+            def __lt__(self, other):
+                other.clear()
+                return NotImplemented
+
+        a = [[evil()]]
+        with self.assertRaises(TypeError):
+            a[0] < a
+
+    def test_list_index_modifing_operand(self):
+        # See gh-120384
+        class evil:
+            def __init__(self, lst):
+                self.lst = lst
+            def __iter__(self):
+                yield from self.lst
+                self.lst.clear()
+
+        lst = list(range(5))
+        operand = evil(lst)
+        with self.assertRaises(ValueError):
+            lst[::-1] = operand
 
     @cpython_only
     def test_preallocation(self):
