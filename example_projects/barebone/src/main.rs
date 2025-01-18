@@ -20,9 +20,7 @@ pub fn main() {
         // let module = vm.import("ast", 0);
         // module
 
-        vm.run_code_string(
-            vm.new_scope_with_builtins(),
-            r#"
+        let source = r#"
 import ast
 a = ast.parse("""
 print(0)
@@ -48,9 +46,18 @@ print(0, 'a', f'a{b}', 1.0, b'33333', True, False, None, ..., c, d := 42)
 """)
 # print(ast.dump(a, indent=4))
 compile(a, '<string>', 'exec')
-"#,
+"#;
+        let r = vm.run_code_string(vm.new_scope_with_builtins(), source, "<string>".to_string());
+        _ = vm.unwrap_pyresult(r);
+
+        let s = vm.new_scope_with_builtins();
+        _ = vm.unwrap_pyresult(vm.run_code_string(
+            s.clone(),
+            r#"import ast
+a = ast.unparse(ast.parse('import ast'))"#,
             "<string>".to_string(),
-        )
+        ));
+        s.locals.mapping().subscript(&vm.ctx.new_str("a"), vm)
     });
     match value {
         Ok(value) => println!("Rust repr: {:?}", value),

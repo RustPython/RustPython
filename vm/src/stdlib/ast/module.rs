@@ -1,4 +1,5 @@
 use super::*;
+use crate::stdlib::ast::type_ignore::TypeIgnore;
 
 /// Represents the different types of Python module structures.
 ///
@@ -32,20 +33,20 @@ impl Node for Mod {
             Self::FunctionType(cons) => cons.ast_to_object(vm),
         }
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
-        let _cls = _object.class();
-        Ok(if _cls.is(gen::NodeModModule::static_type()) {
-            Self::Module(ruff::ModModule::ast_from_object(_vm, _object)?)
-        } else if _cls.is(gen::NodeModInteractive::static_type()) {
-            Self::Interactive(ModInteractive::ast_from_object(_vm, _object)?)
-        } else if _cls.is(gen::NodeModExpression::static_type()) {
-            Self::Expression(ruff::ModExpression::ast_from_object(_vm, _object)?)
-        } else if _cls.is(gen::NodeModFunctionType::static_type()) {
-            Self::FunctionType(ModFunctionType::ast_from_object(_vm, _object)?)
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+        let cls = object.class();
+        Ok(if cls.is(gen::NodeModModule::static_type()) {
+            Self::Module(ruff::ModModule::ast_from_object(vm, object)?)
+        } else if cls.is(gen::NodeModInteractive::static_type()) {
+            Self::Interactive(ModInteractive::ast_from_object(vm, object)?)
+        } else if cls.is(gen::NodeModExpression::static_type()) {
+            Self::Expression(ruff::ModExpression::ast_from_object(vm, object)?)
+        } else if cls.is(gen::NodeModFunctionType::static_type()) {
+            Self::FunctionType(ModFunctionType::ast_from_object(vm, object)?)
         } else {
-            return Err(_vm.new_type_error(format!(
+            return Err(vm.new_type_error(format!(
                 "expected some sort of mod, but got {}",
-                _object.repr(_vm)?
+                object.repr(vm)?
             )));
         })
     }
@@ -56,7 +57,7 @@ impl Node for ruff::ModModule {
         let ruff::ModModule {
             body,
             // type_ignores,
-            range: _range,
+            range,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, gen::NodeModModule::static_type().to_owned())
@@ -64,8 +65,10 @@ impl Node for ruff::ModModule {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("body", body.ast_to_object(vm), vm).unwrap();
         // TODO: ruff ignores type_ignore comments currently.
-        // dict.set_item("type_ignores", type_ignores.ast_to_object(_vm), _vm)
-        //     .unwrap();
+        let type_ignores: Vec<TypeIgnore> = vec![];
+        dict.set_item("type_ignores", type_ignores.ast_to_object(vm), vm)
+            .unwrap();
+        node_add_location(&dict, range, vm);
         node.into()
     }
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
@@ -87,45 +90,38 @@ pub(super) struct ModInteractive {
 
 // constructor
 impl Node for ModInteractive {
-    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let Self {
-            body,
-            range: _range,
-        } = self;
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { body, range } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeModInteractive::static_type().to_owned())
+            .into_ref_with_type(vm, gen::NodeModInteractive::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+        dict.set_item("body", body.ast_to_object(vm), vm).unwrap();
+        node_add_location(&dict, range, vm);
         node.into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         Ok(Self {
-            body: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "body", "Interactive")?,
-            )?,
+            body: Node::ast_from_object(vm, get_node_field(vm, &object, "body", "Interactive")?)?,
             range: Default::default(),
         })
     }
 }
 // constructor
 impl Node for ruff::ModExpression {
-    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
-        let Self {
-            body,
-            range: _range,
-        } = self;
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+        let Self { body, range } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeModExpression::static_type().to_owned())
+            .into_ref_with_type(vm, gen::NodeModExpression::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("body", body.ast_to_object(_vm), _vm).unwrap();
+        dict.set_item("body", body.ast_to_object(vm), vm).unwrap();
+        node_add_location(&dict, range, vm);
         node.into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         Ok(Self {
-            body: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "body", "Expression")?)?,
+            body: Node::ast_from_object(vm, get_node_field(vm, &object, "body", "Expression")?)?,
             range: Default::default(),
         })
     }
@@ -143,7 +139,7 @@ impl Node for ModFunctionType {
         let ModFunctionType {
             argtypes,
             returns,
-            range: _range,
+            range,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, gen::NodeModFunctionType::static_type().to_owned())
@@ -153,6 +149,7 @@ impl Node for ModFunctionType {
             .unwrap();
         dict.set_item("returns", returns.ast_to_object(vm), vm)
             .unwrap();
+        node_add_location(&dict, range, vm);
         node.into()
     }
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {

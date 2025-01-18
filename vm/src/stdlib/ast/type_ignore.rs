@@ -1,6 +1,6 @@
 use super::*;
 
-enum TypeIgnore {
+pub(super) enum TypeIgnore {
     TypeIgnore(TypeIgnoreTypeIgnore),
 }
 
