@@ -25,6 +25,8 @@ try:
 except ImportError:
     gzip = None
 
+support.requires_working_socket(module=True)
+
 alist = [{'astring': 'foo@bar.baz.spam',
           'afloat': 7283.43,
           'anint': 2**20,
@@ -38,22 +40,18 @@ alist = [{'astring': 'foo@bar.baz.spam',
           'ukey\u4000': 'regular value',
           'datetime1': xmlrpclib.DateTime('20050210T11:41:23'),
           'datetime2': xmlrpclib.DateTime(
-                        (2005, 2, 10, 11, 41, 23, 0, 1, -1)),
+              (2005, 2, 10, 11, 41, 23, 0, 1, -1)),
           'datetime3': xmlrpclib.DateTime(
-                        datetime.datetime(2005, 2, 10, 11, 41, 23)),
+              datetime.datetime(2005, 2, 10, 11, 41, 23)),
           }]
 
 class XMLRPCTestCase(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dump_load(self):
         dump = xmlrpclib.dumps((alist,))
         load = xmlrpclib.loads(dump)
         self.assertEqual(alist, load[0][0])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dump_bare_datetime(self):
         # This checks that an unwrapped datetime.date object can be handled
         # by the marshalling code.  This can't be done via test_dump_load()
@@ -88,8 +86,6 @@ class XMLRPCTestCase(unittest.TestCase):
         self.assertIsNone(m)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_datetime_before_1900(self):
         # same as before but with a date before 1900
         dt = datetime.datetime(1,  2, 10, 11, 41, 23)
@@ -108,20 +104,16 @@ class XMLRPCTestCase(unittest.TestCase):
         self.assertIs(type(newdt), xmlrpclib.DateTime)
         self.assertIsNone(m)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_1164912 (self):
         d = xmlrpclib.DateTime()
         ((new_d,), dummy) = xmlrpclib.loads(xmlrpclib.dumps((d,),
-                                            methodresponse=True))
+                                                            methodresponse=True))
         self.assertIsInstance(new_d.value, str)
 
         # Check that the output of dumps() is still an 8-bit string
         s = xmlrpclib.dumps((new_d,), methodresponse=True)
         self.assertIsInstance(s, str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_newstyle_class(self):
         class T(object):
             pass
@@ -187,21 +179,17 @@ class XMLRPCTestCase(unittest.TestCase):
         m.dump_double(xmlrpclib.MAXINT + 42, dummy_write)
         m.dump_double(xmlrpclib.MININT - 42, dummy_write)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dump_none(self):
         value = alist + [None]
         arg1 = (alist + [None],)
         strg = xmlrpclib.dumps(arg1, allow_none=True)
         self.assertEqual(value,
-                          xmlrpclib.loads(strg)[0][0])
+                         xmlrpclib.loads(strg)[0][0])
         self.assertRaises(TypeError, xmlrpclib.dumps, (arg1,))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dump_encoding(self):
         value = {'key\u20ac\xa4':
-                 'value\u20ac\xa4'}
+                     'value\u20ac\xa4'}
         strg = xmlrpclib.dumps((value,), encoding='iso-8859-15')
         strg = "<?xml version='1.0' encoding='iso-8859-15'?>" + strg
         self.assertEqual(xmlrpclib.loads(strg)[0][0], value)
@@ -220,8 +208,6 @@ class XMLRPCTestCase(unittest.TestCase):
         self.assertEqual(xmlrpclib.loads(strg)[0][0], value)
         self.assertEqual(xmlrpclib.loads(strg)[1], methodname)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dump_bytes(self):
         sample = b"my dog has fleas"
         self.assertEqual(sample, xmlrpclib.Binary(sample))
@@ -241,8 +227,6 @@ class XMLRPCTestCase(unittest.TestCase):
             self.assertIs(type(newvalue), xmlrpclib.Binary)
             self.assertIsNone(m)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_loads_unsupported(self):
         ResponseError = xmlrpclib.ResponseError
         data = '<params><param><value><spam/></value></param></params>'
@@ -265,8 +249,6 @@ class XMLRPCTestCase(unittest.TestCase):
         self.assertIs(type(newvalue), type(value))
         self.assertIsNone(m)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_load_standard_types(self):
         check = self.check_loads
         check('string', 'string')
@@ -294,8 +276,6 @@ class XMLRPCTestCase(unittest.TestCase):
               '<member><name>a</name><value><int>1</int></value></member>'
               '</struct>', {'a': 1, 'b': 2})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_load_extension_types(self):
         check = self.check_loads
         check('<nil/>', None)
@@ -309,12 +289,22 @@ class XMLRPCTestCase(unittest.TestCase):
         check('<bigdecimal>9876543210.0123456789</bigdecimal>',
               decimal.Decimal('9876543210.0123456789'))
 
+    def test_limit_int(self):
+        check = self.check_loads
+        maxdigits = 5000
+        with support.adjust_int_max_str_digits(maxdigits):
+            s = '1' * (maxdigits + 1)
+            with self.assertRaises(ValueError):
+                check(f'<int>{s}</int>', None)
+            with self.assertRaises(ValueError):
+                check(f'<biginteger>{s}</biginteger>', None)
+
     def test_get_host_info(self):
         # see bug #3613, this raised a TypeError
         transp = xmlrpc.client.Transport()
         self.assertEqual(transp.get_host_info("user@host.tld"),
-                          ('host.tld',
-                           [('Authorization', 'Basic dXNlcg==')], {}))
+                         ('host.tld',
+                          [('Authorization', 'Basic dXNlcg==')], {}))
 
     def test_ssl_presence(self):
         try:
@@ -330,8 +320,6 @@ class XMLRPCTestCase(unittest.TestCase):
         except OSError:
             self.assertTrue(has_ssl)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keepalive_disconnect(self):
         class RequestHandler(http.server.BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -471,8 +459,6 @@ class FaultTestCase(unittest.TestCase):
         self.assertEqual(repr(f), "<Fault 42: 'Test Fault'>")
         self.assertEqual(repr(f), str(f))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dump_fault(self):
         f = xmlrpclib.Fault(42, 'Test Fault')
         s = xmlrpclib.dumps((f,))
@@ -814,8 +800,6 @@ class BaseServerTestCase(unittest.TestCase):
         xmlrpc.server.SimpleXMLRPCServer._send_traceback_header = False
 
 class SimpleServerTestCase(BaseServerTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_simple1(self):
         try:
             p = xmlrpclib.ServerProxy(URL)
@@ -826,8 +810,6 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nonascii(self):
         start_string = 'P\N{LATIN SMALL LETTER Y WITH CIRCUMFLEX}t'
         end_string = 'h\N{LATIN SMALL LETTER O WITH HORN}n'
@@ -841,8 +823,6 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_client_encoding(self):
         start_string = '\u20ac'
         end_string = '\xa4'
@@ -857,8 +837,6 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nonascii_methodname(self):
         try:
             p = xmlrpclib.ServerProxy(URL, encoding='ascii')
@@ -879,8 +857,6 @@ class SimpleServerTestCase(BaseServerTestCase):
         self.assertEqual(response.status, 404)
         self.assertEqual(response.reason, 'Not Found')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_introspection1(self):
         expected_methods = set(['pow', 'div', 'my_function', 'add', 'têšt',
                                 'system.listMethods', 'system.methodHelp',
@@ -897,8 +873,6 @@ class SimpleServerTestCase(BaseServerTestCase):
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_introspection2(self):
         try:
             # test _methodHelp()
@@ -911,10 +885,8 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @make_request_and_skipIf(sys.flags.optimize >= 2,
-                     "Docstrings are omitted with -O2 and above")
+                             "Docstrings are omitted with -O2 and above")
     def test_introspection3(self):
         try:
             # test native doc
@@ -927,8 +899,6 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_introspection4(self):
         # the SimpleXMLRPCServer doesn't support signatures, but
         # at least check that we can try making the call
@@ -942,8 +912,6 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_multicall(self):
         try:
             p = xmlrpclib.ServerProxy(URL)
@@ -961,8 +929,6 @@ class SimpleServerTestCase(BaseServerTestCase):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_existing_multicall(self):
         try:
             p = xmlrpclib.ServerProxy(URL)
@@ -976,16 +942,14 @@ class SimpleServerTestCase(BaseServerTestCase):
 
             self.assertEqual(result.results[0]['faultCode'], 1)
             self.assertEqual(result.results[0]['faultString'],
-                '<class \'Exception\'>:method "this_is_not_exists" '
-                'is not supported')
+                             '<class \'Exception\'>:method "this_is_not_exists" '
+                             'is not supported')
         except (xmlrpclib.ProtocolError, OSError) as e:
             # ignore failures due to non-blocking socket 'unavailable' errors
             if not is_unavailable_exception(e):
                 # protocol error; provide additional information in test output
                 self.fail("%s\n%s" % (e, getattr(e, "headers", "")))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dotted_attribute(self):
         # Raises an AttributeError because private methods are not allowed.
         self.assertRaises(AttributeError,
@@ -996,16 +960,12 @@ class SimpleServerTestCase(BaseServerTestCase):
         # This avoids waiting for the socket timeout.
         self.test_simple1()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_allow_dotted_names_true(self):
         # XXX also need allow_dotted_names_false test.
         server = xmlrpclib.ServerProxy("http://%s:%d/RPC2" % (ADDR, PORT))
         data = server.Fixture.getData()
         self.assertEqual(data, '42')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unicode_host(self):
         server = xmlrpclib.ServerProxy("http://%s:%d/RPC2" % (ADDR, PORT))
         self.assertEqual(server.add("a", "\xe9"), "a\xe9")
@@ -1020,8 +980,6 @@ class SimpleServerTestCase(BaseServerTestCase):
                       'Accept-Encoding: identity\r\n'
                       'Content-Length: 0\r\n\r\n'.encode('ascii'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_context_manager(self):
         with xmlrpclib.ServerProxy(URL) as server:
             server.add(2, 3)
@@ -1030,8 +988,6 @@ class SimpleServerTestCase(BaseServerTestCase):
         self.assertEqual(server('transport')._connection,
                          (None, None))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_context_manager_method_error(self):
         try:
             with xmlrpclib.ServerProxy(URL) as server:
@@ -1047,8 +1003,6 @@ class SimpleServerEncodingTestCase(BaseServerTestCase):
     def threadFunc(evt, numrequests, requestHandler=None, encoding=None):
         http_server(evt, numrequests, requestHandler, 'iso-8859-15')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_server_encoding(self):
         start_string = '\u20ac'
         end_string = '\xa4'
@@ -1067,70 +1021,57 @@ class SimpleServerEncodingTestCase(BaseServerTestCase):
 class MultiPathServerTestCase(BaseServerTestCase):
     threadFunc = staticmethod(http_multi_server)
     request_count = 2
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path1(self):
         p = xmlrpclib.ServerProxy(URL+"/foo")
         self.assertEqual(p.pow(6,8), 6**8)
         self.assertRaises(xmlrpclib.Fault, p.add, 6, 8)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_path2(self):
         p = xmlrpclib.ServerProxy(URL+"/foo/bar")
         self.assertEqual(p.add(6,8), 6+8)
         self.assertRaises(xmlrpclib.Fault, p.pow, 6, 8)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.requires_resource('walltime')
     def test_path3(self):
         p = xmlrpclib.ServerProxy(URL+"/is/broken")
         self.assertRaises(xmlrpclib.Fault, p.add, 6, 8)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.requires_resource('walltime')
     def test_invalid_path(self):
         p = xmlrpclib.ServerProxy(URL+"/invalid")
         self.assertRaises(xmlrpclib.Fault, p.add, 6, 8)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.requires_resource('walltime')
     def test_path_query_fragment(self):
         p = xmlrpclib.ServerProxy(URL+"/foo?k=v#frag")
         self.assertEqual(p.test(), "/foo?k=v#frag")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.requires_resource('walltime')
     def test_path_fragment(self):
         p = xmlrpclib.ServerProxy(URL+"/foo#frag")
         self.assertEqual(p.test(), "/foo#frag")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.requires_resource('walltime')
     def test_path_query(self):
         p = xmlrpclib.ServerProxy(URL+"/foo?k=v")
         self.assertEqual(p.test(), "/foo?k=v")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.requires_resource('walltime')
     def test_empty_path(self):
         p = xmlrpclib.ServerProxy(URL)
         self.assertEqual(p.test(), "/RPC2")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.requires_resource('walltime')
     def test_root_path(self):
         p = xmlrpclib.ServerProxy(URL + "/")
         self.assertEqual(p.test(), "/")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.requires_resource('walltime')
     def test_empty_path_query(self):
         p = xmlrpclib.ServerProxy(URL + "?k=v")
         self.assertEqual(p.test(), "?k=v")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @support.requires_resource('walltime')
     def test_empty_path_fragment(self):
         p = xmlrpclib.ServerProxy(URL + "#frag")
         self.assertEqual(p.test(), "#frag")
@@ -1163,8 +1104,6 @@ class BaseKeepaliveServerTestCase(BaseServerTestCase):
 #A test case that verifies that a server using the HTTP/1.1 keep-alive mechanism
 #does indeed serve subsequent requests on the same connection
 class KeepaliveServerTestCase1(BaseKeepaliveServerTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_two(self):
         p = xmlrpclib.ServerProxy(URL)
         #do three requests.
@@ -1181,13 +1120,14 @@ class KeepaliveServerTestCase1(BaseKeepaliveServerTestCase):
         self.assertGreaterEqual(len(self.RequestHandler.myRequests[-1]), 2)
 
 
-@unittest.skip("TODO: RUSTPYTHON, appears to hang")
 #test special attribute access on the serverproxy, through the __call__
 #function.
 class KeepaliveServerTestCase2(BaseKeepaliveServerTestCase):
     #ask for two keepalive requests to be handled.
     request_count=2
 
+    # TODO: RUSTPYTHON
+    @unittest.skip("test not hangs RUSTPYTHON")
     def test_close(self):
         p = xmlrpclib.ServerProxy(URL)
         #do some requests with close.
@@ -1248,8 +1188,6 @@ class GzipServerTestCase(BaseServerTestCase):
     def setUp(self):
         BaseServerTestCase.setUp(self)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_gzip_request(self):
         t = self.Transport()
         t.encode_threshold = None
@@ -1273,8 +1211,6 @@ class GzipServerTestCase(BaseServerTestCase):
             p.pow(6, 8)
         p("close")()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_gzip_response(self):
         t = self.Transport()
         p = xmlrpclib.ServerProxy(URL, transport=t)
@@ -1333,8 +1269,6 @@ class HeadersServerTestCase(BaseServerTestCase):
         for key, value in additional.items():
             self.assertEqual(headers.get(key), value)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_header(self):
         p = xmlrpclib.ServerProxy(URL, headers=[('X-Test', 'foo')])
         self.assertEqual(p.pow(6, 8), 6**8)
@@ -1342,8 +1276,6 @@ class HeadersServerTestCase(BaseServerTestCase):
         headers = self.RequestHandler.test_headers
         self.assertContainsAdditionalHeaders(headers, {'X-Test': 'foo'})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_header_many(self):
         p = xmlrpclib.ServerProxy(
             URL, headers=[('X-Test', 'foo'), ('X-Test-Second', 'bar')])
@@ -1353,8 +1285,6 @@ class HeadersServerTestCase(BaseServerTestCase):
         self.assertContainsAdditionalHeaders(
             headers, {'X-Test': 'foo', 'X-Test-Second': 'bar'})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_header_empty(self):
         p = xmlrpclib.ServerProxy(URL, headers=[])
         self.assertEqual(p.pow(6, 8), 6**8)
@@ -1362,8 +1292,6 @@ class HeadersServerTestCase(BaseServerTestCase):
         headers = self.RequestHandler.test_headers
         self.assertContainsAdditionalHeaders(headers, {})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_header_tuple(self):
         p = xmlrpclib.ServerProxy(URL, headers=(('X-Test', 'foo'),))
         self.assertEqual(p.pow(6, 8), 6**8)
@@ -1371,8 +1299,6 @@ class HeadersServerTestCase(BaseServerTestCase):
         headers = self.RequestHandler.test_headers
         self.assertContainsAdditionalHeaders(headers, {'X-Test': 'foo'})
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_header_items(self):
         p = xmlrpclib.ServerProxy(URL, headers={'X-Test': 'foo'}.items())
         self.assertEqual(p.pow(6, 8), 6**8)
@@ -1431,8 +1357,6 @@ class FailingServerTestCase(unittest.TestCase):
         default_class = http.client.HTTPMessage
         xmlrpc.server.SimpleXMLRPCRequestHandler.MessageClass = default_class
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic(self):
         # check that flag is false by default
         flagval = xmlrpc.server.SimpleXMLRPCServer._send_traceback_header
@@ -1527,8 +1451,6 @@ class CGIHandlerTestCase(unittest.TestCase):
             self.assertEqual(message, 'Bad Request')
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cgi_xmlrpc_response(self):
         data = """<?xml version='1.0'?>
         <methodCall>
@@ -1545,8 +1467,8 @@ class CGIHandlerTestCase(unittest.TestCase):
         """
 
         with os_helper.EnvironmentVarGuard() as env, \
-             captured_stdout(encoding=self.cgi.encoding) as data_out, \
-             support.captured_stdin() as data_in:
+                captured_stdout(encoding=self.cgi.encoding) as data_out, \
+                support.captured_stdin() as data_in:
             data_in.write(data)
             data_in.seek(0)
             env['CONTENT_LENGTH'] = str(len(data))
@@ -1574,8 +1496,6 @@ class CGIHandlerTestCase(unittest.TestCase):
 
 class UseBuiltinTypesTestCase(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_use_builtin_types(self):
         # SimpleXMLRPCDispatcher.__init__ accepts use_builtin_types, which
         # makes all dispatch of binary data as bytes instances, and all
@@ -1602,7 +1522,7 @@ class UseBuiltinTypesTestCase(unittest.TestCase):
 
     def test_xmlrpcserver_has_use_builtin_types_flag(self):
         server = xmlrpc.server.SimpleXMLRPCServer(("localhost", 0),
-            use_builtin_types=True)
+                                                  use_builtin_types=True)
         server.server_close()
         self.assertTrue(server.use_builtin_types)
 

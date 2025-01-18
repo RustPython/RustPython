@@ -135,8 +135,7 @@ from datetime import datetime
 from decimal import Decimal
 import http.client
 import urllib.parse
-# XXX RUSTPYTHON TODO: pyexpat
-# from xml.parsers import expat
+from xml.parsers import expat
 import errno
 from io import BytesIO
 try:
@@ -209,9 +208,9 @@ class ProtocolError(Error):
         self.headers = headers
     def __repr__(self):
         return (
-            "<%s for %s: %s %s>" %
-            (self.__class__.__name__, self.url, self.errcode, self.errmsg)
-            )
+                "<%s for %s: %s %s>" %
+                (self.__class__.__name__, self.url, self.errcode, self.errmsg)
+        )
 
 ##
 # Indicates a broken XML-RPC response package.  This exception is
@@ -851,9 +850,9 @@ class MultiCallIterator:
 
     def __getitem__(self, i):
         item = self.results[i]
-        if type(item) == type({}):
+        if isinstance(item, dict):
             raise Fault(item['faultCode'], item['faultString'])
-        elif type(item) == type([]):
+        elif isinstance(item, list):
             return item[0]
         else:
             raise ValueError("unexpected type in multicall result")
@@ -995,7 +994,7 @@ def dumps(params, methodname=None, methodresponse=None, encoding=None,
             "<methodName>", methodname, "</methodName>\n",
             data,
             "</methodCall>\n"
-            )
+        )
     elif methodresponse:
         # a method response, or a fault structure
         data = (
@@ -1003,7 +1002,7 @@ def dumps(params, methodname=None, methodresponse=None, encoding=None,
             "<methodResponse>\n",
             data,
             "</methodResponse>\n"
-            )
+        )
     else:
         return data # return as is
     return "".join(data)
@@ -1198,7 +1197,7 @@ class Transport:
             host + handler,
             resp.status, resp.reason,
             dict(resp.getheaders())
-            )
+        )
 
 
     ##
@@ -1235,7 +1234,7 @@ class Transport:
             auth = "".join(auth.split()) # get rid of whitespace
             extra_headers = [
                 ("Authorization", "Basic " + auth)
-                ]
+            ]
         else:
             extra_headers = []
 
@@ -1313,8 +1312,8 @@ class Transport:
     def send_content(self, connection, request_body):
         #optionally encode the request
         if (self.encode_threshold is not None and
-            self.encode_threshold < len(request_body) and
-            gzip):
+                self.encode_threshold < len(request_body) and
+                gzip):
             connection.putheader("Content-Encoding", "gzip")
             request_body = gzip_encode(request_body)
 
@@ -1340,10 +1339,7 @@ class Transport:
 
         p, u = self.getparser()
 
-        while 1:
-            data = stream.read(1024)
-            if not data:
-                break
+        while data := stream.read(1024):
             if self.verbose:
                 print("body:", repr(data))
             p.feed(data)
@@ -1375,12 +1371,12 @@ class SafeTransport(Transport):
 
         if not hasattr(http.client, "HTTPSConnection"):
             raise NotImplementedError(
-            "your version of http.client doesn't support HTTPS")
+                "your version of http.client doesn't support HTTPS")
         # create a HTTPS connection object from a host descriptor
         # host may be a string, or a (host, x509-dict) tuple
         chost, self._extra_headers, x509 = self.get_host_info(host)
         self._connection = host, http.client.HTTPSConnection(chost,
-            None, context=self.context, **(x509 or {}))
+                                                             None, context=self.context, **(x509 or {}))
         return self._connection[1]
 
 ##
@@ -1467,7 +1463,7 @@ class ServerProxy:
             self.__handler,
             request,
             verbose=self.__verbose
-            )
+        )
 
         if len(response) == 1:
             response = response[0]
@@ -1476,9 +1472,9 @@ class ServerProxy:
 
     def __repr__(self):
         return (
-            "<%s for %s%s>" %
-            (self.__class__.__name__, self.__host, self.__handler)
-            )
+                "<%s for %s%s>" %
+                (self.__class__.__name__, self.__host, self.__handler)
+        )
 
     def __getattr__(self, name):
         # magic method dispatcher
