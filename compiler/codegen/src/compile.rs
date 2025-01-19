@@ -17,14 +17,14 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast::located::{self as located_ast, Located};
+use rustpython_ast::{Pattern, PatternMatchSingleton, PatternMatchValue};
+use rustpython_compiler_core::bytecode::ComparisonOperator;
 use rustpython_compiler_core::{
     bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
     Mode,
 };
 use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 use std::borrow::Cow;
-use rustpython_ast::{Pattern, PatternMatchSingleton, PatternMatchValue};
-use rustpython_compiler_core::bytecode::ComparisonOperator;
 
 type CompileResult<T> = Result<T, CodegenError>;
 
@@ -1801,9 +1801,18 @@ impl Compiler {
     // RETURN_IF_ERROR(jump_to_fail_pop(c, LOC(p), pc, POP_JUMP_IF_FALSE));
     // return SUCCESS;
     // }
-    fn codegen_pattern_value(&mut self, value: PatternMatchValue, pattern_context: &mut PatternContext) -> CompileResult<()> {
+    fn codegen_pattern_value(
+        &mut self,
+        value: PatternMatchValue,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
         self.compile_expression(value.value.as_ref())?;
-        emit!(self, Instruction::CompareOperation { op: ComparisonOperator::Equal });
+        emit!(
+            self,
+            Instruction::CompareOperation {
+                op: ComparisonOperator::Equal
+            }
+        );
         emit!(self, Instruction::ToBool);
         self.jump_to_fail_pop(pattern_context, bytecode::JumpIfFalse)?;
         Ok(())
@@ -1818,19 +1827,38 @@ impl Compiler {
     // RETURN_IF_ERROR(jump_to_fail_pop(c, LOC(p), pc, POP_JUMP_IF_FALSE));
     // return SUCCESS;
     // }
-    fn codegen_pattern_singleton(&mut self, singleton: PatternMatchSingleton, pattern_context: &mut PatternContext) -> CompileResult<()> {
+    fn codegen_pattern_singleton(
+        &mut self,
+        singleton: PatternMatchSingleton,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
         self.emit_load_const(ConstantData::from(singleton.value));
-        emit!(self, Instruction::CompareOperation { op: ComparisonOperator::Is });
+        emit!(
+            self,
+            Instruction::CompareOperation {
+                op: ComparisonOperator::Is
+            }
+        );
         self.jump_to_fail_pop(pattern_context, bytecode::JumpIfFalse)?;
         Ok(())
     }
 
-    fn codegen_pattern(&mut self, pattern_type: Pattern, pattern_context: &mut PatternContext) -> CompileResult<()> {
+    fn codegen_pattern(
+        &mut self,
+        pattern_type: Pattern,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
         match pattern_type {
             Pattern::MatchValue(value) => self.codegen_pattern_value(value, pattern_context),
-            Pattern::MatchSingleton(singleton) => self.codegen_pattern_singleton(singleton, pattern_context),
-            Pattern::MatchSequence(sequence) => self.codegen_pattern_sequence(sequence, pattern_context),
-            Pattern::MatchMapping(mapping) => self.codegen_pattern_mapping(mapping, pattern_context),
+            Pattern::MatchSingleton(singleton) => {
+                self.codegen_pattern_singleton(singleton, pattern_context)
+            }
+            Pattern::MatchSequence(sequence) => {
+                self.codegen_pattern_sequence(sequence, pattern_context)
+            }
+            Pattern::MatchMapping(mapping) => {
+                self.codegen_pattern_mapping(mapping, pattern_context)
+            }
             Pattern::MatchClass(class) => self.codegen_pattern_class(class, pattern_context),
             Pattern::MatchStar(star) => self.codegen_pattern_star(star, pattern_context),
             Pattern::MatchAs(as_pattern) => self.codegen_pattern_as(as_pattern, pattern_context),
@@ -1838,10 +1866,12 @@ impl Compiler {
         }
     }
 
-    fn compile_match_inner(&mut self,
-                           subject: &located_ast::Expr,
-                           cases: &[located_ast::MatchCase],
-                           pattern_context: &mut PatternContext) -> CompileResult<()> {
+    fn compile_match_inner(
+        &mut self,
+        subject: &located_ast::Expr,
+        cases: &[located_ast::MatchCase],
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
         self.compile_expression(subject)?;
         todo!();
         // NEW_JUMP_TARGET_LABEL(c, end);
