@@ -886,11 +886,13 @@ impl SymbolTableBuilder {
                 self.scan_statements(orelse)?;
                 self.scan_statements(finalbody)?;
             }
-            Stmt::Match(StmtMatch { subject, .. }) => {
-                return Err(SymbolTableError {
-                    error: "match expression is not implemented yet".to_owned(),
-                    location: Some(subject.location()),
-                });
+            Stmt::Match(StmtMatch { subject, cases, .. }) => {
+                self.scan_expression(subject, ExpressionContext::Load)?;
+                for case in cases {
+                    // TODO: below
+                    // self.scan_pattern(&case.pattern, ExpressionContext::Load)?;
+                    self.scan_statements(&case.body)?;
+                }
             }
             Stmt::Raise(StmtRaise { exc, cause, .. }) => {
                 if let Some(expression) = exc {

@@ -23,6 +23,8 @@ use rustpython_compiler_core::{
 };
 use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 use std::borrow::Cow;
+use rustpython_ast::{Pattern, PatternMatchSingleton, PatternMatchValue};
+use rustpython_compiler_core::bytecode::ComparisonOperator;
 
 type CompileResult<T> = Result<T, CodegenError>;
 
@@ -209,6 +211,36 @@ macro_rules! emit {
     ($c:expr, Instruction::$op:ident$(,)?) => {
         $c.emit_no_arg(Instruction::$op)
     };
+}
+
+struct PatternContext {
+    // // A list of strings corresponding to name captures. It is used to track:
+    // // - Repeated name assignments in the same pattern.
+    // // - Different name assignments in alternatives.
+    // // - The order of name assignments in alternatives.
+    // PyObject *stores;
+    // // If 0, any name captures against our subject will raise.
+    // int allow_irrefutable;
+    // // An array of blocks to jump to on failure. Jumping to fail_pop[i] will pop
+    // // i items off of the stack. The end result looks like this (with each block
+    // // falling through to the next):
+    // // fail_pop[4]: POP_TOP
+    // // fail_pop[3]: POP_TOP
+    // // fail_pop[2]: POP_TOP
+    // // fail_pop[1]: POP_TOP
+    // // fail_pop[0]: NOP
+    // jump_target_label *fail_pop;
+    // // The current length of fail_pop.
+    // Py_ssize_t fail_pop_size;
+    // // The number of items on top of the stack that need to *stay* on top of the
+    // // stack. Variable captures go beneath these. All of them will be popped on
+    // // failure.
+    // Py_ssize_t on_top;
+    pub stores: Vec<()>,
+    pub allow_irrefutable: bool,
+    pub fail_pop: Vec<JumpTargetLabel>,
+    pub fail_pop_size: usize,
+    pub on_top: usize,
 }
 
 impl Compiler {
@@ -1754,15 +1786,143 @@ impl Compiler {
 
         Ok(())
     }
+    // static int
+    // codegen_pattern_value(compiler *c, pattern_ty p, pattern_context *pc)
+    // {
+    // assert(p->kind == MatchValue_kind);
+    // expr_ty value = p->v.MatchValue.value;
+    // if (!MATCH_VALUE_EXPR(value)) {
+    // const char *e = "patterns may only match literals and attribute lookups";
+    // return _PyCompile_Error(c, LOC(p), e);
+    // }
+    // VISIT(c, expr, value);
+    // ADDOP_COMPARE(c, LOC(p), Eq);
+    // ADDOP(c, LOC(p), TO_BOOL);
+    // RETURN_IF_ERROR(jump_to_fail_pop(c, LOC(p), pc, POP_JUMP_IF_FALSE));
+    // return SUCCESS;
+    // }
+    fn codegen_pattern_value(&mut self, value: PatternMatchValue, pattern_context: &mut PatternContext) -> CompileResult<()> {
+        self.compile_expression(value.value.as_ref())?;
+        emit!(self, Instruction::CompareOperation { op: ComparisonOperator::Equal });
+        emit!(self, Instruction::ToBool);
+        self.jump_to_fail_pop(pattern_context, bytecode::JumpIfFalse)?;
+        Ok(())
+    }
+
+    // static int
+    // codegen_pattern_singleton(compiler *c, pattern_ty p, pattern_context *pc)
+    // {
+    // assert(p->kind == MatchSingleton_kind);
+    // ADDOP_LOAD_CONST(c, LOC(p), p->v.MatchSingleton.value);
+    // ADDOP_COMPARE(c, LOC(p), Is);
+    // RETURN_IF_ERROR(jump_to_fail_pop(c, LOC(p), pc, POP_JUMP_IF_FALSE));
+    // return SUCCESS;
+    // }
+    fn codegen_pattern_singleton(&mut self, singleton: PatternMatchSingleton, pattern_context: &mut PatternContext) -> CompileResult<()> {
+        self.emit_load_const(ConstantData::from(singleton.value));
+        emit!(self, Instruction::CompareOperation { op: ComparisonOperator::Is });
+        self.jump_to_fail_pop(pattern_context, bytecode::JumpIfFalse)?;
+        Ok(())
+    }
+
+    fn codegen_pattern(&mut self, pattern_type: Pattern, pattern_context: &mut PatternContext) -> CompileResult<()> {
+        match pattern_type {
+            Pattern::MatchValue(value) => self.codegen_pattern_value(value, pattern_context),
+            Pattern::MatchSingleton(singleton) => self.codegen_pattern_singleton(singleton, pattern_context),
+            Pattern::MatchSequence(sequence) => self.codegen_pattern_sequence(sequence, pattern_context),
+            Pattern::MatchMapping(mapping) => self.codegen_pattern_mapping(mapping, pattern_context),
+            Pattern::MatchClass(class) => self.codegen_pattern_class(class, pattern_context),
+            Pattern::MatchStar(star) => self.codegen_pattern_star(star, pattern_context),
+            Pattern::MatchAs(as_pattern) => self.codegen_pattern_as(as_pattern, pattern_context),
+            Pattern::MatchOr(or_pattern) => self.codegen_pattern_or(or_pattern, pattern_context),
+        }
+    }
+
+    fn compile_match_inner(&mut self,
+                           subject: &located_ast::Expr,
+                           cases: &[located_ast::MatchCase],
+                           pattern_context: &mut PatternContext) -> CompileResult<()> {
+        self.compile_expression(subject)?;
+        todo!();
+        // NEW_JUMP_TARGET_LABEL(c, end);
+
+        let match_case_type = cases.last().expect("cases is not empty");
+        let has_default = match_case_type.pattern.is_match_star() && 1 < cases;
+        // for (Py_ssize_t i = 0; i < cases - has_default; i++) {
+        for i in 0..cases.len() - (has_default as usize) {
+            //     m = asdl_seq_GET(s->v.Match.cases, i);
+            let m = &cases[i];
+            // Only copy the subject if we're *not* on the last case:
+            if i != cases - has_default as usize - 1 {
+                // ADDOP_I(c, LOC(m->pattern), COPY, 1);
+                emit!(cases, Instruction::Duplicate);
+            }
+            // TODO: redundant
+            pattern_context.stores = Vec::new();
+            // Irrefutable cases must be either guarded, last, or both:
+            pattern_context.allow_irrefutable = m.guard.is_some() || i == cases - 1;
+            //     pc->fail_pop = NULL;
+            pattern_context.fail_pop_size = 0;
+            pattern_context.on_top = 0;
+            self.codegen_pattern(m.pattern, pattern_context)?;
+            assert!(!pattern_context.on_top);
+            // It's a match! Store all of the captured names (they're on the stack).
+            let nstores = pattern_context.stores.len();
+            for n in 0..nstores {
+                let name = &pattern_context.stores[n];
+                // TODO: below
+                // if (codegen_nameop(c, LOC(m->pattern), name, Store) < 0) {
+                //     Py_DECREF(pc->stores);
+                //     return ERROR;
+                // }
+            }
+            // TODO: below
+            // Py_DECREF(pc->stores);
+            if i != cases - has_default - 1 {
+                // TODO: Below
+                // ADDOP(c, LOC(m->pattern), POP_TOP);
+            }
+            // VISIT_SEQ(c, stmt, m->body);
+            // ADDOP_JUMP(c, NO_LOCATION, JUMP, end);
+            // If the pattern fails to match, we want the line number of the
+            // cleanup to be associated with the failed pattern, not the last line
+            // of the body
+            // RETURN_IF_ERROR(emit_and_reset_fail_pop(c, LOC(m->pattern), pc));
+        }
+        if has_default {
+            // A trailing "case _" is common, and lets us save a bit of redundant
+            // pushing and popping in the loop above:
+            let m = &cases.last().unwrap();
+            if cases.len() == 1 {
+                // No matches. Done with the subject:
+                // TODO: Below
+                // ADDOP(c, LOC(m->pattern), POP_TOP);
+            } else {
+                // Show line coverage for default case (it doesn't create bytecode)
+                // TODO: Below
+                // ADDOP(c, LOC(m->pattern), NOP);
+                // emit!(cases, Instruction::Nop);
+            }
+            self.compile_statement(&m.body)?;
+        }
+        // USE_LABEL(c, end);
+        Ok(())
+    }
 
     fn compile_match(
         &mut self,
         subject: &located_ast::Expr,
         cases: &[located_ast::MatchCase],
     ) -> CompileResult<()> {
-        eprintln!("match subject: {subject:?}");
-        eprintln!("match cases: {cases:?}");
-        Err(self.error(CodegenErrorType::NotImplementedYet))
+        let mut pattern_context = PatternContext {
+            stores: Vec::new(),
+            allow_irrefutable: false,
+            fail_pop: Vec::new(),
+            fail_pop_size: 0,
+            on_top: 0,
+        };
+        self.compile_match_inner(subject, cases, &mut pattern_context)?;
+        Ok(())
     }
 
     fn compile_chained_comparison(
