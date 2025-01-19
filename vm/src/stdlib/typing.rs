@@ -127,7 +127,7 @@ pub(crate) mod _typing {
         // compute_value: PyObjectRef,
         // module: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE, IMMUTABLETYPE))]
     impl TypeAliasType {
         pub fn new(
             name: PyObjectRef,
