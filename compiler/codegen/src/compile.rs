@@ -7,6 +7,7 @@
 
 #![deny(clippy::cast_possible_truncation)]
 
+use crate::ir::BlockIdx;
 use crate::{
     error::{CodegenError, CodegenErrorType},
     ir,
@@ -25,7 +26,6 @@ use rustpython_compiler_core::{
 };
 use rustpython_parser_core::source_code::{LineNumber, SourceLocation, SourceRange};
 use std::borrow::Cow;
-use crate::ir::BlockIdx;
 
 type CompileResult<T> = Result<T, CodegenError>;
 
@@ -1808,10 +1808,14 @@ impl Compiler {
     // return SUCCESS;
     // }
 
-    fn ensure_fail_pop(&mut self, pattern_context: &mut PatternContext, n: usize) -> CompileResult<()> {
+    fn ensure_fail_pop(
+        &mut self,
+        pattern_context: &mut PatternContext,
+        n: usize,
+    ) -> CompileResult<()> {
         let size = n + 1;
         if size <= pattern_context.fail_pop.len() {
-            return Ok(())
+            return Ok(());
         }
         let reserve = size.saturating_sub(pattern_context.fail_pop.len());
         pattern_context.fail_pop.reserve(reserve);
@@ -1972,9 +1976,7 @@ impl Compiler {
             // VISIT_SEQ(c, stmt, m->body);
             self.compile_statements(&m.body)?;
             // ADDOP_JUMP(c, NO_LOCATION, JUMP, end);
-            emit!(self, Instruction::Jump {
-                target: end_block
-            });
+            emit!(self, Instruction::Jump { target: end_block });
         }
         if has_default {
             // A trailing "case _" is common, and lets us save a bit of redundant
