@@ -18,7 +18,9 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast::located::{self as located_ast, Located};
-use rustpython_ast::{Pattern, PatternMatchSingleton, PatternMatchValue};
+use rustpython_ast::{
+    Pattern, PatternMatchAs, PatternMatchSingleton, PatternMatchStar, PatternMatchValue,
+};
 use rustpython_compiler_core::bytecode::ComparisonOperator;
 use rustpython_compiler_core::{
     bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
@@ -1902,6 +1904,118 @@ impl Compiler {
         Ok(())
     }
 
+    // static int
+    // codegen_pattern_helper_store_name(compiler *c, location loc,
+    // identifier n, pattern_context *pc)
+    // {
+    // if (n == NULL) {
+    // ADDOP(c, loc, POP_TOP);
+    // return SUCCESS;
+    // }
+    // // Can't assign to the same name twice:
+    // int duplicate = PySequence_Contains(pc->stores, n);
+    // RETURN_IF_ERROR(duplicate);
+    // if (duplicate) {
+    // return codegen_error_duplicate_store(c, loc, n);
+    // }
+    // // Rotate this object underneath any items we need to preserve:
+    // Py_ssize_t rotations = pc->on_top + PyList_GET_SIZE(pc->stores) + 1;
+    // RETURN_IF_ERROR(codegen_pattern_helper_rotate(c, loc, rotations));
+    // RETURN_IF_ERROR(PyList_Append(pc->stores, n));
+    // return SUCCESS;
+    // }
+    fn codegen_pattern_helper_store_name(
+        &mut self,
+        loc: SourceLocation,
+        n: Option<&str>,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        if n.is_none() {
+            emit!(self, Instruction::Pop);
+            return Ok(());
+        }
+        let n = n.unwrap();
+        let duplicate = pattern_context.stores.contains(&n.to_string());
+        if duplicate {
+            return Err(self.error(CodegenErrorType::DuplicateStore(n.to_string())));
+        }
+        let rotations = pattern_context.on_top + pattern_context.stores.len() + 1;
+        self.codegen_pattern_helper_rotate(loc, rotations)?;
+        pattern_context.stores.push(n.to_string());
+        Ok(())
+    }
+
+    fn codegen_pattern_star(
+        &mut self,
+        star: &PatternMatchStar<SourceRange>,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        // codegen_pattern_helper_store_name(c, LOC(p), p->v.MatchStar.name, pc));
+        self.codegen_pattern_helper_store_name(
+            star.location(),
+            star.name.as_deref(),
+            pattern_context,
+        )?;
+        Ok(())
+    }
+
+    // static int
+    // codegen_pattern_as(compiler *c, pattern_ty p, pattern_context *pc)
+    // {
+    // assert(p->kind == MatchAs_kind);
+    // if (p->v.MatchAs.pattern == NULL) {
+    // // An irrefutable match:
+    // if (!pc->allow_irrefutable) {
+    // if (p->v.MatchAs.name) {
+    // const char *e = "name capture %R makes remaining patterns unreachable";
+    // return _PyCompile_Error(c, LOC(p), e, p->v.MatchAs.name);
+    // }
+    // const char *e = "wildcard makes remaining patterns unreachable";
+    // return _PyCompile_Error(c, LOC(p), e);
+    // }
+    // return codegen_pattern_helper_store_name(c, LOC(p), p->v.MatchAs.name, pc);
+    // }
+    // // Need to make a copy for (possibly) storing later:
+    // pc->on_top++;
+    // ADDOP_I(c, LOC(p), COPY, 1);
+    // RETURN_IF_ERROR(codegen_pattern(c, p->v.MatchAs.pattern, pc));
+    // // Success! Store it:
+    // pc->on_top--;
+    // RETURN_IF_ERROR(codegen_pattern_helper_store_name(c, LOC(p), p->v.MatchAs.name, pc));
+    // return SUCCESS;
+    // }
+    fn codegen_pattern_as(
+        &mut self,
+        as_pattern: &PatternMatchAs<SourceRange>,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        if as_pattern.pattern.is_none() {
+            // An irrefutable match:
+            if !pattern_context.allow_irrefutable {
+                if let Some(name) = &as_pattern.name {
+                    return Err(self.error(CodegenErrorType::InvalidMatchCase));
+                } else {
+                    return Err(self.error(CodegenErrorType::InvalidMatchCase));
+                }
+            }
+            return self.codegen_pattern_helper_store_name(
+                as_pattern.location(),
+                as_pattern.name.as_deref(),
+                pattern_context,
+            );
+        }
+        pattern_context.on_top += 1;
+        emit!(self, Instruction::Duplicate);
+        self.codegen_pattern(as_pattern.pattern.as_ref().unwrap(), pattern_context)?;
+        pattern_context.on_top -= 1;
+        self.codegen_pattern_helper_store_name(
+            as_pattern.location(),
+            as_pattern.name.as_deref(),
+            pattern_context,
+        )?;
+        Ok(())
+    }
+
     fn codegen_pattern(
         &mut self,
         pattern_type: &Pattern<SourceRange>,
@@ -1919,8 +2033,8 @@ impl Compiler {
                 todo!()
             }
             Pattern::MatchClass(_class) => todo!(),
-            Pattern::MatchStar(_star) => todo!(),
-            Pattern::MatchAs(_as_pattern) => todo!(),
+            Pattern::MatchStar(star) => self.codegen_pattern_star(&star, pattern_context),
+            Pattern::MatchAs(as_pattern) => self.codegen_pattern_as(&as_pattern, pattern_context),
             Pattern::MatchOr(_or_pattern) => todo!(),
         }
     }
