@@ -31,6 +31,8 @@ pub enum CodegenErrorType {
     EmptyWithItems,
     EmptyWithBody,
     NotImplementedYet, // RustPython marker for unimplemented features
+    DuplicateStore(String),
+    InvalidMatchCase,
 }
 
 impl std::error::Error for CodegenErrorType {}
@@ -77,6 +79,12 @@ impl fmt::Display for CodegenErrorType {
             }
             NotImplementedYet => {
                 write!(f, "RustPython does not implement this feature yet")
+            }
+            DuplicateStore(s) => {
+                write!(f, "duplicate store {s}")
+            }
+            InvalidMatchCase => {
+                write!(f, "invalid match case")
             }
         }
     }

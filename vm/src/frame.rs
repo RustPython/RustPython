@@ -517,6 +517,7 @@ impl ExecutingFrame<'_> {
         }
 
         match instruction {
+            bytecode::Instruction::Noop => Ok(None),
             bytecode::Instruction::LoadConst { idx } => {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
                 Ok(None)
