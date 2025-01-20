@@ -47,6 +47,7 @@ pub mod sys;
 mod winapi;
 #[cfg(windows)]
 mod winreg;
+mod ctypes;
 
 use crate::{builtins::PyModule, PyRef, VirtualMachine};
 use std::{borrow::Cow, collections::HashMap};
@@ -101,6 +102,10 @@ pub fn get_module_inits() -> StdlibMap {
         #[cfg(feature = "rustpython-compiler")]
         {
             "symtable" => symtable::make_module,
+        }
+        #[cfg(any(unix, windows, target_os = "wasi"))]
+        {
+            "_ctypes" => ctypes::make_module,
         }
         #[cfg(any(unix, target_os = "wasi"))]
         {

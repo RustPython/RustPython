@@ -87,9 +87,14 @@ unicode_names2 = { workspace = true }
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = "0.1.0"
 # update version all at the same time
-unic-ucd-bidi      = "0.9.0"
-unic-ucd-category  = "0.9.0"
-unic-ucd-ident     = "0.9.0"
+unic-ucd-bidi = "0.9.0"
+unic-ucd-category = "0.9.0"
+unic-ucd-ident = "0.9.0"
+
+# ctypes
+libloading = "0.8.6"
+libffi = "3.2.0"
+widestring = "1.1.0"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }
