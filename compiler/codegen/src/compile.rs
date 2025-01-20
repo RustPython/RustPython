@@ -1940,7 +1940,8 @@ impl Compiler {
             return Err(self.error(CodegenErrorType::DuplicateStore(n.to_string())));
         }
         let rotations = pattern_context.on_top + pattern_context.stores.len() + 1;
-        self.codegen_pattern_helper_rotate(loc, rotations)?;
+        todo!("below");
+        // self.codegen_pattern_helper_rotate(loc, rotations)?;
         pattern_context.stores.push(n.to_string());
         Ok(())
     }
