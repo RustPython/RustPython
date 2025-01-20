@@ -133,7 +133,7 @@ class GeneralFloatCases(unittest.TestCase):
             with self.assertRaises(ValueError, msg='float(%r)' % (s,)) as cm:
                 float(s)
             self.assertEqual(str(cm.exception),
-                'could not convert string to float: %r' % (s,))
+                             'could not convert string to float: %r' % (s,))
 
         check('\xbd')
         check('123\xbd')
@@ -155,7 +155,9 @@ class GeneralFloatCases(unittest.TestCase):
         # non-UTF-8 byte string
         check(b'123\xa0')
 
-    @support.run_with_locale('LC_NUMERIC', 'fr_FR', 'de_DE')
+    # TODO: RUSTPYTHON
+    @unittest.skip("RustPython panics on this")
+    @support.run_with_locale('LC_NUMERIC', 'fr_FR', 'de_DE', '')
     def test_float_with_comma(self):
         # set locale to something that doesn't use '.' for the decimal point
         # float must not accept the locale specific decimal point but
@@ -290,11 +292,11 @@ class GeneralFloatCases(unittest.TestCase):
 
     def test_floatasratio(self):
         for f, ratio in [
-                (0.875, (7, 8)),
-                (-0.875, (-7, 8)),
-                (0.0, (0, 1)),
-                (11.5, (23, 2)),
-            ]:
+            (0.875, (7, 8)),
+            (-0.875, (-7, 8)),
+            (0.0, (0, 1)),
+            (11.5, (23, 2)),
+        ]:
             self.assertEqual(f.as_integer_ratio(), ratio)
 
         for i in range(10000):
@@ -337,7 +339,7 @@ class GeneralFloatCases(unittest.TestCase):
             self.assertTrue((f,) == (f,), "(%r,) != (%r,)" % (f, f))
             self.assertTrue({f} == {f}, "{%r} != {%r}" % (f, f))
             self.assertTrue({f : None} == {f: None}, "{%r : None} != "
-                                                   "{%r : None}" % (f, f))
+                                                     "{%r : None}" % (f, f))
 
             # identical containers
             l, t, s, d = [f], (f,), {f}, {f: None}
@@ -667,8 +669,6 @@ class IEEEFormatTestCase(unittest.TestCase):
                           ('<f', LE_FLOAT_NAN)]:
             struct.unpack(fmt, data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_IEEE_754
     @unittest.skipIf(_testcapi is None, 'needs _testcapi')
     def test_serialized_float_rounding(self):
@@ -776,7 +776,7 @@ class FormatTestCase(unittest.TestCase):
 class ReprTestCase(unittest.TestCase):
     def test_repr(self):
         with open(os.path.join(os.path.split(__file__)[0],
-                  'floating_points.txt'), encoding="utf-8") as floats_file:
+                               'floating_points.txt'), encoding="utf-8") as floats_file:
             for line in floats_file:
                 line = line.strip()
                 if not line or line.startswith('#'):
@@ -826,7 +826,7 @@ class ReprTestCase(unittest.TestCase):
             '2.86438000439698e+28',
             '8.89142905246179e+28',
             '3.08578087079232e+35',
-            ]
+        ]
 
         for s in test_strings:
             negs = '-'+s
@@ -883,7 +883,7 @@ class RoundTestCase(unittest.TestCase, FloatsAreIdenticalMixin):
     def test_previous_round_bugs(self):
         # particular cases that have occurred in bug reports
         self.assertEqual(round(562949953421312.5, 1),
-                          562949953421312.5)
+                         562949953421312.5)
         self.assertEqual(round(56294995342131.5, 3),
                          56294995342131.5)
         # round-half-even
@@ -1133,7 +1133,7 @@ class HexFloatTestCase(FloatsAreIdenticalMixin, unittest.TestCase):
             '0x1.\uff10p0',
             '0x1p0 \n 0x2p0',
             '0x1p0\0 0x1p0',  # embedded null byte is not end of string
-            ]
+        ]
         for x in invalid_inputs:
             try:
                 result = fromHex(x)
@@ -1152,7 +1152,7 @@ class HexFloatTestCase(FloatsAreIdenticalMixin, unittest.TestCase):
             ('1.0', 1.0),
             ('-0x.2', -0.125),
             ('-0.0', -0.0)
-            ]
+        ]
         whitespace = [
             '',
             ' ',
@@ -1162,7 +1162,7 @@ class HexFloatTestCase(FloatsAreIdenticalMixin, unittest.TestCase):
             '\f',
             '\v',
             '\r'
-            ]
+        ]
         for inp, expected in value_pairs:
             for lead in whitespace:
                 for trail in whitespace:

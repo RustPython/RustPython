@@ -147,10 +147,10 @@ class NumberTestCase(unittest.TestCase):
 
             # alignment of the type...
             self.assertEqual((code, alignment(t)),
-                                 (code, align))
+                             (code, align))
             # and alignment of an instance
             self.assertEqual((code, alignment(t())),
-                                 (code, align))
+                             (code, align))
 
     def test_int_from_address(self):
         from array import array
