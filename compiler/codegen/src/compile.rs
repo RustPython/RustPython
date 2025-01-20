@@ -18,13 +18,14 @@ use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_ast::{Pattern, PatternMatchSingleton, PatternMatchValue};
-use rustpython_compiler_core::bytecode::ComparisonOperator;
+use rustpython_compiler_core::bytecode::{Arg, ComparisonOperator, Label};
 use rustpython_compiler_core::{
     bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
     Mode,
 };
-use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
+use rustpython_parser_core::source_code::{LineNumber, SourceLocation, SourceRange};
 use std::borrow::Cow;
+use crate::ir::BlockIdx;
 
 type CompileResult<T> = Result<T, CodegenError>;
 
@@ -236,9 +237,9 @@ struct PatternContext {
     // // stack. Variable captures go beneath these. All of them will be popped on
     // // failure.
     // Py_ssize_t on_top;
-    pub stores: Vec<()>,
+    pub stores: Vec<String>,
     pub allow_irrefutable: bool,
-    pub fail_pop: Vec<JumpTargetLabel>,
+    pub fail_pop: Vec<BlockIdx>,
     pub fail_pop_size: usize,
     pub on_top: usize,
 }
@@ -1786,6 +1787,59 @@ impl Compiler {
 
         Ok(())
     }
+
+    // static int
+    // ensure_fail_pop(compiler *c, pattern_context *pc, Py_ssize_t n)
+    // {
+    // Py_ssize_t size = n + 1;
+    // if (size <= pc->fail_pop_size) {
+    // return SUCCESS;
+    // }
+    // Py_ssize_t needed = sizeof(jump_target_label) * size;
+    // jump_target_label *resized = PyMem_Realloc(pc->fail_pop, needed);
+    // if (resized == NULL) {
+    // PyErr_NoMemory();
+    // return ERROR;
+    // }
+    // pc->fail_pop = resized;
+    // while (pc->fail_pop_size < size) {
+    // NEW_JUMP_TARGET_LABEL(c, new_block);
+    // pc->fail_pop[pc->fail_pop_size++] = new_block;
+    // }
+    // return SUCCESS;
+    // }
+
+    fn ensure_fail_pop(&mut self, pattern_context: &mut PatternContext, n: usize) -> CompileResult<()> {
+        let size = n + 1;
+        if size <= pattern_context.fail_pop_size {
+            return Ok(())
+        }
+        let reserve = size.saturating_sub(pattern_context.fail_pop.len());
+        pattern_context.fail_pop.reserve(reserve);
+        while pattern_context.fail_pop_size < size {
+            let label = self.new_block();
+            pattern_context.fail_pop.push(label);
+        }
+        Ok(())
+    }
+
+    // static int
+    // jump_to_fail_pop(compiler *c, location loc,
+    // pattern_context *pc, int op)
+    // {
+    // // Pop any items on the top of the stack, plus any objects we were going to
+    // // capture on success:
+    // Py_ssize_t pops = pc->on_top + PyList_GET_SIZE(pc->stores);
+    // RETURN_IF_ERROR(ensure_fail_pop(c, pc, pops));
+    // ADDOP_JUMP(c, loc, op, pc->fail_pop[pops]);
+    // return SUCCESS;
+    // }
+    fn jump_to_fail_pop(&mut self, pattern_context: &mut PatternContext) -> CompileResult<()> {
+        let pops = pattern_context.on_top + pattern_context.stores.len();
+        self.ensure_fail_pop(pattern_context, pops)?;
+        self.switch_to_block(pattern_context.fail_pop[pops]);
+        Ok(())
+    }
     // static int
     // codegen_pattern_value(compiler *c, pattern_ty p, pattern_context *pc)
     // {
@@ -1803,18 +1857,18 @@ impl Compiler {
     // }
     fn codegen_pattern_value(
         &mut self,
-        value: PatternMatchValue,
+        value: &PatternMatchValue<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        self.compile_expression(value.value.as_ref())?;
+        self.compile_expression(&value.value)?;
         emit!(
             self,
             Instruction::CompareOperation {
                 op: ComparisonOperator::Equal
             }
         );
-        emit!(self, Instruction::ToBool);
-        self.jump_to_fail_pop(pattern_context, bytecode::JumpIfFalse)?;
+        // emit!(self, Instruction::ToBool);
+        self.jump_to_fail_pop(pattern_context)?;
         Ok(())
     }
 
@@ -1829,40 +1883,42 @@ impl Compiler {
     // }
     fn codegen_pattern_singleton(
         &mut self,
-        singleton: PatternMatchSingleton,
+        singleton: &PatternMatchSingleton<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        self.emit_load_const(ConstantData::from(singleton.value));
+        todo!();
+        // self.emit_load_const(ConstantData::from(singleton.value));
         emit!(
             self,
             Instruction::CompareOperation {
-                op: ComparisonOperator::Is
+                // TODO: ComparisonOperator::Is doesn't exist, this will have to do for now
+                op: ComparisonOperator::Equal
             }
         );
-        self.jump_to_fail_pop(pattern_context, bytecode::JumpIfFalse)?;
+        self.jump_to_fail_pop(pattern_context)?;
         Ok(())
     }
 
     fn codegen_pattern(
         &mut self,
-        pattern_type: Pattern,
+        pattern_type: &Pattern<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        match pattern_type {
-            Pattern::MatchValue(value) => self.codegen_pattern_value(value, pattern_context),
+        match &pattern_type {
+            Pattern::MatchValue(value) => self.codegen_pattern_value(&value, pattern_context),
             Pattern::MatchSingleton(singleton) => {
-                self.codegen_pattern_singleton(singleton, pattern_context)
+                self.codegen_pattern_singleton(&singleton, pattern_context)
             }
             Pattern::MatchSequence(sequence) => {
-                self.codegen_pattern_sequence(sequence, pattern_context)
+                todo!()
             }
             Pattern::MatchMapping(mapping) => {
-                self.codegen_pattern_mapping(mapping, pattern_context)
+                todo!()
             }
-            Pattern::MatchClass(class) => self.codegen_pattern_class(class, pattern_context),
-            Pattern::MatchStar(star) => self.codegen_pattern_star(star, pattern_context),
-            Pattern::MatchAs(as_pattern) => self.codegen_pattern_as(as_pattern, pattern_context),
-            Pattern::MatchOr(or_pattern) => self.codegen_pattern_or(or_pattern, pattern_context),
+            Pattern::MatchClass(class) => todo!(),
+            Pattern::MatchStar(star) => todo!(),
+            Pattern::MatchAs(as_pattern) => todo!(),
+            Pattern::MatchOr(or_pattern) => todo!(),
         }
     }
 
@@ -1873,51 +1929,46 @@ impl Compiler {
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         self.compile_expression(subject)?;
-        todo!();
-        // NEW_JUMP_TARGET_LABEL(c, end);
+        // Block at the end of the switch statement that we jump to after finishing a branch
+        let end = self.new_block();
 
         let match_case_type = cases.last().expect("cases is not empty");
-        let has_default = match_case_type.pattern.is_match_star() && 1 < cases;
+        let has_default = match_case_type.pattern.is_match_star() && 1 < cases.len();
         // for (Py_ssize_t i = 0; i < cases - has_default; i++) {
         for i in 0..cases.len() - (has_default as usize) {
             //     m = asdl_seq_GET(s->v.Match.cases, i);
             let m = &cases[i];
             // Only copy the subject if we're *not* on the last case:
-            if i != cases - has_default as usize - 1 {
+            if i != cases.len() - has_default as usize - 1 {
                 // ADDOP_I(c, LOC(m->pattern), COPY, 1);
-                emit!(cases, Instruction::Duplicate);
+                emit!(self, Instruction::Duplicate);
             }
             // TODO: redundant
             pattern_context.stores = Vec::new();
             // Irrefutable cases must be either guarded, last, or both:
-            pattern_context.allow_irrefutable = m.guard.is_some() || i == cases - 1;
+            pattern_context.allow_irrefutable = m.guard.is_some() || i == cases.len() - 1;
             //     pc->fail_pop = NULL;
             pattern_context.fail_pop_size = 0;
             pattern_context.on_top = 0;
-            self.codegen_pattern(m.pattern, pattern_context)?;
-            assert!(!pattern_context.on_top);
+            self.codegen_pattern(&m.pattern, pattern_context)?;
+            assert_eq!(pattern_context.on_top, 0);
             // It's a match! Store all of the captured names (they're on the stack).
             let nstores = pattern_context.stores.len();
             for n in 0..nstores {
                 let name = &pattern_context.stores[n];
-                // TODO: below
-                // if (codegen_nameop(c, LOC(m->pattern), name, Store) < 0) {
-                //     Py_DECREF(pc->stores);
-                //     return ERROR;
-                // }
+                // codegen_nameop(c, LOC(m->pattern), name, Store) < 0)
+                self.compile_name(name, NameUsage::Store)?;
             }
-            // TODO: below
-            // Py_DECREF(pc->stores);
-            if i != cases - has_default - 1 {
-                // TODO: Below
+            if i != cases.len() - (has_default as usize) - 1 {
                 // ADDOP(c, LOC(m->pattern), POP_TOP);
+                emit!(self, Instruction::Pop);
             }
             // VISIT_SEQ(c, stmt, m->body);
+            self.compile_statements(&m.body)?;
             // ADDOP_JUMP(c, NO_LOCATION, JUMP, end);
-            // If the pattern fails to match, we want the line number of the
-            // cleanup to be associated with the failed pattern, not the last line
-            // of the body
-            // RETURN_IF_ERROR(emit_and_reset_fail_pop(c, LOC(m->pattern), pc));
+            emit!(self, Instruction::Jump {
+                target: end
+            });
         }
         if has_default {
             // A trailing "case _" is common, and lets us save a bit of redundant
@@ -1927,15 +1978,17 @@ impl Compiler {
                 // No matches. Done with the subject:
                 // TODO: Below
                 // ADDOP(c, LOC(m->pattern), POP_TOP);
+                emit!(self, Instruction::Pop);
             } else {
+                todo!("Noop instruction");
                 // Show line coverage for default case (it doesn't create bytecode)
                 // TODO: Below
                 // ADDOP(c, LOC(m->pattern), NOP);
                 // emit!(cases, Instruction::Nop);
             }
-            self.compile_statement(&m.body)?;
+            self.compile_statements(&m.body)?;
         }
-        // USE_LABEL(c, end);
+        self.switch_to_block(end);
         Ok(())
     }
 
