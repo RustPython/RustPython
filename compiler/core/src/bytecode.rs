@@ -370,6 +370,10 @@ pub type NameIdx = u32;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Instruction {
+    /// No-op, don't do anything at all
+    ///
+    /// Equivalent to `NOP` in cpython bytecode
+    Noop,
     /// Importing by name
     ImportName {
         idx: Arg<NameIdx>,
@@ -1177,6 +1181,7 @@ impl Instruction {
     ///
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
+            Noop => 0,
             ImportName { .. } | ImportNameless => -1,
             ImportStar => -1,
             ImportFrom { .. } => 1,
@@ -1361,6 +1366,7 @@ impl Instruction {
             };
 
         match self {
+            Noop => w!(Noop),
             ImportName { idx } => w!(ImportName, name = idx),
             ImportNameless => w!(ImportNameless),
             ImportStar => w!(ImportStar),
