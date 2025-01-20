@@ -18,7 +18,7 @@ use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_ast::{Pattern, PatternMatchSingleton, PatternMatchValue};
-use rustpython_compiler_core::bytecode::{Arg, ComparisonOperator, Label};
+use rustpython_compiler_core::bytecode::ComparisonOperator;
 use rustpython_compiler_core::{
     bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
     Mode,
@@ -240,7 +240,6 @@ struct PatternContext {
     pub stores: Vec<String>,
     pub allow_irrefutable: bool,
     pub fail_pop: Vec<BlockIdx>,
-    pub fail_pop_size: usize,
     pub on_top: usize,
 }
 
@@ -1811,12 +1810,12 @@ impl Compiler {
 
     fn ensure_fail_pop(&mut self, pattern_context: &mut PatternContext, n: usize) -> CompileResult<()> {
         let size = n + 1;
-        if size <= pattern_context.fail_pop_size {
+        if size <= pattern_context.fail_pop.len() {
             return Ok(())
         }
         let reserve = size.saturating_sub(pattern_context.fail_pop.len());
         pattern_context.fail_pop.reserve(reserve);
-        while pattern_context.fail_pop_size < size {
+        while pattern_context.fail_pop.len() < size {
             let label = self.new_block();
             pattern_context.fail_pop.push(label);
         }
@@ -1909,16 +1908,16 @@ impl Compiler {
             Pattern::MatchSingleton(singleton) => {
                 self.codegen_pattern_singleton(&singleton, pattern_context)
             }
-            Pattern::MatchSequence(sequence) => {
+            Pattern::MatchSequence(_sequence) => {
                 todo!()
             }
-            Pattern::MatchMapping(mapping) => {
+            Pattern::MatchMapping(_mapping) => {
                 todo!()
             }
-            Pattern::MatchClass(class) => todo!(),
-            Pattern::MatchStar(star) => todo!(),
-            Pattern::MatchAs(as_pattern) => todo!(),
-            Pattern::MatchOr(or_pattern) => todo!(),
+            Pattern::MatchClass(_class) => todo!(),
+            Pattern::MatchStar(_star) => todo!(),
+            Pattern::MatchAs(_as_pattern) => todo!(),
+            Pattern::MatchOr(_or_pattern) => todo!(),
         }
     }
 
@@ -1930,7 +1929,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.compile_expression(subject)?;
         // Block at the end of the switch statement that we jump to after finishing a branch
-        let end = self.new_block();
+        let end_block = self.new_block();
 
         let match_case_type = cases.last().expect("cases is not empty");
         let has_default = match_case_type.pattern.is_match_star() && 1 < cases.len();
@@ -1948,7 +1947,6 @@ impl Compiler {
             // Irrefutable cases must be either guarded, last, or both:
             pattern_context.allow_irrefutable = m.guard.is_some() || i == cases.len() - 1;
             //     pc->fail_pop = NULL;
-            pattern_context.fail_pop_size = 0;
             pattern_context.on_top = 0;
             self.codegen_pattern(&m.pattern, pattern_context)?;
             assert_eq!(pattern_context.on_top, 0);
@@ -1959,6 +1957,14 @@ impl Compiler {
                 // codegen_nameop(c, LOC(m->pattern), name, Store) < 0)
                 self.compile_name(name, NameUsage::Store)?;
             }
+            // if (m->guard) {
+            //     RETURN_IF_ERROR(ensure_fail_pop(c, pc, 0));
+            //     RETURN_IF_ERROR(codegen_jump_if(c, LOC(m->pattern), m->guard, pc->fail_pop[0], 0));
+            // }
+            if let Some(guard) = &m.guard {
+                self.ensure_fail_pop(pattern_context, 0)?;
+                self.compile_jump_if(guard, false, pattern_context.fail_pop[0])?;
+            }
             if i != cases.len() - (has_default as usize) - 1 {
                 // ADDOP(c, LOC(m->pattern), POP_TOP);
                 emit!(self, Instruction::Pop);
@@ -1967,7 +1973,7 @@ impl Compiler {
             self.compile_statements(&m.body)?;
             // ADDOP_JUMP(c, NO_LOCATION, JUMP, end);
             emit!(self, Instruction::Jump {
-                target: end
+                target: end_block
             });
         }
         if has_default {
@@ -1976,7 +1982,6 @@ impl Compiler {
             let m = &cases.last().unwrap();
             if cases.len() == 1 {
                 // No matches. Done with the subject:
-                // TODO: Below
                 // ADDOP(c, LOC(m->pattern), POP_TOP);
                 emit!(self, Instruction::Pop);
             } else {
@@ -1988,7 +1993,7 @@ impl Compiler {
             }
             self.compile_statements(&m.body)?;
         }
-        self.switch_to_block(end);
+        self.switch_to_block(end_block);
         Ok(())
     }
 
@@ -2001,7 +2006,6 @@ impl Compiler {
             stores: Vec::new(),
             allow_irrefutable: false,
             fail_pop: Vec::new(),
-            fail_pop_size: 0,
             on_top: 0,
         };
         self.compile_match_inner(subject, cases, &mut pattern_context)?;
