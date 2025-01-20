@@ -2102,11 +2102,9 @@ impl Compiler {
                 // ADDOP(c, LOC(m->pattern), POP_TOP);
                 emit!(self, Instruction::Pop);
             } else {
-                todo!("Noop instruction");
                 // Show line coverage for default case (it doesn't create bytecode)
-                // TODO: Below
                 // ADDOP(c, LOC(m->pattern), NOP);
-                // emit!(cases, Instruction::Nop);
+                emit!(cases, Instruction::Noop);
             }
             self.compile_statements(&m.body)?;
         }
