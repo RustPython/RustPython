@@ -2030,9 +2030,7 @@ impl Compiler {
             Pattern::MatchSequence(_sequence) => {
                 Err(self.error(CodegenErrorType::NotImplementedYet))
             }
-            Pattern::MatchMapping(_mapping) => {
-                Err(self.error(CodegenErrorType::NotImplementedYet))
-            }
+            Pattern::MatchMapping(_mapping) => Err(self.error(CodegenErrorType::NotImplementedYet)),
             Pattern::MatchClass(_class) => Err(self.error(CodegenErrorType::NotImplementedYet)),
             Pattern::MatchStar(star) => self.codegen_pattern_star(&star, pattern_context),
             Pattern::MatchAs(as_pattern) => self.codegen_pattern_as(&as_pattern, pattern_context),
