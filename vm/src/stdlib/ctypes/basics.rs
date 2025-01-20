@@ -1,43 +1,38 @@
-use std::{fmt, mem, os::raw::*, ptr, slice};
+use std::{fmt, os::raw::*, ptr, slice};
 
 use widestring::WideChar;
 
 use crate::builtins::int::PyInt;
-use crate::builtins::memory::{try_buffer_from_object, Buffer, BufferOptions};
 use crate::builtins::pystr::PyStrRef;
-use crate::builtins::pytype::PyTypeRef;
 use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
-};
-use crate::slots::BufferProtocol;
-use crate::utils::Either;
-use crate::VirtualMachine;
+use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
 use crate::stdlib::ctypes::array::make_array_with_length;
 use crate::stdlib::ctypes::dll::dlsym;
 use crate::stdlib::ctypes::primitive::{new_simple_type, PyCSimple};
 
+use crate::builtins::PyTypeRef;
+use crate::protocol::PyBuffer;
 use crossbeam_utils::atomic::AtomicCell;
 
 pub fn get_size(ty: &str) -> usize {
     match ty {
-        "u" => mem::size_of::<WideChar>(),
-        "c" | "b" => mem::size_of::<c_schar>(),
-        "h" => mem::size_of::<c_short>(),
-        "H" => mem::size_of::<c_short>(),
-        "i" => mem::size_of::<c_int>(),
-        "I" => mem::size_of::<c_uint>(),
-        "l" => mem::size_of::<c_long>(),
-        "q" => mem::size_of::<c_longlong>(),
-        "L" => mem::size_of::<c_ulong>(),
-        "Q" => mem::size_of::<c_ulonglong>(),
-        "f" => mem::size_of::<c_float>(),
-        "d" | "g" => mem::size_of::<c_double>(),
-        "?" | "B" => mem::size_of::<c_uchar>(),
-        "P" | "z" | "Z" => mem::size_of::<usize>(),
+        "u" => size_of::<WideChar>(),
+        "c" | "b" => size_of::<c_schar>(),
+        "h" => size_of::<c_short>(),
+        "H" => size_of::<c_short>(),
+        "i" => size_of::<c_int>(),
+        "I" => size_of::<c_uint>(),
+        "l" => size_of::<c_long>(),
+        "q" => size_of::<c_longlong>(),
+        "L" => size_of::<c_ulong>(),
+        "Q" => size_of::<c_ulonglong>(),
+        "f" => size_of::<c_float>(),
+        "d" | "g" => size_of::<c_double>(),
+        "?" | "B" => size_of::<c_uchar>(),
+        "P" | "z" | "Z" => size_of::<usize>(),
         _ => unreachable!(),
     }
 }
@@ -85,7 +80,7 @@ fn buffer_copy(
         Ok(attr) => {
             match bool::try_from_object(vm, attr) {
                 Ok(b) if !b => {
-                    let buffer = try_buffer_from_object(vm, &obj)?;
+                    let buffer = PyBuffer::try_from_object(vm, &obj)?;
                     let opts = buffer.get_options().clone();
 
                     // TODO: Fix the way the size of stored
@@ -145,7 +140,7 @@ fn buffer_copy(
 
 pub fn default_from_param<T>(zelf: PyRef<T>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult
 where
-    T: PyCDataMethods + PyValue,
+    T: PyCDataMethods + PyPayload,
 {
     //TODO: check if this behaves like it should
     let cls = zelf.as_object().clone_class();
@@ -161,8 +156,8 @@ where
         )))
     }
 }
-#[pyimpl]
-pub trait PyCDataFunctions: PyValue {
+#[pyclass]
+pub trait PyCDataFunctions: PyPayload {
     #[pymethod]
     fn size_of_instances(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<usize>;
 
@@ -175,8 +170,8 @@ pub trait PyCDataFunctions: PyValue {
     #[pymethod]
     fn address_of(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult;
 }
-#[pyimpl]
-pub trait PyCDataMethods: PyValue {
+#[pyclass]
+pub trait PyCDataMethods: PyPayload {
     // A lot of the logic goes in this trait
     // There's also other traits that should have different implementations for some functions
     // present here
@@ -253,8 +248,8 @@ pub trait PyCDataMethods: PyValue {
     }
 }
 
-#[pyimpl]
-pub trait PyCDataSequenceMethods: PyValue {
+#[pyclass]
+pub trait PyCDataSequenceMethods: PyPayload {
     // CDataType_as_sequence methods are default for all *Type_Type
     // Basically the sq_repeat slot is CDataType_repeat
     // which transforms into a Array
@@ -276,7 +271,7 @@ pub trait PyCDataSequenceMethods: PyValue {
 
 pub fn generic_get_buffer<T>(zelf: &PyRef<T>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>
 where
-        for<'a> T: PyValue + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
+        for<'a> T: PyPayload + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
 {
     if let Ok(buffer) = vm.get_attribute(zelf.as_object().clone(), "_buffer") {
         if let Ok(_buffer) = buffer.downcast_exact::<RawBuffer>(vm) {
@@ -325,7 +320,7 @@ impl BufferProtocol for PyCData {
 // This trait will be used by all types
 impl<T> Buffer for PyCBuffer<T>
 where
-        for<'a> T: PyValue + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
+        for<'a> T: PyPayload + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
 {
     fn obj_bytes(&self) -> BorrowedValue<[u8]> {
         PyRwLockReadGuard::map(self.data.borrow_value(), |x| unsafe {
@@ -351,7 +346,7 @@ where
 #[derive(Debug)]
 pub struct PyCBuffer<T>
 where
-        for<'a> T: PyValue + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
+        for<'a> T: PyPayload + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
 {
     pub data: PyRef<T>,
     pub options: BufferOptions,
@@ -369,7 +364,7 @@ impl fmt::Debug for RawBuffer {
     }
 }
 
-impl PyValue for RawBuffer {
+impl PyPayload for RawBuffer {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.object_type
     }
@@ -393,7 +388,7 @@ impl fmt::Debug for PyCData {
     }
 }
 
-impl PyValue for PyCData {
+impl PyPayload for PyCData {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::static_type()
     }
@@ -411,7 +406,7 @@ impl PyCData {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(BufferProtocol))]
+#[pyclass(flags(BASETYPE), with(BufferProtocol))]
 impl PyCData {
     // PyCData_methods
     #[pymethod(magic)]

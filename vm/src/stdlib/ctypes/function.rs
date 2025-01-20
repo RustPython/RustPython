@@ -9,16 +9,13 @@ use crate::builtins::{PyInt, PyTypeRef};
 use crate::common::lock::PyRwLock;
 
 use crate::function::FuncArgs;
-use crate::pyobject::{
-    PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
-};
-use crate::VirtualMachine;
+use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
 use crate::stdlib::ctypes::basics::PyCData;
 use crate::stdlib::ctypes::primitive::PyCSimple;
 
-use crate::slots::Callable;
 use crate::stdlib::ctypes::dll::dlsym;
+use crate::types::Callable;
 
 macro_rules! ffi_type {
     ($name: ident) => {
@@ -257,26 +254,26 @@ impl fmt::Debug for PyCFuncPtr {
     }
 }
 
-impl PyValue for PyCFuncPtr {
+impl PyPayload for PyCFuncPtr {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::static_type()
     }
 }
 
-#[pyimpl(with(Callable), flags(BASETYPE))]
+#[pyclass(with(Callable), flags(BASETYPE))]
 impl PyCFuncPtr {
-    #[pyproperty(name = "_argtypes_")]
+    #[pygetset(name = "_argtypes_")]
     fn argtypes(&self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx
             .new_list(unsafe { &*self._argtypes_.as_ptr() }.clone())
     }
 
-    #[pyproperty(name = "_restype_")]
+    #[pygetset(name = "_restype_")]
     fn restype(&self, _vm: &VirtualMachine) -> PyObjectRef {
         unsafe { &*self._restype_.as_ptr() }.clone()
     }
 
-    #[pyproperty(name = "_argtypes_", setter)]
+    #[pygetset(name = "_argtypes_", setter)]
     fn set_argtypes(&self, argtypes: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if vm
             .isinstance(&argtypes, &vm.ctx.types.list_type)
@@ -322,7 +319,7 @@ impl PyCFuncPtr {
         Ok(())
     }
 
-    #[pyproperty(name = "_restype_", setter)]
+    #[pygetset(name = "_restype_", setter)]
     fn set_restype(&self, restype: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match vm.isinstance(&restype, PyCSimple::static_type()) {
             // TODO: checks related to _type_ are temporary

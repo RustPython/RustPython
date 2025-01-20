@@ -1,11 +1,11 @@
 use std::fmt;
-
+use rustpython_vm::PyPayload;
 use crate::builtins::PyTypeRef;
 use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::PyCData;
 
-#[pyclass   (module = "_ctypes", name = "Structure", base = "PyCData")]
+#[pyclass(module = "_ctypes", name = "Structure", base = "PyCData")]
 pub struct PyCStructure {}
 
 impl fmt::Debug for PyCStructure {
@@ -14,11 +14,11 @@ impl fmt::Debug for PyCStructure {
     }
 }
 
-impl PyValue for PyCStructure {
+impl PyPayload for PyCStructure {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::static_type()
     }
 }
 
-#[pyimpl(flags(BASETYPE))]
+#[pyclass(flags(BASETYPE))]
 impl PyCStructure {}

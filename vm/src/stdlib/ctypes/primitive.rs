@@ -1,16 +1,12 @@
 use crossbeam_utils::atomic::AtomicCell;
 use std::fmt;
 
-use crate::builtins::memory::try_buffer_from_object;
 use crate::builtins::PyTypeRef;
 use crate::builtins::{
-    int::try_to_primitive, pybool::boolval, PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr,
+    PyByteArray, PyBytes, PyFloat, PyInt, PyNone, PyStr,
     PyType,
 };
 use crate::function::OptionalArg;
-use crate::pyobject::{
-    IdProtocol, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject, TypeProtocol,
-};
 use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::basics::{
     default_from_param, get_size, BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods,
@@ -18,8 +14,8 @@ use crate::stdlib::ctypes::basics::{
 };
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
-use crate::utils::Either;
-use crate::VirtualMachine;
+use crate::{PyObjectRef, PyRef, PyResult, VirtualMachine};
+use crate::protocol::PyBuffer;
 
 const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZPqQ?";
 
@@ -265,7 +261,7 @@ pub fn new_simple_type(
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = "PyType")]
 pub struct PySimpleMeta {}
 
-#[pyimpl(with(PyCDataMethods), flags(BASETYPE))]
+#[pyclass(with(PyCDataMethods), flags(BASETYPE))]
 impl PySimpleMeta {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
@@ -309,13 +305,13 @@ impl fmt::Debug for PySimpleMeta {
     }
 }
 
-impl PyValue for PyCSimple {
+impl PyPayload for PyCSimple {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::static_type()
     }
 }
 
-impl PyValue for PySimpleMeta {
+impl PyPayload for PySimpleMeta {
     fn class(_vm: &VirtualMachine) -> &PyTypeRef {
         Self::static_type()
     }
@@ -360,7 +356,7 @@ impl PyCDataMethods for PySimpleMeta {
     }
 }
 
-#[pyimpl(with(PyCDataFunctions), flags(BASETYPE))]
+#[pyclass(with(PyCDataFunctions), flags(BASETYPE))]
 impl PyCSimple {
     #[pymethod(magic)]
     pub fn init(&self, value: OptionalArg, vm: &VirtualMachine) -> PyResult<()> {
@@ -379,12 +375,12 @@ impl PyCSimple {
         Ok(())
     }
 
-    #[pyproperty(name = "value")]
+    #[pygetset(name = "value", magic)]
     pub fn value(&self) -> PyObjectRef {
         unsafe { (*self.value.as_ptr()).clone() }
     }
 
-    #[pyproperty(name = "value", setter)]
+    #[pygetset(name = "value", magic, setter)]
     fn set_value(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let content = set_primitive(self._type_.as_str(), &value, vm)?;
         self.value.store(content);
@@ -415,7 +411,7 @@ impl PyCSimple {
     // Simple_as_number
     #[pymethod(magic)]
     fn bool(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let buffer = try_buffer_from_object(vm, zelf.as_object())?
+        let buffer = PyBuffer::try_from_object(vm, zelf.as_object())?
             .obj_bytes()
             .to_vec();
 

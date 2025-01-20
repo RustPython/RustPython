@@ -4,28 +4,25 @@ use super::{
 };
 use crate::builtins::{
     self,
-    memory::{try_buffer_from_object, Buffer},
     slice::PySlice,
     PyBytes, PyInt, PyList, PyRange, PyStr, PyType, PyTypeRef,
 };
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-use crate::function::OptionalArg;
-use crate::pyobject::{
-    IdProtocol, ItemProtocol, PyIterable, PyObjectRef, PyRef, PyResult, PyValue, StaticType, TryFromObject,
-    TypeProtocol,
-};
+use crate::function::{Either, OptionalArg};
 use crate::sliceable::SequenceIndex;
-use crate::slots::BufferProtocol;
 use crate::stdlib::ctypes::basics::{
     default_from_param, generic_get_buffer, get_size, BorrowValue as BorrowValueCData,
     BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods, PyCDataSequenceMethods, RawBuffer,
 };
-use crate::utils::Either;
-use crate::VirtualMachine;
+use crate::{AsObject, Context, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine};
+use rustpython_vm::object::PyPayload;
 use num_traits::Signed;
 use std::convert::TryInto;
 use std::fmt;
 use widestring::WideCString;
+use crate::class::StaticType;
+use crate::convert::IntoObject;
+use crate::protocol::PyBuffer;
 
 // TODO: make sure that this is correct wrt windows and unix wstr
 fn slice_to_obj(ty: &str, b: &[u8], vm: &VirtualMachine) -> PyResult {
@@ -127,7 +124,7 @@ fn set_array_value(
     }
 
     if vm.isinstance(&obj, &self_cls)? {
-        let o_buffer = try_buffer_from_object(vm, &obj)?;
+        let o_buffer = PyBuffer::try_from_object(vm, &obj)?;
         let src_buffer = o_buffer.obj_bytes();
 
         assert!(dst_buffer.len() == size && src_buffer.len() >= size);
@@ -318,18 +315,6 @@ impl fmt::Debug for PyCArray {
     }
 }
 
-impl PyValue for PyCArrayMeta {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
-
-impl PyValue for PyCArray {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
-
 impl<'a> BorrowValueCData<'a> for PyCArray {
     fn borrow_value(&'a self) -> PyRwLockReadGuard<'a, RawBuffer> {
         self._buffer.read()
@@ -407,7 +392,7 @@ impl PyCDataMethods for PyCArrayMeta {
     }
 }
 
-#[pyimpl(with(PyCDataMethods), flags(BASETYPE))]
+#[pyclass(with(PyCDataMethods), flags(BASETYPE))]
 impl PyCArrayMeta {
     #[pyslot]
     fn tp_new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult {
@@ -433,7 +418,7 @@ impl PyCArrayMeta {
     }
 }
 
-#[pyimpl(flags(BASETYPE), with(BufferProtocol, PyCDataFunctions))]
+#[pyclass(flags(BASETYPE), with(BufferProtocol, PyCDataFunctions))]
 impl PyCArray {
     #[pymethod(magic)]
     pub fn init(zelf: PyRef<Self>, value: OptionalArg, vm: &VirtualMachine) -> PyResult<()> {
@@ -463,11 +448,11 @@ impl PyCArray {
         })
     }
 
-    #[pyproperty]
+    #[pygetset(magic)]
     pub fn value(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         // TODO: make sure that this is correct
         let obj = zelf.as_object();
-        let buffer = try_buffer_from_object(vm, obj)?;
+        let buffer = PyBuffer::try_from_object(vm, &obj)?;
 
         let res = if zelf._type_._type_ == "u" {
             vm.new_pyobj(
@@ -519,10 +504,10 @@ impl PyCArray {
         Ok(res)
     }
 
-    #[pyproperty(setter)]
+    #[pygetset(magic, setter)]
     fn set_value(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let obj = zelf.as_object();
-        let buffer = try_buffer_from_object(vm, obj)?;
+        let buffer = PyBuffer::try_from_object(vm, &obj)?;
         let my_size = buffer.get_options().len;
         let mut bytes = buffer.obj_bytes_mut();
 
@@ -582,24 +567,23 @@ impl PyCArray {
         Ok(())
     }
 
-    #[pyproperty]
+    #[pygetset(magic)]
     fn raw(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBytes> {
         // zelf._type_ == "c"
 
         let obj = zelf.as_object();
-        let buffer = try_buffer_from_object(vm, obj)?;
+        let buffer = PyBuffer::try_from_object(vm, obj)?;
         let buffer_vec = buffer.obj_bytes().to_vec();
 
         Ok(PyBytes::from(buffer_vec))
     }
 
-    #[pyproperty(setter)]
+    #[pygetset(magic, setter)]
     fn set_raw(zelf: PyRef<Self>, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let obj = zelf.as_object();
-        let my_buffer = try_buffer_from_object(vm, obj)?;
+        let my_buffer = PyBuffer::try_from_object(vm, zelf)?;
         let my_size = my_buffer.get_options().len;
 
-        let new_value = try_buffer_from_object(vm, &value)?;
+        let new_value = PyBuffer::try_from_object(vm, &value)?;
         let new_size = new_value.get_options().len;
 
         // byte string zelf._type_ == "c"
@@ -620,7 +604,7 @@ impl PyCArray {
 
     #[pymethod(magic)]
     fn getitem(zelf: PyRef<Self>, k_or_idx: SequenceIndex, vm: &VirtualMachine) -> PyResult {
-        let buffer = try_buffer_from_object(vm, zelf.as_object())?;
+        let buffer = PyBuffer::try_from_object(vm, zelf.as_object())?;
         let buffer_size = buffer.get_options().len;
         let buffer_bytes = buffer.obj_bytes();
         let size = buffer_size / zelf._length_;
@@ -649,7 +633,7 @@ impl PyCArray {
         obj: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let buffer = try_buffer_from_object(vm, zelf.as_object())?;
+        let buffer = PyBuffer::try_from_object(vm, zelf.as_object())?;
         let buffer_size = buffer.get_options().len;
         let mut buffer_bytes = buffer.obj_bytes_mut();
 

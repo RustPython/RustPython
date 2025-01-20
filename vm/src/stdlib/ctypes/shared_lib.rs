@@ -5,8 +5,7 @@ use libloading::Library;
 
 use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
-use crate::pyobject::{PyRef, PyValue};
-use crate::VirtualMachine;
+use crate::{PyPayload, PyRef, VirtualMachine};
 pub struct SharedLibrary {
     lib: AtomicCell<Option<Library>>,
 }
@@ -23,7 +22,7 @@ impl fmt::Debug for SharedLibrary {
     }
 }
 
-impl PyValue for SharedLibrary {
+impl PyPayload for SharedLibrary {
     fn class(vm: &VirtualMachine) -> &PyTypeRef {
         &vm.ctx.types.object_type
     }
