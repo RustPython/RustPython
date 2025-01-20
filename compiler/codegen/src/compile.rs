@@ -1904,6 +1904,20 @@ impl Compiler {
         Ok(())
     }
 
+    fn codegen_pattern_helper_rotate(
+        &mut self,
+        count: usize,
+    ) -> CompileResult<()> {
+        let mut count = count;
+        while 1 < count {
+            todo!("below");
+            // ADDOP_I(c, loc, SWAP, count--);
+            // emit!(self, Instruction::Swap { count: count as u32 });
+            count -= 1;
+        }
+        Ok(())
+    }
+
     // static int
     // codegen_pattern_helper_store_name(compiler *c, location loc,
     // identifier n, pattern_context *pc)
@@ -1926,7 +1940,6 @@ impl Compiler {
     // }
     fn codegen_pattern_helper_store_name(
         &mut self,
-        loc: SourceLocation,
         n: Option<&str>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
@@ -1940,8 +1953,7 @@ impl Compiler {
             return Err(self.error(CodegenErrorType::DuplicateStore(n.to_string())));
         }
         let rotations = pattern_context.on_top + pattern_context.stores.len() + 1;
-        todo!("below");
-        // self.codegen_pattern_helper_rotate(loc, rotations)?;
+        self.codegen_pattern_helper_rotate(rotations)?;
         pattern_context.stores.push(n.to_string());
         Ok(())
     }
@@ -1953,7 +1965,6 @@ impl Compiler {
     ) -> CompileResult<()> {
         // codegen_pattern_helper_store_name(c, LOC(p), p->v.MatchStar.name, pc));
         self.codegen_pattern_helper_store_name(
-            star.location(),
             star.name.as_deref(),
             pattern_context,
         )?;
@@ -1993,6 +2004,7 @@ impl Compiler {
         if as_pattern.pattern.is_none() {
             // An irrefutable match:
             if !pattern_context.allow_irrefutable {
+                // TODO: better error message
                 if let Some(name) = &as_pattern.name {
                     return Err(self.error(CodegenErrorType::InvalidMatchCase));
                 } else {
@@ -2000,7 +2012,6 @@ impl Compiler {
                 }
             }
             return self.codegen_pattern_helper_store_name(
-                as_pattern.location(),
                 as_pattern.name.as_deref(),
                 pattern_context,
             );
@@ -2010,7 +2021,6 @@ impl Compiler {
         self.codegen_pattern(as_pattern.pattern.as_ref().unwrap(), pattern_context)?;
         pattern_context.on_top -= 1;
         self.codegen_pattern_helper_store_name(
-            as_pattern.location(),
             as_pattern.name.as_deref(),
             pattern_context,
         )?;
@@ -2045,8 +2055,9 @@ impl Compiler {
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         self.compile_expression(subject)?;
-        // Block at the end of the switch statement that we jump to after finishing a branch
-        let end_block = self.new_block();
+        // Blocks at the end of the switch statement that we jump to after finishing a branch
+        // TODO: optimize, we can reuse the same block for all cases
+        let mut end_block = self.new_block();
 
         let match_case_type = cases.last().expect("cases is not empty");
         let has_default = match_case_type.pattern.is_match_star() && 1 < cases.len();
@@ -2105,6 +2116,7 @@ impl Compiler {
             }
             self.compile_statements(&m.body)?;
         }
+
         self.switch_to_block(end_block);
         Ok(())
     }
@@ -3401,6 +3413,10 @@ impl Compiler {
             ir::BlockIdx::NULL,
             "switching {prev:?} -> {block:?} to completed block"
         );
+        println!("{}", prev.0);
+        for (count, b) in code.blocks.iter().enumerate() {
+            println!("{count}: {} {}", b.next.0, b.instructions.len());
+        }
         let prev_block = &mut code.blocks[prev.0 as usize];
         assert_eq!(
             prev_block.next.0,
