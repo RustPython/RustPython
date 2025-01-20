@@ -2027,15 +2027,15 @@ impl Compiler {
                 self.codegen_pattern_singleton(&singleton, pattern_context)
             }
             Pattern::MatchSequence(_sequence) => {
-                todo!()
+                Err(self.error(CodegenErrorType::NotImplementedYet))
             }
             Pattern::MatchMapping(_mapping) => {
-                todo!()
+                Err(self.error(CodegenErrorType::NotImplementedYet))
             }
-            Pattern::MatchClass(_class) => todo!(),
+            Pattern::MatchClass(_class) => Err(self.error(CodegenErrorType::NotImplementedYet)),
             Pattern::MatchStar(star) => self.codegen_pattern_star(&star, pattern_context),
             Pattern::MatchAs(as_pattern) => self.codegen_pattern_as(&as_pattern, pattern_context),
-            Pattern::MatchOr(_or_pattern) => todo!(),
+            Pattern::MatchOr(_or_pattern) => Err(self.error(CodegenErrorType::NotImplementedYet)),
         }
     }
 
