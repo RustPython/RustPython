@@ -3036,16 +3036,17 @@ impl Compiler {
     fn switch_to_block(&mut self, block: ir::BlockIdx) {
         let code = self.current_code_info();
         let prev = code.current_block;
+        assert_ne!(prev, block, "recursive switching {prev:?} -> {block:?}");
         assert_eq!(
             code.blocks[block].next,
             ir::BlockIdx::NULL,
-            "switching to completed block"
+            "switching {prev:?} -> {block:?} to completed block"
         );
         let prev_block = &mut code.blocks[prev.0 as usize];
         assert_eq!(
             prev_block.next.0,
             u32::MAX,
-            "switching from block that's already got a next"
+            "switching {prev:?} -> {block:?} from block that's already got a next"
         );
         prev_block.next = block;
         code.current_block = block;
