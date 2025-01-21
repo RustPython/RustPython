@@ -17,6 +17,7 @@ use crate::function::Either;
 use crate::builtins::PyTypeRef;
 use crate::protocol::PyBuffer;
 use crossbeam_utils::atomic::AtomicCell;
+use crate::types::AsBuffer;
 
 pub fn get_size(ty: &str) -> usize {
     match ty {
@@ -270,7 +271,7 @@ pub trait PyCDataSequenceMethods: PyPayload {
     }
 }
 
-pub fn generic_get_buffer<T>(zelf: &PyRef<T>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>>
+pub fn generic_get_buffer<T>(zelf: &Py<T>, vm: &VirtualMachine) -> PyResult<PyBuffer>
 where
         for<'a> T: PyPayload + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
 {
@@ -312,8 +313,8 @@ impl<'a> BorrowValueMut<'a> for PyCData {
     }
 }
 
-impl BufferProtocol for PyCData {
-    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+impl AsBuffer for PyCData {
+    fn as_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         generic_get_buffer::<Self>(zelf, vm)
     }
 }
@@ -371,6 +372,7 @@ unsafe impl Sync for RawBuffer {}
 // This Trait is the equivalent of PyCData_Type on tp_base for
 // Struct_Type, Union_Type, PyCPointer_Type
 // PyCArray_Type, PyCSimple_Type, PyCFuncPtr_Type
+#[derive(PyPayload)]
 #[pyclass(module = "_ctypes", name = "_CData")]
 pub struct PyCData {
     _objects: AtomicCell<Vec<PyObjectRef>>,

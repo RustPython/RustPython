@@ -15,7 +15,7 @@ use crate::stdlib::ctypes::basics::{
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
 use crate::function::Either;
-use crate::{PyObjectRef, PyRef, PyResult, VirtualMachine};
+use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 use crate::protocol::PyBuffer;
 
 const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZPqQ?";
@@ -259,13 +259,14 @@ pub fn new_simple_type(
     }
 }
 
+#[derive(PyPayload)]
 #[pyclass(module = "_ctypes", name = "PyCSimpleType", base = "PyType")]
 pub struct PySimpleMeta {}
 
 #[pyclass(with(PyCDataMethods), flags(BASETYPE))]
 impl PySimpleMeta {
     #[pyslot]
-    fn tp_new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
+    fn new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
         Ok(new_simple_type(Either::B(&cls), vm)?
             .into_ref_with_type(vm, cls)?
             .as_object()
@@ -273,6 +274,7 @@ impl PySimpleMeta {
     }
 }
 
+#[derive(PyPayload)]
 #[pyclass(
     module = "_ctypes",
     name = "_SimpleCData",

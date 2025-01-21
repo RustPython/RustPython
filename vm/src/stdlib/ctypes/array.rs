@@ -3,7 +3,6 @@ use super::{
     primitive::{new_simple_type, PyCSimple},
 };
 use crate::builtins::{
-    self,
     slice::PySlice,
     PyBytes, PyInt, PyList, PyRange, PyStr, PyType, PyTypeRef,
 };
@@ -14,7 +13,7 @@ use crate::stdlib::ctypes::basics::{
     default_from_param, generic_get_buffer, get_size, BorrowValue as BorrowValueCData,
     BorrowValueMut, PyCData, PyCDataFunctions, PyCDataMethods, PyCDataSequenceMethods, RawBuffer,
 };
-use crate::{AsObject, Context, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine};
+use crate::{AsObject, Py, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine};
 use rustpython_vm::object::PyPayload;
 use num_traits::Signed;
 use std::convert::TryInto;
@@ -23,6 +22,7 @@ use widestring::WideCString;
 use crate::class::StaticType;
 use crate::convert::IntoObject;
 use crate::protocol::{PyBuffer, PyIter};
+use crate::types::AsBuffer;
 
 // TODO: make sure that this is correct wrt windows and unix wstr
 fn slice_to_obj(ty: &str, b: &[u8], vm: &VirtualMachine) -> PyResult {
@@ -256,7 +256,7 @@ fn array_slice_setitem(
     //Right now I'm setting one
     let size = length.map_or(Ok(1), |v| usize::try_from_object(vm, v))?;
 
-    for (i, curr) in PyIterable::try_from_object(vm,_range.into_object(vm))?.iter(vm)?.enumerate() {
+    for (i, curr) in PyIter::try_from_object(vm,_range.into_object(vm))?.iter(vm)?.enumerate() {
         let idx = fix_index(isize::try_from_object(vm, curr?)?, size, vm)? as usize;
         let offset = idx * size;
         let item = obj.get_item(i, vm)?;
@@ -286,6 +286,7 @@ fn fix_index(index: isize, length: usize, vm: &VirtualMachine) -> PyResult<isize
 #[pyclass(module = "_ctypes", name = "PyCArrayType", base = "PyType")]
 pub struct PyCArrayMeta {}
 
+#[derive(PyPayload)]
 #[pyclass(
     module = "_ctypes",
     name = "Array",
@@ -327,8 +328,8 @@ impl<'a> BorrowValueMut<'a> for PyCArray {
     }
 }
 
-impl BufferProtocol for PyCArray {
-    fn get_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<Box<dyn Buffer>> {
+impl AsBuffer for PyCArray {
+    fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         generic_get_buffer::<Self>(zelf, vm)
     }
 }
