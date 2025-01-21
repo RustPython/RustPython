@@ -122,16 +122,16 @@ rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.
 rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
-rustpython-literal = { version = "0.4.0" }
-rustpython-parser-core = { version = "0.4.0" }
-rustpython-parser = { version = "0.4.0" }
-rustpython-ast = { version = "0.4.0" }
-rustpython-format= { version = "0.4.0" }
-# rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-# rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-# rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-# rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
-# rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "00d2f1d1a7522ef9c85c10dfa5f0bb7178dee655" }
+# rustpython-literal = { version = "0.4.0" }
+# rustpython-parser-core = { version = "0.4.0" }
+# rustpython-parser = { version = "0.4.0" }
+# rustpython-ast = { version = "0.4.0" }
+# rustpython-format= { version = "0.4.0" }
+rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
+rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
+rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
+rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
+rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-parser-core = { path = "../RustPython-parser/core" }
 # rustpython-parser = { path = "../RustPython-parser/parser" }
