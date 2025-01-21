@@ -3,7 +3,6 @@ use std::{collections::HashMap, fmt, os::raw::c_void, ptr::null};
 use crossbeam_utils::atomic::AtomicCell;
 use libloading::Library;
 
-use crate::builtins::PyTypeRef;
 use crate::common::lock::PyRwLock;
 use crate::{PyPayload, PyRef, VirtualMachine};
 pub struct SharedLibrary {
@@ -19,12 +18,6 @@ impl fmt::Debug for SharedLibrary {
         }}",
             self.get_pointer()
         )
-    }
-}
-
-impl PyPayload for SharedLibrary {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.object_type
     }
 }
 

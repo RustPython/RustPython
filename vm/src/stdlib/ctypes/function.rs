@@ -254,12 +254,6 @@ impl fmt::Debug for PyCFuncPtr {
     }
 }
 
-impl PyPayload for PyCFuncPtr {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
-
 #[pyclass(with(Callable), flags(BASETYPE))]
 impl PyCFuncPtr {
     #[pygetset(name = "_argtypes_")]
@@ -400,7 +394,9 @@ impl PyCFuncPtr {
 }
 
 impl Callable for PyCFuncPtr {
-    fn call(zelf: &PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+    type Args = FuncArgs;
+
+    fn call(zelf: &PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let inner_args = unsafe { &*zelf._argtypes_.as_ptr() };
 
         if args.args.len() != inner_args.len() {

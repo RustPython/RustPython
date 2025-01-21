@@ -22,7 +22,7 @@ use std::fmt;
 use widestring::WideCString;
 use crate::class::StaticType;
 use crate::convert::IntoObject;
-use crate::protocol::PyBuffer;
+use crate::protocol::{PyBuffer, PyIter};
 
 // TODO: make sure that this is correct wrt windows and unix wstr
 fn slice_to_obj(ty: &str, b: &[u8], vm: &VirtualMachine) -> PyResult {
@@ -209,7 +209,7 @@ fn array_slice_getitem<'a>(
     let mut obj_vec = Vec::new();
     let mut offset;
 
-    for curr in PyIterable::try_from_object(vm,_range.into_object(vm))?.iter(vm)? {
+    for curr in PyIter::try_from_object(vm,_range.into_object(vm))?.iter(vm)? {
         let idx = fix_index(isize::try_from_object(vm, curr?)?, length, vm)? as usize;
         offset = idx * size;
 
@@ -408,7 +408,7 @@ impl PyCArrayMeta {
             Err(vm.new_value_error("The '_length_' attribute must not be negative".to_string()))
         } else {
             Ok(
-                builtins::int::try_to_primitive(length_int.as_bigint(), vm).map_err(|_| {
+                try_to_primitive(length_int.as_bigint(), vm).map_err(|_| {
                     vm.new_overflow_error("The '_length_' attribute is too large".to_owned())
                 })?,
             )

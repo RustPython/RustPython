@@ -12,6 +12,7 @@ use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 use crate::stdlib::ctypes::array::make_array_with_length;
 use crate::stdlib::ctypes::dll::dlsym;
 use crate::stdlib::ctypes::primitive::{new_simple_type, PyCSimple};
+use crate::function::Either;
 
 use crate::builtins::PyTypeRef;
 use crate::protocol::PyBuffer;
@@ -364,12 +365,6 @@ impl fmt::Debug for RawBuffer {
     }
 }
 
-impl PyPayload for RawBuffer {
-    fn class(vm: &VirtualMachine) -> &PyTypeRef {
-        &vm.ctx.types.object_type
-    }
-}
-
 unsafe impl Send for RawBuffer {}
 unsafe impl Sync for RawBuffer {}
 
@@ -385,12 +380,6 @@ pub struct PyCData {
 impl fmt::Debug for PyCData {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PyCData {{ _objects: {{}}, _buffer: {{}}}}",)
-    }
-}
-
-impl PyPayload for PyCData {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 

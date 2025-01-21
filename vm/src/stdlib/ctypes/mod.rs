@@ -10,10 +10,9 @@ mod shared_lib;
 mod structure;
 mod union;
 
-use array::{PyCArray, PyCArrayMeta};
-use basics::{addressof, alignment, byref, sizeof_func, PyCData};
-use primitive::{PyCSimple, PySimpleMeta};
-use structure::PyCStructure;
+use array::PyCArrayMeta;
+use basics::PyCData;
+use primitive::PySimpleMeta;
 use crate::class::PyClassImpl;
 use crate::convert::IntoObject;
 
@@ -23,6 +22,7 @@ mod _ctypes {
     use crate::function::Either;
     use crate::builtins::PyTypeRef;
     use crate::{PyObjectRef, PyResult, VirtualMachine};
+    use crate::stdlib::ctypes::pointer;
 
     #[pyattr(name="__version__")]
     pub(crate) fn version() -> &'static str {
@@ -50,13 +50,15 @@ mod _ctypes {
     }
 
     #[pyfunction]
-    pub(crate) fn POINTER(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        basics::POINTER(tp, vm)
+    pub(crate) fn POINTER(tp: PyTypeRef, vm: &VirtualMachine) -> PyResult {
+        pointer::POINTER(tp);
+        Ok(vm.get_none())
     }
 
     #[pyfunction]
     pub(crate) fn pointer(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        basics::pointer_fn(obj, vm)
+        pointer::pointer_fn(obj);
+        Ok(vm.get_none())
     }
 
     #[pyfunction]
@@ -64,8 +66,7 @@ mod _ctypes {
         Ok(PyObjectRef::from(vm.ctx.new_dict()))
     }
 
-    #[pyclass(name = "CFuncPtr")]
-    pub(crate) struct CFuncPtr {}
+    // TODO: add the classes
 }
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyObjectRef {

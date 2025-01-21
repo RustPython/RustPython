@@ -4,7 +4,7 @@ pub(crate) use _ctypes::*;
 pub(crate) mod _ctypes {
     use crate::builtins::pystr::PyStrRef;
     use crate::builtins::PyIntRef;
-    use crate::VirtualMachine;
+    use crate::{TryFromObject, PyResult, VirtualMachine};
 
     use super::super::shared_lib::libcache;
 

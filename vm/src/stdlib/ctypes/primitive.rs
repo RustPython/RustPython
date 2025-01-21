@@ -14,6 +14,7 @@ use crate::stdlib::ctypes::basics::{
 };
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
+use crate::function::Either;
 use crate::{PyObjectRef, PyRef, PyResult, VirtualMachine};
 use crate::protocol::PyBuffer;
 
@@ -302,18 +303,6 @@ impl fmt::Debug for PyCSimple {
 impl fmt::Debug for PySimpleMeta {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "PySimpleMeta")
-    }
-}
-
-impl PyPayload for PyCSimple {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
-    }
-}
-
-impl PyPayload for PySimpleMeta {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 

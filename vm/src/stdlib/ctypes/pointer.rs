@@ -1,7 +1,7 @@
 use std::fmt;
 
+use crate::PyObjectRef;
 use crate::builtins::PyTypeRef;
-use crate::VirtualMachine;
 
 use crate::stdlib::ctypes::basics::PyCData;
 
@@ -11,12 +11,6 @@ pub struct PyCPointer {}
 impl fmt::Debug for PyCPointer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "_Pointer {{}}")
-    }
-}
-
-impl PyPayload for PyCPointer {
-    fn class(_vm: &VirtualMachine) -> &PyTypeRef {
-        Self::static_type()
     }
 }
 
