@@ -217,31 +217,29 @@ macro_rules! emit {
 }
 
 struct PatternContext {
-    // // A list of strings corresponding to name captures. It is used to track:
-    // // - Repeated name assignments in the same pattern.
-    // // - Different name assignments in alternatives.
-    // // - The order of name assignments in alternatives.
-    // PyObject *stores;
-    // // If 0, any name captures against our subject will raise.
-    // int allow_irrefutable;
-    // // An array of blocks to jump to on failure. Jumping to fail_pop[i] will pop
-    // // i items off of the stack. The end result looks like this (with each block
-    // // falling through to the next):
-    // // fail_pop[4]: POP_TOP
-    // // fail_pop[3]: POP_TOP
-    // // fail_pop[2]: POP_TOP
-    // // fail_pop[1]: POP_TOP
-    // // fail_pop[0]: NOP
-    // jump_target_label *fail_pop;
     // // The current length of fail_pop.
     // Py_ssize_t fail_pop_size;
-    // // The number of items on top of the stack that need to *stay* on top of the
-    // // stack. Variable captures go beneath these. All of them will be popped on
-    // // failure.
-    // Py_ssize_t on_top;
+
+    /// Py_ssize_t on_top;
+    /// A list of strings corresponding to name captures. It is used to track:
+    /// - Repeated name assignments in the same pattern.
+    /// - Different name assignments in alternatives.
+    /// - The order of name assignments in alternatives.
     pub stores: Vec<String>,
+    /// If 0, any name captures against our subject will raise.
     pub allow_irrefutable: bool,
+    /// An array of blocks to jump to on failure. Jumping to fail_pop[i] will pop
+    /// i items off of the stack. The end result looks like this (with each block
+    /// falling through to the next):
+    /// fail_pop[4]: POP_TOP
+    /// fail_pop[3]: POP_TOP
+    /// fail_pop[2]: POP_TOP
+    /// fail_pop[1]: POP_TOP
+    /// fail_pop[0]: NOP
     pub fail_pop: Vec<BlockIdx>,
+    /// The number of items on top of the stack that need to *stay* on top of the
+    /// stack. Variable captures go beneath these. All of them will be popped on
+    /// failure.
     pub on_top: usize,
 }
 
@@ -2055,9 +2053,8 @@ impl Compiler {
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         self.compile_expression(subject)?;
-        // Blocks at the end of the switch statement that we jump to after finishing a branch
-        // TODO: optimize, we can reuse the same block for all cases
-        let mut end_block = self.new_block();
+        // Block at the end of the switch statement that we jump to after finishing a branch
+        let end_block = self.new_block();
 
         let match_case_type = cases.last().expect("cases is not empty");
         let has_default = match_case_type.pattern.is_match_star() && 1 < cases.len();
@@ -2117,7 +2114,6 @@ impl Compiler {
             self.compile_statements(&m.body)?;
         }
 
-        self.switch_to_block(end_block);
         Ok(())
     }
 
