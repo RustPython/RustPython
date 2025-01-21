@@ -1860,7 +1860,7 @@ impl Compiler {
     // RETURN_IF_ERROR(jump_to_fail_pop(c, LOC(p), pc, POP_JUMP_IF_FALSE));
     // return SUCCESS;
     // }
-    fn codegen_pattern_value(
+    fn compile_pattern_value(
         &mut self,
         value: &PatternMatchValue<SourceRange>,
         pattern_context: &mut PatternContext,
@@ -1886,7 +1886,7 @@ impl Compiler {
     // RETURN_IF_ERROR(jump_to_fail_pop(c, LOC(p), pc, POP_JUMP_IF_FALSE));
     // return SUCCESS;
     // }
-    fn codegen_pattern_singleton(
+    fn compile_pattern_singleton(
         &mut self,
         singleton: &PatternMatchSingleton<SourceRange>,
         pattern_context: &mut PatternContext,
@@ -1904,7 +1904,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn codegen_pattern_helper_rotate(
+    fn compile_pattern_helper_rotate(
         &mut self,
         count: usize,
     ) -> CompileResult<()> {
@@ -1938,7 +1938,7 @@ impl Compiler {
     // RETURN_IF_ERROR(PyList_Append(pc->stores, n));
     // return SUCCESS;
     // }
-    fn codegen_pattern_helper_store_name(
+    fn compile_pattern_helper_store_name(
         &mut self,
         n: Option<&str>,
         pattern_context: &mut PatternContext,
@@ -1953,18 +1953,18 @@ impl Compiler {
             return Err(self.error(CodegenErrorType::DuplicateStore(n.to_string())));
         }
         let rotations = pattern_context.on_top + pattern_context.stores.len() + 1;
-        self.codegen_pattern_helper_rotate(rotations)?;
+        self.compile_pattern_helper_rotate(rotations)?;
         pattern_context.stores.push(n.to_string());
         Ok(())
     }
 
-    fn codegen_pattern_star(
+    fn compile_pattern_star(
         &mut self,
         star: &PatternMatchStar<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         // codegen_pattern_helper_store_name(c, LOC(p), p->v.MatchStar.name, pc));
-        self.codegen_pattern_helper_store_name(
+        self.compile_pattern_helper_store_name(
             star.name.as_deref(),
             pattern_context,
         )?;
@@ -2011,38 +2011,38 @@ impl Compiler {
                     return Err(self.error(CodegenErrorType::InvalidMatchCase));
                 }
             }
-            return self.codegen_pattern_helper_store_name(
+            return self.compile_pattern_helper_store_name(
                 as_pattern.name.as_deref(),
                 pattern_context,
             );
         }
         pattern_context.on_top += 1;
         emit!(self, Instruction::Duplicate);
-        self.codegen_pattern(as_pattern.pattern.as_ref().unwrap(), pattern_context)?;
+        self.compile_pattern(as_pattern.pattern.as_ref().unwrap(), pattern_context)?;
         pattern_context.on_top -= 1;
-        self.codegen_pattern_helper_store_name(
+        self.compile_pattern_helper_store_name(
             as_pattern.name.as_deref(),
             pattern_context,
         )?;
         Ok(())
     }
 
-    fn codegen_pattern(
+    fn compile_pattern(
         &mut self,
         pattern_type: &Pattern<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         match &pattern_type {
-            Pattern::MatchValue(value) => self.codegen_pattern_value(&value, pattern_context),
+            Pattern::MatchValue(value) => self.compile_pattern_value(&value, pattern_context),
             Pattern::MatchSingleton(singleton) => {
-                self.codegen_pattern_singleton(&singleton, pattern_context)
+                self.compile_pattern_singleton(&singleton, pattern_context)
             }
             Pattern::MatchSequence(_sequence) => {
                 Err(self.error(CodegenErrorType::NotImplementedYet))
             }
             Pattern::MatchMapping(_mapping) => Err(self.error(CodegenErrorType::NotImplementedYet)),
             Pattern::MatchClass(_class) => Err(self.error(CodegenErrorType::NotImplementedYet)),
-            Pattern::MatchStar(star) => self.codegen_pattern_star(&star, pattern_context),
+            Pattern::MatchStar(star) => self.compile_pattern_star(&star, pattern_context),
             Pattern::MatchAs(as_pattern) => self.codegen_pattern_as(&as_pattern, pattern_context),
             Pattern::MatchOr(_or_pattern) => Err(self.error(CodegenErrorType::NotImplementedYet)),
         }
@@ -2076,7 +2076,7 @@ impl Compiler {
             pattern_context.allow_irrefutable = m.guard.is_some() || i == cases.len() - 1;
             //     pc->fail_pop = NULL;
             pattern_context.on_top = 0;
-            self.codegen_pattern(&m.pattern, pattern_context)?;
+            self.compile_pattern(&m.pattern, pattern_context)?;
             assert_eq!(pattern_context.on_top, 0);
             // It's a match! Store all of the captured names (they're on the stack).
             let nstores = pattern_context.stores.len();
@@ -3726,5 +3726,23 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
             self.fail(f'{stop_exc} was suppressed')
 "
         ));
+    }
+
+    #[test]
+    fn test_match() {
+        assert_dis_snapshot!(compile_exec(
+            r#"\
+v = "one"
+match v:
+    case "one":
+        v = "two"
+    case "two":
+        v = "three"
+    case "three":
+        v = "one"
+    case _:
+        v = "one"
+"#
+            ));
     }
 }
