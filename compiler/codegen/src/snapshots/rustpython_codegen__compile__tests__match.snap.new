@@ -1,0 +1,42 @@
+---
+source: compiler/codegen/src/compile.rs
+assertion_line: 3749
+expression: "compile_exec(r#\"\\\nv = \"one\"\nmatch v:\n    case \"one\":\n        v = \"two\"\n    case \"two\":\n        v = \"three\"\n    case \"three\":\n        v = \"one\"\n    case _:\n        v = \"one\"\n\"#)"
+---
+  2     >>    0 LoadConst            ("one")
+              1 StoreLocal           (0, v)
+
+  3           2 LoadNameAny          (0, v)
+              3 Duplicate
+
+  4           4 LoadConst            ("one")
+              5 CompareOperation     (Equal)
+              6 Pop
+
+  5           7 LoadConst            ("two")
+              8 StoreLocal           (0, v)
+              9 Jump                 (0)
+             10 Duplicate
+
+  6          11 LoadConst            ("two")
+             12 CompareOperation     (Equal)
+             13 Pop
+
+  7          14 LoadConst            ("three")
+             15 StoreLocal           (0, v)
+             16 Jump                 (0)
+             17 Duplicate
+
+  8          18 LoadConst            ("three")
+             19 CompareOperation     (Equal)
+             20 Pop
+
+  9          21 LoadConst            ("one")
+             22 StoreLocal           (0, v)
+             23 Jump                 (0)
+             24 Pop
+
+ 11          25 LoadConst            ("one")
+             26 StoreLocal           (0, v)
+             27 Jump                 (0)
+             28 ReturnConst          (None)

@@ -675,7 +675,9 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::Swap(i) => {
                 let len = self.state.stack.len();
-                self.state.stack.swap(len - 1, len - 1 - i.get(arg) as usize);
+                self.state
+                    .stack
+                    .swap(len - 1, len - 1 - i.get(arg) as usize);
                 Ok(None)
             }
             bytecode::Instruction::Duplicate => {

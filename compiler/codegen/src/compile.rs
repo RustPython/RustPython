@@ -219,7 +219,6 @@ macro_rules! emit {
 struct PatternContext {
     // // The current length of fail_pop.
     // Py_ssize_t fail_pop_size;
-
     /// Py_ssize_t on_top;
     /// A list of strings corresponding to name captures. It is used to track:
     /// - Repeated name assignments in the same pattern.
@@ -1902,10 +1901,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_pattern_helper_rotate(
-        &mut self,
-        count: usize,
-    ) -> CompileResult<()> {
+    fn compile_pattern_helper_rotate(&mut self, count: usize) -> CompileResult<()> {
         let mut count = count;
         while 1 < count {
             todo!("below");
@@ -1962,10 +1958,7 @@ impl Compiler {
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         // codegen_pattern_helper_store_name(c, LOC(p), p->v.MatchStar.name, pc));
-        self.compile_pattern_helper_store_name(
-            star.name.as_deref(),
-            pattern_context,
-        )?;
+        self.compile_pattern_helper_store_name(star.name.as_deref(), pattern_context)?;
         Ok(())
     }
 
@@ -2009,19 +2002,14 @@ impl Compiler {
                     return Err(self.error(CodegenErrorType::InvalidMatchCase));
                 }
             }
-            return self.compile_pattern_helper_store_name(
-                as_pattern.name.as_deref(),
-                pattern_context,
-            );
+            return self
+                .compile_pattern_helper_store_name(as_pattern.name.as_deref(), pattern_context);
         }
         pattern_context.on_top += 1;
         emit!(self, Instruction::Duplicate);
         self.compile_pattern(as_pattern.pattern.as_ref().unwrap(), pattern_context)?;
         pattern_context.on_top -= 1;
-        self.compile_pattern_helper_store_name(
-            as_pattern.name.as_deref(),
-            pattern_context,
-        )?;
+        self.compile_pattern_helper_store_name(as_pattern.name.as_deref(), pattern_context)?;
         Ok(())
     }
 
@@ -2057,7 +2045,11 @@ impl Compiler {
         let mut pattern_blocks = std::iter::repeat_with(|| self.new_block())
             .take(cases.len() + 1)
             .collect::<Vec<_>>();
-        eprintln!("created pattern_blocks: {:?} - {:?}(end block)", pattern_blocks.first().unwrap(), pattern_blocks.last().unwrap());
+        eprintln!(
+            "created pattern_blocks: {:?} - {:?}(end block)",
+            pattern_blocks.first().unwrap(),
+            pattern_blocks.last().unwrap()
+        );
         let end_block = *pattern_blocks.last().unwrap();
 
         let match_case_type = cases.last().expect("cases is not empty");
@@ -2121,12 +2113,13 @@ impl Compiler {
         let block = self.new_block();
         pattern_blocks.push(block);
         let code = self.current_code_info();
-        let _ = pattern_blocks.iter()
+        let _ = pattern_blocks
+            .iter()
             .zip(pattern_blocks.iter().skip(1))
             .for_each(|(a, b)| {
                 eprintln!("linking: {} -> {}", a.0, b.0);
                 code.blocks[a.0 as usize].next = *b;
-        });
+            });
         self.switch_to_block(*pattern_blocks.last().unwrap());
         let code = self.current_code_info();
         for block in pattern_blocks {
@@ -3759,6 +3752,6 @@ match v:
     case _:
         v = "one"
 "#
-            ));
+        ));
     }
 }
