@@ -3498,15 +3498,6 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
             r#"\
 v = "one"
 
-if v == "one":
-    v = "two"
-elif v == "two":
-    v = "three"
-elif v == "three":
-    v = "one"
-else:
-    v = "one"
-
 match v:
     case "one":
         v = "two"
