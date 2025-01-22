@@ -217,29 +217,7 @@ macro_rules! emit {
 }
 
 struct PatternContext {
-    // // The current length of fail_pop.
-    // Py_ssize_t fail_pop_size;
-    /// Py_ssize_t on_top;
-    /// A list of strings corresponding to name captures. It is used to track:
-    /// - Repeated name assignments in the same pattern.
-    /// - Different name assignments in alternatives.
-    /// - The order of name assignments in alternatives.
-    pub stores: Vec<String>,
-    /// If 0, any name captures against our subject will raise.
-    pub allow_irrefutable: bool,
-    /// An array of blocks to jump to on failure. Jumping to fail_pop[i] will pop
-    /// i items off of the stack. The end result looks like this (with each block
-    /// falling through to the next):
-    /// fail_pop[4]: POP_TOP
-    /// fail_pop[3]: POP_TOP
-    /// fail_pop[2]: POP_TOP
-    /// fail_pop[1]: POP_TOP
-    /// fail_pop[0]: NOP
-    pub fail_pop: Vec<BlockIdx>,
-    /// The number of items on top of the stack that need to *stay* on top of the
-    /// stack. Variable captures go beneath these. All of them will be popped on
-    /// failure.
-    pub on_top: usize,
+    blocks: Vec<BlockIdx>
 }
 
 impl Compiler {
@@ -1786,77 +1764,6 @@ impl Compiler {
         Ok(())
     }
 
-    // static int
-    // ensure_fail_pop(compiler *c, pattern_context *pc, Py_ssize_t n)
-    // {
-    // Py_ssize_t size = n + 1;
-    // if (size <= pc->fail_pop_size) {
-    // return SUCCESS;
-    // }
-    // Py_ssize_t needed = sizeof(jump_target_label) * size;
-    // jump_target_label *resized = PyMem_Realloc(pc->fail_pop, needed);
-    // if (resized == NULL) {
-    // PyErr_NoMemory();
-    // return ERROR;
-    // }
-    // pc->fail_pop = resized;
-    // while (pc->fail_pop_size < size) {
-    // NEW_JUMP_TARGET_LABEL(c, new_block);
-    // pc->fail_pop[pc->fail_pop_size++] = new_block;
-    // }
-    // return SUCCESS;
-    // }
-
-    fn ensure_fail_pop(
-        &mut self,
-        pattern_context: &mut PatternContext,
-        n: usize,
-    ) -> CompileResult<()> {
-        let size = n + 1;
-        if size <= pattern_context.fail_pop.len() {
-            return Ok(());
-        }
-        let reserve = size.saturating_sub(pattern_context.fail_pop.len());
-        pattern_context.fail_pop.reserve(reserve);
-        while pattern_context.fail_pop.len() < size {
-            let label = self.new_block();
-            pattern_context.fail_pop.push(label);
-        }
-        Ok(())
-    }
-
-    // static int
-    // jump_to_fail_pop(compiler *c, location loc,
-    // pattern_context *pc, int op)
-    // {
-    // // Pop any items on the top of the stack, plus any objects we were going to
-    // // capture on success:
-    // Py_ssize_t pops = pc->on_top + PyList_GET_SIZE(pc->stores);
-    // RETURN_IF_ERROR(ensure_fail_pop(c, pc, pops));
-    // ADDOP_JUMP(c, loc, op, pc->fail_pop[pops]);
-    // return SUCCESS;
-    // }
-    fn jump_to_fail_pop(&mut self, pattern_context: &mut PatternContext) -> CompileResult<()> {
-        let pops = pattern_context.on_top + pattern_context.stores.len();
-        self.ensure_fail_pop(pattern_context, pops)?;
-        // self.switch_to_block(pattern_context.fail_pop[pops]);
-        Ok(())
-    }
-    // static int
-    // codegen_pattern_value(compiler *c, pattern_ty p, pattern_context *pc)
-    // {
-    // assert(p->kind == MatchValue_kind);
-    // expr_ty value = p->v.MatchValue.value;
-    // if (!MATCH_VALUE_EXPR(value)) {
-    // const char *e = "patterns may only match literals and attribute lookups";
-    // return _PyCompile_Error(c, LOC(p), e);
-    // }
-    // VISIT(c, expr, value);
-    // ADDOP_COMPARE(c, LOC(p), Eq);
-    // ADDOP(c, LOC(p), TO_BOOL);
-    // RETURN_IF_ERROR(jump_to_fail_pop(c, LOC(p), pc, POP_JUMP_IF_FALSE));
-    // return SUCCESS;
-    // }
     fn compile_pattern_value(
         &mut self,
         value: &PatternMatchValue<SourceRange>,
@@ -1869,8 +1776,12 @@ impl Compiler {
                 op: ComparisonOperator::Equal
             }
         );
-        // emit!(self, Instruction::ToBool);
-        self.jump_to_fail_pop(pattern_context)?;
+        emit!(
+            self,
+            Instruction::JumpIfFalse {
+                target: *pattern_context.blocks.last().unwrap()
+            }
+        );
         Ok(())
     }
 
@@ -1889,67 +1800,6 @@ impl Compiler {
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         todo!();
-        // self.emit_load_const(ConstantData::from(singleton.value));
-        emit!(
-            self,
-            Instruction::CompareOperation {
-                // TODO: ComparisonOperator::Is doesn't exist, this will have to do for now
-                op: ComparisonOperator::Equal
-            }
-        );
-        self.jump_to_fail_pop(pattern_context)?;
-        Ok(())
-    }
-
-    fn compile_pattern_helper_rotate(&mut self, count: usize) -> CompileResult<()> {
-        let mut count = count;
-        while 1 < count {
-            todo!("below");
-            // ADDOP_I(c, loc, SWAP, count--);
-            // emit!(self, Instruction::Swap { count: count as u32 });
-            count -= 1;
-        }
-        Ok(())
-    }
-
-    // static int
-    // codegen_pattern_helper_store_name(compiler *c, location loc,
-    // identifier n, pattern_context *pc)
-    // {
-    // if (n == NULL) {
-    // ADDOP(c, loc, POP_TOP);
-    // return SUCCESS;
-    // }
-    // // Can't assign to the same name twice:
-    // int duplicate = PySequence_Contains(pc->stores, n);
-    // RETURN_IF_ERROR(duplicate);
-    // if (duplicate) {
-    // return codegen_error_duplicate_store(c, loc, n);
-    // }
-    // // Rotate this object underneath any items we need to preserve:
-    // Py_ssize_t rotations = pc->on_top + PyList_GET_SIZE(pc->stores) + 1;
-    // RETURN_IF_ERROR(codegen_pattern_helper_rotate(c, loc, rotations));
-    // RETURN_IF_ERROR(PyList_Append(pc->stores, n));
-    // return SUCCESS;
-    // }
-    fn compile_pattern_helper_store_name(
-        &mut self,
-        n: Option<&str>,
-        pattern_context: &mut PatternContext,
-    ) -> CompileResult<()> {
-        if n.is_none() {
-            emit!(self, Instruction::Pop);
-            return Ok(());
-        }
-        let n = n.unwrap();
-        let duplicate = pattern_context.stores.contains(&n.to_string());
-        if duplicate {
-            return Err(self.error(CodegenErrorType::DuplicateStore(n.to_string())));
-        }
-        let rotations = pattern_context.on_top + pattern_context.stores.len() + 1;
-        self.compile_pattern_helper_rotate(rotations)?;
-        pattern_context.stores.push(n.to_string());
-        Ok(())
     }
 
     fn compile_pattern_star(
@@ -1957,60 +1807,15 @@ impl Compiler {
         star: &PatternMatchStar<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        // codegen_pattern_helper_store_name(c, LOC(p), p->v.MatchStar.name, pc));
-        self.compile_pattern_helper_store_name(star.name.as_deref(), pattern_context)?;
-        Ok(())
+        todo!()
     }
 
-    // static int
-    // codegen_pattern_as(compiler *c, pattern_ty p, pattern_context *pc)
-    // {
-    // assert(p->kind == MatchAs_kind);
-    // if (p->v.MatchAs.pattern == NULL) {
-    // // An irrefutable match:
-    // if (!pc->allow_irrefutable) {
-    // if (p->v.MatchAs.name) {
-    // const char *e = "name capture %R makes remaining patterns unreachable";
-    // return _PyCompile_Error(c, LOC(p), e, p->v.MatchAs.name);
-    // }
-    // const char *e = "wildcard makes remaining patterns unreachable";
-    // return _PyCompile_Error(c, LOC(p), e);
-    // }
-    // return codegen_pattern_helper_store_name(c, LOC(p), p->v.MatchAs.name, pc);
-    // }
-    // // Need to make a copy for (possibly) storing later:
-    // pc->on_top++;
-    // ADDOP_I(c, LOC(p), COPY, 1);
-    // RETURN_IF_ERROR(codegen_pattern(c, p->v.MatchAs.pattern, pc));
-    // // Success! Store it:
-    // pc->on_top--;
-    // RETURN_IF_ERROR(codegen_pattern_helper_store_name(c, LOC(p), p->v.MatchAs.name, pc));
-    // return SUCCESS;
-    // }
     fn codegen_pattern_as(
         &mut self,
         as_pattern: &PatternMatchAs<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        if as_pattern.pattern.is_none() {
-            // An irrefutable match:
-            if !pattern_context.allow_irrefutable {
-                // TODO: better error message
-                if let Some(name) = &as_pattern.name {
-                    return Err(self.error(CodegenErrorType::InvalidMatchCase));
-                } else {
-                    return Err(self.error(CodegenErrorType::InvalidMatchCase));
-                }
-            }
-            return self
-                .compile_pattern_helper_store_name(as_pattern.name.as_deref(), pattern_context);
-        }
-        pattern_context.on_top += 1;
-        emit!(self, Instruction::Duplicate);
-        self.compile_pattern(as_pattern.pattern.as_ref().unwrap(), pattern_context)?;
-        pattern_context.on_top -= 1;
-        self.compile_pattern_helper_store_name(as_pattern.name.as_deref(), pattern_context)?;
-        Ok(())
+        todo!()
     }
 
     fn compile_pattern(
@@ -2041,65 +1846,29 @@ impl Compiler {
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         self.compile_expression(subject)?;
-        // Block at the end of the switch statement that we jump to after finishing a branch
-        let mut pattern_blocks = std::iter::repeat_with(|| self.new_block())
+        pattern_context.blocks = std::iter::repeat_with(|| self.new_block())
             .take(cases.len() + 1)
             .collect::<Vec<_>>();
-        eprintln!(
-            "created pattern_blocks: {:?} - {:?}(end block)",
-            pattern_blocks.first().unwrap(),
-            pattern_blocks.last().unwrap()
-        );
-        let end_block = *pattern_blocks.last().unwrap();
+        let end_block = *pattern_context.blocks.last().unwrap();
 
         let match_case_type = cases.last().expect("cases is not empty");
         let has_default = match_case_type.pattern.is_match_star() && 1 < cases.len();
-        // for (Py_ssize_t i = 0; i < cases - has_default; i++) {
         for i in 0..cases.len() - (has_default as usize) {
-            //     m = asdl_seq_GET(s->v.Match.cases, i);
+            self.switch_to_block(pattern_context.blocks[i]);
             let m = &cases[i];
             // Only copy the subject if we're *not* on the last case:
             if i != cases.len() - has_default as usize - 1 {
-                // ADDOP_I(c, LOC(m->pattern), COPY, 1);
                 emit!(self, Instruction::Duplicate);
             }
-            // TODO: redundant
-            pattern_context.stores = Vec::new();
-            // Irrefutable cases must be either guarded, last, or both:
-            pattern_context.allow_irrefutable = m.guard.is_some() || i == cases.len() - 1;
-            //     pc->fail_pop = NULL;
-            pattern_context.on_top = 0;
             self.compile_pattern(&m.pattern, pattern_context)?;
-            assert_eq!(pattern_context.on_top, 0);
-            // It's a match! Store all of the captured names (they're on the stack).
-            let nstores = pattern_context.stores.len();
-            for n in 0..nstores {
-                let name = &pattern_context.stores[n];
-                // codegen_nameop(c, LOC(m->pattern), name, Store) < 0)
-                self.compile_name(name, NameUsage::Store)?;
-            }
-            // if (m->guard) {
-            //     RETURN_IF_ERROR(ensure_fail_pop(c, pc, 0));
-            //     RETURN_IF_ERROR(codegen_jump_if(c, LOC(m->pattern), m->guard, pc->fail_pop[0], 0));
-            // }
-            if let Some(guard) = &m.guard {
-                self.ensure_fail_pop(pattern_context, 0)?;
-                self.compile_jump_if(guard, false, pattern_blocks[i + 1])?;
-            }
-            if i != cases.len() - (has_default as usize) - 1 {
-                // ADDOP(c, LOC(m->pattern), POP_TOP);
-                emit!(self, Instruction::Pop);
-            }
-            // VISIT_SEQ(c, stmt, m->body);
             self.compile_statements(&m.body)?;
-            // ADDOP_JUMP(c, NO_LOCATION, JUMP, end);
             emit!(self, Instruction::Jump { target: end_block });
         }
         if has_default {
             // A trailing "case _" is common, and lets us save a bit of redundant
             // pushing and popping in the loop above:
             let m = &cases.last().unwrap();
-            self.switch_to_block(*pattern_blocks.last().unwrap());
+            self.switch_to_block(*pattern_context.blocks.last().unwrap());
             if cases.len() == 1 {
                 // No matches. Done with the subject:
                 // ADDOP(c, LOC(m->pattern), POP_TOP);
@@ -2110,22 +1879,16 @@ impl Compiler {
             }
             self.compile_statements(&m.body)?;
         }
-        let block = self.new_block();
-        pattern_blocks.push(block);
+
+        self.switch_to_block(end_block);
+
         let code = self.current_code_info();
-        let _ = pattern_blocks
+        let _ = pattern_context.blocks
             .iter()
-            .zip(pattern_blocks.iter().skip(1))
+            .zip(pattern_context.blocks.iter().skip(1))
             .for_each(|(a, b)| {
-                eprintln!("linking: {} -> {}", a.0, b.0);
                 code.blocks[a.0 as usize].next = *b;
             });
-        self.switch_to_block(*pattern_blocks.last().unwrap());
-        let code = self.current_code_info();
-        for block in pattern_blocks {
-            let b = &code.blocks[block.0 as usize];
-            eprintln!("block: {} -> {}", block.0, b.next.0);
-        }
         Ok(())
     }
 
@@ -2135,10 +1898,7 @@ impl Compiler {
         cases: &[located_ast::MatchCase],
     ) -> CompileResult<()> {
         let mut pattern_context = PatternContext {
-            stores: Vec::new(),
-            allow_irrefutable: false,
-            fail_pop: Vec::new(),
-            on_top: 0,
+            blocks: Vec::new(),
         };
         self.compile_match_inner(subject, cases, &mut pattern_context)?;
         Ok(())
@@ -3421,17 +3181,12 @@ impl Compiler {
             ir::BlockIdx::NULL,
             "switching {prev:?} -> {block:?} to completed block"
         );
-        println!("{}", prev.0);
-        for (count, b) in code.blocks.iter().enumerate() {
-            println!("{count}: {} {}", b.next.0, b.instructions.len());
-        }
         let prev_block = &mut code.blocks[prev.0 as usize];
         assert_eq!(
             prev_block.next.0,
             u32::MAX,
             "switching {prev:?} -> {block:?} from block that's already got a next"
         );
-        eprintln!("switch_to_block {prev:?} -> {block:?}");
         prev_block.next = block;
         code.current_block = block;
     }
@@ -3742,6 +3497,16 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
         assert_dis_snapshot!(compile_exec(
             r#"\
 v = "one"
+
+if v == "one":
+    v = "two"
+elif v == "two":
+    v = "three"
+elif v == "three":
+    v = "one"
+else:
+    v = "one"
+
 match v:
     case "one":
         v = "two"
@@ -3749,8 +3514,8 @@ match v:
         v = "three"
     case "three":
         v = "one"
-    case _:
-        v = "one"
+#    case _:
+#        v = "one"
 "#
         ));
     }

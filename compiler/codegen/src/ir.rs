@@ -227,7 +227,7 @@ impl CodeInfo {
         let mut start_depths = vec![u32::MAX; self.blocks.len()];
         start_depths[0] = 0;
         stack.push(BlockIdx(0));
-        const DEBUG: bool = true;
+        const DEBUG: bool = false;
         'process_blocks: while let Some(block) = stack.pop() {
             let mut depth = start_depths[block.idx()];
             if DEBUG {
