@@ -2054,7 +2054,7 @@ impl Compiler {
     ) -> CompileResult<()> {
         self.compile_expression(subject)?;
         // Block at the end of the switch statement that we jump to after finishing a branch
-        let pattern_blocks = std::iter::repeat_with(|| self.new_block())
+        let mut pattern_blocks = std::iter::repeat_with(|| self.new_block())
             .take(cases.len() + 1)
             .collect::<Vec<_>>();
         eprintln!("created pattern_blocks: {:?} - {:?}(end block)", pattern_blocks.first().unwrap(), pattern_blocks.last().unwrap());
@@ -2118,7 +2118,21 @@ impl Compiler {
             }
             self.compile_statements(&m.body)?;
         }
-
+        let block = self.new_block();
+        pattern_blocks.push(block);
+        let code = self.current_code_info();
+        let _ = pattern_blocks.iter()
+            .zip(pattern_blocks.iter().skip(1))
+            .for_each(|(a, b)| {
+                eprintln!("linking: {} -> {}", a.0, b.0);
+                code.blocks[a.0 as usize].next = *b;
+        });
+        self.switch_to_block(*pattern_blocks.last().unwrap());
+        let code = self.current_code_info();
+        for block in pattern_blocks {
+            let b = &code.blocks[block.0 as usize];
+            eprintln!("block: {} -> {}", block.0, b.next.0);
+        }
         Ok(())
     }
 
