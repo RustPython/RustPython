@@ -52,13 +52,13 @@ mod _ctypes {
     #[pyfunction]
     pub(crate) fn POINTER(tp: PyTypeRef, vm: &VirtualMachine) -> PyResult {
         pointer::POINTER(tp);
-        Ok(vm.get_none())
+        Ok(vm.ctx.none())
     }
 
     #[pyfunction]
     pub(crate) fn pointer(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         pointer::pointer_fn(obj);
-        Ok(vm.get_none())
+        Ok(vm.ctx.none())
     }
 
     #[pyfunction]

@@ -16,6 +16,9 @@ use crate::function::Either;
 use crate::builtins::PyTypeRef;
 use crate::protocol::PyBuffer;
 use crossbeam_utils::atomic::AtomicCell;
+use crate::class::StaticType;
+use crate::convert::IntoObject;
+use crate::object::MaybeTraverse;
 use crate::types::AsBuffer;
 
 pub fn get_size(ty: &str) -> usize {
@@ -39,8 +42,8 @@ pub fn get_size(ty: &str) -> usize {
 }
 
 fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<RawBuffer> {
-    match vm.get_attribute_opt(cls.as_object().to_owned(), "__abstract__") {
-        Ok(attr) => match bool::try_from_object(vm, attr.unwrap()) {
+    match cls.as_object().get_attr("__abstract__", &vm)? {
+        Ok(attr) => match bool::try_from_object(vm, attr) {
             Ok(false) => {
                 let len = vm
                     .get_attribute(cls.as_object().to_owned(), "_length_")
@@ -77,11 +80,11 @@ fn buffer_copy(
     vm: &VirtualMachine,
     copy: bool,
 ) -> PyResult<PyCData> {
-    match vm.get_attribute(cls.as_object().to_owned(), "__abstract__") {
+    match cls.as_object().to_owned().get_attr("__abstract__", vm) {
         Ok(attr) => {
             match bool::try_from_object(vm, attr) {
                 Ok(b) if !b => {
-                    let buffer = PyBuffer::try_from_object(vm, &obj)?;
+                    let buffer = PyBuffer::try_from_object(vm, obj)?;
                     let opts = buffer.get_options().clone();
 
                     // TODO: Fix the way the size of stored
@@ -147,13 +150,13 @@ where
     let cls = zelf.as_object().clone_class();
     if vm.isinstance(&value, &cls)? {
         Ok(value)
-    } else if let Ok(parameter) = vm.get_attribute(value.clone(), "_as_parameter_") {
+    } else if let Ok(parameter) = value.get_attr("_as_parameter_", vm) {
         T::from_param(zelf, parameter, vm)
     } else {
         Err(vm.new_attribute_error(format!(
             "expected {} instance instead of {}",
             cls.name,
-            value.class().name
+            value.class().name()
         )))
     }
 }
@@ -231,12 +234,12 @@ pub trait PyCDataMethods: PyPayload {
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyCData> {
-        if let Ok(h) = vm.get_attribute(cls.as_object().to_owned(), "_handle") {
+        if let Ok(h) = cls.as_object().to_owned().get_attr("_handle", vm) {
             // This is something to be "CPython" like
             let raw_ptr = if let Ok(h_int) = h.downcast_exact::<PyInt>(vm) {
                 dlsym(h_int, name, vm)
             } else {
-                Err(vm.new_type_error(format!("_handle must be an int not {}", dll.class().name)))
+                Err(vm.new_type_error(format!("_handle must be an int not {}", dll.class().name())))
             }?;
 
             let sym_ptr = usize::try_from_object(vm, raw_ptr)?;
@@ -274,7 +277,7 @@ pub fn generic_get_buffer<T>(zelf: &Py<T>, vm: &VirtualMachine) -> PyResult<PyBu
 where
         for<'a> T: PyPayload + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
 {
-    if let Ok(buffer) = vm.get_attribute(zelf.as_object().clone(), "_buffer") {
+    if let Ok(buffer) = zelf.as_object().clone().get_attr("_buffer", vm) {
         if let Ok(_buffer) = buffer.downcast_exact::<RawBuffer>(vm) {
             Ok(Box::new(PyCBuffer::<T> {
                 data: zelf.clone(),
@@ -333,6 +336,18 @@ impl fmt::Debug for RawBuffer {
     }
 }
 
+impl MaybeTraverse for RawBuffer {
+    fn try_traverse(&self, _traverse_fn: &mut TraverseFn) {
+        todo!()
+    }
+}
+
+impl PyPayload for RawBuffer {
+    fn class(_ctx: &Context) -> &'static Py<PyType> {
+        todo!()
+    }
+}
+
 unsafe impl Send for RawBuffer {}
 unsafe impl Sync for RawBuffer {}
 
@@ -382,10 +397,10 @@ pub fn sizeof_func(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> P
     match tp {
         Either::A(type_) if type_.issubclass(PyCSimple::static_type()) => {
             let zelf = new_simple_type(Either::B(&type_), vm)?;
-            PyCDataFunctions::size_of_instances(zelf.into_ref(vm), vm)
+            PyCDataFunctions::size_of_instances(zelf.into_ref(&vm.ctx), vm)
         }
         Either::B(obj) if obj.has_class_attr("size_of_instances") => {
-            let size_of_method = vm.get_attribute(obj, "size_of_instances").unwrap();
+            let size_of_method = obj.get_attr("size_of_instances", vm)?;
             let size_of_return = vm.invoke(&size_of_method, ())?;
             Ok(usize::try_from_object(vm, size_of_return)?)
         }
@@ -396,12 +411,12 @@ pub fn sizeof_func(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> P
 // FIXME: this function is too hacky, work a better way of doing it
 pub fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyResult<usize> {
     match tp {
-        Either::A(type_) if type_.issubclass(PyCSimple::static_type()) => {
+        Either::A(type_) if type_.fast_issubclass(PyCSimple::static_type()) => {
             let zelf = new_simple_type(Either::B(&type_), vm)?;
-            PyCDataFunctions::alignment_of_instances(zelf.into_ref(vm), vm)
+            PyCDataFunctions::alignment_of_instances(zelf.into_ref(&vm.ctx), vm)
         }
         Either::B(obj) if obj.has_class_attr("alignment_of_instances") => {
-            let alignment_of_m = vm.get_attribute(obj, "alignment_of_instances")?;
+            let alignment_of_m = obj.get_attr("alignment_of_instances", vm)?;
             let alignment_of_r = vm.invoke(&alignment_of_m, ())?;
             usize::try_from_object(vm, alignment_of_m)
         }
@@ -411,7 +426,7 @@ pub fn alignment(tp: Either<PyTypeRef, PyObjectRef>, vm: &VirtualMachine) -> PyR
 
 pub fn byref(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
     //TODO: Return a Pointer when Pointer implementation is ready
-    let class = tp.clone_class();
+    let class = tp.clone().class();
 
     if class.issubclass(PyCData::static_type()) {
         if let Some(ref_to) = vm.get_method(tp, "ref_to") {
@@ -426,7 +441,7 @@ pub fn byref(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
 }
 
 pub fn addressof(tp: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    let class = tp.clone_class();
+    let class = tp.clone().class();
 
     if class.issubclass(PyCData::static_type()) {
         if let Some(address_of) = vm.get_method(tp, "address_of") {

@@ -80,12 +80,9 @@ pub fn make_array_with_length(
     let outer_type = cls.get_attr("_type_").ok_or_else(|| {
         vm.new_attribute_error("class must define a '_type_' attribute".to_string())
     })?;
-    let length = length as usize;
-    let _type_ = vm
-        // TODO: original was get_attribute
-        .get_attribute_opt(outer_type.clone(), "_type_")
+    let _type_ = outer_type.get_attr("_type_", vm)
         .map_err(|_| vm.new_type_error("_type_ must have storage info".to_string()))?;
-    let itemsize = get_size(_type_.unwrap().downcast::<PyStr>().unwrap().to_string().as_str());
+    let itemsize = get_size(_type_.downcast::<PyStr>().unwrap().to_string().as_str());
     let capacity = length
         .checked_mul(itemsize)
         .ok_or_else(|| vm.new_overflow_error("array too large".to_string()))?;
@@ -116,7 +113,7 @@ fn set_array_value(
         return Err(vm.new_type_error("not a ctype instance".to_string()));
     }
 
-    let obj_cls = obj.clone().class();
+    let obj_cls = obj.clone().class().clone();
 
     // TODO: ensure fast_issubclass is the right thing to use
     if !obj_cls.fast_issubclass(PyCData::static_type()) {
@@ -192,11 +189,10 @@ fn array_slice_getitem<'a>(
     size: usize,
     vm: &'a VirtualMachine,
 ) -> PyResult {
-    let length = vm
-        .get_attribute_opt(zelf.clone(), "_length_")
-        .map(|c_l| usize::try_from_object(vm, c_l.unwrap()))??;
+    let length = zelf.get_attr("_length_", &vm)
+        .map(|c_l| usize::try_from_object(vm, c_l))??;
 
-    let tp = vm.get_attribute_opt(zelf, "_type_")?.unwrap().downcast::<PyStr>().unwrap().to_string();
+    let tp = zelf.get_attr("_type_", vm)?.downcast::<PyStr>().unwrap().to_string();
     let _type_ = tp.as_str();
     let (step, start, stop) = array_get_slice_params(slice, &Some(vm.ctx.new_int(length).to_pyobject(&vm)), vm)?;
 
@@ -241,7 +237,7 @@ fn array_slice_setitem(
         (stop - start - 1) / step + 1
     };
 
-    if slice_length != vm.obj_len(&obj)? as isize {
+    if slice_length != obj.length(vm)? as isize {
         return Err(vm.new_value_error("Can only assign sequence of same size".to_string()));
     }
 
@@ -349,37 +345,37 @@ impl PyCDataMethods for PyCArrayMeta {
         let mut value = value;
         let cls = zelf.class().clone();
 
-        if value.is_instance(&cls.into(), vm)? {
+        if value.is_instance(cls.as_object(), vm)? {
             return Ok(value);
         }
 
-        let length = vm
-            .get_attribute(zelf.as_object().clone(), "_length_")
+        let length = zelf.as_object().get_attr("_length_", &vm)
             .map(|c_l| usize::try_from_object(vm, c_l))??;
 
-        let value_len = vm.obj_len(&value)?;
+        let value_len = value.length(vm)?;
 
-        if let Ok(tp) = vm.get_attribute_opt(zelf.as_object().clone(), "_type_") {
-            let _type = tp.unwrap().downcast::<PyCSimple>().unwrap();
+        if let Ok(tp) = zelf.as_object().get_attr("_type_", vm) {
+            let _type = tp.downcast::<PyCSimple>().unwrap();
 
             if _type._type_.as_str() == "c" {
-                if vm.isinstance(&value, &vm.ctx.types.bytes_type).is_ok() {
+                // TODO: replace with match statement
+                if value.is_instance(vm.ctx.types.bytes_type.as_ref(), vm).is_ok() {
                     if value_len > length {
                         return Err(vm.new_value_error("Invalid length".to_string()));
                     }
-                    value = make_array_with_length(cls.clone(), length, vm)?.as_object().clone();
-                } else if vm.isinstance(&value, &cls).is_err() {
+                    value = make_array_with_length(&cls, length, vm)?.as_object().clone();
+                } else if value.is_instance(&cls, vm).is_err() {
                     return Err(
                         vm.new_type_error(format!("expected bytes, {} found", value.class().name()))
                     );
                 }
             } else if _type._type_.as_str() == "u" {
-                if vm.isinstance(&value, &vm.ctx.types.str_type).is_ok() {
+                if value.is_instance(vm.ctx.types.str_type.as_ref(), vm).is_ok() {
                     if value_len > length {
                         return Err(vm.new_value_error("Invalid length".to_string()));
                     }
                     value = make_array_with_length(cls.clone(), length, vm)?.as_object().clone();
-                } else if vm.isinstance(&value, &cls).is_err() {
+                } else if value.is_instance(cls.as_ref(), vm).is_err() {
                     return Err(vm.new_type_error(format!(
                         "expected unicode string, {} found",
                         value.class().name()
@@ -388,7 +384,7 @@ impl PyCDataMethods for PyCArrayMeta {
             }
         }
 
-        if value.is_instance(&vm.ctx.types.tuple_type, &vm).is_ok() {
+        if value.is_instance(vm.ctx.types.tuple_type.as_ref(), &vm).is_ok() {
             if value_len > length {
                 return Err(vm.new_runtime_error("Invalid length".to_string()));
             }
@@ -403,12 +399,11 @@ impl PyCDataMethods for PyCArrayMeta {
 impl PyCArrayMeta {
     #[pyslot]
     fn slot_new(cls: PyTypeRef, vm: &VirtualMachine) -> PyResult {
-        let length_obj = vm
-            .get_attribute_opt(cls.as_object().to_owned(), "_length_")
+        let length_obj = cls.as_object().get_attr("_length_", &vm)
             .map_err(|_| {
                 vm.new_attribute_error("class must define a '_length_' attribute".to_string())
             })?;
-        let length_int = length_obj.unwrap().downcast_exact::<PyInt>(vm).map_err(|_| {
+        let length_int = length_obj.downcast_exact::<PyInt>(vm).map_err(|_| {
             vm.new_type_error("The '_length_' attribute must be an integer".to_string())
         })?;
         let length: usize = if length_int.as_bigint().is_negative() {
@@ -430,7 +425,7 @@ impl PyCArray {
     #[pymethod(magic)]
     pub fn init(zelf: PyRef<Self>, value: OptionalArg, vm: &VirtualMachine) -> PyResult<()> {
         value.map_or(Ok(()), |value| {
-            let value_length = vm.obj_len(&value)?;
+            let value_length = value.length(vm)?;
 
             if value_length < zelf._length_ {
                 let value_vec: Vec<PyObjectRef> = vm.extract_elements(&value)?;
@@ -445,7 +440,7 @@ impl PyCArray {
                         stop: vm.new_pyobj(zelf._length_),
                         step: None,
                     }
-                        .into_ref(vm),
+                        .into_ref(&vm.ctx),
                 );
 
                 Self::setitem(zelf, py_slice, value, vm)

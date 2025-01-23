@@ -95,7 +95,7 @@ impl ExternalLibs {
         library_path: &str,
         vm: &VirtualMachine,
     ) -> Result<&PyRef<SharedLibrary>, libloading::Error> {
-        let nlib = SharedLibrary::new(library_path)?.into_ref(vm);
+        let nlib = SharedLibrary::new(library_path)?.into_ref(&vm.ctx);
         let key = nlib.get_pointer();
 
         match self.libraries.get(&key) {

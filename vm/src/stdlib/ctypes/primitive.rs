@@ -62,7 +62,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             } else {
                 Err(vm.new_type_error(format!(
                     "unicode string expected instead of {} instance",
-                    value.class().name
+                    value.class().name()
                 )))
             }
         }
@@ -72,7 +72,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             } else {
                 Err(vm.new_type_error(format!(
                     "an integer is required (got type {})",
-                    value.class().name
+                    value.class().name()
                 )))
             }
         }
@@ -80,15 +80,15 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             if value.clone().downcast_exact::<PyFloat>(vm).is_ok() {
                 Ok(value.clone())
             } else {
-                Err(vm.new_type_error(format!("must be real number, not {}", value.class().name)))
+                Err(vm.new_type_error(format!("must be real number, not {}", value.class().name())))
             }
         }
-        "?" => Ok(vm.ctx.new_bool(value.clone().try_to_bool(&vm)?)),
+        "?" => Ok(vm.ctx.new_bool(value.clone().try_to_bool(&vm)?).into()),
         "B" => {
             if value.clone().downcast_exact::<PyInt>(vm).is_ok() {
                 Ok(vm.new_pyobj(u8::try_from_object(vm, value.clone())?))
             } else {
-                Err(vm.new_type_error(format!("int expected instead of {}", value.class().name)))
+                Err(vm.new_type_error(format!("int expected instead of {}", value.class().name())))
             }
         }
         "z" => {
@@ -99,7 +99,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             } else {
                 Err(vm.new_type_error(format!(
                     "bytes or integer address expected instead of {} instance",
-                    value.class().name
+                    value.class().name()
                 )))
             }
         }
@@ -109,7 +109,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
             } else {
                 Err(vm.new_type_error(format!(
                     "unicode string or integer address expected instead of {} instance",
-                    value.class().name
+                    value.class().name()
                 )))
             }
         }
@@ -144,7 +144,7 @@ fn generic_xxx_p_from_param(
             value: AtomicCell::new(value.clone()),
         }
             .into_object(vm))
-    } else if vm.isinstance(value, PyCSimple::static_type())?
+    } else if value.is_instance(PyCSimple::static_type().as_ref(), vm)?
         && (type_str == "z" || type_str == "Z" || type_str == "P")
     {
         Ok(value.clone())
@@ -159,9 +159,7 @@ fn from_param_char_p(
     value: &PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyObjectRef> {
-    let _type_ = vm
-        .get_attribute_opt(value.clone(), "_type_")?
-        .unwrap()
+    let _type_ = value.get_attr("_type_", &vm)?
         .downcast_exact::<PyStr>(vm)
         .unwrap();
     let type_str = _type_.as_ref();
@@ -170,8 +168,8 @@ fn from_param_char_p(
 
     if !vm.is_none(&res) {
         Ok(res)
-    } else if (vm.isinstance(value, PyCArray::static_type())?
-        || vm.isinstance(value, PyCPointer::static_type())?)
+    } else if (value.is_instance(PyCArray::static_type().as_ref(), vm)?
+        || value.is_instance(PyCPointer::static_type().as_ref(), vm)?)
         && (type_str == "z" || type_str == "Z" || type_str == "P")
     {
         Ok(value.clone())
@@ -186,9 +184,7 @@ fn from_param_void_p(
     value: &PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult<PyObjectRef> {
-    let _type_ = vm
-        .get_attribute_opt(value.clone(), "_type_")?
-        .unwrap()
+    let _type_ = value.get_attr("_type_", &vm)?
         .downcast_exact::<PyStr>(vm)
         .unwrap();
     let type_str = _type_.as_ref();
@@ -217,7 +213,7 @@ fn from_param_void_p(
             // TODO: Make sure of what goes here
             Err(vm.new_attribute_error("class has no from_address method".to_string()))
         }
-    } else if value.is_instance(&vm.ctx.types.int_type, vm)? {
+    } else if value.is_instance(vm.ctx.types.int_type.as_ref(), vm)? {
         Ok(PyCSimple {
             _type_: type_str.to_string(),
             value: AtomicCell::new(value.clone()),
@@ -238,9 +234,9 @@ pub fn new_simple_type(
         Either::B(typ) => typ.as_object(),
     };
 
-    if let Ok(_type_) = vm.get_attribute_opt(cls.clone(), "_type_") {
+    if let Ok(_type_) = cls.get_attr("_type_", vm) {
         if vm.isinstance(&_type_, &vm.ctx.types.str_type)? {
-            let tp_str = _type_.unwrap().downcast_exact::<PyStr>(vm).unwrap().to_string();
+            let tp_str = _type_.downcast_exact::<PyStr>(vm).unwrap().to_string();
 
             if tp_str.len() != 1 {
                 Err(vm.new_value_error(
@@ -325,7 +321,7 @@ impl PyCDataMethods for PySimpleMeta {
         } else if value.is_instance(cls.as_ref(), vm)? {
             Ok(value)
         } else {
-            let tp = vm.get_attribute_opt(zelf.as_object().to_pyobject(&vm), "_type_")?.unwrap().downcast::<PyStr>().unwrap().to_string();
+            let tp = zelf.as_object().to_pyobject(&vm).get_attr("_type_", &vm)?.downcast::<PyStr>().unwrap().to_string();
             let _type_ = tp.as_str();
 
             match _type_ {

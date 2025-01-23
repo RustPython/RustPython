@@ -9,8 +9,8 @@ use crate::builtins::{PyInt, PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
 
 use crate::function::FuncArgs;
-use crate::{Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
-
+use crate::{AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
+use crate::class::StaticType;
 use crate::stdlib::ctypes::basics::PyCData;
 use crate::stdlib::ctypes::primitive::PyCSimple;
 
@@ -156,7 +156,7 @@ impl Function {
     }
 
     pub fn set_ret(&mut self, ret: &str) {
-        (*self.return_type.as_mut()) = if ret == "P" {
+        *self.return_type.as_mut() = if ret == "P" {
             Type::void()
         } else {
             str_to_type(ret)
@@ -287,11 +287,11 @@ impl PyCFuncPtr {
                     match inner_obj.isinstance(PyCSimple::static_type(), &vm) {
                         // FIXME: checks related to _type_ are temporary
                         // it needs to check for from_param method, instead
-                        Ok(_) => vm.get_attribute(inner_obj.clone(), "_type_"),
+                        Ok(_) => inner_obj.get_attr("_type_", vm),
                         _ => Err(vm.new_type_error(format!(
                             "item {} in _argtypes_ must be subclass of _SimpleType, but type {} found",
                             idx,
-                            inner_obj.class().name
+                            inner_obj.class().name()
                         ))),
                     }
                 })
@@ -317,7 +317,7 @@ impl PyCFuncPtr {
     fn set_restype(&self, restype: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         match vm.isinstance(&restype, PyCSimple::static_type()) {
             // TODO: checks related to _type_ are temporary
-            Ok(_) => match vm.get_attribute(restype.clone(), "_type_") {
+            Ok(_) => match restype.get_attr("_type_", vm) {
                 Ok(_type_) => {
                     // TODO: restype must be a type, a callable, or None
                     self._restype_.store(restype.clone());
@@ -331,7 +331,7 @@ impl PyCFuncPtr {
 
             Err(_) => Err(vm.new_type_error(format!(
                 "value is not an instance of _CData, type {} found",
-                restype.class().name
+                restype.class().name()
             ))),
         }
     }
@@ -344,7 +344,7 @@ impl PyCFuncPtr {
         arg: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        match vm.get_attribute(cls.as_object().to_owned(), "_argtypes_") {
+        match cls.as_object().to_owned().get_attr("_argtypes_", vm) {
             Ok(_) => Self::from_dll(cls, func_name, arg, vm),
             Err(_) => Err(vm.new_type_error(
                 "cannot construct instance of this class: no argtypes slot".to_string(),
@@ -364,7 +364,7 @@ impl PyCFuncPtr {
         arg: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        if let Ok(h) = vm.get_attribute(arg.clone(), "_handle") {
+        if let Ok(h) = arg.get_attr("_handle", vm) {
             if let Ok(handle) = h.downcast::<PyInt>() {
                 let handle_obj = handle.clone().into_object();
                 let ptr_fn = dlsym(handle, func_name.clone(), vm)?;
@@ -383,7 +383,7 @@ impl PyCFuncPtr {
                 }
                     .into_ref_with_type(vm, cls)
             } else {
-                Err(vm.new_type_error(format!("_handle must be an int not {}", arg.class().name)))
+                Err(vm.new_type_error(format!("_handle must be an int not {}", arg.class().name())))
             }
         } else {
             Err(vm.new_attribute_error(
@@ -424,12 +424,12 @@ impl Callable for PyCFuncPtr {
                     .issubclass(&obj.clone_class(), PyCSimple::static_type())
                     .is_ok()
                 {
-                    Ok(vm.get_attribute(obj.clone(), "value")?)
+                    Ok(obj.get_attr("value", vm)?)
                 } else {
                     Err(vm.new_type_error(format!(
                         "positional argument {} must be subclass of _SimpleType, but type {} found",
                         idx,
-                        obj.class().name
+                        obj.class().name()
                     )))
                 }
             })
