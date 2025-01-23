@@ -15,7 +15,9 @@ use crate::stdlib::ctypes::basics::{
 use crate::stdlib::ctypes::function::PyCFuncPtr;
 use crate::stdlib::ctypes::pointer::PyCPointer;
 use crate::function::Either;
-use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+use crate::{AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
+use crate::class::StaticType;
+use crate::convert::{IntoObject, ToPyObject};
 use crate::protocol::PyBuffer;
 
 const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZPqQ?";
@@ -35,7 +37,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
                 .clone()
                 .downcast_exact::<PyInt>(vm)
                 .map_or(Ok(false), |v| {
-                    let n: i64 = try_to_primitive(v.as_bigint(), vm)?;
+                    let n: i64 = PyInt::try_to_primitive(&v, vm)?;
                     Ok(0 <= n && n <= 255)
                 })?
             {
@@ -81,7 +83,7 @@ fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyRe
                 Err(vm.new_type_error(format!("must be real number, not {}", value.class().name)))
             }
         }
-        "?" => Ok(vm.ctx.new_bool(boolval(vm, value.clone())?)),
+        "?" => Ok(vm.ctx.new_bool(value.clone().try_to_bool(&vm)?)),
         "B" => {
             if value.clone().downcast_exact::<PyInt>(vm).is_ok() {
                 Ok(vm.new_pyobj(u8::try_from_object(vm, value.clone())?))
@@ -134,8 +136,8 @@ fn generic_xxx_p_from_param(
         return Ok(vm.ctx.none());
     }
 
-    if vm.isinstance(value, &vm.ctx.types.str_type)?
-        || vm.isinstance(value, &vm.ctx.types.bytes_type)?
+    if value.is_instance(&vm.ctx.types.str_type.into(), vm)?
+        || value.is_instance(&vm.ctx.types.bytes_type.into(), vm)?
     {
         Ok(PyCSimple {
             _type_: type_str.to_string(),
@@ -158,7 +160,8 @@ fn from_param_char_p(
     vm: &VirtualMachine,
 ) -> PyResult<PyObjectRef> {
     let _type_ = vm
-        .get_attribute(value.clone(), "_type_")?
+        .get_attribute_opt(value.clone(), "_type_")?
+        .unwrap()
         .downcast_exact::<PyStr>(vm)
         .unwrap();
     let type_str = _type_.as_ref();
@@ -184,7 +187,8 @@ fn from_param_void_p(
     vm: &VirtualMachine,
 ) -> PyResult<PyObjectRef> {
     let _type_ = vm
-        .get_attribute(value.clone(), "_type_")?
+        .get_attribute_opt(value.clone(), "_type_")?
+        .unwrap()
         .downcast_exact::<PyStr>(vm)
         .unwrap();
     let type_str = _type_.as_ref();
@@ -193,10 +197,10 @@ fn from_param_void_p(
 
     if !vm.is_none(&res) {
         Ok(res)
-    } else if vm.isinstance(value, PyCArray::static_type())? {
+    } else if value.is_instance(PyCArray::static_type().into(), vm)? {
         Ok(value.clone())
-    } else if vm.isinstance(value, PyCFuncPtr::static_type())?
-        || vm.isinstance(value, PyCPointer::static_type())?
+    } else if value.is_instance(PyCFuncPtr::static_type().into(), vm)?
+        || value.is_instance(PyCPointer::static_type().into(), vm)?
     {
         // TODO: Is there a better way of doing this?
         if let Some(from_address) = vm.get_method(cls.as_object().clone(), "from_address") {
@@ -213,7 +217,7 @@ fn from_param_void_p(
             // TODO: Make sure of what goes here
             Err(vm.new_attribute_error("class has no from_address method".to_string()))
         }
-    } else if vm.isinstance(value, &vm.ctx.types.int_type)? {
+    } else if value.is_instance(&vm.ctx.types.int_type, vm)? {
         Ok(PyCSimple {
             _type_: type_str.to_string(),
             value: AtomicCell::new(value.clone()),
@@ -234,9 +238,9 @@ pub fn new_simple_type(
         Either::B(typ) => typ.as_object(),
     };
 
-    if let Ok(_type_) = vm.get_attribute(cls.clone(), "_type_") {
+    if let Ok(_type_) = vm.get_attribute_opt(cls.clone(), "_type_") {
         if vm.isinstance(&_type_, &vm.ctx.types.str_type)? {
-            let tp_str = _type_.downcast_exact::<PyStr>(vm).unwrap().to_string();
+            let tp_str = _type_.unwrap().downcast_exact::<PyStr>(vm).unwrap().to_string();
 
             if tp_str.len() != 1 {
                 Err(vm.new_value_error(
@@ -315,13 +319,13 @@ impl PyCDataMethods for PySimpleMeta {
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let cls = zelf.clone_class();
+        let cls = zelf.class().clone();
         if cls.is(PyCSimple::static_type()) {
             Err(vm.new_type_error("abstract class".to_string()))
-        } else if vm.isinstance(&value, &cls)? {
+        } else if value.is_instance(cls.as_ref(), vm)? {
             Ok(value)
         } else {
-            let tp = vm.get_attribute(zelf.as_object().clone(), "_type_")?.downcast::<PyStr>().unwrap().to_string();
+            let tp = vm.get_attribute_opt(zelf.as_object().to_pyobject(&vm), "_type_")?.unwrap().downcast::<PyStr>().unwrap().to_string();
             let _type_ = tp.as_str();
 
             match _type_ {
@@ -330,10 +334,10 @@ impl PyCDataMethods for PySimpleMeta {
                 _ => match new_simple_type(Either::B(&cls), vm) {
                     Ok(obj) => Ok(obj.into_object(vm)),
                     Err(e) => {
-                        if vm.isinstance(&e.clone().into_object(), &vm.ctx.exceptions.type_error)?
-                            || vm.isinstance(
-                            &e.clone().into_object(),
-                            &vm.ctx.exceptions.value_error,
+                        if e.clone().into_object().is_instance(vm.ctx.exceptions.type_error.into(), vm)?
+                            || e.clone().into_object().is_instance(
+                            vm.ctx.exceptions.value_error.into(),
+                            &vm
                         )?
                         {
                             default_from_param(zelf, value.clone(), vm)
@@ -356,10 +360,10 @@ impl PyCSimple {
             self.value.store(content);
         } else {
             self.value.store(match self._type_.as_str() {
-                "c" | "u" => vm.ctx.new_bytes(vec![0]),
-                "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0),
-                "f" | "d" | "g" => vm.ctx.new_float(0.0),
-                "?" => vm.ctx.new_bool(false),
+                "c" | "u" => vm.ctx.new_bytes(vec![0]).into_object(),
+                "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => vm.ctx.new_int(0).into_object(),
+                "f" | "d" | "g" => vm.ctx.new_float(0.0).into_object(),
+                "?" => vm.ctx.new_bool(false).into_object(),
                 _ => vm.ctx.none(), // "z" | "Z" | "P"
             });
         }
@@ -394,7 +398,7 @@ impl PyCSimple {
     fn repr(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
             "{}({})",
-            zelf.class().name,
+            zelf.class().name(),
             vm.to_repr(&zelf.value())?.to_string()
         ))
     }
@@ -402,7 +406,7 @@ impl PyCSimple {
     // Simple_as_number
     #[pymethod(magic)]
     fn bool(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let buffer = PyBuffer::try_from_object(vm, zelf.as_object())?
+        let buffer = PyBuffer::try_from_object(vm, zelf.as_object().to_pyobject(vm))?
             .obj_bytes()
             .to_vec();
 

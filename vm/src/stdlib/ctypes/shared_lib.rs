@@ -4,9 +4,24 @@ use crossbeam_utils::atomic::AtomicCell;
 use libloading::Library;
 
 use crate::common::lock::PyRwLock;
-use crate::{PyPayload, PyRef, VirtualMachine};
+use crate::{Context, Py, PyPayload, PyRef, VirtualMachine};
+use crate::builtins::PyType;
+use crate::object::{MaybeTraverse, TraverseFn};
+
 pub struct SharedLibrary {
     lib: AtomicCell<Option<Library>>,
+}
+
+impl MaybeTraverse for SharedLibrary {
+    fn try_traverse(&self, _traverse_fn: &mut TraverseFn) {
+        todo!()
+    }
+}
+
+impl PyPayload for SharedLibrary {
+    fn class(_ctx: &Context) -> &'static Py<PyType> {
+        todo!()
+    }
 }
 
 impl fmt::Debug for SharedLibrary {

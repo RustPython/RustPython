@@ -5,11 +5,11 @@ use crossbeam_utils::atomic::AtomicCell;
 use libffi::middle::{arg, Arg, Cif, CodePtr, Type};
 
 use crate::builtins::pystr::PyStrRef;
-use crate::builtins::{PyInt, PyTypeRef};
+use crate::builtins::{PyInt, PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
 
 use crate::function::FuncArgs;
-use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+use crate::{Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
 
 use crate::stdlib::ctypes::basics::PyCData;
 use crate::stdlib::ctypes::primitive::PyCSimple;
@@ -284,7 +284,7 @@ impl PyCFuncPtr {
                 .iter()
                 .enumerate()
                 .map(|(idx, inner_obj)| {
-                    match vm.isinstance(inner_obj, PyCSimple::static_type()) {
+                    match inner_obj.isinstance(PyCSimple::static_type(), &vm) {
                         // FIXME: checks related to _type_ are temporary
                         // it needs to check for from_param method, instead
                         Ok(_) => vm.get_attribute(inner_obj.clone(), "_type_"),
@@ -338,7 +338,7 @@ impl PyCFuncPtr {
 
     // TODO: Needs to check and implement other forms of new
     #[pyslot]
-    fn tp_new(
+    fn slot_new(
         cls: PyTypeRef,
         func_name: PyStrRef,
         arg: PyObjectRef,
@@ -393,10 +393,17 @@ impl PyCFuncPtr {
     }
 }
 
+impl PyPayload for PyCFuncPtr {
+    fn class(ctx: &Context) -> &'static Py<PyType> {
+        // TODO: it's not really a function :P
+        ctx.types.function_type
+    }
+}
+
 impl Callable for PyCFuncPtr {
     type Args = FuncArgs;
 
-    fn call(zelf: &PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn call(zelf: &Py<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let inner_args = unsafe { &*zelf._argtypes_.as_ptr() };
 
         if args.args.len() != inner_args.len() {

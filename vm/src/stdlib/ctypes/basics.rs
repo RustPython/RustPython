@@ -4,10 +4,9 @@ use widestring::WideChar;
 
 use crate::builtins::int::PyInt;
 use crate::builtins::pystr::PyStrRef;
-use crate::common::borrow::{BorrowedValue, BorrowedValueMut};
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
-use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
 
 use crate::stdlib::ctypes::array::make_array_with_length;
 use crate::stdlib::ctypes::dll::dlsym;
@@ -40,8 +39,8 @@ pub fn get_size(ty: &str) -> usize {
 }
 
 fn at_address(cls: &PyTypeRef, buf: usize, vm: &VirtualMachine) -> PyResult<RawBuffer> {
-    match vm.get_attribute(cls.as_object().to_owned(), "__abstract__") {
-        Ok(attr) => match bool::try_from_object(vm, attr) {
+    match vm.get_attribute_opt(cls.as_object().to_owned(), "__abstract__") {
+        Ok(attr) => match bool::try_from_object(vm, attr.unwrap()) {
             Ok(false) => {
                 let len = vm
                     .get_attribute(cls.as_object().to_owned(), "_length_")
@@ -279,11 +278,6 @@ where
         if let Ok(_buffer) = buffer.downcast_exact::<RawBuffer>(vm) {
             Ok(Box::new(PyCBuffer::<T> {
                 data: zelf.clone(),
-                options: BufferOptions {
-                    readonly: false,
-                    len: _buffer.size,
-                    ..Default::default()
-                },
             }))
         } else {
             Err(vm.new_attribute_error("_buffer attribute should be RawBuffer".to_string()))
@@ -314,34 +308,8 @@ impl<'a> BorrowValueMut<'a> for PyCData {
 }
 
 impl AsBuffer for PyCData {
-    fn as_buffer(zelf: &PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
         generic_get_buffer::<Self>(zelf, vm)
-    }
-}
-
-// This trait will be used by all types
-impl<T> Buffer for PyCBuffer<T>
-where
-        for<'a> T: PyPayload + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
-{
-    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
-        PyRwLockReadGuard::map(self.data.borrow_value(), |x| unsafe {
-            slice::from_raw_parts(x.inner, x.size)
-        })
-            .into()
-    }
-
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
-        PyRwLockWriteGuard::map(self.data.borrow_value_mut(), |x| unsafe {
-            slice::from_raw_parts_mut(x.inner, x.size)
-        })
-            .into()
-    }
-
-    fn release(&self) {}
-
-    fn get_options(&self) -> &BufferOptions {
-        &self.options
     }
 }
 
@@ -351,7 +319,6 @@ where
         for<'a> T: PyPayload + fmt::Debug + BorrowValue<'a> + BorrowValueMut<'a>,
 {
     pub data: PyRef<T>,
-    pub options: BufferOptions,
 }
 
 // FIXME: Change this implementation
@@ -397,7 +364,7 @@ impl PyCData {
     }
 }
 
-#[pyclass(flags(BASETYPE), with(BufferProtocol))]
+#[pyclass(flags(BASETYPE), with(AsBuffer))]
 impl PyCData {
     // PyCData_methods
     #[pymethod(magic)]

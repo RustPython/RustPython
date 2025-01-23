@@ -25,7 +25,7 @@ mod _ctypes {
     use crate::stdlib::ctypes::pointer;
 
     #[pyattr(name="__version__")]
-    pub(crate) fn version() -> &'static str {
+    pub(crate) fn version(_vm: &VirtualMachine) -> &'static str {
         "1.1.0"
     }
 
