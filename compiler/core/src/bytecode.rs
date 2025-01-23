@@ -432,7 +432,9 @@ pub enum Instruction {
         op: Arg<ComparisonOperator>,
     },
     Pop,
-    Swap(Arg<u32>),
+    Swap {
+        index: Arg<u32>,
+    },
     Rotate2,
     Rotate3,
     Duplicate,
@@ -1203,7 +1205,7 @@ impl Instruction {
             | TestOperation { .. }
             | CompareOperation { .. } => -1,
             Pop => -1,
-            Swap(_) => 0,
+            Swap { .. } => 0,
             Rotate2 | Rotate3 => 0,
             Duplicate => 1,
             Duplicate2 => 2,
@@ -1400,7 +1402,7 @@ impl Instruction {
             TestOperation { op } => w!(TestOperation, ?op),
             CompareOperation { op } => w!(CompareOperation, ?op),
             Pop => w!(Pop),
-            Swap(a) => w!(Swap, a),
+            Swap { index } => w!(Swap, index),
             Rotate2 => w!(Rotate2),
             Rotate3 => w!(Rotate3),
             Duplicate => w!(Duplicate),

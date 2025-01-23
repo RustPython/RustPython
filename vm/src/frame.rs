@@ -673,11 +673,11 @@ impl ExecutingFrame<'_> {
                 self.pop_value();
                 Ok(None)
             }
-            bytecode::Instruction::Swap(i) => {
+            bytecode::Instruction::Swap { index } => {
                 let len = self.state.stack.len();
                 self.state
                     .stack
-                    .swap(len - 1, len - 1 - i.get(arg) as usize);
+                    .swap(len - 1, len - 1 - index.get(arg) as usize);
                 Ok(None)
             }
             bytecode::Instruction::Duplicate => {
