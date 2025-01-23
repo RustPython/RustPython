@@ -1791,9 +1791,7 @@ impl Compiler {
                     self.error_loc(CodegenErrorType::InvalidMatchCase, as_pattern.location())
                 );
             }
-            return Err(
-                self.error_loc(CodegenErrorType::InvalidMatchCase, as_pattern.location())
-            );
+            return Err(self.error_loc(CodegenErrorType::InvalidMatchCase, as_pattern.location()));
         }
         // Need to make a copy for (possibly) storing later:
         emit!(self, Instruction::Duplicate);
