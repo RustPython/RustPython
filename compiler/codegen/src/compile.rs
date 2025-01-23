@@ -18,9 +18,7 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast::located::{self as located_ast, Located};
-use rustpython_ast::{
-    Pattern, PatternMatchAs, PatternMatchSingleton, PatternMatchStar, PatternMatchValue,
-};
+use rustpython_ast::{Pattern, PatternMatchAs, PatternMatchOr, PatternMatchSequence, PatternMatchSingleton, PatternMatchStar, PatternMatchValue};
 use rustpython_compiler_core::bytecode::ComparisonOperator;
 use rustpython_compiler_core::{
     bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
@@ -217,7 +215,9 @@ macro_rules! emit {
 }
 
 struct PatternContext {
-    blocks: Vec<BlockIdx>
+    current_block: usize,
+    blocks: Vec<BlockIdx>,
+    allow_irrefutable: bool,
 }
 
 impl Compiler {
@@ -1776,12 +1776,6 @@ impl Compiler {
                 op: ComparisonOperator::Equal
             }
         );
-        emit!(
-            self,
-            Instruction::JumpIfFalse {
-                target: *pattern_context.blocks.last().unwrap()
-            }
-        );
         Ok(())
     }
 
@@ -1799,7 +1793,38 @@ impl Compiler {
         singleton: &PatternMatchSingleton<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        todo!();
+        todo!("Pattern::MatchSingleton");
+    }
+
+    fn compile_pattern_sequence(
+        &mut self,
+        sequence: &PatternMatchSequence<SourceRange>,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        let patterns = &sequence.patterns;
+        // let size = patterns.len();
+        let mut star = -1;
+        let mut only_wildcard = 1;
+        let mut star_wildcard = 0;
+        // Find a starred name, if it exists. There may be at most one:
+        // for i in 0..patterns.len() {
+        //     let pattern = &patterns[i];
+        //     if pattern.is_match_star() {
+        //         if star >= 0 {
+        //             return Err(self.error_loc(
+        //                 CodegenErrorType::MultipleStarredNamesInSequencePattern,
+        //                 pattern.location(),
+        //             ));
+        //         }
+        //         star_wildcard = pattern.is_wildcard_star();
+        //         only_wildcard = star_wildcard;
+        //         star = i;
+        //         continue;
+        //     }
+        //     only_wildcard &= pattern.is_wildcard();
+        // }
+        todo!("Pattern::MatchSequence");
+        Ok(())
     }
 
     fn compile_pattern_star(
@@ -1807,15 +1832,87 @@ impl Compiler {
         star: &PatternMatchStar<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        todo!()
+        todo!("Pattern::MatchStar");
     }
 
-    fn codegen_pattern_as(
+    fn compile_pattern_as(
         &mut self,
         as_pattern: &PatternMatchAs<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        todo!()
+        if as_pattern.pattern.is_none() {
+            if !pattern_context.allow_irrefutable {
+                // TODO: better error message
+                // TODO: Fix this error message
+                // if let Some(name) = as_pattern.name.as_ref() {
+                //     return Err(self.error_loc(
+                //         CodegenErrorType::InvalidMatchCase,
+                //         as_pattern.location()
+                //     ));
+                // }
+                return Err(self.error_loc(
+                    CodegenErrorType::InvalidMatchCase,
+                    as_pattern.location(),
+                ));
+            }
+        }
+        // Need to make a copy for (possibly) storing later:
+        emit!(self, Instruction::Duplicate);
+        if let Some(pattern) = &as_pattern.pattern {
+            self.compile_pattern_inner(pattern, pattern_context)?;
+        }
+        if let Some(name) = as_pattern.name.as_ref() {
+            self.store_name(name.as_str())?;
+        } else {
+            emit!(self, Instruction::Pop);
+        }
+        Ok(())
+    }
+
+    fn compile_pattern_or(
+        &mut self,
+        or_pattern: &PatternMatchOr<SourceRange>,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        todo!("Pattern::MatchOr");
+        let true_block = self.new_block();
+        // Only check as many patterns as necessary, jumping over everything if needed
+        for pattern in &or_pattern.patterns {
+            self.compile_pattern_inner(pattern, pattern_context)?;
+            emit!(
+                self,
+                Instruction::JumpIfTrue {
+                    target: true_block
+                }
+            );
+        }
+        self.switch_to_block(true_block);
+        Ok(())
+    }
+
+    fn compile_pattern_inner(
+        &mut self,
+        pattern_type: &Pattern<SourceRange>,
+        pattern_context: &mut PatternContext
+    ) -> CompileResult<()> {
+        match &pattern_type {
+            Pattern::MatchValue(value) => self.compile_pattern_value(&value, pattern_context),
+            Pattern::MatchSingleton(singleton) => {
+                self.compile_pattern_singleton(&singleton, pattern_context)
+            }
+            Pattern::MatchSequence(sequence) => {
+                self.compile_pattern_sequence(&sequence, pattern_context)
+            }
+            Pattern::MatchMapping(_mapping) => {
+                todo!("Pattern::MatchMapping");
+            },
+            Pattern::MatchClass(_class) => {
+                todo!("Pattern::MatchClass");
+            },
+            Pattern::MatchStar(star) => self.compile_pattern_star(&star, pattern_context),
+            Pattern::MatchAs(as_pattern) => self.compile_pattern_as(&as_pattern, pattern_context),
+            Pattern::MatchOr(or_pattern) => self.compile_pattern_or(&or_pattern, pattern_context),
+        }
     }
 
     fn compile_pattern(
@@ -1823,20 +1920,14 @@ impl Compiler {
         pattern_type: &Pattern<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        match &pattern_type {
-            Pattern::MatchValue(value) => self.compile_pattern_value(&value, pattern_context),
-            Pattern::MatchSingleton(singleton) => {
-                self.compile_pattern_singleton(&singleton, pattern_context)
+        self.compile_pattern_inner(pattern_type, pattern_context)?;
+        emit!(
+            self,
+            Instruction::JumpIfFalse {
+                target: pattern_context.blocks[pattern_context.current_block + 1]
             }
-            Pattern::MatchSequence(_sequence) => {
-                Err(self.error(CodegenErrorType::NotImplementedYet))
-            }
-            Pattern::MatchMapping(_mapping) => Err(self.error(CodegenErrorType::NotImplementedYet)),
-            Pattern::MatchClass(_class) => Err(self.error(CodegenErrorType::NotImplementedYet)),
-            Pattern::MatchStar(star) => self.compile_pattern_star(&star, pattern_context),
-            Pattern::MatchAs(as_pattern) => self.codegen_pattern_as(&as_pattern, pattern_context),
-            Pattern::MatchOr(_or_pattern) => Err(self.error(CodegenErrorType::NotImplementedYet)),
-        }
+        );
+        Ok(())
     }
 
     fn compile_match_inner(
@@ -1852,9 +1943,13 @@ impl Compiler {
         let end_block = *pattern_context.blocks.last().unwrap();
 
         let match_case_type = cases.last().expect("cases is not empty");
-        let has_default = match_case_type.pattern.is_match_star() && 1 < cases.len();
+        // TODO: doesn't have to be a default case
+        // let has_default = match_case_type.pattern.is_match_as() && 1 < cases.len();
+        let has_default = false;
         for i in 0..cases.len() - (has_default as usize) {
             self.switch_to_block(pattern_context.blocks[i]);
+            pattern_context.current_block = i;
+            pattern_context.allow_irrefutable = cases[i].guard.is_some() || i == cases.len() - 1;
             let m = &cases[i];
             // Only copy the subject if we're *not* on the last case:
             if i != cases.len() - has_default as usize - 1 {
@@ -1871,7 +1966,6 @@ impl Compiler {
             self.switch_to_block(*pattern_context.blocks.last().unwrap());
             if cases.len() == 1 {
                 // No matches. Done with the subject:
-                // ADDOP(c, LOC(m->pattern), POP_TOP);
                 emit!(self, Instruction::Pop);
             } else {
                 // Show line coverage for default case (it doesn't create bytecode)
@@ -1898,7 +1992,9 @@ impl Compiler {
         cases: &[located_ast::MatchCase],
     ) -> CompileResult<()> {
         let mut pattern_context = PatternContext {
+            current_block: usize::MAX,
             blocks: Vec::new(),
+            allow_irrefutable: false,
         };
         self.compile_match_inner(subject, cases, &mut pattern_context)?;
         Ok(())
@@ -3496,17 +3592,15 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
     fn test_match() {
         assert_dis_snapshot!(compile_exec(
             r#"\
-v = "one"
-
+v = 5
 match v:
-    case "one":
-        v = "two"
-    case "two":
-        v = "three"
-    case "three":
-        v = "one"
-#    case _:
-#        v = "one"
+    case 1:
+        print("v is 1")
+    case 2:
+        print("v is 2")
+    case _:
+        print("v is something else")
+
 "#
         ));
     }
