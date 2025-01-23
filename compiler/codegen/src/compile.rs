@@ -1784,18 +1784,16 @@ impl Compiler {
         as_pattern: &PatternMatchAs<SourceRange>,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        if as_pattern.pattern.is_none() {
-            if !pattern_context.allow_irrefutable {
-                // TODO: better error message
-                if let Some(_name) = as_pattern.name.as_ref() {
-                    return Err(
-                        self.error_loc(CodegenErrorType::InvalidMatchCase, as_pattern.location())
-                    );
-                }
+        if as_pattern.pattern.is_none() && !pattern_context.allow_irrefutable {
+            // TODO: better error message
+            if let Some(_name) = as_pattern.name.as_ref() {
                 return Err(
                     self.error_loc(CodegenErrorType::InvalidMatchCase, as_pattern.location())
                 );
             }
+            return Err(
+                self.error_loc(CodegenErrorType::InvalidMatchCase, as_pattern.location())
+            );
         }
         // Need to make a copy for (possibly) storing later:
         emit!(self, Instruction::Duplicate);
@@ -1816,8 +1814,8 @@ impl Compiler {
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         match &pattern_type {
-            Pattern::MatchValue(value) => self.compile_pattern_value(&value, pattern_context),
-            Pattern::MatchAs(as_pattern) => self.compile_pattern_as(&as_pattern, pattern_context),
+            Pattern::MatchValue(value) => self.compile_pattern_value(value, pattern_context),
+            Pattern::MatchAs(as_pattern) => self.compile_pattern_as(as_pattern, pattern_context),
             _ => Err(self.error(CodegenErrorType::NotImplementedYet)),
         }
     }
@@ -1885,7 +1883,7 @@ impl Compiler {
         self.switch_to_block(end_block);
 
         let code = self.current_code_info();
-        let _ = pattern_context
+        pattern_context
             .blocks
             .iter()
             .zip(pattern_context.blocks.iter().skip(1))
