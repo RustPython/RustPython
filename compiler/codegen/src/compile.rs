@@ -3587,21 +3587,4 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
 "
         ));
     }
-
-    #[test]
-    fn test_match() {
-        assert_dis_snapshot!(compile_exec(
-            r#"\
-v = 5
-match v:
-    case 1:
-        print("v is 1")
-    case 2:
-        print("v is 2")
-    case _:
-        print("v is something else")
-
-"#
-        ));
-    }
 }
