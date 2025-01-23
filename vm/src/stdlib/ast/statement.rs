@@ -276,37 +276,33 @@ impl Node for ruff::StmtDelete {
 }
 // constructor
 impl Node for ruff::StmtAssign {
-    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let Self {
             targets,
             value,
             // type_comment,
-            range: _range,
+            range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtAssign::static_type().to_owned())
+            .into_ref_with_type(vm, gen::NodeStmtAssign::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("targets", targets.ast_to_object(_vm), _vm)
+        dict.set_item("targets", targets.ast_to_object(vm), vm)
             .unwrap();
-        dict.set_item("value", value.ast_to_object(_vm), _vm)
-            .unwrap();
-        // dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
-        //     .unwrap();
-        node_add_location(&dict, _range, _vm);
+        dict.set_item("value", value.ast_to_object(vm), vm).unwrap();
+        // TODO
+        dict.set_item("type_comment", vm.ctx.none(), vm).unwrap();
+        node_add_location(&dict, range, vm);
         node.into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         Ok(Self {
-            targets: Node::ast_from_object(
-                _vm,
-                get_node_field(_vm, &_object, "targets", "Assign")?,
-            )?,
-            value: Node::ast_from_object(_vm, get_node_field(_vm, &_object, "value", "Assign")?)?,
+            targets: Node::ast_from_object(vm, get_node_field(vm, &object, "targets", "Assign")?)?,
+            value: Node::ast_from_object(vm, get_node_field(vm, &object, "value", "Assign")?)?,
             // type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
             //     .map(|obj| Node::ast_from_object(_vm, obj))
             //     .transpose()?,
-            range: range_from_object(_vm, _object, "Assign")?,
+            range: range_from_object(vm, object, "Assign")?,
         })
     }
 }

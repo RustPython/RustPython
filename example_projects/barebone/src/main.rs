@@ -51,10 +51,15 @@ compile(a, '<string>', 'exec')
         _ = vm.unwrap_pyresult(r);
 
         let s = vm.new_scope_with_builtins();
+        let () = vm.unwrap_pyresult(s.locals.mapping().ass_subscript(
+            &vm.ctx.new_str("b"),
+            Some(vm.ctx.new_str(source).into()),
+            vm,
+        ));
         _ = vm.unwrap_pyresult(vm.run_code_string(
             s.clone(),
             r#"import ast
-a = ast.unparse(ast.parse('import ast'))"#,
+a = ast.unparse(ast.parse(b))"#,
             "<string>".to_string(),
         ));
         s.locals.mapping().subscript(&vm.ctx.new_str("a"), vm)

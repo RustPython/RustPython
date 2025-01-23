@@ -123,8 +123,13 @@ impl Node for Constant {
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value, vm).unwrap();
-        if is_str && is_unicode {
-            dict.set_item("kind", kind, vm).unwrap();
+        if is_str {
+            if is_unicode {
+                dict.set_item("kind", kind, vm).unwrap();
+            } else {
+                dict.set_item("kind", vm.ctx.empty_str.to_pyobject(vm), vm)
+                    .unwrap();
+            }
         }
         node_add_location(&dict, range, vm);
         node.into()
