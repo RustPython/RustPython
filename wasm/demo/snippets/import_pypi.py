@@ -1,13 +1,12 @@
-import asyncweb
-import whlimport
-
-whlimport.setup()
-
 # make sys.modules['os'] a dumb version of the os module, which has posixpath
 # available as os.path as well as a few other utilities, but will raise an
 # OSError for anything that actually requires an OS
 import _dummy_os
-_dummy_os._shim()
+
+import asyncweb
+import whlimport
+
+whlimport.setup()
 
 @asyncweb.main
 async def main():

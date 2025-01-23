@@ -35,12 +35,14 @@ impl VirtualMachine {
             return Ok(());
         }
 
-        let dir = std::path::Path::new(path)
-            .parent()
-            .unwrap()
-            .to_str()
-            .unwrap();
-        self.insert_sys_path(self.new_pyobj(dir))?;
+        if !self.state.settings.safe_path {
+            let dir = std::path::Path::new(path)
+                .parent()
+                .unwrap()
+                .to_str()
+                .unwrap();
+            self.insert_sys_path(self.new_pyobj(dir))?;
+        }
 
         match std::fs::read_to_string(path) {
             Ok(source) => {

@@ -55,19 +55,14 @@ const fn zst_ref_out_of_thin_air<T: 'static>(x: T) -> &'static T {
     // would never get called anyway if we consider this semantically a Box::leak(Box::new(x))-type
     // operation. if T isn't zero-sized, we don't have to worry about it because we'll fail to compile.
     std::mem::forget(x);
-    trait Zst: Sized + 'static {
-        const THIN_AIR: &'static Self = {
-            if std::mem::size_of::<Self>() == 0 {
-                // SAFETY: we just confirmed that Self is zero-sized, so we can
-                //         pull a value of it out of thin air.
-                unsafe { std::ptr::NonNull::<Self>::dangling().as_ref() }
-            } else {
-                panic!("can't use a non-zero-sized type here")
-            }
-        };
+    const {
+        if std::mem::size_of::<T>() != 0 {
+            panic!("can't use a non-zero-sized type here")
+        }
+        // SAFETY: we just confirmed that T is zero-sized, so we can
+        //         pull a value of it out of thin air.
+        unsafe { std::ptr::NonNull::<T>::dangling().as_ref() }
     }
-    impl<T: 'static> Zst for T {}
-    <T as Zst>::THIN_AIR
 }
 
 /// Get the [`STATIC_FUNC`](IntoPyNativeFn::STATIC_FUNC) of the passed function. The same

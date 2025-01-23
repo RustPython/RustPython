@@ -390,7 +390,7 @@ impl PyAsyncGenAThrow {
     }
 
     fn ignored_close(&self, res: &PyResult<PyIterReturn>) -> bool {
-        res.as_ref().map_or(false, |v| match v {
+        res.as_ref().is_ok_and(|v| match v {
             PyIterReturn::Return(obj) => obj.payload_is::<PyAsyncGenWrappedValue>(),
             PyIterReturn::StopIteration(_) => false,
         })

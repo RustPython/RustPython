@@ -365,7 +365,15 @@ impl VirtualMachine {
         let actual_class = obj.class();
         let actual_type = &*actual_class.name();
         let expected_type = &*class.name();
-        let msg = format!("Expected {msg} '{expected_type}' but '{actual_type}' found");
+        let msg = format!("Expected {msg} '{expected_type}' but '{actual_type}' found.");
+        #[cfg(debug_assertions)]
+        let msg = if class.get_id() == actual_class.get_id() {
+            let mut msg = msg;
+            msg += " Did you forget to add `#[pyclass(with(Constructor))]`?";
+            msg
+        } else {
+            msg
+        };
         self.new_exception_msg(error_type.to_owned(), msg)
     }
 
@@ -393,5 +401,10 @@ impl VirtualMachine {
             class,
             obj.as_object(),
         )
+    }
+
+    pub fn new_eof_error(&self, msg: String) -> PyBaseExceptionRef {
+        let eof_error = self.ctx.exceptions.eof_error.to_owned();
+        self.new_exception_msg(eof_error, msg)
     }
 }

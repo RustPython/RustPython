@@ -558,7 +558,7 @@ impl AttributeExt for Attribute {
             let has_name = list
                 .nested
                 .iter()
-                .any(|nested_meta| nested_meta.get_path().map_or(false, |p| p.is_ident(name)));
+                .any(|nested_meta| nested_meta.get_path().is_some_and(|p| p.is_ident(name)));
             if !has_name {
                 list.nested.push(new_item())
             }

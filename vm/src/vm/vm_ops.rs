@@ -298,8 +298,8 @@ impl VirtualMachine {
         }
 
         if let Some(slot_c) = class_c.slots.as_number.left_ternary_op(op_slot) {
-            if slot_a.map_or(false, |slot_a| (slot_a as usize) != (slot_c as usize))
-                && slot_b.map_or(false, |slot_b| (slot_b as usize) != (slot_c as usize))
+            if slot_a.is_some_and(|slot_a| slot_a != slot_c)
+                && slot_b.is_some_and(|slot_b| slot_b != slot_c)
             {
                 let ret = slot_c(a, b, c, self)?;
                 if !ret.is(&self.ctx.not_implemented) {

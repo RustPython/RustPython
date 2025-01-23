@@ -382,7 +382,7 @@ impl ExecutingFrame<'_> {
                         let next = exception.traceback();
                         let new_traceback =
                             PyTraceback::new(next, frame.object.to_owned(), frame.lasti(), loc.row);
-                        vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row());
+                        vm_trace!("Adding to traceback: {:?} {:?}", new_traceback, loc.row);
                         exception.set_traceback(Some(new_traceback.into_ref(&vm.ctx)));
 
                         vm.contextualize_exception(&exception);
@@ -1534,7 +1534,7 @@ impl ExecutingFrame<'_> {
                 .topmost_exception()
                 .ok_or_else(|| vm.new_runtime_error("No active exception to reraise".to_owned()))?,
         };
-        info!("Exception raised: {:?} with cause: {:?}", exception, cause);
+        debug!("Exception raised: {:?} with cause: {:?}", exception, cause);
         if let Some(cause) = cause {
             exception.set_cause(cause);
         }

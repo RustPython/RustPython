@@ -76,7 +76,7 @@ mod _sqlite {
         ffi::{c_int, c_longlong, c_uint, c_void, CStr},
         fmt::Debug,
         ops::Deref,
-        ptr::{addr_of_mut, null, null_mut},
+        ptr::{null, null_mut},
         thread::ThreadId,
     };
 
@@ -1004,7 +1004,9 @@ mod _sqlite {
             )
         }
 
+        // TODO: Make it build without clippy::manual_c_str_literals
         #[pymethod]
+        #[allow(clippy::manual_c_str_literals)]
         fn backup(zelf: &Py<Self>, args: BackupArgs, vm: &VirtualMachine) -> PyResult<()> {
             let BackupArgs {
                 target,
@@ -1178,14 +1180,10 @@ mod _sqlite {
                 )
             };
 
-            // TODO: replace with Result.inspect_err when stable
-            if let Err(exc) = db.check(ret, vm) {
+            db.check(ret, vm).inspect_err(|_| {
                 // create_collation do not call destructor if error occur
                 let _ = unsafe { Box::from_raw(data) };
-                Err(exc)
-            } else {
-                Ok(())
-            }
+            })
         }
 
         #[pymethod]
@@ -2396,7 +2394,7 @@ mod _sqlite {
             let ret = unsafe {
                 sqlite3_open_v2(
                     path,
-                    addr_of_mut!(db),
+                    &raw mut db,
                     SQLITE_OPEN_READWRITE
                         | SQLITE_OPEN_CREATE
                         | if uri { SQLITE_OPEN_URI } else { 0 },

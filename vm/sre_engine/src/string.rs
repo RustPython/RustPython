@@ -25,7 +25,7 @@ pub trait StrDrive: Copy {
     fn back_skip(cursor: &mut StringCursor, n: usize);
 }
 
-impl<'a> StrDrive for &'a [u8] {
+impl StrDrive for &[u8] {
     #[inline]
     fn count(&self) -> usize {
         self.len()

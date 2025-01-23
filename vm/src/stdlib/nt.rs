@@ -62,7 +62,7 @@ pub(crate) mod module {
                 .as_path()
                 .parent()
                 .and_then(|dst_parent| dst_parent.join(&args.src).symlink_metadata().ok())
-                .map_or(false, |meta| meta.is_dir());
+                .is_some_and(|meta| meta.is_dir());
         let res = if dir {
             win_fs::symlink_dir(args.src.path, args.dst.path)
         } else {

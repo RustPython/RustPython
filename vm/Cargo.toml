@@ -42,7 +42,6 @@ rustpython-sre_engine = { workspace = true }
 
 ascii = { workspace = true }
 ahash = { workspace = true }
-atty = { workspace = true }
 bitflags = { workspace = true }
 bstr = { workspace = true }
 cfg-if = { workspace = true }
@@ -68,16 +67,18 @@ paste = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true, optional = true }
 static_assertions = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 thiserror = { workspace = true }
 thread_local = { workspace = true }
 memchr = { workspace = true }
 
-caseless = "0.2.1"
+caseless = "0.2.2"
 flamer = { version = "0.4", optional = true }
 half = "2"
 memoffset = "0.9.1"
 optional = "0.5.0"
-result-like = "0.4.6"
+result-like = "0.5.0"
 timsort = "0.1.2"
 
 ## unicode stuff
@@ -94,8 +95,6 @@ unic-ucd-ident     = "0.9.0"
 rustix = { workspace = true }
 exitcode = "1.1.2"
 uname = "0.1.1"
-strum = { workspace = true }
-strum_macros = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = { workspace = true }

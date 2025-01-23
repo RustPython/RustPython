@@ -49,6 +49,7 @@ impl Jit {
         &mut self,
         bytecode: &bytecode::CodeObject<C>,
         args: &[JitType],
+        ret: Option<JitType>,
     ) -> Result<(FuncId, JitSig), JitCompileError> {
         for arg in args {
             self.ctx
@@ -58,28 +59,43 @@ impl Jit {
                 .push(AbiParam::new(arg.to_cranelift()));
         }
 
-        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
-        let entry_block = builder.create_block();
-        builder.append_block_params_for_function_params(entry_block);
-        builder.switch_to_block(entry_block);
-
-        let sig = {
-            let mut compiler =
-                FunctionCompiler::new(&mut builder, bytecode.varnames.len(), args, entry_block);
-
-            compiler.compile(bytecode)?;
-
-            compiler.sig
-        };
-
-        builder.seal_all_blocks();
-        builder.finalize();
+        if ret.is_some() {
+            self.ctx
+                .func
+                .signature
+                .returns
+                .push(AbiParam::new(ret.clone().unwrap().to_cranelift()));
+        }
 
         let id = self.module.declare_function(
             &format!("jit_{}", bytecode.obj_name.as_ref()),
             Linkage::Export,
             &self.ctx.func.signature,
         )?;
+
+        let func_ref = self.module.declare_func_in_func(id, &mut self.ctx.func);
+
+        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        let entry_block = builder.create_block();
+        builder.append_block_params_for_function_params(entry_block);
+        builder.switch_to_block(entry_block);
+
+        let sig = {
+            let mut compiler = FunctionCompiler::new(
+                &mut builder,
+                bytecode.varnames.len(),
+                args,
+                ret,
+                entry_block,
+            );
+
+            compiler.compile(func_ref, bytecode)?;
+
+            compiler.sig
+        };
+
+        builder.seal_all_blocks();
+        builder.finalize();
 
         self.module.define_function(id, &mut self.ctx)?;
 
@@ -92,10 +108,11 @@ impl Jit {
 pub fn compile<C: bytecode::Constant>(
     bytecode: &bytecode::CodeObject<C>,
     args: &[JitType],
+    ret: Option<JitType>,
 ) -> Result<CompiledCode, JitCompileError> {
     let mut jit = Jit::new();
 
-    let (id, sig) = jit.build_function(bytecode, args)?;
+    let (id, sig) = jit.build_function(bytecode, args, ret)?;
 
     jit.module.finalize_definitions();
 
@@ -341,7 +358,7 @@ pub struct Args<'a> {
     code: &'a CompiledCode,
 }
 
-impl<'a> Args<'a> {
+impl Args<'_> {
     pub fn invoke(&self) -> Option<AbiValue> {
         unsafe { self.code.invoke_raw(&self.cif_args) }
     }

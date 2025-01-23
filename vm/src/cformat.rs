@@ -296,7 +296,7 @@ pub(crate) fn cformat_bytes(
         return if is_mapping
             || values_obj
                 .payload::<tuple::PyTuple>()
-                .map_or(false, |e| e.is_empty())
+                .is_some_and(|e| e.is_empty())
         {
             for (_, part) in format.iter_mut() {
                 match part {
@@ -397,7 +397,7 @@ pub(crate) fn cformat_string(
         return if is_mapping
             || values_obj
                 .payload::<tuple::PyTuple>()
-                .map_or(false, |e| e.is_empty())
+                .is_some_and(|e| e.is_empty())
         {
             for (_, part) in format.iter() {
                 match part {

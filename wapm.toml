@@ -8,7 +8,7 @@ repository = "https://github.com/RustPython/RustPython"
 
 [[module]]
 name = "rustpython"
-source = "target/wasm32-wasi/release/rustpython.wasm"
+source = "target/wasm32-wasip1/release/rustpython.wasm"
 abi = "wasi"
 
 [[command]]

@@ -3036,16 +3036,17 @@ impl Compiler {
     fn switch_to_block(&mut self, block: ir::BlockIdx) {
         let code = self.current_code_info();
         let prev = code.current_block;
+        assert_ne!(prev, block, "recursive switching {prev:?} -> {block:?}");
         assert_eq!(
             code.blocks[block].next,
             ir::BlockIdx::NULL,
-            "switching to completed block"
+            "switching {prev:?} -> {block:?} to completed block"
         );
         let prev_block = &mut code.blocks[prev.0 as usize];
         assert_eq!(
             prev_block.next.0,
             u32::MAX,
-            "switching from block that's already got a next"
+            "switching {prev:?} -> {block:?} from block that's already got a next"
         );
         prev_block.next = block;
         code.current_block = block;
@@ -3102,19 +3103,18 @@ impl Compiler {
             Expr::Tuple(ExprTuple { elts, .. }) => elts.iter().any(Self::contains_await),
             Expr::Set(ExprSet { elts, .. }) => elts.iter().any(Self::contains_await),
             Expr::Dict(ExprDict { keys, values, .. }) => {
-                keys.iter()
-                    .any(|key| key.as_ref().map_or(false, Self::contains_await))
+                keys.iter().flatten().any(Self::contains_await)
                     || values.iter().any(Self::contains_await)
             }
             Expr::Slice(ExprSlice {
                 lower, upper, step, ..
             }) => {
-                lower.as_ref().map_or(false, |l| Self::contains_await(l))
-                    || upper.as_ref().map_or(false, |u| Self::contains_await(u))
-                    || step.as_ref().map_or(false, |s| Self::contains_await(s))
+                lower.as_deref().is_some_and(Self::contains_await)
+                    || upper.as_deref().is_some_and(Self::contains_await)
+                    || step.as_deref().is_some_and(Self::contains_await)
             }
             Expr::Yield(ExprYield { value, .. }) => {
-                value.as_ref().map_or(false, |v| Self::contains_await(v))
+                value.as_deref().is_some_and(Self::contains_await)
             }
             Expr::Await(ExprAwait { .. }) => true,
             Expr::YieldFrom(ExprYieldFrom { value, .. }) => Self::contains_await(value),
@@ -3128,9 +3128,7 @@ impl Compiler {
                 ..
             }) => {
                 Self::contains_await(value)
-                    || format_spec
-                        .as_ref()
-                        .map_or(false, |fs| Self::contains_await(fs))
+                    || format_spec.as_deref().is_some_and(Self::contains_await)
             }
             Expr::Name(located_ast::ExprName { .. }) => false,
             Expr::Lambda(located_ast::ExprLambda { body, .. }) => Self::contains_await(body),

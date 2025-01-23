@@ -15,8 +15,8 @@ A Python-3 (CPython >= 3.8.0) Interpreter written in Rust.
 
 ## Goals
 
--   Full Python-3 environment entirely in Rust (not CPython bindings)
--   A clean implementation without compatibility hacks
+- Full Python-3 environment entirely in Rust (not CPython bindings)
+- A clean implementation without compatibility hacks
 
 ## Quick Documentation
 
@@ -28,12 +28,12 @@ pyEval(code, options?);
 
 `options`:
 
--   `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
-    accessed in Python with the variable `js_vars`. Functions do work, and
-    receive the Python kwargs as the `this` argument.
--   `stdout?`: `"console" | ((out: string) => void) | null`: A function to replace the
-    native print function, and it will be `console.log` when giving `undefined`
-    or "console", and it will be a dumb function when giving null.
+- `vars?`: `{ [key: string]: any }`: Variables passed to the VM that can be
+  accessed in Python with the variable `js_vars`. Functions do work, and
+  receive the Python kwargs as the `this` argument.
+- `stdout?`: `"console" | ((out: string) => void) | null`: A function to replace the
+  native print function, and it will be `console.log` when giving `undefined`
+  or "console", and it will be a dumb function when giving null.
 
 ## License
 
