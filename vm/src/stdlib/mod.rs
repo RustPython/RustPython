@@ -47,6 +47,8 @@ pub mod sys;
 mod winapi;
 #[cfg(windows)]
 mod winreg;
+
+#[cfg(feature = "ctypes")]
 mod ctypes;
 
 use crate::{builtins::PyModule, PyRef, VirtualMachine};
@@ -103,9 +105,12 @@ pub fn get_module_inits() -> StdlibMap {
         {
             "symtable" => symtable::make_module,
         }
-        #[cfg(any(unix, windows, target_os = "wasi"))]
+        #[cfg(any(unix, windows))]
         {
-            "_ctypes" => ctypes::make_module,
+            #[cfg(feature = "ctypes")]
+            {
+                "_ctypes" => ctypes::make_module,
+            }
         }
         #[cfg(any(unix, target_os = "wasi"))]
         {

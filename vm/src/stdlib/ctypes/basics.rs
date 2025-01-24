@@ -6,19 +6,19 @@ use crate::builtins::int::PyInt;
 use crate::builtins::pystr::PyStrRef;
 use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
 use crate::function::OptionalArg;
-use crate::{AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
+use crate::{AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
 
 use crate::stdlib::ctypes::array::make_array_with_length;
 use crate::stdlib::ctypes::dll::dlsym;
 use crate::stdlib::ctypes::primitive::{new_simple_type, PyCSimple};
 use crate::function::Either;
 
-use crate::builtins::PyTypeRef;
+use crate::builtins::{PyType, PyTypeRef};
 use crate::protocol::PyBuffer;
 use crossbeam_utils::atomic::AtomicCell;
 use crate::class::StaticType;
 use crate::convert::IntoObject;
-use crate::object::MaybeTraverse;
+use crate::object::{MaybeTraverse, TraverseFn};
 use crate::types::AsBuffer;
 
 pub fn get_size(ty: &str) -> usize {

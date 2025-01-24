@@ -235,7 +235,7 @@ pub fn new_simple_type(
     };
 
     if let Ok(_type_) = cls.get_attr("_type_", vm) {
-        if vm.isinstance(&_type_, &vm.ctx.types.str_type)? {
+        if _type_.is_instance(&vm.ctx.types.str_type.as_ref(), vm)? {
             let tp_str = _type_.downcast_exact::<PyStr>(vm).unwrap().to_string();
 
             if tp_str.len() != 1 {
@@ -270,7 +270,8 @@ impl PySimpleMeta {
         Ok(new_simple_type(Either::B(&cls), vm)?
             .into_ref_with_type(vm, cls)?
             .as_object()
-            .clone())
+            .clone()
+            .to_pyobject(vm))
     }
 }
 
@@ -328,7 +329,7 @@ impl PyCDataMethods for PySimpleMeta {
                 "z" | "Z" => from_param_char_p(&cls, &value, vm),
                 "P" => from_param_void_p(&cls, &value, vm),
                 _ => match new_simple_type(Either::B(&cls), vm) {
-                    Ok(obj) => Ok(obj.into_object(vm)),
+                    Ok(obj) => Ok(obj.into_object(vm).to_pyobject(vm)),
                     Err(e) => {
                         if e.clone().into_object().is_instance(vm.ctx.exceptions.type_error.into(), vm)?
                             || e.clone().into_object().is_instance(
@@ -383,7 +384,7 @@ impl PyCSimple {
     pub fn ctypes_from_outparam(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         if let Some(base) = zelf.class().base.clone() {
             if vm.bool_eq(&base.as_object(), PyCSimple::static_type().as_object())? {
-                return Ok(zelf.as_object().clone());
+                return Ok(zelf.as_object().clone().to_pyobject(vm));
             }
         }
         Ok(zelf.value())

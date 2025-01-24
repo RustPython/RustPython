@@ -113,7 +113,8 @@ fn set_array_value(
         return Err(vm.new_type_error("not a ctype instance".to_string()));
     }
 
-    let obj_cls = obj.clone().class().clone();
+    let obj_clone = obj.clone();
+    let obj_cls = obj_clone.class().clone();
 
     // TODO: ensure fast_issubclass is the right thing to use
     if !obj_cls.fast_issubclass(PyCData::static_type()) {
@@ -363,8 +364,8 @@ impl PyCDataMethods for PyCArrayMeta {
                     if value_len > length {
                         return Err(vm.new_value_error("Invalid length".to_string()));
                     }
-                    value = make_array_with_length(&cls, length, vm)?.as_object().clone();
-                } else if value.is_instance(&cls, vm).is_err() {
+                    value = make_array_with_length(cls.clone().into_ref(&vm.ctx), length, vm)?.as_object().clone();
+                } else if value.is_instance(cls.clone().into_ref(&vm.ctx).as_ref(), vm).is_err() {
                     return Err(
                         vm.new_type_error(format!("expected bytes, {} found", value.class().name()))
                     );
@@ -428,7 +429,7 @@ impl PyCArray {
             let value_length = value.length(vm)?;
 
             if value_length < zelf._length_ {
-                let value_vec: Vec<PyObjectRef> = vm.extract_elements(&value)?;
+                let value_vec: Vec<PyObjectRef> = value.try_into_value(vm)?;
                 for (i, v) in value_vec.iter().enumerate() {
                     Self::setitem(zelf.clone(), SequenceIndex::Int(i as isize), v.clone(), vm)?
                 }
@@ -454,7 +455,7 @@ impl PyCArray {
     pub fn value(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
         // TODO: make sure that this is correct
         let obj = zelf.as_object();
-        let buffer = PyBuffer::try_from_object(vm, &obj)?;
+        let buffer = PyBuffer::try_from_object(vm, obj)?;
 
         let res = if zelf._type_._type_ == "u" {
             vm.new_pyobj(
@@ -466,9 +467,9 @@ impl PyCArray {
                                 .chunks_exact(2)
                                 .map(|c| {
                                     let chunk: [u8; 2] = c.try_into().unwrap();
-                                    u16::from_ne_bytes(chunk) as u32
+                                    u16::from_ne_bytes(chunk)
                                 })
-                                .collect::<Vec<u32>>(),
+                                .collect::<Vec<u16>>(),
                         )
                     } else {
                         WideCString::from_vec_unchecked(
