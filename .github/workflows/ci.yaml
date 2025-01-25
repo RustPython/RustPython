@@ -105,7 +105,7 @@ env:
     test_weakref
     test_yield_from
   # Python version targeted by the CI.
-  PYTHON_VERSION: "3.12.3"
+  PYTHON_VERSION: "3.13.1"
 
 jobs:
   rust_tests:
