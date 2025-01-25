@@ -132,11 +132,11 @@ impl Node for ruff::PatternMatchSingleton {
     }
 }
 impl Node for ruff::Singleton {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         todo!()
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -250,43 +250,43 @@ impl Node for ruff::PatternMatchClass {
 }
 
 struct PatternMatchClassPatterns {
-    pub range: TextRange,
+    pub _range: TextRange, // TODO: Use this
 }
 
 impl Node for PatternMatchClassPatterns {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         todo!()
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
 
 struct PatternMatchClassKeywordAttributes {
-    pub range: TextRange,
+    pub _range: TextRange, // TODO: Use this
 }
 
 impl Node for PatternMatchClassKeywordAttributes {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         todo!()
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
 
 struct PatternMatchClassKeywordPatterns {
-    pub range: TextRange,
+    pub _range: TextRange, // TODO: Use this
 }
 
 impl Node for PatternMatchClassKeywordPatterns {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         todo!()
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -372,7 +372,7 @@ impl Node for ruff::PatternMatchOr {
 }
 
 fn split_pattern_match_class(
-    arguments: ruff::PatternArguments,
+    _arguments: ruff::PatternArguments,
 ) -> (
     PatternMatchClassPatterns,
     PatternMatchClassKeywordAttributes,
@@ -383,9 +383,9 @@ fn split_pattern_match_class(
 
 /// Merges the pattern match class attributes and patterns, opposite of [`split_pattern_match_class`].
 fn merge_pattern_match_class(
-    patterns: PatternMatchClassPatterns,
-    kwd_attrs: PatternMatchClassKeywordAttributes,
-    kwd_patterns: PatternMatchClassKeywordPatterns,
+    _patterns: PatternMatchClassPatterns,
+    _kwd_attrs: PatternMatchClassKeywordAttributes,
+    _kwd_patterns: PatternMatchClassKeywordPatterns,
 ) -> (Vec<ruff::Pattern>, Vec<ruff::PatternKeyword>) {
     todo!()
 }

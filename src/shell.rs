@@ -1,10 +1,8 @@
 mod helper;
 
-// use ruff_python_parser::{error::LexicalErrorType, ParseErrorType};
-use rustpython_compiler::codegen::error::CodegenError;
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
-    compiler::{self, CompileError, CompileErrorType},
+    compiler::{self},
     readline::{Readline, ReadlineResult},
     scope::Scope,
     AsObject, PyResult, VirtualMachine,

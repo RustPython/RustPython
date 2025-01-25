@@ -1,3 +1,4 @@
+use ruff_python_ast::ExprContext;
 use super::*;
 use crate::builtins::{PyComplex, PyTuple};
 
@@ -243,8 +244,10 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
                 .into_iter()
                 .map(|v| constant_to_ruff_expr(v))
                 .collect(),
-            ctx: todo!(),
-            parenthesized: todo!(),
+            // TODO
+            ctx: ExprContext::Invalid,
+            // TODO: Does this matter?
+            parenthesized: true,
         }),
         ConstantLiteral::Float(value) => ruff::Expr::NumberLiteral(ruff::ExprNumberLiteral {
             range,

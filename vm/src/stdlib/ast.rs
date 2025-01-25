@@ -82,12 +82,12 @@ struct SourceRange {
     end: SourceLocation,
 }
 
-fn source_location_to_text_size(source_location: SourceLocation) -> TextSize {
+fn source_location_to_text_size(_source_location: SourceLocation) -> TextSize {
     // TODO: Maybe implement this?
     TextSize::default()
 }
 
-fn text_range_to_source_range(text_range: TextRange) -> SourceRange {
+fn text_range_to_source_range(_text_range: TextRange) -> SourceRange {
     // TODO: Maybe implement this?
     SourceRange {
         start: SourceLocation::default(),
@@ -96,7 +96,7 @@ fn text_range_to_source_range(text_range: TextRange) -> SourceRange {
 }
 
 fn range_from_object(vm: &VirtualMachine, object: PyObjectRef, name: &str) -> PyResult<TextRange> {
-    fn make_location(row: PyIntRef, column: PyIntRef) -> Option<SourceLocation> {
+    fn make_location(_row: PyIntRef, _column: PyIntRef) -> Option<SourceLocation> {
         // TODO: Maybe implement this?
         // let row = row.to_u64().unwrap().try_into().unwrap();
         // let column = column.to_u64().unwrap().try_into().unwrap();

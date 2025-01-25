@@ -96,11 +96,11 @@ impl Node for ruff::Parameter {
     }
 }
 impl Node for ruff::ParameterWithDefault {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         todo!()
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -134,7 +134,7 @@ impl Node for ruff::Keyword {
 }
 
 struct PositionalParameters {
-    pub range: TextRange,
+    pub _range: TextRange, // TODO: Use this
     pub args: Box<[ruff::Parameter]>,
 }
 
@@ -147,13 +147,13 @@ impl Node for PositionalParameters {
         let args: BoxedSlice<_> = Node::ast_from_object(vm, object)?;
         Ok(Self {
             args: args.0,
-            range: TextRange::default(), // TODO
+            _range: TextRange::default(), // TODO
         })
     }
 }
 
 struct KeywordParameters {
-    pub range: TextRange,
+    pub _range: TextRange, // TODO: Use this
     pub keywords: Box<[ruff::Parameter]>,
 }
 
@@ -166,13 +166,13 @@ impl Node for KeywordParameters {
         let keywords: BoxedSlice<_> = Node::ast_from_object(vm, object)?;
         Ok(Self {
             keywords: keywords.0,
-            range: TextRange::default(), // TODO
+            _range: TextRange::default(), // TODO
         })
     }
 }
 
 struct ParameterDefaults {
-    pub range: TextRange,
+    pub _range: TextRange, // TODO: Use this
     defaults: Box<[Option<Box<ruff::Expr>>]>,
 }
 
@@ -185,7 +185,7 @@ impl Node for ParameterDefaults {
         let defaults: BoxedSlice<_> = Node::ast_from_object(vm, object)?;
         Ok(Self {
             defaults: defaults.0,
-            range: TextRange::default(), // TODO
+            _range: TextRange::default(), // TODO
         })
     }
 }
@@ -206,7 +206,7 @@ fn extract_positional_parameter_defaults(
     // Remove all positional parameters without a default value.
     defaults.retain(Option::is_some);
     let defaults = ParameterDefaults {
-        range: defaults
+        _range: defaults
             .iter()
             .flatten()
             .map(|item| item.range())
@@ -216,7 +216,7 @@ fn extract_positional_parameter_defaults(
     };
 
     let pos_only_args = PositionalParameters {
-        range: pos_only_args
+        _range: pos_only_args
             .iter()
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
@@ -231,7 +231,7 @@ fn extract_positional_parameter_defaults(
     };
 
     let args = PositionalParameters {
-        range: args
+        _range: args
             .iter()
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
@@ -295,7 +295,7 @@ fn extract_keyword_parameter_defaults(
     let mut defaults = vec![];
     defaults.extend(kw_only_args.iter().map(|item| item.default.clone()));
     let defaults = ParameterDefaults {
-        range: defaults
+        _range: defaults
             .iter()
             .flatten()
             .map(|item| item.range())
@@ -305,7 +305,7 @@ fn extract_keyword_parameter_defaults(
     };
 
     let kw_only_args = KeywordParameters {
-        range: kw_only_args
+        _range: kw_only_args
             .iter()
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))

@@ -1,11 +1,11 @@
 use super::*;
 
 impl Node for ruff::TypeParams {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         todo!()
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -43,7 +43,7 @@ impl Node for ruff::TypeParamTypeVar {
             name,
             bound,
             range: _range,
-            default,
+            default: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, gen::NodeTypeParamTypeVar::static_type().to_owned())

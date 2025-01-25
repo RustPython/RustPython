@@ -826,7 +826,7 @@ impl Node for ruff::ExprBytesLiteral {
         c.ast_to_object(vm)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -838,7 +838,7 @@ impl Node for ruff::ExprBooleanLiteral {
         c.ast_to_object(vm)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -850,7 +850,7 @@ impl Node for ruff::ExprNoneLiteral {
         c.ast_to_object(vm)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -862,7 +862,7 @@ impl Node for ruff::ExprEllipsisLiteral {
         c.ast_to_object(vm)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -878,7 +878,7 @@ impl Node for ruff::ExprNumberLiteral {
         c.ast_to_object(vm)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }

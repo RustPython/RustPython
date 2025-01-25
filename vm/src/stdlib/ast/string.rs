@@ -8,7 +8,7 @@ impl Node for ruff::ExprStringLiteral {
         c.ast_to_object(vm)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -53,7 +53,7 @@ impl Node for ruff::ExprFString {
         c.ast_to_object(vm)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -282,7 +282,7 @@ impl Node for JoinedStrPart {
 }
 
 #[derive(Debug)]
-struct FormattedValue {
+pub(super) struct FormattedValue {
     value: Box<ruff::Expr>,
     conversion: ruff::ConversionFlag,
     format_spec: Option<Box<JoinedStr>>,

@@ -1,9 +1,9 @@
 use super::*;
 impl Node for ruff::Arguments {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
         todo!()
     }
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         todo!()
     }
 }
@@ -35,7 +35,8 @@ pub(super) struct KeywordArguments {
 
 impl Node for KeywordArguments {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        let Self { keywords, range } = self;
+        let Self { keywords, range: _ } = self;
+        // TODO: use range
         BoxedSlice(keywords).ast_to_object(vm)
     }
 
@@ -65,7 +66,7 @@ pub(super) fn split_function_call_arguments(
     args: ruff::Arguments,
 ) -> (PositionalArguments, KeywordArguments) {
     let ruff::Arguments {
-        range,
+        range: _,
         args,
         keywords,
     } = args;
@@ -73,7 +74,7 @@ pub(super) fn split_function_call_arguments(
     let positional_arguments_range = args
         .iter()
         .map(|item| item.range())
-        .reduce(|acc, next| acc.cover(range))
+        .reduce(|acc, next| acc.cover(next))
         .unwrap_or_default();
     // debug_assert!(range.contains_range(positional_arguments_range));
     let positional_arguments = PositionalArguments {
@@ -84,7 +85,7 @@ pub(super) fn split_function_call_arguments(
     let keyword_arguments_range = keywords
         .iter()
         .map(|item| item.range())
-        .reduce(|acc, next| acc.cover(range))
+        .reduce(|acc, next| acc.cover(next))
         .unwrap_or_default();
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
@@ -103,7 +104,7 @@ pub(super) fn split_class_def_args(
         Some(args) => *args,
     };
     let ruff::Arguments {
-        range,
+        range: _,
         args,
         keywords,
     } = args;
@@ -111,7 +112,7 @@ pub(super) fn split_class_def_args(
     let positional_arguments_range = args
         .iter()
         .map(|item| item.range())
-        .reduce(|acc, next| acc.cover(range))
+        .reduce(|acc, next| acc.cover(next))
         .unwrap_or_default();
     // debug_assert!(range.contains_range(positional_arguments_range));
     let positional_arguments = PositionalArguments {
@@ -122,7 +123,7 @@ pub(super) fn split_class_def_args(
     let keyword_arguments_range = keywords
         .iter()
         .map(|item| item.range())
-        .reduce(|acc, next| acc.cover(range))
+        .reduce(|acc, next| acc.cover(next))
         .unwrap_or_default();
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
