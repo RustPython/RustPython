@@ -11,6 +11,7 @@ license.workspace = true
 
 [features]
 default = ["threading", "stdlib", "zlib", "importlib"]
+ctypes = ["rustpython-vm/ctypes"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
 stdlib = ["rustpython-stdlib", "rustpython-pylib", "encodings"]
