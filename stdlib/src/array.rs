@@ -1238,7 +1238,7 @@ mod array {
 
             let res = match array_a.cmp(&array_b) {
                 // fast path for same ArrayContentType type
-                Ok(partial_ord) => partial_ord.map_or(false, |ord| op.eval_ord(ord)),
+                Ok(partial_ord) => partial_ord.is_some_and(|ord| op.eval_ord(ord)),
                 Err(()) => {
                     let iter = Iterator::zip(array_a.iter(vm), array_b.iter(vm));
 

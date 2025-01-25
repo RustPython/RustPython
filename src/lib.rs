@@ -50,13 +50,15 @@ mod interpreter;
 mod settings;
 mod shell;
 
-use atty::Stream;
 use rustpython_vm::{scope::Scope, PyResult, VirtualMachine};
-use std::{env, process::ExitCode};
+use std::env;
+use std::io::IsTerminal;
+use std::process::ExitCode;
 
 pub use interpreter::InterpreterConfig;
 pub use rustpython_vm as vm;
-pub use settings::{opts_with_clap, RunMode};
+pub use settings::{opts_with_clap, InstallPipMode, RunMode};
+pub use shell::run_shell;
 
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
 /// based on the return code of the python code ran through the cli.
@@ -72,9 +74,6 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     }
 
     let (settings, run_mode) = opts_with_clap();
-
-    // Be quiet if "quiet" arg is set OR stdin is not connected to a terminal
-    let quiet_var = settings.quiet || !atty::is(Stream::Stdin);
 
     // don't translate newlines (\r\n <=> \n)
     #[cfg(windows)]
@@ -97,7 +96,7 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     config = config.init_hook(Box::new(init));
 
     let interp = config.interpreter();
-    let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode, quiet_var));
+    let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
 
     ExitCode::from(exitcode)
 }
@@ -117,7 +116,6 @@ fn setup_main_module(vm: &VirtualMachine) -> PyResult<Scope> {
     Ok(scope)
 }
 
-#[cfg(feature = "ssl")]
 fn get_pip(scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
     let get_getpip = rustpython_vm::py_compile!(
         source = r#"\
@@ -128,7 +126,7 @@ __import__("io").TextIOWrapper(
         mode = "eval"
     );
     eprintln!("downloading get-pip.py...");
-    let getpip_code = vm.run_code_obj(vm.ctx.new_code(get_getpip), scope.clone())?;
+    let getpip_code = vm.run_code_obj(vm.ctx.new_code(get_getpip), vm.new_scope_with_builtins())?;
     let getpip_code: rustpython_vm::builtins::PyStrRef = getpip_code
         .downcast()
         .expect("TextIOWrapper.read() should return str");
@@ -137,29 +135,21 @@ __import__("io").TextIOWrapper(
     Ok(())
 }
 
-#[cfg(feature = "ssl")]
-fn ensurepip(_: Scope, vm: &VirtualMachine) -> PyResult<()> {
-    vm.run_module("ensurepip")
-}
-
-fn install_pip(_installer: &str, _scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
-    #[cfg(feature = "ssl")]
-    {
-        match _installer {
-            "ensurepip" => ensurepip(_scope, vm),
-            "get-pip" => get_pip(_scope, vm),
-            _ => unreachable!(),
-        }
+fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
+    if cfg!(not(feature = "ssl")) {
+        return Err(vm.new_exception_msg(
+            vm.ctx.exceptions.system_error.to_owned(),
+            "install-pip requires rustpython be build with '--features=ssl'".to_owned(),
+        ));
     }
 
-    #[cfg(not(feature = "ssl"))]
-    Err(vm.new_exception_msg(
-        vm.ctx.exceptions.system_error.to_owned(),
-        "install-pip requires rustpython be build with '--features=ssl'".to_owned(),
-    ))
+    match installer {
+        InstallPipMode::Ensurepip => vm.run_module("ensurepip"),
+        InstallPipMode::GetPip => get_pip(scope, vm),
+    }
 }
 
-fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResult<()> {
+fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     #[cfg(feature = "flame-it")]
     let main_guard = flame::start_guard("RustPython main");
 
@@ -183,33 +173,46 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode, quiet: bool) -> PyResu
         );
     }
 
-    match run_mode {
+    let is_repl = matches!(run_mode, RunMode::Repl);
+    if !vm.state.settings.quiet
+        && (vm.state.settings.verbose > 0 || (is_repl && std::io::stdin().is_terminal()))
+    {
+        eprintln!(
+            "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
+            env!("CARGO_PKG_VERSION")
+        );
+        eprintln!(
+            "RustPython {}.{}.{}",
+            vm::version::MAJOR,
+            vm::version::MINOR,
+            vm::version::MICRO,
+        );
+
+        eprintln!("Type \"help\", \"copyright\", \"credits\" or \"license\" for more information.");
+    }
+    let res = match run_mode {
         RunMode::Command(command) => {
             debug!("Running command {}", command);
-            vm.run_code_string(scope, &command, "<stdin>".to_owned())?;
+            vm.run_code_string(scope.clone(), &command, "<stdin>".to_owned())
+                .map(drop)
         }
         RunMode::Module(module) => {
             debug!("Running module {}", module);
-            vm.run_module(&module)?;
+            vm.run_module(&module)
         }
-        RunMode::InstallPip(installer) => {
-            install_pip(&installer, scope, vm)?;
+        RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),
+        RunMode::Script(script) => {
+            debug!("Running script {}", &script);
+            vm.run_script(scope.clone(), &script)
         }
-        RunMode::ScriptInteractive(script, interactive) => {
-            if let Some(script) = script {
-                debug!("Running script {}", &script);
-                vm.run_script(scope.clone(), &script)?;
-            } else if !quiet {
-                println!(
-                    "Welcome to the magnificent Rust Python {} interpreter \u{1f631} \u{1f596}",
-                    crate_version!()
-                );
-            }
-            if interactive {
-                shell::run_shell(vm, scope)?;
-            }
-        }
+        RunMode::Repl => Ok(()),
+    };
+    if is_repl || vm.state.settings.inspect {
+        shell::run_shell(vm, scope)?;
+    } else {
+        res?;
     }
+
     #[cfg(feature = "flame-it")]
     {
         main_guard.end();

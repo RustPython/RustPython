@@ -18,6 +18,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 #[cfg(not(target_env = "msvc"))]
 #[cfg(not(target_arch = "wasm32"))]
 extern "C" {
+    #[cfg(not(target_os = "freebsd"))]
     #[link_name = "daylight"]
     static c_daylight: std::ffi::c_int;
     // pub static dstbias: std::ffi::c_int;
@@ -163,6 +164,7 @@ mod decl {
         unsafe { super::c_timezone }
     }
 
+    #[cfg(not(target_os = "freebsd"))]
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
@@ -630,7 +632,7 @@ mod platform {
 
         let ts = TimeSpec::from(dur);
         let res = unsafe { libc::nanosleep(ts.as_ref(), std::ptr::null_mut()) };
-        let interrupted = res == -1 && nix::errno::errno() == libc::EINTR;
+        let interrupted = res == -1 && nix::Error::last_raw() == libc::EINTR;
 
         if interrupted {
             vm.check_signals()?;

@@ -1,4 +1,3 @@
-use bstr::ByteSlice;
 use malachite_base::{num::conversion::traits::RoundingInto, rounding_modes::RoundingMode};
 use malachite_bigint::{BigInt, BigUint, Sign};
 use malachite_q::Rational;
@@ -32,7 +31,7 @@ pub fn float_to_ratio(value: f64) -> Option<(BigInt, BigInt)> {
 
 pub fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
     // split sign
-    let mut lit = lit.trim();
+    let mut lit = lit.trim_ascii();
     let sign = match lit.first()? {
         b'+' => Some(Sign::Plus),
         b'-' => Some(Sign::Minus),
@@ -61,9 +60,9 @@ pub fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
                     return Some(BigInt::zero());
                 }
             }
-            16 => lit.get(1).map_or(false, |&b| matches!(b, b'x' | b'X')),
-            2 => lit.get(1).map_or(false, |&b| matches!(b, b'b' | b'B')),
-            8 => lit.get(1).map_or(false, |&b| matches!(b, b'o' | b'O')),
+            16 => lit.get(1).is_some_and(|&b| matches!(b, b'x' | b'X')),
+            2 => lit.get(1).is_some_and(|&b| matches!(b, b'b' | b'B')),
+            8 => lit.get(1).is_some_and(|&b| matches!(b, b'o' | b'O')),
             _ => false,
         }
     } else {

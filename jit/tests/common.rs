@@ -27,7 +27,17 @@ impl Function {
             arg_types.push(arg_type);
         }
 
-        rustpython_jit::compile(&self.code, &arg_types).expect("Compile failure")
+        let ret_type = match self.annotations.get("return") {
+            Some(StackValue::String(annotation)) => match annotation.as_str() {
+                "int" => Some(JitType::Int),
+                "float" => Some(JitType::Float),
+                "bool" => Some(JitType::Bool),
+                _ => panic!("Unrecognised jit type"),
+            },
+            _ => None,
+        };
+
+        rustpython_jit::compile(&self.code, &arg_types, ret_type).expect("Compile failure")
     }
 }
 

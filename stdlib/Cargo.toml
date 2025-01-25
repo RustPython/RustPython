@@ -16,6 +16,7 @@ compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
 zlib = ["libz-sys", "flate2/zlib"]
 bz2 = ["bzip2"]
+sqlite = ["dep:libsqlite3-sys"]
 ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
 ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
 
@@ -87,7 +88,7 @@ bzip2 = { version = "0.4", optional = true }
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
 mac_address = "1.1.3"
-uuid = { version = "1.1.2", features = ["v1", "fast-rng", "macro-diagnostics"] }
+uuid = { version = "1.1.2", features = ["v1", "fast-rng"] }
 
 # mmap
 [target.'cfg(all(unix, not(target_arch = "wasm32")))'.dependencies]
@@ -96,6 +97,9 @@ page_size = "0.4"
 
 [target.'cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))'.dependencies]
 termios = "0.3.3"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 gethostname = "0.2.3"
@@ -107,7 +111,7 @@ openssl-probe = { version = "0.1.5", optional = true }
 foreign-types-shared = { version = "0.1.1", optional = true }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
-libsqlite3-sys = { version = "0.28", features = ["bundled"] }
+libsqlite3-sys = { version = "0.28", features = ["bundled"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }

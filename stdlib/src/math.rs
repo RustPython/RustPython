@@ -110,11 +110,7 @@ mod math {
 
     #[pyfunction]
     fn copysign(x: ArgIntoFloat, y: ArgIntoFloat) -> f64 {
-        if x.is_nan() || y.is_nan() {
-            x.into()
-        } else {
-            x.copysign(*y)
-        }
+        x.copysign(*y)
     }
 
     // Power and logarithmic functions:

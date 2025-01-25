@@ -1257,8 +1257,6 @@ class FormatTest:
         self.assertEqual(format(Decimal('100000000.123'), 'n'),
                          '100\u066c000\u066c000\u066b123')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decimal_from_float_argument_type(self):
         class A(self.decimal.Decimal):
             def __init__(self, a):
@@ -2079,8 +2077,6 @@ class UsabilityTest:
         for d, n, r in test_triples:
             self.assertEqual(str(round(Decimal(d), n)), r)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nan_to_float(self):
         # Test conversions of decimal NANs to float.
         # See http://bugs.python.org/issue15544

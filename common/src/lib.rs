@@ -1,5 +1,7 @@
 //! A crate to hold types and functions common to all rustpython components.
 
+#![cfg_attr(target_os = "redox", feature(byte_slice_trim_ascii, new_uninit))]
+
 #[macro_use]
 mod macros;
 pub use macros::*;

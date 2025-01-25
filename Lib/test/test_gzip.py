@@ -725,7 +725,6 @@ class TestOpen(BaseTest):
         with self.assertRaises(ValueError):
             gzip.open(self.filename, "rb", newline="\n")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_encoding(self):
         # Test non-default encoding.
         uncompressed = data1.decode("ascii") * 50

@@ -34,7 +34,7 @@ extern "C" {
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsValue {
     let jserr = vm.try_class("_js", "JSError").ok();
-    let js_arg = if jserr.map_or(false, |jserr| py_err.fast_isinstance(&jserr)) {
+    let js_arg = if jserr.is_some_and(|jserr| py_err.fast_isinstance(&jserr)) {
         py_err.get_arg(0)
     } else {
         None
@@ -260,6 +260,17 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
     );
     // FIXME: Clean this up.
     // `ruff_python_parser::error::LexicalErrorType` is marked "pub" but not exported (accessible) which prevents us from matching against it
+    // TODO:
+    //
+    // let can_continue = matches!(
+    //     &err.error,
+    //     CompileErrorType::Parse(
+    //         ParseErrorType::Eof
+    //             | ParseErrorType::Lexical(LexicalErrorType::Eof)
+    //             | ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+    //             | ParseErrorType::UnrecognizedToken(rustpython_parser::Tok::Dedent, _)
+    //     )
+    // );
     let can_continue = matches!(&err, CompileErrorType::Parse(ParseErrorType::Lexical(error)) if error.to_string() == "unexpected EOF while parsing");
     let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());
     js_err

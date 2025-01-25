@@ -16,7 +16,6 @@ rustpython-format = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }
-bstr = { workspace = true }
 cfg-if = { workspace = true }
 itertools = { workspace = true }
 libc = { workspace = true }

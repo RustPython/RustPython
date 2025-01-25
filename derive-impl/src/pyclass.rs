@@ -348,7 +348,7 @@ fn generate_class_def(
             && if let Ok(Meta::List(l)) = attr.parse_meta() {
                 l.nested
                     .into_iter()
-                    .any(|n| n.get_ident().map_or(false, |p| p == "PyStructSequence"))
+                    .any(|n| n.get_ident().is_some_and(|p| p == "PyStructSequence"))
             } else {
                 false
             }

@@ -5,23 +5,29 @@ use crate::vm::{
     stdlib::posix,
     {PyObjectRef, PyResult, TryFromObject, VirtualMachine},
 };
-use nix::{errno::Errno, unistd};
-#[cfg(not(target_os = "redox"))]
-use std::ffi::CStr;
-#[cfg(not(target_os = "redox"))]
-use std::os::unix::io::AsRawFd;
+use itertools::Itertools;
+use nix::{
+    errno::Errno,
+    unistd::{self, Pid},
+};
 use std::{
     convert::Infallible as Never,
-    ffi::CString,
-    io::{self, prelude::*},
+    ffi::{CStr, CString},
+    io::prelude::*,
+    marker::PhantomData,
+    ops::Deref,
+    os::fd::FromRawFd,
 };
+use std::{fs::File, os::unix::io::AsRawFd};
 use unistd::{Gid, Uid};
 
 pub(crate) use _posixsubprocess::make_module;
 
 #[pymodule]
 mod _posixsubprocess {
-    use super::{exec, CStrPathLike, ForkExecArgs, ProcArgs};
+    use rustpython_vm::{AsObject, TryFromBorrowedObject};
+
+    use super::*;
     use crate::vm::{convert::IntoPyException, PyResult, VirtualMachine};
 
     #[pyfunction]
@@ -29,19 +35,20 @@ mod _posixsubprocess {
         if args.preexec_fn.is_some() {
             return Err(vm.new_not_implemented_error("preexec_fn not supported yet".to_owned()));
         }
-        let cstrs_to_ptrs = |cstrs: &[CStrPathLike]| {
-            cstrs
-                .iter()
-                .map(|s| s.s.as_ptr())
-                .chain(std::iter::once(std::ptr::null()))
-                .collect::<Vec<_>>()
+        let extra_groups = args
+            .groups_list
+            .as_ref()
+            .map(|l| Vec::<Gid>::try_from_borrowed_object(vm, l.as_object()))
+            .transpose()?;
+        let argv = CharPtrVec::from_iter(args.args.iter());
+        let envp = args.env_list.as_ref().map(CharPtrVec::from_iter);
+        let procargs = ProcArgs {
+            argv: &argv,
+            envp: envp.as_deref(),
+            extra_groups: extra_groups.as_deref(),
         };
-        let argv = cstrs_to_ptrs(&args.args);
-        let argv = &argv;
-        let envp = args.env_list.as_ref().map(|s| cstrs_to_ptrs(s));
-        let envp = envp.as_deref();
         match unsafe { nix::unistd::fork() }.map_err(|err| err.into_pyexception(vm))? {
-            nix::unistd::ForkResult::Child => exec(&args, ProcArgs { argv, envp }),
+            nix::unistd::ForkResult::Child => exec(&args, procargs),
             nix::unistd::ForkResult::Parent { child } => Ok(child.as_raw()),
         }
     }
@@ -49,7 +56,6 @@ mod _posixsubprocess {
 
 macro_rules! gen_args {
     ($($field:ident: $t:ty),*$(,)?) => {
-        #[allow(dead_code)]
         #[derive(FromArgs)]
         struct ForkExecArgs {
             $(#[pyarg(positional)] $field: $t,)*
@@ -64,6 +70,52 @@ impl TryFromObject for CStrPathLike {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         let s = OsPath::try_from_object(vm, obj)?.into_cstring(vm)?;
         Ok(CStrPathLike { s })
+    }
+}
+impl AsRef<CStr> for CStrPathLike {
+    fn as_ref(&self) -> &CStr {
+        &self.s
+    }
+}
+
+#[derive(Default)]
+struct CharPtrVec<'a> {
+    vec: Vec<*const libc::c_char>,
+    marker: PhantomData<Vec<&'a CStr>>,
+}
+
+impl<'a, T: AsRef<CStr>> FromIterator<&'a T> for CharPtrVec<'a> {
+    fn from_iter<I: IntoIterator<Item = &'a T>>(iter: I) -> Self {
+        let vec = iter
+            .into_iter()
+            .map(|x| x.as_ref().as_ptr())
+            .chain(std::iter::once(std::ptr::null()))
+            .collect();
+        Self {
+            vec,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<'a> Deref for CharPtrVec<'a> {
+    type Target = CharPtrSlice<'a>;
+    fn deref(&self) -> &Self::Target {
+        unsafe {
+            &*(self.vec.as_slice() as *const [*const libc::c_char] as *const CharPtrSlice<'a>)
+        }
+    }
+}
+
+#[repr(transparent)]
+struct CharPtrSlice<'a> {
+    marker: PhantomData<[&'a CStr]>,
+    slice: [*const libc::c_char],
+}
+
+impl CharPtrSlice<'_> {
+    fn as_ptr(&self) -> *const *const libc::c_char {
+        self.slice.as_ptr()
     }
 }
 
@@ -84,39 +136,56 @@ gen_args! {
     errpipe_write: i32,
     restore_signals: bool,
     call_setsid: bool,
-    // TODO: Difference between gid_to_set and gid_object.
-    // One is a `gid_t` and the other is a `PyObject` in CPython.
-    gid_to_set: Option<Option<Gid>>,
-    gid_object: PyObjectRef,
+    pgid_to_set: libc::pid_t,
+    gid: Option<Gid>,
     groups_list: Option<PyListRef>,
-    uid: Option<Option<Uid>>,
+    uid: Option<Uid>,
     child_umask: i32,
     preexec_fn: Option<PyObjectRef>,
-    use_vfork: bool,
+    _use_vfork: bool,
 }
 
 // can't reallocate inside of exec(), so we reallocate prior to fork() and pass this along
 struct ProcArgs<'a> {
-    argv: &'a [*const libc::c_char],
-    envp: Option<&'a [*const libc::c_char]>,
+    argv: &'a CharPtrSlice<'a>,
+    envp: Option<&'a CharPtrSlice<'a>>,
+    extra_groups: Option<&'a [Gid]>,
 }
 
 fn exec(args: &ForkExecArgs, procargs: ProcArgs) -> ! {
-    match exec_inner(args, procargs) {
+    let mut ctx = ExecErrorContext::NoExec;
+    match exec_inner(args, procargs, &mut ctx) {
         Ok(x) => match x {},
         Err(e) => {
-            let buf: &mut [u8] = &mut [0; 256];
-            let mut cur = io::Cursor::new(&mut *buf);
-            // TODO: check if reached preexec, if not then have "noexec" after
-            let _ = write!(cur, "OSError:{}:", e as i32);
-            let pos = cur.position();
-            let _ = unistd::write(args.errpipe_write, &buf[..pos as usize]);
+            let mut pipe =
+                std::mem::ManuallyDrop::new(unsafe { File::from_raw_fd(args.errpipe_write) });
+            let _ = write!(pipe, "OSError:{}:{}", e as i32, ctx.as_msg());
             std::process::exit(255)
         }
     }
 }
 
-fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
+enum ExecErrorContext {
+    NoExec,
+    ChDir,
+    Exec,
+}
+
+impl ExecErrorContext {
+    fn as_msg(&self) -> &'static str {
+        match self {
+            ExecErrorContext::NoExec => "noexec",
+            ExecErrorContext::ChDir => "noexec:chdir",
+            ExecErrorContext::Exec => "",
+        }
+    }
+}
+
+fn exec_inner(
+    args: &ForkExecArgs,
+    procargs: ProcArgs,
+    ctx: &mut ExecErrorContext,
+) -> nix::Result<Never> {
     for &fd in args.fds_to_keep.as_slice() {
         if fd != args.errpipe_write {
             posix::raw_set_inheritable(fd, true)?
@@ -158,7 +227,7 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
     dup_into_stdio(errwrite, 2)?;
 
     if let Some(ref cwd) = args.cwd {
-        unistd::chdir(cwd.s.as_c_str())?
+        unistd::chdir(cwd.s.as_c_str()).inspect_err(|_| *ctx = ExecErrorContext::ChDir)?
     }
 
     if args.child_umask >= 0 {
@@ -170,28 +239,35 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
     }
 
     if args.call_setsid {
-        #[cfg(not(target_os = "redox"))]
         unistd::setsid()?;
     }
 
-    if let Some(_groups_list) = args.groups_list.as_ref() {
-        // TODO: setgroups
-        // unistd::setgroups(groups_size, groups);
+    if args.pgid_to_set > -1 {
+        unistd::setpgid(Pid::from_raw(0), Pid::from_raw(args.pgid_to_set))?;
     }
 
-    if let Some(_gid) = args.gid_to_set.as_ref() {
-        // TODO: setgid
-        // unistd::setregid(gid, gid)?;
+    if let Some(_groups) = procargs.extra_groups {
+        #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
+        unistd::setgroups(_groups)?;
     }
 
-    if let Some(_uid) = args.uid.as_ref() {
-        // TODO: setuid
-        // unistd::setreuid(uid, uid)?;
+    if let Some(gid) = args.gid.filter(|x| x.as_raw() != u32::MAX) {
+        let ret = unsafe { libc::setregid(gid.as_raw(), gid.as_raw()) };
+        nix::Error::result(ret)?;
     }
+
+    if let Some(uid) = args.uid.filter(|x| x.as_raw() != u32::MAX) {
+        let ret = unsafe { libc::setreuid(uid.as_raw(), uid.as_raw()) };
+        nix::Error::result(ret)?;
+    }
+
+    *ctx = ExecErrorContext::Exec;
 
     if args.close_fds {
-        #[cfg(not(target_os = "redox"))]
-        close_fds(3, &args.fds_to_keep)?;
+        close_fds(KeepFds {
+            above: 2,
+            keep: &args.fds_to_keep,
+        });
     }
 
     let mut first_err = None;
@@ -211,47 +287,128 @@ fn exec_inner(args: &ForkExecArgs, procargs: ProcArgs) -> nix::Result<Never> {
     Err(first_err.unwrap_or_else(Errno::last))
 }
 
+#[derive(Copy, Clone)]
+struct KeepFds<'a> {
+    above: i32,
+    keep: &'a [i32],
+}
+
+impl KeepFds<'_> {
+    fn should_keep(self, fd: i32) -> bool {
+        fd > self.above && self.keep.binary_search(&fd).is_err()
+    }
+}
+
+fn close_fds(keep: KeepFds<'_>) {
+    #[cfg(not(target_os = "redox"))]
+    if close_dir_fds(keep).is_ok() {
+        return;
+    }
+    #[cfg(target_os = "redox")]
+    if close_filetable_fds(keep).is_ok() {
+        return;
+    }
+    close_fds_brute_force(keep)
+}
+
 #[cfg(not(target_os = "redox"))]
-fn close_fds(above: i32, keep: &[i32]) -> nix::Result<()> {
+fn close_dir_fds(keep: KeepFds<'_>) -> nix::Result<()> {
     use nix::{dir::Dir, fcntl::OFlag};
-    // TODO: close fds by brute force if readdir doesn't work:
-    // https://github.com/python/cpython/blob/3.8/Modules/_posixsubprocess.c#L220
+
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_vendor = "apple",
+    ))]
+    let fd_dir_name = c"/dev/fd";
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let fd_dir_name = c"/proc/self/fd";
+
     let mut dir = Dir::open(
-        FD_DIR_NAME,
+        fd_dir_name,
         OFlag::O_RDONLY | OFlag::O_DIRECTORY,
         nix::sys::stat::Mode::empty(),
     )?;
     let dirfd = dir.as_raw_fd();
-    for e in dir.iter() {
-        if let Some(fd) = pos_int_from_ascii(e?.file_name()) {
-            if fd != dirfd && fd > above && !keep.contains(&fd) {
-                unistd::close(fd)?
+    'outer: for e in dir.iter() {
+        let e = e?;
+        let mut parser = IntParser::default();
+        for &c in e.file_name().to_bytes() {
+            if parser.feed(c).is_err() {
+                continue 'outer;
             }
+        }
+        let fd = parser.num;
+        if fd != dirfd && keep.should_keep(fd) {
+            let _ = unistd::close(fd);
         }
     }
     Ok(())
 }
 
-#[cfg(any(
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-    target_vendor = "apple",
-))]
-const FD_DIR_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"/dev/fd\0") };
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-const FD_DIR_NAME: &CStr = unsafe { CStr::from_bytes_with_nul_unchecked(b"/proc/self/fd\0") };
-
-#[cfg(not(target_os = "redox"))]
-fn pos_int_from_ascii(name: &CStr) -> Option<i32> {
-    let mut num = 0;
-    for c in name.to_bytes() {
-        if !c.is_ascii_digit() {
-            return None;
+#[cfg(target_os = "redox")]
+fn close_filetable_fds(keep: KeepFds<'_>) -> nix::Result<()> {
+    use nix::fcntl;
+    use std::os::fd::{FromRawFd, OwnedFd};
+    let fd = fcntl::open(
+        c"/scheme/thisproc/current/filetable",
+        fcntl::OFlag::O_RDONLY,
+        nix::sys::stat::Mode::empty(),
+    )?;
+    let filetable = unsafe { OwnedFd::from_raw_fd(fd) };
+    let read_one = || -> nix::Result<_> {
+        let mut byte = 0;
+        let n = nix::unistd::read(filetable.as_raw_fd(), std::slice::from_mut(&mut byte))?;
+        Ok((n > 0).then_some(byte))
+    };
+    while let Some(c) = read_one()? {
+        let mut parser = IntParser::default();
+        if parser.feed(c).is_err() {
+            continue;
         }
-        num = num * 10 + i32::from(c - b'0')
+        let done = loop {
+            let Some(c) = read_one()? else { break true };
+            if parser.feed(c).is_err() {
+                break false;
+            }
+        };
+
+        let fd = parser.num as i32;
+        if fd != filetable.as_raw_fd() && keep.should_keep(fd) {
+            let _ = unistd::close(fd);
+        }
+        if done {
+            break;
+        }
     }
-    Some(num)
+    Ok(())
+}
+
+fn close_fds_brute_force(keep: KeepFds<'_>) {
+    let max_fd = nix::unistd::sysconf(nix::unistd::SysconfVar::OPEN_MAX)
+        .ok()
+        .flatten()
+        .unwrap_or(256) as i32;
+    let fds = itertools::chain![Some(keep.above), keep.keep.iter().copied(), Some(max_fd)];
+    for fd in fds.tuple_windows().flat_map(|(start, end)| start + 1..end) {
+        let _ = unistd::close(fd);
+    }
+}
+
+#[derive(Default)]
+struct IntParser {
+    num: i32,
+}
+
+struct NonDigit;
+impl IntParser {
+    fn feed(&mut self, c: u8) -> Result<(), NonDigit> {
+        let digit = (c as char).to_digit(10).ok_or(NonDigit)?;
+        self.num *= 10;
+        self.num += digit as i32;
+        Ok(())
+    }
 }

@@ -54,12 +54,10 @@ class PopenTest(unittest.TestCase):
         else:
             self.assertEqual(os.waitstatus_to_exitcode(status), 42)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_contextmanager(self):
         with os.popen("echo hello") as f:
             self.assertEqual(f.read(), "hello\n")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_iterating(self):
         with os.popen("echo hello") as f:
             self.assertEqual(list(f), ["hello\n"])

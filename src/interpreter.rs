@@ -16,7 +16,7 @@ pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 /// use rustpython_vm::Settings;
 /// // Override your settings here.
 /// let mut settings = Settings::default();
-/// settings.debug = true;
+/// settings.debug = 1;
 /// // You may want to add paths to `rustpython_vm::Settings::path_list` to allow import python libraries.
 /// settings.path_list.push("".to_owned());  // add current working directory
 /// let interpreter = rustpython::InterpreterConfig::new()

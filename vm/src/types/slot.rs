@@ -470,7 +470,7 @@ impl PyType {
                     .attributes
                     .read()
                     .get(identifier!(ctx, __hash__))
-                    .map_or(false, |a| a.is(&ctx.none));
+                    .is_some_and(|a| a.is(&ctx.none));
                 let wrapper = if is_unhashable {
                     hash_not_implemented
                 } else {
@@ -782,7 +782,16 @@ pub trait Constructor: PyPayload {
     fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult;
 }
 
-pub trait DefaultConstructor: PyPayload + Default {}
+pub trait DefaultConstructor: PyPayload + Default {
+    fn construct_and_init(args: Self::Args, vm: &VirtualMachine) -> PyResult<PyRef<Self>>
+    where
+        Self: Initializer,
+    {
+        let this = Self::default().into_ref(&vm.ctx);
+        Self::init(this.clone(), args, vm)?;
+        Ok(this)
+    }
+}
 
 /// For types that cannot be instantiated through Python code.
 #[pyclass]
@@ -936,7 +945,7 @@ pub trait GetDescriptor: PyPayload {
 
     #[inline]
     fn _cls_is(cls: &Option<PyObjectRef>, other: &impl Borrow<PyObject>) -> bool {
-        cls.as_ref().map_or(false, |cls| other.borrow().is(cls))
+        cls.as_ref().is_some_and(|cls| other.borrow().is(cls))
     }
 }
 

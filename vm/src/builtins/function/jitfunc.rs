@@ -52,7 +52,7 @@ fn get_jit_arg_type(dict: &PyDictRef, name: &str, vm: &VirtualMachine) -> PyResu
             Ok(JitType::Bool)
         } else {
             Err(new_jit_error(
-                "Jit requires argument to be either int or float".to_owned(),
+                "Jit requires argument to be either int, float or bool".to_owned(),
                 vm,
             ))
         }
@@ -101,6 +101,25 @@ pub fn get_jit_arg_types(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult
         }
 
         Ok(arg_types)
+    } else {
+        Err(vm.new_type_error("Function annotations aren't a dict".to_owned()))
+    }
+}
+
+pub fn jit_ret_type(func: &Py<PyFunction>, vm: &VirtualMachine) -> PyResult<Option<JitType>> {
+    let func_obj: PyObjectRef = func.as_ref().to_owned();
+    let annotations = func_obj.get_attr("__annotations__", vm)?;
+    if vm.is_none(&annotations) {
+        Err(new_jit_error(
+            "Jitting function requires return type to have annotations".to_owned(),
+            vm,
+        ))
+    } else if let Ok(dict) = PyDictRef::try_from_object(vm, annotations) {
+        if dict.contains_key("return", vm) {
+            get_jit_arg_type(&dict, "return", vm).map_or(Ok(None), |t| Ok(Some(t)))
+        } else {
+            Ok(None)
+        }
     } else {
         Err(vm.new_type_error("Function annotations aren't a dict".to_owned()))
     }

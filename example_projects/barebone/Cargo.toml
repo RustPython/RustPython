@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# FIXME: Remove unnessary features
-rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler", "ast"] }
+rustpython-vm = { path = "../../vm", default-features = false }
 rustpython = { path = "../.." }
 env_logger = "0.11.6"
 

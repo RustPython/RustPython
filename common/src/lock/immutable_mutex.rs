@@ -1,3 +1,5 @@
+#![allow(clippy::needless_lifetimes)]
+
 use lock_api::{MutexGuard, RawMutex};
 use std::{fmt, marker::PhantomData, ops::Deref};
 
@@ -45,7 +47,7 @@ impl<'a, R: RawMutex, T: ?Sized> ImmutableMappedMutexGuard<'a, R, T> {
     }
 }
 
-impl<'a, R: RawMutex, T: ?Sized> Deref for ImmutableMappedMutexGuard<'a, R, T> {
+impl<R: RawMutex, T: ?Sized> Deref for ImmutableMappedMutexGuard<'_, R, T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         // SAFETY: self.data is valid for the lifetime of the guard
@@ -53,22 +55,20 @@ impl<'a, R: RawMutex, T: ?Sized> Deref for ImmutableMappedMutexGuard<'a, R, T> {
     }
 }
 
-impl<'a, R: RawMutex, T: ?Sized> Drop for ImmutableMappedMutexGuard<'a, R, T> {
+impl<R: RawMutex, T: ?Sized> Drop for ImmutableMappedMutexGuard<'_, R, T> {
     fn drop(&mut self) {
         // SAFETY: An ImmutableMappedMutexGuard always holds the lock
         unsafe { self.raw.unlock() }
     }
 }
 
-impl<'a, R: RawMutex, T: fmt::Debug + ?Sized> fmt::Debug for ImmutableMappedMutexGuard<'a, R, T> {
+impl<R: RawMutex, T: fmt::Debug + ?Sized> fmt::Debug for ImmutableMappedMutexGuard<'_, R, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
 
-impl<'a, R: RawMutex, T: fmt::Display + ?Sized> fmt::Display
-    for ImmutableMappedMutexGuard<'a, R, T>
-{
+impl<R: RawMutex, T: fmt::Display + ?Sized> fmt::Display for ImmutableMappedMutexGuard<'_, R, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }

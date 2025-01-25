@@ -280,8 +280,6 @@ class FileInputTests(BaseTests, unittest.TestCase):
             fi.readline()
         self.assertTrue(custom_open_hook.invoked, "openhook not invoked")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_readline(self):
         with open(TESTFN, 'wb') as f:
             f.write(b'A\nB\r\nC\r')

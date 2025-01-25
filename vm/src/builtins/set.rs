@@ -24,6 +24,10 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use once_cell::sync::Lazy;
+use rustpython_common::{
+    atomic::{Ordering, PyAtomic, Radium},
+    hash,
+};
 use std::{fmt, ops::Deref};
 
 pub type SetContentType = dictdatatype::Dict<()>;
@@ -71,9 +75,18 @@ impl PySet {
 }
 
 #[pyclass(module = false, name = "frozenset", unhashable = true)]
-#[derive(Default)]
 pub struct PyFrozenSet {
     inner: PySetInner,
+    hash: PyAtomic<PyHash>,
+}
+
+impl Default for PyFrozenSet {
+    fn default() -> Self {
+        PyFrozenSet {
+            inner: PySetInner::default(),
+            hash: hash::SENTINEL.into(),
+        }
+    }
 }
 
 impl PyFrozenSet {
@@ -87,7 +100,10 @@ impl PyFrozenSet {
             inner.add(elem, vm)?;
         }
         // FIXME: empty set check
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            ..Default::default()
+        })
     }
 
     pub fn elements(&self) -> Vec<PyObjectRef> {
@@ -102,6 +118,7 @@ impl PyFrozenSet {
     ) -> PyResult<Self> {
         Ok(Self {
             inner: self.inner.fold_op(others, op, vm)?,
+            ..Default::default()
         })
     }
 
@@ -115,6 +132,7 @@ impl PyFrozenSet {
             inner: self
                 .inner
                 .fold_op(std::iter::once(other.into_iterable(vm)?), op, vm)?,
+            ..Default::default()
         })
     }
 }
@@ -391,16 +409,10 @@ impl PySetInner {
         others: impl std::iter::Iterator<Item = ArgIterable>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let mut temp_inner = self.copy();
+        let temp_inner = self.fold_op(others, PySetInner::intersection, vm)?;
         self.clear();
-        for iterable in others {
-            for item in iterable.iter(vm)? {
-                let obj = item?;
-                if temp_inner.contains(&obj, vm)? {
-                    self.add(obj, vm)?;
-                }
-            }
-            temp_inner = self.copy()
+        for obj in temp_inner.elements() {
+            self.add(obj, vm)?;
         }
         Ok(())
     }
@@ -442,12 +454,12 @@ impl PySetInner {
             ((h ^ 89869747) ^ (h.wrapping_shl(16))).wrapping_mul(3644798167)
         }
         // Factor in the number of active entries
-        let mut hash: u64 = (self.elements().len() as u64 + 1).wrapping_mul(1927868237);
+        let mut hash: u64 = (self.len() as u64 + 1).wrapping_mul(1927868237);
         // Xor-in shuffled bits from every entry's hash field because xor is
         // commutative and a frozenset hash should be independent of order.
-        for element in self.elements().iter() {
-            hash ^= _shuffle_bits(element.hash(vm)? as u64);
-        }
+        hash = self.content.try_fold_keys(hash, |h, element| {
+            Ok(h ^ _shuffle_bits(element.hash(vm)? as u64))
+        })?;
         // Disperse patterns arising in nested frozensets
         hash ^= (hash >> 11) ^ (hash >> 25);
         hash = hash.wrapping_mul(69069).wrapping_add(907133923);
@@ -478,6 +490,7 @@ impl PySetInner {
                     op(
                         &PyFrozenSet {
                             inner: set.inner.copy(),
+                            ..Default::default()
                         }
                         .into_pyobject(vm),
                         vm,
@@ -962,6 +975,7 @@ impl PyFrozenSet {
         } else {
             Self {
                 inner: zelf.inner.copy(),
+                ..Default::default()
             }
             .into_ref(&vm.ctx)
         }
@@ -1063,6 +1077,7 @@ impl PyFrozenSet {
                 inner: other
                     .as_inner()
                     .difference(ArgIterable::try_from_object(vm, zelf.into())?, vm)?,
+                ..Default::default()
             }))
         } else {
             Ok(PyArithmeticValue::NotImplemented)
@@ -1113,7 +1128,23 @@ impl AsSequence for PyFrozenSet {
 impl Hashable for PyFrozenSet {
     #[inline]
     fn hash(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyHash> {
-        zelf.inner.hash(vm)
+        let hash = match zelf.hash.load(Ordering::Relaxed) {
+            hash::SENTINEL => {
+                let hash = zelf.inner.hash(vm)?;
+                match Radium::compare_exchange(
+                    &zelf.hash,
+                    hash::SENTINEL,
+                    hash::fix_sentinel(hash),
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => hash,
+                    Err(prev_stored) => prev_stored,
+                }
+            }
+            hash => hash,
+        };
+        Ok(hash)
     }
 }
 

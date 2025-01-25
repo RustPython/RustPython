@@ -51,7 +51,9 @@ use std::{
 pub use context::Context;
 pub use interpreter::Interpreter;
 pub(crate) use method::PyMethod;
-pub use setting::Settings;
+pub use setting::{CheckHashPycsMode, Settings};
+
+pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
@@ -131,13 +133,10 @@ impl VirtualMachine {
         let import_func = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
-        // hack to get around const array repeat expressions, rust issue #79270
-        const NONE: Option<PyObjectRef> = None;
-        // putting it in a const optimizes better, prevents linear initialization of the array
-        #[allow(clippy::declare_interior_mutable_const)]
-        const SIGNAL_HANDLERS: RefCell<[Option<PyObjectRef>; signal::NSIG]> =
-            RefCell::new([NONE; signal::NSIG]);
-        let signal_handlers = Some(Box::new(SIGNAL_HANDLERS));
+        let signal_handlers = Some(Box::new(
+            // putting it in a const optimizes better, prevents linear initialization of the array
+            const { RefCell::new([const { None }; signal::NSIG]) },
+        ));
 
         let module_inits = stdlib::get_module_inits();
 
@@ -300,17 +299,39 @@ impl VirtualMachine {
 
             #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
             {
-                // this isn't fully compatible with CPython; it imports "io" and sets
-                // builtins.open to io.OpenWrapper, but this is easier, since it doesn't
-                // require the Python stdlib to be present
                 let io = import::import_builtin(self, "_io")?;
-                let set_stdio = |name, fd, mode: &str| {
-                    let stdio = crate::stdlib::io::open(
+                let set_stdio = |name, fd, write| {
+                    let buffered_stdio = self.state.settings.buffered_stdio;
+                    let unbuffered = write && !buffered_stdio;
+                    let buf = crate::stdlib::io::open(
                         self.ctx.new_int(fd).into(),
-                        Some(mode),
-                        Default::default(),
+                        Some(if write { "wb" } else { "rb" }),
+                        crate::stdlib::io::OpenArgs {
+                            buffering: if unbuffered { 0 } else { -1 },
+                            ..Default::default()
+                        },
                         self,
                     )?;
+                    let raw = if unbuffered {
+                        buf.clone()
+                    } else {
+                        buf.get_attr("raw", self)?
+                    };
+                    raw.set_attr("name", self.ctx.new_str(format!("<{name}>")), self)?;
+                    let isatty = self.call_method(&raw, "isatty", ())?.is_true(self)?;
+                    let write_through = !buffered_stdio;
+                    let line_buffering = buffered_stdio && (isatty || fd == 2);
+
+                    let newline = if cfg!(windows) { None } else { Some("\n") };
+
+                    let stdio = self.call_method(
+                        &io,
+                        "TextIOWrapper",
+                        (buf, (), (), newline, line_buffering, write_through),
+                    )?;
+                    let mode = if write { "w" } else { "r" };
+                    stdio.set_attr("mode", self.ctx.new_str(mode), self)?;
+
                     let dunder_name = self.ctx.intern_str(format!("__{name}__"));
                     self.sys_module.set_attr(
                         dunder_name, // e.g. __stdin__
@@ -320,9 +341,9 @@ impl VirtualMachine {
                     self.sys_module.set_attr(name, stdio, self)?;
                     Ok(())
                 };
-                set_stdio("stdin", 0, "r")?;
-                set_stdio("stdout", 1, "w")?;
-                set_stdio("stderr", 2, "w")?;
+                set_stdio("stdin", 0, false)?;
+                set_stdio("stdout", 1, true)?;
+                set_stdio("stderr", 2, true)?;
 
                 let io_open = io.get_attr("open", self)?;
                 self.builtins.set_attr("open", io_open, self)?;

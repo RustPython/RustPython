@@ -129,18 +129,16 @@ mod _contextvars {
 
             super::CONTEXTS.with(|ctxs| {
                 let mut ctxs = ctxs.borrow_mut();
-                if !ctxs
-                    .last()
-                    .map_or(false, |ctx| ctx.get_id() == zelf.get_id())
-                {
+                // TODO: use Vec::pop_if once stabilized
+                if ctxs.last().is_some_and(|ctx| ctx.get_id() == zelf.get_id()) {
+                    let _ = ctxs.pop();
+                    Ok(())
+                } else {
                     let msg =
                         "cannot exit context: thread state references a different context object"
                             .to_owned();
-                    return Err(vm.new_runtime_error(msg));
+                    Err(vm.new_runtime_error(msg))
                 }
-
-                let _ = ctxs.pop();
-                Ok(())
             })?;
             zelf.inner.entered.set(false);
 

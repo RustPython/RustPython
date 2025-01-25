@@ -177,8 +177,6 @@ class CmdLineTest(unittest.TestCase):
         # All good if module is located and run successfully
         assert_python_ok('-m', 'timeit', '-n', '1')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_run_module_bug1764407(self):
         # -m and -i need to play well together
         # Runs the timeit module and checks the __main__
@@ -335,8 +333,6 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(stdout, expected)
         self.assertEqual(p.returncode, 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_interactive_output_buffering(self):
         code = textwrap.dedent("""
             import sys
@@ -352,8 +348,6 @@ class CmdLineTest(unittest.TestCase):
                          'False False False\n'
                          'False False True\n')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_unbuffered_output(self):
         # Test expected operation of the '-u' switch
         for stream in ('stdout', 'stderr'):
@@ -447,8 +441,6 @@ class CmdLineTest(unittest.TestCase):
                 stdout, stderr = proc.communicate()
         self.assertEqual(stdout.rstrip(), expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform.startswith('win'), "TODO: RUSTPYTHON windows has \n troubles")
     def test_stdin_readline(self):
         # Issue #11272: check that sys.stdin.readline() replaces '\r\n' by '\n'
         # on Windows (sys.stdin is opened in binary mode)
@@ -456,16 +448,12 @@ class CmdLineTest(unittest.TestCase):
             "import sys; print(repr(sys.stdin.readline()))",
             b"'abc\\n'")
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform.startswith('win'), "TODO: RUSTPYTHON windows has \n troubles")
     def test_builtin_input(self):
         # Issue #11272: check that input() strips newlines ('\n' or '\r\n')
         self.check_input(
             "print(repr(input()))",
             b"'abc'")
 
-    # TODO: RUSTPYTHON
-    @unittest.skipIf(sys.platform.startswith('win'), "TODO: RUSTPYTHON windows has \n troubles")
     def test_output_newline(self):
         # Issue 13119 Newline for print() should be \r\n on Windows.
         code = """if 1:
@@ -632,8 +620,6 @@ class CmdLineTest(unittest.TestCase):
         self.assertEqual(err.splitlines().count(b'Unknown option: -a'), 1)
         self.assertEqual(b'', out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @unittest.skipIf(interpreter_requires_environment(),
                      'Cannot run -I tests when PYTHON env vars are required.')
     def test_isolatedmode(self):
@@ -662,8 +648,6 @@ class CmdLineTest(unittest.TestCase):
                                           cwd=tmpdir)
             self.assertEqual(out.strip(), b"ok")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_sys_flags_set(self):
         # Issue 31845: a startup refactoring broke reading flags from env vars
         for value, expected in (("", 0), ("1", 1), ("text", 1), ("2", 2)):

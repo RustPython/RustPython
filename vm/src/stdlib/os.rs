@@ -25,6 +25,13 @@ impl crate::convert::IntoPyException for nix::Error {
     }
 }
 
+#[cfg(unix)]
+impl crate::convert::IntoPyException for rustix::io::Errno {
+    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        io::Error::from(self).into_pyexception(vm)
+    }
+}
+
 /// Convert the error stored in the `errno` variable into an Exception
 #[inline]
 pub fn errno_err(vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -135,6 +142,7 @@ pub(super) mod _os {
         protocol::PyIterReturn,
         recursion::ReprGuard,
         types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
+        utils::ToCString,
         vm::VirtualMachine,
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     };
@@ -266,8 +274,8 @@ pub(super) mod _os {
     fn remove(path: OsPath, dir_fd: DirFd<0>, vm: &VirtualMachine) -> PyResult<()> {
         let [] = dir_fd.0;
         let is_junction = cfg!(windows)
-            && fs::metadata(&path).map_or(false, |meta| meta.file_type().is_dir())
-            && fs::symlink_metadata(&path).map_or(false, |meta| meta.file_type().is_symlink());
+            && fs::metadata(&path).is_ok_and(|meta| meta.file_type().is_dir())
+            && fs::symlink_metadata(&path).is_ok_and(|meta| meta.file_type().is_symlink());
         let res = if is_junction {
             fs::remove_dir(&path)
         } else {
@@ -1019,6 +1027,14 @@ pub(super) mod _os {
                 .filename2(dst)
                 .into_pyexception(vm)
         })
+    }
+
+    #[cfg(any(unix, windows))]
+    #[pyfunction]
+    fn system(command: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
+        let cstr = command.to_cstring(vm)?;
+        let x = unsafe { libc::system(cstr.as_ptr()) };
+        Ok(x)
     }
 
     #[derive(FromArgs)]

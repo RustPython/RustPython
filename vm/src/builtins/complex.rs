@@ -131,12 +131,25 @@ fn inner_pow(v1: Complex64, v2: Complex64, vm: &VirtualMachine) -> PyResult<Comp
         };
     }
 
-    let ans = v1.powc(v2);
+    let ans = powc(v1, v2);
     if ans.is_infinite() && !(v1.is_infinite() || v2.is_infinite()) {
         Err(vm.new_overflow_error("complex exponentiation overflow".to_owned()))
     } else {
         Ok(ans)
     }
+}
+
+// num-complex changed their powc() implementation in 0.4.4, making it incompatible
+// with what the regression tests expect. this is that old formula.
+fn powc(a: Complex64, exp: Complex64) -> Complex64 {
+    let (r, theta) = a.to_polar();
+    if r.is_zero() {
+        return Complex64::new(r, r);
+    }
+    Complex64::from_polar(
+        r.powf(exp.re) * (-exp.im * theta).exp(),
+        exp.re * theta + exp.im * r.ln(),
+    )
 }
 
 impl Constructor for PyComplex {

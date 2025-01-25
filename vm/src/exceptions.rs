@@ -44,7 +44,7 @@ impl PyPayload for PyBaseException {
 }
 
 impl VirtualMachine {
-    // Why `impl VirtualMachine?
+    // Why `impl VirtualMachine`?
     // These functions are natively free function in CPython - not methods of PyException
 
     /// Print exception chain by calling sys.excepthook
@@ -649,6 +649,9 @@ impl Constructor for PyBaseException {
     type Args = FuncArgs;
 
     fn py_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if cls.is(PyBaseException::class(&vm.ctx)) && !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("BaseException() takes no keyword arguments".to_owned()));
+        }
         PyBaseException::new(args.args, vm)
             .into_ref_with_type(vm, cls)
             .map(Into::into)
@@ -1139,7 +1142,8 @@ pub(crate) fn errno_to_exc_type(errno: i32, vm: &VirtualMachine) -> Option<&'sta
     use crate::stdlib::errno::errors;
     let excs = &vm.ctx.exceptions;
     match errno {
-        errors::EWOULDBLOCK => Some(excs.blocking_io_error),
+        #[allow(unreachable_patterns)] // EAGAIN is sometimes the same as EWOULDBLOCK
+        errors::EWOULDBLOCK | errors::EAGAIN => Some(excs.blocking_io_error),
         errors::EALREADY => Some(excs.blocking_io_error),
         errors::EINPROGRESS => Some(excs.blocking_io_error),
         errors::EPIPE => Some(excs.broken_pipe_error),

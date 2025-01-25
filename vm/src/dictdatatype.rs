@@ -530,6 +530,17 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
+    pub fn try_fold_keys<Acc, Fold>(&self, init: Acc, f: Fold) -> PyResult<Acc>
+    where
+        Fold: FnMut(Acc, &PyObject) -> PyResult<Acc>,
+    {
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| v.key.as_object()))
+            .try_fold(init, f)
+    }
+
     /// Lookup the index for the given key.
     #[cfg_attr(feature = "flame-it", flame("Dict"))]
     fn lookup<K: DictKey + ?Sized>(

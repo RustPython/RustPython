@@ -63,13 +63,12 @@ impl PyObject {
         } else if let Some(i) = self.to_number().int(vm).or_else(|| self.try_index_opt(vm)) {
             i
         } else if let Ok(Some(f)) = vm.get_special_method(self, identifier!(vm, __trunc__)) {
-            // TODO: Deprecate in 3.11
-            // warnings::warn(
-            //     vm.ctx.exceptions.deprecation_warning.clone(),
-            //     "The delegation of int() to __trunc__ is deprecated.".to_owned(),
-            //     1,
-            //     vm,
-            // )?;
+            warnings::warn(
+                vm.ctx.exceptions.deprecation_warning,
+                "The delegation of int() to __trunc__ is deprecated.".to_owned(),
+                1,
+                vm,
+            )?;
             let ret = f.invoke((), vm)?;
             ret.try_index(vm).map_err(|_| {
                 vm.new_type_error(format!(
@@ -78,7 +77,7 @@ impl PyObject {
                 ))
             })
         } else if let Some(s) = self.payload::<PyStr>() {
-            try_convert(self, s.as_str().as_bytes(), vm)
+            try_convert(self, s.as_str().trim().as_bytes(), vm)
         } else if let Some(bytes) = self.payload::<PyBytes>() {
             try_convert(self, bytes, vm)
         } else if let Some(bytearray) = self.payload::<PyByteArray>() {
@@ -433,7 +432,7 @@ unsafe impl Traverse for PyNumber<'_> {
     }
 }
 
-impl<'a> Deref for PyNumber<'a> {
+impl Deref for PyNumber<'_> {
     type Target = PyObject;
 
     fn deref(&self) -> &Self::Target {

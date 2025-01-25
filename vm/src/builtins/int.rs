@@ -855,7 +855,7 @@ fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<Big
 
     let opt = match_class!(match obj.to_owned() {
         string @ PyStr => {
-            let s = string.as_str();
+            let s = string.as_str().trim();
             bytes_to_int(s.as_bytes(), base)
         }
         bytes @ PyBytes => {

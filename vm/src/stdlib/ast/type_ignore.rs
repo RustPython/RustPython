@@ -24,7 +24,7 @@ impl Node for TypeIgnore {
     }
 }
 
-struct TypeIgnoreTypeIgnore {
+pub(super) struct TypeIgnoreTypeIgnore {
     range: TextRange,
     lineno: PyRefExact<PyInt>,
     tag: PyRefExact<PyStr>,

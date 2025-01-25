@@ -54,6 +54,7 @@ into_func_args_from_tuple!((v1, T1), (v2, T2));
 into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3));
 into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4));
 into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5));
+into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5), (v6, T6));
 
 /// The `FuncArgs` struct is one of the most used structs then creating
 /// a rust function that can be called from python. It holds both positional

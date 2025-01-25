@@ -127,8 +127,10 @@ impl PyBool {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
             (lhs || rhs).to_pyobject(vm)
+        } else if let Some(lhs) = lhs.payload::<PyInt>() {
+            lhs.or(rhs, vm).to_pyobject(vm)
         } else {
-            get_py_int(&lhs).or(rhs, vm).to_pyobject(vm)
+            vm.ctx.not_implemented()
         }
     }
 
@@ -141,8 +143,10 @@ impl PyBool {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
             (lhs && rhs).to_pyobject(vm)
+        } else if let Some(lhs) = lhs.payload::<PyInt>() {
+            lhs.and(rhs, vm).to_pyobject(vm)
         } else {
-            get_py_int(&lhs).and(rhs, vm).to_pyobject(vm)
+            vm.ctx.not_implemented()
         }
     }
 
@@ -155,8 +159,10 @@ impl PyBool {
             let lhs = get_value(&lhs);
             let rhs = get_value(&rhs);
             (lhs ^ rhs).to_pyobject(vm)
+        } else if let Some(lhs) = lhs.payload::<PyInt>() {
+            lhs.xor(rhs, vm).to_pyobject(vm)
         } else {
-            get_py_int(&lhs).xor(rhs, vm).to_pyobject(vm)
+            vm.ctx.not_implemented()
         }
     }
 }
@@ -206,8 +212,4 @@ pub(crate) fn init(context: &Context) {
 // Retrieve inner int value:
 pub(crate) fn get_value(obj: &PyObject) -> bool {
     !obj.payload::<PyInt>().unwrap().as_bigint().is_zero()
-}
-
-fn get_py_int(obj: &PyObject) -> &PyInt {
-    obj.payload::<PyInt>().unwrap()
 }

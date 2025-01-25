@@ -7,6 +7,8 @@ pub use builtins::{ascii, print, reversed};
 
 #[pymodule]
 mod builtins {
+    use std::io::IsTerminal;
+
     use crate::{
         builtins::{
             enumerate::PyReverseSequenceIterator,
@@ -432,12 +434,11 @@ mod builtins {
         let fd_matches = |obj, expected| {
             vm.call_method(obj, "fileno", ())
                 .and_then(|o| i64::try_from_object(vm, o))
-                .ok()
-                .map_or(false, |fd| fd == expected)
+                .is_ok_and(|fd| fd == expected)
         };
 
         // everything is normalish, we can just rely on rustyline to use stdin/stdout
-        if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && atty::is(atty::Stream::Stdin) {
+        if fd_matches(&stdin, 0) && fd_matches(&stdout, 1) && std::io::stdin().is_terminal() {
             let prompt = prompt.as_ref().map_or("", |s| s.as_str());
             let mut readline = Readline::new(());
             match readline.readline(prompt) {
