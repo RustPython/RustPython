@@ -256,23 +256,24 @@ impl VirtualMachine {
         self.new_exception_msg(overflow_error, msg)
     }
 
-    #[cfg(any(feature = "rustpython-parser", feature = "rustpython-codegen"))]
+    #[cfg(any(feature = "parser", feature = "compiler"))]
     pub fn new_syntax_error(
         &self,
         error: &crate::compiler::CompileError,
         source: Option<&str>,
     ) -> PyBaseExceptionRef {
-        use crate::source_code::SourceLocation;
+        use crate::source::SourceLocation;
 
-        let syntax_error_type = match &error.error {
-            #[cfg(feature = "rustpython-parser")]
-            crate::compiler::CompileErrorType::Parse(p) if p.is_indentation_error() => {
-                self.ctx.exceptions.indentation_error
-            }
-            #[cfg(feature = "rustpython-parser")]
-            crate::compiler::CompileErrorType::Parse(p) if p.is_tab_error() => {
-                self.ctx.exceptions.tab_error
-            }
+        let syntax_error_type = match &error {
+            // FIXME:
+            // #[cfg(feature = "rustpython-parser")]
+            // crate::compiler::CompileError::Parse(p) if p.is_indentation_error() => {
+            //     self.ctx.exceptions.indentation_error
+            // }
+            // #[cfg(feature = "rustpython-parser")]
+            // crate::compiler::CompileError::Parse(p) if p.is_tab_error() => {
+            //     self.ctx.exceptions.tab_error
+            // }
             _ => self.ctx.exceptions.syntax_error,
         }
         .to_owned();
@@ -281,18 +282,18 @@ impl VirtualMachine {
         fn get_statement(source: &str, loc: Option<SourceLocation>) -> Option<String> {
             let line = source
                 .split('\n')
-                .nth(loc?.row.to_zero_indexed_usize())?
+                .nth(loc?.row.to_zero_indexed())?
                 .to_owned();
             Some(line + "\n")
         }
 
         let statement = if let Some(source) = source {
-            get_statement(source, error.location)
+            get_statement(source, error.location())
         } else {
             None
         };
 
-        let syntax_error = self.new_exception_msg(syntax_error_type, error.error.to_string());
+        let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
         let (lineno, offset) = error.python_location();
         let lineno = self.ctx.new_int(lineno);
         let offset = self.ctx.new_int(offset);
@@ -311,11 +312,7 @@ impl VirtualMachine {
             .unwrap();
         syntax_error
             .as_object()
-            .set_attr(
-                "filename",
-                self.ctx.new_str(error.source_path.clone()),
-                self,
-            )
+            .set_attr("filename", self.ctx.new_str(error.source_path()), self)
             .unwrap();
         syntax_error
     }

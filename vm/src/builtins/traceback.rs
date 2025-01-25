@@ -2,7 +2,7 @@ use rustpython_common::lock::PyMutex;
 
 use super::PyType;
 use crate::{
-    class::PyClassImpl, frame::FrameRef, source_code::LineNumber, Context, Py, PyPayload, PyRef,
+    class::PyClassImpl, frame::FrameRef, source::LineNumber, Context, Py, PyPayload, PyRef,
 };
 
 #[pyclass(module = false, name = "traceback", traverse)]
@@ -47,7 +47,7 @@ impl PyTraceback {
 
     #[pygetset]
     fn tb_lineno(&self) -> usize {
-        self.lineno.to_usize()
+        self.lineno.get()
     }
 
     #[pygetset]

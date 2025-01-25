@@ -1,0 +1,16 @@
+[package]
+name = "rustpython-compiler-source"
+description = "RustPython Source and Index"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+ruff_source_file = { workspace = true }
+ruff_text_size = { workspace = true }
+
+[lints]
+workspace = true

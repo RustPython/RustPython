@@ -1,9 +1,9 @@
 mod helper;
 
-use rustpython_parser::{lexer::LexicalErrorType, ParseErrorType, Tok};
+use rustpython_compiler::{CompileError, ParseError};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
-    compiler::{self, CompileError, CompileErrorType},
+    compiler::{self},
     readline::{Readline, ReadlineResult},
     scope::Scope,
     AsObject, PyResult, VirtualMachine,
@@ -35,29 +35,31 @@ fn shell_exec(
                 ShellExecResult::Ok
             }
         }
-        Err(CompileError {
-            error: CompileErrorType::Parse(ParseErrorType::Lexical(LexicalErrorType::Eof)),
-            ..
-        })
-        | Err(CompileError {
-            error: CompileErrorType::Parse(ParseErrorType::Eof),
-            ..
-        }) => ShellExecResult::Continue,
+        // TODO: Improve ruff API
+        // This should be
+        // Err(CompileError::Parse(ParseError { error: ParseErrorType::Lexical(LexicalErrorType::Eof), .. }))
+        // but LexicalErrorType is not publicly exported in ruff_python_parser.
+        Err(CompileError::Parse(ParseError { error, .. }))
+            if error.to_string() == "unexpected EOF while parsing" =>
+        {
+            ShellExecResult::Continue
+        }
         Err(err) => {
             // bad_error == true if we are handling an error that should be thrown even if we are continuing
             // if its an indentation error, set to true if we are continuing and the error is on column 0,
             // since indentations errors on columns other than 0 should be ignored.
             // if its an unrecognized token for dedent, set to false
 
-            let bad_error = match err.error {
-                CompileErrorType::Parse(ref p) => {
-                    if matches!(
-                        p,
-                        ParseErrorType::Lexical(LexicalErrorType::IndentationError)
-                    ) {
-                        continuing && err.location.is_some()
+            let bad_error = match err {
+                CompileError::Parse(ref p) => {
+                    // TODO: Improve ruff API
+                    // ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+                    if p.to_string() == "unindent does not match any outer indentation level" {
+                        continuing && err.location().is_some()
                     } else {
-                        !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
+                        true
+                        // TODO
+                        // !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
                     }
                 }
                 _ => true, // It is a bad error for everything else

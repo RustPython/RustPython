@@ -14,7 +14,7 @@ use crate::{
     function::{ArgMapping, Either, FuncArgs},
     protocol::{PyIter, PyIterReturn},
     scope::Scope,
-    source_code::SourceLocation,
+    source::SourceLocation,
     stdlib::{builtins, typing::_typing},
     vm::{Context, PyMethod},
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
@@ -166,7 +166,7 @@ impl Frame {
     }
 
     pub fn current_location(&self) -> SourceLocation {
-        self.code.locations[self.lasti() as usize - 1]
+        self.code.locations[self.lasti() as usize - 1].clone()
     }
 
     pub fn lasti(&self) -> u32 {
@@ -378,7 +378,7 @@ impl ExecutingFrame<'_> {
                         // 2. Add new entry with current execution position (filename, lineno, code_object) to traceback.
                         // 3. Unwind block stack till appropriate handler is found.
 
-                        let loc = frame.code.locations[idx];
+                        let loc = frame.code.locations[idx].clone();
                         let next = exception.traceback();
                         let new_traceback =
                             PyTraceback::new(next, frame.object.to_owned(), frame.lasti(), loc.row);

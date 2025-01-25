@@ -29,7 +29,7 @@ rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
 rustpython-vm = { workspace = true, features = ["compiler"] }
-rustpython-parser = { workspace = true }
+ruff_python_parser = { workspace = true }
 
 cfg-if = { workspace = true }
 log = { workspace = true }
@@ -95,7 +95,7 @@ x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies =
 [workspace]
 resolver = "2"
 members = [
-    "compiler", "compiler/core", "compiler/codegen",
+    "compiler", "compiler/core", "compiler/codegen", "compiler/source",
     ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl",
     "wasm/lib",
 ]
@@ -109,6 +109,7 @@ repository = "https://github.com/RustPython/RustPython"
 license = "MIT"
 
 [workspace.dependencies]
+rustpython-compiler-source = { path = "compiler/source" }
 rustpython-compiler-core = { path = "compiler/core", version = "0.4.0" }
 rustpython-compiler = { path = "compiler", version = "0.4.0" }
 rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
@@ -122,15 +123,20 @@ rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.
 rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
+ruff_python_parser = { path = "../ruff/crates/ruff_python_parser" }
+ruff_python_ast = { path = "../ruff/crates/ruff_python_ast" }
+ruff_text_size = { path = "../ruff/crates/ruff_text_size" }
+ruff_source_file = { path = "../ruff/crates/ruff_source_file" }
+ruff_python_codegen = { path = "../ruff/crates/ruff_python_codegen" }
 # rustpython-literal = { version = "0.4.0" }
 # rustpython-parser-core = { version = "0.4.0" }
 # rustpython-parser = { version = "0.4.0" }
 # rustpython-ast = { version = "0.4.0" }
 # rustpython-format= { version = "0.4.0" }
 rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
+# rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
+# rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
+# rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
 rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-parser-core = { path = "../RustPython-parser/core" }
