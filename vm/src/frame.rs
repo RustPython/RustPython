@@ -517,7 +517,6 @@ impl ExecutingFrame<'_> {
         }
 
         match instruction {
-            bytecode::Instruction::Nop => Ok(None),
             bytecode::Instruction::LoadConst { idx } => {
                 self.push_value(self.code.constants[idx.get(arg) as usize].clone().into());
                 Ok(None)
@@ -671,13 +670,6 @@ impl ExecutingFrame<'_> {
             bytecode::Instruction::Pop => {
                 // Pop value from stack and ignore.
                 self.pop_value();
-                Ok(None)
-            }
-            bytecode::Instruction::Swap { index } => {
-                let len = self.state.stack.len();
-                self.state
-                    .stack
-                    .swap(len - 1, len - 1 - index.get(arg) as usize);
                 Ok(None)
             }
             bytecode::Instruction::Duplicate => {

@@ -370,10 +370,6 @@ pub type NameIdx = u32;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Instruction {
-    /// No-op, don't do anything at all
-    ///
-    /// Equivalent to `NOP` in cpython bytecode
-    Nop,
     /// Importing by name
     ImportName {
         idx: Arg<NameIdx>,
@@ -432,9 +428,6 @@ pub enum Instruction {
         op: Arg<ComparisonOperator>,
     },
     Pop,
-    Swap {
-        index: Arg<u32>,
-    },
     Rotate2,
     Rotate3,
     Duplicate,
@@ -1184,7 +1177,6 @@ impl Instruction {
     ///
     pub fn stack_effect(&self, arg: OpArg, jump: bool) -> i32 {
         match self {
-            Nop => 0,
             ImportName { .. } | ImportNameless => -1,
             ImportStar => -1,
             ImportFrom { .. } => 1,
@@ -1205,7 +1197,6 @@ impl Instruction {
             | TestOperation { .. }
             | CompareOperation { .. } => -1,
             Pop => -1,
-            Swap { .. } => 0,
             Rotate2 | Rotate3 => 0,
             Duplicate => 1,
             Duplicate2 => 2,
@@ -1370,7 +1361,6 @@ impl Instruction {
             };
 
         match self {
-            Nop => w!(Nop),
             ImportName { idx } => w!(ImportName, name = idx),
             ImportNameless => w!(ImportNameless),
             ImportStar => w!(ImportStar),
@@ -1402,7 +1392,6 @@ impl Instruction {
             TestOperation { op } => w!(TestOperation, ?op),
             CompareOperation { op } => w!(CompareOperation, ?op),
             Pop => w!(Pop),
-            Swap { index } => w!(Swap, index),
             Rotate2 => w!(Rotate2),
             Rotate3 => w!(Rotate3),
             Duplicate => w!(Duplicate),

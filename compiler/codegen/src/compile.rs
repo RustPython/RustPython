@@ -1880,7 +1880,7 @@ impl Compiler {
                 emit!(self, Instruction::Pop);
             } else {
                 // Show line coverage for default case (it doesn't create bytecode)
-                emit!(self, Instruction::Nop);
+                // emit!(self, Instruction::Nop);
             }
             self.compile_statements(&m.body)?;
         }
