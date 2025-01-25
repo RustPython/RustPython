@@ -258,9 +258,8 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
         &"col".into(),
         &(err.location().unwrap().column.get()).into(),
     );
-    // FIXME: Clean this up.
+    // TODO: Improve ruff API
     // `ruff_python_parser::error::LexicalErrorType` is marked "pub" but not exported (accessible) which prevents us from matching against it
-    // TODO:
     //
     // let can_continue = matches!(
     //     &err.error,

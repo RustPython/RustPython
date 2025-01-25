@@ -64,7 +64,8 @@ impl Node for ruff::ModModule {
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("body", body.ast_to_object(vm), vm).unwrap();
-        // TODO: ruff ignores type_ignore comments currently.
+        // TODO: Improve ruff API
+        // ruff ignores type_ignore comments currently.
         let type_ignores: Vec<TypeIgnore> = vec![];
         dict.set_item("type_ignores", type_ignores.ast_to_object(vm), vm)
             .unwrap();

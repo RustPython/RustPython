@@ -3545,7 +3545,8 @@ fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [
 /// Converts a `ruff` ast integer into a `BigInt`.
 /// Unlike small integers, big integers may be stored in one of four possible radix representations.
 fn parse_big_integer(int: &Int) -> Result<BigInt, CodegenErrorType> {
-    // TODO: Can we avoid this copy?
+    // TODO: Improve ruff API
+    // Can we avoid this copy?
     let s = format!("{}", int);
     let mut s = s.as_str();
     // See: https://peps.python.org/pep-0515/#literal-grammar
