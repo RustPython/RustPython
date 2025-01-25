@@ -7,7 +7,6 @@
 
 #![deny(clippy::cast_possible_truncation)]
 
-use crate::ir::BlockIdx;
 use crate::{
     error::{CodegenError, CodegenErrorType},
     ir,
@@ -18,13 +17,14 @@ use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast::located::{self as located_ast, Located};
-use rustpython_ast::{Pattern, PatternMatchAs, PatternMatchValue};
-use rustpython_compiler_core::bytecode::ComparisonOperator;
 use rustpython_compiler_core::{
-    bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
+    bytecode::{
+        self, Arg as OpArgMarker, CodeObject, ComparisonOperator, ConstantData, Instruction, OpArg,
+        OpArgType,
+    },
     Mode,
 };
-use rustpython_parser_core::source_code::{LineNumber, SourceLocation, SourceRange};
+use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 use std::borrow::Cow;
 
 type CompileResult<T> = Result<T, CodegenError>;
@@ -216,7 +216,7 @@ macro_rules! emit {
 
 struct PatternContext {
     current_block: usize,
-    blocks: Vec<BlockIdx>,
+    blocks: Vec<ir::BlockIdx>,
     allow_irrefutable: bool,
 }
 
@@ -1766,7 +1766,7 @@ impl Compiler {
 
     fn compile_pattern_value(
         &mut self,
-        value: &PatternMatchValue<SourceRange>,
+        value: &located_ast::PatternMatchValue,
         _pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         self.compile_expression(&value.value)?;
@@ -1781,7 +1781,7 @@ impl Compiler {
 
     fn compile_pattern_as(
         &mut self,
-        as_pattern: &PatternMatchAs<SourceRange>,
+        as_pattern: &located_ast::PatternMatchAs,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         if as_pattern.pattern.is_none() && !pattern_context.allow_irrefutable {
@@ -1808,19 +1808,26 @@ impl Compiler {
 
     fn compile_pattern_inner(
         &mut self,
-        pattern_type: &Pattern<SourceRange>,
+        pattern_type: &located_ast::Pattern,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         match &pattern_type {
-            Pattern::MatchValue(value) => self.compile_pattern_value(value, pattern_context),
-            Pattern::MatchAs(as_pattern) => self.compile_pattern_as(as_pattern, pattern_context),
-            _ => Err(self.error(CodegenErrorType::NotImplementedYet)),
+            located_ast::Pattern::MatchValue(value) => {
+                self.compile_pattern_value(value, pattern_context)
+            }
+            located_ast::Pattern::MatchAs(as_pattern) => {
+                self.compile_pattern_as(as_pattern, pattern_context)
+            }
+            _ => {
+                eprintln!("not implemented pattern type: {pattern_type:?}");
+                Err(self.error(CodegenErrorType::NotImplementedYet))
+            }
         }
     }
 
     fn compile_pattern(
         &mut self,
-        pattern_type: &Pattern<SourceRange>,
+        pattern_type: &located_ast::Pattern,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         self.compile_pattern_inner(pattern_type, pattern_context)?;
@@ -1873,7 +1880,7 @@ impl Compiler {
                 emit!(self, Instruction::Pop);
             } else {
                 // Show line coverage for default case (it doesn't create bytecode)
-                emit!(self, Instruction::Noop);
+                emit!(self, Instruction::Nop);
             }
             self.compile_statements(&m.body)?;
         }
