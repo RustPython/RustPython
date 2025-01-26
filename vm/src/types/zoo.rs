@@ -9,6 +9,7 @@ use crate::{
         union_, weakproxy, weakref, zip,
     },
     class::StaticType,
+    stdlib::typing,
     vm::Context,
     Py,
 };
@@ -92,6 +93,7 @@ pub struct TypeZoo {
     pub generic_alias_type: &'static Py<PyType>,
     pub union_type: &'static Py<PyType>,
     pub member_descriptor_type: &'static Py<PyType>,
+    pub no_default_type: &'static Py<PyType>,
 
     // RustPython-original types
     pub method_def: &'static Py<PyType>,
@@ -183,6 +185,8 @@ impl TypeZoo {
             generic_alias_type: genericalias::PyGenericAlias::init_builtin_type(),
             union_type: union_::PyUnion::init_builtin_type(),
             member_descriptor_type: descriptor::PyMemberDescriptor::init_builtin_type(),
+
+            no_default_type: typing::NoDefaultType::init_builtin_type(),
 
             method_def: crate::function::HeapMethodDef::init_builtin_type(),
         }
