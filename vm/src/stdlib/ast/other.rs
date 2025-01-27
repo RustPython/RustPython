@@ -14,7 +14,7 @@ impl Node for ruff::ConversionFlag {
     }
 }
 
-/// This is just a string, not strictly an AST node. But it makes AST conversions easier.
+// /// This is just a string, not strictly an AST node. But it makes AST conversions easier.
 // impl Node for ruff::name::Name {
 //     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
 //         vm.ctx.new_str(self.as_str()).to_pyobject(vm)

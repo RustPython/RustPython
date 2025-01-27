@@ -264,19 +264,20 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         use crate::source::SourceLocation;
 
-        let syntax_error_type = match &error {
-            // FIXME:
-            // #[cfg(feature = "rustpython-parser")]
-            // crate::compiler::CompileError::Parse(p) if p.is_indentation_error() => {
-            //     self.ctx.exceptions.indentation_error
-            // }
-            // #[cfg(feature = "rustpython-parser")]
-            // crate::compiler::CompileError::Parse(p) if p.is_tab_error() => {
-            //     self.ctx.exceptions.tab_error
-            // }
-            _ => self.ctx.exceptions.syntax_error,
-        }
-        .to_owned();
+        // let syntax_error_type = match &error {
+        //     // FIXME:
+        //     // #[cfg(feature = "rustpython-parser")]
+        //     // crate::compiler::CompileError::Parse(p) if p.is_indentation_error() => {
+        //     //     self.ctx.exceptions.indentation_error
+        //     // }
+        //     // #[cfg(feature = "rustpython-parser")]
+        //     // crate::compiler::CompileError::Parse(p) if p.is_tab_error() => {
+        //     //     self.ctx.exceptions.tab_error
+        //     // }
+        //     _ => self.ctx.exceptions.syntax_error,
+        // }
+        // .to_owned();
+        let syntax_error_type = self.ctx.exceptions.syntax_error.to_owned();
 
         // TODO: replace to SourceCode
         fn get_statement(source: &str, loc: Option<SourceLocation>) -> Option<String> {

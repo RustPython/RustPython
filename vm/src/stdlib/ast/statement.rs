@@ -31,6 +31,8 @@ impl Node for ruff::Stmt {
             ruff::Stmt::IpyEscapeCommand(_) => todo!(),
         }
     }
+
+    #[allow(clippy::if_same_then_else)]
     fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(gen::NodeStmtFunctionDef::static_type()) {

@@ -71,7 +71,7 @@ fn get_int_field(
     obj: &PyObject,
     field: &'static str,
 ) -> PyResult<Option<PyRefExact<PyInt>>> {
-    Ok(get_node_field_opt(vm, &obj, field)?
+    Ok(get_node_field_opt(vm, obj, field)?
         .map(|obj| obj.downcast_exact(vm))
         .transpose()
         .unwrap())

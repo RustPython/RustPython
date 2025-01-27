@@ -287,7 +287,7 @@ impl Node for ruff::ExprDict {
             Node::ast_from_object(vm, get_node_field(vm, &object, "values", "Dict")?)?;
         let items = keys
             .into_iter()
-            .zip(values.into_iter())
+            .zip(values)
             .map(|(key, value)| ruff::DictItem { key, value })
             .collect();
         Ok(Self {

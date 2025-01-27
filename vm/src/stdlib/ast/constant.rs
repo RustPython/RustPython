@@ -240,10 +240,7 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
         }),
         ConstantLiteral::Tuple(value) => ruff::Expr::Tuple(ruff::ExprTuple {
             range,
-            elts: value
-                .into_iter()
-                .map(|v| constant_to_ruff_expr(v))
-                .collect(),
+            elts: value.into_iter().map(constant_to_ruff_expr).collect(),
             // TODO
             ctx: ExprContext::Invalid,
             // TODO: Does this matter?

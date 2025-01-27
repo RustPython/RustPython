@@ -135,7 +135,7 @@ pub fn compile_top(
     // }
 }
 
-/// A helper function for the shared code of the different compile functions
+// /// A helper function for the shared code of the different compile functions
 // fn compile_impl<Ast: ?Sized>(
 //     ast: &Ast,
 //     source_code: SourceCode,
@@ -181,7 +181,7 @@ pub fn compile_program(
     // )
 }
 
-/// Compile a Python program to bytecode for the context of a REPL
+// /// Compile a Python program to bytecode for the context of a REPL
 // pub fn compile_program_single(
 //     ast: &[Stmt],
 //     source_code: SourceCode,
@@ -739,7 +739,7 @@ impl Compiler<'_> {
                     // Only if
                     [] => {
                         let after_block = self.new_block();
-                        self.compile_jump_if(&test, false, after_block)?;
+                        self.compile_jump_if(test, false, after_block)?;
                         self.compile_statements(body)?;
                         self.switch_to_block(after_block);
                     }
@@ -748,7 +748,7 @@ impl Compiler<'_> {
                         let after_block = self.new_block();
                         let mut next_block = self.new_block();
 
-                        self.compile_jump_if(&test, false, next_block)?;
+                        self.compile_jump_if(test, false, next_block)?;
                         self.compile_statements(body)?;
                         emit!(
                             self,
@@ -1096,7 +1096,7 @@ impl Compiler<'_> {
             .chain(kw_without_defaults)
             .chain(kw_with_defaults.into_iter().map(|(arg, _)| arg));
         for name in args_iter {
-            self.varname(&name.name.as_str())?;
+            self.varname(name.name.as_str())?;
         }
 
         if let Some(name) = parameters.vararg.as_deref() {
@@ -1399,7 +1399,7 @@ impl Compiler<'_> {
         for param in parameters_iter {
             if let Some(annotation) = &param.annotation {
                 self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(&param.name.as_str()).into_owned(),
+                    value: self.mangle(param.name.as_str()).into_owned(),
                 });
                 self.compile_annotation(annotation)?;
                 num_annotations += 1;
@@ -2752,7 +2752,7 @@ impl Compiler<'_> {
                                     })
                                     .unwrap_or_default()
                                     .to_owned();
-                                self.emit_load_const(ConstantData::Str { value: value });
+                                self.emit_load_const(ConstantData::Str { value });
 
                                 self.compile_expression(&element.expression)?;
                                 emit!(
@@ -2952,7 +2952,7 @@ impl Compiler<'_> {
         additional_positional: u32,
         arguments: &Arguments,
     ) -> CompileResult<CallType> {
-        let count = arguments.len() as u32 + additional_positional;
+        let count = u32::try_from(arguments.len()).unwrap() + additional_positional;
 
         // Normal arguments:
         let (size, unpack) = self.gather_elements(additional_positional, &arguments.args)?;
@@ -3408,8 +3408,7 @@ impl Compiler<'_> {
             Expr::Set(ExprSet { elts, .. }) => elts.iter().any(Self::contains_await),
             Expr::Dict(ExprDict { items, .. }) => items
                 .iter()
-                .map(|item| &item.key)
-                .flatten()
+                .flat_map(|item| &item.key)
                 .any(Self::contains_await),
             Expr::Slice(ExprSlice {
                 lower, upper, step, ..
