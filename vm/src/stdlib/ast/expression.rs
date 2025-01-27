@@ -654,14 +654,14 @@ impl Node for ruff::ExprName {
             .into_ref_with_type(vm, gen::NodeExprName::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("id", id.ast_to_object(vm), vm).unwrap();
+        dict.set_item("id", id.to_pyobject(vm), vm).unwrap();
         dict.set_item("ctx", ctx.ast_to_object(vm), vm).unwrap();
         node_add_location(&dict, range, vm);
         node.into()
     }
     fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
         Ok(Self {
-            id: Node::ast_from_object(vm, get_node_field(vm, &object, "id", "Name")?)?,
+            id: get_node_field(vm, &object, "id", "Name")?.try_into_value(vm)?,
             ctx: Node::ast_from_object(vm, get_node_field(vm, &object, "ctx", "Name")?)?,
             range: range_from_object(vm, object, "Name")?,
         })
@@ -822,7 +822,8 @@ impl Node for ruff::Comprehension {
 impl Node for ruff::ExprBytesLiteral {
     fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
         let Self { range, value } = self;
-        let c = Constant::new_bytes(value.bytes(), range);
+        let bytes = value.as_slice().iter().flat_map(|b| b.value.iter());
+        let c = Constant::new_bytes(bytes.copied(), range);
         c.ast_to_object(vm)
     }
 

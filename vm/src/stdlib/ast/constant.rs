@@ -1,6 +1,6 @@
-use ruff_python_ast::ExprContext;
 use super::*;
 use crate::builtins::{PyComplex, PyTuple};
+use ruff_python_ast::ExprContext;
 
 #[derive(Debug)]
 pub(super) struct Constant {
