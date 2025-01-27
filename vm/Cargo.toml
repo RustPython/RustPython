@@ -19,9 +19,9 @@ freeze-stdlib = ["encodings"]
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
 compiler = ["parser", "codegen", "rustpython-compiler"]
-ast = ["rustpython-ast"]
+ast = ["ruff_python_ast", "ruff_text_size"]
 codegen = ["rustpython-codegen", "ast"]
-parser = ["rustpython-parser", "ast"]
+parser = ["ruff_python_parser", "ast"]
 serde = ["dep:serde"]
 wasmbind = ["chrono/wasmbind", "getrandom/js", "wasm-bindgen"]
 
@@ -32,10 +32,14 @@ rustpython-common = { workspace = true }
 rustpython-derive = { workspace = true }
 rustpython-jit = { workspace = true, optional = true }
 
-rustpython-ast = { workspace = true, optional = true }
-rustpython-parser = { workspace = true, optional = true }
+ruff_python_ast = { workspace = true, optional = true }
+ruff_python_parser = { workspace = true, optional = true }
+ruff_text_size = { workspace = true, optional = true }
+# rustpython-ast = { workspace = true, optional = true }
+# rustpython-parser = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
-rustpython-parser-core = { workspace = true }
+rustpython-compiler-source = { workspace = true }
+# rustpython-parser-core = { workspace = true }
 rustpython-literal = { workspace = true }
 rustpython-format = { workspace = true }
 rustpython-sre_engine = { workspace = true }
