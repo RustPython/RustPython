@@ -27,6 +27,8 @@ impl From<Mode> for ruff_python_parser::Mode {
         match mode {
             Mode::Exec => Self::Module,
             Mode::Eval => Self::Expression,
+            // TODO: Improve ruff API
+            // ruff does not have an interactive mode
             Mode::Single | Mode::BlockExpr => Self::Ipython,
         }
     }
