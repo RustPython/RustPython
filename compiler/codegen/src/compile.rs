@@ -2859,7 +2859,7 @@ impl Compiler<'_> {
                 }
                 Number::Complex { real, imag } => {
                     self.emit_load_const(ConstantData::Complex {
-                        value: Complex::from_polar(*real, *imag),
+                        value: Complex::new(*real, *imag),
                     });
                 }
             },
