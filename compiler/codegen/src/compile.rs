@@ -3586,7 +3586,6 @@ impl ToU32 for usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ruff_python_ast::name::Name;
     use ruff_python_ast::*;
 
     /// Test if the compiler can correctly identify fstrings containing an `await` expression.
@@ -3598,7 +3597,7 @@ mod tests {
         // f'{x}'
         let expr_x = Expr::Name(ExprName {
             range,
-            id: Name::new("x"),
+            id: "x".to_owned(),
             ctx: ExprContext::Load,
         });
         let not_present = &Expr::FString(ExprFString {
@@ -3623,7 +3622,7 @@ mod tests {
             range,
             value: Box::new(Expr::Name(ExprName {
                 range,
-                id: Name::new("x"),
+                id: "x".to_owned(),
                 ctx: ExprContext::Load,
             })),
         });
@@ -3647,14 +3646,14 @@ mod tests {
         // f'{x:{await y}}'
         let expr_x = Expr::Name(ExprName {
             range,
-            id: Name::new("x"),
+            id: "x".to_owned(),
             ctx: ExprContext::Load,
         });
         let expr_await_y = Expr::Await(ExprAwait {
             range,
             value: Box::new(Expr::Name(ExprName {
                 range,
-                id: Name::new("y"),
+                id: "y".to_owned(),
                 ctx: ExprContext::Load,
             })),
         });
