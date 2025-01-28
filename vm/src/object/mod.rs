@@ -3,6 +3,7 @@ mod ext;
 mod payload;
 mod traverse;
 mod traverse_object;
+mod gc;
 
 pub use self::core::*;
 pub use self::ext::*;
