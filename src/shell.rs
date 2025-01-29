@@ -1,6 +1,8 @@
 mod helper;
 
-use rustpython_compiler::{CompileError, ParseError};
+use rustpython_compiler::{
+    parser::lexer::LexicalErrorType, parser::ParseErrorType, CompileError, ParseError,
+};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compiler::{self},
@@ -35,15 +37,10 @@ fn shell_exec(
                 ShellExecResult::Ok
             }
         }
-        // TODO: Improve ruff API
-        // This should be
-        // Err(CompileError::Parse(ParseError { error: ParseErrorType::Lexical(LexicalErrorType::Eof), .. }))
-        // but LexicalErrorType is not publicly exported in ruff_python_parser.
-        Err(CompileError::Parse(ParseError { error, .. }))
-            if error.to_string() == "unexpected EOF while parsing" =>
-        {
-            ShellExecResult::Continue
-        }
+        Err(CompileError::Parse(ParseError {
+            error: ParseErrorType::Lexical(LexicalErrorType::Eof),
+            ..
+        })) => ShellExecResult::Continue,
         Err(err) => {
             // bad_error == true if we are handling an error that should be thrown even if we are continuing
             // if its an indentation error, set to true if we are continuing and the error is on column 0,
@@ -52,14 +49,13 @@ fn shell_exec(
 
             let bad_error = match err {
                 CompileError::Parse(ref p) => {
-                    // TODO: Improve ruff API
-                    // ParseErrorType::Lexical(LexicalErrorType::IndentationError)
-                    if p.to_string() == "unindent does not match any outer indentation level" {
-                        continuing && err.location().is_some()
+                    if matches!(
+                        p.error,
+                        ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+                    ) {
+                        continuing // && p.location.is_some()
                     } else {
-                        true
-                        // TODO
-                        // !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
+                        true // !matches!(p, ParseErrorType::UnrecognizedToken(Tok::Dedent, _))
                     }
                 }
                 _ => true, // It is a bad error for everything else
