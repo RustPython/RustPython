@@ -264,20 +264,35 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         use crate::source::SourceLocation;
 
-        // let syntax_error_type = match &error {
-        //     // FIXME:
-        //     // #[cfg(feature = "rustpython-parser")]
-        //     // crate::compiler::CompileError::Parse(p) if p.is_indentation_error() => {
-        //     //     self.ctx.exceptions.indentation_error
-        //     // }
-        //     // #[cfg(feature = "rustpython-parser")]
-        //     // crate::compiler::CompileError::Parse(p) if p.is_tab_error() => {
-        //     //     self.ctx.exceptions.tab_error
-        //     // }
-        //     _ => self.ctx.exceptions.syntax_error,
-        // }
-        // .to_owned();
-        let syntax_error_type = self.ctx.exceptions.syntax_error.to_owned();
+        let syntax_error_type = match &error {
+            #[cfg(feature = "parser")]
+            // FIXME: this condition will cause TabError even when the matching actual error is IndentationError
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::lexer::LexicalErrorType::IndentationError,
+                    ),
+                ..
+            }) => self.ctx.exceptions.tab_error,
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::UnexpectedIndentation,
+                ..
+            }) => self.ctx.exceptions.indentation_error,
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::OtherError(s),
+                ..
+            }) => {
+                if ["Expected an indented block after `if` statement"].contains(&s.as_str()) {
+                    self.ctx.exceptions.indentation_error
+                } else {
+                    self.ctx.exceptions.syntax_error
+                }
+            }
+            _ => self.ctx.exceptions.syntax_error,
+        }
+        .to_owned();
 
         // TODO: replace to SourceCode
         fn get_statement(source: &str, loc: Option<SourceLocation>) -> Option<String> {
