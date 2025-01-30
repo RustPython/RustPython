@@ -23,10 +23,13 @@ use crate::{
         atomic::{OncePtr, PyAtomic, Radium},
         linked_list::{Link, LinkedList, Pointers},
         lock::{PyMutex, PyMutexGuard, PyRwLock},
-        refcount::RefCount,
     },
     vm::VirtualMachine,
 };
+#[cfg(feature = "gc")]
+pub use crate::object::gc::refcount::RefCount;
+#[cfg(not(feature = "gc"))]
+pub use crate::common::refcount::RefCount;
 use itertools::Itertools;
 use std::{
     any::TypeId,
@@ -73,8 +76,12 @@ use std::{
 // concrete type to work with before we ever access the `payload` field**
 
 /// A type to just represent "we've erased the type of this object, cast it before you use it"
+#[cfg(not(feature =  "gc"))]
 #[derive(Debug)]
 pub(super) struct Erased;
+
+#[cfg(feature = "gc")]
+pub(super) use crate::object::gc::erased::Erased;
 
 pub(super) unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
     drop(Box::from_raw(x as *mut PyInner<T>));
@@ -464,7 +471,7 @@ impl<T: PyObjectPayload> PyInner<T> {
 /// to the python object by 1.
 #[repr(transparent)]
 pub struct PyObjectRef {
-    ptr: NonNull<PyObject>,
+    pub(crate) ptr: NonNull<PyObject>,
 }
 
 impl Clone for PyObjectRef {
