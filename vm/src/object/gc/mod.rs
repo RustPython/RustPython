@@ -8,6 +8,6 @@ pub(crate) use dumpster::{default_collect_condition, CollectCondition, CollectIn
 pub(crate) use visitor::Visitor;
 
 pub fn try_gc() {
-    // TODO: Finish
+    // TODO: conditionally collect
     dumpster::collect();
 }

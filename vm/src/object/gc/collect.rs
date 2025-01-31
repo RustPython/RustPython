@@ -198,7 +198,7 @@ where
 /// need to be cleaned again.
 pub(super) fn mark_clean<T>(allocation: &PyInner<T>)
 where
-    T: Traverse + Send + Sync + ?Sized,
+    T: Traverse + Send + Sync + Sized,
 {
     DUMPSTER.with(|dumpster| {
         if dumpster
@@ -357,7 +357,7 @@ impl GarbageTruck {
 /// # Safety
 ///
 /// `ptr` must have been created as a pointer to a `PyInner<T>`.
-unsafe fn dfs<T: Traverse + Send + Sync + ?Sized>(
+unsafe fn dfs<T: Traverse + Send + Sync>(
     ptr: Erased,
     ref_graph: &mut HashMap<AllocationId, AllocationInfo>,
 ) {
@@ -384,8 +384,7 @@ unsafe fn dfs<T: Traverse + Send + Sync + ?Sized>(
     });
 
     if box_ref
-        .value
-        .accept(&mut Dfs {
+        .traverse(&mut Dfs {
             ref_graph,
             current_id: starting_id,
         })
@@ -412,13 +411,13 @@ struct Dfs<'a> {
 impl<'a> Visitor for Dfs<'a> {
     fn visit_sync<T>(&mut self, gc: &PyObjectRef)
     where
-        T: Traverse + Send + Sync + ?Sized,
+        T: Traverse + Send + Sync + Sized,
     {
         // must not use deref operators since we don't want to update the generation
         let ptr = unsafe {
             // SAFETY: This is the same as the deref implementation, but avoids
             // incrementing the generation count.
-            (*gc.ptr.get()).unwrap()
+            (*gc.ptr.read()).unwrap()
         };
         let box_ref = unsafe {
             // SAFETY: same as above.
@@ -509,7 +508,7 @@ fn mark(root: AllocationId, graph: &mut HashMap<AllocationId, AllocationInfo>) {
 /// # Safety
 ///
 /// `ptr` must have been created from a pointer to a `PyInner<T>`.
-unsafe fn destroy_erased<T: Traverse + Send + Sync + ?Sized>(
+unsafe fn destroy_erased<T: Traverse + Send + Sync>(
     ptr: Erased,
     graph: &HashMap<AllocationId, AllocationInfo>,
 ) {
@@ -523,7 +522,7 @@ unsafe fn destroy_erased<T: Traverse + Send + Sync + ?Sized>(
     impl Visitor for PrepareForDestruction<'_> {
         fn visit_sync<T>(&mut self, gc: &PyObjectRef)
         where
-            T: Traverse + Send + Sync + ?Sized,
+            T: Traverse + Send + Sync + Sized,
         {
             let id = AllocationId::from(unsafe {
                 // SAFETY: This is the same as dereferencing the GC.
@@ -538,7 +537,7 @@ unsafe fn destroy_erased<T: Traverse + Send + Sync + ?Sized>(
                 unsafe {
                     // SAFETY: The GC is unreachable,
                     // so the GC will never be dereferenced again.
-                    gc.ptr.get().write((*gc.ptr.get()).as_null());
+                    gc.ptr.write((*gc.ptr.read()).as_null());
                 }
             }
         }
@@ -546,8 +545,7 @@ unsafe fn destroy_erased<T: Traverse + Send + Sync + ?Sized>(
 
     let specified = ptr.specify::<PyInner<T>>().as_mut();
     specified
-        .value
-        .accept(&mut PrepareForDestruction { graph })
+        .traverse(&mut PrepareForDestruction { graph })
         .expect("allocation assumed to be unreachable but somehow was accessed");
     let layout = Layout::for_value(specified);
     drop_in_place(specified);
@@ -560,7 +558,7 @@ unsafe fn destroy_erased<T: Traverse + Send + Sync + ?Sized>(
 /// # Safety
 ///
 /// `ptr` must have been created as a pointer to a `PyInner<T>`.
-unsafe fn drop_weak_zero<T: Traverse + Send + Sync + ?Sized>(ptr: Erased) {
+unsafe fn drop_weak_zero<T: Traverse + Send + Sync>(ptr: Erased) {
     let mut specified = ptr.specify::<PyInner<T>>();
     assert_eq!(specified.as_ref().ref_count.weak.load(Ordering::Relaxed), 0);
     assert_eq!(specified.as_ref().ref_count.strong.load(Ordering::Relaxed), 0);
@@ -575,7 +573,7 @@ unsafe impl Sync for AllocationId {}
 
 impl<T> From<&PyInner<T>> for AllocationId
 where
-    T: Traverse + Send + Sync + ?Sized,
+    T: Traverse + Send + Sync,
 {
     fn from(value: &PyInner<T>) -> Self {
         AllocationId(NonNull::from(value).cast())
@@ -584,7 +582,7 @@ where
 
 impl<T> From<NonNull<PyInner<T>>> for AllocationId
 where
-    T: Traverse + Send + Sync + ?Sized,
+    T: Traverse + Send + Sync,
 {
     fn from(value: NonNull<PyInner<T>>) -> Self {
         AllocationId(value.cast())
