@@ -3356,7 +3356,10 @@ fn split_doc<'a>(
     if let Some((located_ast::Stmt::Expr(expr), body_rest)) = body.split_first() {
         if let Some(doc) = try_get_constant_string(std::slice::from_ref(&expr.value)) {
             if opts.optimize < 2 {
-                return (Some(doc.split("\n").map(|x| x.trim_start()).join("\n")), body_rest);
+                return (
+                    Some(doc.split("\n").map(|x| x.trim_start()).join("\n")),
+                    body_rest,
+                );
             } else {
                 return (None, body_rest);
             }
