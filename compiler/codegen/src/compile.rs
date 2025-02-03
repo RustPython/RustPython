@@ -19,10 +19,11 @@ use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast::{
     Alias, Arguments, BoolOp, CmpOp, Comprehension, Decorator, DictItem, ExceptHandler,
-    ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprList, ExprName, ExprStarred,
-    ExprSubscript, ExprTuple, ExprUnaryOp, Int, Keyword, MatchCase, ModExpression, ModModule,
-    Operator, Parameters, Pattern, PatternMatchAs, PatternMatchValue, Stmt, TypeParam,
-    TypeParamTypeVar, TypeParams, UnaryOp, WithItem,
+    ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprFString, ExprList, ExprName,
+    ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString, FStringElement, FStringElements,
+    FStringPart, Int, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters, Pattern,
+    PatternMatchAs, PatternMatchValue, Stmt, TypeParam, TypeParamTypeVar, TypeParams, UnaryOp,
+    WithItem,
 };
 use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
@@ -2696,144 +2697,7 @@ impl Compiler<'_> {
                 self.compile_store(target)?;
             }
             Expr::FString(fstring) => {
-                // fast path: only one literal
-                if fstring.value.as_slice().len() == 1 {
-                    match &fstring.value.as_slice()[0] {
-                        FStringPart::Literal(literal) => {
-                            self.emit_load_const(ConstantData::Str {
-                                value: literal.value.to_string(),
-                            });
-                            return Ok(());
-                        }
-                        FStringPart::FString(fstring) => {
-                            if fstring.elements.len() == 1
-                                && fstring.elements.literals().count() == 1
-                                && fstring.elements.expressions().count() == 0
-                            {
-                                self.emit_load_const(ConstantData::Str {
-                                    value: fstring.elements[0]
-                                        .as_literal()
-                                        .unwrap()
-                                        .value
-                                        .to_string(),
-                                });
-                                return Ok(());
-                            }
-                        }
-                    }
-                }
-
-                // fast path: only one expression
-                if fstring.value.as_slice().len() == 1 {
-                    match &fstring.value.as_slice()[0] {
-                        FStringPart::Literal(_) => {}
-                        FStringPart::FString(fstring) => {
-                            if fstring.elements.len() == 1
-                                && fstring.elements.literals().count() == 0
-                                && fstring.elements.expressions().count() == 1
-                            {
-                                let element = fstring.elements[0].as_expression().unwrap();
-
-                                //let value: String = element.format_spec.as_ref()
-                                //    .into_iter()
-                                //    .flat_map(|x|{
-                                //        assert_eq!(x.elements.expressions().count(), 0, "todo: nested f-string replacements");
-                                //        x.elements.literals()
-                                //    })
-                                //    .flat_map(|x| x.value.chars())
-                                //    .collect();
-                                let value = element
-                                    .format_spec
-                                    .as_ref()
-                                    .and_then(|x| {
-                                        self.source_code.text.get(
-                                            x.range.start().to_usize()..x.range.end().to_usize(),
-                                        )
-                                    })
-                                    .unwrap_or_default()
-                                    .to_owned();
-                                self.emit_load_const(ConstantData::Str { value });
-
-                                self.compile_expression(&element.expression)?;
-                                emit!(
-                                    self,
-                                    Instruction::FormatValue {
-                                        conversion: element.conversion
-                                    }
-                                );
-                                return Ok(());
-                            }
-                        }
-                    }
-                }
-
-                self.emit_load_const(ConstantData::Str {
-                    value: String::new(),
-                });
-                let idx = self.name("join");
-                emit!(self, Instruction::LoadMethod { idx });
-
-                let mut args = 0;
-
-                for part in fstring.value.as_slice() {
-                    match part {
-                        FStringPart::Literal(literal) => {
-                            self.emit_load_const(ConstantData::Str {
-                                value: literal.value.to_string(),
-                            });
-                            args += 1;
-                        }
-                        FStringPart::FString(literal) => {
-                            for element in &literal.elements {
-                                match element {
-                                    FStringElement::Literal(literal) => {
-                                        self.emit_load_const(ConstantData::Str {
-                                            value: literal.value.to_string(),
-                                        });
-                                        args += 1;
-                                    }
-                                    FStringElement::Expression(element) => {
-                                        //let value: String = element.format_spec.as_ref()
-                                        //    .into_iter()
-                                        //    .flat_map(|x|{
-                                        //        assert_eq!(x.elements.expressions().count(), 0, "todo: nested f-string replacements");
-                                        //        x.elements.literals()
-                                        //    })
-                                        //    .flat_map(|x| x.value.chars())
-                                        //    .collect();
-                                        let value = element
-                                            .format_spec
-                                            .as_ref()
-                                            .and_then(|x| {
-                                                self.source_code.text.get(
-                                                    x.range.start().to_usize()
-                                                        ..x.range.end().to_usize(),
-                                                )
-                                            })
-                                            .unwrap_or_default()
-                                            .to_owned();
-                                        self.emit_load_const(ConstantData::Str { value });
-
-                                        self.compile_expression(&element.expression)?;
-
-                                        emit!(
-                                            self,
-                                            Instruction::FormatValue {
-                                                conversion: element.conversion
-                                            }
-                                        );
-                                        args += 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                emit!(self, Instruction::BuildList { size: args });
-
-                let call = CallType::Positional { nargs: 1 };
-                self.compile_method_call(call)
+                self.compile_expr_fstring(fstring)?;
             }
             Expr::StringLiteral(string) => {
                 self.emit_load_const(ConstantData::Str {
@@ -3494,6 +3358,90 @@ impl Compiler<'_> {
             | Expr::EllipsisLiteral(_)
             | Expr::IpyEscapeCommand(_) => false,
         }
+    }
+
+    fn compile_expr_fstring(&mut self, fstring: &ExprFString) -> CompileResult<()> {
+        let fstring = &fstring.value;
+        for part in fstring {
+            self.compile_fstring_part(part)?;
+        }
+        let part_count: u32 = fstring
+            .iter()
+            .len()
+            .try_into()
+            .expect("BuildString size overflowed");
+        if part_count > 1 {
+            emit!(self, Instruction::BuildString { size: part_count });
+        }
+
+        Ok(())
+    }
+
+    fn compile_fstring_part(&mut self, part: &FStringPart) -> CompileResult<()> {
+        match part {
+            FStringPart::Literal(string) => {
+                self.emit_load_const(ConstantData::Str {
+                    value: string.value.to_string(),
+                });
+                Ok(())
+            }
+            FStringPart::FString(fstring) => self.compile_fstring(fstring),
+        }
+    }
+
+    fn compile_fstring(&mut self, fstring: &FString) -> CompileResult<()> {
+        self.compile_fstring_elements(&fstring.elements)
+    }
+
+    fn compile_fstring_elements(
+        &mut self,
+        fstring_elements: &FStringElements,
+    ) -> CompileResult<()> {
+        for element in fstring_elements {
+            match element {
+                FStringElement::Literal(string) => {
+                    self.emit_load_const(ConstantData::Str {
+                        value: string.value.to_string(),
+                    });
+                }
+                FStringElement::Expression(fstring_expr) => {
+                    match &fstring_expr.format_spec {
+                        None => {
+                            self.emit_load_const(ConstantData::Str {
+                                value: String::new(),
+                            });
+                        }
+                        Some(format_spec) => {
+                            self.compile_fstring_elements(&format_spec.elements)?;
+                        }
+                    }
+
+                    self.compile_expression(&fstring_expr.expression)?;
+
+                    emit!(
+                        self,
+                        Instruction::FormatValue {
+                            conversion: fstring_expr.conversion
+                        }
+                    )
+                }
+            }
+        }
+
+        let element_count: u32 = fstring_elements
+            .len()
+            .try_into()
+            .expect("BuildString size overflowed");
+        if element_count > 1 {
+            emit!(
+                self,
+                Instruction::BuildString {
+                    size: element_count
+                }
+            );
+        }
+
+        Ok(())
     }
 }
 
