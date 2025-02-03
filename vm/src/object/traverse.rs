@@ -3,6 +3,7 @@ use std::ptr::NonNull;
 use rustpython_common::lock::{PyMutex, PyRwLock};
 
 use crate::{function::Either, object::PyObjectPayload, AsObject, PyObject, PyObjectRef, PyRef};
+use crate::object::gc::Visitor;
 
 pub type TraverseFn<'a> = dyn FnMut(&PyObject) + 'a;
 
@@ -28,6 +29,7 @@ pub unsafe trait Traverse {
     ///
     /// - _**DO NOT**_ clone a `PyObjectRef` or `Pyef<T>` in `traverse()`
     fn traverse(&self, traverse_fn: &mut TraverseFn);
+    fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()>;
 }
 
 unsafe impl Traverse for PyObjectRef {
@@ -53,6 +55,15 @@ unsafe impl<T: Traverse> Traverse for Option<T> {
             v.traverse(traverse_fn);
         }
     }
+
+    #[inline]
+    fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()> {
+        if let Some(v) = self {
+            v.accept(visitor)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 unsafe impl<T> Traverse for [T]
@@ -64,6 +75,14 @@ where
         for elem in self {
             elem.traverse(traverse_fn);
         }
+    }
+
+    #[inline]
+    fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()> {
+        for elem in self {
+            elem.accept(visitor)?;
+        }
+        Ok(())
     }
 }
 
@@ -77,6 +96,14 @@ where
             elem.traverse(traverse_fn);
         }
     }
+
+    #[inline]
+    fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()> {
+        for elem in &**self {
+            elem.accept(visitor)?;
+        }
+        Ok(())
+    }
 }
 
 unsafe impl<T> Traverse for Vec<T>
@@ -89,6 +116,14 @@ where
             elem.traverse(traverse_fn);
         }
     }
+
+    #[inline]
+    fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()> {
+        for elem in self {
+            elem.accept(visitor)?;
+        }
+        Ok(())
+    }
 }
 
 unsafe impl<T: Traverse> Traverse for PyRwLock<T> {
@@ -99,6 +134,15 @@ unsafe impl<T: Traverse> Traverse for PyRwLock<T> {
         // so it is safe to ignore those in gc
         if let Some(inner) = self.try_read_recursive() {
             inner.traverse(traverse_fn)
+        }
+    }
+
+    #[inline]
+    fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()> {
+        if let Some(inner) = self.try_read_recursive() {
+            inner.accept(visitor)
+        } else {
+            Ok(())
         }
     }
 }
@@ -124,6 +168,24 @@ unsafe impl<T: Traverse> Traverse for PyMutex<T> {
             })
             .count();
     }
+
+    #[inline]
+    fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()> {
+        let mut chs: Vec<NonNull<PyObject>> = Vec::new();
+        if let Some(obj) = self.try_lock() {
+            obj.accept(&mut |ch| {
+                chs.push(NonNull::from(ch));
+            })?;
+        }
+        chs.iter()
+            .map(|ch| {
+                // Safety: during gc, this should be fine, because nothing should write during gc's tracing?
+                let ch = unsafe { ch.as_ref() };
+                visitor.visit_sync::<PyObject>(&ch.to_owned());
+            })
+            .count();
+        Ok(())
+    }
 }
 
 macro_rules! trace_tuple {
@@ -134,6 +196,12 @@ macro_rules! trace_tuple {
                 $(
                     self.$NUM.traverse(traverse_fn);
                 )*
+            }
+            fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()> {
+                $(
+                    self.$NUM.accept(visitor)?;
+                )*
+                Ok(())
             }
         }
 
@@ -148,6 +216,14 @@ unsafe impl<A: Traverse, B: Traverse> Traverse for Either<A, B> {
             Either::B(b) => b.traverse(tracer_fn),
         }
     }
+
+    #[inline]
+    fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()> {
+        match self {
+            Either::A(a) => a.accept(visitor),
+            Either::B(b) => b.accept(visitor),
+        }
+    }
 }
 
 // only tuple with 12 elements or less is supported,
@@ -156,6 +232,10 @@ unsafe impl<A: Traverse> Traverse for (A,) {
     #[inline]
     fn traverse(&self, tracer_fn: &mut TraverseFn) {
         self.0.traverse(tracer_fn);
+    }
+
+    fn accept<V: Visitor>(&self, visitor: &mut V) -> Result<(), ()> {
+        self.0.accept(visitor)
     }
 }
 trace_tuple!((A, 0), (B, 1));
