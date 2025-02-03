@@ -127,11 +127,11 @@ rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0",
 # rustpython-parser = { version = "0.4.0" }
 # rustpython-ast = { version = "0.4.0" }
 # rustpython-format= { version = "0.4.0" }
-rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
+rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "4588ea5c3e6327009640e7c9c89eb6fa9220358e" }
+rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "4588ea5c3e6327009640e7c9c89eb6fa9220358e" }
+rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "4588ea5c3e6327009640e7c9c89eb6fa9220358e" }
+rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "4588ea5c3e6327009640e7c9c89eb6fa9220358e" }
+rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "4588ea5c3e6327009640e7c9c89eb6fa9220358e" }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-parser-core = { path = "../RustPython-parser/core" }
 # rustpython-parser = { path = "../RustPython-parser/parser" }
@@ -157,9 +157,9 @@ junction = "1.0.0"
 libc = "0.2.153"
 log = "0.4.16"
 nix = { version = "0.29", features = ["fs", "user", "process", "term", "time", "signal", "ioctl", "socket", "sched", "zerocopy", "dir", "hostname", "net", "poll"] }
-malachite-bigint = "0.2.0"
-malachite-q = "0.4.4"
-malachite-base = "0.4.4"
+malachite-bigint = "0.2.2"
+malachite-q = "<=0.4.18"
+malachite-base = "<=0.4.18"
 memchr = "2.7.2"
 num-complex = "0.4.0"
 num-integer = "0.1.44"

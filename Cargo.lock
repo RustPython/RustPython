@@ -308,12 +308,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "convert_case"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
-
-[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -563,15 +557,23 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "0.99.18"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f33878137e4dafd7fa914ad4e259e18a4e8e532b9617a2d0150262bf53abfce"
+checksum = "4a9b99b9cbbe49445b21764dc0625032a89b145a2642e67603e1c936f5458d05"
 dependencies = [
- "convert_case",
+ "derive_more-impl",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb7330aeadfbe296029522e6c40f315320aba36fc43a5b3632f3795348f3bd22"
+dependencies = [
  "proc-macro2",
  "quote",
- "rustc_version",
  "syn 2.0.77",
+ "unicode-xid",
 ]
 
 [[package]]
@@ -1074,9 +1076,9 @@ dependencies = [
 
 [[package]]
 name = "libm"
-version = "0.2.8"
+version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
+checksum = "8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa"
 
 [[package]]
 name = "libredox"
@@ -1168,9 +1170,9 @@ dependencies = [
 
 [[package]]
 name = "malachite"
-version = "0.4.16"
+version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5616515d632967cd329b6f6db96be9a03ea0b3a49cdbc45b0016803dad8a77b7"
+checksum = "4a6ecab92657eb234bfe98abd0b17920772c6b14ce69256950142e2eb36d000b"
 dependencies = [
  "malachite-base",
  "malachite-nz",
@@ -1179,9 +1181,9 @@ dependencies = [
 
 [[package]]
 name = "malachite-base"
-version = "0.4.16"
+version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46059721011b0458b7bd6d9179be5d0b60294281c23320c207adceaecc54d13b"
+checksum = "06f6d078bb4dad5b76f6a85737e6c9113667d199612a73eef375c56e75d5d4d5"
 dependencies = [
  "hashbrown",
  "itertools 0.11.0",
@@ -1191,9 +1193,9 @@ dependencies = [
 
 [[package]]
 name = "malachite-bigint"
-version = "0.2.0"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17703a19c80bbdd0b7919f0f104f3b0597f7de4fc4e90a477c15366a5ba03faa"
+checksum = "63c7698e7abae9522edd41b54ae0395a9bd736ca5054b5fbe672316283a7b817"
 dependencies = [
  "derive_more",
  "malachite",
@@ -1204,9 +1206,9 @@ dependencies = [
 
 [[package]]
 name = "malachite-nz"
-version = "0.4.16"
+version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1503b27e825cabd1c3d0ff1e95a39fb2ec9eab6fd3da6cfa41aec7091d273e78"
+checksum = "ad61a09cde72dcdb8b2baaf3e71430c5bd94fb6753da89f17301a459f3e466db"
 dependencies = [
  "itertools 0.11.0",
  "libm",
@@ -1215,9 +1217,9 @@ dependencies = [
 
 [[package]]
 name = "malachite-q"
-version = "0.4.16"
+version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a475503a70a3679dbe3b9b230a23622516742528ba614a7b2490f180ea9cb514"
+checksum = "be4a9dfffb87667ae94e8320213d3f5419e3e37311bc6bf8f4d2ab9b44f3a535"
 dependencies = [
  "itertools 0.11.0",
  "malachite-base",
@@ -1895,7 +1897,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=f07b97cef396d573364639904d767c9ff3e3e701#f07b97cef396d573364639904d767c9ff3e3e701"
+source = "git+https://github.com/RustPython/Parser.git?rev=4588ea5c3e6327009640e7c9c89eb6fa9220358e#4588ea5c3e6327009640e7c9c89eb6fa9220358e"
 dependencies = [
  "is-macro",
  "malachite-bigint",
@@ -2007,7 +2009,7 @@ dependencies = [
 [[package]]
 name = "rustpython-format"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=f07b97cef396d573364639904d767c9ff3e3e701#f07b97cef396d573364639904d767c9ff3e3e701"
+source = "git+https://github.com/RustPython/Parser.git?rev=4588ea5c3e6327009640e7c9c89eb6fa9220358e#4588ea5c3e6327009640e7c9c89eb6fa9220358e"
 dependencies = [
  "bitflags 2.6.0",
  "itertools 0.11.0",
@@ -2034,7 +2036,7 @@ dependencies = [
 [[package]]
 name = "rustpython-literal"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=f07b97cef396d573364639904d767c9ff3e3e701#f07b97cef396d573364639904d767c9ff3e3e701"
+source = "git+https://github.com/RustPython/Parser.git?rev=4588ea5c3e6327009640e7c9c89eb6fa9220358e#4588ea5c3e6327009640e7c9c89eb6fa9220358e"
 dependencies = [
  "hexf-parse",
  "is-macro",
@@ -2046,7 +2048,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=f07b97cef396d573364639904d767c9ff3e3e701#f07b97cef396d573364639904d767c9ff3e3e701"
+source = "git+https://github.com/RustPython/Parser.git?rev=4588ea5c3e6327009640e7c9c89eb6fa9220358e#4588ea5c3e6327009640e7c9c89eb6fa9220358e"
 dependencies = [
  "anyhow",
  "is-macro",
@@ -2069,7 +2071,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser-core"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=f07b97cef396d573364639904d767c9ff3e3e701#f07b97cef396d573364639904d767c9ff3e3e701"
+source = "git+https://github.com/RustPython/Parser.git?rev=4588ea5c3e6327009640e7c9c89eb6fa9220358e#4588ea5c3e6327009640e7c9c89eb6fa9220358e"
 dependencies = [
  "is-macro",
  "memchr",
@@ -2079,7 +2081,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser-vendored"
 version = "0.4.0"
-source = "git+https://github.com/RustPython/Parser.git?rev=f07b97cef396d573364639904d767c9ff3e3e701#f07b97cef396d573364639904d767c9ff3e3e701"
+source = "git+https://github.com/RustPython/Parser.git?rev=4588ea5c3e6327009640e7c9c89eb6fa9220358e#4588ea5c3e6327009640e7c9c89eb6fa9220358e"
 dependencies = [
  "memchr",
  "once_cell",
@@ -2852,6 +2854,12 @@ name = "unicode-width"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
+
+[[package]]
+name = "unicode-xid"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 
 [[package]]
 name = "unicode_names2"
