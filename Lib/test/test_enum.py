@@ -1369,10 +1369,8 @@ class TestSpecial(unittest.TestCase):
             [Outer.a, Outer.b, Outer.Inner],
             )
 
-    @unittest.skipIf(
-            python_version < (3, 13),
-            'inner classes are still members',
-            )
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_nested_classes_in_enum_are_not_members(self):
         """Support locally-defined nested classes."""
         class Outer(Enum):
@@ -4555,20 +4553,16 @@ class TestInternals(unittest.TestCase):
         self.assertEqual(Color.green.value, 3)
         self.assertEqual(Color.yellow.value, 4)
 
-    @unittest.skipIf(
-            python_version < (3, 13),
-            'mixed types with auto() will raise in 3.13',
-            )
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_auto_garbage_fail(self):
         with self.assertRaisesRegex(TypeError, 'will require all values to be sortable'):
             class Color(Enum):
                 red = 'red'
                 blue = auto()
 
-    @unittest.skipIf(
-            python_version < (3, 13),
-            'mixed types with auto() will raise in 3.13',
-            )
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_auto_garbage_corrected_fail(self):
         with self.assertRaisesRegex(TypeError, 'will require all values to be sortable'):
             class Color(Enum):
@@ -4597,10 +4591,6 @@ class TestInternals(unittest.TestCase):
         self.assertEqual(Color.red.value, 'pathological case')
         self.assertEqual(Color.blue.value, 'blue')
 
-    @unittest.skipIf(
-            python_version < (3, 13),
-            'auto() will return highest value + 1 in 3.13',
-            )
     def test_auto_with_aliases(self):
         class Color(Enum):
             red = auto()
