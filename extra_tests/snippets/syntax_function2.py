@@ -21,7 +21,7 @@ def f1():
         x
     \ty
     """
-assert repr(f1.__doc__) == '\nx \ny\n'
+assert f1.__doc__ == '\nx \ny\n'
 
 def f2():
     """
@@ -29,7 +29,7 @@ def f2():
 \t\ty
     """
 
-assert repr(f2.__doc__) == '\nx \n y\n'
+assert f2.__doc__ == '\nx \n y\n'
 
 def my_func(a,):
     return a+2
