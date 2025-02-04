@@ -3368,42 +3368,60 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
     }
 }
 
+/// Strips leading whitespace from a docstring.
+///
+/// The code has been ported from `_PyCompile_CleanDoc` in cpython
+fn clean_doc(doc: &str) -> String {
+    // emulate str.expandtabs (as in cpython implementation)
+    let doc = doc.replace("\t", &std::iter::repeat_n(" ", 8).join(" "));
+    // First pass: find minimum indentation of any non-blank lines
+    // after first line.
+    let margin = doc
+        .lines()
+        // Skip the first line as per cpython impl
+        .skip(1)
+        // Skip empty lines
+        .filter(|line| !line.replace('\r', "").is_empty())
+        // Get the 1st line
+        .nth(0)
+        // Get the indentation of the 1st line
+        .map(|line| line.chars().take_while(|c| c.is_whitespace()).count())
+        .unwrap_or(0);
+    let mut cleaned = String::new();
+    // copy first line without leading whitespace
+    if let Some(first_line) = doc.lines().next() {
+        cleaned.push_str(first_line.trim_start());
+    }
+    // copy subsequent lines without margin.
+    for line in doc.lines().skip(1) {
+        cleaned.push('\n');
+        // trim leading whitespace up to margin
+        let mut counter = margin;
+        for c in line.chars() {
+            if c == ' ' && counter > 0 {
+                counter -= 1;
+            } else {
+                cleaned.push(c);
+            }
+        }
+    }
+
+    cleaned
+}
+
 fn split_doc<'a>(
     body: &'a [located_ast::Stmt],
     opts: &CompileOpts,
 ) -> (Option<String>, &'a [located_ast::Stmt]) {
     if let Some((located_ast::Stmt::Expr(expr), body_rest)) = body.split_first() {
         if let Some(doc) = try_get_constant_string(std::slice::from_ref(&expr.value)) {
-            if opts.optimize < 2 {
-                return (
-                    Some({
-                        let split: Vec<&str> = doc.split('\n').collect();
-                        // Find the amount of whitespace in the first line
-                        let first_text = split.iter().find(|line| !line.trim().is_empty());
-                        if let Some(first_text) = first_text {
-                            let whitespace = first_text
-                                .chars()
-                                .take_while(|c| c.is_whitespace())
-                                .collect::<String>();
-                            split
-                                .iter()
-                                .map(|line| {
-                                    if line.starts_with(&whitespace) {
-                                        line[whitespace.len()..].to_owned()
-                                    } else {
-                                        line.to_string()
-                                    }
-                                })
-                                .collect::<Vec<String>>()
-                                .join("\n")
-                        } else {
-                            doc
-                        }
-                    }),
+            return if opts.optimize < 2 {
+                (
+                    Some(clean_doc(&doc)),
                     body_rest,
-                );
+                )
             } else {
-                return (None, body_rest);
+                (None, body_rest)
             }
         }
     }
