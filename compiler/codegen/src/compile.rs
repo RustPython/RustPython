@@ -3373,7 +3373,7 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
 /// The code has been ported from `_PyCompile_CleanDoc` in cpython
 fn clean_doc(doc: &str) -> String {
     // emulate str.expandtabs (as in cpython implementation)
-    let doc = doc.replace("\t", std::iter::repeat_n(" ", 8).collect());
+    let doc = doc.replace("\t", &std::iter::repeat_n(" ", 8).join(" "));
     // First pass: find minimum indentation of any non-blank lines
     // after first line.
     let margin = doc
