@@ -15,6 +15,22 @@ assert foo.__qualname__ == "foo"
 assert foo.__module__ == "function"
 assert foo.__globals__ is globals()
 
+
+def f1():
+    """
+        x
+    \ty
+    """
+assert repr(f1.__doc__) == '\nx \ny\n'
+
+def f2():
+    """
+\t    x
+\t\ty
+    """
+
+assert repr(f2.__doc__) == '\nx \n y\n'
+
 def my_func(a,):
     return a+2
 
