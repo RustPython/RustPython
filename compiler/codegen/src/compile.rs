@@ -18,12 +18,12 @@ use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast::{
-    Alias, Arguments, BoolOp, CmpOp, Comprehension, Decorator, DictItem, ExceptHandler,
-    ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprFString, ExprList, ExprName,
-    ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString, FStringElement, FStringElements,
-    FStringPart, Int, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters, Pattern,
-    PatternMatchAs, PatternMatchValue, Stmt, TypeParam, TypeParamTypeVar, TypeParams, UnaryOp,
-    WithItem,
+    Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
+    ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprFString,
+    ExprList, ExprName, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString,
+    FStringElement, FStringElements, FStringPart, Int, Keyword, MatchCase, ModExpression,
+    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchValue, Stmt, TypeParam,
+    TypeParamTypeVar, TypeParams, UnaryOp, WithItem,
 };
 use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
@@ -3405,11 +3405,37 @@ impl Compiler<'_> {
                     });
                 }
                 FStringElement::Expression(fstring_expr) => {
+                    let mut conversion = fstring_expr.conversion;
+
+                    let debug_text_count = match &fstring_expr.debug_text {
+                        None => 0,
+                        Some(DebugText { leading, trailing }) => {
+                            let range = fstring_expr.expression.range();
+                            let source = self.source_code.get_range(range);
+                            let source = source.to_string();
+
+                            self.emit_load_const(ConstantData::Str {
+                                value: leading.to_string(),
+                            });
+                            self.emit_load_const(ConstantData::Str { value: source });
+                            self.emit_load_const(ConstantData::Str {
+                                value: trailing.to_string(),
+                            });
+
+                            3
+                        }
+                    };
+
                     match &fstring_expr.format_spec {
                         None => {
                             self.emit_load_const(ConstantData::Str {
                                 value: String::new(),
                             });
+                            // Match CPython behavior: If debug text is present, apply repr conversion.
+                            // See: https://github.com/python/cpython/blob/f61afca262d3a0aa6a8a501db0b1936c60858e35/Parser/action_helpers.c#L1456
+                            if conversion == ConversionFlag::None && debug_text_count > 0 {
+                                conversion = ConversionFlag::Repr;
+                            }
                         }
                         Some(format_spec) => {
                             self.compile_fstring_elements(&format_spec.elements)?;
@@ -3421,9 +3447,19 @@ impl Compiler<'_> {
                     emit!(
                         self,
                         Instruction::FormatValue {
-                            conversion: fstring_expr.conversion
+                            conversion: conversion
                         }
-                    )
+                    );
+
+                    // concatenate formatted string and debug text (if present)
+                    if debug_text_count > 0 {
+                        emit!(
+                            self,
+                            Instruction::BuildString {
+                                size: debug_text_count + 1
+                            }
+                        );
+                    }
                 }
             }
         }
@@ -3432,7 +3468,12 @@ impl Compiler<'_> {
             .len()
             .try_into()
             .expect("BuildString size overflowed");
-        if element_count > 1 {
+        if element_count == 0 {
+            // ensure to put an empty string on the stack if there aren't any fstring elements
+            self.emit_load_const(ConstantData::Str {
+                value: String::new(),
+            });
+        } else if element_count > 1 {
             emit!(
                 self,
                 Instruction::BuildString {
