@@ -4,7 +4,7 @@ def f1():
         x
     \ty
     """
-print(repr(f1.__doc__))
+repr(f1.__doc__) == '\nx \ny\n'
 
 def f2():
     """
@@ -12,4 +12,4 @@ def f2():
 \t\ty
     """
 
-print(repr(f2.__doc__))
+repr(f2.__doc__) == '\nx \n y\n'
