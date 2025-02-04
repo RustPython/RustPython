@@ -7,6 +7,8 @@ myobj = MyObject()
 assert myobj == myobj
 assert not myobj != myobj
 
+object.__subclasshook__(1) == NotImplemented
+
 assert MyObject().__eq__(MyObject()) == NotImplemented
 assert MyObject().__ne__(MyObject()) == NotImplemented
 assert MyObject().__lt__(MyObject()) == NotImplemented
