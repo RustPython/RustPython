@@ -1371,6 +1371,10 @@ class TestSpecial(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipIf(
+        python_version < (3, 13),
+        'inner classes are still members',
+    )
     def test_nested_classes_in_enum_are_not_members(self):
         """Support locally-defined nested classes."""
         class Outer(Enum):
@@ -4555,6 +4559,10 @@ class TestInternals(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipIf(
+        python_version < (3, 13),
+        'inner classes are still members',
+    )
     def test_auto_garbage_fail(self):
         with self.assertRaisesRegex(TypeError, 'will require all values to be sortable'):
             class Color(Enum):
@@ -4563,6 +4571,10 @@ class TestInternals(unittest.TestCase):
 
     # TODO: RUSTPYTHON
     @unittest.expectedFailure
+    @unittest.skipIf(
+        python_version < (3, 13),
+        'inner classes are still members',
+    )
     def test_auto_garbage_corrected_fail(self):
         with self.assertRaisesRegex(TypeError, 'will require all values to be sortable'):
             class Color(Enum):
@@ -4591,6 +4603,10 @@ class TestInternals(unittest.TestCase):
         self.assertEqual(Color.red.value, 'pathological case')
         self.assertEqual(Color.blue.value, 'blue')
 
+    @unittest.skipIf(
+        python_version < (3, 13),
+        'inner classes are still members',
+    )
     def test_auto_with_aliases(self):
         class Color(Enum):
             red = auto()
