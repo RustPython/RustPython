@@ -60,7 +60,7 @@ impl Frame {
 
     #[pygetset]
     pub fn f_lineno(&self) -> usize {
-        self.current_location().row.to_usize()
+        self.current_location().row.get()
     }
 
     #[pygetset]
