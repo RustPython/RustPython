@@ -1095,8 +1095,12 @@ impl Compiler {
                         self.store_name(name.as_ref())?;
                     }
                 }
-                located_ast::TypeParam::ParamSpec(_) => todo!(),
-                located_ast::TypeParam::TypeVarTuple(_) => todo!(),
+                located_ast::TypeParam::ParamSpec(_) => {
+                    todo!("implement Compiler::compile_type_params for TypeParam::ParamSpec")
+                }
+                located_ast::TypeParam::TypeVarTuple(_) => {
+                    todo!("implement Compiler::compile_type_params for TypeParam::TypeVarTuple")
+                }
             };
         }
         emit!(

@@ -433,8 +433,12 @@ mod _csv {
                 QuoteStyle::All => csv_core::QuoteStyle::Always,
                 QuoteStyle::Nonnumeric => csv_core::QuoteStyle::NonNumeric,
                 QuoteStyle::None => csv_core::QuoteStyle::Never,
-                QuoteStyle::Strings => todo!(),
-                QuoteStyle::Notnull => todo!(),
+                QuoteStyle::Strings => {
+                    todo!("implement From<QuoteStyle> for csv_core::QuoteStyle::Strings")
+                }
+                QuoteStyle::Notnull => {
+                    todo!("implement From<QuoteStyle> for csv_core::QuoteStyle::Notnull")
+                }
             }
         }
     }

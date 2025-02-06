@@ -1257,8 +1257,12 @@ impl SymbolTableBuilder {
                         self.scan_expression(binding, ExpressionContext::Load)?;
                     }
                 }
-                ast::located::TypeParam::ParamSpec(_) => todo!(),
-                ast::located::TypeParam::TypeVarTuple(_) => todo!(),
+                ast::located::TypeParam::ParamSpec(_) => {
+                    todo!("implement SymbolTableBuilder::scan_type_params TypeParam:::ParamSpec")
+                }
+                ast::located::TypeParam::TypeVarTuple(_) => {
+                    todo!("implement SymbolTableBuilder::scan_type_params TypeParam:::TypeVarTuple")
+                }
             }
         }
         Ok(())
