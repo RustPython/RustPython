@@ -3,10 +3,9 @@
 use crate::js_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use ruff_python_parser::ParseErrorType;
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
-    compiler::{CompileError, CompileErrorType},
+    compiler::{parser::lexer::LexicalErrorType, parser::ParseErrorType, CompileError, ParseError},
     exceptions,
     function::{ArgBytesLike, FuncArgs},
     py_serde, AsObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
@@ -258,19 +257,15 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
         &"col".into(),
         &(err.location().unwrap().column.get()).into(),
     );
-    // TODO: Improve ruff API
-    // `ruff_python_parser::error::LexicalErrorType` is marked "pub" but not exported (accessible) which prevents us from matching against it
-    //
-    // let can_continue = matches!(
-    //     &err.error,
-    //     CompileErrorType::Parse(
-    //         ParseErrorType::Eof
-    //             | ParseErrorType::Lexical(LexicalErrorType::Eof)
-    //             | ParseErrorType::Lexical(LexicalErrorType::IndentationError)
-    //             | ParseErrorType::UnrecognizedToken(rustpython_parser::Tok::Dedent, _)
-    //     )
-    // );
-    let can_continue = matches!(&err, CompileErrorType::Parse(ParseErrorType::Lexical(error)) if error.to_string() == "unexpected EOF while parsing");
+    // | ParseErrorType::UnrecognizedToken(Token::Dedent, _)
+    let can_continue = matches!(
+        &err,
+        CompileError::Parse(ParseError {
+            error: ParseErrorType::Lexical(LexicalErrorType::Eof)
+                | ParseErrorType::Lexical(LexicalErrorType::IndentationError),
+            ..
+        })
+    );
     let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());
     js_err
 }
