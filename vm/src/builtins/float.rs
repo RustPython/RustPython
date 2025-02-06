@@ -124,7 +124,7 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
 
 pub fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     if v1.is_zero() && v2.is_sign_negative() {
-        let msg = format!("{v1} cannot be raised to a negative power");
+        let msg = format!("{v1:?} cannot be raised to a negative power");
         Err(vm.new_zero_division_error(msg))
     } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
         let v1 = Complex64::new(v1, 0.);

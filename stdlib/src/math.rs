@@ -629,7 +629,7 @@ mod math {
 
     #[pyfunction]
     fn fsum(seq: ArgIterable<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let mut partials = vec![];
+        let mut partials = Vec::with_capacity(32);
         let mut special_sum = 0.0;
         let mut inf_sum = 0.0;
 
@@ -637,11 +637,11 @@ mod math {
             let mut x = *obj?;
 
             let xsave = x;
-            let mut j = 0;
+            let mut i = 0;
             // This inner loop applies `hi`/`lo` summation to each
             // partial so that the list of partial sums remains exact.
-            for i in 0..partials.len() {
-                let mut y: f64 = partials[i];
+            for j in 0..partials.len() {
+                let mut y: f64 = partials[j];
                 if x.abs() < y.abs() {
                     std::mem::swap(&mut x, &mut y);
                 }
@@ -650,33 +650,33 @@ mod math {
                 let hi = x + y;
                 let lo = y - (hi - x);
                 if lo != 0.0 {
-                    partials[j] = lo;
-                    j += 1;
+                    partials[i] = lo;
+                    i += 1;
                 }
                 x = hi;
             }
 
-            if !x.is_finite() {
-                // a nonfinite x could arise either as
-                // a result of intermediate overflow, or
-                // as a result of a nan or inf in the
-                // summands
-                if xsave.is_finite() {
-                    return Err(vm.new_overflow_error("intermediate overflow in fsum".to_owned()));
+            partials.truncate(i);
+            if x != 0.0 {
+                if !x.is_finite() {
+                    // a nonfinite x could arise either as
+                    // a result of intermediate overflow, or
+                    // as a result of a nan or inf in the
+                    // summands
+                    if xsave.is_finite() {
+                        return Err(
+                            vm.new_overflow_error("intermediate overflow in fsum".to_owned())
+                        );
+                    }
+                    if xsave.is_infinite() {
+                        inf_sum += xsave;
+                    }
+                    special_sum += xsave;
+                    // reset partials
+                    partials.clear();
+                } else {
+                    partials.push(x);
                 }
-                if xsave.is_infinite() {
-                    inf_sum += xsave;
-                }
-                special_sum += xsave;
-                // reset partials
-                partials.clear();
-            }
-
-            if j >= partials.len() {
-                partials.push(x);
-            } else {
-                partials[j] = x;
-                partials.truncate(j + 1);
             }
         }
         if special_sum != 0.0 {
@@ -831,9 +831,34 @@ mod math {
         (x.fract(), x.trunc())
     }
 
+    #[derive(FromArgs)]
+    struct NextAfterArgs {
+        #[pyarg(positional)]
+        x: ArgIntoFloat,
+        #[pyarg(positional)]
+        y: ArgIntoFloat,
+        #[pyarg(named, optional)]
+        steps: OptionalArg<ArgIndex>,
+    }
+
     #[pyfunction]
-    fn nextafter(x: ArgIntoFloat, y: ArgIntoFloat) -> f64 {
-        float_ops::nextafter(*x, *y)
+    fn nextafter(arg: NextAfterArgs, vm: &VirtualMachine) -> PyResult<f64> {
+        let steps: Option<i64> = arg
+            .steps
+            .map(|v| v.try_to_primitive(vm))
+            .transpose()?
+            .into_option();
+        match steps {
+            Some(steps) => {
+                if steps < 0 {
+                    return Err(
+                        vm.new_value_error("steps must be a non-negative integer".to_string())
+                    );
+                }
+                Ok(float_ops::nextafter(*arg.x, *arg.y, Some(steps as u64)))
+            }
+            None => Ok(float_ops::nextafter(*arg.x, *arg.y, None)),
+        }
     }
 
     #[pyfunction]
@@ -917,10 +942,38 @@ mod math {
         // refer: https://github.com/python/cpython/blob/main/Modules/mathmodule.c#L3093-L3193
         for obj in iter.iter(vm)? {
             let obj = obj?;
+            result = vm._mul(&result, &obj)?;
+        }
 
-            result = vm
-                ._mul(&result, &obj)
-                .map_err(|_| vm.new_type_error("math type error".to_owned()))?;
+        Ok(result)
+    }
+
+    #[pyfunction]
+    fn sumprod(
+        p: ArgIterable<PyObjectRef>,
+        q: ArgIterable<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let mut p_iter = p.iter(vm)?;
+        let mut q_iter = q.iter(vm)?;
+        // We cannot just create a float because the iterator may contain
+        // anything as long as it supports __add__ and __mul__.
+        let mut result = vm.new_pyobj(0);
+        loop {
+            let m_p = p_iter.next();
+            let m_q = q_iter.next();
+            match (m_p, m_q) {
+                (Some(r_p), Some(r_q)) => {
+                    let p = r_p?;
+                    let q = r_q?;
+                    let tmp = vm._mul(&p, &q)?;
+                    result = vm._add(&result, &tmp)?;
+                }
+                (None, None) => break,
+                _ => {
+                    return Err(vm.new_value_error("Inputs are not the same length".to_string()));
+                }
+            }
         }
 
         Ok(result)
