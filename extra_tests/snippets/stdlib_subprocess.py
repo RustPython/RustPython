@@ -16,7 +16,7 @@ else:
         return ["cmd", "/C", f"echo {text}"]
     def sleep(secs):
         # TODO: make work in a non-unixy environment (something with timeout.exe?)
-        return ["sleep", str(secs)]
+        return ["powershell", "/C", "sleep", str(secs)]
 
 p = subprocess.Popen(echo("test"))
 
