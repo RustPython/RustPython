@@ -10,4 +10,8 @@ crate-type = ["cdylib"]
 getrandom = { version = "0.2.12", features = ["custom"] }
 rustpython-vm = { path = "../../vm", default-features = false, features = ["compiler"] }
 
+[patch.crates-io]
+rustpython-common = { path = "../../common" }
+
+
 [workspace]
