@@ -1095,8 +1095,27 @@ impl Compiler {
                         self.store_name(name.as_ref())?;
                     }
                 }
-                located_ast::TypeParam::ParamSpec(_) => todo!(),
-                located_ast::TypeParam::TypeVarTuple(_) => todo!(),
+                located_ast::TypeParam::ParamSpec(located_ast::TypeParamParamSpec {
+                    name, ..
+                }) => {
+                    self.emit_load_const(ConstantData::Str {
+                        value: name.to_string(),
+                    });
+                    emit!(self, Instruction::ParamSpec);
+                    emit!(self, Instruction::Duplicate);
+                    self.store_name(name.as_ref())?;
+                }
+                located_ast::TypeParam::TypeVarTuple(located_ast::TypeParamTypeVarTuple {
+                    name,
+                    ..
+                }) => {
+                    self.emit_load_const(ConstantData::Str {
+                        value: name.to_string(),
+                    });
+                    emit!(self, Instruction::TypeVarTuple);
+                    emit!(self, Instruction::Duplicate);
+                    self.store_name(name.as_ref())?;
+                }
             };
         }
         emit!(
