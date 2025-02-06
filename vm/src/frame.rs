@@ -1202,6 +1202,23 @@ impl ExecutingFrame<'_> {
                 self.push_value(type_alias.into_ref(&vm.ctx).into());
                 Ok(None)
             }
+            bytecode::Instruction::ParamSpec => {
+                let param_spec_name = self.pop_value();
+                let param_spec: PyObjectRef = _typing::make_paramspec(param_spec_name.clone())
+                    .into_ref(&vm.ctx)
+                    .into();
+                self.push_value(param_spec);
+                Ok(None)
+            }
+            bytecode::Instruction::TypeVarTuple => {
+                let type_var_tuple_name = self.pop_value();
+                let type_var_tuple: PyObjectRef =
+                    _typing::make_typevartuple(type_var_tuple_name.clone())
+                        .into_ref(&vm.ctx)
+                        .into();
+                self.push_value(type_var_tuple);
+                Ok(None)
+            }
         }
     }
 
