@@ -4,7 +4,7 @@
 use chrono::{prelude::DateTime, Local};
 use std::time::{Duration, UNIX_EPOCH};
 
-// = 3.13.1alpha
+// = 3.13.0alpha
 pub const MAJOR: usize = 3;
 pub const MINOR: usize = 13;
 pub const MICRO: usize = 0;
