@@ -595,10 +595,12 @@ pub enum Instruction {
     TypeVarWithBound,
     TypeVarWithConstraint,
     TypeAlias,
+    TypeVarTuple,
+    ParamSpec,
     // If you add a new instruction here, be sure to keep LAST_INSTRUCTION updated
 }
 // This must be kept up to date to avoid marshaling errors
-const LAST_INSTRUCTION: Instruction = Instruction::TypeAlias;
+const LAST_INSTRUCTION: Instruction = Instruction::ParamSpec;
 const _: () = assert!(mem::size_of::<Instruction>() == 1);
 
 impl From<Instruction> for u8 {
@@ -1291,6 +1293,8 @@ impl Instruction {
             TypeVarWithBound => -1,
             TypeVarWithConstraint => -1,
             TypeAlias => -2,
+            ParamSpec => 0,
+            TypeVarTuple => 0,
         }
     }
 
@@ -1460,6 +1464,8 @@ impl Instruction {
             TypeVarWithBound => w!(TypeVarWithBound),
             TypeVarWithConstraint => w!(TypeVarWithConstraint),
             TypeAlias => w!(TypeAlias),
+            ParamSpec => w!(ParamSpec),
+            TypeVarTuple => w!(TypeVarTuple),
         }
     }
 }

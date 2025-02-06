@@ -75,17 +75,30 @@ pub(crate) mod _typing {
     #[pyclass(name = "ParamSpec")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
-    struct ParamSpec {}
+    pub(crate) struct ParamSpec {
+        name: PyObjectRef,
+    }
+
     #[pyclass(flags(BASETYPE))]
     impl ParamSpec {}
+
+    pub(crate) fn make_paramspec(name: PyObjectRef) -> ParamSpec {
+        ParamSpec { name }
+    }
 
     #[pyattr]
     #[pyclass(name = "TypeVarTuple")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
-    pub(crate) struct TypeVarTuple {}
+    pub(crate) struct TypeVarTuple {
+        name: PyObjectRef,
+    }
     #[pyclass(flags(BASETYPE))]
     impl TypeVarTuple {}
+
+    pub(crate) fn make_typevartuple(name: PyObjectRef) -> TypeVarTuple {
+        TypeVarTuple { name }
+    }
 
     #[pyattr]
     #[pyclass(name = "ParamSpecArgs")]
