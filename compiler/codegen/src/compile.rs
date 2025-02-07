@@ -3356,7 +3356,33 @@ fn split_doc<'a>(
     if let Some((located_ast::Stmt::Expr(expr), body_rest)) = body.split_first() {
         if let Some(doc) = try_get_constant_string(std::slice::from_ref(&expr.value)) {
             if opts.optimize < 2 {
-                return (Some(doc), body_rest);
+                return (
+                    Some({
+                        let split: Vec<&str> = doc.split('\n').collect();
+                        // Find the amount of whitespace in the first line
+                        let first_text = split.iter().find(|line| !line.trim().is_empty());
+                        if let Some(first_text) = first_text {
+                            let whitespace = first_text
+                                .chars()
+                                .take_while(|c| c.is_whitespace())
+                                .collect::<String>();
+                            split
+                                .iter()
+                                .map(|line| {
+                                    if line.starts_with(&whitespace) {
+                                        line[whitespace.len()..].to_owned()
+                                    } else {
+                                        line.to_string()
+                                    }
+                                })
+                                .collect::<Vec<String>>()
+                                .join("\n")
+                        } else {
+                            doc
+                        }
+                    }),
+                    body_rest,
+                );
             } else {
                 return (None, body_rest);
             }
