@@ -23,7 +23,9 @@ use crate::{
 };
 use node::Node;
 use ruff_python_ast as ruff;
+use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange, TextSize};
+use rustpython_compiler_source::SourceCodeOwned;
 
 #[cfg(feature = "parser")]
 use ruff_python_parser as parser;
@@ -70,70 +72,156 @@ fn get_int_field(
     vm: &VirtualMachine,
     obj: &PyObject,
     field: &'static str,
-) -> PyResult<Option<PyRefExact<PyInt>>> {
-    Ok(get_node_field_opt(vm, obj, field)?
-        .map(|obj| obj.downcast_exact(vm))
-        .transpose()
-        .unwrap())
+    typ: &str,
+) -> PyResult<PyRefExact<PyInt>> {
+    get_node_field(vm, obj, field, typ)?
+        .downcast_exact(vm)
+        .map_err(|_| vm.new_type_error(format!("field \"{field}\" must have integer type")))
 }
 
-struct SourceRange {
-    start: SourceLocation,
-    end: SourceLocation,
+struct PySourceRange {
+    start: PySourceLocation,
+    end: PySourceLocation,
 }
 
-fn source_location_to_text_size(_source_location: SourceLocation) -> TextSize {
-    // TODO: Maybe implement this?
-    TextSize::default()
+pub struct PySourceLocation {
+    row: Row,
+    column: Column,
 }
 
-fn text_range_to_source_range(_text_range: TextRange) -> SourceRange {
-    // TODO: Maybe implement this?
-    SourceRange {
-        start: SourceLocation::default(),
-        end: SourceLocation::default(),
+impl PySourceLocation {
+    fn to_source_location(&self) -> SourceLocation {
+        SourceLocation {
+            row: self.row.get_one_indexed(),
+            column: self.column.get_one_indexed(),
+        }
     }
 }
 
-fn range_from_object(vm: &VirtualMachine, object: PyObjectRef, name: &str) -> PyResult<TextRange> {
-    fn make_location(_row: PyIntRef, _column: PyIntRef) -> Option<SourceLocation> {
-        // TODO: Maybe implement this?
-        // let row = row.to_u64().unwrap().try_into().unwrap();
-        // let column = column.to_u64().unwrap().try_into().unwrap();
-        // Some(SourceLocation {
-        //     row: LineNumber::new(row)?,
-        //     column: LineNumber::from_zero_indexed(column),
-        // })
+/// A one-based index into the lines.
+#[derive(Clone, Copy)]
+struct Row(OneIndexed);
 
-        None
+impl Row {
+    fn get(self) -> usize {
+        self.0.get()
     }
 
-    let row = get_node_field(vm, &object, "lineno", name)?;
-    let row = row.downcast_exact::<PyInt>(vm).unwrap().into_pyref();
-    let column = get_node_field(vm, &object, "col_offset", name)?;
-    let column = column.downcast_exact::<PyInt>(vm).unwrap().into_pyref();
-    let location = make_location(row, column);
-    let end_row = get_int_field(vm, &object, "end_lineno")?;
-    let end_column = get_int_field(vm, &object, "end_col_offset")?;
-    let end_location = if let (Some(row), Some(column)) = (end_row, end_column) {
-        make_location(row.into_pyref(), column.into_pyref())
-    } else {
-        None
+    fn get_one_indexed(self) -> OneIndexed {
+        self.0
+    }
+}
+
+/// An UTF-8 index into the line.
+#[derive(Clone, Copy)]
+struct Column(TextSize);
+
+impl Column {
+    fn get(self) -> usize {
+        self.0.to_usize()
+    }
+
+    fn get_one_indexed(self) -> OneIndexed {
+        OneIndexed::from_zero_indexed(self.get())
+    }
+}
+
+fn text_range_to_source_range(
+    source_code: &SourceCodeOwned,
+    text_range: TextRange,
+) -> PySourceRange {
+    let index = &source_code.index;
+    let source = &source_code.text;
+
+    if source.is_empty() {
+        return PySourceRange {
+            start: PySourceLocation {
+                row: Row(OneIndexed::from_zero_indexed(0)),
+                column: Column(TextSize::new(0)),
+            },
+            end: PySourceLocation {
+                row: Row(OneIndexed::from_zero_indexed(0)),
+                column: Column(TextSize::new(0)),
+            },
+        };
+    }
+
+    let start_row = index.line_index(text_range.start());
+    let end_row = index.line_index(text_range.end());
+    let start_col = text_range.start() - index.line_start(start_row, source);
+    let end_col = text_range.end() - index.line_end_exclusive(end_row, source);
+
+    PySourceRange {
+        start: PySourceLocation {
+            row: Row(start_row),
+            column: Column(start_col),
+        },
+        end: PySourceLocation {
+            row: Row(end_row),
+            column: Column(end_col),
+        },
+    }
+}
+
+fn range_from_object(
+    vm: &VirtualMachine,
+    source_code: &SourceCodeOwned,
+    object: PyObjectRef,
+    name: &str,
+) -> PyResult<TextRange> {
+    let start_row = get_int_field(vm, &object, "lineno", name)?;
+    let start_column = get_int_field(vm, &object, "col_offset", name)?;
+    let end_row = get_int_field(vm, &object, "end_lineno", name)?;
+    let end_column = get_int_field(vm, &object, "end_col_offset", name)?;
+
+    let location = PySourceRange {
+        start: PySourceLocation {
+            row: Row(OneIndexed::new(start_row.try_to_primitive(vm)?).unwrap()),
+            column: Column(TextSize::new(start_column.try_to_primitive(vm)?)),
+        },
+        end: PySourceLocation {
+            row: Row(OneIndexed::new(end_row.try_to_primitive(vm)?).unwrap()),
+            column: Column(TextSize::new(end_column.try_to_primitive(vm)?)),
+        },
     };
-    let range = TextRange::new(
-        source_location_to_text_size(location.unwrap_or_default()),
-        source_location_to_text_size(end_location.unwrap_or_default()),
-    );
-    Ok(range)
+
+    Ok(source_range_to_text_range(source_code, location))
 }
 
-fn node_add_location(dict: &Py<PyDict>, range: TextRange, vm: &VirtualMachine) {
-    let range = text_range_to_source_range(range);
+fn source_range_to_text_range(source_code: &SourceCodeOwned, location: PySourceRange) -> TextRange {
+    let source = &source_code.text;
+    let index = &source_code.index;
+
+    if source.is_empty() {
+        return TextRange::new(TextSize::new(0), TextSize::new(0));
+    }
+
+    let start = index.offset(
+        location.start.row.get_one_indexed(),
+        location.start.column.get_one_indexed(),
+        source,
+    );
+    let end = index.offset(
+        location.end.row.get_one_indexed(),
+        location.end.column.get_one_indexed(),
+        source,
+    );
+
+    TextRange::new(start, end)
+}
+
+fn node_add_location(
+    dict: &Py<PyDict>,
+    range: TextRange,
+    vm: &VirtualMachine,
+    source_code: &SourceCodeOwned,
+) {
+    let range = text_range_to_source_range(source_code, range);
     dict.set_item("lineno", vm.ctx.new_int(range.start.row.get()).into(), vm)
         .unwrap();
     dict.set_item(
         "col_offset",
-        vm.ctx.new_int(range.start.column.to_zero_indexed()).into(),
+        vm.ctx.new_int(range.start.column.get()).into(),
         vm,
     )
     .unwrap();
@@ -141,7 +229,7 @@ fn node_add_location(dict: &Py<PyDict>, range: TextRange, vm: &VirtualMachine) {
         .unwrap();
     dict.set_item(
         "end_col_offset",
-        vm.ctx.new_int(range.end.column.to_zero_indexed()).into(),
+        vm.ctx.new_int(range.end.column.get()).into(),
         vm,
     )
     .unwrap();
@@ -153,10 +241,13 @@ pub(crate) fn parse(
     source: &str,
     mode: parser::Mode,
 ) -> Result<PyObjectRef, CompileError> {
+    let source_code = SourceCodeOwned::new("".to_owned(), source.to_owned());
     let top = parser::parse(source, mode)
         .map_err(|parse_error| ParseError {
             error: parse_error.error,
-            location: text_range_to_source_range(parse_error.location).start,
+            location: text_range_to_source_range(&source_code, parse_error.location)
+                .start
+                .to_source_location(),
             source_path: "<unknown>".to_string(),
         })?
         .into_syntax();
@@ -164,7 +255,7 @@ pub(crate) fn parse(
         ruff::Mod::Module(m) => Mod::Module(m),
         ruff::Mod::Expression(e) => Mod::Expression(e),
     };
-    Ok(top.ast_to_object(vm))
+    Ok(top.ast_to_object(vm, &source_code))
 }
 
 #[cfg(feature = "codegen")]
@@ -180,7 +271,8 @@ pub(crate) fn compile(
         opts.optimize = optimize;
     }
 
-    let ast: Mod = Node::ast_from_object(vm, object)?;
+    let source_code = SourceCodeOwned::new(filename.to_owned(), "".to_owned());
+    let ast: Mod = Node::ast_from_object(vm, &source_code, object)?;
     let ast = match ast {
         Mod::Module(m) => ruff::Mod::Module(m),
         Mod::Interactive(ModInteractive { range, body }) => {

@@ -2,7 +2,7 @@ use super::*;
 
 // sum
 impl Node for ruff::BoolOp {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
         let node_type = match self {
             ruff::BoolOp::And => gen::NodeBoolOpAnd::static_type(),
             ruff::BoolOp::Or => gen::NodeBoolOpOr::static_type(),
@@ -12,7 +12,11 @@ impl Node for ruff::BoolOp {
             .unwrap()
             .into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(
+        _vm: &VirtualMachine,
+        _source_code: &SourceCodeOwned,
+        _object: PyObjectRef,
+    ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(gen::NodeBoolOpAnd::static_type()) {
             ruff::BoolOp::And
@@ -28,7 +32,7 @@ impl Node for ruff::BoolOp {
 }
 // sum
 impl Node for ruff::Operator {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
         let node_type = match self {
             ruff::Operator::Add => gen::NodeOperatorAdd::static_type(),
             ruff::Operator::Sub => gen::NodeOperatorSub::static_type(),
@@ -49,7 +53,11 @@ impl Node for ruff::Operator {
             .unwrap()
             .into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(
+        _vm: &VirtualMachine,
+        _source_code: &SourceCodeOwned,
+        _object: PyObjectRef,
+    ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(gen::NodeOperatorAdd::static_type()) {
             ruff::Operator::Add
@@ -87,7 +95,7 @@ impl Node for ruff::Operator {
 }
 // sum
 impl Node for ruff::UnaryOp {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
         let node_type = match self {
             ruff::UnaryOp::Invert => gen::NodeUnaryOpInvert::static_type(),
             ruff::UnaryOp::Not => gen::NodeUnaryOpNot::static_type(),
@@ -99,7 +107,11 @@ impl Node for ruff::UnaryOp {
             .unwrap()
             .into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(
+        _vm: &VirtualMachine,
+        _source_code: &SourceCodeOwned,
+        _object: PyObjectRef,
+    ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(gen::NodeUnaryOpInvert::static_type()) {
             ruff::UnaryOp::Invert
@@ -119,7 +131,7 @@ impl Node for ruff::UnaryOp {
 }
 // sum
 impl Node for ruff::CmpOp {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
         let node_type = match self {
             ruff::CmpOp::Eq => gen::NodeCmpOpEq::static_type(),
             ruff::CmpOp::NotEq => gen::NodeCmpOpNotEq::static_type(),
@@ -137,7 +149,11 @@ impl Node for ruff::CmpOp {
             .unwrap()
             .into()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(
+        _vm: &VirtualMachine,
+        _source_code: &SourceCodeOwned,
+        _object: PyObjectRef,
+    ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(gen::NodeCmpOpEq::static_type()) {
             ruff::CmpOp::Eq

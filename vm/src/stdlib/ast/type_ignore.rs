@@ -6,15 +6,23 @@ pub(super) enum TypeIgnore {
 
 // sum
 impl Node for TypeIgnore {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         match self {
-            TypeIgnore::TypeIgnore(cons) => cons.ast_to_object(vm),
+            TypeIgnore::TypeIgnore(cons) => cons.ast_to_object(vm, source_code),
         }
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(
+        _vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        _object: PyObjectRef,
+    ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(if _cls.is(gen::NodeTypeIgnoreTypeIgnore::static_type()) {
-            TypeIgnore::TypeIgnore(TypeIgnoreTypeIgnore::ast_from_object(_vm, _object)?)
+            TypeIgnore::TypeIgnore(TypeIgnoreTypeIgnore::ast_from_object(
+                _vm,
+                source_code,
+                _object,
+            )?)
         } else {
             return Err(_vm.new_type_error(format!(
                 "expected some sort of type_ignore, but got {}",
@@ -32,7 +40,7 @@ pub(super) struct TypeIgnoreTypeIgnore {
 
 // constructor
 impl Node for TypeIgnoreTypeIgnore {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self {
             lineno,
             tag,
@@ -46,7 +54,12 @@ impl Node for TypeIgnoreTypeIgnore {
         dict.set_item("tag", tag.to_pyobject(vm), vm).unwrap();
         node.into()
     }
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        _source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
         Ok(Self {
             lineno: get_node_field(vm, &object, "lineno", "TypeIgnore")?
                 .downcast_exact(vm)

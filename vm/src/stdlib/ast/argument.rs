@@ -1,9 +1,13 @@
 use super::*;
 impl Node for ruff::Arguments {
-    fn ast_to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, _vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
         todo!()
     }
-    fn ast_from_object(_vm: &VirtualMachine, _object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(
+        _vm: &VirtualMachine,
+        _source_code: &SourceCodeOwned,
+        _object: PyObjectRef,
+    ) -> PyResult<Self> {
         todo!()
     }
 }
@@ -14,13 +18,17 @@ pub(super) struct PositionalArguments {
 }
 
 impl Node for PositionalArguments {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { args, range: _ } = self;
-        BoxedSlice(args).ast_to_object(vm)
+        BoxedSlice(args).ast_to_object(vm, source_code)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        let args: BoxedSlice<_> = Node::ast_from_object(vm, object)?;
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        let args: BoxedSlice<_> = Node::ast_from_object(vm, source_code, object)?;
         Ok(Self {
             args: args.0,
             range: TextRange::default(), // TODO
@@ -34,14 +42,18 @@ pub(super) struct KeywordArguments {
 }
 
 impl Node for KeywordArguments {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { keywords, range: _ } = self;
         // TODO: use range
-        BoxedSlice(keywords).ast_to_object(vm)
+        BoxedSlice(keywords).ast_to_object(vm, source_code)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        let keywords: BoxedSlice<_> = Node::ast_from_object(vm, object)?;
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        let keywords: BoxedSlice<_> = Node::ast_from_object(vm, source_code, object)?;
         Ok(Self {
             keywords: keywords.0,
             range: TextRange::default(), // TODO

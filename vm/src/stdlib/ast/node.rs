@@ -1,49 +1,66 @@
 use crate::{PyObjectRef, PyResult, VirtualMachine};
+use rustpython_compiler_source::SourceCodeOwned;
 
 pub(crate) trait Node: Sized {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef;
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self>;
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef;
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self>;
 }
 
 impl<T: Node> Node for Vec<T> {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         vm.ctx
             .new_list(
                 self.into_iter()
-                    .map(|node| node.ast_to_object(vm))
+                    .map(|node| node.ast_to_object(vm, source_code))
                     .collect(),
             )
             .into()
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        vm.extract_elements_with(&object, |obj| Node::ast_from_object(vm, obj))
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        vm.extract_elements_with(&object, |obj| Node::ast_from_object(vm, source_code, obj))
     }
 }
 
 impl<T: Node> Node for Box<T> {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        (*self).ast_to_object(vm)
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+        (*self).ast_to_object(vm, source_code)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
-        T::ast_from_object(vm, object).map(Box::new)
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        T::ast_from_object(vm, source_code, object).map(Box::new)
     }
 }
 
 impl<T: Node> Node for Option<T> {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         match self {
-            Some(node) => node.ast_to_object(vm),
+            Some(node) => node.ast_to_object(vm, source_code),
             None => vm.ctx.none(),
         }
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
         if vm.is_none(&object) {
             Ok(None)
         } else {
-            Ok(Some(T::ast_from_object(vm, object)?))
+            Ok(Some(T::ast_from_object(vm, source_code, object)?))
         }
     }
 }
@@ -51,13 +68,17 @@ impl<T: Node> Node for Option<T> {
 pub(super) struct BoxedSlice<T>(pub(super) Box<[T]>);
 
 impl<T: Node> Node for BoxedSlice<T> {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
-        self.0.into_vec().ast_to_object(vm)
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+        self.0.into_vec().ast_to_object(vm, source_code)
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
         Ok(Self(
-            <Vec<T> as Node>::ast_from_object(vm, object)?.into_boxed_slice(),
+            <Vec<T> as Node>::ast_from_object(vm, source_code, object)?.into_boxed_slice(),
         ))
     }
 }

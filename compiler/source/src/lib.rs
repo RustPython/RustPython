@@ -27,3 +27,16 @@ impl<'src> SourceCode<'src> {
         &self.text[range.start().to_usize()..range.end().to_usize()]
     }
 }
+
+pub struct SourceCodeOwned {
+    pub path: String,
+    pub text: String,
+    pub index: LineIndex,
+}
+
+impl SourceCodeOwned {
+    pub fn new(path: String, text: String) -> Self {
+        let index = LineIndex::from_source_text(&text);
+        Self { path, text, index }
+    }
+}

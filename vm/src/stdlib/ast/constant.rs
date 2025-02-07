@@ -91,7 +91,7 @@ pub(crate) enum ConstantLiteral {
 
 // constructor
 impl Node for Constant {
-    fn ast_to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { range, value } = self;
         let is_str = matches!(&value, ConstantLiteral::Str(_));
         let mut is_unicode = false;
@@ -105,10 +105,15 @@ impl Node for Constant {
                 vm.ctx.new_str(value).to_pyobject(vm)
             }
             ConstantLiteral::Bytes(value) => vm.ctx.new_bytes(value).to_pyobject(vm),
-            ConstantLiteral::Int(value) => value.ast_to_object(vm),
+            ConstantLiteral::Int(value) => value.ast_to_object(vm, source_code),
             ConstantLiteral::Tuple(value) => vm
                 .ctx
-                .new_tuple(value.into_iter().map(|c| c.ast_to_object(vm)).collect())
+                .new_tuple(
+                    value
+                        .into_iter()
+                        .map(|c| c.ast_to_object(vm, source_code))
+                        .collect(),
+                )
                 .to_pyobject(vm),
             ConstantLiteral::Float(value) => vm.ctx.new_float(value).into_pyobject(vm),
             ConstantLiteral::Complex { real, imag } => vm
@@ -132,11 +137,15 @@ impl Node for Constant {
                     .unwrap();
             }
         }
-        node_add_location(&dict, range, vm);
+        node_add_location(&dict, range, vm, source_code);
         node.into()
     }
 
-    fn ast_from_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<Self> {
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
         let value_object = get_node_field(vm, &object, "value", "Constant")?;
         let cls = value_object.class();
         let value = if cls.is(vm.ctx.types.none_type) {
@@ -154,7 +163,7 @@ impl Node for Constant {
         } else if cls.is(vm.ctx.types.bytes_type) {
             ConstantLiteral::Bytes(value_object.try_to_value(vm)?)
         } else if cls.is(vm.ctx.types.int_type) {
-            ConstantLiteral::Int(Node::ast_from_object(vm, value_object)?)
+            ConstantLiteral::Int(Node::ast_from_object(vm, source_code, value_object)?)
         } else if cls.is(vm.ctx.types.tuple_type) {
             let tuple = value_object.downcast::<PyTuple>().map_err(|obj| {
                 vm.new_type_error(format!(
@@ -166,7 +175,7 @@ impl Node for Constant {
             let tuple = tuple
                 .into_iter()
                 .cloned()
-                .map(|object| Node::ast_from_object(vm, object))
+                .map(|object| Node::ast_from_object(vm, source_code, object))
                 .collect::<PyResult<_>>()?;
             ConstantLiteral::Tuple(tuple)
         } else if cls.is(vm.ctx.types.float_type) {
@@ -202,7 +211,7 @@ impl Node for Constant {
             // kind: get_node_field_opt(_vm, &_object, "kind")?
             //     .map(|obj| Node::ast_from_object(_vm, obj))
             //     .transpose()?,
-            range: range_from_object(vm, object, "Constant")?,
+            range: range_from_object(vm, source_code, object, "Constant")?,
         })
     }
 }
