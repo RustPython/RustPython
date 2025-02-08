@@ -85,7 +85,7 @@ mod unicodedata {
         }
 
         fn check_age(&self, c: char) -> bool {
-            Age::of(c).map_or(false, |age| age.actual() <= self.unic_version)
+            Age::of(c).is_some_and(|age| age.actual() <= self.unic_version)
         }
 
         fn extract_char(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<Option<char>> {

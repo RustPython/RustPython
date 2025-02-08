@@ -3,7 +3,7 @@
 use crate::js_module;
 use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use rustpython_parser::ParseErrorType;
+use rustpython_parser::{lexer::LexicalErrorType, ParseErrorType};
 use rustpython_vm::{
     builtins::PyBaseExceptionRef,
     compiler::{CompileError, CompileErrorType},
@@ -34,7 +34,7 @@ extern "C" {
 
 pub fn py_err_to_js_err(vm: &VirtualMachine, py_err: &PyBaseExceptionRef) -> JsValue {
     let jserr = vm.try_class("_js", "JSError").ok();
-    let js_arg = if jserr.map_or(false, |jserr| py_err.fast_isinstance(&jserr)) {
+    let js_arg = if jserr.is_some_and(|jserr| py_err.fast_isinstance(&jserr)) {
         py_err.get_arg(0)
     } else {
         None
@@ -258,7 +258,15 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
         &"col".into(),
         &(err.location.unwrap().column.get()).into(),
     );
-    let can_continue = matches!(&err.error, CompileErrorType::Parse(ParseErrorType::Eof));
+    let can_continue = matches!(
+        &err.error,
+        CompileErrorType::Parse(
+            ParseErrorType::Eof
+                | ParseErrorType::Lexical(LexicalErrorType::Eof)
+                | ParseErrorType::Lexical(LexicalErrorType::IndentationError)
+                | ParseErrorType::UnrecognizedToken(rustpython_parser::Tok::Dedent, _)
+        )
+    );
     let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());
     js_err
 }

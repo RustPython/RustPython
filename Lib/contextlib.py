@@ -145,14 +145,17 @@ class _GeneratorContextManager(
             except StopIteration:
                 return False
             else:
-                raise RuntimeError("generator didn't stop")
+                try:
+                    raise RuntimeError("generator didn't stop")
+                finally:
+                    self.gen.close()
         else:
             if value is None:
                 # Need to force instantiation so we can reliably
                 # tell if we get the same exception back
                 value = typ()
             try:
-                self.gen.throw(typ, value, traceback)
+                self.gen.throw(value)
             except StopIteration as exc:
                 # Suppress StopIteration *unless* it's the same exception that
                 # was passed to throw().  This prevents a StopIteration
@@ -187,7 +190,10 @@ class _GeneratorContextManager(
                     raise
                 exc.__traceback__ = traceback
                 return False
-            raise RuntimeError("generator didn't stop after throw()")
+            try:
+                raise RuntimeError("generator didn't stop after throw()")
+            finally:
+                self.gen.close()
 
 class _AsyncGeneratorContextManager(
     _GeneratorContextManagerBase,
@@ -212,14 +218,17 @@ class _AsyncGeneratorContextManager(
             except StopAsyncIteration:
                 return False
             else:
-                raise RuntimeError("generator didn't stop")
+                try:
+                    raise RuntimeError("generator didn't stop")
+                finally:
+                    await self.gen.aclose()
         else:
             if value is None:
                 # Need to force instantiation so we can reliably
                 # tell if we get the same exception back
                 value = typ()
             try:
-                await self.gen.athrow(typ, value, traceback)
+                await self.gen.athrow(value)
             except StopAsyncIteration as exc:
                 # Suppress StopIteration *unless* it's the same exception that
                 # was passed to throw().  This prevents a StopIteration
@@ -254,7 +263,10 @@ class _AsyncGeneratorContextManager(
                     raise
                 exc.__traceback__ = traceback
                 return False
-            raise RuntimeError("generator didn't stop after athrow()")
+            try:
+                raise RuntimeError("generator didn't stop after athrow()")
+            finally:
+                await self.gen.aclose()
 
 
 def contextmanager(func):
@@ -441,7 +453,16 @@ class suppress(AbstractContextManager):
         # exactly reproduce the limitations of the CPython interpreter.
         #
         # See http://bugs.python.org/issue12029 for more details
-        return exctype is not None and issubclass(exctype, self._exceptions)
+        if exctype is None:
+            return
+        if issubclass(exctype, self._exceptions):
+            return True
+        if issubclass(exctype, BaseExceptionGroup):
+            match, rest = excinst.split(self._exceptions)
+            if rest is None:
+                return True
+            raise rest
+        return False
 
 
 class _BaseExitStack:

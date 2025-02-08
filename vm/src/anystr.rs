@@ -385,17 +385,14 @@ pub trait AnyStr {
             let (end_len, i_diff) = match *ch {
                 b'\n' => (keep, 1),
                 b'\r' => {
-                    let is_rn = enumerated.peek().map_or(false, |(_, ch)| **ch == b'\n');
+                    let is_rn = enumerated.next_if(|(_, ch)| **ch == b'\n').is_some();
                     if is_rn {
-                        let _ = enumerated.next();
                         (keep + keep, 2)
                     } else {
                         (keep, 1)
                     }
                 }
-                _ => {
-                    continue;
-                }
+                _ => continue,
             };
             let range = last_i..i + end_len;
             last_i = i + i_diff;

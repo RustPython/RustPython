@@ -229,6 +229,7 @@ jobs:
         uses: coolreader18/redoxer-action@v1
         with:
           command: check
+          args: --ignore-rust-version
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -407,7 +408,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          target: wasm32-wasi
+          target: wasm32-wasip1
 
       - uses: Swatinem/rust-cache@v2
       - name: Setup Wasmer
@@ -415,8 +416,8 @@ jobs:
       - name: Install clang
         run: sudo apt-get update && sudo apt-get install clang -y
       - name: build rustpython
-        run: cargo build --release --target wasm32-wasi --features freeze-stdlib,stdlib --verbose
+        run: cargo build --release --target wasm32-wasip1 --features freeze-stdlib,stdlib --verbose
       - name: run snippets
-        run: wasmer run --dir `pwd` target/wasm32-wasi/release/rustpython.wasm -- `pwd`/extra_tests/snippets/stdlib_random.py
+        run: wasmer run --dir `pwd` target/wasm32-wasip1/release/rustpython.wasm -- `pwd`/extra_tests/snippets/stdlib_random.py
       - name: run cpython unittest
-        run: wasmer run --dir `pwd` target/wasm32-wasi/release/rustpython.wasm -- `pwd`/Lib/test/test_int.py
+        run: wasmer run --dir `pwd` target/wasm32-wasip1/release/rustpython.wasm -- `pwd`/Lib/test/test_int.py

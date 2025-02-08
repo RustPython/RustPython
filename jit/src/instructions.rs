@@ -1,3 +1,5 @@
+use super::{JitCompileError, JitSig, JitType};
+use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::bytecode::{
@@ -5,8 +7,6 @@ use rustpython_compiler_core::bytecode::{
     OpArg, OpArgState, UnaryOperator,
 };
 use std::collections::HashMap;
-
-use super::{JitCompileError, JitSig, JitType};
 
 #[repr(u16)]
 enum CustomTrapCode {
@@ -27,6 +27,7 @@ enum JitValue {
     Bool(Value),
     None,
     Tuple(Vec<JitValue>),
+    FuncRef(FuncRef),
 }
 
 impl JitValue {
@@ -43,14 +44,14 @@ impl JitValue {
             JitValue::Int(_) => Some(JitType::Int),
             JitValue::Float(_) => Some(JitType::Float),
             JitValue::Bool(_) => Some(JitType::Bool),
-            JitValue::None | JitValue::Tuple(_) => None,
+            JitValue::None | JitValue::Tuple(_) | JitValue::FuncRef(_) => None,
         }
     }
 
     fn into_value(self) -> Option<Value> {
         match self {
             JitValue::Int(val) | JitValue::Float(val) | JitValue::Bool(val) => Some(val),
-            JitValue::None | JitValue::Tuple(_) => None,
+            JitValue::None | JitValue::Tuple(_) | JitValue::FuncRef(_) => None,
         }
     }
 }
@@ -68,6 +69,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         builder: &'a mut FunctionBuilder<'b>,
         num_variables: usize,
         arg_types: &[JitType],
+        ret_type: Option<JitType>,
         entry_block: Block,
     ) -> FunctionCompiler<'a, 'b> {
         let mut compiler = FunctionCompiler {
@@ -77,7 +79,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             label_to_block: HashMap::new(),
             sig: JitSig {
                 args: arg_types.to_vec(),
-                ret: None,
+                ret: ret_type,
             },
         };
         let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
@@ -132,7 +134,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             JitValue::Bool(val) => Ok(val),
             JitValue::None => Ok(self.builder.ins().iconst(types::I8, 0)),
-            JitValue::Tuple(_) => Err(JitCompileError::NotSupported),
+            JitValue::Tuple(_) | JitValue::FuncRef(_) => Err(JitCompileError::NotSupported),
         }
     }
 
@@ -146,6 +148,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
     pub fn compile<C: bytecode::Constant>(
         &mut self,
+        func_ref: FuncRef,
         bytecode: &CodeObject<C>,
     ) -> Result<(), JitCompileError> {
         // TODO: figure out if this is sufficient -- previously individual labels were associated
@@ -177,7 +180,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 continue;
             }
 
-            self.add_instruction(instruction, arg, &bytecode.constants)?;
+            self.add_instruction(func_ref, bytecode, instruction, arg)?;
         }
 
         Ok(())
@@ -229,9 +232,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
     pub fn add_instruction<C: bytecode::Constant>(
         &mut self,
+        func_ref: FuncRef,
+        bytecode: &CodeObject<C>,
         instruction: Instruction,
         arg: OpArg,
-        constants: &[C],
     ) -> Result<(), JitCompileError> {
         match instruction {
             Instruction::ExtendedArg => Ok(()),
@@ -282,7 +286,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.store_variable(idx.get(arg), val)
             }
             Instruction::LoadConst { idx } => {
-                let val = self.prepare_const(constants[idx.get(arg) as usize].borrow_constant())?;
+                let val = self
+                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
                 self.stack.push(val);
                 Ok(())
             }
@@ -311,7 +316,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 self.return_value(val)
             }
             Instruction::ReturnConst { idx } => {
-                let val = self.prepare_const(constants[idx.get(arg) as usize].borrow_constant())?;
+                let val = self
+                    .prepare_const(bytecode.constants[idx.get(arg) as usize].borrow_constant())?;
                 self.return_value(val)
             }
             Instruction::CompareOperation { op, .. } => {
@@ -507,6 +513,36 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::SetupLoop { .. } | Instruction::PopBlock => {
                 // TODO: block support
                 Ok(())
+            }
+            Instruction::LoadGlobal(idx) => {
+                let name = &bytecode.names[idx.get(arg) as usize];
+
+                if name.as_ref() != bytecode.obj_name.as_ref() {
+                    Err(JitCompileError::NotSupported)
+                } else {
+                    self.stack.push(JitValue::FuncRef(func_ref));
+                    Ok(())
+                }
+            }
+            Instruction::CallFunctionPositional { nargs } => {
+                let nargs = nargs.get(arg);
+
+                let mut args = Vec::new();
+                for _ in 0..nargs {
+                    let arg = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                    args.push(arg.into_value().unwrap());
+                }
+
+                match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
+                    JitValue::FuncRef(reference) => {
+                        let call = self.builder.ins().call(reference, &args);
+                        let returns = self.builder.inst_results(call);
+                        self.stack.push(JitValue::Int(returns[0]));
+
+                        Ok(())
+                    }
+                    _ => Err(JitCompileError::BadBytecode),
+                }
             }
             _ => Err(JitCompileError::NotSupported),
         }

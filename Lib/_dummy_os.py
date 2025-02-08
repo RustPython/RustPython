@@ -5,22 +5,30 @@ A shim of the os module containing only simple path-related utilities
 try:
     from os import *
 except ImportError:
-    import abc
+    import abc, sys
 
     def __getattr__(name):
-        raise OSError("no os specific module found")
+        if name in {"_path_normpath", "__path__"}:
+            raise AttributeError(name)
+        if name.isupper():
+            return 0
+        def dummy(*args, **kwargs):
+            import io
+            return io.UnsupportedOperation(f"{name}: no os specific module found")
+        dummy.__name__ = f"dummy_{name}"
+        return dummy
 
-    def _shim():
-        import _dummy_os, sys
-        sys.modules['os'] = _dummy_os
-        sys.modules['os.path'] = _dummy_os.path
+    sys.modules['os'] = sys.modules['posix'] = sys.modules[__name__]
 
     import posixpath as path
-    import sys
     sys.modules['os.path'] = path
     del sys
 
     sep = path.sep
+    supports_dir_fd = set()
+    supports_effective_ids = set()
+    supports_fd = set()
+    supports_follow_symlinks = set()
 
 
     def fspath(path):

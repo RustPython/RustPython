@@ -1,11 +1,13 @@
 import './style.css';
-import 'xterm/lib/xterm.css';
-import CodeMirror from 'codemirror';
-import 'codemirror/mode/python/python';
-import 'codemirror/addon/comment/comment';
-import 'codemirror/lib/codemirror.css';
-import { Terminal } from 'xterm';
-import LocalEchoController from 'local-echo';
+import '@xterm/xterm/css/xterm.css';
+import { EditorView, basicSetup } from 'codemirror';
+import { keymap } from '@codemirror/view';
+import { indentUnit } from '@codemirror/language';
+import { indentWithTab } from '@codemirror/commands';
+import { python } from '@codemirror/lang-python';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { Readline } from 'xterm-readline';
 
 let rp;
 
@@ -22,23 +24,24 @@ import('rustpython')
         document.getElementById('error').textContent = e;
     });
 
-const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
-    extraKeys: {
-        'Ctrl-Enter': runCodeFromTextarea,
-        'Cmd-Enter': runCodeFromTextarea,
-        'Shift-Tab': 'indentLess',
-        'Ctrl-/': 'toggleComment',
-        'Cmd-/': 'toggleComment',
-        Tab: (editor) => {
-            var spaces = Array(editor.getOption('indentUnit') + 1).join(' ');
-            editor.replaceSelection(spaces);
-        },
-    },
-    lineNumbers: true,
-    mode: 'text/x-python',
-    indentUnit: 4,
-    autofocus: true,
+const fixedHeightEditor = EditorView.theme({
+    '&': { height: '100%' },
+    '.cm-scroller': { overflow: 'auto' },
 });
+const editor = new EditorView({
+    parent: document.getElementById('code-wrapper'),
+    extensions: [
+        basicSetup,
+        python(),
+        keymap.of(
+            { key: 'Ctrl-Enter', mac: 'Cmd-Enter', run: runCodeFromTextarea },
+            indentWithTab,
+        ),
+        indentUnit.of('    '),
+        fixedHeightEditor,
+    ],
+});
+editor.focus();
 
 const consoleElement = document.getElementById('console');
 const errorElement = document.getElementById('error');
@@ -48,7 +51,7 @@ function runCodeFromTextarea() {
     consoleElement.value = '';
     errorElement.textContent = '';
 
-    const code = editor.getValue();
+    const code = editor.state.doc.toString();
     try {
         rp.pyExec(code, {
             stdout: (output) => {
@@ -78,18 +81,25 @@ function updateSnippet() {
     // the require here creates a webpack context; it's fine to use it
     // dynamically.
     // https://webpack.js.org/guides/dependency-management/
-    const { default: snippet } = require(
-        `raw-loader!../snippets/${selected}.py`,
-    );
+    const snippet = require(`../snippets/${selected}.py?raw`);
 
-    editor.setValue(snippet);
-    runCodeFromTextarea();
+    editor.dispatch({
+        changes: { from: 0, to: editor.state.doc.length, insert: snippet },
+    });
 }
+function updateSnippetAndRun() {
+    updateSnippet();
+    requestAnimationFrame(runCodeFromTextarea);
+}
+updateSnippet();
 
 const term = new Terminal();
+const readline = new Readline();
+const fitAddon = new FitAddon();
+term.loadAddon(readline);
+term.loadAddon(fitAddon);
 term.open(document.getElementById('terminal'));
-
-const localEcho = new LocalEchoController(term);
+fitAddon.fit();
 
 let terminalVM;
 
@@ -107,40 +117,33 @@ finally:
 }
 
 async function readPrompts() {
-    let continuing = false;
+    let continuing = '';
 
     while (true) {
-        const ps1 = getPrompt('ps1');
-        const ps2 = getPrompt('ps2');
-        let input;
+        let input = await readline.read(getPrompt(continuing ? 'ps2' : 'ps1'));
+        if (input.endsWith('\n')) input = input.slice(0, -1);
         if (continuing) {
-            const prom = localEcho.read(ps2, ps2);
-            localEcho._activePrompt.prompt = ps1;
-            localEcho._input = localEcho.history.entries.pop() + '\n';
-            localEcho._cursor = localEcho._input.length;
-            localEcho._active = true;
-            input = await prom;
-            if (!input.endsWith('\n')) continue;
-        } else {
-            input = await localEcho.read(ps1, ps2);
+            input = continuing += '\n' + input;
+            if (!continuing.endsWith('\n')) continue;
         }
         try {
+            console.log([input]);
             terminalVM.execSingle(input);
         } catch (err) {
             if (err.canContinue) {
-                continuing = true;
+                continuing = input;
                 continue;
             } else if (err instanceof WebAssembly.RuntimeError) {
                 err = window.__RUSTPYTHON_ERROR || err;
             }
-            localEcho.println(err);
+            readline.print('' + err);
         }
-        continuing = false;
+        continuing = '';
     }
 }
 
 function onReady() {
-    snippets.addEventListener('change', updateSnippet);
+    snippets.addEventListener('change', updateSnippetAndRun);
     document
         .getElementById('run-btn')
         .addEventListener('click', runCodeFromTextarea);
@@ -148,7 +151,7 @@ function onReady() {
     runCodeFromTextarea();
 
     terminalVM = rp.vmStore.init('term_vm');
-    terminalVM.setStdout((data) => localEcho.print(data));
+    terminalVM.setStdout((data) => readline.print(data));
     readPrompts().catch((err) => console.error(err));
 
     // so that the test knows that we're ready

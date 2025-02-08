@@ -133,13 +133,10 @@ impl VirtualMachine {
         let import_func = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
-        // hack to get around const array repeat expressions, rust issue #79270
-        const NONE: Option<PyObjectRef> = None;
-        // putting it in a const optimizes better, prevents linear initialization of the array
-        #[allow(clippy::declare_interior_mutable_const)]
-        const SIGNAL_HANDLERS: RefCell<[Option<PyObjectRef>; signal::NSIG]> =
-            RefCell::new([NONE; signal::NSIG]);
-        let signal_handlers = Some(Box::new(SIGNAL_HANDLERS));
+        let signal_handlers = Some(Box::new(
+            // putting it in a const optimizes better, prevents linear initialization of the array
+            const { RefCell::new([const { None }; signal::NSIG]) },
+        ));
 
         let module_inits = stdlib::get_module_inits();
 

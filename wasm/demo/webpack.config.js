@@ -1,7 +1,6 @@
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 const WasmPackPlugin = require('@wasm-tool/wasm-pack-plugin');
-const { CleanWebpackPlugin } = require('clean-webpack-plugin');
 
 const path = require('path');
 const fs = require('fs');
@@ -12,6 +11,7 @@ module.exports = (env = {}) => {
         output: {
             path: path.join(__dirname, 'dist'),
             filename: 'index.js',
+            clean: true,
         },
         mode: 'development',
         resolve: {
@@ -28,10 +28,17 @@ module.exports = (env = {}) => {
                     test: /\.css$/,
                     use: [MiniCssExtractPlugin.loader, 'css-loader'],
                 },
+                {
+                    resourceQuery: '?raw',
+                    type: 'asset/source',
+                },
+                {
+                    test: /\.wasm$/,
+                    type: 'webassembly/async',
+                },
             ],
         },
         plugins: [
-            new CleanWebpackPlugin(),
             new HtmlWebpackPlugin({
                 filename: 'index.html',
                 template: 'src/index.ejs',
@@ -51,6 +58,9 @@ module.exports = (env = {}) => {
                 filename: 'styles.css',
             }),
         ],
+        experiments: {
+            asyncWebAssembly: true,
+        },
     };
     if (!env.noWasmPack) {
         config.plugins.push(

@@ -11,10 +11,12 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule]
 pub(crate) mod _signal {
+    #[cfg(any(unix, windows))]
     use crate::{
         convert::{IntoPyException, TryFromBorrowedObject},
-        signal, Py, PyObjectRef, PyResult, VirtualMachine,
+        Py,
     };
+    use crate::{signal, PyObjectRef, PyResult, VirtualMachine};
     use std::sync::atomic::{self, Ordering};
 
     #[cfg(any(unix, windows))]
@@ -110,28 +112,28 @@ pub(crate) mod _signal {
         module: &Py<crate::builtins::PyModule>,
         vm: &VirtualMachine,
     ) {
-        let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
-        let sig_ign = vm.new_pyobj(SIG_IGN as u8);
-
-        for signum in 1..NSIG {
-            let handler = unsafe { libc::signal(signum as i32, SIG_IGN) };
-            if handler != SIG_ERR {
-                unsafe { libc::signal(signum as i32, handler) };
-            }
-            let py_handler = if handler == SIG_DFL {
-                Some(sig_dfl.clone())
-            } else if handler == SIG_IGN {
-                Some(sig_ign.clone())
-            } else {
-                None
-            };
-            vm.signal_handlers.as_deref().unwrap().borrow_mut()[signum] = py_handler;
-        }
-
-        let int_handler = module
-            .get_attr("default_int_handler", vm)
-            .expect("_signal does not have this attr?");
         if vm.state.settings.install_signal_handlers {
+            let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
+            let sig_ign = vm.new_pyobj(SIG_IGN as u8);
+
+            for signum in 1..NSIG {
+                let handler = unsafe { libc::signal(signum as i32, SIG_IGN) };
+                if handler != SIG_ERR {
+                    unsafe { libc::signal(signum as i32, handler) };
+                }
+                let py_handler = if handler == SIG_DFL {
+                    Some(sig_dfl.clone())
+                } else if handler == SIG_IGN {
+                    Some(sig_ign.clone())
+                } else {
+                    None
+                };
+                vm.signal_handlers.as_deref().unwrap().borrow_mut()[signum] = py_handler;
+            }
+
+            let int_handler = module
+                .get_attr("default_int_handler", vm)
+                .expect("_signal does not have this attr?");
             signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
         }
     }

@@ -47,6 +47,7 @@ mod zlib {
     use libz_sys::{
         Z_BLOCK, Z_DEFAULT_STRATEGY, Z_FILTERED, Z_FINISH, Z_FIXED, Z_HUFFMAN_ONLY, Z_RLE, Z_TREES,
     };
+    use rustpython_vm::types::Constructor;
 
     // copied from zlibmodule.c (commit 530f506ac91338)
     #[pyattr]
@@ -586,5 +587,142 @@ mod zlib {
             let int: i32 = obj.try_index(vm)?.try_to_primitive(vm)?;
             Ok(Self::new(int))
         }
+    }
+
+    #[pyattr]
+    #[pyclass(name = "_ZlibDecompressor")]
+    #[derive(Debug, PyPayload)]
+    pub struct ZlibDecompressor {
+        decompress: PyMutex<Decompress>,
+        unused_data: PyMutex<PyBytesRef>,
+        unconsumed_tail: PyMutex<PyBytesRef>,
+    }
+
+    impl Constructor for ZlibDecompressor {
+        type Args = ();
+
+        fn py_new(cls: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+            let decompress = Decompress::new(true);
+            let zlib_decompressor = Self {
+                decompress: PyMutex::new(decompress),
+                unused_data: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
+                unconsumed_tail: PyMutex::new(PyBytes::from(vec![]).into_ref(&vm.ctx)),
+            };
+            zlib_decompressor
+                .into_ref_with_type(vm, cls)
+                .map(Into::into)
+        }
+    }
+
+    #[pyclass(with(Constructor))]
+    impl ZlibDecompressor {
+        #[pygetset]
+        fn unused_data(&self) -> PyBytesRef {
+            self.unused_data.lock().clone()
+        }
+
+        #[pygetset]
+        fn unconsumed_tail(&self) -> PyBytesRef {
+            self.unconsumed_tail.lock().clone()
+        }
+
+        fn save_unused_input(
+            &self,
+            d: &Decompress,
+            data: &[u8],
+            stream_end: bool,
+            orig_in: u64,
+            vm: &VirtualMachine,
+        ) {
+            let leftover = &data[(d.total_in() - orig_in) as usize..];
+
+            if stream_end && !leftover.is_empty() {
+                let mut unused_data = self.unused_data.lock();
+                let unused: Vec<_> = unused_data
+                    .as_bytes()
+                    .iter()
+                    .chain(leftover)
+                    .copied()
+                    .collect();
+                *unused_data = vm.ctx.new_pyref(unused);
+            }
+        }
+
+        #[pymethod]
+        fn decompress(&self, args: PyBytesRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            // let max_length = args.max_length.value;
+            // let max_length = (max_length != 0).then_some(max_length);
+            let max_length = None;
+            let data = args.as_bytes();
+
+            let mut d = self.decompress.lock();
+            let orig_in = d.total_in();
+
+            let (ret, stream_end) =
+                match _decompress(data, &mut d, DEF_BUF_SIZE, max_length, false, vm) {
+                    Ok((buf, true)) => {
+                        // Eof is true
+                        (Ok(buf), true)
+                    }
+                    Ok((buf, false)) => (Ok(buf), false),
+                    Err(err) => (Err(err), false),
+                };
+            self.save_unused_input(&d, data, stream_end, orig_in, vm);
+
+            let leftover = if stream_end {
+                b""
+            } else {
+                &data[(d.total_in() - orig_in) as usize..]
+            };
+
+            let mut unconsumed_tail = self.unconsumed_tail.lock();
+            if !leftover.is_empty() || !unconsumed_tail.is_empty() {
+                *unconsumed_tail = PyBytes::from(leftover.to_owned()).into_ref(&vm.ctx);
+            }
+
+            ret
+        }
+
+        #[pymethod]
+        fn flush(&self, length: OptionalArg<ArgSize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+            let length = match length {
+                OptionalArg::Present(l) => {
+                    let l: isize = l.into();
+                    if l <= 0 {
+                        return Err(
+                            vm.new_value_error("length must be greater than zero".to_owned())
+                        );
+                    } else {
+                        l as usize
+                    }
+                }
+                OptionalArg::Missing => DEF_BUF_SIZE,
+            };
+
+            let mut data = self.unconsumed_tail.lock();
+            let mut d = self.decompress.lock();
+
+            let orig_in = d.total_in();
+
+            let (ret, stream_end) = match _decompress(&data, &mut d, length, None, true, vm) {
+                Ok((buf, stream_end)) => (Ok(buf), stream_end),
+                Err(err) => (Err(err), false),
+            };
+            self.save_unused_input(&d, &data, stream_end, orig_in, vm);
+
+            *data = PyBytes::from(Vec::new()).into_ref(&vm.ctx);
+
+            // TODO: drop the inner decompressor, somehow
+            // if stream_end {
+            //
+            // }
+            ret
+        }
+
+        // TODO: Wait for getstate pyslot to be fixed
+        // #[pyslot]
+        // fn getstate(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyObject> {
+        //     Err(vm.new_type_error("cannot serialize '_ZlibDecompressor' object".to_owned()))
+        // }
     }
 }
