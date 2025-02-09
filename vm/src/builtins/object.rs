@@ -495,13 +495,14 @@ pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict
     obj.dict()
         .ok_or_else(|| vm.new_attribute_error("This object has no __dict__".to_owned()))
 }
+
 pub fn object_set_dict(obj: PyObjectRef, dict: PySetterValue<PyDictRef>, vm: &VirtualMachine) -> PyResult<()> {
     match dict {
-        PySetterValue::Some(dict) => {
+        PySetterValue::Assign(dict) => {
             obj.set_dict(dict)
                 .map_err(|_| vm.new_attribute_error("This object has no __dict__".to_owned()))
         }
-        PySetterValue::None => {
+        PySetterValue::Delete => {
             obj.delete_dict()
                 .map_err(|_| vm.new_attribute_error("This object has no deletable __dict__".to_owned()))
         }
