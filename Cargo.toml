@@ -181,7 +181,7 @@ thiserror = "1.0"
 thread_local = "1.1.4"
 unicode_names2 = "1.2.0"
 widestring = "1.1.0"
-windows-sys = "0.52.0"
+windows-sys = "0.59.0"
 wasm-bindgen = "0.2.92"
 
 # Lints
