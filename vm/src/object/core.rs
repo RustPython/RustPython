@@ -717,6 +717,19 @@ impl PyObject {
         }
     }
 
+    pub fn delete_dict(&self) -> Result<(), ()> {
+        match self.instance_dict() {
+            Some(_) => {
+                unsafe {
+                    let ptr = self as *const _ as *mut PyObject;
+                    (*ptr).0.dict = None;
+                }
+                Ok(())
+            }
+            None => Err(()),
+        }
+    }
+
     #[inline(always)]
     pub fn payload_if_subclass<T: crate::PyPayload>(&self, vm: &VirtualMachine) -> Option<&T> {
         if self.class().fast_issubclass(T::class(&vm.ctx)) {
