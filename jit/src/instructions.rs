@@ -451,6 +451,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         };
                         JitValue::Int(out)
                     }
+                    (BinaryOperator::Power, JitValue::Float(a), JitValue::Float(b)) => {
+                       println!("Power moment");
+                       JitValue::Int(self.builder.ins().fadd(a, b))
+
+                    }
                     (BinaryOperator::And, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().band(a, b))
                     }
