@@ -195,9 +195,9 @@ mod math {
         let x = *x;
         let y = *y;
 
-        if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite() {
-            return Err(vm.new_value_error("math domain error".to_owned()));
-        } else if x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY {
+        if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite()
+            || x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY
+        {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
 
@@ -656,27 +656,25 @@ mod math {
                 x = hi;
             }
 
-                if !x.is_finite() {
-                    // a nonfinite x could arise either as
-                    // a result of intermediate overflow, or
-                    // as a result of a nan or inf in the
-                    // summands
-                    if xsave.is_finite() {
-                        return Err(
-                            vm.new_overflow_error("intermediate overflow in fsum".to_owned())
-                        );
-                    }
-                    if xsave.is_infinite() {
-                        inf_sum += xsave;
-                    }
-                    special_sum += xsave;
-                    // reset partials
-                    partials.clear();
+            if !x.is_finite() {
+                // a nonfinite x could arise either as
+                // a result of intermediate overflow, or
+                // as a result of a nan or inf in the
+                // summands
+                if xsave.is_finite() {
+                    return Err(vm.new_overflow_error("intermediate overflow in fsum".to_owned()));
+                }
+                if xsave.is_infinite() {
+                    inf_sum += xsave;
+                }
+                special_sum += xsave;
+                // reset partials
+                partials.clear();
             }
 
             if j >= partials.len() {
                 partials.push(x);
-                } else {
+            } else {
                 partials[j] = x;
                 partials.truncate(j + 1);
             }
