@@ -25,6 +25,7 @@ pub(crate) mod module {
         mem::MaybeUninit,
         os::windows::ffi::{OsStrExt, OsStringExt},
     };
+    use std::ffi::{c_int, c_void};
     use windows_sys::Win32::{
         Foundation::{self, INVALID_HANDLE_VALUE},
         Storage::FileSystem,
@@ -150,7 +151,7 @@ pub(crate) mod module {
         }
 
         let h = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) };
-        if h == 0 {
+        if h == c_int::from(0) as *mut c_int as *mut c_void {
             return Err(errno_err(vm));
         }
         let ret = unsafe { Threading::TerminateProcess(h, sig) };
@@ -172,7 +173,7 @@ pub(crate) mod module {
                 _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
             };
             let h = unsafe { Console::GetStdHandle(stdhandle) };
-            if h == 0 {
+            if h == c_int::from(0) as *mut c_int as *mut c_void {
                 return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
             }
             if h == INVALID_HANDLE_VALUE {

@@ -3,6 +3,7 @@ pub(crate) use _winapi::make_module;
 
 #[pymodule]
 mod _winapi {
+    use std::ffi::{c_int, c_void};
     use crate::{
         builtins::PyStrRef,
         common::windows::ToWideString,
@@ -116,6 +117,8 @@ mod _winapi {
             .to_pyresult(vm)?;
             target.assume_init()
         };
+        let target = c_int::from(target as i32);
+
         Ok(HANDLE(target))
     }
 
@@ -436,6 +439,7 @@ mod _winapi {
     #[pyfunction]
     fn GetModuleFileName(handle: isize, vm: &VirtualMachine) -> PyResult<String> {
         let mut path: Vec<u16> = vec![0; MAX_PATH as usize];
+        let handle = c_int::from(handle as i32) as *mut c_int as *mut c_void;
         let handle = HINSTANCE(handle);
 
         let length =
