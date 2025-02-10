@@ -35,6 +35,7 @@ mod winreg {
     use ::winreg::{enums::RegType, RegKey, RegValue};
     use std::mem::ManuallyDrop;
     use std::{ffi::OsStr, io};
+    use std::ffi::{c_int, c_void};
     use windows_sys::Win32::Foundation;
 
     // access rights
@@ -98,7 +99,7 @@ mod winreg {
 
         #[pymethod(magic)]
         fn bool(&self) -> bool {
-            self.key().raw_handle() != 0
+            self.key().raw_handle() != c_int::from(0) as *mut c_int as *mut c_void
         }
         #[pymethod(magic)]
         fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
