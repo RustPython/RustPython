@@ -18,7 +18,10 @@ use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_compiler_core::{
-    bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
+    bytecode::{
+        self, Arg as OpArgMarker, CodeObject, ComparisonOperator, ConstantData, Instruction, OpArg,
+        OpArgType,
+    },
     Mode,
 };
 use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
@@ -209,6 +212,12 @@ macro_rules! emit {
     ($c:expr, Instruction::$op:ident$(,)?) => {
         $c.emit_no_arg(Instruction::$op)
     };
+}
+
+struct PatternContext {
+    current_block: usize,
+    blocks: Vec<ir::BlockIdx>,
+    allow_irrefutable: bool,
 }
 
 impl Compiler {
@@ -1755,14 +1764,152 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_pattern_value(
+        &mut self,
+        value: &located_ast::PatternMatchValue,
+        _pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        self.compile_expression(&value.value)?;
+        emit!(
+            self,
+            Instruction::CompareOperation {
+                op: ComparisonOperator::Equal
+            }
+        );
+        Ok(())
+    }
+
+    fn compile_pattern_as(
+        &mut self,
+        as_pattern: &located_ast::PatternMatchAs,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        if as_pattern.pattern.is_none() && !pattern_context.allow_irrefutable {
+            // TODO: better error message
+            if let Some(_name) = as_pattern.name.as_ref() {
+                return Err(
+                    self.error_loc(CodegenErrorType::InvalidMatchCase, as_pattern.location())
+                );
+            }
+            return Err(self.error_loc(CodegenErrorType::InvalidMatchCase, as_pattern.location()));
+        }
+        // Need to make a copy for (possibly) storing later:
+        emit!(self, Instruction::Duplicate);
+        if let Some(pattern) = &as_pattern.pattern {
+            self.compile_pattern_inner(pattern, pattern_context)?;
+        }
+        if let Some(name) = as_pattern.name.as_ref() {
+            self.store_name(name.as_str())?;
+        } else {
+            emit!(self, Instruction::Pop);
+        }
+        Ok(())
+    }
+
+    fn compile_pattern_inner(
+        &mut self,
+        pattern_type: &located_ast::Pattern,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        match &pattern_type {
+            located_ast::Pattern::MatchValue(value) => {
+                self.compile_pattern_value(value, pattern_context)
+            }
+            located_ast::Pattern::MatchAs(as_pattern) => {
+                self.compile_pattern_as(as_pattern, pattern_context)
+            }
+            _ => {
+                eprintln!("not implemented pattern type: {pattern_type:?}");
+                Err(self.error(CodegenErrorType::NotImplementedYet))
+            }
+        }
+    }
+
+    fn compile_pattern(
+        &mut self,
+        pattern_type: &located_ast::Pattern,
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        self.compile_pattern_inner(pattern_type, pattern_context)?;
+        emit!(
+            self,
+            Instruction::JumpIfFalse {
+                target: pattern_context.blocks[pattern_context.current_block + 1]
+            }
+        );
+        Ok(())
+    }
+
+    fn compile_match_inner(
+        &mut self,
+        subject: &located_ast::Expr,
+        cases: &[located_ast::MatchCase],
+        pattern_context: &mut PatternContext,
+    ) -> CompileResult<()> {
+        self.compile_expression(subject)?;
+        pattern_context.blocks = std::iter::repeat_with(|| self.new_block())
+            .take(cases.len() + 1)
+            .collect::<Vec<_>>();
+        let end_block = *pattern_context.blocks.last().unwrap();
+
+        let _match_case_type = cases.last().expect("cases is not empty");
+        // TODO: get proper check for default case
+        // let has_default = match_case_type.pattern.is_match_as() && 1 < cases.len();
+        let has_default = false;
+        for i in 0..cases.len() - (has_default as usize) {
+            self.switch_to_block(pattern_context.blocks[i]);
+            pattern_context.current_block = i;
+            pattern_context.allow_irrefutable = cases[i].guard.is_some() || i == cases.len() - 1;
+            let m = &cases[i];
+            // Only copy the subject if we're *not* on the last case:
+            if i != cases.len() - has_default as usize - 1 {
+                emit!(self, Instruction::Duplicate);
+            }
+            self.compile_pattern(&m.pattern, pattern_context)?;
+            self.compile_statements(&m.body)?;
+            emit!(self, Instruction::Jump { target: end_block });
+        }
+        // TODO: below code is not called and does not work
+        if has_default {
+            // A trailing "case _" is common, and lets us save a bit of redundant
+            // pushing and popping in the loop above:
+            let m = &cases.last().unwrap();
+            self.switch_to_block(*pattern_context.blocks.last().unwrap());
+            if cases.len() == 1 {
+                // No matches. Done with the subject:
+                emit!(self, Instruction::Pop);
+            } else {
+                // Show line coverage for default case (it doesn't create bytecode)
+                // emit!(self, Instruction::Nop);
+            }
+            self.compile_statements(&m.body)?;
+        }
+
+        self.switch_to_block(end_block);
+
+        let code = self.current_code_info();
+        pattern_context
+            .blocks
+            .iter()
+            .zip(pattern_context.blocks.iter().skip(1))
+            .for_each(|(a, b)| {
+                code.blocks[a.0 as usize].next = *b;
+            });
+        Ok(())
+    }
+
     fn compile_match(
         &mut self,
         subject: &located_ast::Expr,
         cases: &[located_ast::MatchCase],
     ) -> CompileResult<()> {
-        eprintln!("match subject: {subject:?}");
-        eprintln!("match cases: {cases:?}");
-        Err(self.error(CodegenErrorType::NotImplementedYet))
+        let mut pattern_context = PatternContext {
+            current_block: usize::MAX,
+            blocks: Vec::new(),
+            allow_irrefutable: false,
+        };
+        self.compile_match_inner(subject, cases, &mut pattern_context)?;
+        Ok(())
     }
 
     fn compile_chained_comparison(

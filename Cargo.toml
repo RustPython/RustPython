@@ -143,11 +143,21 @@ rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.
 rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
-rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
-rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "f07b97cef396d573364639904d767c9ff3e3e701" }
+# rustpython-literal = { version = "0.4.0" }
+# rustpython-parser-core = { version = "0.4.0" }
+# rustpython-parser = { version = "0.4.0" }
+# rustpython-ast = { version = "0.4.0" }
+# rustpython-format= { version = "0.4.0" }
+rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
+rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
+rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
+rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
+rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
+# rustpython-literal = { path = "../RustPython-parser/literal" }
+# rustpython-parser-core = { path = "../RustPython-parser/core" }
+# rustpython-parser = { path = "../RustPython-parser/parser" }
+# rustpython-ast = { path = "../RustPython-parser/ast" }
+# rustpython-format = { path = "../RustPython-parser/format" }
 
 ahash = "0.8.11"
 ascii = "1.0"
@@ -183,9 +193,9 @@ nix = { version = "0.29", features = [
     "net",
     "poll",
 ] }
-malachite-bigint = "0.2.0"
-malachite-q = "0.4.4"
-malachite-base = "0.4.4"
+malachite-bigint = "0.2.3"
+malachite-q = "0.4.22"
+malachite-base = "0.4.22"
 memchr = "2.7.2"
 num-complex = "0.4.0"
 num-integer = "0.1.44"
