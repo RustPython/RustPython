@@ -451,9 +451,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         };
                         JitValue::Int(out)
                     }
-                    (BinaryOperator::Power, JitValue::Float(a), JitValue::Float(b)) => {
-                        JitValue::Float(self.compile_pow(a, b))
-                    }
                     (BinaryOperator::And, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().band(a, b))
                     }
@@ -476,6 +473,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     }
                     (BinaryOperator::Divide, JitValue::Float(a), JitValue::Float(b)) => {
                         JitValue::Float(self.builder.ins().fdiv(a, b))
+                    }
+                    (BinaryOperator::Power, JitValue::Float(a), JitValue::Float(b)) => {
+                        JitValue::Float(self.compile_fpow(a, b))
                     }
 
                     // Floats and Integers
@@ -503,6 +503,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             }
                             BinaryOperator::Divide => {
                                 JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two))
+                            }
+                            BinaryOperator::Power => {
+                                JitValue::Float(self.compile_fpow(operand_one, operand_two))
                             }
                             _ => return Err(JitCompileError::NotSupported),
                         }
@@ -566,7 +569,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         out
     }
 
-    fn compile_pow(&mut self, a: Value, b: Value) -> Value {
+    fn compile_fpow(&mut self, a: Value, b: Value) -> Value {
         // Convert float exponent to integer and set up initial values
         let exp = self.builder.ins().fcvt_to_sint(types::I64, b);
         let zero = self.builder.ins().iconst(types::I64, 0);
