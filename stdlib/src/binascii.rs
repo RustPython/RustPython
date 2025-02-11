@@ -76,7 +76,7 @@ mod decl {
             let mut unhex = Vec::<u8>::with_capacity(hex_bytes.len() / 2);
             for (n1, n2) in hex_bytes.iter().tuples() {
                 if let (Some(n1), Some(n2)) = (unhex_nibble(*n1), unhex_nibble(*n2)) {
-                    unhex.push(n1 << 4 | n2);
+                    unhex.push((n1 << 4) | n2);
                 } else {
                     return Err(super::new_binascii_error(
                         "Non-hexadecimal digit found".to_owned(),
@@ -343,7 +343,7 @@ mod decl {
                         if let (Some(ch1), Some(ch2)) =
                             (unhex_nibble(buffer[idx]), unhex_nibble(buffer[idx + 1]))
                         {
-                            out_data.push(ch1 << 4 | ch2);
+                            out_data.push((ch1 << 4) | ch2);
                         }
                         idx += 2;
                     } else {
@@ -661,19 +661,19 @@ mod decl {
                 };
 
                 if res.len() < length {
-                    res.push(char_a << 2 | char_b >> 4);
+                    res.push((char_a << 2) | (char_b >> 4));
                 } else if char_a != 0 || char_b != 0 {
                     return trailing_garbage_error();
                 }
 
                 if res.len() < length {
-                    res.push((char_b & 0xf) << 4 | char_c >> 2);
+                    res.push(((char_b & 0xf) << 4) | (char_c >> 2));
                 } else if char_c != 0 {
                     return trailing_garbage_error();
                 }
 
                 if res.len() < length {
-                    res.push((char_c & 0x3) << 6 | char_d);
+                    res.push(((char_c & 0x3) << 6) | char_d);
                 } else if char_d != 0 {
                     return trailing_garbage_error();
                 }
@@ -725,8 +725,8 @@ mod decl {
                 let char_c = *chunk.get(2).unwrap_or(&0);
 
                 res.push(uu_b2a(char_a >> 2, backtick));
-                res.push(uu_b2a((char_a & 0x3) << 4 | char_b >> 4, backtick));
-                res.push(uu_b2a((char_b & 0xf) << 2 | char_c >> 6, backtick));
+                res.push(uu_b2a(((char_a & 0x3) << 4) | (char_b >> 4), backtick));
+                res.push(uu_b2a(((char_b & 0xf) << 2) | (char_c >> 6), backtick));
                 res.push(uu_b2a(char_c & 0x3f, backtick));
             }
 

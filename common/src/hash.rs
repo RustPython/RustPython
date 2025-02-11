@@ -114,7 +114,7 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
     let mut e = frexp.1;
     let mut x: PyUHash = 0;
     while m != 0.0 {
-        x = ((x << 28) & MODULUS) | x >> (BITS - 28);
+        x = ((x << 28) & MODULUS) | (x >> (BITS - 28));
         m *= 268_435_456.0; // 2**28
         e -= 28;
         let y = m as PyUHash; // pull out integer part
@@ -132,7 +132,7 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
     } else {
         BITS32 - 1 - ((-1 - e) % BITS32)
     };
-    x = ((x << e) & MODULUS) | x >> (BITS32 - e);
+    x = ((x << e) & MODULUS) | (x >> (BITS32 - e));
 
     Some(fix_sentinel(x as PyHash * value.signum() as PyHash))
 }

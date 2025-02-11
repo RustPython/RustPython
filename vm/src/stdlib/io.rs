@@ -482,7 +482,7 @@ mod _io {
             let size = size.to_usize();
             let read = instance.get_attr("read", vm)?;
             let mut res = Vec::new();
-            while size.map_or(true, |s| res.len() < s) {
+            while size.is_none_or(|s| res.len() < s) {
                 let read_res = ArgBytesLike::try_from_object(vm, read.call((1,), vm)?)?;
                 if read_res.with_ref(|b| b.is_empty()) {
                     break;
