@@ -3382,9 +3382,7 @@ fn clean_doc(doc: &str) -> String {
         // Get the 1st non-empty line
         .find(|line| !line.replace('\r', "").is_empty())
         // Get the indentation of the 1st line
-        .map(|line| {
-            line.chars().take_while(|&c| c == ' ').count()
-        })
+        .map(|line| line.chars().take_while(|&c| c == ' ').count())
         .unwrap_or(0);
     let mut cleaned = String::new();
     // copy first line without leading whitespace
