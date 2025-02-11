@@ -3384,7 +3384,7 @@ fn clean_doc(doc: &str) -> String {
         // Skip empty lines
         .filter(|line| !line.replace('\r', "").is_empty())
         // Get the 1st line
-        .nth(0)
+        .next()
         // Get the indentation of the 1st line
         .map(|line| {
             println!("line: {:?}", line);
