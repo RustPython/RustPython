@@ -3379,14 +3379,10 @@ fn clean_doc(doc: &str) -> String {
         .lines()
         // Skip the first line as per cpython impl
         .skip(1)
-        // Skip empty lines
-        .filter(|line| !line.replace('\r', "").is_empty())
-        // Get the 1st line
-        .next()
+        // Get the 1st non-empty line
+        .find(|line| !line.replace('\r', "").is_empty())
         // Get the indentation of the 1st line
-        .map(|line| {
-            line.chars().take_while(|&c| c == ' ').count()
-        })
+        .map(|line| line.chars().take_while(|&c| c == ' ').count())
         .unwrap_or(0);
     let mut cleaned = String::new();
     // copy first line without leading whitespace
