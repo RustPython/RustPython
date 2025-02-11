@@ -3400,7 +3400,8 @@ fn clean_doc(doc: &str) -> String {
     // copy subsequent lines without margin.
     for line in doc.split('\n').skip(1) {
         cleaned.push('\n');
-        let cleaned_line = line.chars()
+        let cleaned_line = line
+            .chars()
             .enumerate()
             .skip_while(|(s, c)| s < &margin && c == &' ')
             .map(|(_, c)| c)
@@ -3418,13 +3419,10 @@ fn split_doc<'a>(
     if let Some((located_ast::Stmt::Expr(expr), body_rest)) = body.split_first() {
         if let Some(doc) = try_get_constant_string(std::slice::from_ref(&expr.value)) {
             return if opts.optimize < 2 {
-                (
-                    Some(clean_doc(&doc)),
-                    body_rest,
-                )
+                (Some(clean_doc(&doc)), body_rest)
             } else {
                 (None, body_rest)
-            }
+            };
         }
     }
     (None, body)
