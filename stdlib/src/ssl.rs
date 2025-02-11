@@ -617,6 +617,7 @@ mod _ssl {
                     SERVER_PROTOS = server.to_vec();
                 }
                 ctx.set_alpn_select_callback(move |_, client| unsafe {
+                    #[allow(clippy::static_mut_refs)]
                     ssl::select_next_proto(&SERVER_PROTOS, client).ok_or(ssl::AlpnError::NOACK)
                 });
                 Ok(())
