@@ -132,6 +132,9 @@ mod math {
     #[pyfunction]
     fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
         let base = base.map(|b| *b).unwrap_or(std::f64::consts::E);
+        if base.is_sign_negative() {
+            return Err(vm.new_value_error("math domain error".to_owned()));
+        }
         log2(x, vm).map(|logx| logx / base.log2())
     }
 
@@ -192,15 +195,17 @@ mod math {
         let x = *x;
         let y = *y;
 
-        if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite() {
-            return Err(vm.new_value_error("math domain error".to_owned()));
-        }
-
-        if x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY {
+        if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite()
+            || x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY
+        {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
 
         let value = x.powf(y);
+
+        if x.is_finite() && y.is_finite() && value.is_infinite() {
+            return Err(vm.new_overflow_error("math range error".to_string()));
+        }
 
         Ok(value)
     }
@@ -212,6 +217,9 @@ mod math {
             return Ok(value);
         }
         if value.is_sign_negative() {
+            if value.is_zero() {
+                return Ok(-0.0f64);
+            }
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
         Ok(value.sqrt())
@@ -260,6 +268,9 @@ mod math {
 
     #[pyfunction]
     fn cos(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        if x.is_infinite() {
+            return Err(vm.new_value_error("math domain error".to_owned()));
+        }
         call_math_func!(cos, x, vm)
     }
 
@@ -394,11 +405,17 @@ mod math {
 
     #[pyfunction]
     fn sin(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        if x.is_infinite() {
+            return Err(vm.new_value_error("math domain error".to_owned()));
+        }
         call_math_func!(sin, x, vm)
     }
 
     #[pyfunction]
     fn tan(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        if x.is_infinite() {
+            return Err(vm.new_value_error("math domain error".to_owned()));
+        }
         call_math_func!(tan, x, vm)
     }
 
