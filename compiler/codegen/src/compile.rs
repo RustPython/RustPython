@@ -3372,9 +3372,7 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
 ///
 /// The code has been ported from `_PyCompile_CleanDoc` in cpython
 fn clean_doc(doc: &str) -> String {
-    println!("doc: {:?}", doc);
     let doc = doc.replace("\t", "    ");
-    println!("doc: {:?}", doc);
     // First pass: find minimum indentation of any non-blank lines
     // after first line.
     let margin = doc
@@ -3387,11 +3385,9 @@ fn clean_doc(doc: &str) -> String {
         .next()
         // Get the indentation of the 1st line
         .map(|line| {
-            println!("line: {:?}", line);
             line.chars().take_while(|&c| c == ' ').count()
         })
         .unwrap_or(0);
-    println!("margin: {}", margin);
     let mut cleaned = String::new();
     // copy first line without leading whitespace
     if let Some(first_line) = doc.lines().next() {
