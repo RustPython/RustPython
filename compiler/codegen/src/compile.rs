@@ -3372,9 +3372,7 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
 ///
 /// The code has been ported from `_PyCompile_CleanDoc` in cpython
 fn clean_doc(doc: &str) -> String {
-    println!("doc: {:?}", doc);
     let doc = doc.replace("\t", "    ");
-    println!("doc: {:?}", doc);
     // First pass: find minimum indentation of any non-blank lines
     // after first line.
     let margin = doc
@@ -3384,14 +3382,12 @@ fn clean_doc(doc: &str) -> String {
         // Skip empty lines
         .filter(|line| !line.replace('\r', "").is_empty())
         // Get the 1st line
-        .nth(0)
+        .next()
         // Get the indentation of the 1st line
         .map(|line| {
-            println!("line: {:?}", line);
             line.chars().take_while(|&c| c == ' ').count()
         })
         .unwrap_or(0);
-    println!("margin: {}", margin);
     let mut cleaned = String::new();
     // copy first line without leading whitespace
     if let Some(first_line) = doc.lines().next() {
@@ -3400,7 +3396,8 @@ fn clean_doc(doc: &str) -> String {
     // copy subsequent lines without margin.
     for line in doc.split('\n').skip(1) {
         cleaned.push('\n');
-        let cleaned_line = line.chars()
+        let cleaned_line = line
+            .chars()
             .enumerate()
             .skip_while(|(s, c)| s < &margin && c == &' ')
             .map(|(_, c)| c)
@@ -3418,13 +3415,10 @@ fn split_doc<'a>(
     if let Some((located_ast::Stmt::Expr(expr), body_rest)) = body.split_first() {
         if let Some(doc) = try_get_constant_string(std::slice::from_ref(&expr.value)) {
             return if opts.optimize < 2 {
-                (
-                    Some(clean_doc(&doc)),
-                    body_rest,
-                )
+                (Some(clean_doc(&doc)), body_rest)
             } else {
                 (None, body_rest)
-            }
+            };
         }
     }
     (None, body)
