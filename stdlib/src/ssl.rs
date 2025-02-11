@@ -492,6 +492,8 @@ mod _ssl {
         }
     }
 
+    static mut SERVER_PROTOS: Vec<u8> = Vec::new();
+
     #[pyclass(flags(BASETYPE), with(Constructor))]
     impl PySslContext {
         fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
@@ -611,8 +613,11 @@ mod _ssl {
                         .map_err(|e| convert_openssl_error(vm, e))?;
                     Ok(pbuf.to_vec())
                 })?;
-                ctx.set_alpn_select_callback(move |_, client| {
-                    ssl::select_next_proto(&server, client).ok_or(ssl::AlpnError::NOACK)
+                unsafe {
+                    SERVER_PROTOS = server.to_vec();
+                }
+                ctx.set_alpn_select_callback(move |_, client| unsafe {
+                    ssl::select_next_proto(&SERVER_PROTOS, client).ok_or(ssl::AlpnError::NOACK)
                 });
                 Ok(())
             }
