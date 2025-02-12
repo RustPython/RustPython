@@ -111,6 +111,35 @@ fn test_mul_with_integer() {
 }
 
 #[test]
+fn test_power(){
+    let pow = jit_function! { pow(a:f64, b:f64) -> f64 => r##"
+        def pow(a:float, b: float):
+            return a**b
+    "##};
+    // Test basic positive numbers
+    assert_approx_eq!(pow(2.0, 3.0), Ok(8.0));
+    assert_approx_eq!(pow(5.0, 2.0), Ok(25.0));
+    // Test basic negative numbers
+    assert_approx_eq!(pow(-3.0,3.0), Ok(-27.0));
+    assert_approx_eq!(pow(-6.0,2.0), Ok(36.0));
+}
+
+//The below unit test is expected to fail at the current time due to the current implementation of JITs lack of robustness ~JIT team 
+#[test]
+fn test_power_with_integer() {
+    let pow = jit_function! { pow(a:f64 , b:i64) -> f64 => r##"
+        def pow (a: float, b: float):
+            return a**b
+    "##};
+    // Test basic positive numbers
+    assert_approx_eq!(pow(2.0, 3), Ok(8.0));
+    assert_approx_eq!(pow(5.0, 2), Ok(25.0));
+    // Test basic negative numbers
+    assert_approx_eq!(pow(-3.0, 3), Ok(-27.0));
+    assert_approx_eq!(pow(-6.0, 2), Ok(36.0));
+}
+
+#[test]
 fn test_div() {
     let div = jit_function! { div(a:f64, b:f64) -> f64 => r##"
         def div(a: float, b: float):
