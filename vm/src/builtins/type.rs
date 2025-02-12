@@ -1288,7 +1288,7 @@ fn subtype_set_dict(obj: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -
             descr_set(&descr, obj, PySetterValue::Assign(value), vm)
         }
         None => {
-            object::object_set_dict(obj, value.try_into_value(vm)?, vm)?;
+            object::object_set_dict(obj, PySetterValue::Delete, vm)?;
             Ok(())
         }
     }
