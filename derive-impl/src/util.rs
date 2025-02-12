@@ -3,7 +3,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::{HashMap, HashSet};
 use syn::{
-    spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Result, Signature, UseTree,
+    spanned::Spanned, Attribute, Ident, Meta, MetaList, Result, Signature, UseTree,
 };
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},

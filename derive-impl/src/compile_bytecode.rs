@@ -331,13 +331,19 @@ fn parse_meta(input: ParseStream) -> ParseResult<Meta> {
         Ok(Meta::NameValue(MetaNameValue {
             path,
             eq_token,
-            lit: Lit::Str(input.parse()?),
+            value: syn::Expr::Lit(syn::ExprLit {
+                lit: Lit::Str(input.parse()?),
+                attrs: Vec::new(),
+            }),
         }))
     } else if let Ok(mac) = input.parse::<Macro>() {
         Ok(Meta::NameValue(MetaNameValue {
             path,
             eq_token,
-            lit: Lit::Str(LitStr::new(&mac.tokens.to_string(), mac.span())),
+            value: syn::Expr::Lit(syn::ExprLit {
+                lit: Lit::Str(LitStr::new(&mac.tokens.to_string(), mac.span())),
+                attrs: Vec::new(),
+            }),
         }))
     } else {
         Err(syn::Error::new(span, "Expected string or stringify macro"))
