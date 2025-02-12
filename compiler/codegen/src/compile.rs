@@ -3378,10 +3378,9 @@ fn clean_doc(doc: &str) -> String {
     // after first line.
     let margin = doc
         .lines()
-        // Skip the first line as per cpython impl
-        .skip(1)
-        // Find the non-blank line with the least indentation
+        // Find the non-blank lines
         .filter(|line| !line.trim().is_empty())
+        // get the one with the least indentation
         .map(|line| line.chars().take_while(|c| c == &' ').count())
         .min();
     if let Some(margin) = margin {
