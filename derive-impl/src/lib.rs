@@ -24,7 +24,7 @@ use error::{extract_spans, Diagnostic};
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use rustpython_doc as doc;
-use syn::{AttributeArgs, DeriveInput, Item};
+use syn::{DeriveInput, Item, Token, punctuated::Punctuated, Meta};
 
 pub use compile_bytecode::Compiler;
 
@@ -38,7 +38,7 @@ pub fn derive_from_args(input: DeriveInput) -> TokenStream {
     result_to_tokens(from_args::impl_from_args(input))
 }
 
-pub fn pyclass(attr: AttributeArgs, item: Item) -> TokenStream {
+pub fn pyclass(attr: Punctuated<Meta, Token![,]>, item: Item) -> TokenStream {
     if matches!(item, syn::Item::Impl(_) | syn::Item::Trait(_)) {
         result_to_tokens(pyclass::impl_pyclass_impl(attr, item))
     } else {
@@ -46,7 +46,7 @@ pub fn pyclass(attr: AttributeArgs, item: Item) -> TokenStream {
     }
 }
 
-pub fn pyexception(attr: AttributeArgs, item: Item) -> TokenStream {
+pub fn pyexception(attr: Punctuated<Meta, Token![,]>, item: Item) -> TokenStream {
     if matches!(item, syn::Item::Impl(_)) {
         result_to_tokens(pyclass::impl_pyexception_impl(attr, item))
     } else {
@@ -54,7 +54,7 @@ pub fn pyexception(attr: AttributeArgs, item: Item) -> TokenStream {
     }
 }
 
-pub fn pymodule(attr: AttributeArgs, item: Item) -> TokenStream {
+pub fn pymodule(attr: Punctuated<Meta, Token![,]>, item: Item) -> TokenStream {
     result_to_tokens(pymodule::impl_pymodule(attr, item))
 }
 

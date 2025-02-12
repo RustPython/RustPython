@@ -9,7 +9,7 @@ use quote::{quote, quote_spanned, ToTokens};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use syn::{
-    parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Meta, NestedMeta, Result,
+    parse_quote, punctuated::Punctuated, spanned::Spanned, Attribute, Ident, Item, Meta, Result, Token,
 };
 use syn_ext::ext::*;
 
@@ -98,7 +98,10 @@ fn extract_items_into_context<'a, Item>(
     context.errors.ok_or_push(context.member_items.validate());
 }
 
-pub(crate) fn impl_pyclass_impl(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pyclass_impl(
+    attr: Punctuated<Meta, Token![,]>,
+    item: Item,
+) -> Result<TokenStream> {
     let mut context = ImplContext::default();
     let mut tokens = match item {
         Item::Impl(mut imp) => {
@@ -418,7 +421,7 @@ fn generate_class_def(
     Ok(tokens)
 }
 
-pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pyclass(attr: Punctuated<Meta, Token![,]>, item: Item) -> Result<TokenStream> {
     if matches!(item, syn::Item::Use(_)) {
         return Ok(quote!(#item));
     }
@@ -534,7 +537,10 @@ pub(crate) fn impl_pyclass(attr: AttributeArgs, item: Item) -> Result<TokenStrea
 /// But, inside `macro_rules` we don't have an opportunity
 /// to add non-literal attributes to `pyclass`.
 /// That's why we have to use this proxy.
-pub(crate) fn impl_pyexception(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pyexception(
+    attr: Punctuated<Meta, Token![,]>,
+    item: Item,
+) -> Result<TokenStream> {
     let (ident, _attrs) = pyexception_ident_and_attrs(&item)?;
     let fake_ident = Ident::new("pyclass", item.span());
     let class_meta = ExceptionItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
@@ -573,7 +579,10 @@ pub(crate) fn impl_pyexception(attr: AttributeArgs, item: Item) -> Result<TokenS
     Ok(ret)
 }
 
-pub(crate) fn impl_pyexception_impl(attr: AttributeArgs, item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pyexception_impl(
+    attr: Punctuated<Meta, Token![,]>,
+    item: Item,
+) -> Result<TokenStream> {
     let Item::Impl(imp) = item else {
         return Ok(item.into_token_stream());
     };
@@ -1447,7 +1456,10 @@ struct ExtractedImplAttrs {
     with_slots: TokenStream,
 }
 
-fn extract_impl_attrs(attr: AttributeArgs, item: &Ident) -> Result<ExtractedImplAttrs> {
+fn extract_impl_attrs(
+    attr: Punctuated<Meta, Token![,]>,
+    item: &Ident,
+) -> Result<ExtractedImplAttrs> {
     let mut withs = Vec::new();
     let mut with_method_defs = Vec::new();
     let mut with_slots = Vec::new();

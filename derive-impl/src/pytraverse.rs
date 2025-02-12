@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Attribute, DeriveInput, Field, Meta, MetaList, NestedMeta, Result};
+use syn::{Attribute, DeriveInput, Field, Meta, MetaList, Result};
 
 struct TraverseAttr {
     /// set to `true` if the attribute is `#[pytraverse(skip)]`
@@ -40,7 +40,7 @@ fn valid_get_traverse_attr_from_meta_list(list: &MetaList) -> Result<TraverseAtt
 
 /// only accept `#[pytraverse(skip)]` for now
 fn pytraverse_arg(attr: &Attribute) -> Option<Result<TraverseAttr>> {
-    if !attr.path.is_ident(ATTR_TRAVERSE) {
+    if !attr.path().is_ident(ATTR_TRAVERSE) {
         return None;
     }
     let ret = || {

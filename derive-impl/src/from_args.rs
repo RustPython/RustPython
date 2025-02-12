@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::ext::IdentExt;
 use syn::{
-    parse_quote, Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Meta, NestedMeta, Result,
+    parse_quote, Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Meta, Result,
 };
 
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
@@ -96,8 +96,8 @@ impl ArgAttribute {
                         bail_span!(name_value, "Default already set");
                     }
 
-                    match name_value.lit {
-                        Lit::Str(ref val) => self.default = Some(Some(val.parse()?)),
+                    match name_value.expr {
+                        Expr::Lit(Lit::Str(ref val)) => self.default = Some(Some(val.parse()?)),
                         _ => bail_span!(name_value, "Expected string value for default argument"),
                     }
                 } else if name_value.path.is_ident("name") {
