@@ -1125,33 +1125,7 @@ impl PyStr {
 
     #[pymethod]
     fn expandtabs(&self, args: anystr::ExpandTabsArgs) -> String {
-        let tab_stop = args.tabsize();
-        let mut expanded_str = String::with_capacity(self.byte_len());
-        let mut tab_size = tab_stop;
-        let mut col_count = 0usize;
-        for ch in self.as_str().chars() {
-            match ch {
-                '\t' => {
-                    let num_spaces = tab_size - col_count;
-                    col_count += num_spaces;
-                    let expand = " ".repeat(num_spaces);
-                    expanded_str.push_str(&expand);
-                }
-                '\r' | '\n' => {
-                    expanded_str.push(ch);
-                    col_count = 0;
-                    tab_size = 0;
-                }
-                _ => {
-                    expanded_str.push(ch);
-                    col_count += 1;
-                }
-            }
-            if col_count >= tab_size {
-                tab_size += tab_stop;
-            }
-        }
-        expanded_str
+        rustpython_common::str::expandtabs(self.as_str(), args.tabsize())
     }
 
     #[pymethod]

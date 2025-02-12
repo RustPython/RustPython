@@ -3370,38 +3370,37 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
 
 /// Strips leading whitespace from a docstring.
 ///
-/// The code has been ported from `_PyCompile_CleanDoc` in cpython
+/// The code has been ported from `_PyCompile_CleanDoc` in cpython.
+/// `inspect.cleandoc` is also a good reference, but has a few incompatibilities.
 fn clean_doc(doc: &str) -> String {
-    let doc = doc.replace("\t", "    ");
+    let doc = rustpython_common::str::expandtabs(doc, 8);
     // First pass: find minimum indentation of any non-blank lines
     // after first line.
     let margin = doc
         .lines()
         // Skip the first line as per cpython impl
         .skip(1)
-        // Get the 1st non-empty line
-        .find(|line| !line.replace('\r', "").is_empty())
-        // Get the indentation of the 1st line
-        .map(|line| line.chars().take_while(|&c| c == ' ').count())
-        .unwrap_or(0);
-    let mut cleaned = String::new();
-    // copy first line without leading whitespace
-    if let Some(first_line) = doc.lines().next() {
-        cleaned.push_str(first_line.trim_start());
-    }
-    // copy subsequent lines without margin.
-    for line in doc.split('\n').skip(1) {
-        cleaned.push('\n');
-        let cleaned_line = line
-            .chars()
-            .enumerate()
-            .skip_while(|(s, c)| s < &margin && c == &' ')
-            .map(|(_, c)| c)
-            .collect::<String>();
-        cleaned.push_str(&cleaned_line);
-    }
+        // Find the non-blank line with the least indentation
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.chars().take_while(|c| c == &' ').count())
+        .min();
+    if let Some(margin) = margin {
+        let mut cleaned = String::with_capacity(doc.len());
+        // copy first line without leading whitespace
+        if let Some(first_line) = doc.lines().next() {
+            cleaned.push_str(first_line.trim_start());
+        }
+        // copy subsequent lines without margin.
+        for line in doc.split('\n').skip(1) {
+            cleaned.push('\n');
+            let cleaned_line = line.chars().skip(margin).collect::<String>();
+            cleaned.push_str(&cleaned_line);
+        }
 
-    cleaned
+        cleaned
+    } else {
+        doc.to_owned()
+    }
 }
 
 fn split_doc<'a>(

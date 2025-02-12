@@ -11,6 +11,7 @@ license.workspace = true
 
 [dependencies]
 rustpython-ast = { workspace = true, features=["unparse", "constant-optimization"] }
+rustpython-common = { workspace = true }
 rustpython-parser-core = { workspace = true }
 rustpython-compiler-core = { workspace = true }
 
