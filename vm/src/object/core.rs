@@ -23,10 +23,13 @@ use crate::{
         atomic::{OncePtr, PyAtomic, Radium},
         linked_list::{Link, LinkedList, Pointers},
         lock::{PyMutex, PyMutexGuard, PyRwLock},
-        refcount::RefCount,
     },
     vm::VirtualMachine,
 };
+#[cfg(feature = "gc")]
+pub use crate::object::gc::refcount::RefCount;
+#[cfg(not(feature = "gc"))]
+pub use crate::common::refcount::RefCount;
 use itertools::Itertools;
 use std::{
     any::TypeId,
@@ -73,8 +76,12 @@ use std::{
 // concrete type to work with before we ever access the `payload` field**
 
 /// A type to just represent "we've erased the type of this object, cast it before you use it"
+#[cfg(not(feature =  "gc"))]
 #[derive(Debug)]
 pub(super) struct Erased;
+
+#[cfg(feature = "gc")]
+pub(super) use crate::object::gc::erased::Erased;
 
 pub(super) unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
     drop(Box::from_raw(x as *mut PyInner<T>));
@@ -457,14 +464,17 @@ impl<T: PyObjectPayload> PyInner<T> {
     }
 }
 
+static CURRENT_TAG: PyAtomic<usize> = Radium::new(0);
+
 /// The `PyObjectRef` is one of the most used types. It is a reference to a
 /// python object. A single python object can have multiple references, and
 /// this reference counting is accounted for by this type. Use the `.clone()`
-/// method to create a new reference and increment the amount of references
+/// method to create a new reference and increment the number of references
 /// to the python object by 1.
-#[repr(transparent)]
 pub struct PyObjectRef {
-    ptr: NonNull<PyObject>,
+    pub(crate) ptr: NonNull<PyObject>,
+    #[cfg(feature = "gc")]
+    pub(crate) tag: PyAtomic<usize>
 }
 
 impl Clone for PyObjectRef {
@@ -500,6 +510,7 @@ impl ToOwned for PyObject {
         self.0.ref_count.inc();
         PyObjectRef {
             ptr: NonNull::from(self),
+            tag: Radium::new(0),
         }
     }
 }
@@ -521,6 +532,7 @@ impl PyObjectRef {
     pub unsafe fn from_raw(ptr: *const PyObject) -> Self {
         Self {
             ptr: NonNull::new_unchecked(ptr as *mut PyObject),
+            tag: Radium::new(0),
         }
     }
 
@@ -1078,7 +1090,10 @@ where
     #[inline]
     fn from(value: PyRef<T>) -> Self {
         let me = ManuallyDrop::new(value);
-        PyObjectRef { ptr: me.ptr.cast() }
+        PyObjectRef {
+            ptr: me.ptr.cast(),
+            tag: Radium::new(0),
+        }
     }
 }
 
