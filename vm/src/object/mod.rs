@@ -1,5 +1,7 @@
 mod core;
 mod ext;
+#[cfg(feature = "gc")]
+pub mod gc;
 mod payload;
 mod traverse;
 mod traverse_object;
