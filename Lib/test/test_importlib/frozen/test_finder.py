@@ -2,11 +2,8 @@ from test.test_importlib import abc, util
 
 machinery = util.import_importlib('importlib.machinery')
 
-import _imp
-import marshal
 import os.path
 import unittest
-import warnings
 
 from test.support import import_helper, REPO_ROOT, STDLIB_DIR
 
@@ -70,8 +67,6 @@ class FindSpecTests(abc.FinderTests):
             expected = [os.path.dirname(filename)]
         self.assertListEqual(spec.submodule_search_locations, expected)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_module(self):
         modules = [
             '__hello__',
@@ -114,8 +109,6 @@ class FindSpecTests(abc.FinderTests):
                 self.check_basic(spec, name)
                 self.check_loader_state(spec, origname, filename)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_package(self):
         packages = [
             '__phello__',
@@ -170,8 +163,6 @@ class FindSpecTests(abc.FinderTests):
         spec = self.find('<not real>')
         self.assertIsNone(spec)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_not_using_frozen(self):
         finder = self.machinery.FrozenImporter
         with import_helper.frozen_modules(enabled=False):
