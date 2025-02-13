@@ -44,7 +44,7 @@ def f3():
     """
     pass
 
-assert f3.__doc__ == "\n    test3\n    "
+assert f3.__doc__ == "\ntest3\n"
 
 def f4():
     "test4"

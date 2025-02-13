@@ -1200,25 +1200,6 @@ def context_diff(a, b, fromfile='', tofile='',
     strings for 'fromfile', 'tofile', 'fromfiledate', and 'tofiledate'.
     The modification times are normally expressed in the ISO 8601 format.
     If not specified, the strings default to blanks.
-
-    Example:
-
-    >>> print(''.join(context_diff('one\ntwo\nthree\nfour\n'.splitlines(True),
-    ...       'zero\none\ntree\nfour\n'.splitlines(True), 'Original', 'Current')),
-    ...       end="")
-    *** Original
-    --- Current
-    ***************
-    *** 1,4 ****
-      one
-    ! two
-    ! three
-      four
-    --- 1,4 ----
-    + zero
-      one
-    ! tree
-      four
     """
 
     _check_types(a, b, fromfile, tofile, fromfiledate, tofiledate, lineterm)

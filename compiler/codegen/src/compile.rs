@@ -3368,17 +3368,51 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
     }
 }
 
+/// Strips leading whitespace from a docstring.
+///
+/// The code has been ported from `_PyCompile_CleanDoc` in cpython.
+/// `inspect.cleandoc` is also a good reference, but has a few incompatibilities.
+fn clean_doc(doc: &str) -> String {
+    let doc = rustpython_common::str::expandtabs(doc, 8);
+    // First pass: find minimum indentation of any non-blank lines
+    // after first line.
+    let margin = doc
+        .lines()
+        // Find the non-blank lines
+        .filter(|line| !line.trim().is_empty())
+        // get the one with the least indentation
+        .map(|line| line.chars().take_while(|c| c == &' ').count())
+        .min();
+    if let Some(margin) = margin {
+        let mut cleaned = String::with_capacity(doc.len());
+        // copy first line without leading whitespace
+        if let Some(first_line) = doc.lines().next() {
+            cleaned.push_str(first_line.trim_start());
+        }
+        // copy subsequent lines without margin.
+        for line in doc.split('\n').skip(1) {
+            cleaned.push('\n');
+            let cleaned_line = line.chars().skip(margin).collect::<String>();
+            cleaned.push_str(&cleaned_line);
+        }
+
+        cleaned
+    } else {
+        doc.to_owned()
+    }
+}
+
 fn split_doc<'a>(
     body: &'a [located_ast::Stmt],
     opts: &CompileOpts,
 ) -> (Option<String>, &'a [located_ast::Stmt]) {
     if let Some((located_ast::Stmt::Expr(expr), body_rest)) = body.split_first() {
         if let Some(doc) = try_get_constant_string(std::slice::from_ref(&expr.value)) {
-            if opts.optimize < 2 {
-                return (Some(doc), body_rest);
+            return if opts.optimize < 2 {
+                (Some(clean_doc(&doc)), body_rest)
             } else {
-                return (None, body_rest);
-            }
+                (None, body_rest)
+            };
         }
     }
     (None, body)
