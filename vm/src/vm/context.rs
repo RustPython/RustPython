@@ -22,6 +22,7 @@ use crate::{
     },
     intern::{InternableString, MaybeInternedString, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
+    stdlib::typing::NoDefaultType,
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
     PyResult, VirtualMachine,
 };
@@ -41,6 +42,7 @@ pub struct Context {
     pub empty_bytes: PyRef<PyBytes>,
     pub ellipsis: PyRef<PyEllipsis>,
     pub not_implemented: PyRef<PyNotImplemented>,
+    pub no_default: PyRef<NoDefaultType>,
 
     pub types: TypeZoo,
     pub exceptions: exceptions::ExceptionZoo,
@@ -303,6 +305,7 @@ impl Context {
 
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
+        let no_default = create_object(NoDefaultType {}, types.no_default_type);
         Context {
             true_value,
             false_value,
@@ -311,6 +314,7 @@ impl Context {
             empty_frozenset,
             empty_str,
             empty_bytes,
+            no_default,
 
             ellipsis,
             not_implemented,
