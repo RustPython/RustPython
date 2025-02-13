@@ -30,8 +30,6 @@ class CallingOrder:
             with util.import_state(meta_path=[first, second]):
                 self.assertIs(self.__import__(mod_name), second.modules[mod_name])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty(self):
         # Raise an ImportWarning if sys.meta_path is empty.
         module_name = 'nothing'
