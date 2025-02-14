@@ -712,13 +712,19 @@ impl PyObject {
 
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
-    pub fn set_dict(&self, dict: PySetterValue<PyDictRef>) -> Result<(), PyDictRef> {
+    pub fn set_dict(&self, dict: PySetterValue<PyDictRef>) -> Result<(), PySetterValue<PyDictRef>> {
         match (self.instance_dict(), dict) {
             (Some(d), PySetterValue::Assign(dict)) => {
                 d.set(dict);
                 Ok(())
             }
-            (None, PySetterValue::Assign(dict)) => Err(dict),
+            (None, PySetterValue::Assign(dict)) => {
+                unsafe {
+                    let ptr = self as *const _ as *mut PyObject;
+                    (*ptr).0.dict = Some(InstanceDict::new(dict));
+                }
+                Ok(())
+            }
             (Some(_), PySetterValue::Delete) => {
                 unsafe {
                     let ptr = self as *const _ as *mut PyObject;
@@ -726,7 +732,7 @@ impl PyObject {
                 }
                 Ok(())
             }
-            (None, PySetterValue::Delete) => Ok(()),
+            (None, PySetterValue::Delete) => Err(PySetterValue::Delete),
         }
     }
 
