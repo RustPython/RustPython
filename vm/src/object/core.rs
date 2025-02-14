@@ -25,6 +25,7 @@ use crate::{
         lock::{PyMutex, PyMutexGuard, PyRwLock},
         refcount::RefCount,
     },
+    function::PySetterValue,
     vm::VirtualMachine,
 };
 use itertools::Itertools;
@@ -707,26 +708,21 @@ impl PyObject {
 
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
-    pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
-        match self.instance_dict() {
-            Some(d) => {
+    pub fn set_dict(&self, dict: PySetterValue<PyDictRef>) -> Result<(), PyDictRef> {
+        match (self.instance_dict(), dict) {
+            (Some(d), PySetterValue::Assign(dict)) => {
                 d.set(dict);
                 Ok(())
             }
-            None => Err(dict),
-        }
-    }
-
-    pub fn delete_dict(&self) -> Result<(), ()> {
-        match self.instance_dict() {
-            Some(_) => {
+            (None, PySetterValue::Assign(dict)) => Err(dict),
+            (Some(_), PySetterValue::Delete) => {
                 unsafe {
                     let ptr = self as *const _ as *mut PyObject;
                     (*ptr).0.dict = None;
                 }
                 Ok(())
             }
-            None => Err(()),
+            (None, PySetterValue::Delete) => Ok(()),
         }
     }
 
