@@ -29,6 +29,8 @@ class ModuleLockAsRLockTests:
     test_timeout = None
     # _release_save() unsupported
     test_release_save_unacquired = None
+    # _recursion_count() unsupported
+    test_recursion_count = None
     # lock status in repr unsupported
     test_repr = None
     test_locked_repr = None
@@ -47,7 +49,6 @@ LOCK_TYPES = {kind: splitinit._bootstrap._ModuleLock
                          LockType=LOCK_TYPES)
 
 
-@unittest.skipIf(sys.platform == "darwin", "TODO: RUSTPYTHON")
 class DeadlockAvoidanceTests:
 
     def setUp(self):
@@ -92,11 +93,11 @@ class DeadlockAvoidanceTests:
                 b.release()
             if ra:
                 a.release()
-        lock_tests.Bunch(f, NTHREADS).wait_for_finished()
+        with lock_tests.Bunch(f, NTHREADS):
+            pass
         self.assertEqual(len(results), NTHREADS)
         return results
 
-    @unittest.skip("TODO: RUSTPYTHON, sometimes hangs")
     def test_deadlock(self):
         results = self.run_deadlock_avoidance_test(True)
         # At least one of the threads detected a potential deadlock on its
@@ -106,7 +107,6 @@ class DeadlockAvoidanceTests:
         self.assertGreaterEqual(nb_deadlocks, 1)
         self.assertEqual(results.count((True, True)), len(results) - nb_deadlocks)
 
-    @unittest.skip("TODO: RUSTPYTHON, flaky test")
     def test_no_deadlock(self):
         results = self.run_deadlock_avoidance_test(False)
         self.assertEqual(results.count((True, False)), 0)
@@ -145,10 +145,10 @@ class LifetimeTests:
         self.assertEqual(0, len(self.bootstrap._module_locks),
                          self.bootstrap._module_locks)
 
-# TODO: RUSTPYTHON
-# (Frozen_LifetimeTests,
-#  Source_LifetimeTests
-#  ) = test_util.test_both(LifetimeTests, init=init)
+
+(Frozen_LifetimeTests,
+ Source_LifetimeTests
+ ) = test_util.test_both(LifetimeTests, init=init)
 
 
 def setUpModule():

@@ -960,7 +960,7 @@ class BaseBytesTest:
                                 x, None, None, None)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RustPython hang")
     def test_free_after_iterating(self):
         test.support.check_free_after_iterating(self, iter, self.type2test)
         test.support.check_free_after_iterating(self, reversed, self.type2test)

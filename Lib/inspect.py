@@ -1546,6 +1546,26 @@ def _check_class(klass, attr):
                 pass
     return _sentinel
 
+
+
+@functools.lru_cache()
+def _shadowed_dict_from_weakref_mro_tuple(*weakref_mro):
+    for weakref_entry in weakref_mro:
+        # Normally we'd have to check whether the result of weakref_entry()
+        # is None here, in case the object the weakref is pointing to has died.
+        # In this specific case, however, we know that the only caller of this
+        # function is `_shadowed_dict()`, and that therefore this weakref is
+        # guaranteed to point to an object that is still alive.
+        entry = weakref_entry()
+        dunder_dict = _get_dunder_dict_of_class(entry)
+        if '__dict__' in dunder_dict:
+            class_dict = dunder_dict['__dict__']
+            if not (type(class_dict) is types.GetSetDescriptorType and
+                    class_dict.__name__ == "__dict__" and
+                    class_dict.__objclass__ is entry):
+                return class_dict
+    return _sentinel
+
 def _is_type(obj):
     try:
         _static_getmro(obj)
