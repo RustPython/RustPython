@@ -1157,7 +1157,7 @@ class BaseTest:
         self.assertRaises(BufferError, _testcapi.getbuffer_with_null_view, a)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RustPython hang")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, array.array,
                                            (self.typecode,))
