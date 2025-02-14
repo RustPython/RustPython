@@ -712,49 +712,21 @@ impl PyObject {
 
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
-    pub fn set_dict(&self, dict: PySetterValue<PyDictRef>) -> Option<()> {
-        // NOTE(hanif) - So far, this is the only error condition that I know of so we can use Option
-        // for now.
-        if self.payload_is::<crate::builtins::function::PyFunction>() {
-            return None;
-        }
-
+    pub fn set_dict(&self, dict: PySetterValue<PyDictRef>) -> Result<(), PyDictRef> {
         match (self.instance_dict(), dict) {
             (Some(d), PySetterValue::Assign(dict)) => {
                 d.set(dict);
+                Ok(())
             }
-            (None, PySetterValue::Assign(dict)) => {
-                // self.0.dict = Some(InstanceDict::new(dict));
-                unsafe {
-                    let ptr = self as *const _ as *mut PyObject;
-                    (*ptr).0.dict = Some(InstanceDict::new(dict));
-                }
-            }
+            (None, PySetterValue::Assign(dict)) => Err(dict),
             (Some(_), PySetterValue::Delete) => {
-                // self.0.dict = None;
-                unsafe {
-                    let ptr = self as *const _ as *mut PyObject;
-                    (*ptr).0.dict = None;
-                }
-            }
-            (None, PySetterValue::Delete) => {
-                // NOTE(hanif) - noop?
-            }
-        };
-
-        Some(())
-    }
-
-    pub fn delete_dict(&self) -> Result<(), ()> {
-        match self.instance_dict() {
-            Some(_) => {
                 unsafe {
                     let ptr = self as *const _ as *mut PyObject;
                     (*ptr).0.dict = None;
                 }
                 Ok(())
             }
-            None => Err(()),
+            (None, PySetterValue::Delete) => Ok(()),
         }
     }
 
