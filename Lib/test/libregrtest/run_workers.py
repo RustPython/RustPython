@@ -18,7 +18,7 @@ from test.support import os_helper, MS_WINDOWS
 from .logger import Logger
 from .result import TestResult, State
 from .results import TestResults
-from .runtests import RunTests, WorkerRunTests, JsonFile, JsonFileType
+from .runtests import RunTests, WorkerRunTests, JsonFile
 from .single import PROGRESS_MIN_TIME
 from .utils import (
     StrPath, TestName,
@@ -243,7 +243,7 @@ class WorkerThread(threading.Thread):
 
         json_file_use_stdout = self.runtests.json_file_use_stdout()
         if json_file_use_stdout:
-            json_file = JsonFile(None, JsonFileType.STDOUT)
+            json_file = JsonFile(None, "STDOUT")
             json_tmpfile = None
         else:
             json_tmpfile = tempfile.TemporaryFile('w+', encoding='utf8')
@@ -255,9 +255,9 @@ class WorkerThread(threading.Thread):
                 # we run mypy with `--platform=linux` in CI
                 json_handle: int = msvcrt.get_osfhandle(json_fd)  # type: ignore[attr-defined]
                 json_file = JsonFile(json_handle,
-                                     JsonFileType.WINDOWS_HANDLE)
+                                     "WINDOWS_HANDLE")
             else:
-                json_file = JsonFile(json_fd, JsonFileType.UNIX_FD)
+                json_file = JsonFile(json_fd, "UNIX_FD")
         return (json_file, json_tmpfile)
 
     def create_worker_runtests(self, test_name: TestName, json_file: JsonFile) -> WorkerRunTests:
