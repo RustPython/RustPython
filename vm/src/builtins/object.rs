@@ -496,9 +496,13 @@ pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDict
         .ok_or_else(|| vm.new_attribute_error("This object has no __dict__".to_owned()))
 }
 
-pub fn object_set_dict(obj: PyObjectRef, dict: PySetterValue<PyDictRef>, vm: &VirtualMachine) -> PyResult<()> {
+pub fn object_set_dict(
+    obj: PyObjectRef,
+    dict: PySetterValue<PyDictRef>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     obj.set_dict(dict)
-        .map_err(|_| vm.new_attribute_error("This object has no __dict__".to_owned()))
+        .map_err(|_| vm.new_attribute_error("This object has no __dict__ to delete".to_owned()))
 }
 
 pub fn init(ctx: &Context) {
