@@ -99,6 +99,8 @@ uname = "0.1.1"
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rustyline = { workspace = true }
 which = "6"
+errno = "0.3"
+widestring = { workspace = true }
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.13.1"
@@ -106,7 +108,6 @@ num_cpus = "1.13.1"
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }
 schannel = { workspace = true }
-widestring = { workspace = true }
 winreg = "0.52"
 
 [target.'cfg(windows)'.dependencies.windows]
