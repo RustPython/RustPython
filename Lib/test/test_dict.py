@@ -8,7 +8,7 @@ import sys
 import unittest
 import weakref
 from test import support
-from test.support import import_helper, C_RECURSION_LIMIT
+from test.support import import_helper, get_c_recursion_limit
 
 
 class DictTest(unittest.TestCase):
@@ -599,7 +599,7 @@ class DictTest(unittest.TestCase):
     @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON Windows')
     def test_repr_deep(self):
         d = {}
-        for i in range(C_RECURSION_LIMIT + 1):
+        for i in range(get_c_recursion_limit() + 1):
             d = {1: d}
         self.assertRaises(RecursionError, repr, d)
 
