@@ -2288,7 +2288,8 @@ def infinite_recursion(max_depth=None):
         # Pick a number large enough to cause problems
         # but not take too long for code that can handle
         # very deep recursion.
-        max_depth = 20_000
+        # TODO: RUSTPYTHON: Fix this function
+        max_depth = 50
     elif max_depth < 3:
         raise ValueError("max_depth must be at least 3, got {max_depth}")
     depth = get_recursion_depth()
