@@ -356,7 +356,7 @@ mod math {
                 .map(|x| (x / scale).powi(2))
                 .chain(std::iter::once(-norm * norm))
                 // Pairwise summation of floats gives less rounding error than a naive sum.
-                .tree_fold1(std::ops::Add::add)
+                .tree_reduce(std::ops::Add::add)
                 .expect("expected at least 1 element");
             norm = norm + correction / (2.0 * norm);
         }
