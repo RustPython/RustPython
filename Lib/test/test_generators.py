@@ -2392,17 +2392,3 @@ __test__ = {"tut":      tutorial_tests,
             "coroutine":  coroutine_tests,
             "refleaks": refleaks_tests,
             }
-
-# Magic test name that regrtest.py invokes *after* importing this module.
-# This worms around a bootstrap problem.
-# Note that doctest and regrtest both look in sys.argv for a "-v" argument,
-# so this works as expected in both ways of running regrtest.
-def test_main(verbose=None):
-    from test import support, test_generators
-    support.run_unittest(__name__)
-    # TODO: RUSTPYTHON
-    # support.run_doctest(test_generators, verbose)
-
-# This part isn't needed for regrtest, but for running the test directly.
-if __name__ == "__main__":
-    test_main(1)
