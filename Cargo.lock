@@ -2258,6 +2258,7 @@ dependencies = [
  "cfg-if",
  "chrono",
  "crossbeam-utils",
+ "errno",
  "exitcode",
  "flame",
  "flamer",
