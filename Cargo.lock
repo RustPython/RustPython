@@ -976,9 +976,9 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.12.1"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
 dependencies = [
  "either",
 ]
@@ -1978,7 +1978,7 @@ dependencies = [
  "bitflags 2.8.0",
  "indexmap",
  "insta",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "log",
  "num-complex",
  "num-traits",
@@ -1996,7 +1996,7 @@ dependencies = [
  "ascii",
  "bitflags 2.8.0",
  "cfg-if",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "libc",
  "lock_api",
  "malachite-base",
@@ -2029,7 +2029,7 @@ name = "rustpython-compiler-core"
 version = "0.4.0"
 dependencies = [
  "bitflags 2.8.0",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "lz4_flex",
  "malachite-bigint",
  "num-complex",
@@ -2050,7 +2050,7 @@ dependencies = [
 name = "rustpython-derive-impl"
 version = "0.4.0"
 dependencies = [
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "maplit",
  "once_cell",
  "proc-macro2",
@@ -2192,7 +2192,7 @@ dependencies = [
  "gethostname",
  "hex",
  "indexmap",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "junction",
  "libc",
  "libsqlite3-sys",
@@ -2268,7 +2268,7 @@ dependencies = [
  "hex",
  "indexmap",
  "is-macro",
- "itertools 0.12.1",
+ "itertools 0.14.0",
  "junction",
  "libc",
  "log",

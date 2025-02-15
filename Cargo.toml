@@ -151,7 +151,7 @@ glob = "0.3"
 hex = "0.4.3"
 indexmap = { version = "2.2.6", features = ["std"] }
 insta = "1.38.0"
-itertools = "0.12.1"
+itertools = "0.14.0"
 is-macro = "0.3.7"
 junction = "1.2.0"
 libc = "0.2.169"

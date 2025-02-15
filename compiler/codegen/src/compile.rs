@@ -2723,7 +2723,7 @@ impl Compiler {
 
     fn compile_keywords(&mut self, keywords: &[located_ast::Keyword]) -> CompileResult<()> {
         let mut size = 0;
-        let groupby = keywords.iter().group_by(|e| e.arg.is_none());
+        let groupby = keywords.iter().chunk_by(|e| e.arg.is_none());
         for (is_unpacking, sub_keywords) in &groupby {
             if is_unpacking {
                 for keyword in sub_keywords {
@@ -2886,7 +2886,7 @@ impl Compiler {
                         (false, element)
                     }
                 })
-                .group_by(|(starred, _)| *starred);
+                .chunk_by(|(starred, _)| *starred);
 
             for (starred, run) in &groups {
                 let mut run_size = 0;
