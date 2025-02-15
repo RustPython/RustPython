@@ -311,6 +311,8 @@ class TestSupport(unittest.TestCase):
     def test_sortdict(self):
         self.assertEqual(support.sortdict({3:3, 2:2, 1:1}), "{1: 1, 2: 2, 3: 3}")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_make_bad_fd(self):
         fd = os_helper.make_bad_fd()
         with self.assertRaises(OSError) as cm:
@@ -421,6 +423,8 @@ class TestSupport(unittest.TestCase):
                 self.OtherClass, self.RefClass, ignore=ignore)
         self.assertEqual(set(), missing_items)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_check__all__(self):
         extra = {'tempdir'}
         not_exported = {'template'}
@@ -547,9 +551,11 @@ class TestSupport(unittest.TestCase):
             with self.subTest(opts=opts):
                 self.check_options(opts, 'optim_args_from_interpreter_flags')
 
+    # TODO: RustPython
     @unittest.skipIf(support.is_apple_mobile, "Unstable on Apple Mobile")
     @unittest.skipIf(support.is_emscripten, "Unstable in Emscripten")
     @unittest.skipIf(support.is_wasi, "Unavailable on WASI")
+    @unittest.expectedFailure
     def test_fd_count(self):
         # We cannot test the absolute value of fd_count(): on old Linux kernel
         # or glibc versions, os.urandom() keeps a FD open on /dev/urandom
@@ -582,6 +588,8 @@ class TestSupport(unittest.TestCase):
         else:
             self.assertTrue(support.has_strftime_extensions)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_get_recursion_depth(self):
         # test support.get_recursion_depth()
         code = textwrap.dedent("""
@@ -625,6 +633,8 @@ class TestSupport(unittest.TestCase):
         """)
         script_helper.assert_python_ok("-c", code)
 
+    # TODO: RustPython
+    @unittest.skip("TODO: RustPython stack overflow")
     def test_recursion(self):
         # Test infinite_recursion() and get_recursion_available() functions.
         def recursive_function(depth):

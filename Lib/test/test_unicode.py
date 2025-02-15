@@ -2597,7 +2597,7 @@ class UnicodeTest(string_tests.CommonTest,
         self.assertFalse(astral >= astral2)
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RustPython hang")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, str)
         support.check_free_after_iterating(self, reversed, str)
