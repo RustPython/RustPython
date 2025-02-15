@@ -24,6 +24,9 @@ pub(crate) mod _ctypes {
     use std::mem;
     use widestring::WideChar;
 
+    #[pyattr(name = "__version__")]
+    const __VERSION__: &str = "1.1.0";
+
     pub fn get_size(ty: &str) -> usize {
         match ty {
             "u" => mem::size_of::<WideChar>(),
