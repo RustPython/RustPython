@@ -1,6 +1,5 @@
-use crate::builtins::{PyBytes, PyFloat, PyInt, PyModule, PyNone, PyStr};
-use crate::class::PyClassImpl;
-use crate::{Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr};
+use crate::{PyObjectRef, PyResult, TryFromObject, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
@@ -151,11 +150,3 @@ impl Debug for PyCSimple {
 
 #[pyclass(flags(BASETYPE))]
 impl PyCSimple {}
-
-pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
-    let ctx = &vm.ctx;
-    extend_module!(vm, module, {
-        "_CData" => PyCData::make_class(ctx),
-        "_SimpleCData" => PyCSimple::make_class(ctx),
-    })
-}

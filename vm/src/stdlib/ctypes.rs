@@ -1,11 +1,32 @@
+pub(crate) mod array;
 pub(crate) mod base;
+pub(crate) mod function;
+pub(crate) mod library;
+pub(crate) mod pointer;
+pub(crate) mod structure;
+pub(crate) mod union;
 
 use crate::builtins::PyModule;
-use crate::{PyRef, VirtualMachine};
+use crate::{Py, PyRef, VirtualMachine};
+use crate::class::PyClassImpl;
+use crate::stdlib::ctypes::base::{PyCData, PyCSimple};
+
+pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
+    let ctx = &vm.ctx;
+    extend_module!(vm, module, {
+        "_CData" => PyCData::make_class(ctx),
+        "_SimpleCData" => PyCSimple::make_class(ctx),
+        "Array" => array::PyCArray::make_class(ctx),
+        "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
+        "_Pointer" => pointer::PyCPointer::make_class(ctx),
+        "Structure" => structure::PyCStructure::make_class(ctx),
+        "Union" => union::PyCUnion::make_class(ctx),
+    })
+}
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _ctypes::make_module(vm);
-    base::extend_module_nodes(vm, &module);
+    extend_module_nodes(vm, &module);
     module
 }
 
