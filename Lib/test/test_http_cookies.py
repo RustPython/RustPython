@@ -1,7 +1,7 @@
 # Simple test suite for http/cookies.py
 
 import copy
-from test.support import run_unittest, run_doctest
+from test import support
 import unittest
 from http import cookies
 import pickle
@@ -478,10 +478,3 @@ class MorselTests(unittest.TestCase):
         self.assertRegex(str(morsel),
                 r'Set-Cookie: key=coded_val; '
                 r'expires=\w+, \d+ \w+ \d+ \d+:\d+:\d+ \w+')
-
-def test_main():
-    run_unittest(CookieTests, MorselTests)
-    run_doctest(cookies)
-
-if __name__ == '__main__':
-    test_main()
