@@ -179,6 +179,15 @@ pub(crate) mod _ctypes {
         Ok(lib_ref.get_pointer())
     }
 
+    #[cfg(target_os = "windows")]
+    #[pyfunction(name = "FreeLibrary")]
+    fn free_library(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
+        let cache = library::libcache();
+        let mut cache_write = cache.write();
+        cache_write.drop_lib(handle);
+        Ok(())
+    }
+
     #[pyfunction(name = "POINTER")]
     pub fn pointer(_cls: PyTypeRef) {}
 

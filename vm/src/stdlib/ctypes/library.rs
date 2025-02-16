@@ -57,6 +57,11 @@ impl SharedLibrary {
     }
 }
 
+impl Drop for SharedLibrary {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
 
 pub struct ExternalLibs {
     libraries: HashMap<usize, SharedLibrary>,
@@ -93,6 +98,10 @@ impl ExternalLibs {
         };
 
         Ok(self.libraries.get(&key).unwrap())
+    }
+
+    pub fn drop_lib(&mut self, key: usize) {
+        self.libraries.remove(&key);
     }
 }
 
