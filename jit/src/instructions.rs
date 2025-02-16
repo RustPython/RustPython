@@ -570,7 +570,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     fn compile_fpow(&mut self, a: Value, b: Value) -> Value {
-        println!("This shit working let's go");
         // Convert float exponent to integer and set up initial values
         let exp = self.builder.ins().fcvt_to_sint(types::I64, b);
         let zero = self.builder.ins().iconst(types::I64, 0);

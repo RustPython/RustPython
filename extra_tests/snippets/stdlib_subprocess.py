@@ -32,7 +32,7 @@ p = subprocess.Popen(sleep(2))
 assert p.poll() is None
 
 with assert_raises(subprocess.TimeoutExpired):
-	assert p.wait(1)
+    assert p.wait(1)
 
 p.wait()
 
@@ -48,17 +48,17 @@ p = subprocess.Popen(sleep(2))
 p.terminate()
 p.wait()
 if is_unix:
-	assert p.returncode == -signal.SIGTERM
+    assert p.returncode == -signal.SIGTERM
 else:
-	assert p.returncode == 1
+    assert p.returncode == 1
 
 p = subprocess.Popen(sleep(2))
 p.kill()
 p.wait()
 if is_unix:
-	assert p.returncode == -signal.SIGKILL
+    assert p.returncode == -signal.SIGKILL
 else:
-	assert p.returncode == 1
+    assert p.returncode == 1
 
 p = subprocess.Popen(echo("test"), stdout=subprocess.PIPE)
 (stdout, stderr) = p.communicate()
@@ -66,4 +66,4 @@ assert stdout.strip() == b"test"
 
 p = subprocess.Popen(sleep(5), stdout=subprocess.PIPE)
 with assert_raises(subprocess.TimeoutExpired):
-	p.communicate(timeout=1)
+    p.communicate(timeout=1)

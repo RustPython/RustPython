@@ -43,6 +43,12 @@ pub(crate) mod module {
                 || attr & FileSystem::FILE_ATTRIBUTE_DIRECTORY != 0))
     }
 
+    #[pyfunction]
+    pub(super) fn _supports_virtual_terminal() -> PyResult<bool> {
+        // TODO: implement this
+        Ok(true)
+    }
+
     #[derive(FromArgs)]
     pub(super) struct SymlinkArgs {
         src: OsPath,

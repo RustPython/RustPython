@@ -46,15 +46,15 @@ thread_local = { workspace = true }
 
 memchr = { workspace = true }
 base64 = "0.13.0"
-csv-core = "0.1.10"
+csv-core = "0.1.11"
 dyn-clone = "1.0.10"
 libz-sys = { version = "1.1", default-features = false, optional = true }
-puruspe = "0.2.4"
+puruspe = "0.3.0"
 xml-rs = "0.8.14"
 
 # random
 rand = { workspace = true }
-rand_core = "0.6.3"
+rand_core = "0.6.4"
 mt19937 = "2.0.1"
 
 # Crypto:
@@ -92,8 +92,8 @@ uuid = { version = "1.1.2", features = ["v1", "fast-rng"] }
 
 # mmap
 [target.'cfg(all(unix, not(target_arch = "wasm32")))'.dependencies]
-memmap2 = "0.5.4"
-page_size = "0.4"
+memmap2 = "0.5.10"
+page_size = "0.6"
 
 [target.'cfg(all(unix, not(target_os = "redox"), not(target_os = "ios")))'.dependencies]
 termios = "0.3.3"
@@ -102,8 +102,8 @@ termios = "0.3.3"
 rustix = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gethostname = "0.2.3"
-socket2 = { version = "0.5.6", features = ["all"] }
+gethostname = "1.0.0"
+socket2 = { version = "0.5.8", features = ["all"] }
 dns-lookup = "2"
 openssl = { version = "0.10.66", optional = true }
 openssl-sys = { version = "0.9.80", optional = true }
@@ -136,7 +136,7 @@ features = [
 ]
 
 [target.'cfg(target_os = "macos")'.dependencies]
-system-configuration = "0.5.0"
+system-configuration = "0.5.1"
 
 [lints]
 workspace = true
