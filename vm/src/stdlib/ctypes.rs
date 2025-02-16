@@ -136,6 +136,34 @@ pub(crate) mod _ctypes {
         }
     }
 
+    #[cfg(target_os = "windows")]
+    #[pyfunction(name = "LoadLibrary")]
+    fn load_library(name: String, vm: &VirtualMachine) -> PyResult<usize> {
+        // TODO: audit functions first
+        let cache = library::libcache();
+        let mut cache_write = cache.write();
+        let lib_ref = cache_write.get_or_insert_lib(&name, vm).unwrap();
+        Ok(lib_ref.get_pointer())
+    }
+
+    #[pyfunction]
+    pub fn POINTER(_cls: PyTypeRef) {}
+
+    #[pyfunction]
+    pub fn pointer_fn(_inst: PyObjectRef) {}
+
+    #[cfg(target_os = "windows")]
+    #[pyfunction(name = "_check_HRESULT")]
+    pub fn check_hresult(_self: PyObjectRef, hr: i32, _vm: &VirtualMachine) -> PyResult<i32> {
+        // TODO: fixme
+        if hr < 0 {
+            // vm.ctx.new_windows_error(hr)
+            todo!();
+        } else {
+            Ok(hr)
+        }
+    }
+
     #[pyfunction]
     fn get_errno() -> i32 {
         errno::errno().0
