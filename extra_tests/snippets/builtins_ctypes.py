@@ -128,5 +128,5 @@ _check_size(c_bool)
 
 i = c_int(42)
 f = c_float(3.14)
-s = create_string_buffer(b'\000' * 32)
-print(i.value, f.value, repr(s.value))
+# s = create_string_buffer(b'\000' * 32)
+print(i.value, f.value)

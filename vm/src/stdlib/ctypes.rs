@@ -9,10 +9,11 @@ pub(crate) mod union;
 use crate::builtins::PyModule;
 use crate::{Py, PyRef, VirtualMachine};
 use crate::class::PyClassImpl;
-use crate::stdlib::ctypes::base::{PyCData, PyCSimple};
+use crate::stdlib::ctypes::base::{PyCData, PyCSimple, PySimpleMeta};
 
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
+    PySimpleMeta::make_class(ctx);
     extend_module!(vm, module, {
         "_CData" => PyCData::make_class(ctx),
         "_SimpleCData" => PyCSimple::make_class(ctx),
@@ -142,7 +143,7 @@ pub(crate) mod _ctypes {
                 } else {
                     Ok(PyCSimple {
                         _type_: tp_str,
-                        _value: AtomicCell::new(vm.ctx.none()),
+                        value: AtomicCell::new(vm.ctx.none()),
                     })
                 }
             } else {
@@ -181,7 +182,7 @@ pub(crate) mod _ctypes {
 
     #[cfg(target_os = "windows")]
     #[pyfunction(name = "FreeLibrary")]
-    fn free_library(handle: usize, vm: &VirtualMachine) -> PyResult<()> {
+    fn free_library(handle: usize) -> PyResult<()> {
         let cache = library::libcache();
         let mut cache_write = cache.write();
         cache_write.drop_lib(handle);
