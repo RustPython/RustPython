@@ -48,6 +48,23 @@ pub(crate) mod _ctypes {
     #[pyattr(name = "__version__")]
     const __VERSION__: &str = "1.1.0";
 
+    // TODO: get properly
+    #[pyattr(name = "RTLD_LOCAL")]
+    const RTLD_LOCAL: i32 = 0;
+
+    // TODO: get properly
+    #[pyattr(name = "RTLD_GLOBAL")]
+    const RTLD_GLOBAL: i32 = 0;
+
+    #[pyattr(once)]
+    fn error(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "_ctypes",
+            "ArgumentError",
+            Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
+        )
+    }
+
     pub fn get_size(ty: &str) -> usize {
         match ty {
             "u" => mem::size_of::<WideChar>(),
