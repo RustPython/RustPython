@@ -179,8 +179,8 @@ pub(crate) mod _ctypes {
         Ok(lib_ref.get_pointer())
     }
 
-    #[pyfunction]
-    pub fn POINTER(_cls: PyTypeRef) {}
+    #[pyfunction(name = "POINTER")]
+    pub fn pointer(_cls: PyTypeRef) {}
 
     #[pyfunction]
     pub fn pointer_fn(_inst: PyObjectRef) {}
