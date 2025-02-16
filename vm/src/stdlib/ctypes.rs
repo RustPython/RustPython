@@ -19,6 +19,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
         "Array" => array::PyCArray::make_class(ctx),
         "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
         "_Pointer" => pointer::PyCPointer::make_class(ctx),
+        "_pointer_type_cache" => ctx.new_dict(),
         "Structure" => structure::PyCStructure::make_class(ctx),
         "Union" => union::PyCUnion::make_class(ctx),
     })
@@ -37,6 +38,7 @@ pub(crate) mod _ctypes {
     use crate::class::StaticType;
     use crate::function::Either;
     use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+    use crate::stdlib::ctypes::library;
     use crossbeam_utils::atomic::AtomicCell;
     use std::ffi::{
         c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong,
@@ -55,6 +57,37 @@ pub(crate) mod _ctypes {
     // TODO: get properly
     #[pyattr(name = "RTLD_GLOBAL")]
     const RTLD_GLOBAL: i32 = 0;
+
+    #[cfg(target_os = "windows")]
+    #[pyattr(name = "SIZEOF_TIME_T")]
+    pub const SIZEOF_TIME_T: usize = 8;
+    #[cfg(not(target_os = "windows"))]
+    #[pyattr(name = "SIZEOF_TIME_T")]
+    pub const SIZEOF_TIME_T: usize = 4;
+
+    #[pyattr(name = "CTYPES_MAX_ARGCOUNT")]
+    pub const CTYPES_MAX_ARGCOUNT: usize = 1024;
+
+    #[pyattr]
+    pub const FUNCFLAG_STDCALL: u32 = 0x0;
+    #[pyattr]
+    pub const FUNCFLAG_CDECL: u32 = 0x1;
+    #[pyattr]
+    pub const FUNCFLAG_HRESULT: u32 = 0x2;
+    #[pyattr]
+    pub const FUNCFLAG_PYTHONAPI: u32 = 0x4;
+    #[pyattr]
+    pub const FUNCFLAG_USE_ERRNO: u32 = 0x8;
+    #[pyattr]
+    pub const FUNCFLAG_USE_LASTERROR: u32 = 0x10;
+
+    #[pyattr]
+    pub const TYPEFLAG_ISPOINTER: u32 = 0x100;
+    #[pyattr]
+    pub const TYPEFLAG_HASPOINTER: u32 = 0x200;
+
+    #[pyattr]
+    pub const DICTFLAG_FINAL: u32 = 0x1000;
 
     #[pyattr(once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
