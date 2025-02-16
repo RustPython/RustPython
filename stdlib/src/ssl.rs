@@ -612,7 +612,11 @@ mod _ssl {
                     Ok(pbuf.to_vec())
                 })?;
                 ctx.set_alpn_select_callback(move |_, client| {
-                    ssl::select_next_proto(&server, client).ok_or(ssl::AlpnError::NOACK)
+                    let proto =
+                        ssl::select_next_proto(&server, client).ok_or(ssl::AlpnError::NOACK)?;
+                    let pos = memchr::memmem::find(client, proto)
+                        .expect("selected alpn proto should be present in client protos");
+                    Ok(&client[pos..proto.len()])
                 });
                 Ok(())
             }

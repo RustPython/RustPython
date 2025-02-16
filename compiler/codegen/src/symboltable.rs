@@ -1257,8 +1257,18 @@ impl SymbolTableBuilder {
                         self.scan_expression(binding, ExpressionContext::Load)?;
                     }
                 }
-                ast::located::TypeParam::ParamSpec(_) => todo!(),
-                ast::located::TypeParam::TypeVarTuple(_) => todo!(),
+                ast::located::TypeParam::ParamSpec(ast::TypeParamParamSpec {
+                    name,
+                    range: param_spec_range,
+                }) => {
+                    self.register_name(name, SymbolUsage::Assigned, param_spec_range.start)?;
+                }
+                ast::located::TypeParam::TypeVarTuple(ast::TypeParamTypeVarTuple {
+                    name,
+                    range: type_var_tuple_range,
+                }) => {
+                    self.register_name(name, SymbolUsage::Assigned, type_var_tuple_range.start)?;
+                }
             }
         }
         Ok(())
