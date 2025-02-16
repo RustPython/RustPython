@@ -137,7 +137,7 @@ impl PyCData {}
 #[derive(PyPayload)]
 pub struct PyCSimple {
     pub _type_: String,
-    pub _value: AtomicCell<PyObjectRef>,
+    pub value: AtomicCell<PyObjectRef>,
 }
 
 impl Debug for PyCSimple {
@@ -149,4 +149,17 @@ impl Debug for PyCSimple {
 }
 
 #[pyclass(flags(BASETYPE))]
-impl PyCSimple {}
+impl PyCSimple {
+
+    #[pygetset(name = "value")]
+    pub fn value(&self) -> PyObjectRef {
+        unsafe { (*self.value.as_ptr()).clone() }
+    }
+
+    #[pygetset(name = "value", setter)]
+    fn set_value(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let content = set_primitive(self._type_.as_str(), &value, vm)?;
+        self.value.store(content);
+        Ok(())
+    }
+}
