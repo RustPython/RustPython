@@ -25,7 +25,7 @@ pub mod windows {
     use crate::suppress_iph;
     use crate::windows::ToWideString;
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
-    use std::ffi::{c_int, c_void, CString, OsStr, OsString};
+    use std::ffi::{CString, OsStr, OsString};
     use std::os::windows::ffi::OsStrExt;
     use std::sync::OnceLock;
     use windows_sys::core::PCWSTR;
@@ -113,10 +113,10 @@ pub mod windows {
         if h.is_err() {
             unsafe { SetLastError(ERROR_INVALID_HANDLE) };
         }
-        let mut h = c_int::from(h? as i32);
+        let h = h?;
         // reset stat?
 
-        let file_type = unsafe { GetFileType(&mut h as *mut c_int as *mut c_void) };
+        let file_type = unsafe { GetFileType(h) };
         if file_type == FILE_TYPE_UNKNOWN {
             return Err(std::io::Error::last_os_error());
         }
@@ -138,10 +138,10 @@ pub mod windows {
         let mut basic_info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
         let mut id_info: FILE_ID_INFO = unsafe { std::mem::zeroed() };
 
-        if unsafe { GetFileInformationByHandle(&mut h as *mut c_int as *mut c_void, &mut info) } == 0
+        if unsafe { GetFileInformationByHandle(h, &mut info) } == 0
             || unsafe {
                 GetFileInformationByHandleEx(
-                    &mut h as *mut c_int as *mut c_void,
+                    h,
                     FileBasicInfo,
                     &mut basic_info as *mut _ as *mut _,
                     std::mem::size_of_val(&basic_info) as u32,
@@ -153,7 +153,7 @@ pub mod windows {
 
         let p_id_info = if unsafe {
             GetFileInformationByHandleEx(
-                &mut h as *mut c_int as *mut c_void,
+                h,
                 FileIdInfo,
                 &mut id_info as *mut _ as *mut _,
                 std::mem::size_of_val(&id_info) as u32,
@@ -320,7 +320,7 @@ pub mod windows {
             .get_or_init(|| {
                 let library_name = OsString::from("api-ms-win-core-file-l2-1-4").to_wide_with_nul();
                 let module = unsafe { LoadLibraryW(library_name.as_ptr()) };
-                if module == c_int::from(0) as *mut c_int as *mut c_void {
+                if module == 0 {
                     return None;
                 }
                 let name = CString::new("GetFileInformationByName").unwrap();
