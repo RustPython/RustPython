@@ -98,7 +98,7 @@ mod winreg {
 
         #[pymethod(magic)]
         fn bool(&self) -> bool {
-            self.key().raw_handle() != 0
+            self.key().raw_handle() != core::ptr::null_mut()
         }
         #[pymethod(magic)]
         fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
