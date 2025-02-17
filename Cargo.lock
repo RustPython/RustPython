@@ -808,8 +808,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43a49c392881ce6d5c3b8cb70f98717b7c07aabbdff06687b9030dbfbe2725f8"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi 0.13.3+wasi-0.2.2",
+ "wasm-bindgen",
  "windows-targets 0.52.6",
 ]
 
@@ -1306,11 +1308,11 @@ dependencies = [
 
 [[package]]
 name = "mt19937"
-version = "2.0.1"
+version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12ca7f22ed370d5991a9caec16a83187e865bc8a532f889670337d5a5689e3a1"
+checksum = "df7151a832e54d2d6b2c827a20e5bcdd80359281cd2c354e725d4b82e7c471de"
 dependencies = [
- "rand_core 0.6.4",
+ "rand_core 0.9.0",
 ]
 
 [[package]]
@@ -2007,7 +2009,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "radium",
- "rand 0.8.5",
+ "rand 0.9.0",
  "rustpython-format",
  "siphasher 0.3.11",
  "volatile",
@@ -2216,8 +2218,7 @@ dependencies = [
  "parking_lot",
  "paste",
  "puruspe",
- "rand 0.8.5",
- "rand_core 0.6.4",
+ "rand 0.9.0",
  "rustix",
  "rustpython-common",
  "rustpython-derive",
@@ -2262,7 +2263,7 @@ dependencies = [
  "exitcode",
  "flame",
  "flamer",
- "getrandom 0.2.15",
+ "getrandom 0.3.1",
  "glob",
  "half 2.4.1",
  "hex",
@@ -2285,7 +2286,7 @@ dependencies = [
  "optional",
  "parking_lot",
  "paste",
- "rand 0.8.5",
+ "rand 0.9.0",
  "result-like",
  "rustc_version",
  "rustix",
@@ -2329,6 +2330,7 @@ name = "rustpython_wasm"
 version = "0.4.0"
 dependencies = [
  "console_error_panic_hook",
+ "getrandom 0.2.15",
  "js-sys",
  "rustpython-common",
  "rustpython-parser",
@@ -3000,8 +3002,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ced87ca4be083373936a67f8de945faa23b6b42384bd5b64434850802c6dccd0"
 dependencies = [
  "atomic",
- "getrandom 0.3.1",
- "rand 0.9.0",
 ]
 
 [[package]]

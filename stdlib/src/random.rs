@@ -23,7 +23,7 @@ mod _random {
 
     impl Default for PyRng {
         fn default() -> Self {
-            PyRng::Std(Box::new(StdRng::from_entropy()))
+            PyRng::Std(Box::new(StdRng::from_os_rng()))
         }
     }
 
@@ -44,12 +44,6 @@ mod _random {
             match self {
                 Self::Std(s) => s.fill_bytes(dest),
                 Self::MT(m) => m.fill_bytes(dest),
-            }
-        }
-        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
-            match self {
-                Self::Std(s) => s.try_fill_bytes(dest),
-                Self::MT(m) => m.try_fill_bytes(dest),
             }
         }
     }

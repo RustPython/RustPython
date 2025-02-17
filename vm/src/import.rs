@@ -8,7 +8,6 @@ use crate::{
     vm::{thread, VirtualMachine},
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
-use rand::Rng;
 
 pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
     flame_guard!("init importlib");
@@ -50,7 +49,7 @@ pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef
         let mut magic = get_git_revision().into_bytes();
         magic.truncate(4);
         if magic.len() != 4 {
-            magic = rand::thread_rng().gen::<[u8; 4]>().to_vec();
+            magic = rand::random::<[u8; 4]>().to_vec();
         }
         let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
         importlib_external.set_attr("MAGIC_NUMBER", magic, vm)?;

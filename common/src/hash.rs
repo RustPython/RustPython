@@ -37,11 +37,11 @@ impl BuildHasher for HashSecret {
     }
 }
 
-impl rand::distributions::Distribution<HashSecret> for rand::distributions::Standard {
+impl rand::distr::Distribution<HashSecret> for rand::distr::StandardUniform {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> HashSecret {
         HashSecret {
-            k0: rng.gen(),
-            k1: rng.gen(),
+            k0: rng.random(),
+            k1: rng.random(),
         }
     }
 }
