@@ -149,7 +149,7 @@ fn text_range_to_source_range(
     let start_row = index.line_index(text_range.start());
     let end_row = index.line_index(text_range.end());
     let start_col = text_range.start() - index.line_start(start_row, source);
-    let end_col = text_range.end() - index.line_end_exclusive(end_row, source);
+    let end_col = text_range.end() - index.line_start(end_row, source);
 
     PySourceRange {
         start: PySourceLocation {
