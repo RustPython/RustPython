@@ -111,7 +111,7 @@ schannel = { workspace = true }
 winreg = "0.55"
 
 [target.'cfg(windows)'.dependencies.windows]
-version = "0.57.0"
+version = "0.52.0"
 features = [
   "Win32_Foundation",
   "Win32_System_LibraryLoader",
