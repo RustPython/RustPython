@@ -379,7 +379,8 @@ jobs:
         with: { wabt-version: "1.0.30" }
       - name: check wasm32-unknown without js
         run: |
-          cargo build --release --manifest-path wasm/wasm-unknown-test/Cargo.toml --target wasm32-unknown-unknown --verbose
+          cd wasm/wasm-unknown-test
+          cargo build --release --verbose
           if wasm-objdump -xj Import target/wasm32-unknown-unknown/release/wasm_unknown_test.wasm; then
             echo "ERROR: wasm32-unknown module expects imports from the host environment" >2
           fi

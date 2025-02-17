@@ -978,7 +978,7 @@ pub(super) mod _os {
             return Err(vm.new_value_error("negative argument not allowed".to_owned()));
         }
         let mut buf = vec![0u8; size as usize];
-        getrandom::getrandom(&mut buf).map_err(|e| match e.raw_os_error() {
+        getrandom::fill(&mut buf).map_err(|e| match e.raw_os_error() {
             Some(errno) => io::Error::from_raw_os_error(errno).into_pyexception(vm),
             None => vm.new_os_error("Getting random failed".to_owned()),
         })?;

@@ -23,7 +23,7 @@ ast = ["rustpython-ast"]
 codegen = ["rustpython-codegen", "ast"]
 parser = ["rustpython-parser", "ast"]
 serde = ["dep:serde"]
-wasmbind = ["chrono/wasmbind", "getrandom/js", "wasm-bindgen"]
+wasmbind = ["chrono/wasmbind", "getrandom/wasm_js", "wasm-bindgen"]
 
 [dependencies]
 rustpython-compiler = { workspace = true, optional = true }
@@ -145,7 +145,7 @@ features = [
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 wasm-bindgen = { workspace = true, optional = true }
-getrandom = { workspace = true, features = ["custom"] }
+getrandom = { workspace = true }
 
 [build-dependencies]
 glob = { workspace = true }
