@@ -424,7 +424,7 @@ class CommonTest(unittest.TestCase):
             self.assertNotEqual(id(lst2), id(lst))
 
     # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RustPython hang")
+    @unittest.expectedFailure
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.type2test)
         support.check_free_after_iterating(self, reversed, self.type2test)

@@ -1287,7 +1287,7 @@ class DictTest(unittest.TestCase):
         self.assertRaises(RuntimeError, d.update, other)
 
     # TODO: RUSTPYTHON
-    @unittest.skip("RUSTPYTHON hang")
+    @unittest.expectedFailure
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, dict)
         support.check_free_after_iterating(self, lambda d: iter(d.keys()), dict)

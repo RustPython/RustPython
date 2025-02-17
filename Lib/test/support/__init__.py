@@ -1858,27 +1858,30 @@ def _check_tracemalloc():
                                      "memory allocations")
 
 
+# TODO: RUSTPYTHON
+# def check_free_after_iterating(test, iter, cls, args=()):
+#     done = False
+#     def wrapper():
+#         class A(cls):
+#             def __del__(self):
+#                 nonlocal done
+#                 done = True
+#                 try:
+#                     next(it)
+#                 except StopIteration:
+#                     pass
+#
+#         it = iter(A(*args))
+#         # Issue 26494: Shouldn't crash
+#         test.assertRaises(StopIteration, next, it)
+#
+#     wrapper()
+#     # The sequence should be deallocated just after the end of iterating
+#     gc_collect()
+#     test.assertTrue(done)
+
 def check_free_after_iterating(test, iter, cls, args=()):
-    done = False
-    def wrapper():
-        class A(cls):
-            def __del__(self):
-                nonlocal done
-                done = True
-                try:
-                    next(it)
-                except StopIteration:
-                    pass
-
-        it = iter(A(*args))
-        # Issue 26494: Shouldn't crash
-        test.assertRaises(StopIteration, next, it)
-
-    wrapper()
-    # The sequence should be deallocated just after the end of iterating
-    gc_collect()
-    test.assertTrue(done)
-
+    raise NotImplementedError("check_free_after_iterating() is not implemented")
 
 def missing_compiler_executable(cmd_names=[]):
     """Check if the compiler components used to build the interpreter exist.

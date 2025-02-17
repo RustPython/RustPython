@@ -1031,7 +1031,7 @@ class TestCase(unittest.TestCase):
         self.assertEqual(next(it), 1)
 
     # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RustPython hang")
+    @unittest.expectedFailure
     def test_free_after_iterating(self):
         check_free_after_iterating(self, iter, SequenceClass, (0,))
 

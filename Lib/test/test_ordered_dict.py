@@ -681,7 +681,7 @@ class OrderedDictTests:
         self.assertIsNone(r())
 
     # TODO: RUSTPYTHON
-    @unittest.skip("TODO: RustPython hang")
+    @unittest.expectedFailure
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.OrderedDict)
         support.check_free_after_iterating(self, lambda d: iter(d.keys()), self.OrderedDict)
