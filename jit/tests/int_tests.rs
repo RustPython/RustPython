@@ -52,6 +52,30 @@ fn test_mod() {
     assert_eq!(modulo(-3, 1), Ok(0));
     assert_eq!(modulo(-5, 10), Ok(-5));
 }
+#[test]
+fn test_mul(){
+    let mul = jit_function!{ mul(a:i64, b:i64) -> i64 => r##"
+        def mul(a: int, b: int):
+            return a * b
+    "##
+    };
+    assert_eq!(mul(10, 2), Ok(20));
+    assert_eq!(mul(5, 1), Ok(5));
+    assert_eq!(mul(-1, -1), Ok(1));
+    assert_eq!(mul( -5, 0), Ok(0));
+}
+
+#[test]
+fn test_power(){
+    let power = jit_function!{ power(a:i64, b:i64) -> i64 => r##"
+        def power(a: int, b: int):
+            return a ** b
+    "##
+    };
+    assert_eq!(power(10, 2), Ok(100));
+    assert_eq!(power(5, 1), Ok(5));
+    assert_eq!(power(1, 0), Ok(1));
+}
 
 #[test]
 fn test_lshift() {
