@@ -289,9 +289,8 @@ impl VirtualMachine {
             import::import_builtin(self, "_typing")?;
             #[cfg(not(target_arch = "wasm32"))]
             import::import_builtin(self, "_signal")?;
-            // TODO: Enable the ast module once it works
-            // #[cfg(any(feature = "parser", feature = "compiler"))]
-            // import::import_builtin(self, "_ast")?;
+            #[cfg(any(feature = "parser", feature = "compiler"))]
+            import::import_builtin(self, "_ast")?;
             #[cfg(not(feature = "threading"))]
             import::import_frozen(self, "_thread")?;
             let importlib = import::init_importlib_base(self)?;

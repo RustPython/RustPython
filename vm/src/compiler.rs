@@ -13,7 +13,7 @@ pub use rustpython_compiler_core::Mode;
 pub use rustpython_compiler_core as core;
 
 #[cfg(not(feature = "compiler"))]
-pub use rustpython_parser_core as parser;
+pub use ruff_python_parser as parser;
 
 #[cfg(not(feature = "compiler"))]
 mod error {
@@ -30,7 +30,7 @@ mod error {
         Parse(#[from] rustpython_parser::error::ParseErrorType),
     }
 
-    pub type CompileError = rustpython_parser_core::source_code::LocatedError<CompileErrorType>;
+    pub type CompileError = rustpython_compiler_core::source_code::LocatedError<CompileErrorType>;
 }
 #[cfg(not(feature = "compiler"))]
 pub use error::{CompileError, CompileErrorType};

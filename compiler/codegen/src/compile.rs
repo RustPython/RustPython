@@ -22,8 +22,8 @@ use ruff_python_ast::{
     ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprFString,
     ExprList, ExprName, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString,
     FStringElement, FStringElements, FStringPart, Int, Keyword, MatchCase, ModExpression,
-    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchValue, Stmt, TypeParam,
-    TypeParamTypeVar, TypeParams, UnaryOp, WithItem,
+    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchValue, Stmt, StmtExpr,
+    TypeParam, TypeParamTypeVar, TypeParams, UnaryOp, WithItem,
 };
 use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
@@ -112,53 +112,18 @@ enum ComprehensionType {
 pub fn compile_top(
     ast: ruff_python_ast::Mod,
     source_code: SourceCode,
-    // TODO: Do we still need to consider the compile mode?
-    _mode: Mode,
+    mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     match ast {
-        ruff_python_ast::Mod::Module(module) => compile_program(&module, source_code, opts),
+        ruff_python_ast::Mod::Module(module) => match mode {
+            Mode::Exec | Mode::Eval => compile_program(&module, source_code, opts),
+            Mode::Single => compile_program_single(&module, source_code, opts),
+            Mode::BlockExpr => compile_block_expression(&module, source_code, opts),
+        },
         ruff_python_ast::Mod::Expression(expr) => compile_expression(&expr, source_code, opts),
     }
-    // match ast {
-    //     Mod::Module(ModModule { body, .. }) => {
-    //         compile_program(body, source_path, opts)
-    //     }
-    //     Mod::Interactive(ModInteractive { body, .. }) => match mode {
-    //         Mode::Single => compile_program_single(body, source_path, opts),
-    //         Mode::BlockExpr => compile_block_expression(body, source_path, opts),
-    //         _ => unreachable!("only Single and BlockExpr parsed to Interactive"),
-    //     },
-    //     Mod::Expression(ModExpression { body, .. }) => {
-    //         compile_expression(body, source_path, opts)
-    //     }
-    //     Mod::FunctionType(_) => panic!("can't compile a FunctionType"),
-    // }
 }
-
-// /// A helper function for the shared code of the different compile functions
-// fn compile_impl<Ast: ?Sized>(
-//     ast: &Ast,
-//     source_code: SourceCode,
-//     source_path: String,
-//     opts: CompileOpts,
-//     make_symbol_table: impl FnOnce(
-//         &Ast,
-//         SourceCode,
-//     ) -> Result<SymbolTable, symboltable::SymbolTableError>,
-//     compile: impl FnOnce(&mut Compiler, &Ast, SymbolTable) -> CompileResult<()>,
-// ) -> CompileResult<CodeObject> {
-//     let symbol_table = match make_symbol_table(ast, source_code) {
-//         Ok(x) => x,
-//         Err(e) => return Err(e.into_codegen_error(source_path)),
-//     };
-
-//     let mut compiler = Compiler::new(opts, source_path, source_code, "<module>".to_owned());
-//     compile(&mut compiler, ast, symbol_table)?;
-//     let code = compiler.pop_code_object();
-//     trace!("Compilation completed: {:?}", code);
-//     Ok(code)
-// }
 
 /// Compile a standard Python program to bytecode
 pub fn compile_program(
@@ -171,47 +136,38 @@ pub fn compile_program(
     let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
     compiler.compile_program(ast, symbol_table)?;
     let code = compiler.pop_code_object();
+    trace!("Compilation completed: {:?}", code);
     Ok(code)
-    // compile_impl(
-    //     ast,
-    //     source_code,
-    //     source_path,
-    //     opts,
-    //     SymbolTable::scan_program,
-    //     Compiler::compile_program,
-    // )
 }
 
-// /// Compile a Python program to bytecode for the context of a REPL
-// pub fn compile_program_single(
-//     ast: &[Stmt],
-//     source_code: SourceCode,
-//     source_path: String,
-//     opts: CompileOpts,
-// ) -> CompileResult<CodeObject> {
-//     compile_impl(
-//         ast,
-//         source_code,
-//         source_path,
-//         opts,
-//         SymbolTable::scan_program,
-//         Compiler::compile_program_single,
-//     )
-// }
+/// Compile a Python program to bytecode for the context of a REPL
+pub fn compile_program_single(
+    ast: &ModModule,
+    source_code: SourceCode,
+    opts: CompileOpts,
+) -> CompileResult<CodeObject> {
+    let symbol_table = SymbolTable::scan_program(ast, source_code.clone())
+        .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
+    let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
+    compiler.compile_program_single(&ast.body, symbol_table)?;
+    let code = compiler.pop_code_object();
+    trace!("Compilation completed: {:?}", code);
+    Ok(code)
+}
 
-// pub fn compile_block_expression(
-//     ast: &[Stmt],
-//     source_path: String,
-//     opts: CompileOpts,
-// ) -> CompileResult<CodeObject> {
-//     compile_impl(
-//         ast,
-//         source_path,
-//         opts,
-//         SymbolTable::scan_program,
-//         Compiler::compile_block_expr,
-//     )
-// }
+pub fn compile_block_expression(
+    ast: &ModModule,
+    source_code: SourceCode,
+    opts: CompileOpts,
+) -> CompileResult<CodeObject> {
+    let symbol_table = SymbolTable::scan_program(ast, source_code.clone())
+        .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))?;
+    let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
+    compiler.compile_block_expr(&ast.body, symbol_table)?;
+    let code = compiler.pop_code_object();
+    trace!("Compilation completed: {:?}", code);
+    Ok(code)
+}
 
 pub fn compile_expression(
     ast: &ModExpression,
@@ -430,67 +386,65 @@ impl Compiler<'_> {
         Ok(())
     }
 
-    // fn compile_program_single(
-    //     &mut self,
-    //     body: &[Stmt],
-    //     symbol_table: SymbolTable,
-    // ) -> CompileResult<()> {
-    //     self.symbol_table_stack.push(symbol_table);
+    fn compile_program_single(
+        &mut self,
+        body: &[Stmt],
+        symbol_table: SymbolTable,
+    ) -> CompileResult<()> {
+        self.symbol_table_stack.push(symbol_table);
 
-    //     if let Some((last, body)) = body.split_last() {
-    //         for statement in body {
-    //             if let Stmt::Expr(StmtExpr { value, .. }) = &statement {
-    //                 self.compile_expression(value)?;
-    //                 emit!(self, Instruction::PrintExpr);
-    //             } else {
-    //                 self.compile_statement(statement)?;
-    //             }
-    //         }
+        if let Some((last, body)) = body.split_last() {
+            for statement in body {
+                if let Stmt::Expr(StmtExpr { value, .. }) = &statement {
+                    self.compile_expression(value)?;
+                    emit!(self, Instruction::PrintExpr);
+                } else {
+                    self.compile_statement(statement)?;
+                }
+            }
 
-    //         if let Stmt::Expr(StmtExpr { value, .. }) = &last {
-    //             self.compile_expression(value)?;
-    //             emit!(self, Instruction::Duplicate);
-    //             emit!(self, Instruction::PrintExpr);
-    //         } else {
-    //             self.compile_statement(last)?;
-    //             self.emit_load_const(ConstantData::None);
-    //         }
-    //     } else {
-    //         self.emit_load_const(ConstantData::None);
-    //     };
+            if let Stmt::Expr(StmtExpr { value, .. }) = &last {
+                self.compile_expression(value)?;
+                emit!(self, Instruction::Duplicate);
+                emit!(self, Instruction::PrintExpr);
+            } else {
+                self.compile_statement(last)?;
+                self.emit_load_const(ConstantData::None);
+            }
+        } else {
+            self.emit_load_const(ConstantData::None);
+        };
 
-    //     self.emit_return_value();
-    //     Ok(())
-    // }
+        self.emit_return_value();
+        Ok(())
+    }
 
-    // fn compile_block_expr(
-    //     &mut self,
-    //     body: &[Stmt],
-    //     symbol_table: SymbolTable,
-    // ) -> CompileResult<()> {
-    //     self.symbol_table_stack.push(symbol_table);
+    fn compile_block_expr(
+        &mut self,
+        body: &[Stmt],
+        symbol_table: SymbolTable,
+    ) -> CompileResult<()> {
+        self.symbol_table_stack.push(symbol_table);
 
-    //     self.compile_statements(body)?;
+        self.compile_statements(body)?;
 
-    //     if let Some(last_statement) = body.last() {
-    //         match last_statement {
-    //             Stmt::Expr(_) => {
-    //                 self.current_block().instructions.pop(); // pop Instruction::Pop
-    //             }
-    //             Stmt::FunctionDef(_)
-    //             | Stmt::AsyncFunctionDef(_)
-    //             | Stmt::ClassDef(_) => {
-    //                 let store_inst = self.current_block().instructions.pop().unwrap(); // pop Instruction::Store
-    //                 emit!(self, Instruction::Duplicate);
-    //                 self.current_block().instructions.push(store_inst);
-    //             }
-    //             _ => self.emit_load_const(ConstantData::None),
-    //         }
-    //     }
-    //     self.emit_return_value();
+        if let Some(last_statement) = body.last() {
+            match last_statement {
+                Stmt::Expr(_) => {
+                    self.current_block().instructions.pop(); // pop Instruction::Pop
+                }
+                Stmt::FunctionDef(_) | Stmt::ClassDef(_) => {
+                    let store_inst = self.current_block().instructions.pop().unwrap(); // pop Instruction::Store
+                    emit!(self, Instruction::Duplicate);
+                    self.current_block().instructions.push(store_inst);
+                }
+                _ => self.emit_load_const(ConstantData::None),
+            }
+        }
+        self.emit_return_value();
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     // Compile statement in eval mode:
     fn compile_eval(

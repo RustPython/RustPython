@@ -1,11 +1,9 @@
 use ruff_source_file::SourceLocation;
 use rustpython_codegen::{compile, symboltable};
-// use rustpython_parser::ast::{self as ast, fold::Fold, ConstantOptimizer};
 
 pub use rustpython_codegen::compile::CompileOpts;
 pub use rustpython_compiler_core::{bytecode::CodeObject, Mode};
 use rustpython_compiler_source::SourceCode;
-// pub use rustpython_parser::{source_code::LinearLocator, Parse};
 
 // these modules are out of repository. re-exporting them here for convenience.
 pub use ruff_python_ast as ast;
@@ -136,20 +134,13 @@ pub fn _compile_symtable(
     source_code: SourceCode,
     mode: Mode,
 ) -> Result<symboltable::SymbolTable, CompileError> {
-    // let mut locator = LinearLocator::new(source);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             let ast = ruff_python_parser::parse_module(source_code.text)
                 .map_err(|e| CompileError::from_ruff_parse_error(e, &source_code))?;
-            // let ast =
-            //     ast::Suite::parse(source, source_path).map_err(|e| locator.locate_error(e))?;
-            // let ast = locator.fold(ast).unwrap();
             symboltable::SymbolTable::scan_program(&ast.into_syntax(), source_code.clone())
         }
         Mode::Eval => {
-            // let expr =
-            //     ast::Expr::parse(source, source_path).map_err(|e| locator.locate_error(e))?;
-            // let expr = locator.fold(expr).unwrap();
             let ast =
                 ruff_python_parser::parse(source_code.text, ruff_python_parser::Mode::Ipython)
                     .map_err(|e| CompileError::from_ruff_parse_error(e, &source_code))?;

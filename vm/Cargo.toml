@@ -21,7 +21,7 @@ threading = ["rustpython-common/threading"]
 compiler = ["parser", "codegen", "rustpython-compiler"]
 ast = ["ruff_python_ast", "ruff_text_size", "ruff_source_file"]
 codegen = ["rustpython-codegen", "ast"]
-parser = ["ruff_python_parser", "ast"]
+parser = ["ast"]
 serde = ["dep:serde"]
 wasmbind = ["chrono/wasmbind", "getrandom/js", "wasm-bindgen"]
 
@@ -33,7 +33,7 @@ rustpython-derive = { workspace = true }
 rustpython-jit = { workspace = true, optional = true }
 
 ruff_python_ast = { workspace = true, optional = true }
-ruff_python_parser = { workspace = true, optional = true }
+ruff_python_parser = { workspace = true }
 ruff_text_size = { workspace = true, optional = true }
 ruff_source_file = { workspace = true, optional = true }
 # rustpython-ast = { workspace = true, optional = true }
