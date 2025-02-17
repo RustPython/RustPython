@@ -66,7 +66,7 @@ HW_ACCELERATED = is_s390x
 
 class VersionTestCase(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON ZLIB_VERSION missing.
     @unittest.expectedFailure
     def test_library_version(self):
         # Test that the major version of the actual library in use matches the

@@ -57,6 +57,16 @@ mod zlib {
     #[pyattr]
     const DEF_MEM_LEVEL: u8 = 8;
 
+    #[cfg(feature = "zlib")]
+    #[pyattr(name = "ZLIB_RUNTIME_VERSION", once)]
+    fn zlib_runtime_version(_vm: &VirtualMachine) -> String {
+        unsafe {
+            std::ffi::CStr::from_ptr(libz_sys::zlibVersion())
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+
     #[pyattr(once)]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
