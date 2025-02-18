@@ -178,6 +178,16 @@ mod decl {
         unsafe { super::c_timezone }
     }
 
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn timezone() -> i32 {
+        let info = get_tz_info();
+        // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
+        (info.Bias + info.StandardBias) * 60
+    }
+
+
     #[cfg(not(target_os = "freebsd"))]
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
