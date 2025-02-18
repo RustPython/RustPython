@@ -1,8 +1,8 @@
-use std::ffi::c_void;
+use crate::stdlib::ctypes::PyCData;
+use crate::PyObjectRef;
 use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::lock::PyRwLock;
-use crate::PyObjectRef;
-use crate::stdlib::ctypes::PyCData;
+use std::ffi::c_void;
 
 #[derive(Debug)]
 pub struct Function {

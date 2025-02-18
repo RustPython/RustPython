@@ -7,9 +7,9 @@ pub(crate) mod structure;
 pub(crate) mod union;
 
 use crate::builtins::PyModule;
-use crate::{Py, PyRef, VirtualMachine};
 use crate::class::PyClassImpl;
 use crate::stdlib::ctypes::base::{PyCData, PyCSimple, PySimpleMeta};
+use crate::{Py, PyRef, VirtualMachine};
 
 pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
@@ -38,8 +38,8 @@ pub(crate) mod _ctypes {
     use crate::builtins::PyTypeRef;
     use crate::class::StaticType;
     use crate::function::Either;
-    use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
     use crate::stdlib::ctypes::library;
+    use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
     use std::ffi::{
         c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong,

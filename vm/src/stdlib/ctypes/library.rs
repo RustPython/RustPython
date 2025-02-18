@@ -1,11 +1,11 @@
+use crate::VirtualMachine;
+use crossbeam_utils::atomic::AtomicCell;
+use libloading::Library;
+use rustpython_common::lock::PyRwLock;
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
 use std::ptr::null;
-use crossbeam_utils::atomic::AtomicCell;
-use libloading::Library;
-use rustpython_common::lock::PyRwLock;
-use crate::VirtualMachine;
 
 pub struct SharedLibrary {
     lib: AtomicCell<Option<Library>>,
@@ -20,11 +20,11 @@ impl fmt::Debug for SharedLibrary {
 impl SharedLibrary {
     pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
-            lib: AtomicCell::new(Some(unsafe { Library::new(name.to_string())? })),
+            lib: AtomicCell::new(Some(unsafe { Library::new(name)? })),
         })
     }
 
-
+    #[allow(dead_code)]
     pub fn get_sym(&self, name: &str) -> Result<*mut c_void, String> {
         if let Some(inner) = unsafe { &*self.lib.as_ptr() } {
             unsafe {
@@ -74,6 +74,7 @@ impl ExternalLibs {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_lib(&self, key: usize) -> Option<&SharedLibrary> {
         self.libraries.get(&key)
     }
