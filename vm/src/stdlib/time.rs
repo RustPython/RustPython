@@ -43,6 +43,9 @@ mod decl {
         DateTime, Datelike, Timelike,
     };
     use std::time::Duration;
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    use windows::Win32::System::Time;
 
     #[allow(dead_code)]
     pub(super) const SEC_TO_MS: i64 = 1000;
@@ -193,6 +196,18 @@ mod decl {
             std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
         }
         unsafe { (to_str(super::c_tzname[0]), to_str(super::c_tzname[1])) }.into_pytuple(vm)
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
+        use crate::builtins::tuple::IntoPyTuple;
+        let info = get_tz_info();
+        let standard = widestring::decode_utf16_lossy(info.StandardName).filter(|&c| c != '\0').collect::<String>();
+        let daylight = widestring::decode_utf16_lossy(info.DaylightName).filter(|&c| c != '\0').collect::<String>();
+        let tz_name = (&*standard, &*daylight);
+        tz_name.into_pytuple(vm)
     }
 
     fn pyobj_to_date_time(
