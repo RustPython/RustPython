@@ -152,6 +152,17 @@ mod decl {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn get_tz_info() -> Time::TIME_ZONE_INFORMATION {
+        let mut info = Time::TIME_ZONE_INFORMATION::default();
+        let info_ptr = &mut info as *mut Time::TIME_ZONE_INFORMATION;
+        let _ = unsafe {
+            Time::GetTimeZoneInformation(info_ptr)
+        };
+        info
+    }
+
     // #[pyfunction]
     // fn tzset() {
     //     unsafe { super::_tzset() };
