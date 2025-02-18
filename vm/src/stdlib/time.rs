@@ -160,9 +160,7 @@ mod decl {
     fn get_tz_info() -> Time::TIME_ZONE_INFORMATION {
         let mut info = Time::TIME_ZONE_INFORMATION::default();
         let info_ptr = &mut info as *mut Time::TIME_ZONE_INFORMATION;
-        let _ = unsafe {
-            Time::GetTimeZoneInformation(info_ptr)
-        };
+        let _ = unsafe { Time::GetTimeZoneInformation(info_ptr) };
         info
     }
 
@@ -186,7 +184,6 @@ mod decl {
         // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
         (info.Bias + info.StandardBias) * 60
     }
-
 
     #[cfg(not(target_os = "freebsd"))]
     #[cfg(not(target_env = "msvc"))]
@@ -223,8 +220,12 @@ mod decl {
     fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
         use crate::builtins::tuple::IntoPyTuple;
         let info = get_tz_info();
-        let standard = widestring::decode_utf16_lossy(info.StandardName).filter(|&c| c != '\0').collect::<String>();
-        let daylight = widestring::decode_utf16_lossy(info.DaylightName).filter(|&c| c != '\0').collect::<String>();
+        let standard = widestring::decode_utf16_lossy(info.StandardName)
+            .filter(|&c| c != '\0')
+            .collect::<String>();
+        let daylight = widestring::decode_utf16_lossy(info.DaylightName)
+            .filter(|&c| c != '\0')
+            .collect::<String>();
         let tz_name = (&*standard, &*daylight);
         tz_name.into_pytuple(vm)
     }
