@@ -179,7 +179,7 @@ mod decl {
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
-    fn timezone() -> i32 {
+    fn timezone(_vm: &VirtualMachine) -> i32 {
         let info = get_tz_info();
         // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
         (info.Bias + info.StandardBias) * 60
@@ -196,7 +196,7 @@ mod decl {
     #[cfg(target_env = "msvc")]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
-    fn daylight() -> i32 {
+    fn daylight(_vm: &VirtualMachine) -> i32 {
         let info = get_tz_info();
         // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
         (info.StandardBias != info.DaylightBias) as i32
