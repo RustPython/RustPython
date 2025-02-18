@@ -170,7 +170,6 @@ pub(crate) mod _ctypes {
         }
     }
 
-    #[cfg(target_os = "windows")]
     #[pyfunction(name = "LoadLibrary")]
     fn load_library(name: String, vm: &VirtualMachine) -> PyResult<usize> {
         // TODO: audit functions first
@@ -180,7 +179,6 @@ pub(crate) mod _ctypes {
         Ok(lib_ref.get_pointer())
     }
 
-    #[cfg(target_os = "windows")]
     #[pyfunction(name = "FreeLibrary")]
     fn free_library(handle: usize) -> PyResult<()> {
         let cache = library::libcache();
