@@ -130,4 +130,4 @@ i = c_int(42)
 f = c_float(3.14)
 # s = create_string_buffer(b'\000' * 32)
 assert i.value == 42
-assert f.value == 3.14
+assert abs(f.value -  3.14) < 1e-06
