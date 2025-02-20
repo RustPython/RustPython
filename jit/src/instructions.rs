@@ -158,20 +158,20 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     ) -> Result<(), JitCompileError> {
         let label_targets = bytecode.label_targets();
         let mut arg_state = OpArgState::default();
-    
+
         // Track whether we have "returned" in the current block
         let mut in_unreachable_code = false;
-    
+
         for (offset, &raw_instr) in bytecode.instructions.iter().enumerate() {
             let label = Label(offset as u32);
             let (instruction, arg) = arg_state.get(raw_instr);
-    
+
             // If this is a label that some earlier jump can target,
             // treat it as the start of a new reachable block:
             if label_targets.contains(&label) {
                 // Create or get the block for this label:
                 let target_block = self.get_or_create_block(label);
-    
+
                 // If the current block isn't terminated, jump:
                 if let Some(cur) = self.builder.current_block() {
                     if cur != target_block && self.builder.func.layout.last_inst(cur).is_none() {
@@ -182,19 +182,19 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 if self.builder.current_block() != Some(target_block) {
                     self.builder.switch_to_block(target_block);
                 }
-    
+
                 // We are definitely reachable again at this label
                 in_unreachable_code = false;
             }
-    
+
             // If we're in unreachable code, skip this instruction unless the label re-entered above.
             if in_unreachable_code {
                 continue;
             }
-    
+
             // Actually compile this instruction:
             self.add_instruction(func_ref, bytecode, instruction, arg)?;
-    
+
             // If that was a return instruction, mark future instructions unreachable
             match instruction {
                 Instruction::ReturnValue | Instruction::ReturnConst { .. } => {
@@ -203,7 +203,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 _ => {}
             }
         }
-    
+
         // After processing, if the current block is unterminated, insert a trap or fallthrough
         if let Some(cur) = self.builder.current_block() {
             if self.builder.func.layout.last_inst(cur).is_none() {
@@ -212,8 +212,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
         Ok(())
     }
-    
-    
 
     fn prepare_const<C: bytecode::Constant>(
         &mut self,
@@ -257,16 +255,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 .returns
                 .push(AbiParam::new(ty.to_cranelift()));
         }
-    
+
         // If this is e.g. an Int, Float, or Bool we have a Cranelift `Value`.
         // If we have JitValue::None or .Tuple(...) but can't handle that, error out (or handle differently).
         let cr_val = val.into_value().ok_or(JitCompileError::NotSupported)?;
-    
+
         self.builder.ins().return_(&[cr_val]);
         Ok(())
     }
-    
-    
 
     pub fn add_instruction<C: bytecode::Constant>(
         &mut self,
@@ -282,10 +278,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
                 let else_block = self.builder.create_block();
-            
+
                 self.builder.ins().brif(val, else_block, &[], then_block, &[]);
                 self.builder.switch_to_block(else_block);
-            
+
                 Ok(())
             }
             Instruction::JumpIfTrue { target } => {
@@ -293,13 +289,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
                 let else_block = self.builder.create_block();
-            
+
                 self.builder.ins().brif(val, then_block, &[], else_block, &[]);
                 self.builder.switch_to_block(else_block);
-            
+
                 Ok(())
             }
-            
+
             Instruction::Jump { target } => {
                 let target_block = self.get_or_create_block(target.get(arg));
                 self.builder.ins().jump(target_block, &[]);
@@ -587,12 +583,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     fn compile_sub(&mut self, a: Value, b: Value) -> Value {
-        // TODO: this should be fine, but cranelift doesn't special-case isub_ifbout
-        // let (out, carry) = self.builder.ins().isub_ifbout(a, b);
-        // self.builder
-        //     .ins()
-        //     .trapif(IntCC::Overflow, carry, TrapCode::IntegerOverflow);
-        // TODO: this shouldn't wrap
         let (out, carry) = self.builder.ins().ssub_overflow(a, b);
         self.builder
             .ins()
@@ -601,90 +591,90 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     //-------------------------------------
-    // Approximate exp(x)
+    // Extended polynomial for exp(x)
     //-------------------------------------
-    /// Approximate exp(x) without external calls:
+    /// Approximate exp(x) without external calls, using an extended Taylor series:
     ///   1) n = floor(x/ln2)
     ///   2) r = x - n*ln2
-    ///   3) approx e^r with polynomial
+    ///   3) approximate e^r by summation up to r^8/8!
     ///   4) result = 2^n * e^r
-    /// This is a toy example; real code needs more checks (overflow, etc.).
     pub fn compile_exp_approx(&mut self, x: Value) -> Value {
         let f64_ty = types::F64;
         let i64_ty = types::I64;
 
-        // We'll unify the final result in a merge block:
         let merge_block = self.builder.create_block();
         self.builder.append_block_param(merge_block, f64_ty); // final result
 
-        // 1) Compute n = floor(x / ln(2))
+        // 1) n = floor(x / ln(2))
         let ln2_val = self.builder.ins().f64const(LN2);
         let inv_ln2_val = self.builder.ins().f64const(INV_LN2);
 
-        // n_float = x * (1/ln(2))
         let n_float = self.builder.ins().fmul(x, inv_ln2_val);
-
-        // n_i64 = floor(n_float)
-        //  - We do that by using fcvt_to_sint (which floors for positive input,
-        //    but be careful about negative x). If you want “floor” in all cases
-        //    including negatives, you might do a different approach or check sign.
         let n_i64 = self.builder.ins().fcvt_to_sint_sat(i64_ty, n_float);
 
-        // 2) r = x - (n_i64 * ln(2))
+        // 2) r = x - (n * ln(2))
         let n_f64 = self.builder.ins().fcvt_from_sint(f64_ty, n_i64);
         let partial = self.builder.ins().fmul(n_f64, ln2_val);
         let r = self.builder.ins().fsub(x, partial);
 
-        // 3) Approximate e^r with a polynomial expansion around 0. 
-        //    e^r ≈ 1 + r + r²/2! + r³/3! + r⁴/24 + r⁵/120 + r⁶/720
-        //    For r in [-0.7, +0.7] or so, this is decent. 
-        //    Real library code often uses more advanced methods.
-
+        // e^r ~ 1 + r + r^2/2! + r^3/3! + ... + r^8/8!
+        // Factorials up to 8!: 1, 1, 2, 6, 24, 120, 720, 5040, 40320
         let one = self.builder.ins().f64const(1.0);
-        let half = self.builder.ins().f64const(0.5);
-        let sixth = self.builder.ins().f64const(1.0 / 6.0);     // 1/3!
-        let twenty4 = self.builder.ins().f64const(1.0 / 24.0);  // 1/4!
-        let one20 = self.builder.ins().f64const(1.0 / 120.0);   // 1/5!
-        let seven20 = self.builder.ins().f64const(1.0 / 720.0); // 1/6!
+        let c_1_2   = self.builder.ins().f64const(1.0 / 2.0);        // 1/2!
+        let c_1_6   = self.builder.ins().f64const(1.0 / 6.0);        // 1/3!
+        let c_1_24  = self.builder.ins().f64const(1.0 / 24.0);       // 1/4!
+        let c_1_120 = self.builder.ins().f64const(1.0 / 120.0);      // 1/5!
+        let c_1_720 = self.builder.ins().f64const(1.0 / 720.0);      // 1/6!
+        let c_1_5040 = self.builder.ins().f64const(1.0 / 5040.0);    // 1/7!
+        let c_1_40320 = self.builder.ins().f64const(1.0 / 40320.0);  // 1/8!
 
-        // We'll build step by step: 
         let r2 = self.builder.ins().fmul(r, r);
         let r3 = self.builder.ins().fmul(r2, r);
         let r4 = self.builder.ins().fmul(r3, r);
         let r5 = self.builder.ins().fmul(r4, r);
         let r6 = self.builder.ins().fmul(r5, r);
+        let r7 = self.builder.ins().fmul(r6, r);
+        let r8 = self.builder.ins().fmul(r7, r);
 
-        let term2 = self.builder.ins().fmul(r2, half);     // r²/2
-        let term3 = self.builder.ins().fmul(r3, sixth);    // r³/6
-        let term4 = self.builder.ins().fmul(r4, twenty4);  // r⁴/24
-        let term5 = self.builder.ins().fmul(r5, one20);    // r⁵/120
-        let term6 = self.builder.ins().fmul(r6, seven20);  // r⁶/720
+        // sum up
+        let mut sum = one;
+        // (1) + r
+        sum = self.builder.ins().fadd(sum, r);
+        // + r^2 / 2!
+        let term2 = self.builder.ins().fmul(r2, c_1_2);
+        sum = self.builder.ins().fadd(sum, term2);
+        // + r^3 / 3!
+        let term3 = self.builder.ins().fmul(r3, c_1_6);
+        sum = self.builder.ins().fadd(sum, term3);
+        // + r^4 / 4!
+        let term4 = self.builder.ins().fmul(r4, c_1_24);
+        sum = self.builder.ins().fadd(sum, term4);
+        // + r^5 / 5!
+        let term5 = self.builder.ins().fmul(r5, c_1_120);
+        sum = self.builder.ins().fadd(sum, term5);
+        // + r^6 / 6!
+        let term6 = self.builder.ins().fmul(r6, c_1_720);
+        sum = self.builder.ins().fadd(sum, term6);
+        // + r^7 / 7!
+        let term7 = self.builder.ins().fmul(r7, c_1_5040);
+        sum = self.builder.ins().fadd(sum, term7);
+        // + r^8 / 8!
+        let term8 = self.builder.ins().fmul(r8, c_1_40320);
+        sum = self.builder.ins().fadd(sum, term8);
 
-        let sum1 = self.builder.ins().fadd(one, r);        // 1 + r
-        let sum2 = self.builder.ins().fadd(sum1, term2);
-        let sum3 = self.builder.ins().fadd(sum2, term3);
-        let sum4 = self.builder.ins().fadd(sum3, term4);
-        let sum5 = self.builder.ins().fadd(sum4, term5);
-        let poly_approx = self.builder.ins().fadd(sum5, term6);
-
-        // 4) 2^n * e^r
-        //    We'll do a small clamp: if |n_i64| > 60, we'll saturate or produce Inf/0, etc.
-        //    Or do an exponent-by-squaring to get 2^n in f64 form.
+        // 4) multiply by 2^n
         let two_exp = self.compile_pow2_f64(n_i64);
+        let result = self.builder.ins().fmul(two_exp, sum);
 
-        let result = self.builder.ins().fmul(two_exp, poly_approx);
-
-        // Jump to merge_block
         self.builder.ins().jump(merge_block, &[result]);
 
-        // Now finish in merge_block
         self.builder.switch_to_block(merge_block);
         let final_val = self.builder.block_params(merge_block)[0];
         final_val
     }
 
-    /// Helper: compute 2^(n_i64) as an f64, with a small clamp. If |n| > ~1023
-    /// you might overflow/underflow. You can do more robust logic as needed.
+    /// Helper: compute 2^(n_i64) as an f64, with a small clamp. 
+    /// For demonstration only.
     fn compile_pow2_f64(&mut self, n_i64: Value) -> Value {
         let f64_ty = types::F64;
         let i64_ty = types::I64;
@@ -692,18 +682,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let merge_block = self.builder.create_block();
         self.builder.append_block_param(merge_block, f64_ty);
 
-        // Hard clamp n into [-1023, 1023], just for demonstration:
         let minus_1023 = self.builder.ins().iconst(i64_ty, -1023);
         let plus_1023 = self.builder.ins().iconst(i64_ty, 1023);
 
-        // This is fairly naive (no fancy saturate). We'll do:
-        // if n < -1023 => n = -1023
-        // if n > 1023  => n = 1023
         let clamp_low_block = self.builder.create_block();
         let clamp_high_block = self.builder.create_block();
         let after_clamp_block = self.builder.create_block();
 
-        self.builder.append_block_param(after_clamp_block, i64_ty); // the clamped exponent
+        self.builder.append_block_param(after_clamp_block, i64_ty);
 
         let is_too_small = self.builder.ins().icmp(IntCC::SignedLessThan, n_i64, minus_1023);
         self.builder
@@ -736,21 +722,15 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.switch_to_block(after_clamp_block);
         let n_clamped = self.builder.block_params(after_clamp_block)[0];
 
-        // Now compute 2^n_clamped as f64 by exponent-by-squaring (or call a small helper).
-        // For demonstration, we'll do: "f64 pow2 = (1 << n_clamped)" in integer domain, 
-        // then convert to double. But that only works if n_clamped >= 0 and < 63! 
-        // So let's just do a mini repeated-squaring in f64, same as an integer exponent approach.
         let pow_val = self.compile_int_pow_f64(2.0, n_clamped);
-
         self.builder.ins().jump(merge_block, &[pow_val]);
+
         self.builder.switch_to_block(merge_block);
         let final_val = self.builder.block_params(merge_block)[0];
         final_val
     }
 
     /// A minimal exponent-by-squaring in f64 for base^exp_i64. 
-    /// If exp < 0 => do 1 / (base^(-exp)).
-    /// This is used to get 2^n in f64 but can be reused more generally.
     fn compile_int_pow_f64(&mut self, base_f64: f64, exp_i64: Value) -> Value {
         let f64_ty = types::F64;
         let i64_ty = types::I64;
@@ -758,14 +738,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let merge_block = self.builder.create_block();
         self.builder.append_block_param(merge_block, f64_ty);
 
-        // base value as a Cranelift f64 const
         let base_val = self.builder.ins().f64const(base_f64);
-        // We'll do a loop approach:
-        //
-        //   if exp == 0 => 1.0
-        //   elif exp < 0 => 1.0 / (base^(abs(exp)))
-        //   else => exponent-by-squaring
-        //
         let zero_i = self.builder.ins().iconst(i64_ty, 0);
         let one_f = self.builder.ins().f64const(1.0);
 
@@ -780,7 +753,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.switch_to_block(eq_block);
         self.builder.ins().jump(merge_block, &[one_f]);
 
-        // neq_block => we handle positive vs negative
+        // neq_block => check if exp < 0
         self.builder.switch_to_block(neq_block);
         let neg_block = self.builder.create_block();
         let pos_block = self.builder.create_block();
@@ -788,10 +761,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let cmp_lt = self.builder.ins().icmp(IntCC::SignedLessThan, exp_i64, zero_i);
         self.builder.ins().brif(cmp_lt, neg_block, &[], pos_block, &[]);
 
-        // neg_block => we do 1 / (base^(abs(exp)))
+        // neg_block => 1/(base^(abs(exp)))
         self.builder.switch_to_block(neg_block);
         let zero_i64 = self.builder.ins().iconst(i64_ty, 0);
-        let neg_exp = self.builder.ins().isub(zero_i64, exp_i64); // -exp
+        let neg_exp = self.builder.ins().isub(zero_i64, exp_i64);
         let pos_val = self.compile_int_pow_loop(base_val, neg_exp);
         let inv_val = self.builder.ins().fdiv(one_f, pos_val);
         self.builder.ins().jump(merge_block, &[inv_val]);
@@ -812,11 +785,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let f64_ty = types::F64;
         let i64_ty = types::I64;
 
-        // Merge for the result
         let merge = self.builder.create_block();
         self.builder.append_block_param(merge, f64_ty);
 
-        // loop_block
         let loop_block = self.builder.create_block();
         self.builder.append_block_param(loop_block, f64_ty); // result
         self.builder.append_block_param(loop_block, f64_ty); // current_base
@@ -848,7 +819,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let odd_block = self.builder.create_block();
         let even_block = self.builder.create_block();
         let update_block = self.builder.create_block();
-        self.builder.append_block_param(update_block, f64_ty); // new_result
+        self.builder.append_block_param(update_block, f64_ty);
 
         self.builder.ins().brif(is_odd, odd_block, &[], even_block, &[]);
 
@@ -870,7 +841,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         // base = base^2
         let sq_base = self.builder.ins().fmul(phi_base, phi_base);
 
-        // jump back
         self.builder.ins().jump(loop_block, &[new_result, sq_base, new_e]);
 
         // exit
@@ -884,14 +854,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     //-------------------------------------
-    // Approximate ln(x)
+    // Extended polynomial for ln(x)
     //-------------------------------------
 
-    /// Approximate ln(x) for x>0:
-    ///   1) If x<=0 => produce NaN (or trap) 
-    ///   2) Range reduce:  x = 2^n * m, where m in [1,2).
+    /// Approximate ln(x) for x>0 with a more extended Taylor series:
+    ///   1) If x <= 0 => produce NaN (or trap).
+    ///   2) Range reduce: x = 2^n * m, where m in [1,2).
     ///   3) ln(x) = n*ln(2) + ln(m).
-    ///   4) Approx ln(m) in [1,2) with a polynomial or series.
+    ///   4) Approx ln(m) in [1,2) by ln(1 + r) with r = m-1, including terms up to r^8.
     pub fn compile_ln_approx(&mut self, x: Value) -> Value {
         let f64_ty = types::F64;
         let i64_ty = types::I64;
@@ -916,94 +886,92 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         // pos_block => handle x>0
         self.builder.switch_to_block(pos_block);
 
-        // 1) find n = floor(log2(x)) i.e. n = floor( x * 1/2^... ) 
-        //    or a specialized approach:
-        //    n = integer s.t. 1 <= x / 2^n < 2
-        // We do n = floor(log2(x)) by:
-        //   log2(x) = log_e(x) / log_e(2), but that’s ironically a “ln” call.
-        // Instead let's approximate with an integer loop or an i64 approach. 
-        // For brevity, let's do a hacky approach: 
-        //   half = 0.5
-        //   if x<1 => keep dividing by 2 => decrement n
-        //   if x>=2 => keep multiplying => increment n
-        //
-        // But that’s fairly slow. Another approach is to do a float->int bit trick. 
-        // For clarity, let's do a simpler approximate approach: n_float = floor( x * (1/ln2) ) 
-        // Then we do m = x / 2^n. 
-        // This calls our compile_pow2_f64 again. 
+        // 1) compute n = floor(x * INV_LN2)
         let inv_ln2_val = self.builder.ins().f64const(INV_LN2);
         let n_float = self.builder.ins().fmul(x, inv_ln2_val);
         let n_i64 = self.builder.ins().fcvt_to_sint_sat(i64_ty, n_float);
 
-        // m = x / (2^n)
+        // 2) m = x / 2^n
         let two_n = self.compile_pow2_f64(n_i64);
         let m_val = self.builder.ins().fdiv(x, two_n);
 
-        // 2) so ln(x) = n*ln(2) + ln(m). 
-        // We approximate ln(m) for m in [1,2) with a polynomial around 1.5 or 1.0.
-
+        // 3) ln(x) = n*ln(2) + ln(m)
         let ln2_val = self.builder.ins().f64const(LN2);
         let n_f64 = self.builder.ins().fcvt_from_sint(f64_ty, n_i64);
         let n_ln2 = self.builder.ins().fmul(n_f64, ln2_val);
 
-        // approximate ln(m) in [1,2). 
-        // A quick approach: use the polynomial from the standard Taylor expansion
-        // around 1:  ln(1 + r) = r - r^2/2 + r^3/3 - r^4/4 ...
-        // where m=1+r => r = m-1 => valid if m in [1,2) => r in [0,1).
-        // We'll do a few terms. This is not super accurate near 2. 
-        //
-        // ln(m) ~ r - r^2/2 + r^3/3 - r^4/4 (for 0<=r<1).
-
+        // 4) approximate ln(m) with m in [1,2):
+        //    Let m = 1 + r, so r = m - 1 in [0,1).
+        //    ln(1 + r) ~ r - r^2/2 + r^3/3 - r^4/4 + ... +/- r^8/8
+        //    We’ll take terms up to r^8 for better accuracy.
         let one_f = self.builder.ins().f64const(1.0);
         let r = self.builder.ins().fsub(m_val, one_f);
 
-        // We'll do maybe 4 terms:
-        // t1 = r
-        // t2 = - r^2/2
-        // t3 = + r^3/3
-        // t4 = - r^4/4
+        // Build powers of r
         let r2 = self.builder.ins().fmul(r, r);
         let r3 = self.builder.ins().fmul(r2, r);
         let r4 = self.builder.ins().fmul(r3, r);
+        let r5 = self.builder.ins().fmul(r4, r);
+        let r6 = self.builder.ins().fmul(r5, r);
+        let r7 = self.builder.ins().fmul(r6, r);
+        let r8 = self.builder.ins().fmul(r7, r);
 
-        let half = self.builder.ins().f64const(0.5);
-        let third = self.builder.ins().f64const(1.0 / 3.0);
-        let quarter = self.builder.ins().f64const(0.25);
+        // We'll accumulate: r - r^2/2 + r^3/3 - r^4/4 + r^5/5 - r^6/6 + r^7/7 - r^8/8
+        // Put constants in:
+        let c_1_2   = self.builder.ins().f64const(0.5);
+        let c_1_3   = self.builder.ins().f64const(1.0 / 3.0);
+        let c_1_4   = self.builder.ins().f64const(0.25);
+        let c_1_5   = self.builder.ins().f64const(0.2);
+        let c_1_6   = self.builder.ins().f64const(1.0 / 6.0);
+        let c_1_7   = self.builder.ins().f64const(1.0 / 7.0);
+        let c_1_8   = self.builder.ins().f64const(1.0 / 8.0);
 
-        let t1 = r; 
-        let t2 = {
-            let tmp = self.builder.ins().fmul(r2, half);
-            self.builder.ins().fneg(tmp) // -r²/2
-        };
-        let t3 = self.builder.ins().fmul(r3, third);   // + r³/3
-        let t4 = {
-            let tmp = self.builder.ins().fmul(r4, quarter);
-            self.builder.ins().fneg(tmp) // - r⁴/4
-        };
+        // r^1
+        let mut ln_m_approx = r;
+        // - r^2/2
+        let t2 = self.builder.ins().fmul(r2, c_1_2);
+        let t2_neg = self.builder.ins().fneg(t2);
+        ln_m_approx = self.builder.ins().fadd(ln_m_approx, t2_neg);
+        // + r^3/3
+        let t3 = self.builder.ins().fmul(r3, c_1_3);
+        ln_m_approx = self.builder.ins().fadd(ln_m_approx, t3);
+        // - r^4/4
+        let t4 = self.builder.ins().fmul(r4, c_1_4);
+        let t4_neg = self.builder.ins().fneg(t4);
+        ln_m_approx = self.builder.ins().fadd(ln_m_approx, t4_neg);
+        // + r^5/5
+        let t5 = self.builder.ins().fmul(r5, c_1_5);
+        ln_m_approx = self.builder.ins().fadd(ln_m_approx, t5);
+        // - r^6/6
+        let t6 = self.builder.ins().fmul(r6, c_1_6);
+        let t6_neg = self.builder.ins().fneg(t6);
+        ln_m_approx = self.builder.ins().fadd(ln_m_approx, t6_neg);
+        // + r^7/7
+        let t7 = self.builder.ins().fmul(r7, c_1_7);
+        ln_m_approx = self.builder.ins().fadd(ln_m_approx, t7);
+        // - r^8/8
+        let t8 = self.builder.ins().fmul(r8, c_1_8);
+        let t8_neg = self.builder.ins().fneg(t8);
+        ln_m_approx = self.builder.ins().fadd(ln_m_approx, t8_neg);
 
-        let sum1 = self.builder.ins().fadd(t1, t2);
-        let sum2 = self.builder.ins().fadd(sum1, t3);
-        let ln_m_approx = self.builder.ins().fadd(sum2, t4);
-
-        // total = n_ln2 + ln_m_approx
+        // total = n_ln2 + ln(m)
         let ln_approx = self.builder.ins().fadd(n_ln2, ln_m_approx);
 
-        // jump to merge
         self.builder.ins().jump(merge_block, &[ln_approx]);
 
-        // unify
         self.builder.switch_to_block(merge_block);
         let final_val = self.builder.block_params(merge_block)[0];
         final_val
     }
-    // Bottom
 
+    //-------------------------------------
+    // Improved fpow: a^b = exp(b * ln(a))
+    //-------------------------------------
     fn compile_fpow(&mut self, a: Value, b: Value) -> Value {
-        // Equivalent of `exp(b * ln(a))`:
+        // Equivalent of `exp(b * ln(a))`
         let ln_a = self.compile_ln_approx(a);
         let prod = self.builder.ins().fmul(b, ln_a);
-        let result = self.compile_exp_approx(prod);
-        result
+        self.compile_exp_approx(prod)
     }
 
     fn compile_ipow(&mut self, a: Value, b: Value) -> Value {
@@ -1098,5 +1066,4 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     
         res 
     }
-    
 }
