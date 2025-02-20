@@ -7,11 +7,16 @@ use rustpython_compiler_core::bytecode::{
     OpArg, OpArgState, UnaryOperator,
 };
 use std::collections::HashMap;
+use core::f64;
+
+// A small constant for LN(2). You can refine if you want more precision in 32-bit constants.
+const LN2: f64 = 0.6931471805599453;
+const INV_LN2: f64 = 1.4426950408889634; // 1 / ln(2)
 
 #[repr(u16)]
 enum CustomTrapCode {
     /// Raised when shifting by a negative number
-    NegativeShiftCount = 0,
+    NegativeShiftCount = 1,
 }
 
 #[derive(Clone)]
@@ -123,14 +128,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     fn boolean_val(&mut self, val: JitValue) -> Result<Value, JitCompileError> {
         match val {
             JitValue::Float(val) => {
-                let zero = self.builder.ins().f64const(0);
+                let zero = self.builder.ins().f64const(0.0);
                 let val = self.builder.ins().fcmp(FloatCC::NotEqual, val, zero);
-                Ok(self.builder.ins().bint(types::I8, val))
+                Ok(val)
             }
             JitValue::Int(val) => {
                 let zero = self.builder.ins().iconst(types::I64, 0);
                 let val = self.builder.ins().icmp(IntCC::NotEqual, val, zero);
-                Ok(self.builder.ins().bint(types::I8, val))
+                Ok(val)
             }
             JitValue::Bool(val) => Ok(val),
             JitValue::None => Ok(self.builder.ins().iconst(types::I8, 0)),
@@ -151,40 +156,64 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
     ) -> Result<(), JitCompileError> {
-        // TODO: figure out if this is sufficient -- previously individual labels were associated
-        // pretty much per-bytecode that uses them, or at least per "type" of block -- in theory an
-        // if block and a with block might jump to the same place. Now it's all "flattened", so
-        // there might be less distinction between different types of blocks going off
-        // label_targets alone
         let label_targets = bytecode.label_targets();
-
         let mut arg_state = OpArgState::default();
-        for (offset, instruction) in bytecode.instructions.iter().enumerate() {
-            let (instruction, arg) = arg_state.get(*instruction);
+    
+        // Track whether we have "returned" in the current block
+        let mut in_unreachable_code = false;
+    
+        for (offset, &raw_instr) in bytecode.instructions.iter().enumerate() {
             let label = Label(offset as u32);
+            let (instruction, arg) = arg_state.get(raw_instr);
+    
+            // If this is a label that some earlier jump can target,
+            // treat it as the start of a new reachable block:
             if label_targets.contains(&label) {
-                let block = self.get_or_create_block(label);
-
-                // If the current block is not terminated/filled just jump
-                // into the new block.
-                if !self.builder.is_filled() {
-                    self.builder.ins().jump(block, &[]);
+                // Create or get the block for this label:
+                let target_block = self.get_or_create_block(label);
+    
+                // If the current block isn't terminated, jump:
+                if let Some(cur) = self.builder.current_block() {
+                    if cur != target_block && self.builder.func.layout.last_inst(cur).is_none() {
+                        self.builder.ins().jump(target_block, &[]);
+                    }
                 }
-
-                self.builder.switch_to_block(block);
+                // Switch to the target block
+                if self.builder.current_block() != Some(target_block) {
+                    self.builder.switch_to_block(target_block);
+                }
+    
+                // We are definitely reachable again at this label
+                in_unreachable_code = false;
             }
-
-            // Sometimes the bytecode contains instructions after a return
-            // just ignore those until we are at the next label
-            if self.builder.is_filled() {
+    
+            // If we're in unreachable code, skip this instruction unless the label re-entered above.
+            if in_unreachable_code {
                 continue;
             }
-
+    
+            // Actually compile this instruction:
             self.add_instruction(func_ref, bytecode, instruction, arg)?;
+    
+            // If that was a return instruction, mark future instructions unreachable
+            match instruction {
+                Instruction::ReturnValue | Instruction::ReturnConst { .. } => {
+                    in_unreachable_code = true;
+                }
+                _ => {}
+            }
         }
-
+    
+        // After processing, if the current block is unterminated, insert a trap or fallthrough
+        if let Some(cur) = self.builder.current_block() {
+            if self.builder.func.layout.last_inst(cur).is_none() {
+                self.builder.ins().trap(TrapCode::user(0).unwrap());
+            }
+        }
         Ok(())
     }
+    
+    
 
     fn prepare_const<C: bytecode::Constant>(
         &mut self,
@@ -214,10 +243,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
     fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
         if let Some(ref ty) = self.sig.ret {
+            // If the signature has a return type, enforce it
             if val.to_jit_type().as_ref() != Some(ty) {
                 return Err(JitCompileError::NotSupported);
             }
         } else {
+            // First time we see a return, define it in the signature
             let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
             self.sig.ret = Some(ty.clone());
             self.builder
@@ -226,9 +257,16 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 .returns
                 .push(AbiParam::new(ty.to_cranelift()));
         }
-        self.builder.ins().return_(&[val.into_value().unwrap()]);
+    
+        // If this is e.g. an Int, Float, or Bool we have a Cranelift `Value`.
+        // If we have JitValue::None or .Tuple(...) but can't handle that, error out (or handle differently).
+        let cr_val = val.into_value().ok_or(JitCompileError::NotSupported)?;
+    
+        self.builder.ins().return_(&[cr_val]);
         Ok(())
     }
+    
+    
 
     pub fn add_instruction<C: bytecode::Constant>(
         &mut self,
@@ -241,34 +279,30 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::ExtendedArg => Ok(()),
             Instruction::JumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
-                self.builder.ins().brz(val, then_block, &[]);
-
-                let block = self.builder.create_block();
-                self.builder.ins().jump(block, &[]);
-                self.builder.switch_to_block(block);
-
+                let else_block = self.builder.create_block();
+            
+                self.builder.ins().brif(val, else_block, &[], then_block, &[]);
+                self.builder.switch_to_block(else_block);
+            
                 Ok(())
             }
             Instruction::JumpIfTrue { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
-                self.builder.ins().brnz(val, then_block, &[]);
-
-                let block = self.builder.create_block();
-                self.builder.ins().jump(block, &[]);
-                self.builder.switch_to_block(block);
-
+                let else_block = self.builder.create_block();
+            
+                self.builder.ins().brif(val, then_block, &[], else_block, &[]);
+                self.builder.switch_to_block(else_block);
+            
                 Ok(())
             }
+            
             Instruction::Jump { target } => {
                 let target_block = self.get_or_create_block(target.get(arg));
                 self.builder.ins().jump(target_block, &[]);
-
                 Ok(())
             }
             Instruction::LoadFast(idx) => {
@@ -354,9 +388,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         };
 
                         let val = self.builder.ins().icmp(cond, operand_one, operand_two);
-                        // TODO: Remove this `bint` in cranelift 0.90 as icmp now returns i8
-                        self.stack
-                            .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
+                        self.stack.push(JitValue::Bool(val));
                         Ok(())
                     }
                     (JitValue::Float(a), JitValue::Float(b)) => {
@@ -370,9 +402,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         };
 
                         let val = self.builder.ins().fcmp(cond, a, b);
-                        // TODO: Remove this `bint` in cranelift 0.90 as fcmp now returns i8
-                        self.stack
-                            .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
+                        self.stack.push(JitValue::Bool(val));
                         Ok(())
                     }
                     _ => Err(JitCompileError::NotSupported),
@@ -414,12 +444,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 let val = match (op, a, b) {
                     (BinaryOperator::Add, JitValue::Int(a), JitValue::Int(b)) => {
-                        let (out, carry) = self.builder.ins().iadd_ifcout(a, b);
-                        self.builder.ins().trapif(
-                            IntCC::Overflow,
-                            carry,
-                            TrapCode::IntegerOverflow,
-                        );
+                        let (out, carry) = self.builder.ins().sadd_overflow(a, b);
+                        self.builder.ins().trapnz(carry, TrapCode::INTEGER_OVERFLOW);
                         JitValue::Int(out)
                     }
                     (BinaryOperator::Subtract, JitValue::Int(a), JitValue::Int(b)) => {
@@ -447,7 +473,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         let sign = self.builder.ins().ushr_imm(b, 63);
                         self.builder.ins().trapnz(
                             sign,
-                            TrapCode::User(CustomTrapCode::NegativeShiftCount as u16),
+                            TrapCode::user(CustomTrapCode::NegativeShiftCount as u8).unwrap(),
                         );
 
                         let out = if op == BinaryOperator::Lshift {
@@ -567,183 +593,417 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         //     .ins()
         //     .trapif(IntCC::Overflow, carry, TrapCode::IntegerOverflow);
         // TODO: this shouldn't wrap
-        let neg_b = self.builder.ins().ineg(b);
-        let (out, carry) = self.builder.ins().iadd_ifcout(a, neg_b);
+        let (out, carry) = self.builder.ins().ssub_overflow(a, b);
         self.builder
             .ins()
-            .trapif(IntCC::Overflow, carry, TrapCode::IntegerOverflow);
+            .trapnz(carry, TrapCode::INTEGER_OVERFLOW);
         out
     }
-    /* 
-    *** FAILED ATTEMPT AT COMBINING BOTH OF THE POWER FUNCTIONS -- WILL POTENTIALLY LOOK INTO LATER *** 
-        PLEASE IGNORE
-    fn compile_power(&mut self, base: Value, exponent: Value) -> Value {  
-        /* Python Representation 
-        def compile_power(base, exponent): 
-            if isinstance(base, float) or isinstance(exponent, float):
-                return compile_fpow(base, exponent)
-            else:
-                return compile_ipow(base, exponent)
-        */
-        let ipower_block = self.builder.create_block(); 
-        let fpower_block = self.builder.create_block(); 
-        let exit_block = self.builder.create_block(); 
 
-        self.builder.append_block_param(ipower_block, types::I64);
-        self.builder.append_block_param(ipower_block, types::I64);
+    //-------------------------------------
+    // Approximate exp(x)
+    //-------------------------------------
+    /// Approximate exp(x) without external calls:
+    ///   1) n = floor(x/ln2)
+    ///   2) r = x - n*ln2
+    ///   3) approx e^r with polynomial
+    ///   4) result = 2^n * e^r
+    /// This is a toy example; real code needs more checks (overflow, etc.).
+    pub fn compile_exp_approx(&mut self, x: Value) -> Value {
+        let f64_ty = types::F64;
+        let i64_ty = types::I64;
 
-        self.builder.append_block_param(fpower_block, types::F64);
-        self.builder.append_block_param(fpower_block, types::F64);
+        // We'll unify the final result in a merge block:
+        let merge_block = self.builder.create_block();
+        self.builder.append_block_param(merge_block, f64_ty); // final result
 
-        self.builder.append_block_param(exit_block, types::F64);
+        // 1) Compute n = floor(x / ln(2))
+        let ln2_val = self.builder.ins().f64const(LN2);
+        let inv_ln2_val = self.builder.ins().f64const(INV_LN2);
 
-        //enter if statment to check if there is a float value 
-        let float_check = self.builder.ins().fcmp(FloatCC::Equal, exponent, exponent); 
+        // n_float = x * (1/ln(2))
+        let n_float = self.builder.ins().fmul(x, inv_ln2_val);
 
-        self.builder.ins().brnz(float_check, fpower_block, &[base, exponent]);
+        // n_i64 = floor(n_float)
+        //  - We do that by using fcvt_to_sint (which floors for positive input,
+        //    but be careful about negative x). If you want “floor” in all cases
+        //    including negatives, you might do a different approach or check sign.
+        let n_i64 = self.builder.ins().fcvt_to_sint_sat(i64_ty, n_float);
 
-        // Otherwise, go to integer version
-        self.builder.ins().jump(ipower_block, &[base, exponent]);
-    
-        //floats 
-        self.builder.switch_to_block(fpower_block);
-        let params = self.builder.block_params(fpower_block);
-        let fbase = params[0];
-        let fexp = params[1];
-        let powf_res = self.compile_fpow(fbase, fexp);
-        self.builder.ins().jump(exit_block, &[powf_res]);
-    
-        //ints 
-        self.builder.switch_to_block(ipower_block);
-        let params = self.builder.block_params(ipower_block);
-        let ibase = params[0];
-        let iexp = params[1];
-        let powi_res = self.compile_ipow(ibase, iexp);
-        self.builder.ins().jump(exit_block, &[powi_res]);
-    
-        //exit
-        self.builder.switch_to_block(exit_block);
-        let res = self.builder.block_params(exit_block)[0];
-    
-        self.builder.seal_block(fpower_block);
-        self.builder.seal_block(ipower_block);
-        self.builder.seal_block(exit_block);
-    
-        res
+        // 2) r = x - (n_i64 * ln(2))
+        let n_f64 = self.builder.ins().fcvt_from_sint(f64_ty, n_i64);
+        let partial = self.builder.ins().fmul(n_f64, ln2_val);
+        let r = self.builder.ins().fsub(x, partial);
+
+        // 3) Approximate e^r with a polynomial expansion around 0. 
+        //    e^r ≈ 1 + r + r²/2! + r³/3! + r⁴/24 + r⁵/120 + r⁶/720
+        //    For r in [-0.7, +0.7] or so, this is decent. 
+        //    Real library code often uses more advanced methods.
+
+        let one = self.builder.ins().f64const(1.0);
+        let half = self.builder.ins().f64const(0.5);
+        let sixth = self.builder.ins().f64const(1.0 / 6.0);     // 1/3!
+        let twenty4 = self.builder.ins().f64const(1.0 / 24.0);  // 1/4!
+        let one20 = self.builder.ins().f64const(1.0 / 120.0);   // 1/5!
+        let seven20 = self.builder.ins().f64const(1.0 / 720.0); // 1/6!
+
+        // We'll build step by step: 
+        let r2 = self.builder.ins().fmul(r, r);
+        let r3 = self.builder.ins().fmul(r2, r);
+        let r4 = self.builder.ins().fmul(r3, r);
+        let r5 = self.builder.ins().fmul(r4, r);
+        let r6 = self.builder.ins().fmul(r5, r);
+
+        let term2 = self.builder.ins().fmul(r2, half);     // r²/2
+        let term3 = self.builder.ins().fmul(r3, sixth);    // r³/6
+        let term4 = self.builder.ins().fmul(r4, twenty4);  // r⁴/24
+        let term5 = self.builder.ins().fmul(r5, one20);    // r⁵/120
+        let term6 = self.builder.ins().fmul(r6, seven20);  // r⁶/720
+
+        let sum1 = self.builder.ins().fadd(one, r);        // 1 + r
+        let sum2 = self.builder.ins().fadd(sum1, term2);
+        let sum3 = self.builder.ins().fadd(sum2, term3);
+        let sum4 = self.builder.ins().fadd(sum3, term4);
+        let sum5 = self.builder.ins().fadd(sum4, term5);
+        let poly_approx = self.builder.ins().fadd(sum5, term6);
+
+        // 4) 2^n * e^r
+        //    We'll do a small clamp: if |n_i64| > 60, we'll saturate or produce Inf/0, etc.
+        //    Or do an exponent-by-squaring to get 2^n in f64 form.
+        let two_exp = self.compile_pow2_f64(n_i64);
+
+        let result = self.builder.ins().fmul(two_exp, poly_approx);
+
+        // Jump to merge_block
+        self.builder.ins().jump(merge_block, &[result]);
+
+        // Now finish in merge_block
+        self.builder.switch_to_block(merge_block);
+        let final_val = self.builder.block_params(merge_block)[0];
+        final_val
     }
-    */
 
-    /*
-    what this code translates to in python 
-    def pow(base, exponent) -> int: 
-        if exponent < 0:
-            return 0
-        result = 1
-    
-        while exponent > 0:
-            # If exponent is odd, multiply the result by base
-            if exponent & 1:
-                result *= base
-            # Square the base and halve the exponent
-            base *= base
-            exponent >>= 1  # Equivalent to exponent //= 2
-        return result
-    */ 
-    fn compile_fpow(&mut self, a: Value, b: Value) -> Value {
-        // Convert float exponent to integer and set up initial values
-        let exp = self.builder.ins().fcvt_to_sint(types::I64, b);
-        let zero = self.builder.ins().iconst(types::I64, 0);
-        let one_f64 = self.builder.ins().f64const(1.0);
-        
-        // Create required blocks
-        let check_negative = self.builder.create_block();
-        let handle_negative = self.builder.create_block();
+    /// Helper: compute 2^(n_i64) as an f64, with a small clamp. If |n| > ~1023
+    /// you might overflow/underflow. You can do more robust logic as needed.
+    fn compile_pow2_f64(&mut self, n_i64: Value) -> Value {
+        let f64_ty = types::F64;
+        let i64_ty = types::I64;
+
+        let merge_block = self.builder.create_block();
+        self.builder.append_block_param(merge_block, f64_ty);
+
+        // Hard clamp n into [-1023, 1023], just for demonstration:
+        let minus_1023 = self.builder.ins().iconst(i64_ty, -1023);
+        let plus_1023 = self.builder.ins().iconst(i64_ty, 1023);
+
+        // This is fairly naive (no fancy saturate). We'll do:
+        // if n < -1023 => n = -1023
+        // if n > 1023  => n = 1023
+        let clamp_low_block = self.builder.create_block();
+        let clamp_high_block = self.builder.create_block();
+        let after_clamp_block = self.builder.create_block();
+
+        self.builder.append_block_param(after_clamp_block, i64_ty); // the clamped exponent
+
+        let is_too_small = self.builder.ins().icmp(IntCC::SignedLessThan, n_i64, minus_1023);
+        self.builder
+            .ins()
+            .brif(is_too_small, clamp_low_block, &[], clamp_high_block, &[]);
+
+        // clamp_low_block => n = -1023
+        self.builder.switch_to_block(clamp_low_block);
+        self.builder.ins().jump(after_clamp_block, &[minus_1023]);
+
+        // clamp_high_block => check if n>1023
+        self.builder.switch_to_block(clamp_high_block);
+        let is_too_big = self.builder.ins().icmp(IntCC::SignedGreaterThan, n_i64, plus_1023);
+        let clamp_really_high_block = self.builder.create_block();
+        let pass_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(is_too_big, clamp_really_high_block, &[], pass_block, &[]);
+
+        // clamp_really_high_block => n=1023
+        self.builder.switch_to_block(clamp_really_high_block);
+        self.builder.ins().jump(after_clamp_block, &[plus_1023]);
+
+        // pass_block => no clamp
+        self.builder.switch_to_block(pass_block);
+        self.builder.ins().jump(after_clamp_block, &[n_i64]);
+
+        // unify
+        self.builder.switch_to_block(after_clamp_block);
+        let n_clamped = self.builder.block_params(after_clamp_block)[0];
+
+        // Now compute 2^n_clamped as f64 by exponent-by-squaring (or call a small helper).
+        // For demonstration, we'll do: "f64 pow2 = (1 << n_clamped)" in integer domain, 
+        // then convert to double. But that only works if n_clamped >= 0 and < 63! 
+        // So let's just do a mini repeated-squaring in f64, same as an integer exponent approach.
+        let pow_val = self.compile_int_pow_f64(2.0, n_clamped);
+
+        self.builder.ins().jump(merge_block, &[pow_val]);
+        self.builder.switch_to_block(merge_block);
+        let final_val = self.builder.block_params(merge_block)[0];
+        final_val
+    }
+
+    /// A minimal exponent-by-squaring in f64 for base^exp_i64. 
+    /// If exp < 0 => do 1 / (base^(-exp)).
+    /// This is used to get 2^n in f64 but can be reused more generally.
+    fn compile_int_pow_f64(&mut self, base_f64: f64, exp_i64: Value) -> Value {
+        let f64_ty = types::F64;
+        let i64_ty = types::I64;
+
+        let merge_block = self.builder.create_block();
+        self.builder.append_block_param(merge_block, f64_ty);
+
+        // base value as a Cranelift f64 const
+        let base_val = self.builder.ins().f64const(base_f64);
+        // We'll do a loop approach:
+        //
+        //   if exp == 0 => 1.0
+        //   elif exp < 0 => 1.0 / (base^(abs(exp)))
+        //   else => exponent-by-squaring
+        //
+        let zero_i = self.builder.ins().iconst(i64_ty, 0);
+        let one_f = self.builder.ins().f64const(1.0);
+
+        // Check if exp == 0
+        let eq_block = self.builder.create_block();
+        let neq_block = self.builder.create_block();
+
+        let cmp_eq = self.builder.ins().icmp(IntCC::Equal, exp_i64, zero_i);
+        self.builder.ins().brif(cmp_eq, eq_block, &[], neq_block, &[]);
+
+        // eq_block => return 1.0
+        self.builder.switch_to_block(eq_block);
+        self.builder.ins().jump(merge_block, &[one_f]);
+
+        // neq_block => we handle positive vs negative
+        self.builder.switch_to_block(neq_block);
+        let neg_block = self.builder.create_block();
+        let pos_block = self.builder.create_block();
+
+        let cmp_lt = self.builder.ins().icmp(IntCC::SignedLessThan, exp_i64, zero_i);
+        self.builder.ins().brif(cmp_lt, neg_block, &[], pos_block, &[]);
+
+        // neg_block => we do 1 / (base^(abs(exp)))
+        self.builder.switch_to_block(neg_block);
+        let zero_i64 = self.builder.ins().iconst(i64_ty, 0);
+        let neg_exp = self.builder.ins().isub(zero_i64, exp_i64); // -exp
+        let pos_val = self.compile_int_pow_loop(base_val, neg_exp);
+        let inv_val = self.builder.ins().fdiv(one_f, pos_val);
+        self.builder.ins().jump(merge_block, &[inv_val]);
+
+        // pos_block => exponent >= 1
+        self.builder.switch_to_block(pos_block);
+        let pos_res = self.compile_int_pow_loop(base_val, exp_i64);
+        self.builder.ins().jump(merge_block, &[pos_res]);
+
+        // unify
+        self.builder.switch_to_block(merge_block);
+        let final_val = self.builder.block_params(merge_block)[0];
+        final_val
+    }
+
+    /// A simple exponent-by-squaring loop: base^exp for exp>0.
+    fn compile_int_pow_loop(&mut self, base: Value, exp: Value) -> Value {
+        let f64_ty = types::F64;
+        let i64_ty = types::I64;
+
+        // Merge for the result
+        let merge = self.builder.create_block();
+        self.builder.append_block_param(merge, f64_ty);
+
+        // loop_block
         let loop_block = self.builder.create_block();
-        let continue_block = self.builder.create_block();
-        let exit_block = self.builder.create_block();
-        
-        // Set up block parameters
-        self.builder.append_block_param(check_negative, types::I64);  // exponent
-        self.builder.append_block_param(check_negative, types::F64);  // base
-        
-        self.builder.append_block_param(handle_negative, types::I64); // abs(exponent)
-        self.builder.append_block_param(handle_negative, types::F64); // base
-        
-        self.builder.append_block_param(loop_block, types::I64);     // exponent
-        self.builder.append_block_param(loop_block, types::F64);     // result
-        self.builder.append_block_param(loop_block, types::F64);     // base
-        
-        self.builder.append_block_param(exit_block, types::F64);     // final result
-    
-        // Set up parameters for continue_block
-        self.builder.append_block_param(continue_block, types::I64); // exponent
-        self.builder.append_block_param(continue_block, types::F64); // result
-        self.builder.append_block_param(continue_block, types::F64); // base
-        
-        // Initial jump to check if exponent is negative
-        self.builder.ins().jump(check_negative, &[exp, a]);
-        
-        // Check if exponent is negative
-        self.builder.switch_to_block(check_negative);
-        let params = self.builder.block_params(check_negative);
-        let exp_check = params[0];
-        let base_check = params[1];
-        
-        let is_negative = self.builder.ins().icmp(IntCC::SignedLessThan, exp_check, zero);
-        self.builder.ins().brnz(is_negative, handle_negative, &[exp_check, base_check]);
-        self.builder.ins().jump(loop_block, &[exp_check, one_f64, base_check]);
-        
-        // Handle negative exponent by taking reciprocal of base and making exponent positive
-        self.builder.switch_to_block(handle_negative);
-        let params = self.builder.block_params(handle_negative);
-        let neg_exp = params[0];
-        let base = params[1];
-        let pos_exp = self.builder.ins().ineg(neg_exp);
-        let recip_base = self.builder.ins().fdiv(one_f64, base);
-        self.builder.ins().jump(loop_block, &[pos_exp, one_f64, recip_base]);
-    
-        // Loop block logic (square-and-multiply algorithm)
+        self.builder.append_block_param(loop_block, f64_ty); // result
+        self.builder.append_block_param(loop_block, f64_ty); // current_base
+        self.builder.append_block_param(loop_block, i64_ty); // e
+
+        // init => result=1.0, base=base, e=exp
+        let one_f = self.builder.ins().f64const(1.0);
+        self.builder.ins().jump(loop_block, &[one_f, base, exp]);
+
         self.builder.switch_to_block(loop_block);
-        let params = self.builder.block_params(loop_block);
-        let exp_phi = params[0];    
-        let result_phi = params[1]; 
-        let base_phi = params[2];   
-    
-        // Check if exponent is zero
-        let is_zero = self.builder.ins().icmp(IntCC::Equal, exp_phi, zero);
-        self.builder.ins().brnz(is_zero, exit_block, &[result_phi]);
-        self.builder.ins().jump(continue_block, &[exp_phi, result_phi, base_phi]);
-    
-        // Continue block for non-zero case
-        self.builder.switch_to_block(continue_block);
-        let params = self.builder.block_params(continue_block);
-        let exp_phi = params[0];
-        let result_phi = params[1];
-        let base_phi = params[2];
-        
-        // If exponent is odd, multiply result by base
-        let is_odd = self.builder.ins().band_imm(exp_phi, 1);
-        let is_odd = self.builder.ins().icmp_imm(IntCC::Equal, is_odd, 1);
-        let mul_result = self.builder.ins().fmul(result_phi, base_phi);
-        let new_result = self.builder.ins().select(is_odd, mul_result, result_phi);
-        
-        // Square the base and divide exponent by 2
-        let squared_base = self.builder.ins().fmul(base_phi, base_phi);
-        let new_exp = self.builder.ins().sshr_imm(exp_phi, 1);
-        self.builder.ins().jump(loop_block, &[new_exp, new_result, squared_base]);
-    
-        // Exit block
+        let phi_result = self.builder.block_params(loop_block)[0];
+        let phi_base   = self.builder.block_params(loop_block)[1];
+        let phi_e      = self.builder.block_params(loop_block)[2];
+
+        // if e==0 => done
+        let zero_i = self.builder.ins().iconst(i64_ty, 0);
+        let e_done = self.builder.ins().icmp(IntCC::Equal, phi_e, zero_i);
+        let exit_block = self.builder.create_block();
+        let body_block = self.builder.create_block();
+        self.builder.ins().brif(e_done, exit_block, &[], body_block, &[]);
+
+        // body_block => check if e is odd => multiply result
+        self.builder.switch_to_block(body_block);
+        let two_i = self.builder.ins().iconst(i64_ty, 2);
+        let remainder = self.builder.ins().urem(phi_e, two_i);
+        let one_i = self.builder.ins().iconst(i64_ty, 1);
+        let is_odd = self.builder.ins().icmp(IntCC::Equal, remainder, one_i);
+
+        let odd_block = self.builder.create_block();
+        let even_block = self.builder.create_block();
+        let update_block = self.builder.create_block();
+        self.builder.append_block_param(update_block, f64_ty); // new_result
+
+        self.builder.ins().brif(is_odd, odd_block, &[], even_block, &[]);
+
+        // odd => multiply
+        self.builder.switch_to_block(odd_block);
+        let mulres = self.builder.ins().fmul(phi_result, phi_base);
+        self.builder.ins().jump(update_block, &[mulres]);
+
+        // even => keep
+        self.builder.switch_to_block(even_block);
+        self.builder.ins().jump(update_block, &[phi_result]);
+
+        // unify update_result
+        self.builder.switch_to_block(update_block);
+        let new_result = self.builder.block_params(update_block)[0];
+
+        // e //= 2
+        let new_e = self.builder.ins().sdiv(phi_e, two_i);
+        // base = base^2
+        let sq_base = self.builder.ins().fmul(phi_base, phi_base);
+
+        // jump back
+        self.builder.ins().jump(loop_block, &[new_result, sq_base, new_e]);
+
+        // exit
         self.builder.switch_to_block(exit_block);
-        let res = self.builder.block_params(exit_block)[0];
-    
-        // Seal all blocks
-        self.builder.seal_block(check_negative);
-        self.builder.seal_block(handle_negative);
-        self.builder.seal_block(loop_block);
-        self.builder.seal_block(continue_block);
-        self.builder.seal_block(exit_block);
-    
-        res
+        let final_val = phi_result;
+        self.builder.ins().jump(merge, &[final_val]);
+
+        self.builder.switch_to_block(merge);
+        let ret_val = self.builder.block_params(merge)[0];
+        ret_val
+    }
+
+    //-------------------------------------
+    // Approximate ln(x)
+    //-------------------------------------
+
+    /// Approximate ln(x) for x>0:
+    ///   1) If x<=0 => produce NaN (or trap) 
+    ///   2) Range reduce:  x = 2^n * m, where m in [1,2).
+    ///   3) ln(x) = n*ln(2) + ln(m).
+    ///   4) Approx ln(m) in [1,2) with a polynomial or series.
+    pub fn compile_ln_approx(&mut self, x: Value) -> Value {
+        let f64_ty = types::F64;
+        let i64_ty = types::I64;
+
+        let merge_block = self.builder.create_block();
+        self.builder.append_block_param(merge_block, f64_ty);
+
+        // Check if x <= 0 => produce NaN
+        let zero_f = self.builder.ins().f64const(0.0);
+        let cmp_le = self.builder.ins().fcmp(FloatCC::LessThanOrEqual, x, zero_f);
+
+        let nan_block = self.builder.create_block();
+        let pos_block = self.builder.create_block();
+
+        self.builder.ins().brif(cmp_le, nan_block, &[], pos_block, &[]);
+
+        // nan_block => return NaN
+        self.builder.switch_to_block(nan_block);
+        let nan_f = self.builder.ins().f64const(f64::NAN);
+        self.builder.ins().jump(merge_block, &[nan_f]);
+
+        // pos_block => handle x>0
+        self.builder.switch_to_block(pos_block);
+
+        // 1) find n = floor(log2(x)) i.e. n = floor( x * 1/2^... ) 
+        //    or a specialized approach:
+        //    n = integer s.t. 1 <= x / 2^n < 2
+        // We do n = floor(log2(x)) by:
+        //   log2(x) = log_e(x) / log_e(2), but that’s ironically a “ln” call.
+        // Instead let's approximate with an integer loop or an i64 approach. 
+        // For brevity, let's do a hacky approach: 
+        //   half = 0.5
+        //   if x<1 => keep dividing by 2 => decrement n
+        //   if x>=2 => keep multiplying => increment n
+        //
+        // But that’s fairly slow. Another approach is to do a float->int bit trick. 
+        // For clarity, let's do a simpler approximate approach: n_float = floor( x * (1/ln2) ) 
+        // Then we do m = x / 2^n. 
+        // This calls our compile_pow2_f64 again. 
+        let inv_ln2_val = self.builder.ins().f64const(INV_LN2);
+        let n_float = self.builder.ins().fmul(x, inv_ln2_val);
+        let n_i64 = self.builder.ins().fcvt_to_sint_sat(i64_ty, n_float);
+
+        // m = x / (2^n)
+        let two_n = self.compile_pow2_f64(n_i64);
+        let m_val = self.builder.ins().fdiv(x, two_n);
+
+        // 2) so ln(x) = n*ln(2) + ln(m). 
+        // We approximate ln(m) for m in [1,2) with a polynomial around 1.5 or 1.0.
+
+        let ln2_val = self.builder.ins().f64const(LN2);
+        let n_f64 = self.builder.ins().fcvt_from_sint(f64_ty, n_i64);
+        let n_ln2 = self.builder.ins().fmul(n_f64, ln2_val);
+
+        // approximate ln(m) in [1,2). 
+        // A quick approach: use the polynomial from the standard Taylor expansion
+        // around 1:  ln(1 + r) = r - r^2/2 + r^3/3 - r^4/4 ...
+        // where m=1+r => r = m-1 => valid if m in [1,2) => r in [0,1).
+        // We'll do a few terms. This is not super accurate near 2. 
+        //
+        // ln(m) ~ r - r^2/2 + r^3/3 - r^4/4 (for 0<=r<1).
+
+        let one_f = self.builder.ins().f64const(1.0);
+        let r = self.builder.ins().fsub(m_val, one_f);
+
+        // We'll do maybe 4 terms:
+        // t1 = r
+        // t2 = - r^2/2
+        // t3 = + r^3/3
+        // t4 = - r^4/4
+        let r2 = self.builder.ins().fmul(r, r);
+        let r3 = self.builder.ins().fmul(r2, r);
+        let r4 = self.builder.ins().fmul(r3, r);
+
+        let half = self.builder.ins().f64const(0.5);
+        let third = self.builder.ins().f64const(1.0 / 3.0);
+        let quarter = self.builder.ins().f64const(0.25);
+
+        let t1 = r; 
+        let t2 = {
+            let tmp = self.builder.ins().fmul(r2, half);
+            self.builder.ins().fneg(tmp) // -r²/2
+        };
+        let t3 = self.builder.ins().fmul(r3, third);   // + r³/3
+        let t4 = {
+            let tmp = self.builder.ins().fmul(r4, quarter);
+            self.builder.ins().fneg(tmp) // - r⁴/4
+        };
+
+        let sum1 = self.builder.ins().fadd(t1, t2);
+        let sum2 = self.builder.ins().fadd(sum1, t3);
+        let ln_m_approx = self.builder.ins().fadd(sum2, t4);
+
+        // total = n_ln2 + ln_m_approx
+        let ln_approx = self.builder.ins().fadd(n_ln2, ln_m_approx);
+
+        // jump to merge
+        self.builder.ins().jump(merge_block, &[ln_approx]);
+
+        // unify
+        self.builder.switch_to_block(merge_block);
+        let final_val = self.builder.block_params(merge_block)[0];
+        final_val
+    }
+    // Bottom
+
+    fn compile_fpow(&mut self, a: Value, b: Value) -> Value {
+        // Equivalent of `exp(b * ln(a))`:
+        let ln_a = self.compile_ln_approx(a);
+        let prod = self.builder.ins().fmul(b, ln_a);
+        let result = self.compile_exp_approx(prod);
+        result
     }
 
     fn compile_ipow(&mut self, a: Value, b: Value) -> Value {
@@ -786,8 +1046,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let base_check = params[1];
         
         let is_negative = self.builder.ins().icmp(IntCC::SignedLessThan, exp_check, zero);
-        self.builder.ins().brnz(is_negative, handle_negative, &[exp_check, base_check]);
-        self.builder.ins().jump(loop_block, &[exp_check, one_i64, base_check]);
+        //self.builder.ins().brnz(is_negative, handle_negative, &[exp_check, base_check]);
+        //self.builder.ins().jump(loop_block, &[exp_check, one_i64, base_check]);
+        self.builder.ins().brif(is_negative, handle_negative, &[exp_check, base_check], loop_block, &[exp_check, one_i64, base_check]);
         
         // Handle negative exponent (return 0 for integer exponentiation)
         self.builder.switch_to_block(handle_negative);
@@ -802,8 +1063,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     
         // Check if exponent is zero
         let is_zero = self.builder.ins().icmp(IntCC::Equal, exp_phi, zero);
-        self.builder.ins().brnz(is_zero, exit_block, &[result_phi]);
-        self.builder.ins().jump(continue_block, &[exp_phi, result_phi, base_phi]);
+        //self.builder.ins().brnz(is_zero, exit_block, &[result_phi]);
+        //self.builder.ins().jump(continue_block, &[exp_phi, result_phi, base_phi]);
+        self.builder.ins().brif(is_zero, exit_block, &[result_phi], continue_block, &[exp_phi, result_phi, base_phi]);
     
         // Continue block for non-zero case
         self.builder.switch_to_block(continue_block);

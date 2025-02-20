@@ -114,7 +114,7 @@ pub fn compile<C: bytecode::Constant>(
 
     let (id, sig) = jit.build_function(bytecode, args, ret)?;
 
-    jit.module.finalize_definitions();
+    jit.module.finalize_definitions()?;
 
     let code = jit.module.get_finalized_function(id);
     Ok(CompiledCode {
