@@ -1,8 +1,28 @@
 import os as _os, sys as _sys
+import types as _types
 
+from _ctypes import RTLD_LOCAL, RTLD_GLOBAL
 from _ctypes import sizeof
 from _ctypes import _SimpleCData
+from _ctypes import CFuncPtr as _CFuncPtr
+
 from struct import calcsize as _calcsize
+
+
+DEFAULT_MODE = RTLD_LOCAL
+if _os.name == "posix" and _sys.platform == "darwin":
+    # On OS X 10.3, we use RTLD_GLOBAL as default mode
+    # because RTLD_LOCAL does not work at least on some
+    # libraries.  OS X 10.3 is Darwin 7, so we check for
+    # that.
+
+    if int(_os.uname().release.split('.')[0]) < 8:
+        DEFAULT_MODE = RTLD_GLOBAL
+
+from _ctypes import FUNCFLAG_CDECL as _FUNCFLAG_CDECL, \
+    FUNCFLAG_PYTHONAPI as _FUNCFLAG_PYTHONAPI, \
+    FUNCFLAG_USE_ERRNO as _FUNCFLAG_USE_ERRNO, \
+    FUNCFLAG_USE_LASTERROR as _FUNCFLAG_USE_LASTERROR
 
 def create_string_buffer(init, size=None):
     """create_string_buffer(aBytes) -> character array
@@ -131,3 +151,115 @@ f = c_float(3.14)
 # s = create_string_buffer(b'\000' * 32)
 assert i.value == 42
 assert abs(f.value -  3.14) < 1e-06
+
+if _os.name == "nt":
+    from _ctypes import LoadLibrary as _dlopen
+    from _ctypes import FUNCFLAG_STDCALL as _FUNCFLAG_STDCALL
+
+class CDLL(object):
+    """An instance of this class represents a loaded dll/shared
+    library, exporting functions using the standard C calling
+    convention (named 'cdecl' on Windows).
+
+    The exported functions can be accessed as attributes, or by
+    indexing with the function name.  Examples:
+
+    <obj>.qsort -> callable object
+    <obj>['qsort'] -> callable object
+
+    Calling the functions releases the Python GIL during the call and
+    reacquires it afterwards.
+    """
+    _func_flags_ = _FUNCFLAG_CDECL
+    _func_restype_ = c_int
+    # default values for repr
+    _name = '<uninitialized>'
+    _handle = 0
+    _FuncPtr = None
+
+    def __init__(self, name, mode=DEFAULT_MODE, handle=None,
+                 use_errno=False,
+                 use_last_error=False,
+                 winmode=None):
+        self._name = name
+        flags = self._func_flags_
+        if use_errno:
+            flags |= _FUNCFLAG_USE_ERRNO
+        if use_last_error:
+            flags |= _FUNCFLAG_USE_LASTERROR
+        if _sys.platform.startswith("aix"):
+            """When the name contains ".a(" and ends with ")",
+               e.g., "libFOO.a(libFOO.so)" - this is taken to be an
+               archive(member) syntax for dlopen(), and the mode is adjusted.
+               Otherwise, name is presented to dlopen() as a file argument.
+            """
+            if name and name.endswith(")") and ".a(" in name:
+                mode |= ( _os.RTLD_MEMBER | _os.RTLD_NOW )
+        if _os.name == "nt":
+            if winmode is not None:
+                mode = winmode
+            else:
+                import nt
+                mode = 4096
+                if '/' in name or '\\' in name:
+                    self._name = nt._getfullpathname(self._name)
+                    mode |= nt._LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR
+
+        class _FuncPtr(_CFuncPtr):
+            _flags_ = flags
+            _restype_ = self._func_restype_
+        self._FuncPtr = _FuncPtr
+
+        if handle is None:
+            self._handle = _dlopen(self._name, mode)
+        else:
+            self._handle = handle
+
+    def __repr__(self):
+        return "<%s '%s', handle %x at %#x>" % \
+            (self.__class__.__name__, self._name,
+             (self._handle & (_sys.maxsize*2 + 1)),
+             id(self) & (_sys.maxsize*2 + 1))
+
+    def __getattr__(self, name):
+        if name.startswith('__') and name.endswith('__'):
+            raise AttributeError(name)
+        func = self.__getitem__(name)
+        setattr(self, name, func)
+        return func
+
+    def __getitem__(self, name_or_ordinal):
+        func = self._FuncPtr((name_or_ordinal, self))
+        if not isinstance(name_or_ordinal, int):
+            func.__name__ = name_or_ordinal
+        return func
+
+class LibraryLoader(object):
+    def __init__(self, dlltype):
+        self._dlltype = dlltype
+
+    def __getattr__(self, name):
+        if name[0] == '_':
+            raise AttributeError(name)
+        try:
+            dll = self._dlltype(name)
+        except OSError:
+            raise AttributeError(name)
+        setattr(self, name, dll)
+        return dll
+
+    def __getitem__(self, name):
+        return getattr(self, name)
+
+    def LoadLibrary(self, name):
+        return self._dlltype(name)
+
+    __class_getitem__ = classmethod(_types.GenericAlias)
+
+cdll = LibraryLoader(CDLL)
+
+if _os.name == "posix" and _sys.platform == "darwin":
+    pass
+else:
+    libc = cdll.msvcrt
+    print("rand", libc.rand())

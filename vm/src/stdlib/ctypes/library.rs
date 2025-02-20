@@ -1,6 +1,9 @@
 use crate::VirtualMachine;
 use crossbeam_utils::atomic::AtomicCell;
-use libloading::Library;
+#[cfg(not(target_os = "windows"))]
+use libloading::os::unix::{Library, Symbol};
+#[cfg(target_os = "windows")]
+use libloading::os::windows::{Library, Symbol};
 use rustpython_common::lock::PyRwLock;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -8,6 +11,9 @@ use std::fmt;
 use std::ptr::null;
 
 pub struct SharedLibrary {
+    #[cfg(target_os = "windows")]
+    lib: AtomicCell<Option<Library>>,
+    #[cfg(not(target_os = "windows"))]
     lib: AtomicCell<Option<Library>>,
 }
 
@@ -24,13 +30,20 @@ impl SharedLibrary {
         })
     }
 
+    #[cfg(target_os = "windows")]
+    pub fn new_with_flags(name: &str, flags: u32) -> Result<SharedLibrary, libloading::Error> {
+        Ok(SharedLibrary {
+            lib: AtomicCell::new(Some(unsafe { Library::load_with_flags(name, flags)? })),
+        })
+    }
+
     #[allow(dead_code)]
     pub fn get_sym(&self, name: &str) -> Result<*mut c_void, String> {
         if let Some(inner) = unsafe { &*self.lib.as_ptr() } {
             unsafe {
                 inner
                     .get(name.as_bytes())
-                    .map(|f: libloading::Symbol<'_, *mut c_void>| *f)
+                    .map(|f: Symbol<'_, *mut c_void>| *f)
                     .map_err(|err| err.to_string())
             }
         } else {
