@@ -69,6 +69,10 @@ class OpenDiskTests(OpenTests, unittest.TestCase):
     def setUp(self):
         self.data = data01
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    def test_read_bytes(self):
+        super().test_read_bytes()
+
 
 class OpenDiskNamespaceTests(OpenTests, unittest.TestCase):
     def setUp(self):

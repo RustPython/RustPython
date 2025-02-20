@@ -20,7 +20,6 @@ env:
   WINDOWS_SKIPS: >-
     test_argparse
     test_glob
-    test_importlib
     test_io
     test_os
     test_pathlib

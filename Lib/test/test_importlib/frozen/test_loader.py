@@ -77,6 +77,7 @@ class ExecModuleTests(abc.LoaderTests):
         self.assertTrue(hasattr(module, '__spec__'))
         self.assertEqual(module.__spec__.loader_state.origname, name)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_package(self):
         name = '__phello__'
         module, output = self.exec_module(name)
@@ -90,6 +91,7 @@ class ExecModuleTests(abc.LoaderTests):
         self.assertEqual(output, 'Hello world!\n')
         self.assertEqual(module.__spec__.loader_state.origname, name)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_lacking_parent(self):
         name = '__phello__.spam'
         with util.uncache('__phello__'):
@@ -147,6 +149,7 @@ class InspectLoaderTests:
             result = self.machinery.FrozenImporter.get_source('__hello__')
         self.assertIsNone(result)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_is_package(self):
         # Should be able to tell what is a package.
         test_for = (('__hello__', False), ('__phello__', True),
