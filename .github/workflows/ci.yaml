@@ -60,7 +60,6 @@ env:
     test_dis
     test_enumerate
     test_exception_variations
-    test_exceptions
     test_float
     test_format
     test_fractions
