@@ -108,7 +108,7 @@ pub fn divmod(v1: f64, v2: f64) -> Option<(f64, f64)> {
 
 // nextafter algorithm based off of https://gitlab.com/bronsonbdevost/next_afterf
 #[allow(clippy::float_cmp)]
-pub fn nextafter(x: f64, y: f64, steps: Option<u64>) -> f64 {
+pub fn nextafter(x: f64, y: f64) -> f64 {
     if x == y {
         y
     } else if x.is_nan() || y.is_nan() {
@@ -120,69 +120,79 @@ pub fn nextafter(x: f64, y: f64, steps: Option<u64>) -> f64 {
     } else if x == 0.0 {
         f64::from_bits(1).copysign(y)
     } else {
-        return match steps {
-            None => {
-                // next x after 0 if y is farther from 0 than x, otherwise next towards 0
-                // the sign is a separate bit in floats, so bits+1 moves away from 0 no matter the float
-                let b = x.to_bits();
-                let bits = if (y > x) == (x > 0.0) { b + 1 } else { b - 1 };
-                let ret = f64::from_bits(bits);
-                if ret == 0.0 {
-                    ret.copysign(x)
-                } else {
-                    ret
-                }
+        // next x after 0 if y is farther from 0 than x, otherwise next towards 0
+        // the sign is a separate bit in floats, so bits+1 moves away from 0 no matter the float
+        let b = x.to_bits();
+        let bits = if (y > x) == (x > 0.0) { b + 1 } else { b - 1 };
+        let ret = f64::from_bits(bits);
+        if ret == 0.0 {
+            ret.copysign(x)
+        } else {
+            ret
+        }
+    }
+}
+
+#[allow(clippy::float_cmp)]
+pub fn nextafter_with_steps(x: f64, y: f64, steps: u64) -> f64 {
+    if x == y {
+        y
+    } else if x.is_nan() || y.is_nan() {
+        f64::NAN
+    } else if x >= f64::INFINITY {
+        f64::MAX
+    } else if x <= f64::NEG_INFINITY {
+        f64::MIN
+    } else if x == 0.0 {
+        f64::from_bits(1).copysign(y)
+    } else {
+        if steps == 0 {
+            return x;
+        }
+
+        if x.is_nan() {
+            return x;
+        }
+
+        if y.is_nan() {
+            return y;
+        }
+
+        let sign_bit: u64 = 1 << 63;
+
+        let mut ux = x.to_bits();
+        let uy = y.to_bits();
+
+        let ax = ux & !sign_bit;
+        let ay = uy & !sign_bit;
+
+        // If signs are different
+        if ((ux ^ uy) & sign_bit) != 0 {
+            return if ax + ay <= steps {
+                f64::from_bits(uy)
+            } else if ax < steps {
+                let result = (uy & sign_bit) | (steps - ax);
+                f64::from_bits(result)
+            } else {
+                ux -= steps;
+                f64::from_bits(ux)
+            };
+        }
+
+        // If signs are the same
+        if ax > ay {
+            if ax - ay >= steps {
+                ux -= steps;
+                f64::from_bits(ux)
+            } else {
+                f64::from_bits(uy)
             }
-            Some(steps) => {
-                if steps == 0 {
-                    return x;
-                }
-
-                if x.is_nan() {
-                    return x;
-                }
-
-                if y.is_nan() {
-                    return y;
-                }
-
-                let sign_bit: u64 = 1 << 63;
-
-                let mut ux = x.to_bits();
-                let uy = y.to_bits();
-
-                let ax = ux & !sign_bit;
-                let ay = uy & !sign_bit;
-
-                // If signs are different
-                if ((ux ^ uy) & sign_bit) != 0 {
-                    return if ax + ay <= steps {
-                        f64::from_bits(uy)
-                    } else if ax < steps {
-                        let result = (uy & sign_bit) | (steps - ax);
-                        f64::from_bits(result)
-                    } else {
-                        ux -= steps;
-                        f64::from_bits(ux)
-                    };
-                }
-
-                // If signs are the same
-                if ax > ay {
-                    if ax - ay >= steps {
-                        ux -= steps;
-                        f64::from_bits(ux)
-                    } else {
-                        f64::from_bits(uy)
-                    }
-                } else if ay - ax >= steps {
-                    ux += steps;
-                    f64::from_bits(ux)
-                } else {
-                    f64::from_bits(uy)
-                }
-            }
-        };
+        } else if ay - ax >= steps {
+            ux += steps;
+            f64::from_bits(ux)
+        } else {
+            f64::from_bits(uy)
+        }
     }
 }
 
@@ -191,10 +201,10 @@ pub fn ulp(x: f64) -> f64 {
         return x;
     }
     let x = x.abs();
-    let x2 = nextafter(x, f64::INFINITY, None);
+    let x2 = nextafter(x, f64::INFINITY);
     if x2.is_infinite() {
         // special case: x is the largest positive representable float
-        let x2 = nextafter(x, f64::NEG_INFINITY, None);
+        let x2 = nextafter(x, f64::NEG_INFINITY);
         x - x2
     } else {
         x2 - x

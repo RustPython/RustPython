@@ -855,9 +855,13 @@ mod math {
                         vm.new_value_error("steps must be a non-negative integer".to_string())
                     );
                 }
-                Ok(float_ops::nextafter(*arg.x, *arg.y, Some(steps as u64)))
+                Ok(float_ops::nextafter_with_steps(
+                    *arg.x,
+                    *arg.y,
+                    steps as u64,
+                ))
             }
-            None => Ok(float_ops::nextafter(*arg.x, *arg.y, None)),
+            None => Ok(float_ops::nextafter(*arg.x, *arg.y)),
         }
     }
 
