@@ -637,10 +637,10 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyOb
                     }
                 }
                 StandardEncoding::Utf16Le => {
-                    c = (p[1] as u32) << 8 | p[0] as u32;
+                    c = ((p[1] as u32) << 8) | p[0] as u32;
                 }
                 StandardEncoding::Utf16Be => {
-                    c = (p[0] as u32) << 8 | p[1] as u32;
+                    c = ((p[0] as u32) << 8) | p[1] as u32;
                 }
                 StandardEncoding::Utf32Le => {
                     c = ((p[3] as u32) << 24)

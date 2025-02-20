@@ -197,7 +197,7 @@ impl OpArgState {
     }
     #[inline(always)]
     pub fn extend(&mut self, arg: OpArgByte) -> OpArg {
-        self.state = self.state << 8 | u32::from(arg.0);
+        self.state = (self.state << 8) | u32::from(arg.0);
         OpArg(self.state)
     }
     #[inline(always)]

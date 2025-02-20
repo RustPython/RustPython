@@ -374,7 +374,9 @@ fn write_traceback_entry<W: Write>(
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
-        filename, tb_entry.lineno, tb_entry.frame.code.obj_name
+        filename.trim_start_matches(r"\\\\?\\"),
+        tb_entry.lineno,
+        tb_entry.frame.code.obj_name
     )?;
     print_source_line(output, filename, tb_entry.lineno.to_usize())?;
 

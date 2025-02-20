@@ -1,11 +1,10 @@
-/// This an example usage of the rustpython_compiler crate.
-/// This program reads, parses, and compiles a file you provide
-/// to RustPython bytecode, and then displays the output in the
-/// `dis.dis` format.
-///
-/// example usage:
-/// $ cargo run --release --example dis demo*.py
-
+//! This an example usage of the rustpython_compiler crate.
+//! This program reads, parses, and compiles a file you provide
+//! to RustPython bytecode, and then displays the output in the
+//! `dis.dis` format.
+//!
+//! example usage:
+//! $ cargo run --release --example dis demo*.py
 #[macro_use]
 extern crate clap;
 extern crate env_logger;
@@ -61,10 +60,7 @@ fn main() {
     let optimize = matches.occurrences_of("optimize") as u8;
     let scripts = matches.values_of_os("scripts").unwrap();
 
-    let opts = compiler::CompileOpts {
-        optimize,
-        ..Default::default()
-    };
+    let opts = compiler::CompileOpts { optimize };
 
     for script in scripts.map(Path::new) {
         if script.exists() && script.is_file() {

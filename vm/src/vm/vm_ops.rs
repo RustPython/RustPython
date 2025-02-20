@@ -6,6 +6,7 @@ use crate::{
     types::PyComparisonOp,
 };
 use num_traits::ToPrimitive;
+use std::ptr::fn_addr_eq;
 
 macro_rules! binary_func {
     ($fn:ident, $op_slot:ident, $op:expr) => {
@@ -298,8 +299,8 @@ impl VirtualMachine {
         }
 
         if let Some(slot_c) = class_c.slots.as_number.left_ternary_op(op_slot) {
-            if slot_a.is_some_and(|slot_a| slot_a != slot_c)
-                && slot_b.is_some_and(|slot_b| slot_b != slot_c)
+            if slot_a.is_some_and(|slot_a| !fn_addr_eq(slot_a, slot_c))
+                && slot_b.is_some_and(|slot_b| !fn_addr_eq(slot_b, slot_c))
             {
                 let ret = slot_c(a, b, c, self)?;
                 if !ret.is(&self.ctx.not_implemented) {

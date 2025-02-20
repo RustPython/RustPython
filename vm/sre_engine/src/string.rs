@@ -181,7 +181,7 @@ unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
         let z = **ptr;
         *ptr = ptr.offset(1);
         let y_z = utf8_acc_cont_byte((y & CONT_MASK) as u32, z);
-        ch = init << 12 | y_z;
+        ch = (init << 12) | y_z;
         if x >= 0xF0 {
             // [x y z w] case
             // use only the lower 3 bits of `init`
@@ -189,7 +189,7 @@ unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
             // so the iterator must produce a value here.
             let w = **ptr;
             *ptr = ptr.offset(1);
-            ch = (init & 7) << 18 | utf8_acc_cont_byte(y_z, w);
+            ch = ((init & 7) << 18) | utf8_acc_cont_byte(y_z, w);
         }
     }
 

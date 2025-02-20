@@ -1,8 +1,8 @@
-///! This example show cases a very simple REPL.
-///! While a much better REPL can be found in ../src/shell,
-///! This much smaller REPL is still a useful example because it showcases inserting
-///! values and functions into the Python runtime's scope, and showcases use
-///! of the compilation mode "Single".
+//! This example show cases a very simple REPL.
+//! While a much better REPL can be found in ../src/shell,
+//! This much smaller REPL is still a useful example because it showcases inserting
+//! values and functions into the Python runtime's scope, and showcases use
+//! of the compilation mode "Single".
 use rustpython_vm as vm;
 // these are needed for special memory shenanigans to let us share a variable with Python and Rust
 use std::sync::atomic::{AtomicBool, Ordering};
