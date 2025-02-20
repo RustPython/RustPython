@@ -2178,6 +2178,7 @@ name = "rustpython-sre_engine"
 version = "0.4.0"
 dependencies = [
  "bitflags 2.8.0",
+ "criterion",
  "num_enum",
  "optional",
 ]
