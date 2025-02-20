@@ -14,3 +14,11 @@ fn getrandom_always_fail(_buf: &mut [u8]) -> Result<(), getrandom::Error> {
 }
 
 getrandom::register_custom_getrandom!(getrandom_always_fail);
+
+#[unsafe(no_mangle)]
+unsafe extern "Rust" fn __getrandom_v03_custom(
+    _dest: *mut u8,
+    _len: usize,
+) -> Result<(), getrandom_03::Error> {
+    Err(getrandom_03::Error::UNSUPPORTED)
+}

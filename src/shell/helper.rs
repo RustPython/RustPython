@@ -107,7 +107,7 @@ impl<'vm> ShellHelper<'vm> {
             .filter(|res| {
                 res.as_ref()
                     .ok()
-                    .map_or(true, |s| s.as_str().starts_with(word_start))
+                    .is_none_or(|s| s.as_str().starts_with(word_start))
             })
             .collect::<Result<Vec<_>, _>>()
             .ok()?;

@@ -113,7 +113,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
     //     ));
     // }
 
-    let state = if obj.dict().map_or(true, |d| d.is_empty()) {
+    let state = if obj.dict().is_none_or(|d| d.is_empty()) {
         vm.ctx.none()
     } else {
         // let state = object_get_dict(obj.clone(), obj.ctx()).unwrap();

@@ -1,6 +1,10 @@
-use crate::builtins::{PyBytes, PyFloat, PyInt, PyModule, PyNone, PyStr};
-use crate::class::PyClassImpl;
-use crate::{Py, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+use crate::builtins::PyType;
+use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyTypeRef};
+use crate::convert::ToPyObject;
+use crate::function::{Either, OptionalArg};
+use crate::stdlib::ctypes::_ctypes::new_simple_type;
+use crate::types::Constructor;
+use crate::{AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
@@ -129,16 +133,32 @@ pub struct PyCData {
 #[pyclass]
 impl PyCData {}
 
+#[pyclass(module = "_ctypes", name = "PyCSimpleType", base = "PyType")]
+pub struct PySimpleMeta {}
+
+#[pyclass(flags(BASETYPE))]
+impl PySimpleMeta {
+    #[allow(clippy::new_ret_no_self)]
+    #[pymethod]
+    fn new(cls: PyTypeRef, _: OptionalArg, vm: &VirtualMachine) -> PyResult {
+        Ok(PyObjectRef::from(
+            new_simple_type(Either::B(&cls), vm)?
+                .into_ref_with_type(vm, cls)?
+                .clone(),
+        ))
+    }
+}
+
 #[pyclass(
     name = "_SimpleCData",
     base = "PyCData",
-    module = "_ctypes"
-    // TODO: metaclass
+    module = "_ctypes",
+    metaclass = "PySimpleMeta"
 )]
 #[derive(PyPayload)]
 pub struct PyCSimple {
     pub _type_: String,
-    pub _value: AtomicCell<PyObjectRef>,
+    pub value: AtomicCell<PyObjectRef>,
 }
 
 impl Debug for PyCSimple {
@@ -149,13 +169,56 @@ impl Debug for PyCSimple {
     }
 }
 
-#[pyclass(flags(BASETYPE))]
-impl PyCSimple {}
+impl Constructor for PyCSimple {
+    type Args = (OptionalArg,);
 
-pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
-    let ctx = &vm.ctx;
-    extend_module!(vm, module, {
-        "_CData" => PyCData::make_class(ctx),
-        "_SimpleCData" => PyCSimple::make_class(ctx),
-    })
+    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        let attributes = cls.get_attributes();
+        let _type_ = attributes
+            .iter()
+            .find(|(&k, _)| k.to_object().str(vm).unwrap().to_string() == *"_type_")
+            .unwrap()
+            .1
+            .str(vm)?
+            .to_string();
+        let value = if let Some(ref v) = args.0.into_option() {
+            set_primitive(_type_.as_str(), v, vm)?
+        } else {
+            match _type_.as_str() {
+                "c" | "u" => PyObjectRef::from(vm.ctx.new_bytes(vec![0])),
+                "b" | "B" | "h" | "H" | "i" | "I" | "l" | "q" | "L" | "Q" => {
+                    PyObjectRef::from(vm.ctx.new_int(0))
+                }
+                "f" | "d" | "g" => PyObjectRef::from(vm.ctx.new_float(0.0)),
+                "?" => PyObjectRef::from(vm.ctx.new_bool(false)),
+                _ => vm.ctx.none(), // "z" | "Z" | "P"
+            }
+        };
+        Ok(PyCSimple {
+            _type_,
+            value: AtomicCell::new(value),
+        }
+        .to_pyobject(vm))
+    }
+}
+
+#[pyclass(flags(BASETYPE), with(Constructor))]
+impl PyCSimple {
+    #[pygetset(name = "value")]
+    pub fn value(instance: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let zelf: &Py<Self> = instance
+            .downcast_ref()
+            .ok_or_else(|| vm.new_type_error("cannot get value of instance".to_string()))?;
+        Ok(unsafe { (*zelf.value.as_ptr()).clone() })
+    }
+
+    #[pygetset(name = "value", setter)]
+    fn set_value(instance: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let zelf: PyRef<Self> = instance
+            .downcast()
+            .map_err(|_| vm.new_type_error("cannot set value of instance".to_string()))?;
+        let content = set_primitive(zelf._type_.as_str(), &value, vm)?;
+        zelf.value.store(content);
+        Ok(())
+    }
 }

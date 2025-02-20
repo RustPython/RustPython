@@ -34,6 +34,7 @@ env:
   # PLATFORM_INDEPENDENT_TESTS are tests that do not depend on the underlying OS. They are currently
   # only run on Linux to speed up the CI.
   PLATFORM_INDEPENDENT_TESTS: >-
+    test__colorize
     test_argparse
     test_array
     test_asyncgen
@@ -378,7 +379,8 @@ jobs:
         with: { wabt-version: "1.0.30" }
       - name: check wasm32-unknown without js
         run: |
-          cargo build --release --manifest-path wasm/wasm-unknown-test/Cargo.toml --target wasm32-unknown-unknown --verbose
+          cd wasm/wasm-unknown-test
+          cargo build --release --verbose
           if wasm-objdump -xj Import target/wasm32-unknown-unknown/release/wasm_unknown_test.wasm; then
             echo "ERROR: wasm32-unknown module expects imports from the host environment" >2
           fi

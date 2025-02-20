@@ -1,6 +1,28 @@
+import os as _os, sys as _sys
+
 from _ctypes import sizeof
 from _ctypes import _SimpleCData
 from struct import calcsize as _calcsize
+
+def create_string_buffer(init, size=None):
+    """create_string_buffer(aBytes) -> character array
+    create_string_buffer(anInteger) -> character array
+    create_string_buffer(aBytes, anInteger) -> character array
+    """
+    if isinstance(init, bytes):
+        if size is None:
+            size = len(init)+1
+        _sys.audit("ctypes.create_string_buffer", init, size)
+        buftype = c_char * size
+        buf = buftype()
+        buf.value = init
+        return buf
+    elif isinstance(init, int):
+        _sys.audit("ctypes.create_string_buffer", None, init)
+        buftype = c_char * init
+        buf = buftype()
+        return buf
+    raise TypeError(init)
 
 def _check_size(typ, typecode=None):
     # Check if sizeof(ctypes_type) against struct.calcsize.  This
@@ -103,3 +125,9 @@ _check_size(c_void_p)
 class c_bool(_SimpleCData):
     _type_ = "?"
 _check_size(c_bool)
+
+i = c_int(42)
+f = c_float(3.14)
+# s = create_string_buffer(b'\000' * 32)
+assert i.value == 42
+assert abs(f.value -  3.14) < 1e-06
