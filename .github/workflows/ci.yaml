@@ -18,6 +18,7 @@ env:
   CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,sqlite,ssl
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
   WINDOWS_SKIPS: >-
+    test_argparse
     test_glob
     test_importlib
     test_io
