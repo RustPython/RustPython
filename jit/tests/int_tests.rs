@@ -1,3 +1,5 @@
+use std::i64;
+
 #[test]
 fn test_add() {
     let add = jit_function! { add(a:i64, b:i64) -> i64 => r##"
