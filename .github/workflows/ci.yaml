@@ -1,8 +1,8 @@
 on:
   push:
-    branches: [main, release]
+    branches: [ main, release ]
   pull_request:
-    types: [unlabeled, opened, synchronize, reopened]
+    types: [ unlabeled, opened, synchronize, reopened ]
   merge_group:
 
 name: CI
@@ -114,10 +114,10 @@ jobs:
     env:
       RUST_BACKTRACE: full
     name: Run rust tests
-    runs-on:  ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [ macos-latest, ubuntu-latest, windows-latest ]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
@@ -232,23 +232,20 @@ jobs:
           command: check
           args: --ignore-rust-version
 
-  snippets_cpython:
+  rust_build:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
-    name: Run snippets and cpython tests
-    runs-on:  ${{ matrix.os }}
+    name: Build rustpython
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [ macos-latest, ubuntu-latest, windows-latest ]
       fail-fast: false
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
       - name: Set up the Windows environment
         shell: bash
         run: |
@@ -264,44 +261,88 @@ jobs:
       - name: build rustpython
         run: cargo build --release --verbose --features=threading ${{ env.CARGO_ARGS }},jit
         if: runner.os != 'macOS'
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustpython (${{ runner.os }})
+          path: ${{ runner.os == 'windows-latest' && 'target\\release\\rustpython.exe' || 'target/release/rustpython' }}
+
+  test_snippets:
+    needs: rust_build
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    env:
+      RUST_BACKTRACE: full
+    name: Run snippet tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ macos-latest, ubuntu-latest, windows-latest ]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rustpython (${{ runner.os }})
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
         working-directory: ./extra_tests
-      - if: runner.os == 'Linux'
-        name: run cpython platform-independent tests
-        run:
-          target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-      - if: runner.os == 'Linux'
-        name: run cpython platform-dependent tests (Linux)
-        run: target/release/rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
-      - if: runner.os == 'macOS'
-        name: run cpython platform-dependent tests (MacOS)
-        run: target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.MACOS_SKIPS }}
-      - if: runner.os == 'Windows'
-        name: run cpython platform-dependent tests (windows partial - fixme)
-        run:
-          target/release/rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
       - if: runner.os != 'Windows'
         name: check that --install-pip succeeds
         run: |
           mkdir site-packages
-          target/release/rustpython --install-pip ensurepip --user
-          target/release/rustpython -m pip install six
+          rustpython --install-pip ensurepip --user
+          rustpython -m pip install six
       - if: runner.os != 'Windows'
         name: Check that ensurepip succeeds.
         run: |
-          target/release/rustpython -m ensurepip
-          target/release/rustpython -c "import pip"
+          rustpython -m ensurepip
+          rustpython -c "import pip"
       - if: runner.os != 'Windows'
         name: Check if pip inside venv is functional
         run: |
-          target/release/rustpython -m venv testvenv
+          rustpython -m venv testvenv
           testvenv/bin/rustpython -m pip install wheel
       - name: Check whats_left is not broken
         run: python -I whats_left.py
+
+  python_tests:
+    needs: rust_build
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
+    env:
+      RUST_BACKTRACE: full
+    name: Run cpython tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ macos-latest, ubuntu-latest, windows-latest ]
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: rustpython (${{ runner.os }})
+      - if: runner.os == 'Linux'
+        name: run cpython platform-independent tests
+        run:
+          rustpython -m test -j 1 -u all --slowest --fail-env-changed -v ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+      - if: runner.os == 'Linux'
+        name: run cpython platform-dependent tests (Linux)
+        run: rustpython -m test -j 1 -u all --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }}
+      - if: runner.os == 'macOS'
+        name: run cpython platform-dependent tests (MacOS)
+        run: rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.MACOS_SKIPS }}
+      - if: runner.os == 'Windows'
+        name: run cpython platform-dependent tests (windows partial - fixme)
+        run:
+          rustpython -m test -j 1 --slowest --fail-env-changed -v -x ${{ env.PLATFORM_INDEPENDENT_TESTS }} ${{ env.WINDOWS_SKIPS }}
 
   lint:
     name: Check Rust code with rustfmt and clippy
@@ -310,7 +351,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-            components: rustfmt, clippy
+          components: rustfmt, clippy
       - name: run rustfmt
         run: cargo fmt --check
       - name: run clippy on wasm
@@ -336,8 +377,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
-            toolchain: nightly
-            components: miri
+          toolchain: nightly
+          components: miri
 
       - uses: Swatinem/rust-cache@v2
       - name: Run tests under miri
