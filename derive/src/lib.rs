@@ -12,6 +12,124 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
     derive_impl::derive_from_args(input).into()
 }
 
+/// The attribute can be applied either to a struct, trait, or impl.
+/// # Struct
+/// This implements `MaybeTraverse`, `PyClassDef`, and `StaticType` for the struct.
+/// Consider deriving `Traverse` to implement it.
+/// ## Arguments
+/// - `module`: the module which contains the class --  can be omitted if in a `#[pymodule]`.
+/// - `name`: the name of the Python class, by default it is the name of the struct.
+/// - `base`: the base class of the Python class.
+/// This does not cause inheritance of functions or attributes that must be done by a separate trait.
+/// # Impl
+/// This part implements `PyClassImpl` for the struct.
+/// This includes methods, getters/setters, etc.; only annotated methods will be included.
+/// Common functions and abilities like instantiation and `__call__` are often implemented by
+/// traits rather than in the `impl` itself; see `Constructor` and `Callable` respectively for those.
+/// ## Arguments
+/// - `name`: the name of the Python class, when no name is provided the struct name is used.
+/// - `flags`: the flags of the class, see `PyTypeFlags`.
+///     - `BASETYPE`: allows the class to be inheritable.
+///     - `IMMUTABLETYPE`: class attributes are immutable.
+/// - `with`: which trait implementations are to be included in the python class.
+/// ```no_run
+/// #[pyclass(module = "mymodule", name = "MyClass", base = "BaseClass")]
+/// struct MyStruct {
+///    x: i32,
+/// }
+///
+/// impl Constructor for MyStruct {
+///     ...
+/// }
+///
+/// #[pyclass(with(Constructor))]
+/// impl MyStruct {
+///    ...
+/// }
+/// ```
+/// ## Inner markers
+/// ### pymethod/pyclassmethod/pystaticmethod
+/// `pymethod` is used to mark a method of the Python class.
+/// `pyclassmethod` is used to mark a class method.
+/// `pystaticmethod` is used to mark a static method.
+/// #### Method signature
+/// The first parameter can be either `&self` or `<var>: PyRef<Self>` for `pymethod`.
+/// The first parameter can be `cls: PyTypeRef` for `pyclassmethod`.
+/// There is no mandatory parameter for `pystaticmethod`.
+/// Both are valid and essentially the same, but the latter can yield more control.
+/// The last parameter can optionally be of the type `&VirtualMachine` to access the VM.
+/// All other values must implement `IntoPyResult`.
+/// Numeric types, `String`, `bool`, and `PyObjectRef` implement this trait,
+/// but so does any object that implements `PyValue`.
+/// Consider using `OptionalArg` for optional arguments.
+/// #### Arguments
+/// - `magic`: marks the method as a magic method: the method name is surrounded with double underscores.
+/// ```no_run
+/// #[pyclass]
+/// impl MyStruct {
+///     // This will be called as the `__add__` method in Python.
+///     #[pymethod(magic)]
+///     fn add(&self, other: &Self) -> PyResult<i32> {
+///        ...
+///     }
+/// }
+/// ```
+/// - `name`: the name of the method in Python,
+/// by default it is the same as the Rust method, or surrounded by double underscores if magic is present.
+/// This overrides `magic` and the default name and cannot be used with `magic` to prevent ambiguity.
+/// ### pygetset
+/// This is used to mark a getter/setter pair.
+/// #### Arguments
+/// - `setter`: marks the method as a setter, it acts as a getter by default.
+/// Setter method names should be prefixed with `set_`.
+/// - `name`: the name of the attribute in Python, by default it is the same as the Rust method.
+/// - `magic`: marks the method as a magic method: the method name is surrounded with double underscores.
+/// This cannot be used with `name` to prevent ambiguity.
+///
+/// Ensure both the getter and setter are marked with `name` and `magic` in the same manner.
+/// #### Examples
+/// ```no_run
+/// #[pyclass]
+/// impl MyStruct {
+///    #[pygetset]
+///    fn x(&self) -> PyResult<i32> {
+///       Ok(self.x.lock())
+///     }
+///    #[pygetset(setter)]
+///   fn set_x(&mut self, value: i32) -> PyResult<()> {
+///      self.x.set(value);
+///     Ok(())
+///     }
+/// }
+/// ```
+/// ### pyslot
+/// This is used to mark a slot method it should be marked by prefixing the method in rust with `slot_`.
+/// #### Arguments
+/// - name: the name of the slot method.
+/// ### pyattr
+/// ### extend_class
+/// This helps inherit attributes from a parent class.
+/// The method this is applied on should be called `extend_class_with_fields`.
+/// #### Examples
+/// ```no_run
+/// #[extend_class]
+/// fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
+///     class.set_attr(
+///         identifier!(ctx, _fields),
+///         ctx.new_tuple(vec![
+///             ctx.new_str(ascii!("body")).into(),
+///             ctx.new_str(ascii!("type_ignores")).into(),
+///         ])
+///         .into(),
+///     );
+///     class.set_attr(identifier!(ctx, _attributes), ctx.new_list(vec![]).into());
+/// }
+/// ```
+/// ### pymember
+/// # Trait
+/// `#[pyclass]` on traits functions a lot like `#[pyclass]` on `impl` blocks.
+/// Note that associated functions that are annotated with `#[pymethod]` or similar **must**
+/// have a body, abstract functions should be wrapped before applying an annotation.
 #[proc_macro_attribute]
 pub fn pyclass(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr);
