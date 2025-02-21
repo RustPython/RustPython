@@ -562,4 +562,112 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .trapif(IntCC::Overflow, carry, TrapCode::IntegerOverflow);
         out
     }
+    fn compile_ipow(&mut self, a: Value, b: Value) -> Value{
+        let float_base = self.builder.ins().fcvt_from_sint(types::F64, a); 
+
+        let check_block1 = self.builder.create_block(); 
+        let check_block2 = self.builder.create_block(); 
+        let check_block3 = self.builder.create_block(); 
+        let handle_neg_exp = self.builder.create_block();
+        let loop_block = self.builder.create_block(); 
+        let continue_block = self.builder.create_block(); 
+        let exit_block = self.builder.create_block(); 
+
+        self.builder.append_block_param(check_block1, types::F64);
+        self.builder.append_block_param(check_block1, types::I64); 
+       
+        self.builder.append_block_param(check_block2, types::F64);
+        self.builder.append_block_param(check_block2, types::I64); 
+
+        self.builder.append_block_param(check_block3, types::F64);
+        self.builder.append_block_param(check_block3, types::I64); 
+
+        self.builder.append_block_param(handle_neg_exp, types::F64); 
+        self.builder.append_block_param(handle_neg_exp, types::I64); 
+
+        self.builder.append_block_param(loop_block, types::F64); //base
+        self.builder.append_block_param(loop_block, types::F64); //result 
+        self.builder.append_block_param(loop_block, types::I64); //exponent
+
+        self.builder.append_block_param(continue_block, types::F64); //base
+        self.builder.append_block_param(continue_block, types::F64); //result 
+        self.builder.append_block_param(continue_block, types::I64); //exponent
+
+        self.builder.append_block_param(exit_block,types::F64); 
+
+        self.builder.ins().jump(check_block1, &[float_base, b]); 
+
+        self.builder.switch_to_block(check_block1); 
+        let paramsc1 = self.builder.block_params(check_block1); 
+        let basec1 = paramsc1[0];
+        let expc1 = paramsc1[1];  
+        let zero_f64 = self.builder.ins().f64const(0.0);  
+        let is_zero = self.builder.ins().fcmp(FloatCC::Equal, zero_f64, basec1); 
+        self.builder.ins().brnz(is_zero, exit_block, &[zero_f64]); 
+        self.builder.ins().jump(check_block2, &[basec1, expc1]); 
+        
+        self.builder.switch_to_block(check_block2);
+        let paramsc2 = self.builder.block_params(check_block2); 
+        let basec2 = paramsc2[0];
+        let expc2 = paramsc2[1]; 
+        let zero_i64 = self.builder.ins().iconst(types::I64, 0); 
+        let is_neg = self.builder.ins().icmp(IntCC::SignedLessThan, expc2, zero_i64); 
+        self.builder.ins().brnz(is_neg, handle_neg_exp, &[basec2, expc2]); 
+        self.builder.ins().jump(check_block3, &[basec2, expc2]); 
+        
+        self.builder.switch_to_block(check_block3);
+        let paramsc3 = self.builder.block_params(check_block3); 
+        let basec3 = paramsc3[0];
+        let expc3 = paramsc3[1]; 
+        let resc3 = self.builder.ins().f64const(1.0); 
+        let one_i64 = self.builder.ins().iconst(types::I64, 1); 
+        let is_one = self.builder.ins().icmp(IntCC::Equal, expc3, one_i64); 
+        self.builder.ins().brnz(is_one, exit_block, &[basec3]); 
+        self.builder.ins().jump(loop_block, &[basec3, resc3, expc3]); 
+
+        self.builder.switch_to_block(handle_neg_exp); 
+        let paramshn = self.builder.block_params(handle_neg_exp); 
+        let basehn = paramshn[0]; 
+        let exphn = paramshn[1];  
+        let one_f64 = self.builder.ins().f64const(1.0); 
+        let base_inverse = self.builder.ins().fdiv(one_f64, basehn);
+        let pos_exp = self.builder.ins().ineg(exphn); 
+        self.builder.ins().jump(loop_block, &[base_inverse, one_f64, pos_exp]); 
+
+        self.builder.switch_to_block(loop_block); 
+        let paramslb = self.builder.block_params(loop_block); 
+        let baselb = paramslb[0]; 
+        let reslb = paramslb[1];
+        let explb = paramslb[2]; 
+        let zero = self.builder.ins().iconst(types::I64, 0); 
+        let is_zero = self.builder.ins().icmp(IntCC::Equal, explb, zero);
+        self.builder.ins().brnz(is_zero, exit_block, &[reslb]);
+        self.builder.ins().jump(continue_block, &[baselb, reslb, explb]); 
+
+        self.builder.switch_to_block(continue_block); 
+        let paramscb = self.builder.block_params(continue_block); 
+        let basecb = paramscb[0];
+        let rescb = paramscb[1];
+        let expcb = paramscb[2]; 
+        let is_odd = self.builder.ins().band_imm(expcb, 1);
+        let is_odd = self.builder.ins().icmp_imm(IntCC::Equal, is_odd, 1);
+        let mul_result = self.builder.ins().fmul(rescb, basecb);
+        let new_result = self.builder.ins().select(is_odd, mul_result, rescb);
+        let squared_base = self.builder.ins().fmul(basecb, basecb);
+        let new_exp = self.builder.ins().sshr_imm(expcb, 1);
+        self.builder.ins().jump(loop_block, &[squared_base, new_result, new_exp]);
+
+        self.builder.switch_to_block(exit_block); 
+        let result = self.builder.block_params(exit_block)[0];
+        
+        self.builder.seal_block(check_block1); 
+        self.builder.seal_block(check_block2); 
+        self.builder.seal_block(check_block3); 
+        self.builder.seal_block(handle_neg_exp); 
+        self.builder.seal_block(loop_block);
+        self.builder.seal_block(continue_block); 
+        self.builder.seal_block(exit_block); 
+        
+        result
+    }
 }
