@@ -152,6 +152,61 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
     derive_impl::pyexception(attr, item).into()
 }
 
+/// This attribute must be applied to an inline module.
+/// It defines a Python module in the form a `make_module` function in the module;
+/// this has to be used in a `get_module_inits` to properly register the module.
+/// Additionally, this macro defines 'MODULE_NAME' and 'DOC' in the module.
+/// # Arguments
+/// - `name`: the name of the python module,
+/// by default, it is the name of the module, but this can be configured.
+/// ```no_run
+/// // This will create a module named `mymodule`
+/// #[pymodule(name = "mymodule")]
+/// mod module {
+/// }
+/// ```
+/// - `sub`: declare the module as a submodule of another module.
+/// ```no_run
+/// #[pymodule(sub)]
+/// mod submodule {
+/// }
+///
+/// #[pymodule(with(submodule))]
+/// mod mymodule {
+/// }
+/// ```
+/// - `with`: declare the list of submodules that this module contains (see `sub` for example).
+/// ## pyattr
+/// `pyattr` is a multipurpose marker that can be used in a pymodule.
+/// The most common use is to mark a function or class as a part of the module.
+/// This can be done by applying it to a function or struct prior to the `#[pyfunction]` or `#[pyclass]` macro.
+/// If applied to a constant, it will be added to the module as an attribute.
+/// If applied to a function not marked with `pyfunction`,
+/// it will also be added to the module as an attribute but the value is the result of the function.
+/// If `#[pyattr(once)]` is used in this case, the function will be called once
+/// and the result will be stored using a `static_cell`.
+/// ### Examples
+/// ```no_run
+/// #[pymodule]
+/// mod mymodule {
+///     #[pyattr]
+///     const MY_CONSTANT: i32 = 42;
+///     #[pyattr]
+///    fn another_constant() -> PyResult<i32> {
+///       Ok(42)
+///    }
+///   #[pyattr(once)]
+///   fn once() -> PyResult<i32> {
+///     // This will only be called once and the result will be stored.
+///     Ok(2 ** 24)
+///  }
+///
+///     #[pyattr]
+///     #[pyfunction]
+///     fn my_function(vm: &VirtualMachine) -> PyResult<()> {
+///         ...
+///     }
+/// }
 #[proc_macro_attribute]
 pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr);
