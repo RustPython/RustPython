@@ -431,8 +431,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::Modulo, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().srem(a, b))
                     }
-                    (BinaryOperator::Power, JitValue::Int(a), JitValue::Int(b)) => { 
-                        print!("int power"); 
+                    (BinaryOperator::Power, JitValue::Int(a), JitValue::Int(b)) => {  
                         JitValue::Float(self.compile_ipow(a, b)) 
                     }
                     (
