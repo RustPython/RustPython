@@ -265,7 +265,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rustpython (${{ runner.os }})
-          path: ${{ runner.os == 'windows-latest' && 'target\\release\\rustpython.exe' || 'target/release/rustpython' }}
+          path: ${{ runner.os == 'windows' && 'target\\release\\rustpython.exe' || 'target/release/rustpython' }}
 
   test_snippets:
     needs: rust_build
@@ -287,6 +287,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: rustpython (${{ runner.os }})
+      - name: move rustpython to the correct location
+        run: ls
       - name: run snippets
         run: python -m pip install -r requirements.txt && pytest -v
         working-directory: ./extra_tests
@@ -294,17 +296,17 @@ jobs:
         name: check that --install-pip succeeds
         run: |
           mkdir site-packages
-          rustpython --install-pip ensurepip --user
-          rustpython -m pip install six
+          target/release/rustpython --install-pip ensurepip --user
+          target/release/rustpython -m pip install six
       - if: runner.os != 'Windows'
         name: Check that ensurepip succeeds.
         run: |
-          rustpython -m ensurepip
-          rustpython -c "import pip"
+          target/release/rustpython -m ensurepip
+          target/release/rustpython -c "import pip"
       - if: runner.os != 'Windows'
         name: Check if pip inside venv is functional
         run: |
-          rustpython -m venv testvenv
+          target/release/rustpython -m venv testvenv
           testvenv/bin/rustpython -m pip install wheel
       - name: Check whats_left is not broken
         run: python -I whats_left.py
@@ -329,6 +331,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: rustpython (${{ runner.os }})
+      - name: move rustpython to the correct location
+        run: ls
       - if: runner.os == 'Linux'
         name: run cpython platform-independent tests
         run:
