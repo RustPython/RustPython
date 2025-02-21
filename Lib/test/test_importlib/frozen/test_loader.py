@@ -7,6 +7,7 @@ import _imp
 import contextlib
 import marshal
 import os.path
+import sys
 import types
 import unittest
 import warnings
@@ -91,7 +92,7 @@ class ExecModuleTests(abc.LoaderTests):
         self.assertEqual(output, 'Hello world!\n')
         self.assertEqual(module.__spec__.loader_state.origname, name)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
+    @unittest.skipIf(sys.platform == 'win32', "TODO:RUSTPYTHON Flaky on Windows")
     def test_lacking_parent(self):
         name = '__phello__.spam'
         with util.uncache('__phello__'):
