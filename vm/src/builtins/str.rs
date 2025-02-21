@@ -313,7 +313,7 @@ impl PyStr {
     /// # Safety
     /// Given `bytes` must be ascii
     pub unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
-        Self::new_str_unchecked(bytes, PyStrKind::Ascii)
+        unsafe { Self::new_str_unchecked(bytes, PyStrKind::Ascii) }
     }
 
     pub fn new_ref(zelf: impl Into<Self>, ctx: &Context) -> PyRef<Self> {

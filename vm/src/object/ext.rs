@@ -60,7 +60,7 @@ impl<T: PyPayload> PyExact<T> {
     /// Given reference must be exact type of payload T
     #[inline(always)]
     pub unsafe fn ref_unchecked(r: &Py<T>) -> &Self {
-        &*(r as *const _ as *const Self)
+        unsafe { &*(r as *const _ as *const Self) }
     }
 }
 
@@ -294,7 +294,7 @@ impl<T: PyObjectPayload> PyAtomicRef<T> {
     pub unsafe fn swap(&self, pyref: PyRef<T>) -> PyRef<T> {
         let py = PyRef::leak(pyref) as *const Py<T> as *mut _;
         let old = Radium::swap(&self.inner, py, Ordering::AcqRel);
-        PyRef::from_raw(old.cast())
+        unsafe { PyRef::from_raw(old.cast()) }
     }
 
     pub fn swap_to_temporary_refs(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
@@ -380,7 +380,7 @@ impl PyAtomicRef<PyObject> {
     pub unsafe fn swap(&self, obj: PyObjectRef) -> PyObjectRef {
         let obj = obj.into_raw();
         let old = Radium::swap(&self.inner, obj as *mut _, Ordering::AcqRel);
-        PyObjectRef::from_raw(old as _)
+        unsafe { PyObjectRef::from_raw(old as _) }
     }
 
     pub fn swap_to_temporary_refs(&self, obj: PyObjectRef, vm: &VirtualMachine) {
@@ -422,9 +422,11 @@ impl PyAtomicRef<Option<PyObject>> {
     pub unsafe fn swap(&self, obj: Option<PyObjectRef>) -> Option<PyObjectRef> {
         let val = obj.map(|x| x.into_raw() as *mut _).unwrap_or(null_mut());
         let old = Radium::swap(&self.inner, val, Ordering::AcqRel);
-        old.cast::<PyObject>()
-            .as_ref()
-            .map(|x| PyObjectRef::from_raw(x))
+        unsafe {
+            old.cast::<PyObject>()
+                .as_ref()
+                .map(|x| PyObjectRef::from_raw(x))
+        }
     }
 
     pub fn swap_to_temporary_refs(&self, obj: Option<PyObjectRef>, vm: &VirtualMachine) {

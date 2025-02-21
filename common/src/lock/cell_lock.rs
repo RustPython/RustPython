@@ -140,12 +140,12 @@ unsafe impl RawRwLockUpgrade for RawCellRwLock {
 
     #[inline]
     unsafe fn unlock_upgradable(&self) {
-        self.unlock_shared()
+        unsafe { self.unlock_shared() }
     }
 
     #[inline]
     unsafe fn upgrade(&self) {
-        if !self.try_upgrade() {
+        if !unsafe { self.try_upgrade() } {
             deadlock("upgrade ", "RwLock")
         }
     }

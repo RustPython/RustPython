@@ -62,7 +62,7 @@ macro_rules! declare_const_name {
         impl ConstName {
             unsafe fn new(pool: &StringPool, typ: &PyTypeRef) -> Self {
                 Self {
-                    $($name: pool.intern(stringify!($name), typ.clone()),)*
+                    $($name: unsafe { pool.intern(stringify!($name), typ.clone()) },)*
                 }
             }
         }

@@ -2299,7 +2299,7 @@ pub mod module {
 
     #[cfg(target_os = "linux")]
     unsafe fn sys_getrandom(buf: *mut libc::c_void, buflen: usize, flags: u32) -> isize {
-        libc::syscall(libc::SYS_getrandom, buf, buflen, flags as usize) as _
+        unsafe { libc::syscall(libc::SYS_getrandom, buf, buflen, flags as usize) as _ }
     }
 
     #[cfg(target_os = "linux")]

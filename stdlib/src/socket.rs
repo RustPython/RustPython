@@ -1788,7 +1788,7 @@ mod _socket {
     }
 
     unsafe fn slice_as_uninit<T>(v: &mut [T]) -> &mut [MaybeUninit<T>] {
-        &mut *(v as *mut [T] as *mut [MaybeUninit<T>])
+        unsafe { &mut *(v as *mut [T] as *mut [MaybeUninit<T>]) }
     }
 
     enum IoOrPyException {
@@ -2312,12 +2312,12 @@ mod _socket {
         #[cfg(unix)]
         {
             use std::os::unix::io::FromRawFd;
-            Socket::from_raw_fd(fileno)
+            unsafe { Socket::from_raw_fd(fileno) }
         }
         #[cfg(windows)]
         {
             use std::os::windows::io::FromRawSocket;
-            Socket::from_raw_socket(fileno)
+            unsafe { Socket::from_raw_socket(fileno) }
         }
     }
     pub(super) fn sock_fileno(sock: &Socket) -> RawSocket {
