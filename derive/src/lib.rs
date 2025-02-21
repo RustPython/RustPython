@@ -176,7 +176,8 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 /// - `with`: declare the list of submodules that this module contains (see `sub` for example).
-/// ## pyattr
+/// ## Inner markers
+/// ### pyattr
 /// `pyattr` is a multipurpose marker that can be used in a pymodule.
 /// The most common use is to mark a function or class as a part of the module.
 /// This can be done by applying it to a function or struct prior to the `#[pyfunction]` or `#[pyclass]` macro.
@@ -185,7 +186,7 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// it will also be added to the module as an attribute but the value is the result of the function.
 /// If `#[pyattr(once)]` is used in this case, the function will be called once
 /// and the result will be stored using a `static_cell`.
-/// ### Examples
+/// #### Examples
 /// ```no_run
 /// #[pymodule]
 /// mod mymodule {
@@ -207,6 +208,15 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///         ...
 ///     }
 /// }
+/// ```
+/// ### pyfunction
+/// This is used to create a python function.
+/// #### Function signature
+/// The last argument can optionally be of the type `&VirtualMachine` to access the VM.
+/// Refer to the `pymethod` documentation (located in the `pyclass` macro documentation)
+/// for more information on what regular argument types are permitted.
+/// #### Arguments
+/// - `name`: the name of the function in Python, by default it is the same as the associated Rust function.
 #[proc_macro_attribute]
 pub fn pymodule(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = parse_macro_input!(attr);
