@@ -76,7 +76,7 @@ mod _sqlite {
         ffi::{c_int, c_longlong, c_uint, c_void, CStr},
         fmt::Debug,
         ops::Deref,
-        ptr::{null, null_mut},
+        ptr::{null, null_mut, NonNull},
         thread::ThreadId,
     };
 
@@ -381,7 +381,7 @@ mod _sqlite {
     }
 
     struct CallbackData {
-        obj: *const PyObject,
+        obj: NonNull<PyObject>,
         vm: *const VirtualMachine,
     }
 
@@ -394,7 +394,7 @@ mod _sqlite {
         }
 
         fn retrieve(&self) -> (&PyObject, &VirtualMachine) {
-            unsafe { (&*self.obj, &*self.vm) }
+            unsafe { (self.obj.as_ref(), &*self.vm) }
         }
 
         unsafe extern "C" fn destructor(data: *mut c_void) {
@@ -439,7 +439,7 @@ mod _sqlite {
             let instance = context.aggregate_context::<*const PyObject>();
             if unsafe { (*instance).is_null() } {
                 match cls.call((), vm) {
-                    Ok(obj) => unsafe { *instance = obj.into_raw() },
+                    Ok(obj) => unsafe { *instance = obj.into_raw().as_ptr() },
                     Err(exc) => {
                         return context.result_exception(
                             vm,

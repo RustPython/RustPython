@@ -354,7 +354,7 @@ impl PyWeak {
             if !obj_ptr.as_ref().0.ref_count.safe_inc() {
                 return None;
             }
-            Some(PyObjectRef::from_raw(obj_ptr.as_ptr()))
+            Some(PyObjectRef::from_raw(obj_ptr))
         }
     }
 
@@ -508,8 +508,8 @@ impl ToOwned for PyObject {
 
 impl PyObjectRef {
     #[inline(always)]
-    pub fn into_raw(self) -> *const PyObject {
-        let ptr = self.as_raw();
+    pub fn into_raw(self) -> NonNull<PyObject> {
+        let ptr = self.ptr;
         std::mem::forget(self);
         ptr
     }
@@ -520,10 +520,8 @@ impl PyObjectRef {
     /// dropped more than once due to mishandling the reference count by calling this function
     /// too many times.
     #[inline(always)]
-    pub unsafe fn from_raw(ptr: *const PyObject) -> Self {
-        Self {
-            ptr: unsafe { NonNull::new_unchecked(ptr as *mut PyObject) },
-        }
+    pub unsafe fn from_raw(ptr: NonNull<PyObject>) -> Self {
+        Self { ptr }
     }
 
     /// Attempt to downcast this reference to a subclass.
