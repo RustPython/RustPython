@@ -477,6 +477,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::Divide, JitValue::Float(a), JitValue::Float(b)) => {
                         JitValue::Float(self.builder.ins().fdiv(a, b))
                     }
+                    (BinaryOperator::Power, JitValue::Float(a), JitValue::Float(b)) => {
+                        JitValue::Float(self.compile_fpow(a, b))
+                    }
 
                     // Floats and Integers
                     (_, JitValue::Int(a), JitValue::Float(b))
@@ -503,6 +506,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             }
                             BinaryOperator::Divide => {
                                 JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two))
+                            }
+                            BinaryOperator::Power => {
+                                JitValue::Float(self.compile_fpow(operand_one, operand_two))
                             }
                             _ => return Err(JitCompileError::NotSupported),
                         }
