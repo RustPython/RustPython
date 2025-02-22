@@ -24,13 +24,21 @@ mod error {
     pub enum CompileErrorType {
         #[cfg(feature = "codegen")]
         #[error(transparent)]
-        Codegen(#[from] rustpython_codegen::error::CodegenErrorType),
+        Codegen(#[from] super::codegen::error::CodegenErrorType),
         #[cfg(feature = "parser")]
         #[error(transparent)]
-        Parse(#[from] rustpython_parser::error::ParseErrorType),
+        Parse(#[from] super::parser::ParseErrorType),
     }
 
-    pub type CompileError = rustpython_compiler_core::source_code::LocatedError<CompileErrorType>;
+    #[derive(Debug, thiserror::Error)]
+    pub enum CompileError {
+        #[cfg(feature = "codegen")]
+        #[error(transparent)]
+        Codegen(#[from] super::codegen::error::CodegenError),
+        #[cfg(feature = "parser")]
+        #[error(transparent)]
+        Parse(#[from] super::parser::ParseError),
+    }
 }
 #[cfg(not(feature = "compiler"))]
 pub use error::{CompileError, CompileErrorType};
