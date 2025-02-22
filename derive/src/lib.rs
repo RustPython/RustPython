@@ -32,7 +32,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///     - `BASETYPE`: allows the class to be inheritable.
 ///     - `IMMUTABLETYPE`: class attributes are immutable.
 /// - `with`: which trait implementations are to be included in the python class.
-/// ```no_run
+/// ```rust, ignore
 /// #[pyclass(module = "mymodule", name = "MyClass", base = "BaseClass")]
 /// struct MyStruct {
 ///    x: i32,
@@ -64,7 +64,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// Consider using `OptionalArg` for optional arguments.
 /// #### Arguments
 /// - `magic`: marks the method as a magic method: the method name is surrounded with double underscores.
-/// ```no_run
+/// ```rust, ignore
 /// #[pyclass]
 /// impl MyStruct {
 ///     // This will be called as the `__add__` method in Python.
@@ -88,7 +88,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 ///
 /// Ensure both the getter and setter are marked with `name` and `magic` in the same manner.
 /// #### Examples
-/// ```no_run
+/// ```rust, ignore
 /// #[pyclass]
 /// impl MyStruct {
 ///    #[pygetset]
@@ -111,7 +111,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// This helps inherit attributes from a parent class.
 /// The method this is applied on should be called `extend_class_with_fields`.
 /// #### Examples
-/// ```no_run
+/// ```rust, ignore
 /// #[extend_class]
 /// fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
 ///     class.set_attr(
@@ -159,14 +159,14 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// # Arguments
 /// - `name`: the name of the python module,
 ///   by default, it is the name of the module, but this can be configured.
-/// ```no_run
+/// ```rust, ignore
 /// // This will create a module named `mymodule`
 /// #[pymodule(name = "mymodule")]
 /// mod module {
 /// }
 /// ```
 /// - `sub`: declare the module as a submodule of another module.
-/// ```no_run
+/// ```rust, ignore
 /// #[pymodule(sub)]
 /// mod submodule {
 /// }
@@ -187,7 +187,7 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// If `#[pyattr(once)]` is used in this case, the function will be called once
 /// and the result will be stored using a `static_cell`.
 /// #### Examples
-/// ```no_run
+/// ```rust, ignore
 /// #[pymodule]
 /// mod mymodule {
 ///     #[pyattr]
