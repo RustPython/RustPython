@@ -20,7 +20,7 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// - `module`: the module which contains the class --  can be omitted if in a `#[pymodule]`.
 /// - `name`: the name of the Python class, by default it is the name of the struct.
 /// - `base`: the base class of the Python class.
-/// This does not cause inheritance of functions or attributes that must be done by a separate trait.
+///   This does not cause inheritance of functions or attributes that must be done by a separate trait.
 /// # Impl
 /// This part implements `PyClassImpl` for the struct.
 /// This includes methods, getters/setters, etc.; only annotated methods will be included.
@@ -75,16 +75,16 @@ pub fn derive_from_args(input: TokenStream) -> TokenStream {
 /// }
 /// ```
 /// - `name`: the name of the method in Python,
-/// by default it is the same as the Rust method, or surrounded by double underscores if magic is present.
-/// This overrides `magic` and the default name and cannot be used with `magic` to prevent ambiguity.
+///   by default it is the same as the Rust method, or surrounded by double underscores if magic is present.
+///   This overrides `magic` and the default name and cannot be used with `magic` to prevent ambiguity.
 /// ### pygetset
 /// This is used to mark a getter/setter pair.
 /// #### Arguments
 /// - `setter`: marks the method as a setter, it acts as a getter by default.
-/// Setter method names should be prefixed with `set_`.
+///   Setter method names should be prefixed with `set_`.
 /// - `name`: the name of the attribute in Python, by default it is the same as the Rust method.
 /// - `magic`: marks the method as a magic method: the method name is surrounded with double underscores.
-/// This cannot be used with `name` to prevent ambiguity.
+///   This cannot be used with `name` to prevent ambiguity.
 ///
 /// Ensure both the getter and setter are marked with `name` and `magic` in the same manner.
 /// #### Examples
@@ -158,7 +158,7 @@ pub fn pyexception(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// Additionally, this macro defines 'MODULE_NAME' and 'DOC' in the module.
 /// # Arguments
 /// - `name`: the name of the python module,
-/// by default, it is the name of the module, but this can be configured.
+///   by default, it is the name of the module, but this can be configured.
 /// ```no_run
 /// // This will create a module named `mymodule`
 /// #[pymodule(name = "mymodule")]
