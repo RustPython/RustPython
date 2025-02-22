@@ -1229,6 +1229,13 @@ impl MethodItemMeta {
         let inner = self.inner();
         let name = inner._optional_str("name")?;
         let magic = inner._bool("magic")?;
+        if magic && name.is_some() {
+            bail_span!(
+                &inner.meta_ident,
+                "A #[{}] method cannot be magic and have a specified name, choose one.",
+                inner.meta_name()
+            );
+        }
         Ok(if let Some(name) = name {
             name
         } else {
