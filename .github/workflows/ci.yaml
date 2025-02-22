@@ -44,7 +44,6 @@ env:
   # only run on Linux to speed up the CI.
   PLATFORM_INDEPENDENT_TESTS: >-
     test__colorize
-    test_argparse
     test_array
     test_asyncgen
     test_binop
