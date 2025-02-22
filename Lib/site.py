@@ -679,5 +679,17 @@ def _script():
         print(textwrap.dedent(help % (sys.argv[0], os.pathsep)))
         sys.exit(10)
 
+def gethistoryfile():
+    """Check if the PYTHON_HISTORY environment variable is set and define
+    it as the .python_history file.  If PYTHON_HISTORY is not set, use the
+    default .python_history file.
+    """
+    if not sys.flags.ignore_environment:
+        history = os.environ.get("PYTHON_HISTORY")
+        if history:
+            return history
+    return os.path.join(os.path.expanduser('~'),
+        '.python_history')
+
 if __name__ == '__main__':
     _script()
