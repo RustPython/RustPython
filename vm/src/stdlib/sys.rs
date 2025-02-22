@@ -4,23 +4,12 @@ pub(crate) use sys::{UnraisableHookArgs, __module_def, DOC, MAXSIZE, MULTIARCH};
 
 #[pymodule]
 mod sys {
-    use crate::{
-        builtins::{
-            PyBaseExceptionRef, PyDictRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
-        },
-        common::{
-            ascii,
-            hash::{PyHash, PyUHash},
-        },
-        convert::ToPyObject,
-        frame::FrameRef,
-        function::{FuncArgs, OptionalArg, PosArgs},
-        stdlib::{builtins, warnings::warn},
-        types::PyStructSequence,
-        version,
-        vm::{Settings, VirtualMachine},
-        AsObject, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
-    };
+    use crate::{builtins::{
+        PyBaseExceptionRef, PyDictRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
+    }, common::{
+        ascii,
+        hash::{PyHash, PyUHash},
+    }, compiler, convert::ToPyObject, frame::FrameRef, function::{FuncArgs, OptionalArg, PosArgs}, stdlib::{builtins, warnings::warn}, types::PyStructSequence, version, vm::{Settings, VirtualMachine}, AsObject, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult};
     use num_traits::ToPrimitive;
     use std::{
         env::{self, VarError},
@@ -298,6 +287,12 @@ mod sys {
             .iter()
             .map(|s| vm.ctx.new_str(s.clone()).into())
             .collect()
+    }
+
+    #[pyfunction]
+    fn _baserepl(module: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned())?;
+        Ok(())
     }
 
     #[pyfunction]
