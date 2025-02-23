@@ -1405,17 +1405,12 @@ mod _io {
         #[pyslot]
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let zelf: PyRef<Self> = zelf.try_into_value(vm)?;
-            zelf.__init__(args, vm)
-        }
-
-        #[pymethod]
-        fn __init__(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let (raw, BufferSize { buffer_size }): (PyObjectRef, _) =
                 args.bind(vm).map_err(|e| {
                     let msg = format!("{}() {}", Self::CLASS_NAME, *e.str(vm));
                     vm.new_exception_msg(e.class().to_owned(), msg)
                 })?;
-            self.init(raw, BufferSize { buffer_size }, vm)
+            zelf.init(raw, BufferSize { buffer_size }, vm)
         }
 
         fn init(
