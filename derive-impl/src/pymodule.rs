@@ -7,8 +7,9 @@ use crate::util::{
 use proc_macro2::{Delimiter, Group, TokenStream, TokenTree};
 use quote::{quote, quote_spanned, ToTokens};
 use std::{collections::HashSet, str::FromStr};
-use syn::{parse_quote, spanned::Spanned, Attribute, AttributeArgs, Ident, Item, Result};
+use syn::{parse_quote, spanned::Spanned, Attribute, Ident, Item, Result};
 use syn_ext::ext::*;
+use syn_ext::types::PunctuatedNestedMeta;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum AttrName {
@@ -51,7 +52,7 @@ struct ModuleContext {
     errors: Vec<syn::Error>,
 }
 
-pub fn impl_pymodule(attr: AttributeArgs, module_item: Item) -> Result<TokenStream> {
+pub fn impl_pymodule(attr: PunctuatedNestedMeta, module_item: Item) -> Result<TokenStream> {
     let (doc, mut module_item) = match module_item {
         Item::Mod(m) => (m.attrs.doc(), m),
         other => bail_span!(other, "#[pymodule] can only be on a full module"),

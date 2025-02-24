@@ -1,9 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
 use syn::ext::IdentExt;
-use syn::{
-    parse_quote, Attribute, Data, DeriveInput, Expr, Field, Ident, Lit, Meta, NestedMeta, Result,
-};
+use syn::meta::ParseNestedMeta;
+use syn::{parse_quote, Attribute, Data, DeriveInput, Expr, Field, Ident, Result, Token};
 
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
@@ -36,84 +35,61 @@ type DefaultValue = Option<Expr>;
 
 impl ArgAttribute {
     fn from_attribute(attr: &Attribute) -> Option<Result<ArgAttribute>> {
-        if !attr.path.is_ident("pyarg") {
+        if !attr.path().is_ident("pyarg") {
             return None;
         }
         let inner = move || {
-            let Meta::List(list) = attr.parse_meta()? else {
-                bail_span!(attr, "pyarg must be a list, like #[pyarg(...)]")
-            };
-            let mut iter = list.nested.iter();
-            let first_arg = iter.next().ok_or_else(|| {
-                err_span!(list, "There must be at least one argument to #[pyarg()]")
+            let mut arg_attr = None;
+            attr.parse_nested_meta(|meta| {
+                let Some(arg_attr) = &mut arg_attr else {
+                    let kind = meta
+                        .path
+                        .get_ident()
+                        .and_then(ParameterKind::from_ident)
+                        .ok_or_else(|| {
+                            meta.error(
+                                "The first argument to #[pyarg()] must be the parameter type, \
+                                 either 'positional', 'any', 'named', or 'flatten'.",
+                            )
+                        })?;
+                    arg_attr = Some(ArgAttribute {
+                        name: None,
+                        kind,
+                        default: None,
+                    });
+                    return Ok(());
+                };
+                arg_attr.parse_argument(meta)
             })?;
-            let kind = match first_arg {
-                NestedMeta::Meta(Meta::Path(path)) => {
-                    path.get_ident().and_then(ParameterKind::from_ident)
-                }
-                _ => None,
-            };
-            let kind = kind.ok_or_else(|| {
-                err_span!(
-                    first_arg,
-                    "The first argument to #[pyarg()] must be the parameter type, either \
-                         'positional', 'any', 'named', or 'flatten'."
-                )
-            })?;
-
-            let mut attribute = ArgAttribute {
-                name: None,
-                kind,
-                default: None,
-            };
-
-            for arg in iter {
-                attribute.parse_argument(arg)?;
-            }
-
-            Ok(attribute)
+            arg_attr
+                .ok_or_else(|| err_span!(attr, "There must be at least one argument to #[pyarg()]"))
         };
         Some(inner())
     }
 
-    fn parse_argument(&mut self, arg: &NestedMeta) -> Result<()> {
+    fn parse_argument(&mut self, meta: ParseNestedMeta<'_>) -> Result<()> {
         if let ParameterKind::Flatten = self.kind {
-            bail_span!(arg, "can't put additional arguments on a flatten arg")
+            return Err(meta.error("can't put additional arguments on a flatten arg"));
         }
-        match arg {
-            NestedMeta::Meta(Meta::Path(path)) => {
-                if path.is_ident("default") || path.is_ident("optional") {
-                    if self.default.is_none() {
-                        self.default = Some(None);
-                    }
-                } else {
-                    bail_span!(path, "Unrecognized pyarg attribute");
-                }
+        if meta.path.is_ident("default") && meta.input.peek(Token![=]) {
+            if matches!(self.default, Some(Some(_))) {
+                return Err(meta.error("Default already set"));
             }
-            NestedMeta::Meta(Meta::NameValue(name_value)) => {
-                if name_value.path.is_ident("default") {
-                    if matches!(self.default, Some(Some(_))) {
-                        bail_span!(name_value, "Default already set");
-                    }
-
-                    match name_value.lit {
-                        Lit::Str(ref val) => self.default = Some(Some(val.parse()?)),
-                        _ => bail_span!(name_value, "Expected string value for default argument"),
-                    }
-                } else if name_value.path.is_ident("name") {
-                    if self.name.is_some() {
-                        bail_span!(name_value, "already have a name")
-                    }
-
-                    match &name_value.lit {
-                        Lit::Str(val) => self.name = Some(val.value()),
-                        _ => bail_span!(name_value, "Expected string value for name argument"),
-                    }
-                } else {
-                    bail_span!(name_value, "Unrecognized pyarg attribute");
-                }
+            let val = meta.value()?;
+            let val = val.parse::<syn::LitStr>()?;
+            self.default = Some(Some(val.parse()?))
+        } else if meta.path.is_ident("default") || meta.path.is_ident("optional") {
+            if self.default.is_none() {
+                self.default = Some(None);
             }
-            _ => bail_span!(arg, "Unrecognized pyarg attribute"),
+        } else if meta.path.is_ident("name") {
+            if self.name.is_some() {
+                return Err(meta.error("already have a name"));
+            }
+            let val = meta.value()?.parse::<syn::LitStr>()?;
+            self.name = Some(val.value())
+        } else {
+            return Err(meta.error("Unrecognized pyarg attribute"));
         }
 
         Ok(())
