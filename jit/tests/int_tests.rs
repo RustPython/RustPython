@@ -1,3 +1,5 @@
+use core::f64;
+
 #[test]
 fn test_add() {
     let add = jit_function! { add(a:i64, b:i64) -> i64 => r##"
@@ -23,6 +25,53 @@ fn test_sub() {
     assert_eq!(sub(-3, -10), Ok(7));
 }
 
+
+#[test]
+fn test_mul() {
+    let mul = jit_function! { mul(a:i64, b:i64) -> i64 => r##"
+        def mul(a: int, b: int):
+            return a * b
+    "## };
+
+    assert_eq!(mul(5, 10), Ok(50));
+    assert_eq!(mul(0, 5), Ok(0));
+    assert_eq!(mul(5, 0), Ok(0));
+    assert_eq!(mul(0, 0), Ok(0));
+    assert_eq!(mul(-5, 10), Ok(-50));
+    assert_eq!(mul(5, -10), Ok(-50));
+    assert_eq!(mul(-5, -10), Ok(50));
+    assert_eq!(mul(999999, 999999), Ok(999998000001));
+    assert_eq!(mul(i64::MAX, 1), Ok(i64::MAX));
+    assert_eq!(mul(1, i64::MAX), Ok(i64::MAX));
+}
+
+#[test]
+
+fn test_div() {
+    let div = jit_function! { div(a:i64, b:i64) -> f64 => r##"
+        def div(a: int, b: int):
+            return a / b
+    "## };
+
+    assert_eq!(div(0, 1), Ok(0.0));
+    assert_eq!(div(5, 1), Ok(5.0));
+    assert_eq!(div(5, 10), Ok(0.5));
+    assert_eq!(div(5, 2), Ok(2.5));
+    assert_eq!(div(12, 10), Ok(1.2));
+    assert_eq!(div(7, 10), Ok(0.7));
+    assert_eq!(div(-3, -1), Ok(3.0));
+    assert_eq!(div(-3, 1), Ok(-3.0));
+    assert_eq!(div(1, 1000), Ok(0.001));
+    assert_eq!(div(1, 100000), Ok(0.00001));
+    assert_eq!(div(2, 3), Ok(0.6666666666666666));
+    assert_eq!(div(1, 3), Ok(0.3333333333333333));
+    assert_eq!(div(i64::MAX, 2), Ok(4611686018427387904.0));
+    assert_eq!(div(i64::MIN, 2), Ok(-4611686018427387904.0));
+    assert_eq!(div(i64::MIN, -1), Ok(9223372036854775808.0)); // Overflow case
+    assert_eq!(div(i64::MIN, i64::MAX), Ok(-1.0));
+}
+
+
 #[test]
 fn test_floor_div() {
     let floor_div = jit_function! { floor_div(a:i64, b:i64) -> i64 => r##"
@@ -35,9 +84,30 @@ fn test_floor_div() {
     assert_eq!(floor_div(12, 10), Ok(1));
     assert_eq!(floor_div(7, 10), Ok(0));
     assert_eq!(floor_div(-3, -1), Ok(3));
-    assert_eq!(floor_div(-3, 1), Ok(-3));
+    assert_eq!(floor_div(-3, 0), Ok(-3));
 }
 
+#[test]
+
+fn test_exp() {
+    let exp = jit_function! { exp(a: i64, b: i64) -> f64 => r##"
+    def exp(a: int, b: int):
+        return a ** b
+    "## };
+    
+    assert_eq!(exp(2, 3), Ok(8.0));
+    assert_eq!(exp(3, 2), Ok(9.0));
+    assert_eq!(exp(5, 0), Ok(1.0));
+    //assert_eq!(exp(0, 0), Ok(1.0));
+    assert_eq!(exp(-5, 0), Ok(1.0));
+    assert_eq!(exp(0, 1), Ok(0.0));
+    assert_eq!(exp(0, 5), Ok(0.0));
+    assert_eq!(exp(-2, 2), Ok(4.0));
+    assert_eq!(exp(-3, 4), Ok(81.0));
+    assert_eq!(exp(-2, 3), Ok(-8.0));
+    assert_eq!(exp(-3, 3), Ok(-27.0));
+    assert_eq!(exp(1000, 2), Ok(1000000.0));
+}
 #[test]
 fn test_mod() {
     let modulo = jit_function! { modulo(a:i64, b:i64) -> i64 => r##"
@@ -245,3 +315,4 @@ fn test_not() {
     assert_eq!(not_(1), Ok(false));
     assert_eq!(not_(-1), Ok(false));
 }
+

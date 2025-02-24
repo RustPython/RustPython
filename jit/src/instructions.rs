@@ -6,7 +6,7 @@ use rustpython_compiler_core::bytecode::{
     self, BinaryOperator, BorrowedConstant, CodeObject, ComparisonOperator, Instruction, Label,
     OpArg, OpArgState, UnaryOperator,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, process::exit};
 
 #[repr(u16)]
 enum CustomTrapCode {
@@ -425,8 +425,17 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::Subtract, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.compile_sub(a, b))
                     }
+                    (BinaryOperator::Multiply, JitValue::Int(a), JitValue::Int(b)) => {
+                        JitValue::Int(self.builder.ins().imul(a, b))
+                    }
                     (BinaryOperator::FloorDivide, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().sdiv(a, b))
+                    }
+                    (BinaryOperator::Divide, JitValue::Int(a), JitValue::Int(b)) => {
+                        // Convert to float for regular division
+                        let a_float = self.builder.ins().fcvt_from_sint(types::F64, a);
+                        let b_float = self.builder.ins().fcvt_from_sint(types::F64, b);
+                        JitValue::Float(self.builder.ins().fdiv(a_float, b_float))
                     }
                     (BinaryOperator::Modulo, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().srem(a, b))
@@ -477,9 +486,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::Divide, JitValue::Float(a), JitValue::Float(b)) => {
                         JitValue::Float(self.builder.ins().fdiv(a, b))
                     }
-                    (BinaryOperator::Power, JitValue::Float(a), JitValue::Float(b)) => {
-                        JitValue::Float(self.compile_fpow(a, b))
-                    }
 
                     // Floats and Integers
                     (_, JitValue::Int(a), JitValue::Float(b))
@@ -506,9 +512,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             }
                             BinaryOperator::Divide => {
                                 JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two))
-                            }
-                            BinaryOperator::Power => {
-                                JitValue::Float(self.compile_fpow(operand_one, operand_two))
                             }
                             _ => return Err(JitCompileError::NotSupported),
                         }
@@ -571,7 +574,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             .trapif(IntCC::Overflow, carry, TrapCode::IntegerOverflow);
         out
     }
-    fn compile_ipow(&mut self, a: Value, b: Value) -> Value{
+    fn compile_ipow(&mut self, a: Value, b: Value) -> Value {
         let float_base = self.builder.ins().fcvt_from_sint(types::F64, a); 
 
         let check_block1 = self.builder.create_block(); 
