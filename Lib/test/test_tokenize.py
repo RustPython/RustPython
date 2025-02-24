@@ -1237,7 +1237,6 @@ class TestDetectEncoding(TestCase):
                 found, consumed_lines = detect_encoding(rl)
                 self.assertEqual(found, "utf-8")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_short_files(self):
         readline = self.get_readline((b'print(something)\n',))
         encoding, consumed_lines = detect_encoding(readline)
@@ -1316,7 +1315,6 @@ class TestDetectEncoding(TestCase):
             ins = Bunk(lines, path)
             detect_encoding(ins.readline)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_open_error(self):
         # Issue #23840: open() must close the binary file on error
         m = BytesIO(b'#coding:xxx')
