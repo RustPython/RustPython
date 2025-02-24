@@ -121,9 +121,7 @@ mod _winapi {
 
     #[pyfunction]
     fn GetACP() -> u32 {
-        unsafe {
-            windows_sys::Win32::Globalization::GetACP()
-        }
+        unsafe { windows_sys::Win32::Globalization::GetACP() }
     }
 
     #[pyfunction]
