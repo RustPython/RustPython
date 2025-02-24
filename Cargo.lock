@@ -2614,8 +2614,9 @@ dependencies = [
 
 [[package]]
 name = "syn-ext"
-version = "0.4.0"
-source = "git+https://github.com/coolreader18/syn-ext?branch=syn2#00a6daa7b47b29557aa6e37a41b22e8d034caa68"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b126de4ef6c2a628a68609dd00733766c3b015894698a438ebdf374933fc31d1"
 dependencies = [
  "proc-macro2",
  "quote",
