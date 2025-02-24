@@ -33,6 +33,7 @@ pub enum CodegenErrorType {
     DuplicateStore(String),
     InvalidMatchCase,
     NotImplementedYet, // RustPython marker for unimplemented features
+    SymbolLookupError { symbol: String },
 }
 
 impl std::error::Error for CodegenErrorType {}
@@ -85,6 +86,9 @@ impl fmt::Display for CodegenErrorType {
             }
             NotImplementedYet => {
                 write!(f, "RustPython does not implement this feature yet")
+            },
+            SymbolLookupError { symbol } => {
+                write!(f, "The symbol {symbol} must be present in the symbol table, even when it is undefined in python")
             }
         }
     }
