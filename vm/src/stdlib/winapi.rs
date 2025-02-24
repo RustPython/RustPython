@@ -28,10 +28,20 @@ mod _winapi {
             ERROR_PIPE_CONNECTED, ERROR_SEM_TIMEOUT, GENERIC_READ, GENERIC_WRITE, STILL_ACTIVE,
             WAIT_ABANDONED, WAIT_ABANDONED_0, WAIT_OBJECT_0, WAIT_TIMEOUT,
         },
+        Globalization::{
+            LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA,
+            LCMAP_LINGUISTIC_CASING, LCMAP_LOWERCASE, LCMAP_SIMPLIFIED_CHINESE, LCMAP_TITLECASE,
+            LCMAP_TRADITIONAL_CHINESE, LCMAP_UPPERCASE,
+        },
         Storage::FileSystem::{
-            FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ,
-            FILE_GENERIC_WRITE, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE,
-            FILE_TYPE_UNKNOWN, OPEN_EXISTING, PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, SYNCHRONIZE,
+            COPYFILE2_CALLBACK_CHUNK_FINISHED, COPYFILE2_CALLBACK_CHUNK_STARTED,
+            COPYFILE2_CALLBACK_ERROR, COPYFILE2_CALLBACK_POLL_CONTINUE,
+            COPYFILE2_CALLBACK_STREAM_FINISHED, COPYFILE2_CALLBACK_STREAM_STARTED,
+            COPYFILE2_PROGRESS_CANCEL, COPYFILE2_PROGRESS_CONTINUE, COPYFILE2_PROGRESS_PAUSE,
+            COPYFILE2_PROGRESS_QUIET, COPYFILE2_PROGRESS_STOP, FILE_FLAG_FIRST_PIPE_INSTANCE,
+            FILE_FLAG_OVERLAPPED, FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_TYPE_CHAR,
+            FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_REMOTE, FILE_TYPE_UNKNOWN, OPEN_EXISTING,
+            PIPE_ACCESS_DUPLEX, PIPE_ACCESS_INBOUND, SYNCHRONIZE,
         },
         System::{
             Console::{STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE},
@@ -52,6 +62,13 @@ mod _winapi {
                 CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW, DETACHED_PROCESS, HIGH_PRIORITY_CLASS,
                 IDLE_PRIORITY_CLASS, INFINITE, NORMAL_PRIORITY_CLASS, PROCESS_DUP_HANDLE,
                 REALTIME_PRIORITY_CLASS, STARTF_USESHOWWINDOW, STARTF_USESTDHANDLES,
+            },
+            WindowsProgramming::{
+                COPY_FILE_ALLOW_DECRYPTED_DESTINATION, COPY_FILE_COPY_SYMLINK,
+                COPY_FILE_FAIL_IF_EXISTS, COPY_FILE_NO_BUFFERING, COPY_FILE_NO_OFFLOAD,
+                COPY_FILE_OPEN_SOURCE_FOR_WRITE, COPY_FILE_REQUEST_COMPRESSED_TRAFFIC,
+                COPY_FILE_REQUEST_SECURITY_PRIVILEGES, COPY_FILE_RESTARTABLE,
+                COPY_FILE_RESUME_FROM_PAUSE,
             },
         },
         UI::WindowsAndMessaging::SW_HIDE,
@@ -135,6 +152,16 @@ mod _winapi {
         } else {
             Ok(file_type)
         }
+    }
+
+    #[pyfunction]
+    fn GetLastError() -> u32 {
+        unsafe { windows_sys::Win32::Foundation::GetLastError() }
+    }
+
+    #[pyfunction]
+    fn GetVersion() -> u32 {
+        unsafe { windows_sys::Win32::System::SystemInformation::GetVersion() }
     }
 
     #[derive(FromArgs)]
@@ -247,6 +274,21 @@ mod _winapi {
             procinfo.dwProcessId,
             procinfo.dwThreadId,
         ))
+    }
+
+    #[pyfunction]
+    fn OpenProcess(
+        desired_access: u32,
+        inherit_handle: bool,
+        process_id: u32,
+    ) -> windows_sys::Win32::Foundation::HANDLE {
+        unsafe {
+            windows_sys::Win32::System::Threading::OpenProcess(
+                desired_access,
+                BOOL::from(inherit_handle),
+                process_id,
+            )
+        }
     }
 
     #[pyfunction]
@@ -446,5 +488,25 @@ mod _winapi {
 
         let (path, _) = path.split_at(length as usize);
         Ok(String::from_utf16(path).unwrap())
+    }
+
+    #[pyfunction]
+    fn OpenMutexW(desired_access: u32, inherit_handle: bool, name: u16) -> PyResult<isize> {
+        let handle = unsafe {
+            windows_sys::Win32::System::Threading::OpenMutexW(
+                desired_access,
+                BOOL::from(inherit_handle),
+                windows_sys::core::PCWSTR::from(name as _),
+            )
+        };
+        // if handle.is_invalid() {
+        //     return Err(errno_err(vm));
+        // }
+        Ok(handle)
+    }
+
+    #[pyfunction]
+    fn ReleaseMutex(handle: isize) -> WindowsSysResult<BOOL> {
+        WindowsSysResult(unsafe { windows_sys::Win32::System::Threading::ReleaseMutex(handle) })
     }
 }
