@@ -22,7 +22,6 @@ env:
   # test_os: many failing tests
   # test_pathlib: support.rmtree() failing
   # test_posixpath: OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
-  # test_unicode: AttributeError: module '_winapi' has no attribute 'GetACP'
   # test_venv: couple of failing tests
   WINDOWS_SKIPS: >-
     test_glob
@@ -31,7 +30,6 @@ env:
     test_rlcompleter
     test_pathlib
     test_posixpath
-    test_unicode
     test_venv
   # configparser: https://github.com/RustPython/RustPython/issues/4995#issuecomment-1582397417
   # socketserver: seems related to configparser crash.

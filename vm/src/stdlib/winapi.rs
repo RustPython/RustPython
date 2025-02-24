@@ -120,6 +120,11 @@ mod _winapi {
     }
 
     #[pyfunction]
+    fn GetACP() -> u32 {
+        unsafe { windows_sys::Win32::Globalization::GetACP() }
+    }
+
+    #[pyfunction]
     fn GetCurrentProcess() -> HANDLE {
         unsafe { windows::Win32::System::Threading::GetCurrentProcess() }
     }

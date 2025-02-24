@@ -1827,7 +1827,6 @@ class CodecsModuleTest(unittest.TestCase):
         self.assertEqual(codecs.decode(b'[\xff]', 'ascii', errors='ignore'),
                          '[]')
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_encode(self):
         self.assertEqual(codecs.encode('\xe4\xf6\xfc', 'latin-1'),
                          b'\xe4\xf6\xfc')
@@ -1846,7 +1845,6 @@ class CodecsModuleTest(unittest.TestCase):
         self.assertRaises(TypeError, codecs.register)
         self.assertRaises(TypeError, codecs.register, 42)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AttributeError: module '_winapi' has no attribute 'GetACP'")
     def test_unregister(self):
         name = "nonexistent_codec_name"
         search_function = mock.Mock()
@@ -1859,28 +1857,23 @@ class CodecsModuleTest(unittest.TestCase):
         self.assertRaises(LookupError, codecs.lookup, name)
         search_function.assert_not_called()
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_lookup(self):
         self.assertRaises(TypeError, codecs.lookup)
         self.assertRaises(LookupError, codecs.lookup, "__spam__")
         self.assertRaises(LookupError, codecs.lookup, " ")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getencoder(self):
         self.assertRaises(TypeError, codecs.getencoder)
         self.assertRaises(LookupError, codecs.getencoder, "__spam__")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getdecoder(self):
         self.assertRaises(TypeError, codecs.getdecoder)
         self.assertRaises(LookupError, codecs.getdecoder, "__spam__")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getreader(self):
         self.assertRaises(TypeError, codecs.getreader)
         self.assertRaises(LookupError, codecs.getreader, "__spam__")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_getwriter(self):
         self.assertRaises(TypeError, codecs.getwriter)
         self.assertRaises(LookupError, codecs.getwriter, "__spam__")
@@ -1939,7 +1932,6 @@ class CodecsModuleTest(unittest.TestCase):
             self.assertRaises(UnicodeError,
                 codecs.decode, b'abc', 'undefined', errors)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_file_closes_if_lookup_error_raised(self):
         mock_open = mock.mock_open()
         with mock.patch('builtins.open', mock_open) as file:
@@ -3287,7 +3279,6 @@ class ExceptionNotesTest(unittest.TestCase):
         self.check_note(RuntimeError('a', 'b', 'c'), msg_re)
 
     # http://bugs.python.org/issue19609
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_codec_lookup_failure(self):
         msg = "^unknown encoding: {}$".format(self.codec_name)
         with self.assertRaisesRegex(LookupError, msg):
@@ -3523,8 +3514,6 @@ class CodePageTest(unittest.TestCase):
                                           False)
         self.assertEqual(decoded, ('abc', 3))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_mbcs_alias(self):
         # Check that looking up our 'default' codepage will return
         # mbcs when we don't have a more specific one available
