@@ -1644,11 +1644,12 @@ dependencies = [
 
 [[package]]
 name = "puruspe"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5666f1226a41ebb7191b702947674f4814c9919da58a9f91a60090412664bbce"
+checksum = "d76c522e44709f541a403db419a7e34d6fbbc8e6b208589ae29a030cddeefd96"
 dependencies = [
  "lambert_w",
+ "num-complex",
 ]
 
 [[package]]
@@ -2178,6 +2179,7 @@ name = "rustpython-sre_engine"
 version = "0.4.0"
 dependencies = [
  "bitflags 2.8.0",
+ "criterion",
  "num_enum",
  "optional",
 ]

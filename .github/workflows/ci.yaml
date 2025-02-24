@@ -17,12 +17,17 @@ concurrency:
 env:
   CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,sqlite,ssl
   # Skip additional tests on Windows. They are checked on Linux and MacOS.
+  # test_glob: many failing tests
+  # test_io: many failing tests
+  # test_os: many failing tests
+  # test_pathlib: support.rmtree() failing
+  # test_posixpath: OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
+  # test_venv: couple of failing tests
   WINDOWS_SKIPS: >-
-    test_datetime
     test_glob
-    test_importlib
     test_io
     test_os
+    test_rlcompleter
     test_pathlib
     test_posixpath
     test_venv
@@ -35,7 +40,6 @@ env:
   # only run on Linux to speed up the CI.
   PLATFORM_INDEPENDENT_TESTS: >-
     test__colorize
-    test_argparse
     test_array
     test_asyncgen
     test_binop
@@ -60,7 +64,6 @@ env:
     test_dis
     test_enumerate
     test_exception_variations
-    test_exceptions
     test_float
     test_format
     test_fractions
@@ -101,7 +104,6 @@ env:
     test_tuple
     test_types
     test_unary
-    test_unicode
     test_unpack
     test_weakref
     test_yield_from

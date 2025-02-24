@@ -90,11 +90,20 @@ pub(crate) mod _ctypes {
     #[pyattr]
     pub const DICTFLAG_FINAL: u32 = 0x1000;
 
-    #[pyattr(once)]
-    fn error(vm: &VirtualMachine) -> PyTypeRef {
+    #[pyattr(name = "ArgumentError", once)]
+    fn argument_error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
             "_ctypes",
             "ArgumentError",
+            Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
+        )
+    }
+
+    #[pyattr(name = "FormatError", once)]
+    fn format_error(vm: &VirtualMachine) -> PyTypeRef {
+        vm.ctx.new_exception_type(
+            "_ctypes",
+            "FormatError",
             Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
         )
     }
