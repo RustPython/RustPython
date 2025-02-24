@@ -1,11 +1,24 @@
-pub(crate) use _typing::make_module;
+use crate::{
+    builtins::{PyModule, PyTypeRef},
+    types::{Constructor, Representable},
+    PyRef, PyResult, VirtualMachine,
+};
+
+pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
+    let module = _typing::make_module(vm);
+    module
+        .set_attr("NoDefault", vm.ctx.no_default.clone(), vm)
+        .unwrap();
+    module
+}
 
 #[pymodule]
 pub(crate) mod _typing {
     use crate::{
-        builtins::{pystr::AsPyStr, PyGenericAlias, PyTupleRef, PyTypeRef},
+        builtins::{pystr::AsPyStr, PyGenericAlias, PyStrRef, PyTupleRef, PyTypeRef},
         function::IntoFuncArgs,
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        types::Representable,
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
 
     pub(crate) fn _call_typing_func_object<'a>(
@@ -127,7 +140,7 @@ pub(crate) mod _typing {
         // compute_value: PyObjectRef,
         // module: PyObjectRef,
     }
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(with(Representable), flags(BASETYPE, IMMUTABLETYPE))]
     impl TypeAliasType {
         pub fn new(
             name: PyObjectRef,
@@ -139,6 +152,20 @@ pub(crate) mod _typing {
                 type_params,
                 value,
             }
+        }
+    }
+
+    impl Representable for TypeAliasType {
+        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+            zelf.name
+                .clone()
+                .downcast()
+                .map_err(|_| vm.new_type_error("TypeAliasType.__repr__ doesn't return str.".into()))
+        }
+
+        #[cold]
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            unreachable!("use repr instead")
         }
     }
 
@@ -169,4 +196,31 @@ pub(crate) mod _typing {
     //         &AS_MAPPING
     //     }
     // }
+}
+
+#[pyclass(module = false, name)]
+#[derive(Debug, PyPayload)]
+#[allow(dead_code)]
+pub struct NoDefaultType {}
+
+#[pyclass(with(Constructor, Representable))]
+impl NoDefaultType {
+    #[pymethod(magic)]
+    fn reduce() -> String {
+        "NoDefault".to_string()
+    }
+}
+
+impl Constructor for NoDefaultType {
+    type Args = ();
+
+    fn py_new(_: PyTypeRef, _args: Self::Args, vm: &VirtualMachine) -> PyResult {
+        Ok(vm.ctx.no_default.clone().into())
+    }
+}
+
+impl Representable for NoDefaultType {
+    fn repr_str(_zelf: &crate::Py<Self>, _vm: &VirtualMachine) -> crate::PyResult<String> {
+        Ok("typing.NoDefault".to_owned())
+    }
 }
