@@ -12,6 +12,7 @@ mod sys {
             ascii,
             hash::{PyHash, PyUHash},
         },
+        compiler,
         convert::ToPyObject,
         frame::FrameRef,
         function::{FuncArgs, OptionalArg, PosArgs},
@@ -298,6 +299,12 @@ mod sys {
             .iter()
             .map(|s| vm.ctx.new_str(s.clone()).into())
             .collect()
+    }
+
+    #[pyfunction]
+    fn _baserepl(module: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned())?;
+        Ok(())
     }
 
     #[pyfunction]
