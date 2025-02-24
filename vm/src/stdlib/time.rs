@@ -40,7 +40,7 @@ mod decl {
     };
     use chrono::{
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
-        DateTime, Datelike, Timelike,
+        DateTime, Datelike, Timelike, TimeZone
     };
     use std::time::Duration;
     #[cfg(target_env = "msvc")]
@@ -445,6 +445,8 @@ mod decl {
         tm_wday: PyObjectRef,
         tm_yday: PyObjectRef,
         tm_isdst: PyObjectRef,
+        tm_gmtoff: PyObjectRef,
+        tm_zone: PyObjectRef,
     }
 
     impl std::fmt::Debug for PyStructTime {
@@ -456,6 +458,11 @@ mod decl {
     #[pyclass(with(PyStructSequence))]
     impl PyStructTime {
         fn new(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
+            let local_time = chrono::Local.from_local_datetime(&tm).unwrap();
+            let offset_seconds =
+                local_time.offset().local_minus_utc() + if isdst == 1 { 3600 } else { 0 };
+            let tz_abbr = local_time.format("%Z").to_string();
+
             PyStructTime {
                 tm_year: vm.ctx.new_int(tm.year()).into(),
                 tm_mon: vm.ctx.new_int(tm.month()).into(),
@@ -466,6 +473,8 @@ mod decl {
                 tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()).into(),
                 tm_yday: vm.ctx.new_int(tm.ordinal()).into(),
                 tm_isdst: vm.ctx.new_int(isdst).into(),
+                tm_gmtoff: vm.ctx.new_int(offset_seconds).into(),
+                tm_zone: vm.ctx.new_str(tz_abbr).into(),
             }
         }
 
