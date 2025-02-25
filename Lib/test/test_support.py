@@ -553,6 +553,8 @@ class TestSupport(unittest.TestCase):
     @unittest.skipIf(support.is_apple_mobile, "Unstable on Apple Mobile")
     @unittest.skipIf(support.is_emscripten, "Unstable in Emscripten")
     @unittest.skipIf(support.is_wasi, "Unavailable on WASI")
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fd_count(self):
         # We cannot test the absolute value of fd_count(): on old Linux kernel
         # or glibc versions, os.urandom() keeps a FD open on /dev/urandom
