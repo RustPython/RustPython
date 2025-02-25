@@ -36,8 +36,8 @@ pub struct Coro {
     exception: PyMutex<Option<PyBaseExceptionRef>>, // exc_state
 }
 
-fn gen_name(gen: &PyObject, vm: &VirtualMachine) -> &'static str {
-    let typ = gen.class();
+fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
+    let typ = jen.class();
     if typ.is(vm.ctx.types.coroutine_type) {
         "coroutine"
     } else if typ.is(vm.ctx.types.async_generator) {
@@ -67,7 +67,7 @@ impl Coro {
 
     fn run_with_context<F>(
         &self,
-        gen: &PyObject,
+        jen: &PyObject,
         vm: &VirtualMachine,
         func: F,
     ) -> PyResult<ExecutionResult>
@@ -75,7 +75,7 @@ impl Coro {
         F: FnOnce(FrameRef) -> PyResult<ExecutionResult>,
     {
         if self.running.compare_exchange(false, true).is_err() {
-            return Err(vm.new_value_error(format!("{} already executing", gen_name(gen, vm))));
+            return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
         }
 
         vm.push_exception(self.exception.lock().take());
@@ -90,7 +90,7 @@ impl Coro {
 
     pub fn send(
         &self,
-        gen: &PyObject,
+        jen: &PyObject,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
@@ -102,22 +102,22 @@ impl Coro {
         } else if !vm.is_none(&value) {
             return Err(vm.new_type_error(format!(
                 "can't send non-None value to a just-started {}",
-                gen_name(gen, vm),
+                gen_name(jen, vm),
             )));
         } else {
             None
         };
-        let result = self.run_with_context(gen, vm, |f| f.resume(value, vm));
+        let result = self.run_with_context(jen, vm, |f| f.resume(value, vm));
         self.maybe_close(&result);
         match result {
             Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
             Err(e) => {
                 if e.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
                     let err =
-                        vm.new_runtime_error(format!("{} raised StopIteration", gen_name(gen, vm)));
+                        vm.new_runtime_error(format!("{} raised StopIteration", gen_name(jen, vm)));
                     err.set_cause(Some(e));
                     Err(err)
-                } else if gen.class().is(vm.ctx.types.async_generator)
+                } else if jen.class().is(vm.ctx.types.async_generator)
                     && e.fast_isinstance(vm.ctx.exceptions.stop_async_iteration)
                 {
                     let err = vm
@@ -132,7 +132,7 @@ impl Coro {
     }
     pub fn throw(
         &self,
-        gen: &PyObject,
+        jen: &PyObject,
         exc_type: PyObjectRef,
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
@@ -141,16 +141,16 @@ impl Coro {
         if self.closed.load() {
             return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
         }
-        let result = self.run_with_context(gen, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
+        let result = self.run_with_context(jen, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
         self.maybe_close(&result);
         Ok(result?.into_iter_return(vm))
     }
 
-    pub fn close(&self, gen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn close(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         if self.closed.load() {
             return Ok(());
         }
-        let result = self.run_with_context(gen, vm, |f| {
+        let result = self.run_with_context(jen, vm, |f| {
             f.gen_throw(
                 vm,
                 vm.ctx.exceptions.generator_exit.to_owned().into(),
@@ -161,7 +161,7 @@ impl Coro {
         self.closed.store(true);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
-                Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(gen, vm))))
+                Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
             }
             Err(e) if !is_gen_exit(&e, vm) => Err(e),
             _ => Ok(()),
@@ -183,10 +183,10 @@ impl Coro {
     pub fn set_name(&self, name: PyStrRef) {
         *self.name.lock() = name;
     }
-    pub fn repr(&self, gen: &PyObject, id: usize, vm: &VirtualMachine) -> String {
+    pub fn repr(&self, jen: &PyObject, id: usize, vm: &VirtualMachine) -> String {
         format!(
             "<{} object {} at {:#x}>",
-            gen_name(gen, vm),
+            gen_name(jen, vm),
             self.name.lock(),
             id
         )

@@ -29,8 +29,8 @@ enum MappingProxyInner {
 unsafe impl Traverse for MappingProxyInner {
     fn traverse(&self, tracer_fn: &mut TraverseFn) {
         match self {
-            MappingProxyInner::Class(ref r) => r.traverse(tracer_fn),
-            MappingProxyInner::Mapping(ref arg) => arg.traverse(tracer_fn),
+            MappingProxyInner::Class(r) => r.traverse(tracer_fn),
+            MappingProxyInner::Mapping(arg) => arg.traverse(tracer_fn),
         }
     }
 }

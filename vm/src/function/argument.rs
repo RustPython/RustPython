@@ -497,7 +497,7 @@ where
 {
     fn traverse(&self, tracer_fn: &mut TraverseFn) {
         match self {
-            OptionalArg::Present(ref o) => o.traverse(tracer_fn),
+            OptionalArg::Present(o) => o.traverse(tracer_fn),
             OptionalArg::Missing => (),
         }
     }
