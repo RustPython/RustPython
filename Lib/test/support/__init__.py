@@ -814,14 +814,8 @@ def gc_collect():
 
 @contextlib.contextmanager
 def disable_gc():
-    import gc
-    have_gc = gc.isenabled()
-    gc.disable()
-    try:
-        yield
-    finally:
-        if have_gc:
-            gc.enable()
+    # TODO: RUSTPYTHON doesn't have a gc
+    pass
 
 @contextlib.contextmanager
 def gc_threshold(*args):
