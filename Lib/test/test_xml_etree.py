@@ -4205,8 +4205,6 @@ class NoAcceleratorTest(unittest.TestCase):
         if not pyET:
             raise unittest.SkipTest('only for the Python version')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Test that the C accelerator was not imported for pyET
     def test_correct_import_pyET(self):
         # The type of methods defined in Python code is types.FunctionType,
