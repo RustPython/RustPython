@@ -401,7 +401,8 @@ pub(super) mod _os {
         }
         let key = super::bytes_as_osstr(key, vm)?;
         let value = super::bytes_as_osstr(value, vm)?;
-        env::set_var(key, value);
+        // SAFETY: requirements forwarded from the caller
+        unsafe { env::set_var(key, value) };
         Ok(())
     }
 
@@ -421,7 +422,8 @@ pub(super) mod _os {
             ));
         }
         let key = super::bytes_as_osstr(key, vm)?;
-        env::remove_var(key);
+        // SAFETY: requirements forwarded from the caller
+        unsafe { env::remove_var(key) };
         Ok(())
     }
 
