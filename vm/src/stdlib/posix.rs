@@ -971,7 +971,7 @@ pub mod module {
     #[cfg(any(target_os = "macos", target_os = "freebsd", target_os = "netbsd",))]
     #[pyfunction]
     fn lchmod(path: OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        extern "C" {
+        unsafe extern "C" {
             fn lchmod(path: *const libc::c_char, mode: libc::mode_t) -> libc::c_int;
         }
         let c_path = path.clone().into_cstring(vm)?;
@@ -1605,7 +1605,7 @@ pub mod module {
     // from libstd:
     // https://github.com/rust-lang/rust/blob/daecab3a784f28082df90cebb204998051f3557d/src/libstd/sys/unix/fs.rs#L1251
     #[cfg(target_os = "macos")]
-    extern "C" {
+    unsafe extern "C" {
         fn fcopyfile(
             in_fd: libc::c_int,
             out_fd: libc::c_int,
@@ -2299,7 +2299,7 @@ pub mod module {
 
     #[cfg(target_os = "linux")]
     unsafe fn sys_getrandom(buf: *mut libc::c_void, buflen: usize, flags: u32) -> isize {
-        libc::syscall(libc::SYS_getrandom, buf, buflen, flags as usize) as _
+        unsafe { libc::syscall(libc::SYS_getrandom, buf, buflen, flags as usize) as _ }
     }
 
     #[cfg(target_os = "linux")]

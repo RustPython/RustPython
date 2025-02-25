@@ -49,7 +49,7 @@ mod syslog {
     impl GlobalIdent {
         fn as_ptr(&self) -> *const c_char {
             match self {
-                GlobalIdent::Explicit(ref cstr) => cstr.as_ptr(),
+                GlobalIdent::Explicit(cstr) => cstr.as_ptr(),
                 GlobalIdent::Implicit => std::ptr::null(),
             }
         }

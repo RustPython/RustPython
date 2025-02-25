@@ -69,7 +69,7 @@ pub struct PointerSlot<T>(NonNull<T>);
 
 impl<T> PointerSlot<T> {
     pub unsafe fn borrow_static(&self) -> &'static T {
-        self.0.as_ref()
+        unsafe { self.0.as_ref() }
     }
 }
 

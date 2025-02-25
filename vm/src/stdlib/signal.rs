@@ -78,7 +78,7 @@ pub(crate) mod _signal {
     pub const SIG_ERR: sighandler_t = -1 as _;
 
     #[cfg(all(unix, not(target_os = "redox")))]
-    extern "C" {
+    unsafe extern "C" {
         fn siginterrupt(sig: i32, flag: i32) -> i32;
     }
 

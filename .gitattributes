@@ -4,3 +4,4 @@ Cargo.lock  linguist-generated -merge
 vm/src/stdlib/ast/gen.rs    linguist-generated -merge
 Lib/*.py    text working-tree-encoding=UTF-8 eol=LF
 **/*.rs     text working-tree-encoding=UTF-8 eol=LF
+*.pck       binary

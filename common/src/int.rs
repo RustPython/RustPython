@@ -50,7 +50,7 @@ pub fn bytes_to_int(lit: &[u8], mut base: u32) -> Option<BigInt> {
                     base = parsed;
                     true
                 } else {
-                    if let [_first, ref others @ .., last] = lit {
+                    if let [_first, others @ .., last] = lit {
                         let is_zero =
                             others.iter().all(|&c| c == b'0' || c == b'_') && *last == b'0';
                         if !is_zero {

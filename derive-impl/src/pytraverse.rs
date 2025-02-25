@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{Attribute, DeriveInput, Field, Meta, MetaList, NestedMeta, Result};
+use syn::{Attribute, DeriveInput, Field, Result};
 
 struct TraverseAttr {
     /// set to `true` if the attribute is `#[pytraverse(skip)]`
@@ -9,47 +9,25 @@ struct TraverseAttr {
 
 const ATTR_TRAVERSE: &str = "pytraverse";
 
-/// get the `#[pytraverse(..)]` attribute from the struct
-fn valid_get_traverse_attr_from_meta_list(list: &MetaList) -> Result<TraverseAttr> {
-    let find_skip_and_only_skip = || {
-        let len = list.nested.len();
-        if len != 1 {
-            return None;
-        }
-        let mut iter = list.nested.iter();
-        // we have checked the length, so unwrap is safe
-        let first_arg = iter.next().unwrap();
-        let skip = match first_arg {
-            NestedMeta::Meta(Meta::Path(path)) => match path.is_ident("skip") {
-                true => true,
-                false => return None,
-            },
-            _ => return None,
-        };
-        Some(skip)
-    };
-    let skip = find_skip_and_only_skip().ok_or_else(|| {
-        err_span!(
-            list,
-            "only support attr is #[pytraverse(skip)], got arguments: {:?}",
-            list.nested
-        )
-    })?;
-    Ok(TraverseAttr { skip })
-}
-
 /// only accept `#[pytraverse(skip)]` for now
 fn pytraverse_arg(attr: &Attribute) -> Option<Result<TraverseAttr>> {
-    if !attr.path.is_ident(ATTR_TRAVERSE) {
+    if !attr.path().is_ident(ATTR_TRAVERSE) {
         return None;
     }
     let ret = || {
-        let parsed = attr.parse_meta()?;
-        if let Meta::List(list) = parsed {
-            valid_get_traverse_attr_from_meta_list(&list)
-        } else {
-            bail_span!(attr, "pytraverse must be a list, like #[pytraverse(skip)]")
-        }
+        let mut skip = false;
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("skip") {
+                if skip {
+                    return Err(meta.error("already specified skip"));
+                }
+                skip = true;
+            } else {
+                return Err(meta.error("unknown attr"));
+            }
+            Ok(())
+        })?;
+        Ok(TraverseAttr { skip })
     };
     Some(ret())
 }
@@ -92,7 +70,7 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
         syn::Data::Struct(s) => {
             let fields = &mut s.fields;
             match fields {
-                syn::Fields::Named(ref mut fields) => {
+                syn::Fields::Named(fields) => {
                     let res: Vec<TokenStream> = fields
                         .named
                         .iter_mut()

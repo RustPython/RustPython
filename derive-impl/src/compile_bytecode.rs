@@ -13,7 +13,7 @@
 //! )
 //! ```
 
-use crate::{extract_spans, Diagnostic};
+use crate::Diagnostic;
 use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
@@ -25,10 +25,9 @@ use std::{
 };
 use syn::{
     self,
-    parse::{Parse, ParseStream, Result as ParseResult},
-    parse2,
+    parse::{ParseStream, Parser, Result as ParseResult},
     spanned::Spanned,
-    Lit, LitByteStr, LitStr, Macro, Meta, MetaNameValue, Token,
+    LitByteStr, LitStr, Macro,
 };
 
 static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
@@ -233,23 +232,17 @@ impl CompilationSource {
     }
 }
 
-/// This is essentially just a comma-separated list of Meta nodes, aka the inside of a MetaList.
-struct PyCompileInput {
-    span: Span,
-    metas: Vec<Meta>,
-}
-
-impl PyCompileInput {
-    fn parse(&self, allow_dir: bool) -> Result<PyCompileArgs, Diagnostic> {
+impl PyCompileArgs {
+    fn parse(input: TokenStream, allow_dir: bool) -> Result<PyCompileArgs, Diagnostic> {
         let mut module_name = None;
         let mut mode = None;
         let mut source: Option<CompilationSource> = None;
         let mut crate_name = None;
 
-        fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), Diagnostic> {
+        fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), syn::Error> {
             if let Some(source) = source {
-                Err(Diagnostic::spans_error(
-                    source.span,
+                Err(syn::Error::new(
+                    source.span.0,
                     "Cannot have more than one source",
                 ))
             } else {
@@ -257,59 +250,58 @@ impl PyCompileInput {
             }
         }
 
-        for meta in &self.metas {
-            if let Meta::NameValue(name_value) = meta {
-                let ident = match name_value.path.get_ident() {
-                    Some(ident) => ident,
-                    None => continue,
-                };
-                let check_str = || match &name_value.lit {
-                    Lit::Str(s) => Ok(s),
-                    _ => Err(err_span!(name_value.lit, "{ident} must be a string")),
-                };
-                if ident == "mode" {
-                    let s = check_str()?;
-                    match s.value().parse() {
-                        Ok(mode_val) => mode = Some(mode_val),
-                        Err(e) => bail_span!(s, "{}", e),
-                    }
-                } else if ident == "module_name" {
-                    module_name = Some(check_str()?.value())
-                } else if ident == "source" {
-                    assert_source_empty(&source)?;
-                    let code = check_str()?.value();
-                    source = Some(CompilationSource {
-                        kind: CompilationSourceKind::SourceCode(code),
-                        span: extract_spans(&name_value).unwrap(),
-                    });
-                } else if ident == "file" {
-                    assert_source_empty(&source)?;
-                    let path = check_str()?.value().into();
-                    source = Some(CompilationSource {
-                        kind: CompilationSourceKind::File(path),
-                        span: extract_spans(&name_value).unwrap(),
-                    });
-                } else if ident == "dir" {
-                    if !allow_dir {
-                        bail_span!(ident, "py_compile doesn't accept dir")
-                    }
-
-                    assert_source_empty(&source)?;
-                    let path = check_str()?.value().into();
-                    source = Some(CompilationSource {
-                        kind: CompilationSourceKind::Dir(path),
-                        span: extract_spans(&name_value).unwrap(),
-                    });
-                } else if ident == "crate_name" {
-                    let name = check_str()?.parse()?;
-                    crate_name = Some(name);
+        syn::meta::parser(|meta| {
+            let ident = meta
+                .path
+                .get_ident()
+                .ok_or_else(|| meta.error("unknown arg"))?;
+            let check_str = || meta.value()?.call(parse_str);
+            if ident == "mode" {
+                let s = check_str()?;
+                match s.value().parse() {
+                    Ok(mode_val) => mode = Some(mode_val),
+                    Err(e) => bail_span!(s, "{}", e),
                 }
+            } else if ident == "module_name" {
+                module_name = Some(check_str()?.value())
+            } else if ident == "source" {
+                assert_source_empty(&source)?;
+                let code = check_str()?.value();
+                source = Some(CompilationSource {
+                    kind: CompilationSourceKind::SourceCode(code),
+                    span: (ident.span(), meta.input.cursor().span()),
+                });
+            } else if ident == "file" {
+                assert_source_empty(&source)?;
+                let path = check_str()?.value().into();
+                source = Some(CompilationSource {
+                    kind: CompilationSourceKind::File(path),
+                    span: (ident.span(), meta.input.cursor().span()),
+                });
+            } else if ident == "dir" {
+                if !allow_dir {
+                    bail_span!(ident, "py_compile doesn't accept dir")
+                }
+
+                assert_source_empty(&source)?;
+                let path = check_str()?.value().into();
+                source = Some(CompilationSource {
+                    kind: CompilationSourceKind::Dir(path),
+                    span: (ident.span(), meta.input.cursor().span()),
+                });
+            } else if ident == "crate_name" {
+                let name = check_str()?.parse()?;
+                crate_name = Some(name);
+            } else {
+                return Err(meta.error("unknown attr"));
             }
-        }
+            Ok(())
+        })
+        .parse2(input)?;
 
         let source = source.ok_or_else(|| {
             syn::Error::new(
-                self.span,
+                Span::call_site(),
                 "Must have either file or source in py_compile!()/py_freeze!()",
             )
         })?;
@@ -323,35 +315,14 @@ impl PyCompileInput {
     }
 }
 
-fn parse_meta(input: ParseStream) -> ParseResult<Meta> {
-    let path = input.call(syn::Path::parse_mod_style)?;
-    let eq_token: Token![=] = input.parse()?;
+fn parse_str(input: ParseStream) -> ParseResult<LitStr> {
     let span = input.span();
     if input.peek(LitStr) {
-        Ok(Meta::NameValue(MetaNameValue {
-            path,
-            eq_token,
-            lit: Lit::Str(input.parse()?),
-        }))
+        input.parse()
     } else if let Ok(mac) = input.parse::<Macro>() {
-        Ok(Meta::NameValue(MetaNameValue {
-            path,
-            eq_token,
-            lit: Lit::Str(LitStr::new(&mac.tokens.to_string(), mac.span())),
-        }))
+        Ok(LitStr::new(&mac.tokens.to_string(), mac.span()))
     } else {
         Err(syn::Error::new(span, "Expected string or stringify macro"))
-    }
-}
-
-impl Parse for PyCompileInput {
-    fn parse(input: ParseStream) -> ParseResult<Self> {
-        let span = input.cursor().span();
-        let metas = input
-            .parse_terminated::<Meta, Token![,]>(parse_meta)?
-            .into_iter()
-            .collect();
-        Ok(PyCompileInput { span, metas })
     }
 }
 
@@ -366,8 +337,7 @@ pub fn impl_py_compile(
     input: TokenStream,
     compiler: &dyn Compiler,
 ) -> Result<TokenStream, Diagnostic> {
-    let input: PyCompileInput = parse2(input)?;
-    let args = input.parse(false)?;
+    let args = PyCompileArgs::parse(input, false)?;
 
     let crate_name = args.crate_name;
     let code = args
@@ -388,8 +358,7 @@ pub fn impl_py_freeze(
     input: TokenStream,
     compiler: &dyn Compiler,
 ) -> Result<TokenStream, Diagnostic> {
-    let input: PyCompileInput = parse2(input)?;
-    let args = input.parse(true)?;
+    let args = PyCompileArgs::parse(input, true)?;
 
     let crate_name = args.crate_name;
     let code_map = args.source.compile(args.mode, args.module_name, compiler)?;

@@ -94,7 +94,7 @@ pub mod windows {
         }
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn _get_osfhandle(fd: i32) -> libc::intptr_t;
     }
 

@@ -30,7 +30,7 @@ struct lconv {
 }
 
 #[cfg(windows)]
-extern "C" {
+unsafe extern "C" {
     fn localeconv() -> *mut lconv;
 }
 
@@ -78,11 +78,13 @@ mod _locale {
             return vm.ctx.new_list(group_vec);
         }
 
-        let mut ptr = group;
-        while ![0, libc::c_char::MAX].contains(&*ptr) {
-            let val = vm.ctx.new_int(*ptr);
-            group_vec.push(val.into());
-            ptr = ptr.add(1);
+        unsafe {
+            let mut ptr = group;
+            while ![0, libc::c_char::MAX].contains(&*ptr) {
+                let val = vm.ctx.new_int(*ptr);
+                group_vec.push(val.into());
+                ptr = ptr.add(1);
+            }
         }
         // https://github.com/python/cpython/blob/677320348728ce058fa3579017e985af74a236d4/Modules/_localemodule.c#L80
         if !group_vec.is_empty() {

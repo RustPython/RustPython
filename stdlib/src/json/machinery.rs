@@ -135,7 +135,7 @@ pub fn scanstring<'a>(
     };
     let unterminated_err = || DecodeError::new("Unterminated string starting at", end - 1);
     let mut chars = s.char_indices().enumerate().skip(end).peekable();
-    let (_, (mut chunk_start, _)) = chars.peek().ok_or_else(unterminated_err)?;
+    let &(_, (mut chunk_start, _)) = chars.peek().ok_or_else(unterminated_err)?;
     while let Some((char_i, (byte_i, c))) = chars.next() {
         match c {
             '"' => {

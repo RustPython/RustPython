@@ -176,7 +176,7 @@ impl Constructor for PyCSimple {
         let attributes = cls.get_attributes();
         let _type_ = attributes
             .iter()
-            .find(|(&k, _)| k.to_object().str(vm).unwrap().to_string() == *"_type_")
+            .find(|(k, _)| k.to_object().str(vm).unwrap().to_string() == *"_type_")
             .unwrap()
             .1
             .str(vm)?
