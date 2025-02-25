@@ -724,49 +724,26 @@ impl Node for ruff::StmtIf {
         let Self {
             test,
             body,
-            range: _range,
+            range,
             elif_else_clauses,
         } = self;
-        let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtIf::static_type().to_owned())
-            .unwrap();
-        let dict = node.as_object().dict().unwrap();
-        dict.set_item("test", test.ast_to_object(_vm, source_code), _vm)
-            .unwrap();
-        dict.set_item("body", body.ast_to_object(_vm, source_code), _vm)
-            .unwrap();
-        dict.set_item(
-            "orelse",
-            elif_else_clauses.ast_to_object(_vm, source_code),
+        elif_else_clause::ast_to_object(
+            ruff::ElifElseClause {
+                range,
+                test: Some(*test),
+                body,
+            },
+            elif_else_clauses.into_iter(),
             _vm,
+            source_code,
         )
-        .unwrap();
-        node_add_location(&dict, _range, _vm, source_code);
-        node.into()
     }
     fn ast_from_object(
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(Self {
-            test: Node::ast_from_object(
-                _vm,
-                source_code,
-                get_node_field(_vm, &_object, "test", "If")?,
-            )?,
-            body: Node::ast_from_object(
-                _vm,
-                source_code,
-                get_node_field(_vm, &_object, "body", "If")?,
-            )?,
-            elif_else_clauses: Node::ast_from_object(
-                _vm,
-                source_code,
-                get_node_field(_vm, &_object, "orelse", "If")?,
-            )?,
-            range: range_from_object(_vm, source_code, _object, "If")?,
-        })
+        elif_else_clause::ast_from_object(vm, source_code, object)
     }
 }
 // constructor

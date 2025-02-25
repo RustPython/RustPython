@@ -1,8 +1,8 @@
 use super::*;
 
 impl Node for ruff::TypeParams {
-    fn ast_to_object(self, _vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
-        todo!()
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+        self.type_params.ast_to_object(vm, source_code)
     }
 
     fn ast_from_object(
@@ -10,7 +10,11 @@ impl Node for ruff::TypeParams {
         _source_code: &SourceCodeOwned,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        todo!()
+        let type_params: Vec<ruff::TypeParam> = Node::ast_from_object(_vm, _source_code, _object)?;
+        let range = Option::zip(type_params.first(), type_params.last())
+            .map(|(first, last)| first.range().cover(last.range()))
+            .unwrap_or_default();
+        Ok(Self { type_params, range })
     }
 }
 // sum
