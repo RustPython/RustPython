@@ -291,3 +291,5 @@ assert math.fmod(3.0, NINF) == 3.0
 assert math.fmod(-3.0, NINF) == -3.0
 assert math.fmod(0.0, 3.0) == 0.0
 assert math.fmod(0.0, NINF) == 0.0
+
+assert math.gamma(1) == 1.0

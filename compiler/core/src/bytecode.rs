@@ -293,10 +293,8 @@ impl<T: OpArgType> Arg<T> {
     /// # Safety
     /// T::from_op_arg(self) must succeed
     pub unsafe fn get_unchecked(self, arg: OpArg) -> T {
-        match T::from_op_arg(arg.0) {
-            Some(t) => t,
-            None => std::hint::unreachable_unchecked(),
-        }
+        // SAFETY: requirements forwarded from caller
+        unsafe { T::from_op_arg(arg.0).unwrap_unchecked() }
     }
 }
 

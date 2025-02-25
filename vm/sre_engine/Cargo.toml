@@ -10,7 +10,14 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[[bench]]
+name = "benches"
+harness = false
+
 [dependencies]
 num_enum = { workspace = true }
 bitflags = { workspace = true }
 optional = "0.5"
+
+[dev-dependencies]
+criterion = { workspace = true }

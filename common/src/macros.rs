@@ -41,7 +41,7 @@ pub mod __macro_private {
         libc::uintptr_t,
     );
     #[cfg(target_env = "msvc")]
-    extern "C" {
+    unsafe extern "C" {
         pub fn _set_thread_local_invalid_parameter_handler(
             pNew: InvalidParamHandler,
         ) -> InvalidParamHandler;

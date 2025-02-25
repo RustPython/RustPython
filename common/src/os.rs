@@ -23,7 +23,7 @@ pub fn last_os_error() -> io::Error {
     let err = io::Error::last_os_error();
     // FIXME: probably not ideal, we need a bigger dichotomy between GetLastError and errno
     if err.raw_os_error() == Some(0) {
-        extern "C" {
+        unsafe extern "C" {
             fn _get_errno(pValue: *mut i32) -> i32;
         }
         let mut errno = 0;
@@ -44,7 +44,7 @@ pub fn last_os_error() -> io::Error {
 pub fn last_posix_errno() -> i32 {
     let err = io::Error::last_os_error();
     if err.raw_os_error() == Some(0) {
-        extern "C" {
+        unsafe extern "C" {
             fn _get_errno(pValue: *mut i32) -> i32;
         }
         let mut errno = 0;

@@ -77,19 +77,19 @@ use std::{
 pub(super) struct Erased;
 
 pub(super) unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
-    drop(Box::from_raw(x as *mut PyInner<T>));
+    drop(unsafe { Box::from_raw(x as *mut PyInner<T>) });
 }
 pub(super) unsafe fn debug_obj<T: PyObjectPayload>(
     x: &PyObject,
     f: &mut fmt::Formatter,
 ) -> fmt::Result {
-    let x = &*(x as *const PyObject as *const PyInner<T>);
+    let x = unsafe { &*(x as *const PyObject as *const PyInner<T>) };
     fmt::Debug::fmt(x, f)
 }
 
 /// Call `try_trace` on payload
 pub(super) unsafe fn try_trace_obj<T: PyObjectPayload>(x: &PyObject, tracer_fn: &mut TraverseFn) {
-    let x = &*(x as *const PyObject as *const PyInner<T>);
+    let x = unsafe { &*(x as *const PyObject as *const PyInner<T>) };
     let payload = &x.payload;
     payload.try_traverse(tracer_fn)
 }
@@ -278,7 +278,7 @@ impl WeakRefList {
     }
 
     unsafe fn dealloc(ptr: NonNull<PyMutex<WeakListInner>>) {
-        drop(Box::from_raw(ptr.as_ptr()));
+        drop(unsafe { Box::from_raw(ptr.as_ptr()) });
     }
 
     fn get_weak_references(&self) -> Vec<PyRef<PyWeak>> {
@@ -317,12 +317,14 @@ unsafe impl Link for WeakLink {
 
     #[inline(always)]
     unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self::Handle {
-        PyRef::from_raw(ptr.as_ptr())
+        // SAFETY: requirements forwarded from caller
+        unsafe { PyRef::from_raw(ptr.as_ptr()) }
     }
 
     #[inline(always)]
     unsafe fn pointers(target: NonNull<Self::Target>) -> NonNull<Pointers<Self::Target>> {
-        NonNull::new_unchecked(&raw mut (*target.as_ptr()).0.payload.pointers)
+        // SAFETY: requirements forwarded from caller
+        unsafe { NonNull::new_unchecked(&raw mut (*target.as_ptr()).0.payload.pointers) }
     }
 }
 
@@ -352,7 +354,7 @@ impl PyWeak {
             if !obj_ptr.as_ref().0.ref_count.safe_inc() {
                 return None;
             }
-            Some(PyObjectRef::from_raw(obj_ptr.as_ptr()))
+            Some(PyObjectRef::from_raw(obj_ptr))
         }
     }
 
@@ -506,8 +508,8 @@ impl ToOwned for PyObject {
 
 impl PyObjectRef {
     #[inline(always)]
-    pub fn into_raw(self) -> *const PyObject {
-        let ptr = self.as_raw();
+    pub fn into_raw(self) -> NonNull<PyObject> {
+        let ptr = self.ptr;
         std::mem::forget(self);
         ptr
     }
@@ -518,10 +520,8 @@ impl PyObjectRef {
     /// dropped more than once due to mishandling the reference count by calling this function
     /// too many times.
     #[inline(always)]
-    pub unsafe fn from_raw(ptr: *const PyObject) -> Self {
-        Self {
-            ptr: NonNull::new_unchecked(ptr as *mut PyObject),
-        }
+    pub unsafe fn from_raw(ptr: NonNull<PyObject>) -> Self {
+        Self { ptr }
     }
 
     /// Attempt to downcast this reference to a subclass.
@@ -567,7 +567,8 @@ impl PyObjectRef {
     #[inline(always)]
     pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
         debug_assert!(self.payload_is::<T>());
-        &*(self as *const PyObjectRef as *const PyRef<T>)
+        // SAFETY: requirements forwarded from caller
+        unsafe { &*(self as *const PyObjectRef as *const PyRef<T>) }
     }
 
     // ideally we'd be able to define these in pyobject.rs, but method visibility rules are weird
@@ -752,7 +753,8 @@ impl PyObject {
     #[inline(always)]
     pub unsafe fn downcast_unchecked_ref<T: PyObjectPayload>(&self) -> &Py<T> {
         debug_assert!(self.payload_is::<T>());
-        &*(self as *const PyObject as *const Py<T>)
+        // SAFETY: requirements forwarded from caller
+        unsafe { &*(self as *const PyObject as *const Py<T>) }
     }
 
     #[inline(always)]
@@ -814,13 +816,13 @@ impl PyObject {
     /// Can only be called when ref_count has dropped to zero. `ptr` must be valid
     #[inline(never)]
     unsafe fn drop_slow(ptr: NonNull<PyObject>) {
-        if let Err(()) = ptr.as_ref().drop_slow_inner() {
+        if let Err(()) = unsafe { ptr.as_ref().drop_slow_inner() } {
             // abort drop for whatever reason
             return;
         }
-        let drop_dealloc = ptr.as_ref().0.vtable.drop_dealloc;
+        let drop_dealloc = unsafe { ptr.as_ref().0.vtable.drop_dealloc };
         // call drop only when there are no references in scope - stacked borrows stuff
-        drop_dealloc(ptr.as_ptr())
+        unsafe { drop_dealloc(ptr.as_ptr()) }
     }
 
     /// # Safety
@@ -1022,7 +1024,7 @@ impl<T: PyObjectPayload> PyRef<T> {
     #[inline(always)]
     pub(crate) unsafe fn from_raw(raw: *const Py<T>) -> Self {
         Self {
-            ptr: NonNull::new_unchecked(raw as *mut _),
+            ptr: unsafe { NonNull::new_unchecked(raw as *mut _) },
         }
     }
 

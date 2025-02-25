@@ -87,13 +87,16 @@ impl<T> BoxVec<T> {
     pub unsafe fn push_unchecked(&mut self, element: T) {
         let len = self.len();
         debug_assert!(len < self.capacity());
-        ptr::write(self.get_unchecked_ptr(len), element);
-        self.set_len(len + 1);
+        // SAFETY: len < capacity
+        unsafe {
+            ptr::write(self.get_unchecked_ptr(len), element);
+            self.set_len(len + 1);
+        }
     }
 
     /// Get pointer to where element at `index` would be
     unsafe fn get_unchecked_ptr(&mut self, index: usize) -> *mut T {
-        self.xs.as_mut_ptr().add(index).cast()
+        unsafe { self.xs.as_mut_ptr().add(index).cast() }
     }
 
     pub fn insert(&mut self, index: usize, element: T) {
@@ -568,7 +571,7 @@ unsafe fn raw_ptr_add<T>(ptr: *mut T, offset: usize) -> *mut T {
         // Special case for ZST
         (ptr as usize).wrapping_add(offset) as _
     } else {
-        ptr.add(offset)
+        unsafe { ptr.add(offset) }
     }
 }
 
@@ -576,7 +579,7 @@ unsafe fn raw_ptr_write<T>(ptr: *mut T, value: T) {
     if mem::size_of::<T>() == 0 {
         /* nothing */
     } else {
-        ptr::write(ptr, value)
+        unsafe { ptr::write(ptr, value) }
     }
 }
 

@@ -619,11 +619,16 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyOb
             // Not supported, fail with original exception
             return Err(err.downcast().unwrap());
         }
+
+        debug_assert!(range.start <= 0.max(s.len() - 1));
+        debug_assert!(range.end >= 1.min(s.len()));
+        debug_assert!(range.end <= s.len());
+
         let mut c: u32 = 0;
         // Try decoding a single surrogate character. If there are more,
         // let the codec call us again.
         let p = &s.as_bytes()[range.start..];
-        if p.len().saturating_sub(range.start) >= byte_length {
+        if p.len().overflowing_sub(range.start).0 >= byte_length {
             match standard_encoding {
                 StandardEncoding::Utf8 => {
                     if (p[0] as u32 & 0xf0) == 0xe0

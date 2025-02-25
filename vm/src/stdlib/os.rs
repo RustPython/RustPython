@@ -380,8 +380,8 @@ pub(super) mod _os {
 
     fn env_bytes_as_bytes(obj: &Either<PyStrRef, PyBytesRef>) -> &[u8] {
         match obj {
-            Either::A(ref s) => s.as_str().as_bytes(),
-            Either::B(ref b) => b.as_bytes(),
+            Either::A(s) => s.as_str().as_bytes(),
+            Either::B(b) => b.as_bytes(),
         }
     }
 
@@ -401,7 +401,8 @@ pub(super) mod _os {
         }
         let key = super::bytes_as_osstr(key, vm)?;
         let value = super::bytes_as_osstr(value, vm)?;
-        env::set_var(key, value);
+        // SAFETY: requirements forwarded from the caller
+        unsafe { env::set_var(key, value) };
         Ok(())
     }
 
@@ -421,7 +422,8 @@ pub(super) mod _os {
             ));
         }
         let key = super::bytes_as_osstr(key, vm)?;
-        env::remove_var(key);
+        // SAFETY: requirements forwarded from the caller
+        unsafe { env::remove_var(key) };
         Ok(())
     }
 
@@ -966,7 +968,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn abort() {
-        extern "C" {
+        unsafe extern "C" {
             fn abort();
         }
         unsafe { abort() }
@@ -978,10 +980,7 @@ pub(super) mod _os {
             return Err(vm.new_value_error("negative argument not allowed".to_owned()));
         }
         let mut buf = vec![0u8; size as usize];
-        getrandom::fill(&mut buf).map_err(|e| match e.raw_os_error() {
-            Some(errno) => io::Error::from_raw_os_error(errno).into_pyexception(vm),
-            None => vm.new_os_error("Getting random failed".to_owned()),
-        })?;
+        getrandom::fill(&mut buf).map_err(|e| io::Error::from(e).into_pyexception(vm))?;
         Ok(buf)
     }
 

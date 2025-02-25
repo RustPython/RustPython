@@ -1,5 +1,6 @@
 fn main() {
     println!(r#"cargo::rustc-check-cfg=cfg(osslconf, values("OPENSSL_NO_COMP"))"#);
+    println!(r#"cargo::rustc-check-cfg=cfg(openssl_vendored)"#);
 
     #[allow(clippy::unusual_byte_groupings)]
     let ossl_vers = [
@@ -35,5 +36,10 @@ fn main() {
         for conf in v.split(',') {
             println!("cargo:rustc-cfg=osslconf=\"{conf}\"");
         }
+    }
+    // it's possible for openssl-sys to link against the system openssl under certain conditions,
+    // so let the ssl module know to only perform a probe if we're actually vendored
+    if std::env::var("DEP_OPENSSL_VENDORED").is_ok_and(|s| s == "1") {
+        println!("cargo::rustc-cfg=openssl_vendored")
     }
 }

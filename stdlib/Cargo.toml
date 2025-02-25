@@ -17,8 +17,8 @@ threading = ["rustpython-common/threading", "rustpython-vm/threading"]
 zlib = ["libz-sys", "flate2/zlib"]
 bz2 = ["bzip2"]
 sqlite = ["dep:libsqlite3-sys"]
-ssl = ["openssl", "openssl-sys", "foreign-types-shared"]
-ssl-vendor = ["ssl", "openssl/vendored", "openssl-probe"]
+ssl = ["openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
+ssl-vendor = ["ssl", "openssl/vendored"]
 
 [dependencies]
 # rustpython crates
@@ -49,7 +49,7 @@ base64 = "0.13.0"
 csv-core = "0.1.11"
 dyn-clone = "1.0.10"
 libz-sys = { version = "1.1", default-features = false, optional = true }
-puruspe = "0.3.0"
+puruspe = "0.4.0"
 xml-rs = "0.8.14"
 
 # random
