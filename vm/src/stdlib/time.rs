@@ -43,6 +43,9 @@ mod decl {
         DateTime, Datelike, Timelike,
     };
     use std::time::Duration;
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    use windows::Win32::System::Time;
 
     #[allow(dead_code)]
     pub(super) const SEC_TO_MS: i64 = 1000;
@@ -152,6 +155,15 @@ mod decl {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn get_tz_info() -> Time::TIME_ZONE_INFORMATION {
+        let mut info = Time::TIME_ZONE_INFORMATION::default();
+        let info_ptr = &mut info as *mut Time::TIME_ZONE_INFORMATION;
+        let _ = unsafe { Time::GetTimeZoneInformation(info_ptr) };
+        info
+    }
+
     // #[pyfunction]
     // fn tzset() {
     //     unsafe { super::_tzset() };
@@ -164,12 +176,30 @@ mod decl {
         unsafe { super::c_timezone }
     }
 
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn timezone(_vm: &VirtualMachine) -> i32 {
+        let info = get_tz_info();
+        // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
+        (info.Bias + info.StandardBias) * 60
+    }
+
     #[cfg(not(target_os = "freebsd"))]
     #[cfg(not(target_env = "msvc"))]
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn daylight(_vm: &VirtualMachine) -> std::ffi::c_int {
         unsafe { super::c_daylight }
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn daylight(_vm: &VirtualMachine) -> i32 {
+        let info = get_tz_info();
+        // https://users.rust-lang.org/t/accessing-tzname-and-similar-constants-in-windows/125771/3
+        (info.StandardBias != info.DaylightBias) as i32
     }
 
     #[cfg(not(target_env = "msvc"))]
@@ -182,6 +212,22 @@ mod decl {
             std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
         }
         unsafe { (to_str(super::c_tzname[0]), to_str(super::c_tzname[1])) }.into_pytuple(vm)
+    }
+
+    #[cfg(target_env = "msvc")]
+    #[cfg(not(target_arch = "wasm32"))]
+    #[pyattr]
+    fn tzname(vm: &VirtualMachine) -> crate::builtins::PyTupleRef {
+        use crate::builtins::tuple::IntoPyTuple;
+        let info = get_tz_info();
+        let standard = widestring::decode_utf16_lossy(info.StandardName)
+            .filter(|&c| c != '\0')
+            .collect::<String>();
+        let daylight = widestring::decode_utf16_lossy(info.DaylightName)
+            .filter(|&c| c != '\0')
+            .collect::<String>();
+        let tz_name = (&*standard, &*daylight);
+        tz_name.into_pytuple(vm)
     }
 
     fn pyobj_to_date_time(

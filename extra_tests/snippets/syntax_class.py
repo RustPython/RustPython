@@ -50,7 +50,7 @@ class Bar:
         assert x == 3
 
 
-assert Bar.__doc__ == " W00t "
+assert Bar.__doc__ == "W00t "
 
 bar = Bar(42)
 assert bar.get_x.__doc__ == None
@@ -147,7 +147,7 @@ class T3:
     test3
     """
 
-assert T3.__doc__ == "\n    test3\n    "
+assert T3.__doc__ == "\ntest3\n"
 
 class T4:
 

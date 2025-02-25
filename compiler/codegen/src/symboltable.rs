@@ -14,7 +14,8 @@ use crate::{
 use bitflags::bitflags;
 use ruff_python_ast::{
     self as ast, Comprehension, Decorator, Expr, ModExpression, ModModule, Parameter,
-    ParameterWithDefault, Parameters, Stmt, TypeParam, TypeParamTypeVar, TypeParams,
+    ParameterWithDefault, Parameters, Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar,
+    TypeParamTypeVarTuple, TypeParams,
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_source::{SourceCode, SourceLocation};
@@ -1276,8 +1277,20 @@ impl SymbolTableBuilder<'_> {
                         self.scan_expression(binding, ExpressionContext::Load)?;
                     }
                 }
-                TypeParam::ParamSpec(_) => todo!(),
-                TypeParam::TypeVarTuple(_) => todo!(),
+                TypeParam::ParamSpec(TypeParamParamSpec {
+                    name,
+                    range: param_spec_range,
+                    ..
+                }) => {
+                    self.register_name(name, SymbolUsage::Assigned, *param_spec_range)?;
+                }
+                TypeParam::TypeVarTuple(TypeParamTypeVarTuple {
+                    name,
+                    range: type_var_tuple_range,
+                    ..
+                }) => {
+                    self.register_name(name, SymbolUsage::Assigned, *type_var_tuple_range)?;
+                }
             }
         }
         Ok(())

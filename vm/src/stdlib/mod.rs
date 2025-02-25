@@ -37,6 +37,8 @@ pub mod posix;
 #[path = "posix_compat.rs"]
 pub mod posix;
 
+#[cfg(any(target_family = "unix", target_family = "windows"))]
+mod ctypes;
 #[cfg(windows)]
 pub(crate) mod msvcrt;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
@@ -123,6 +125,10 @@ pub fn get_module_inits() -> StdlibMap {
             "msvcrt" => msvcrt::make_module,
             "_winapi" => winapi::make_module,
             "winreg" => winreg::make_module,
+        }
+        #[cfg(any(target_family = "unix", target_family = "windows"))]
+        {
+            "_ctypes" => ctypes::make_module,
         }
     }
 }

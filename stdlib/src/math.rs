@@ -132,6 +132,9 @@ mod math {
     #[pyfunction]
     fn log(x: PyObjectRef, base: OptionalArg<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
         let base = base.map(|b| *b).unwrap_or(std::f64::consts::E);
+        if base.is_sign_negative() {
+            return Err(vm.new_value_error("math domain error".to_owned()));
+        }
         log2(x, vm).map(|logx| logx / base.log2())
     }
 
@@ -192,15 +195,17 @@ mod math {
         let x = *x;
         let y = *y;
 
-        if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite() {
-            return Err(vm.new_value_error("math domain error".to_owned()));
-        }
-
-        if x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY {
+        if x < 0.0 && x.is_finite() && y.fract() != 0.0 && y.is_finite()
+            || x == 0.0 && y < 0.0 && y != f64::NEG_INFINITY
+        {
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
 
         let value = x.powf(y);
+
+        if x.is_finite() && y.is_finite() && value.is_infinite() {
+            return Err(vm.new_overflow_error("math range error".to_string()));
+        }
 
         Ok(value)
     }
@@ -212,6 +217,9 @@ mod math {
             return Ok(value);
         }
         if value.is_sign_negative() {
+            if value.is_zero() {
+                return Ok(-0.0f64);
+            }
             return Err(vm.new_value_error("math domain error".to_owned()));
         }
         Ok(value.sqrt())
@@ -260,6 +268,9 @@ mod math {
 
     #[pyfunction]
     fn cos(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        if x.is_infinite() {
+            return Err(vm.new_value_error("math domain error".to_owned()));
+        }
         call_math_func!(cos, x, vm)
     }
 
@@ -345,7 +356,7 @@ mod math {
                 .map(|x| (x / scale).powi(2))
                 .chain(std::iter::once(-norm * norm))
                 // Pairwise summation of floats gives less rounding error than a naive sum.
-                .tree_fold1(std::ops::Add::add)
+                .tree_reduce(std::ops::Add::add)
                 .expect("expected at least 1 element");
             norm = norm + correction / (2.0 * norm);
         }
@@ -394,11 +405,17 @@ mod math {
 
     #[pyfunction]
     fn sin(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        if x.is_infinite() {
+            return Err(vm.new_value_error("math domain error".to_owned()));
+        }
         call_math_func!(sin, x, vm)
     }
 
     #[pyfunction]
     fn tan(x: ArgIntoFloat, vm: &VirtualMachine) -> PyResult<f64> {
+        if x.is_infinite() {
+            return Err(vm.new_value_error("math domain error".to_owned()));
+        }
         call_math_func!(tan, x, vm)
     }
 
@@ -612,7 +629,7 @@ mod math {
 
     #[pyfunction]
     fn fsum(seq: ArgIterable<ArgIntoFloat>, vm: &VirtualMachine) -> PyResult<f64> {
-        let mut partials = vec![];
+        let mut partials = Vec::with_capacity(32);
         let mut special_sum = 0.0;
         let mut inf_sum = 0.0;
 
@@ -620,11 +637,11 @@ mod math {
             let mut x = *obj?;
 
             let xsave = x;
-            let mut j = 0;
+            let mut i = 0;
             // This inner loop applies `hi`/`lo` summation to each
             // partial so that the list of partial sums remains exact.
-            for i in 0..partials.len() {
-                let mut y: f64 = partials[i];
+            for j in 0..partials.len() {
+                let mut y: f64 = partials[j];
                 if x.abs() < y.abs() {
                     std::mem::swap(&mut x, &mut y);
                 }
@@ -633,33 +650,33 @@ mod math {
                 let hi = x + y;
                 let lo = y - (hi - x);
                 if lo != 0.0 {
-                    partials[j] = lo;
-                    j += 1;
+                    partials[i] = lo;
+                    i += 1;
                 }
                 x = hi;
             }
 
-            if !x.is_finite() {
-                // a nonfinite x could arise either as
-                // a result of intermediate overflow, or
-                // as a result of a nan or inf in the
-                // summands
-                if xsave.is_finite() {
-                    return Err(vm.new_overflow_error("intermediate overflow in fsum".to_owned()));
+            partials.truncate(i);
+            if x != 0.0 {
+                if !x.is_finite() {
+                    // a nonfinite x could arise either as
+                    // a result of intermediate overflow, or
+                    // as a result of a nan or inf in the
+                    // summands
+                    if xsave.is_finite() {
+                        return Err(
+                            vm.new_overflow_error("intermediate overflow in fsum".to_owned())
+                        );
+                    }
+                    if xsave.is_infinite() {
+                        inf_sum += xsave;
+                    }
+                    special_sum += xsave;
+                    // reset partials
+                    partials.clear();
+                } else {
+                    partials.push(x);
                 }
-                if xsave.is_infinite() {
-                    inf_sum += xsave;
-                }
-                special_sum += xsave;
-                // reset partials
-                partials.clear();
-            }
-
-            if j >= partials.len() {
-                partials.push(x);
-            } else {
-                partials[j] = x;
-                partials.truncate(j + 1);
             }
         }
         if special_sum != 0.0 {
@@ -814,9 +831,38 @@ mod math {
         (x.fract(), x.trunc())
     }
 
+    #[derive(FromArgs)]
+    struct NextAfterArgs {
+        #[pyarg(positional)]
+        x: ArgIntoFloat,
+        #[pyarg(positional)]
+        y: ArgIntoFloat,
+        #[pyarg(named, optional)]
+        steps: OptionalArg<ArgIndex>,
+    }
+
     #[pyfunction]
-    fn nextafter(x: ArgIntoFloat, y: ArgIntoFloat) -> f64 {
-        float_ops::nextafter(*x, *y)
+    fn nextafter(arg: NextAfterArgs, vm: &VirtualMachine) -> PyResult<f64> {
+        let steps: Option<i64> = arg
+            .steps
+            .map(|v| v.try_to_primitive(vm))
+            .transpose()?
+            .into_option();
+        match steps {
+            Some(steps) => {
+                if steps < 0 {
+                    return Err(
+                        vm.new_value_error("steps must be a non-negative integer".to_string())
+                    );
+                }
+                Ok(float_ops::nextafter_with_steps(
+                    *arg.x,
+                    *arg.y,
+                    steps as u64,
+                ))
+            }
+            None => Ok(float_ops::nextafter(*arg.x, *arg.y)),
+        }
     }
 
     #[pyfunction]
@@ -900,10 +946,38 @@ mod math {
         // refer: https://github.com/python/cpython/blob/main/Modules/mathmodule.c#L3093-L3193
         for obj in iter.iter(vm)? {
             let obj = obj?;
+            result = vm._mul(&result, &obj)?;
+        }
 
-            result = vm
-                ._mul(&result, &obj)
-                .map_err(|_| vm.new_type_error("math type error".to_owned()))?;
+        Ok(result)
+    }
+
+    #[pyfunction]
+    fn sumprod(
+        p: ArgIterable<PyObjectRef>,
+        q: ArgIterable<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let mut p_iter = p.iter(vm)?;
+        let mut q_iter = q.iter(vm)?;
+        // We cannot just create a float because the iterator may contain
+        // anything as long as it supports __add__ and __mul__.
+        let mut result = vm.new_pyobj(0);
+        loop {
+            let m_p = p_iter.next();
+            let m_q = q_iter.next();
+            match (m_p, m_q) {
+                (Some(r_p), Some(r_q)) => {
+                    let p = r_p?;
+                    let q = r_q?;
+                    let tmp = vm._mul(&p, &q)?;
+                    result = vm._add(&result, &tmp)?;
+                }
+                (None, None) => break,
+                _ => {
+                    return Err(vm.new_value_error("Inputs are not the same length".to_string()));
+                }
+            }
         }
 
         Ok(result)

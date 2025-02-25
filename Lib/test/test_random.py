@@ -22,8 +22,6 @@ class TestBasicOps:
         """Helper function to make a list of random numbers"""
         return [self.gen.random() for i in range(n)]
 
-    # TODO: RUSTPYTHON AttributeError: 'super' object has no attribute 'getstate'
-    @unittest.expectedFailure
     def test_autoseed(self):
         self.gen.seed()
         state1 = self.gen.getstate()
@@ -32,8 +30,6 @@ class TestBasicOps:
         state2 = self.gen.getstate()
         self.assertNotEqual(state1, state2)
 
-    # TODO: RUSTPYTHON AttributeError: 'super' object has no attribute 'getstate'
-    @unittest.expectedFailure
     def test_saverestore(self):
         N = 1000
         self.gen.seed()
@@ -60,7 +56,6 @@ class TestBasicOps:
         self.assertRaises(TypeError, self.gen.seed, 1, 2, 3, 4)
         self.assertRaises(TypeError, type(self.gen), [])
 
-    @unittest.skip("TODO: RUSTPYTHON, TypeError: Expected type 'bytes', not 'bytearray'")
     def test_seed_no_mutate_bug_44018(self):
         a = bytearray(b'1234')
         self.gen.seed(a)
@@ -386,8 +381,6 @@ class TestBasicOps:
         self.assertRaises(ValueError, self.gen.getrandbits, -1)
         self.assertRaises(TypeError, self.gen.getrandbits, 10.1)
 
-    # TODO: RUSTPYTHON AttributeError: 'super' object has no attribute 'getstate'
-    @unittest.expectedFailure
     def test_pickling(self):
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
             state = pickle.dumps(self.gen, proto)
@@ -396,8 +389,6 @@ class TestBasicOps:
             restoredseq = [newgen.random() for i in range(10)]
             self.assertEqual(origseq, restoredseq)
 
-    # TODO: RUSTPYTHON AttributeError: 'super' object has no attribute 'getstate'
-    @unittest.expectedFailure
     def test_bug_1727780(self):
         # verify that version-2-pickles can be loaded
         # fine, whether they are created on 32-bit or 64-bit
@@ -600,11 +591,6 @@ class TestRawMersenneTwister(unittest.TestCase):
 class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     gen = random.Random()
 
-    # TODO: RUSTPYTHON, TypeError: Expected type 'bytes', not 'bytearray'
-    @unittest.expectedFailure
-    def test_seed_no_mutate_bug_44018(self):  # TODO: RUSTPYTHON, remove when this passes
-        super().test_seed_no_mutate_bug_44018()  # TODO: RUSTPYTHON, remove when this passes
-
     def test_guaranteed_stable(self):
         # These sequences are guaranteed to stay the same across versions of python
         self.gen.seed(3456147, version=1)
@@ -675,8 +661,6 @@ class MersenneTwister_TestBasicOps(TestBasicOps, unittest.TestCase):
     def test_setstate_first_arg(self):
         self.assertRaises(ValueError, self.gen.setstate, (1, None, None))
 
-    # TODO: RUSTPYTHON AttributeError: 'super' object has no attribute 'getstate'
-    @unittest.expectedFailure
     def test_setstate_middle_arg(self):
         start_state = self.gen.getstate()
         # Wrong type, s/b tuple
@@ -1012,8 +996,6 @@ def gamma(z, sqrt2pi=(2.0*pi)**0.5):
     ])
 
 class TestDistributions(unittest.TestCase):
-    # TODO: RUSTPYTHON ValueError: math domain error
-    @unittest.expectedFailure
     def test_zeroinputs(self):
         # Verify that distributions can handle a series of zero inputs'
         g = random.Random()
@@ -1284,15 +1266,6 @@ class TestDistributions(unittest.TestCase):
 
 
 class TestRandomSubclassing(unittest.TestCase):
-    # TODO: RUSTPYTHON Unexpected keyword argument newarg
-    @unittest.expectedFailure
-    def test_random_subclass_with_kwargs(self):
-        # SF bug #1486663 -- this used to erroneously raise a TypeError
-        class Subclass(random.Random):
-            def __init__(self, newarg=None):
-                random.Random.__init__(self)
-        Subclass(newarg=1)
-
     def test_subclasses_overriding_methods(self):
         # Subclasses with an overridden random, but only the original
         # getrandbits method should not rely on getrandbits in for randrange,

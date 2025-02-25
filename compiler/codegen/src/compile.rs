@@ -23,7 +23,8 @@ use ruff_python_ast::{
     ExprList, ExprName, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString,
     FStringElement, FStringElements, FStringPart, Int, Keyword, MatchCase, ModExpression,
     ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchValue, Stmt, StmtExpr,
-    TypeParam, TypeParamTypeVar, TypeParams, UnaryOp, WithItem,
+    TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp,
+    WithItem,
 };
 use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
@@ -1104,8 +1105,22 @@ impl Compiler<'_> {
                         self.store_name(name.as_ref())?;
                     }
                 }
-                TypeParam::ParamSpec(_) => todo!(),
-                TypeParam::TypeVarTuple(_) => todo!(),
+                TypeParam::ParamSpec(TypeParamParamSpec { name, .. }) => {
+                    self.emit_load_const(ConstantData::Str {
+                        value: name.to_string(),
+                    });
+                    emit!(self, Instruction::ParamSpec);
+                    emit!(self, Instruction::Duplicate);
+                    self.store_name(name.as_ref())?;
+                }
+                TypeParam::TypeVarTuple(TypeParamTypeVarTuple { name, .. }) => {
+                    self.emit_load_const(ConstantData::Str {
+                        value: name.to_string(),
+                    });
+                    emit!(self, Instruction::TypeVarTuple);
+                    emit!(self, Instruction::Duplicate);
+                    self.store_name(name.as_ref())?;
+                }
             };
         }
         emit!(
@@ -2699,7 +2714,7 @@ impl Compiler<'_> {
 
     fn compile_keywords(&mut self, keywords: &[Keyword]) -> CompileResult<()> {
         let mut size = 0;
-        let groupby = keywords.iter().group_by(|e| e.arg.is_none());
+        let groupby = keywords.iter().chunk_by(|e| e.arg.is_none());
         for (is_unpacking, sub_keywords) in &groupby {
             if is_unpacking {
                 for keyword in sub_keywords {
@@ -2844,7 +2859,7 @@ impl Compiler<'_> {
                         (false, element)
                     }
                 })
-                .group_by(|(starred, _)| *starred);
+                .chunk_by(|(starred, _)| *starred);
 
             for (starred, run) in &groups {
                 let mut run_size = 0;
@@ -3464,7 +3479,40 @@ impl EmitArg<bytecode::Label> for ir::BlockIdx {
     }
 }
 
-/// Extracts the docstring from a list of statements (such as the body of a function definition) if present.
+/// Strips leading whitespace from a docstring.
+///
+/// The code has been ported from `_PyCompile_CleanDoc` in cpython.
+/// `inspect.cleandoc` is also a good reference, but has a few incompatibilities.
+fn clean_doc(doc: &str) -> String {
+    let doc = rustpython_common::str::expandtabs(doc, 8);
+    // First pass: find minimum indentation of any non-blank lines
+    // after first line.
+    let margin = doc
+        .lines()
+        // Find the non-blank lines
+        .filter(|line| !line.trim().is_empty())
+        // get the one with the least indentation
+        .map(|line| line.chars().take_while(|c| c == &' ').count())
+        .min();
+    if let Some(margin) = margin {
+        let mut cleaned = String::with_capacity(doc.len());
+        // copy first line without leading whitespace
+        if let Some(first_line) = doc.lines().next() {
+            cleaned.push_str(first_line.trim_start());
+        }
+        // copy subsequent lines without margin.
+        for line in doc.split('\n').skip(1) {
+            cleaned.push('\n');
+            let cleaned_line = line.chars().skip(margin).collect::<String>();
+            cleaned.push_str(&cleaned_line);
+        }
+
+        cleaned
+    } else {
+        doc.to_owned()
+    }
+}
+
 fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [Stmt]) {
     if let Some((Stmt::Expr(expr), body_rest)) = body.split_first() {
         let doc_comment = match &*expr.value {
@@ -3474,11 +3522,11 @@ fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [
             _ => None,
         };
         if let Some(doc) = doc_comment {
-            if opts.optimize < 2 {
-                return (Some(doc.to_str().to_owned()), body_rest);
+            return if opts.optimize < 2 {
+                (Some(clean_doc(doc.to_str())), body_rest)
             } else {
-                return (None, body_rest);
-            }
+                (None, body_rest)
+            };
         }
     }
     (None, body)

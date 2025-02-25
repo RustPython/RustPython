@@ -133,6 +133,69 @@ pub fn nextafter(x: f64, y: f64) -> f64 {
     }
 }
 
+#[allow(clippy::float_cmp)]
+pub fn nextafter_with_steps(x: f64, y: f64, steps: u64) -> f64 {
+    if x == y {
+        y
+    } else if x.is_nan() || y.is_nan() {
+        f64::NAN
+    } else if x >= f64::INFINITY {
+        f64::MAX
+    } else if x <= f64::NEG_INFINITY {
+        f64::MIN
+    } else if x == 0.0 {
+        f64::from_bits(1).copysign(y)
+    } else {
+        if steps == 0 {
+            return x;
+        }
+
+        if x.is_nan() {
+            return x;
+        }
+
+        if y.is_nan() {
+            return y;
+        }
+
+        let sign_bit: u64 = 1 << 63;
+
+        let mut ux = x.to_bits();
+        let uy = y.to_bits();
+
+        let ax = ux & !sign_bit;
+        let ay = uy & !sign_bit;
+
+        // If signs are different
+        if ((ux ^ uy) & sign_bit) != 0 {
+            return if ax + ay <= steps {
+                f64::from_bits(uy)
+            } else if ax < steps {
+                let result = (uy & sign_bit) | (steps - ax);
+                f64::from_bits(result)
+            } else {
+                ux -= steps;
+                f64::from_bits(ux)
+            };
+        }
+
+        // If signs are the same
+        if ax > ay {
+            if ax - ay >= steps {
+                ux -= steps;
+                f64::from_bits(ux)
+            } else {
+                f64::from_bits(uy)
+            }
+        } else if ay - ax >= steps {
+            ux += steps;
+            f64::from_bits(ux)
+        } else {
+            f64::from_bits(uy)
+        }
+    }
+}
+
 pub fn ulp(x: f64) -> f64 {
     if x.is_nan() {
         return x;
