@@ -43,7 +43,7 @@ def _main():
     # sanity check
     assert __file__ == os.path.abspath(sys.argv[0])
 
-    main()
+    main.main()
 
 
 if __name__ == '__main__':

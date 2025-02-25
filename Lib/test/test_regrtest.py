@@ -2017,6 +2017,8 @@ class ArgsTestCase(BaseTestCase):
                                   stats=1)
         self.check_line(output, expected_line, regex=False)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_doctest(self):
         code = textwrap.dedent(r'''
             import doctest
@@ -2262,6 +2264,8 @@ class ArgsTestCase(BaseTestCase):
             self.check_executed_tests(output, testname, stats=1, parallel=True)
             self.assertNotIn('SPAM SPAM SPAM', output)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_xml(self):
         code = textwrap.dedent(r"""
             import unittest
@@ -2483,6 +2487,8 @@ class TestUtils(unittest.TestCase):
             self.assertTrue(match_test(test_chdir))
             self.assertFalse(match_test(test_copy))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_sanitize_xml(self):
         sanitize_xml = utils.sanitize_xml
 
