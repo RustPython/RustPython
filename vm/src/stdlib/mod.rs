@@ -41,6 +41,7 @@ pub mod posix;
 mod ctypes;
 #[cfg(windows)]
 pub(crate) mod msvcrt;
+mod opcode;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
 pub(crate) mod signal;
@@ -49,7 +50,6 @@ pub mod sys;
 mod winapi;
 #[cfg(windows)]
 mod winreg;
-mod opcode;
 
 use crate::{builtins::PyModule, PyRef, VirtualMachine};
 use std::{borrow::Cow, collections::HashMap};
