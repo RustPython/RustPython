@@ -507,9 +507,17 @@ impl Compiler {
         self.check_forbidden_name(&name, usage)?;
 
         let symbol_table = self.symbol_table_stack.last().unwrap();
-        let symbol = symbol_table.lookup(name.as_ref()).unwrap_or_else(||
-            panic!("The symbol '{name}' must be present in the symbol table, even when it is undefined in python."),
-        );
+        let symbol = match symbol_table.lookup(name.as_ref()) {
+            Some(s) => s,
+            None => {
+                return Err(self.error_loc(
+                    CodegenErrorType::SymbolLookupError {
+                        symbol: name.to_string(),
+                    },
+                    self.current_source_location,
+                ));
+            }
+        };
         let info = self.code_stack.last_mut().unwrap();
         let mut cache = &mut info.name_cache;
         enum NameOpType {
