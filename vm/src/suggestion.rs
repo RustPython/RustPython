@@ -52,10 +52,8 @@ pub fn offer_suggestions(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> Optio
         calculate_suggestions(vm.dir(Some(obj)).ok()?.borrow_vec().iter(), &name)
     } else if exc.class().is(vm.ctx.exceptions.name_error) {
         let name = exc.as_object().get_attr("name", vm).unwrap();
-        let mut tb = exc.traceback()?;
-        for traceback in tb.iter() {
-            tb = traceback;
-        }
+        let tb = exc.traceback()?;
+        let tb = tb.iter().last().unwrap_or(tb);
 
         let varnames = tb.frame.code.clone().co_varnames(vm);
         if let Some(suggestions) = calculate_suggestions(varnames.iter(), &name) {
