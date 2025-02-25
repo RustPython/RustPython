@@ -98,7 +98,7 @@ fn test_exp() {
     assert_eq!(exp(2, 3), Ok(8.0));
     assert_eq!(exp(3, 2), Ok(9.0));
     assert_eq!(exp(5, 0), Ok(1.0));
-    assert_eq!(exp(0, 0), Ok(1.0));
+assert_eq!(exp(0, 0), Ok(1.0));
     assert_eq!(exp(-5, 0), Ok(1.0));
     assert_eq!(exp(0, 1), Ok(0.0));
     assert_eq!(exp(0, 5), Ok(0.0));
