@@ -41,6 +41,7 @@ pub mod posix;
 mod ctypes;
 #[cfg(windows)]
 pub(crate) mod msvcrt;
+mod opcode;
 #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
 mod pwd;
 pub(crate) mod signal;
@@ -83,6 +84,7 @@ pub fn get_module_inits() -> StdlibMap {
             "itertools" => itertools::make_module,
             "_io" => io::make_module,
             "marshal" => marshal::make_module,
+            "_opcode" => opcode::make_module,
             "_operator" => operator::make_module,
             "_signal" => signal::make_module,
             "_sre" => sre::make_module,
