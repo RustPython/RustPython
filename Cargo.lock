@@ -2223,7 +2223,7 @@ version = "0.4.0"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
- "syn 1.0.109",
+ "syn 2.0.98",
 ]
 
 [[package]]
@@ -2237,7 +2237,7 @@ dependencies = [
  "quote",
  "rustpython-compiler-core",
  "rustpython-doc",
- "syn 1.0.109",
+ "syn 2.0.98",
  "syn-ext",
  "textwrap 0.16.1",
 ]
@@ -2733,11 +2733,13 @@ dependencies = [
 
 [[package]]
 name = "syn-ext"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b86cb2b68c5b3c078cac02588bc23f3c04bb828c5d3aedd17980876ec6a7be6"
+checksum = "b126de4ef6c2a628a68609dd00733766c3b015894698a438ebdf374933fc31d1"
 dependencies = [
- "syn 1.0.109",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.98",
 ]
 
 [[package]]

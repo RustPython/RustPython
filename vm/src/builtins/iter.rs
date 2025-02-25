@@ -28,7 +28,7 @@ pub enum IterStatus<T> {
 unsafe impl<T: Traverse> Traverse for IterStatus<T> {
     fn traverse(&self, tracer_fn: &mut TraverseFn) {
         match self {
-            IterStatus::Active(ref r) => r.traverse(tracer_fn),
+            IterStatus::Active(r) => r.traverse(tracer_fn),
             IterStatus::Exhausted => (),
         }
     }

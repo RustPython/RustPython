@@ -17,7 +17,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[cfg(not(target_env = "msvc"))]
 #[cfg(not(target_arch = "wasm32"))]
-extern "C" {
+unsafe extern "C" {
     #[cfg(not(target_os = "freebsd"))]
     #[link_name = "daylight"]
     static c_daylight: std::ffi::c_int;
@@ -209,7 +209,9 @@ mod decl {
         use crate::builtins::tuple::IntoPyTuple;
 
         unsafe fn to_str(s: *const std::ffi::c_char) -> String {
-            std::ffi::CStr::from_ptr(s).to_string_lossy().into_owned()
+            unsafe { std::ffi::CStr::from_ptr(s) }
+                .to_string_lossy()
+                .into_owned()
         }
         unsafe { (to_str(super::c_tzname[0]), to_str(super::c_tzname[1])) }.into_pytuple(vm)
     }

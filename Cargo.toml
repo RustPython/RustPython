@@ -183,7 +183,7 @@ schannel = "0.1.27"
 static_assertions = "1.1"
 strum = "0.27"
 strum_macros = "0.27"
-syn = "1.0.109"
+syn = "2"
 thiserror = "2.0"
 thread_local = "1.1.8"
 unicode_names2 = "1.3.0"
@@ -195,6 +195,14 @@ wasm-bindgen = "0.2.100"
 
 [workspace.lints.rust]
 unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "deny"
+
+# rust_2024_compatibility
+missing_unsafe_on_extern = "deny"
+unsafe_attr_outside_unsafe = "deny"
+deprecated_safe_2024 = "deny"
+rust_2024_incompatible_pat = "deny"
+keyword_idents_2024 = "deny"
 
 [workspace.lints.clippy]
 perf = "warn"

@@ -233,7 +233,7 @@ impl WASMVirtualMachine {
 
     #[wasm_bindgen(js_name = addToScope)]
     pub fn add_to_scope(&self, name: String, value: JsValue) -> Result<(), JsValue> {
-        self.with_vm(move |vm, StoredVirtualMachine { ref scope, .. }| {
+        self.with_vm(move |vm, StoredVirtualMachine { scope, .. }| {
             let value = convert::js_to_py(vm, value);
             scope.globals.set_item(&name, value, vm).into_js(vm)
         })?
@@ -335,7 +335,7 @@ impl WASMVirtualMachine {
         mode: Mode,
         source_path: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        self.with_vm(|vm, StoredVirtualMachine { ref scope, .. }| {
+        self.with_vm(|vm, StoredVirtualMachine { scope, .. }| {
             let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
             let code = vm.compile(source, mode, source_path);
             let code = code.map_err(convert::syntax_err)?;

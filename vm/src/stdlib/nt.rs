@@ -116,7 +116,7 @@ pub(crate) mod module {
 
     // cwait is available on MSVC only (according to CPython)
     #[cfg(target_env = "msvc")]
-    extern "C" {
+    unsafe extern "C" {
         fn _cwait(termstat: *mut i32, procHandle: intptr_t, action: i32) -> intptr_t;
     }
 
@@ -194,7 +194,7 @@ pub(crate) mod module {
     }
 
     #[cfg(target_env = "msvc")]
-    extern "C" {
+    unsafe extern "C" {
         fn _wexecv(cmdname: *const u16, argv: *const *const u16) -> intptr_t;
     }
 

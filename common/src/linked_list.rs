@@ -208,37 +208,39 @@ impl<L: Link> LinkedList<L, L::Target> {
     /// The caller **must** ensure that `node` is currently contained by
     /// `self` or not contained by any other list.
     pub unsafe fn remove(&mut self, node: NonNull<L::Target>) -> Option<L::Handle> {
-        if let Some(prev) = L::pointers(node).as_ref().get_prev() {
-            debug_assert_eq!(L::pointers(prev).as_ref().get_next(), Some(node));
-            L::pointers(prev)
-                .as_mut()
-                .set_next(L::pointers(node).as_ref().get_next());
-        } else {
-            if self.head != Some(node) {
-                return None;
+        unsafe {
+            if let Some(prev) = L::pointers(node).as_ref().get_prev() {
+                debug_assert_eq!(L::pointers(prev).as_ref().get_next(), Some(node));
+                L::pointers(prev)
+                    .as_mut()
+                    .set_next(L::pointers(node).as_ref().get_next());
+            } else {
+                if self.head != Some(node) {
+                    return None;
+                }
+
+                self.head = L::pointers(node).as_ref().get_next();
             }
 
-            self.head = L::pointers(node).as_ref().get_next();
+            if let Some(next) = L::pointers(node).as_ref().get_next() {
+                debug_assert_eq!(L::pointers(next).as_ref().get_prev(), Some(node));
+                L::pointers(next)
+                    .as_mut()
+                    .set_prev(L::pointers(node).as_ref().get_prev());
+            } else {
+                // // This might be the last item in the list
+                // if self.tail != Some(node) {
+                //     return None;
+                // }
+
+                // self.tail = L::pointers(node).as_ref().get_prev();
+            }
+
+            L::pointers(node).as_mut().set_next(None);
+            L::pointers(node).as_mut().set_prev(None);
+
+            Some(L::from_raw(node))
         }
-
-        if let Some(next) = L::pointers(node).as_ref().get_next() {
-            debug_assert_eq!(L::pointers(next).as_ref().get_prev(), Some(node));
-            L::pointers(next)
-                .as_mut()
-                .set_prev(L::pointers(node).as_ref().get_prev());
-        } else {
-            // // This might be the last item in the list
-            // if self.tail != Some(node) {
-            //     return None;
-            // }
-
-            // self.tail = L::pointers(node).as_ref().get_prev();
-        }
-
-        L::pointers(node).as_mut().set_next(None);
-        L::pointers(node).as_mut().set_prev(None);
-
-        Some(L::from_raw(node))
     }
 
     // pub fn last(&self) -> Option<&L::Target> {

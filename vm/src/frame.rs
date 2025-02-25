@@ -426,19 +426,19 @@ impl ExecutingFrame<'_> {
         exc_val: PyObjectRef,
         exc_tb: PyObjectRef,
     ) -> PyResult<ExecutionResult> {
-        if let Some(gen) = self.yield_from_target() {
+        if let Some(jen) = self.yield_from_target() {
             // borrow checker shenanigans - we only need to use exc_type/val/tb if the following
             // variable is Some
-            let thrower = if let Some(coro) = self.builtin_coro(gen) {
+            let thrower = if let Some(coro) = self.builtin_coro(jen) {
                 Some(Either::A(coro))
             } else {
-                vm.get_attribute_opt(gen.to_owned(), "throw")?
+                vm.get_attribute_opt(jen.to_owned(), "throw")?
                     .map(Either::B)
             };
             if let Some(thrower) = thrower {
                 let ret = match thrower {
                     Either::A(coro) => coro
-                        .throw(gen, exc_type, exc_val, exc_tb, vm)
+                        .throw(jen, exc_type, exc_val, exc_tb, vm)
                         .to_pyresult(vm), // FIXME:
                     Either::B(meth) => meth.call((exc_type, exc_val, exc_tb), vm),
                 };
@@ -1568,16 +1568,16 @@ impl ExecutingFrame<'_> {
 
     fn _send(
         &self,
-        gen: &PyObject,
+        jen: &PyObject,
         val: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
-        match self.builtin_coro(gen) {
-            Some(coro) => coro.send(gen, val, vm),
+        match self.builtin_coro(jen) {
+            Some(coro) => coro.send(jen, val, vm),
             // FIXME: turn return type to PyResult<PyIterReturn> then ExecutionResult will be simplified
-            None if vm.is_none(&val) => PyIter::new(gen).next(vm),
+            None if vm.is_none(&val) => PyIter::new(jen).next(vm),
             None => {
-                let meth = gen.get_attr("send", vm)?;
+                let meth = jen.get_attr("send", vm)?;
                 PyIterReturn::from_pyresult(meth.call((val,), vm), vm)
             }
         }

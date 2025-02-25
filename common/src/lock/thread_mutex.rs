@@ -65,7 +65,7 @@ impl<R: RawMutex, G: GetThreadId> RawThreadMutex<R, G> {
     /// This method may only be called if the mutex is held by the current thread.
     pub unsafe fn unlock(&self) {
         self.owner.store(0, Ordering::Relaxed);
-        self.mutex.unlock();
+        unsafe { self.mutex.unlock() };
     }
 }
 

@@ -36,28 +36,30 @@ mod platform {
     // based off winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
 
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
-        let mut slot = (&raw mut (*set).fd_array).cast::<RawFd>();
-        let fd_count = (*set).fd_count;
-        for _ in 0..fd_count {
-            if *slot == fd {
-                return;
+        unsafe {
+            let mut slot = (&raw mut (*set).fd_array).cast::<RawFd>();
+            let fd_count = (*set).fd_count;
+            for _ in 0..fd_count {
+                if *slot == fd {
+                    return;
+                }
+                slot = slot.add(1);
             }
-            slot = slot.add(1);
-        }
-        // slot == &fd_array[fd_count] at this point
-        if fd_count < FD_SETSIZE {
-            *slot = fd as RawFd;
-            (*set).fd_count += 1;
+            // slot == &fd_array[fd_count] at this point
+            if fd_count < FD_SETSIZE {
+                *slot = fd as RawFd;
+                (*set).fd_count += 1;
+            }
         }
     }
 
     pub unsafe fn FD_ZERO(set: *mut fd_set) {
-        (*set).fd_count = 0;
+        unsafe { (*set).fd_count = 0 };
     }
 
     pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
         use WinSock::__WSAFDIsSet;
-        __WSAFDIsSet(fd as _, set) != 0
+        unsafe { __WSAFDIsSet(fd as _, set) != 0 }
     }
 
     pub fn check_err(x: i32) -> bool {
@@ -82,7 +84,7 @@ mod platform {
 
     #[allow(non_snake_case)]
     pub unsafe fn FD_ISSET(fd: RawFd, set: *const fd_set) -> bool {
-        let set = &*set;
+        let set = unsafe { &*set };
         let n = set.__nfds;
         for p in &set.__fds[..n] {
             if *p == fd {
@@ -94,7 +96,7 @@ mod platform {
 
     #[allow(non_snake_case)]
     pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
-        let set = &mut *set;
+        let set = unsafe { &mut *set };
         let n = set.__nfds;
         for p in &set.__fds[..n] {
             if *p == fd {
@@ -107,11 +109,11 @@ mod platform {
 
     #[allow(non_snake_case)]
     pub unsafe fn FD_ZERO(set: *mut fd_set) {
-        let set = &mut *set;
+        let set = unsafe { &mut *set };
         set.__nfds = 0;
     }
 
-    extern "C" {
+    unsafe extern "C" {
         pub fn select(
             nfds: libc::c_int,
             readfds: *mut fd_set,

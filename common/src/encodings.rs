@@ -42,8 +42,8 @@ struct DecodeError<'a> {
 /// # Safety
 /// `v[..valid_up_to]` must be valid utf8
 unsafe fn make_decode_err(v: &[u8], valid_up_to: usize, err_len: Option<usize>) -> DecodeError<'_> {
-    let valid_prefix = core::str::from_utf8_unchecked(v.get_unchecked(..valid_up_to));
-    let rest = v.get_unchecked(valid_up_to..);
+    let (valid_prefix, rest) = unsafe { v.split_at_unchecked(valid_up_to) };
+    let valid_prefix = unsafe { core::str::from_utf8_unchecked(valid_prefix) };
     DecodeError {
         valid_prefix,
         rest,
