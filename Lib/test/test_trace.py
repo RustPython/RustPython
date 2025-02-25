@@ -387,9 +387,14 @@ class TestCoverage(unittest.TestCase):
         rmtree(TESTFN)
         unlink(TESTFN)
 
-    def _coverage(self, tracer,
-                  cmd='import test.support, test.test_pprint;'
-                      'test.support.run_unittest(test.test_pprint.QueryTestCase)'):
+    DEFAULT_SCRIPT = '''if True:
+        import unittest
+        from test.test_pprint import QueryTestCase
+        loader = unittest.TestLoader()
+        tests = loader.loadTestsFromTestCase(QueryTestCase)
+        tests(unittest.TestResult())
+        '''
+    def _coverage(self, tracer, cmd=DEFAULT_SCRIPT):
         tracer.run(cmd)
         r = tracer.results()
         r.write_results(show_missing=True, summary=True, coverdir=TESTFN)
@@ -412,7 +417,7 @@ class TestCoverage(unittest.TestCase):
         libpath = os.path.normpath(os.path.dirname(os.path.dirname(__file__)))
         # sys.prefix does not work when running from a checkout
         tracer = trace.Trace(ignoredirs=[sys.base_prefix, sys.base_exec_prefix,
-                             libpath], trace=0, count=1)
+                                         libpath], trace=0, count=1)
         with captured_stdout() as stdout:
             self._coverage(tracer)
         if os.path.exists(TESTFN):

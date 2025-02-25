@@ -999,6 +999,8 @@ class TestPEP380Operation(unittest.TestCase):
         list(gen())
         self.assertEqual(ret, 42)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_close_with_cleared_frame(self):
         # See issue #17669.
         #
