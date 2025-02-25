@@ -29,16 +29,15 @@ class JsonFile:
     file_type: str
 
     def configure_subprocess(self, popen_kwargs: dict[str, Any]) -> None:
-        match self.file_type:
-            case JsonFileType.UNIX_FD:
-                # Unix file descriptor
-                popen_kwargs['pass_fds'] = [self.file]
-            case JsonFileType.WINDOWS_HANDLE:
-                # Windows handle
-                # We run mypy with `--platform=linux` so it complains about this:
-                startupinfo = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
-                startupinfo.lpAttributeList = {"handle_list": [self.file]}
-                popen_kwargs['startupinfo'] = startupinfo
+        if self.file_type == JsonFileType.UNIX_FD:
+            # Unix file descriptor
+            popen_kwargs['pass_fds'] = [self.file]
+        elif self.file_type == JsonFileType.WINDOWS_HANDLE:
+            # Windows handle
+            # We run mypy with `--platform=linux` so it complains about this:
+            startupinfo = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+            startupinfo.lpAttributeList = {"handle_list": [self.file]}
+            popen_kwargs['startupinfo'] = startupinfo
 
     @contextlib.contextmanager
     def inherit_subprocess(self) -> Iterator[None]:
