@@ -133,8 +133,11 @@ impl PyBuffer {
     // after this function, the owner should use forget()
     // or wrap PyBuffer in the ManaullyDrop to prevent drop()
     pub(crate) unsafe fn drop_without_release(&mut self) {
-        std::ptr::drop_in_place(&mut self.obj);
-        std::ptr::drop_in_place(&mut self.desc);
+        // SAFETY: requirements forwarded from caller
+        unsafe {
+            std::ptr::drop_in_place(&mut self.obj);
+            std::ptr::drop_in_place(&mut self.desc);
+        }
     }
 }
 

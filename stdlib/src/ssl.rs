@@ -4,7 +4,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     // if openssl is vendored, it doesn't know the locations of system certificates
     #[cfg(feature = "ssl-vendor")]
     if let None | Some("0") = option_env!("OPENSSL_NO_VENDOR") {
-        openssl_probe::init_ssl_cert_env_vars();
+        // TODO: use openssl_probe::probe() instead
+        unsafe { openssl_probe::init_openssl_env_vars() };
     }
     openssl::init();
     _ssl::make_module(vm)
@@ -283,7 +284,7 @@ mod _ssl {
         if ptr.is_null() {
             None
         } else {
-            Some(Asn1Object::from_ptr(ptr))
+            Some(unsafe { Asn1Object::from_ptr(ptr) })
         }
     }
 

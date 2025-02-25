@@ -76,7 +76,7 @@ mod _sqlite {
         ffi::{c_int, c_longlong, c_uint, c_void, CStr},
         fmt::Debug,
         ops::Deref,
-        ptr::{null, null_mut},
+        ptr::{null, null_mut, NonNull},
         thread::ThreadId,
     };
 
@@ -381,7 +381,7 @@ mod _sqlite {
     }
 
     struct CallbackData {
-        obj: *const PyObject,
+        obj: NonNull<PyObject>,
         vm: *const VirtualMachine,
     }
 
@@ -394,11 +394,11 @@ mod _sqlite {
         }
 
         fn retrieve(&self) -> (&PyObject, &VirtualMachine) {
-            unsafe { (&*self.obj, &*self.vm) }
+            unsafe { (self.obj.as_ref(), &*self.vm) }
         }
 
         unsafe extern "C" fn destructor(data: *mut c_void) {
-            drop(Box::from_raw(data.cast::<Self>()));
+            drop(unsafe { Box::from_raw(data.cast::<Self>()) });
         }
 
         unsafe extern "C" fn func_callback(
@@ -407,8 +407,8 @@ mod _sqlite {
             argv: *mut *mut sqlite3_value,
         ) {
             let context = SqliteContext::from(context);
-            let (func, vm) = (*context.user_data::<Self>()).retrieve();
-            let args = std::slice::from_raw_parts(argv, argc as usize);
+            let (func, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
+            let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
 
             let f = || -> PyResult<()> {
                 let db = context.db_handle();
@@ -434,12 +434,12 @@ mod _sqlite {
             argv: *mut *mut sqlite3_value,
         ) {
             let context = SqliteContext::from(context);
-            let (cls, vm) = (*context.user_data::<Self>()).retrieve();
-            let args = std::slice::from_raw_parts(argv, argc as usize);
+            let (cls, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
+            let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
             let instance = context.aggregate_context::<*const PyObject>();
-            if (*instance).is_null() {
+            if unsafe { (*instance).is_null() } {
                 match cls.call((), vm) {
-                    Ok(obj) => *instance = obj.into_raw(),
+                    Ok(obj) => unsafe { *instance = obj.into_raw().as_ptr() },
                     Err(exc) => {
                         return context.result_exception(
                             vm,
@@ -449,16 +449,16 @@ mod _sqlite {
                     }
                 }
             }
-            let instance = &**instance;
+            let instance = unsafe { &**instance };
 
             Self::call_method_with_args(context, instance, "step", args, vm);
         }
 
         unsafe extern "C" fn finalize_callback(context: *mut sqlite3_context) {
             let context = SqliteContext::from(context);
-            let (_, vm) = (*context.user_data::<Self>()).retrieve();
+            let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
             let instance = context.aggregate_context::<*const PyObject>();
-            let Some(instance) = (*instance).as_ref() else {
+            let Some(instance) = (unsafe { (*instance).as_ref() }) else {
                 return;
             };
 
@@ -472,7 +472,7 @@ mod _sqlite {
             b_len: c_int,
             b_ptr: *const c_void,
         ) -> c_int {
-            let (callable, vm) = (*data.cast::<Self>()).retrieve();
+            let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
 
             let f = || -> PyResult<c_int> {
                 let text1 = ptr_to_string(a_ptr.cast(), a_len, null_mut(), vm)?;
@@ -499,9 +499,9 @@ mod _sqlite {
 
         unsafe extern "C" fn value_callback(context: *mut sqlite3_context) {
             let context = SqliteContext::from(context);
-            let (_, vm) = (*context.user_data::<Self>()).retrieve();
+            let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
             let instance = context.aggregate_context::<*const PyObject>();
-            let instance = &**instance;
+            let instance = unsafe { &**instance };
 
             Self::callback_result_from_method(context, instance, "value", vm);
         }
@@ -512,10 +512,10 @@ mod _sqlite {
             argv: *mut *mut sqlite3_value,
         ) {
             let context = SqliteContext::from(context);
-            let (_, vm) = (*context.user_data::<Self>()).retrieve();
-            let args = std::slice::from_raw_parts(argv, argc as usize);
+            let (_, vm) = unsafe { (*context.user_data::<Self>()).retrieve() };
+            let args = unsafe { std::slice::from_raw_parts(argv, argc as usize) };
             let instance = context.aggregate_context::<*const PyObject>();
-            let instance = &**instance;
+            let instance = unsafe { &**instance };
 
             Self::call_method_with_args(context, instance, "inverse", args, vm);
         }
@@ -528,7 +528,7 @@ mod _sqlite {
             db_name: *const libc::c_char,
             access: *const libc::c_char,
         ) -> c_int {
-            let (callable, vm) = (*data.cast::<Self>()).retrieve();
+            let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
             let f = || -> PyResult<c_int> {
                 let arg1 = ptr_to_str(arg1, vm)?;
                 let arg2 = ptr_to_str(arg2, vm)?;
@@ -551,8 +551,8 @@ mod _sqlite {
             stmt: *mut c_void,
             sql: *mut c_void,
         ) -> c_int {
-            let (callable, vm) = (*data.cast::<Self>()).retrieve();
-            let expanded = sqlite3_expanded_sql(stmt.cast());
+            let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
+            let expanded = unsafe { sqlite3_expanded_sql(stmt.cast()) };
             let f = || -> PyResult<()> {
                 let stmt = ptr_to_str(expanded, vm).or_else(|_| ptr_to_str(sql.cast(), vm))?;
                 callable.call((stmt,), vm)?;
@@ -563,7 +563,7 @@ mod _sqlite {
         }
 
         unsafe extern "C" fn progress_callback(data: *mut c_void) -> c_int {
-            let (callable, vm) = (*data.cast::<Self>()).retrieve();
+            let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
             if let Ok(val) = callable.call((), vm) {
                 if let Ok(val) = val.is_true(vm) {
                     return val as c_int;

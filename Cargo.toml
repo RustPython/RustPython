@@ -189,6 +189,9 @@ wasm-bindgen = "0.2.100"
 
 [workspace.lints.rust]
 unsafe_code = "allow"
+unsafe_op_in_unsafe_fn = "deny"
+missing_unsafe_on_extern = "deny"
+unsafe_attr_outside_unsafe = "deny"
 
 [workspace.lints.clippy]
 perf = "warn"

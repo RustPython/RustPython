@@ -152,12 +152,14 @@ impl CompiledCode {
     }
 
     unsafe fn invoke_raw(&self, cif_args: &[libffi::middle::Arg]) -> Option<AbiValue> {
-        let cif = self.sig.to_cif();
-        let value = cif.call::<UnTypedAbiValue>(
-            libffi::middle::CodePtr::from_ptr(self.code as *const _),
-            cif_args,
-        );
-        self.sig.ret.as_ref().map(|ty| value.to_typed(ty))
+        unsafe {
+            let cif = self.sig.to_cif();
+            let value = cif.call::<UnTypedAbiValue>(
+                libffi::middle::CodePtr::from_ptr(self.code as *const _),
+                cif_args,
+            );
+            self.sig.ret.as_ref().map(|ty| value.to_typed(ty))
+        }
     }
 }
 
@@ -290,10 +292,12 @@ union UnTypedAbiValue {
 
 impl UnTypedAbiValue {
     unsafe fn to_typed(self, ty: &JitType) -> AbiValue {
-        match ty {
-            JitType::Int => AbiValue::Int(self.int),
-            JitType::Float => AbiValue::Float(self.float),
-            JitType::Bool => AbiValue::Bool(self.boolean != 0),
+        unsafe {
+            match ty {
+                JitType::Int => AbiValue::Int(self.int),
+                JitType::Float => AbiValue::Float(self.float),
+                JitType::Bool => AbiValue::Bool(self.boolean != 0),
+            }
         }
     }
 }

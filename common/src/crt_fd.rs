@@ -6,7 +6,7 @@ use std::{cmp, ffi, io};
 #[cfg(windows)]
 use libc::commit as fsync;
 #[cfg(windows)]
-extern "C" {
+unsafe extern "C" {
     #[link_name = "_chsize_s"]
     fn ftruncate(fd: i32, len: i64) -> i32;
 }
@@ -74,7 +74,7 @@ impl Fd {
 
     #[cfg(windows)]
     pub fn to_raw_handle(&self) -> io::Result<std::os::windows::io::RawHandle> {
-        extern "C" {
+        unsafe extern "C" {
             fn _get_osfhandle(fd: i32) -> libc::intptr_t;
         }
         let handle = unsafe { suppress_iph!(_get_osfhandle(self.0)) };
