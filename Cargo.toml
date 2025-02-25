@@ -192,6 +192,7 @@ unsafe_code = "allow"
 unsafe_op_in_unsafe_fn = "deny"
 missing_unsafe_on_extern = "deny"
 unsafe_attr_outside_unsafe = "deny"
+deprecated_safe_2024 = "deny"
 
 [workspace.lints.clippy]
 perf = "warn"
