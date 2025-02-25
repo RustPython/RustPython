@@ -40,8 +40,6 @@ class KeywordOnlyArgTestCase(unittest.TestCase):
             compile(s, "<test>", "single")
         self.assertRaises(SyntaxError, shouldRaiseSyntaxError, codestr)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testSyntaxErrorForFunctionDefinition(self):
         self.assertRaisesSyntaxError("def f(p, *):\n  pass\n")
         self.assertRaisesSyntaxError("def f(p1, *, p1=100):\n  pass\n")
