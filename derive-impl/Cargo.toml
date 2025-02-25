@@ -20,7 +20,7 @@ syn = { workspace = true, features = ["full", "extra-traits"] }
 maplit = "1.0.2"
 proc-macro2 = "1.0.93"
 quote = "1.0.38"
-syn-ext = { version = "0.4.0", features = ["full"] }
+syn-ext = { version = "0.5.0", features = ["full"] }
 textwrap = { version = "0.16.1", default-features = false }
 
 [lints]

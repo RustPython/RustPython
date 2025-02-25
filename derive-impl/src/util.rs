@@ -2,12 +2,10 @@ use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
 use std::collections::{HashMap, HashSet};
-use syn::{
-    spanned::Spanned, Attribute, Ident, Meta, MetaList, NestedMeta, Result, Signature, UseTree,
-};
+use syn::{spanned::Spanned, Attribute, Ident, Result, Signature, UseTree};
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
-    types::PunctuatedNestedMeta,
+    types::*,
 };
 
 pub(crate) const ALL_ALLOWED_NAMES: &[&str] = &[
@@ -167,7 +165,11 @@ impl ItemMetaInner {
     pub fn _optional_str(&self, key: &str) -> Result<Option<String>> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             let Meta::NameValue(syn::MetaNameValue {
-                lit: syn::Lit::Str(lit),
+                value:
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Str(lit),
+                        ..
+                    }),
                 ..
             }) = meta
             else {
@@ -193,7 +195,11 @@ impl ItemMetaInner {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
-                    lit: syn::Lit::Bool(lit),
+                    value:
+                        syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Bool(lit),
+                            ..
+                        }),
                     ..
                 }) => lit.value,
                 Meta::Path(_) => true,
@@ -210,7 +216,7 @@ impl ItemMetaInner {
         key: &str,
     ) -> Result<Option<impl std::iter::Iterator<Item = &'_ NestedMeta>>> {
         let value = if let Some((_, meta)) = self.meta_map.get(key) {
-            let Meta::List(syn::MetaList {
+            let Meta::List(MetaList {
                 path: _, nested, ..
             }) = meta
             else {
@@ -350,7 +356,11 @@ impl ClassItemMeta {
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
-                    lit: syn::Lit::Str(lit),
+                    value:
+                        syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Str(lit),
+                            ..
+                        }),
                     ..
                 }) => return Ok(lit.value()),
                 Meta::Path(_) => return Ok(inner.item_name()),
@@ -387,11 +397,11 @@ impl ClassItemMeta {
         let value = if let Some((_, meta)) = inner.meta_map.get(KEY) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
-                    lit: syn::Lit::Str(lit),
+                    value: syn::Expr::Lit(syn::ExprLit{lit:syn::Lit::Str(lit),..}),
                     ..
                 }) => Ok(Some(lit.value())),
                 Meta::NameValue(syn::MetaNameValue {
-                    lit: syn::Lit::Bool(lit),
+                    value: syn::Expr::Lit(syn::ExprLit{lit:syn::Lit::Bool(lit),..}),
                     ..
                 }) => if lit.value {
                     Err(lit.span())
@@ -448,7 +458,11 @@ impl ExceptionItemMeta {
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
             match meta {
                 Meta::NameValue(syn::MetaNameValue {
-                    lit: syn::Lit::Str(lit),
+                    value:
+                        syn::Expr::Lit(syn::ExprLit {
+                            lit: syn::Lit::Str(lit),
+                            ..
+                        }),
                     ..
                 }) => return Ok(lit.value()),
                 Meta::Path(_) => {
@@ -489,7 +503,7 @@ impl std::ops::Deref for ExceptionItemMeta {
 pub(crate) trait AttributeExt: SynAttributeExt {
     fn promoted_nested(&self) -> Result<PunctuatedNestedMeta>;
     fn ident_and_promoted_nested(&self) -> Result<(&Ident, PunctuatedNestedMeta)>;
-    fn try_remove_name(&mut self, name: &str) -> Result<Option<syn::NestedMeta>>;
+    fn try_remove_name(&mut self, name: &str) -> Result<Option<NestedMeta>>;
     fn fill_nested_meta<F>(&mut self, name: &str, new_item: F) -> Result<()>
     where
         F: Fn() -> NestedMeta;
@@ -512,7 +526,7 @@ impl AttributeExt for Attribute {
         Ok((self.get_ident().unwrap(), self.promoted_nested()?))
     }
 
-    fn try_remove_name(&mut self, item_name: &str) -> Result<Option<syn::NestedMeta>> {
+    fn try_remove_name(&mut self, item_name: &str) -> Result<Option<NestedMeta>> {
         self.try_meta_mut(|meta| {
             let nested = match meta {
                 Meta::List(MetaList { ref mut nested, .. }) => Ok(nested),
