@@ -13,9 +13,10 @@ use crate::{
 };
 use bitflags::bitflags;
 use ruff_python_ast::{
-    self as ast, Comprehension, Decorator, Expr, ModExpression, ModModule, Parameter,
-    ParameterWithDefault, Parameters, Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar,
-    TypeParamTypeVarTuple, TypeParams,
+    self as ast, Comprehension, Decorator, Expr, Identifier, ModExpression, ModModule, Parameter,
+    ParameterWithDefault, Parameters, Pattern, PatternMatchAs, PatternMatchClass,
+    PatternMatchMapping, PatternMatchOr, PatternMatchSequence, PatternMatchStar, PatternMatchValue,
+    Stmt, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams,
 };
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_source::{SourceCode, SourceLocation};
@@ -623,12 +624,7 @@ impl SymbolTableBuilder<'_> {
 
     fn scan_parameters(&mut self, parameters: &[ParameterWithDefault]) -> SymbolTableResult {
         for parameter in parameters {
-            let usage = if parameter.parameter.annotation.is_some() {
-                SymbolUsage::AnnotationParameter
-            } else {
-                SymbolUsage::Parameter
-            };
-            self.register_name(&parameter.parameter.name, usage, parameter.range())?;
+            self.scan_parameter(&parameter.parameter)?;
         }
         Ok(())
     }
@@ -639,7 +635,7 @@ impl SymbolTableBuilder<'_> {
         } else {
             SymbolUsage::Parameter
         };
-        self.register_name(&parameter.name, usage, parameter.range())
+        self.register_ident(&parameter.name, usage)
     }
 
     fn scan_annotation(&mut self, annotation: &Expr) -> SymbolTableResult {
@@ -662,14 +658,14 @@ impl SymbolTableBuilder<'_> {
             }
         }
         match &statement {
-            Stmt::Global(StmtGlobal { names, range }) => {
+            Stmt::Global(StmtGlobal { names, .. }) => {
                 for name in names {
-                    self.register_name(name.as_str(), SymbolUsage::Global, *range)?;
+                    self.register_ident(name, SymbolUsage::Global)?;
                 }
             }
-            Stmt::Nonlocal(StmtNonlocal { names, range }) => {
+            Stmt::Nonlocal(StmtNonlocal { names, .. }) => {
                 for name in names {
-                    self.register_name(name.as_str(), SymbolUsage::Nonlocal, *range)?;
+                    self.register_ident(name, SymbolUsage::Nonlocal)?;
                 }
             }
             Stmt::FunctionDef(StmtFunctionDef {
@@ -683,7 +679,7 @@ impl SymbolTableBuilder<'_> {
                 ..
             }) => {
                 self.scan_decorators(decorator_list, ExpressionContext::Load)?;
-                self.register_name(name.as_str(), SymbolUsage::Assigned, *range)?;
+                self.register_ident(name, SymbolUsage::Assigned)?;
                 if let Some(expression) = returns {
                     self.scan_annotation(expression)?;
                 }
@@ -746,7 +742,7 @@ impl SymbolTableBuilder<'_> {
                     self.leave_scope();
                 }
                 self.scan_decorators(decorator_list, ExpressionContext::Load)?;
-                self.register_name(name.as_str(), SymbolUsage::Assigned, *range)?;
+                self.register_ident(name, SymbolUsage::Assigned)?;
             }
             Stmt::Expr(StmtExpr { value, .. }) => {
                 self.scan_expression(value, ExpressionContext::Load)?
@@ -788,18 +784,18 @@ impl SymbolTableBuilder<'_> {
             Stmt::Break(_) | Stmt::Continue(_) | Stmt::Pass(_) => {
                 // No symbols here.
             }
-            Stmt::Import(StmtImport { names, range })
-            | Stmt::ImportFrom(StmtImportFrom { names, range, .. }) => {
+            Stmt::Import(StmtImport { names, .. })
+            | Stmt::ImportFrom(StmtImportFrom { names, .. }) => {
                 for name in names {
                     if let Some(alias) = &name.asname {
                         // `import my_module as my_alias`
-                        self.register_name(alias.as_str(), SymbolUsage::Imported, *range)?;
+                        self.register_ident(alias, SymbolUsage::Imported)?;
                     } else {
                         // `import module`
                         self.register_name(
                             name.name.split('.').next().unwrap(),
                             SymbolUsage::Imported,
-                            *range,
+                            name.name.range,
                         )?;
                     }
                 }
@@ -861,7 +857,6 @@ impl SymbolTableBuilder<'_> {
                 handlers,
                 orelse,
                 finalbody,
-                range,
                 ..
             }) => {
                 self.scan_statements(body)?;
@@ -876,7 +871,7 @@ impl SymbolTableBuilder<'_> {
                         self.scan_expression(expression, ExpressionContext::Load)?;
                     }
                     if let Some(name) = name {
-                        self.register_name(name.as_str(), SymbolUsage::Assigned, *range)?;
+                        self.register_ident(name, SymbolUsage::Assigned)?;
                     }
                     self.scan_statements(body)?;
                 }
@@ -886,8 +881,10 @@ impl SymbolTableBuilder<'_> {
             Stmt::Match(StmtMatch { subject, cases, .. }) => {
                 self.scan_expression(subject, ExpressionContext::Load)?;
                 for case in cases {
-                    // TODO: below
-                    // self.scan_pattern(&case.pattern, ExpressionContext::Load)?;
+                    self.scan_pattern(&case.pattern)?;
+                    if let Some(guard) = &case.guard {
+                        self.scan_expression(guard, ExpressionContext::Load)?;
+                    }
                     self.scan_statements(&case.body)?;
                 }
             }
@@ -1296,6 +1293,58 @@ impl SymbolTableBuilder<'_> {
         Ok(())
     }
 
+    fn scan_patterns(&mut self, patterns: &[Pattern]) -> SymbolTableResult {
+        for pattern in patterns {
+            self.scan_pattern(pattern)?;
+        }
+        Ok(())
+    }
+
+    fn scan_pattern(&mut self, pattern: &Pattern) -> SymbolTableResult {
+        use Pattern::*;
+        match pattern {
+            MatchValue(PatternMatchValue { value, .. }) => {
+                self.scan_expression(value, ExpressionContext::Load)?
+            }
+            MatchSingleton(_) => {}
+            MatchSequence(PatternMatchSequence { patterns, .. }) => self.scan_patterns(patterns)?,
+            MatchMapping(PatternMatchMapping {
+                keys,
+                patterns,
+                rest,
+                ..
+            }) => {
+                self.scan_expressions(keys, ExpressionContext::Load)?;
+                self.scan_patterns(patterns)?;
+                if let Some(rest) = rest {
+                    self.register_ident(rest, SymbolUsage::Assigned)?;
+                }
+            }
+            MatchClass(PatternMatchClass { cls, arguments, .. }) => {
+                self.scan_expression(cls, ExpressionContext::Load)?;
+                self.scan_patterns(&arguments.patterns)?;
+                for kw in &arguments.keywords {
+                    self.scan_pattern(&kw.pattern)?;
+                }
+            }
+            MatchStar(PatternMatchStar { name, .. }) => {
+                if let Some(name) = name {
+                    self.register_ident(name, SymbolUsage::Assigned)?;
+                }
+            }
+            MatchAs(PatternMatchAs { pattern, name, .. }) => {
+                if let Some(pattern) = pattern {
+                    self.scan_pattern(pattern)?;
+                }
+                if let Some(name) = name {
+                    self.register_ident(name, SymbolUsage::Assigned)?;
+                }
+            }
+            MatchOr(PatternMatchOr { patterns, .. }) => self.scan_patterns(patterns)?,
+        }
+        Ok(())
+    }
+
     fn enter_scope_with_parameters(
         &mut self,
         name: &str,
@@ -1351,6 +1400,10 @@ impl SymbolTableBuilder<'_> {
             self.scan_parameter(name)?;
         }
         Ok(())
+    }
+
+    fn register_ident(&mut self, ident: &Identifier, role: SymbolUsage) -> SymbolTableResult {
+        self.register_name(ident.as_str(), role, ident.range)
     }
 
     fn register_name(

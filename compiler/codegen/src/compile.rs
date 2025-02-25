@@ -494,7 +494,7 @@ impl Compiler<'_> {
 
         let symbol_table = self.symbol_table_stack.last().unwrap();
         let symbol = symbol_table.lookup(name.as_ref()).unwrap_or_else(||
-            panic!("The symbol '{name}' must be present in the symbol table, even when it is undefined in python."),
+            unreachable!("the symbol '{name}' should be present in the symbol table, even when it is undefined in python."),
         );
         let info = self.code_stack.last_mut().unwrap();
         let mut cache = &mut info.name_cache;

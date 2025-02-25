@@ -284,7 +284,7 @@ impl VirtualMachine {
                 error: ruff_python_parser::ParseErrorType::OtherError(s),
                 ..
             }) => {
-                if ["Expected an indented block after `if` statement"].contains(&s.as_str()) {
+                if s.starts_with("Expected an indented block after") {
                     self.ctx.exceptions.indentation_error
                 } else {
                     self.ctx.exceptions.syntax_error
@@ -309,7 +309,11 @@ impl VirtualMachine {
             None
         };
 
-        let syntax_error = self.new_exception_msg(syntax_error_type, error.to_string());
+        let mut msg = error.to_string();
+        if let Some(msg) = msg.get_mut(..1) {
+            msg.make_ascii_lowercase();
+        }
+        let syntax_error = self.new_exception_msg(syntax_error_type, msg);
         let (lineno, offset) = error.python_location();
         let lineno = self.ctx.new_int(lineno);
         let offset = self.ctx.new_int(offset);
