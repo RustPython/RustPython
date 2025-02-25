@@ -19,9 +19,9 @@ freeze-stdlib = ["encodings"]
 jit = ["rustpython-jit"]
 threading = ["rustpython-common/threading"]
 compiler = ["parser", "codegen", "rustpython-compiler"]
-ast = ["rustpython-ast"]
+ast = ["ruff_python_ast", "ruff_text_size", "ruff_source_file"]
 codegen = ["rustpython-codegen", "ast"]
-parser = ["rustpython-parser", "ast"]
+parser = ["ast"]
 serde = ["dep:serde"]
 wasmbind = ["chrono/wasmbind", "getrandom/wasm_js", "wasm-bindgen"]
 
@@ -32,10 +32,15 @@ rustpython-common = { workspace = true }
 rustpython-derive = { workspace = true }
 rustpython-jit = { workspace = true, optional = true }
 
-rustpython-ast = { workspace = true, optional = true }
-rustpython-parser = { workspace = true, optional = true }
+ruff_python_ast = { workspace = true, optional = true }
+ruff_python_parser = { workspace = true }
+ruff_text_size = { workspace = true, optional = true }
+ruff_source_file = { workspace = true, optional = true }
+# rustpython-ast = { workspace = true, optional = true }
+# rustpython-parser = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
-rustpython-parser-core = { workspace = true }
+rustpython-compiler-source = { workspace = true }
+# rustpython-parser-core = { workspace = true }
 rustpython-literal = { workspace = true }
 rustpython-format = { workspace = true }
 rustpython-sre_engine = { workspace = true }
@@ -87,9 +92,9 @@ unicode_names2 = { workspace = true }
 # https://github.com/RustPython/RustPython/pull/832#discussion_r275428939
 unicode-casing = "0.1.0"
 # update version all at the same time
-unic-ucd-bidi      = "0.9.0"
-unic-ucd-category  = "0.9.0"
-unic-ucd-ident     = "0.9.0"
+unic-ucd-bidi = "0.9.0"
+unic-ucd-category = "0.9.0"
+unic-ucd-ident = "0.9.0"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { workspace = true }
