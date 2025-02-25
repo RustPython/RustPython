@@ -76,7 +76,7 @@ class Logger:
             return
 
         try:
-            self.win_load_tracker = WindowsLoadTracker()
+            self.win_load_tracker = None
         except PermissionError as error:
             # Standard accounts may not have access to the performance
             # counters.

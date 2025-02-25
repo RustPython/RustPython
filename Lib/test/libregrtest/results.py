@@ -96,26 +96,27 @@ class TestResults:
         rerun = runtests.rerun
         fail_env_changed = runtests.fail_env_changed
 
-        match result.state:
-            case State.PASSED:
-                self.good.append(test_name)
-            case State.ENV_CHANGED:
-                self.env_changed.append(test_name)
+        if result.state == State.PASSED:
+            self.good.append(test_name)
+        elif result.state == State.ENV_CHANGED:
+            self.env_changed.append(test_name)
+            self.rerun_results.append(result)
+        elif result.state == State.SKIPPED:
+            self.skipped.append(test_name)
+        elif result.state == State.RESOURCE_DENIED:
+            self.resource_denied.append(test_name)
+        elif result.state == State.INTERRUPTED:
+            self.interrupted = True
+        elif result.state == State.DID_NOT_RUN:
+            self.run_no_tests.append(test_name)
+        elif result.state == State.WORKER_BUG:
+            self.worker_bug = True
+        else:
+            if result.is_failed(fail_env_changed):
+                self.bad.append(test_name)
                 self.rerun_results.append(result)
-            case State.SKIPPED:
-                self.skipped.append(test_name)
-            case State.RESOURCE_DENIED:
-                self.resource_denied.append(test_name)
-            case State.INTERRUPTED:
-                self.interrupted = True
-            case State.DID_NOT_RUN:
-                self.run_no_tests.append(test_name)
-            case _:
-                if result.is_failed(fail_env_changed):
-                    self.bad.append(test_name)
-                    self.rerun_results.append(result)
-                else:
-                    raise ValueError(f"invalid test state: {result.state!r}")
+            else:
+                raise ValueError(f"invalid test state: {result.state!r}")
 
         if result.state == State.WORKER_BUG:
             self.worker_bug = True
