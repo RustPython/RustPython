@@ -529,7 +529,7 @@ impl AttributeExt for Attribute {
     fn try_remove_name(&mut self, item_name: &str) -> Result<Option<NestedMeta>> {
         self.try_meta_mut(|meta| {
             let nested = match meta {
-                Meta::List(MetaList { ref mut nested, .. }) => Ok(nested),
+                Meta::List(MetaList { nested, .. }) => Ok(nested),
                 other => Err(syn::Error::new(
                     other.span(),
                     format!(

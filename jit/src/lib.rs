@@ -215,9 +215,9 @@ pub enum AbiValue {
 impl AbiValue {
     fn to_libffi_arg(&self) -> libffi::middle::Arg {
         match self {
-            AbiValue::Int(ref i) => libffi::middle::Arg::new(i),
-            AbiValue::Float(ref f) => libffi::middle::Arg::new(f),
-            AbiValue::Bool(ref b) => libffi::middle::Arg::new(b),
+            AbiValue::Int(i) => libffi::middle::Arg::new(i),
+            AbiValue::Float(f) => libffi::middle::Arg::new(f),
+            AbiValue::Bool(b) => libffi::middle::Arg::new(b),
         }
     }
 }

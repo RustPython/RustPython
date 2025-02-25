@@ -70,7 +70,7 @@ fn gen_trace_code(item: &mut DeriveInput) -> Result<TokenStream> {
         syn::Data::Struct(s) => {
             let fields = &mut s.fields;
             match fields {
-                syn::Fields::Named(ref mut fields) => {
+                syn::Fields::Named(fields) => {
                     let res: Vec<TokenStream> = fields
                         .named
                         .iter_mut()

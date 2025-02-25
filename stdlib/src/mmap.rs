@@ -497,8 +497,8 @@ mod mmap {
         fn as_bytes(&self) -> BorrowedValue<[u8]> {
             PyMutexGuard::map_immutable(self.mmap.lock(), |m| {
                 match m.as_ref().expect("mmap closed or invalid") {
-                    MmapObj::Read(ref mmap) => &mmap[..],
-                    MmapObj::Write(ref mmap) => &mmap[..],
+                    MmapObj::Read(mmap) => &mmap[..],
+                    MmapObj::Write(mmap) => &mmap[..],
                 }
             })
             .into()

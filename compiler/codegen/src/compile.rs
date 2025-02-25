@@ -3302,13 +3302,13 @@ impl Compiler {
                 elt, generators, ..
             }) => {
                 Self::contains_await(elt)
-                    || generators.iter().any(|gen| Self::contains_await(&gen.iter))
+                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
             }
             Expr::SetComp(located_ast::ExprSetComp {
                 elt, generators, ..
             }) => {
                 Self::contains_await(elt)
-                    || generators.iter().any(|gen| Self::contains_await(&gen.iter))
+                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
             }
             Expr::DictComp(located_ast::ExprDictComp {
                 key,
@@ -3318,13 +3318,13 @@ impl Compiler {
             }) => {
                 Self::contains_await(key)
                     || Self::contains_await(value)
-                    || generators.iter().any(|gen| Self::contains_await(&gen.iter))
+                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
             }
             Expr::GeneratorExp(located_ast::ExprGeneratorExp {
                 elt, generators, ..
             }) => {
                 Self::contains_await(elt)
-                    || generators.iter().any(|gen| Self::contains_await(&gen.iter))
+                    || generators.iter().any(|jen| Self::contains_await(&jen.iter))
             }
             Expr::Starred(expr) => Self::contains_await(&expr.value),
             Expr::IfExp(located_ast::ExprIfExp {

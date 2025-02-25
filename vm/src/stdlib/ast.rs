@@ -3,7 +3,7 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
-mod gen;
+mod r#gen;
 
 use crate::{
     builtins::{self, PyDict, PyModule, PyStrRef, PyType},
@@ -398,6 +398,6 @@ pub const PY_COMPILE_FLAGS_MASK: i32 = PY_COMPILE_FLAG_AST_ONLY
 
 pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _ast::make_module(vm);
-    gen::extend_module_nodes(vm, &module);
+    r#gen::extend_module_nodes(vm, &module);
     module
 }
