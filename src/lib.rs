@@ -78,7 +78,7 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     // don't translate newlines (\r\n <=> \n)
     #[cfg(windows)]
     {
-        extern "C" {
+        unsafe extern "C" {
             fn _setmode(fd: i32, flags: i32) -> i32;
         }
         unsafe {

@@ -24,7 +24,7 @@ mod msvcrt {
         unsafe { suppress_iph!(_setmode(fd, libc::O_BINARY)) };
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn _getch() -> i32;
         fn _getwch() -> u32;
         fn _getche() -> i32;
@@ -70,7 +70,7 @@ mod msvcrt {
         Ok(())
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn _setmode(fd: i32, flags: i32) -> i32;
     }
 
@@ -84,7 +84,7 @@ mod msvcrt {
         }
     }
 
-    extern "C" {
+    unsafe extern "C" {
         fn _open_osfhandle(osfhandle: isize, flags: i32) -> i32;
         fn _get_osfhandle(fd: i32) -> libc::intptr_t;
     }

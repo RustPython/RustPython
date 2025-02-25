@@ -30,7 +30,7 @@ struct lconv {
 }
 
 #[cfg(windows)]
-extern "C" {
+unsafe extern "C" {
     fn localeconv() -> *mut lconv;
 }
 

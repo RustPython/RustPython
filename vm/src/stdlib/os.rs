@@ -966,7 +966,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn abort() {
-        extern "C" {
+        unsafe extern "C" {
             fn abort();
         }
         unsafe { abort() }

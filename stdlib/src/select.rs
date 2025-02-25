@@ -113,7 +113,7 @@ mod platform {
         set.__nfds = 0;
     }
 
-    extern "C" {
+    unsafe extern "C" {
         pub fn select(
             nfds: libc::c_int,
             readfds: *mut fd_set,
