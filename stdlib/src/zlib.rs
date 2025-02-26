@@ -9,6 +9,7 @@ mod zlib {
         common::lock::PyMutex,
         convert::TryFromBorrowedObject,
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
+        types::Constructor,
         PyObject, PyPayload, PyResult, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
@@ -19,35 +20,12 @@ mod zlib {
     };
     use std::io::Write;
 
-    #[cfg(not(feature = "zlib"))]
-    mod constants {
-        pub const Z_NO_COMPRESSION: i32 = 0;
-        pub const Z_BEST_COMPRESSION: i32 = 9;
-        pub const Z_BEST_SPEED: i32 = 1;
-        pub const Z_DEFAULT_COMPRESSION: i32 = -1;
-        pub const Z_NO_FLUSH: i32 = 0;
-        pub const Z_PARTIAL_FLUSH: i32 = 1;
-        pub const Z_SYNC_FLUSH: i32 = 2;
-        pub const Z_FULL_FLUSH: i32 = 3;
-        // not sure what the value here means, but it's the only compression method zlibmodule
-        // supports, so it doesn't really matter
-        pub const Z_DEFLATED: i32 = 8;
-    }
-    #[cfg(feature = "zlib")]
-    use libz_sys as constants;
-
-    #[pyattr]
-    use constants::{
-        Z_BEST_COMPRESSION, Z_BEST_SPEED, Z_DEFAULT_COMPRESSION, Z_DEFLATED as DEFLATED,
-        Z_FULL_FLUSH, Z_NO_COMPRESSION, Z_NO_FLUSH, Z_PARTIAL_FLUSH, Z_SYNC_FLUSH,
-    };
-
-    #[cfg(feature = "zlib")]
     #[pyattr]
     use libz_sys::{
-        Z_BLOCK, Z_DEFAULT_STRATEGY, Z_FILTERED, Z_FINISH, Z_FIXED, Z_HUFFMAN_ONLY, Z_RLE, Z_TREES,
+        Z_BEST_COMPRESSION, Z_BEST_SPEED, Z_BLOCK, Z_DEFAULT_COMPRESSION, Z_DEFAULT_STRATEGY,
+        Z_DEFLATED as DEFLATED, Z_FILTERED, Z_FINISH, Z_FIXED, Z_FULL_FLUSH, Z_HUFFMAN_ONLY,
+        Z_NO_COMPRESSION, Z_NO_FLUSH, Z_PARTIAL_FLUSH, Z_RLE, Z_SYNC_FLUSH, Z_TREES,
     };
-    use rustpython_vm::types::Constructor;
 
     // copied from zlibmodule.c (commit 530f506ac91338)
     #[pyattr]
@@ -119,11 +97,11 @@ mod zlib {
             header: bool,
             // [De]Compress::new_with_window_bits is only enabled for zlib; miniz_oxide doesn't
             // support wbits (yet?)
-            #[cfg(feature = "zlib")]
             wbits: u8,
         },
-        #[cfg(feature = "zlib")]
-        Gzip { wbits: u8 },
+        Gzip {
+            wbits: u8,
+        },
     }
 
     impl InitOptions {
@@ -131,12 +109,7 @@ mod zlib {
             let header = wbits > 0;
             let wbits = wbits.unsigned_abs();
             match wbits {
-                9..=15 => Ok(InitOptions::Standard {
-                    header,
-                    #[cfg(feature = "zlib")]
-                    wbits,
-                }),
-                #[cfg(feature = "zlib")]
+                9..=15 => Ok(InitOptions::Standard { header, wbits }),
                 25..=31 => Ok(InitOptions::Gzip { wbits: wbits - 16 }),
                 _ => Err(vm.new_value_error("Invalid initialization option".to_owned())),
             }
@@ -144,23 +117,15 @@ mod zlib {
 
         fn decompress(self) -> Decompress {
             match self {
-                #[cfg(not(feature = "zlib"))]
-                Self::Standard { header } => Decompress::new(header),
-                #[cfg(feature = "zlib")]
                 Self::Standard { header, wbits } => Decompress::new_with_window_bits(header, wbits),
-                #[cfg(feature = "zlib")]
                 Self::Gzip { wbits } => Decompress::new_gzip(wbits),
             }
         }
         fn compress(self, level: Compression) -> Compress {
             match self {
-                #[cfg(not(feature = "zlib"))]
-                Self::Standard { header } => Compress::new(level, header),
-                #[cfg(feature = "zlib")]
                 Self::Standard { header, wbits } => {
                     Compress::new_with_window_bits(level, header, wbits)
                 }
-                #[cfg(feature = "zlib")]
                 Self::Gzip { wbits } => Compress::new_gzip(level, wbits),
             }
         }
@@ -264,7 +229,6 @@ mod zlib {
     struct DecompressobjArgs {
         #[pyarg(any, default = "ArgPrimitiveIndex { value: MAX_WBITS }")]
         wbits: ArgPrimitiveIndex<i8>,
-        #[cfg(feature = "zlib")]
         #[pyarg(any, optional)]
         _zdict: OptionalArg<ArgBytesLike>,
     }
@@ -273,7 +237,6 @@ mod zlib {
     fn decompressobj(args: DecompressobjArgs, vm: &VirtualMachine) -> PyResult<PyDecompress> {
         #[allow(unused_mut)]
         let mut decompress = InitOptions::new(args.wbits.value, vm)?.decompress();
-        #[cfg(feature = "zlib")]
         if let OptionalArg::Present(_dict) = args._zdict {
             // FIXME: always fails
             // dict.with_ref(|d| decompress.set_dictionary(d));
@@ -426,10 +389,8 @@ mod zlib {
         wbits: ArgPrimitiveIndex<i8>,
         #[pyarg(any, name = "_memLevel", default = "DEF_MEM_LEVEL")]
         _mem_level: u8,
-        #[cfg(feature = "zlib")]
         #[pyarg(any, default = "Z_DEFAULT_STRATEGY")]
         _strategy: i32,
-        #[cfg(feature = "zlib")]
         #[pyarg(any, optional)]
         zdict: Option<ArgBytesLike>,
     }
@@ -439,7 +400,6 @@ mod zlib {
         let CompressobjArgs {
             level,
             wbits,
-            #[cfg(feature = "zlib")]
             zdict,
             ..
         } = args;
@@ -447,7 +407,6 @@ mod zlib {
             level.ok_or_else(|| vm.new_value_error("invalid initialization option".to_owned()))?;
         #[allow(unused_mut)]
         let mut compress = InitOptions::new(wbits.value, vm)?.compress(level);
-        #[cfg(feature = "zlib")]
         if let Some(zdict) = zdict {
             zdict.with_ref(|zdict| compress.set_dictionary(zdict).unwrap());
         }
