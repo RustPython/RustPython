@@ -1,10 +1,10 @@
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
+    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::lock::PyMutex,
     function::FuncArgs,
     types::{Callable, Constructor, GetDescriptor, Initializer, Representable},
-    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "staticmethod", traverse)]

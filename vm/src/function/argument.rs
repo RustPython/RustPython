@@ -1,8 +1,8 @@
 use crate::{
+    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;

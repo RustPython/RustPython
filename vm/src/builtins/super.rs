@@ -5,11 +5,11 @@ See also [CPython source code.](https://github.com/python/cpython/blob/50b48572d
 
 use super::{PyStr, PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::lock::PyRwLock,
     function::{FuncArgs, IntoFuncArgs, OptionalArg},
     types::{Callable, Constructor, GetAttr, GetDescriptor, Initializer, Representable},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "super", traverse)]

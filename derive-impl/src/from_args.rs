@@ -1,8 +1,8 @@
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::ext::IdentExt;
 use syn::meta::ParseNestedMeta;
-use syn::{parse_quote, Attribute, Data, DeriveInput, Expr, Field, Ident, Result, Token};
+use syn::{Attribute, Data, DeriveInput, Expr, Field, Ident, Result, Token, parse_quote};
 
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)

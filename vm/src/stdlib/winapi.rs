@@ -4,18 +4,18 @@ pub(crate) use _winapi::make_module;
 #[pymodule]
 mod _winapi {
     use crate::{
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::PyStrRef,
         common::windows::ToWideString,
         convert::{ToPyException, ToPyResult},
         function::{ArgMapping, ArgSequence, OptionalArg},
         stdlib::os::errno_err,
         windows::WindowsSysResult,
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::ptr::{null, null_mut};
     use windows::{
-        core::PCWSTR,
         Win32::Foundation::{HANDLE, HINSTANCE, MAX_PATH},
+        core::PCWSTR,
     };
     use windows_sys::Win32::Foundation::{BOOL, HANDLE as RAW_HANDLE};
 

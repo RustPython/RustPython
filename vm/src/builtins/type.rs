@@ -1,16 +1,18 @@
 use super::{
-    mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStr,
-    PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    PyClassMethod, PyDictRef, PyList, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
     builtins::{
+        PyBaseExceptionRef,
         descriptor::{
             MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMemberDef,
             PyMemberDescriptor,
         },
         function::PyCellRef,
         tuple::{IntoPyTuple, PyTupleTyped},
-        PyBaseExceptionRef,
     },
     class::{PyClassImpl, StaticType},
     common::{
@@ -26,10 +28,8 @@ use crate::{
     types::{
         AsNumber, Callable, Constructor, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
 };
-use indexmap::{map::Entry, IndexMap};
+use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 

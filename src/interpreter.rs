@@ -1,4 +1,4 @@
-use rustpython_vm::{builtins::PyModule, Interpreter, PyRef, Settings, VirtualMachine};
+use rustpython_vm::{Interpreter, PyRef, Settings, VirtualMachine, builtins::PyModule};
 
 pub type InitHook = Box<dyn FnOnce(&mut VirtualMachine)>;
 

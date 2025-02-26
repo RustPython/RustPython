@@ -1,11 +1,11 @@
 use criterion::measurement::WallTime;
 use criterion::{
-    black_box, criterion_group, criterion_main, Bencher, BenchmarkGroup, BenchmarkId, Criterion,
-    Throughput,
+    Bencher, BenchmarkGroup, BenchmarkId, Criterion, Throughput, black_box, criterion_group,
+    criterion_main,
 };
 use rustpython_compiler::Mode;
-use rustpython_parser::ast;
 use rustpython_parser::Parse;
+use rustpython_parser::ast;
 use rustpython_vm::{Interpreter, PyResult, Settings};
 use std::collections::HashMap;
 use std::path::Path;

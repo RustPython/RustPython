@@ -4,9 +4,9 @@
 //! And: http://code.activestate.com/recipes/578375/
 
 use crate::{
+    AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef},
     convert::ToPyObject,
-    AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
 };
 use crate::{
     common::{
@@ -915,7 +915,7 @@ fn str_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a PyStr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{common::ascii, Interpreter};
+    use crate::{Interpreter, common::ascii};
 
     #[test]
     fn test_insert() {

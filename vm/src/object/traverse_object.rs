@@ -1,10 +1,10 @@
 use std::fmt;
 
 use crate::{
-    object::{
-        debug_obj, drop_dealloc_obj, try_trace_obj, Erased, InstanceDict, PyInner, PyObjectPayload,
-    },
     PyObject,
+    object::{
+        Erased, InstanceDict, PyInner, PyObjectPayload, debug_obj, drop_dealloc_obj, try_trace_obj,
+    },
 };
 
 use super::{Traverse, TraverseFn};

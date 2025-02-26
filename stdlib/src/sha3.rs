@@ -3,8 +3,8 @@ pub(crate) use _sha3::make_module;
 #[pymodule]
 mod _sha3 {
     use crate::hashlib::_hashlib::{
-        local_sha3_224, local_sha3_256, local_sha3_384, local_sha3_512, local_shake_128,
-        local_shake_256, HashArgs,
+        HashArgs, local_sha3_224, local_sha3_256, local_sha3_384, local_sha3_512, local_shake_128,
+        local_shake_256,
     };
     use crate::vm::{PyPayload, PyResult, VirtualMachine};
 

@@ -2,7 +2,7 @@ pub(crate) use _sha1::make_module;
 
 #[pymodule]
 mod _sha1 {
-    use crate::hashlib::_hashlib::{local_sha1, HashArgs};
+    use crate::hashlib::_hashlib::{HashArgs, local_sha1};
     use crate::vm::{PyPayload, PyResult, VirtualMachine};
 
     #[pyfunction]

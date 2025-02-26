@@ -1,7 +1,7 @@
 /* Several function to retrieve version information.
  */
 
-use chrono::{prelude::DateTime, Local};
+use chrono::{Local, prelude::DateTime};
 use std::time::{Duration, UNIX_EPOCH};
 
 // = 3.13.0alpha

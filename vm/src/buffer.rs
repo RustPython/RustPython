@@ -1,9 +1,9 @@
 use crate::{
+    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
-    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use half::f16;
 use itertools::Itertools;
@@ -99,8 +99,8 @@ impl fmt::Debug for FormatType {
 
 impl FormatType {
     fn info(self, e: Endianness) -> &'static FormatInfo {
-        use mem::{align_of, size_of};
         use FormatType::*;
+        use mem::{align_of, size_of};
         macro_rules! native_info {
             ($t:ty) => {{
                 &FormatInfo {

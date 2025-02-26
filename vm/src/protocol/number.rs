@@ -3,13 +3,13 @@ use std::ops::Deref;
 use crossbeam_utils::atomic::AtomicCell;
 
 use crate::{
-    builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
+    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
+    builtins::{PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr, int},
     common::int::bytes_to_int,
     function::ArgBytesLike,
     object::{Traverse, TraverseFn},
     stdlib::warnings,
-    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
 };
 
 pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber, &VirtualMachine) -> PyResult<R>;

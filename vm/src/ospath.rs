@@ -1,9 +1,9 @@
 use crate::{
+    PyObjectRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
     convert::{ToPyException, TryFromObject},
     function::FsPath,
     object::AsObject,
-    PyObjectRef, PyResult, VirtualMachine,
 };
 use std::path::{Path, PathBuf};
 

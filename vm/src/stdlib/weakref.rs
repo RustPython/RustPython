@@ -9,8 +9,8 @@ pub(crate) use _weakref::make_module;
 #[pymodule]
 mod _weakref {
     use crate::{
-        builtins::{PyDictRef, PyTypeRef, PyWeak},
         PyObjectRef, PyResult, VirtualMachine,
+        builtins::{PyDictRef, PyTypeRef, PyWeak},
     };
 
     #[pyattr(name = "ref")]

@@ -1,13 +1,13 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
     class::PyClassImpl,
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::OptionalArg,
     identifier,
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
 };
 use malachite_bigint::Sign;
 use num_traits::Zero;

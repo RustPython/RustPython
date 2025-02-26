@@ -4,7 +4,7 @@ pub(crate) use _blake2::make_module;
 
 #[pymodule]
 mod _blake2 {
-    use crate::hashlib::_hashlib::{local_blake2b, local_blake2s, BlakeHashArgs};
+    use crate::hashlib::_hashlib::{BlakeHashArgs, local_blake2b, local_blake2s};
     use crate::vm::{PyPayload, PyResult, VirtualMachine};
 
     #[pyfunction]

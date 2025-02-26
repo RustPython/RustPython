@@ -50,7 +50,7 @@ mod winapi;
 #[cfg(windows)]
 mod winreg;
 
-use crate::{builtins::PyModule, PyRef, VirtualMachine};
+use crate::{PyRef, VirtualMachine, builtins::PyModule};
 use std::{borrow::Cow, collections::HashMap};
 
 pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyRef<PyModule>)>;

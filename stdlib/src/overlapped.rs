@@ -6,13 +6,13 @@ mod _overlapped {
     // straight-forward port of Modules/overlapped.c
 
     use crate::vm::{
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyTypeRef},
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
         protocol::PyBuffer,
         stdlib::os::errno_err,
         types::Constructor,
-        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use windows_sys::Win32::{
         Foundation::{self, GetLastError, HANDLE},

@@ -3,9 +3,9 @@ pub(crate) use decl::make_module;
 #[pymodule(name = "dis")]
 mod decl {
     use crate::vm::{
+        PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyCode, PyDictRef, PyStrRef},
         bytecode::CodeFlags,
-        PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
 
     #[pyfunction]

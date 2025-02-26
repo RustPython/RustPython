@@ -4,13 +4,13 @@
 
 use super::{PyCode, PyStrRef, PyType};
 use crate::{
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     coroutine::Coro,
     frame::FrameRef,
     function::OptionalArg,
     protocol::PyIterReturn,
     types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "generator")]

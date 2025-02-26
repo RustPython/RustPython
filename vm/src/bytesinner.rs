@@ -1,8 +1,9 @@
 use crate::{
+    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
-        pystr, PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr,
-        PyStrRef, PyTypeRef,
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
+        PyTypeRef, pystr,
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
@@ -13,7 +14,6 @@ use crate::{
     protocol::PyBuffer,
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use bstr::ByteSlice;
 use itertools::Itertools;

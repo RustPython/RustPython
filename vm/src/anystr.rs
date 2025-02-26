@@ -1,9 +1,9 @@
 use crate::{
+    Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyIntRef, PyTuple},
     cformat::cformat_string,
     convert::TryFromBorrowedObject,
     function::OptionalOption,
-    Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
@@ -386,11 +386,7 @@ pub trait AnyStr {
                 b'\n' => (keep, 1),
                 b'\r' => {
                     let is_rn = enumerated.next_if(|(_, ch)| **ch == b'\n').is_some();
-                    if is_rn {
-                        (keep + keep, 2)
-                    } else {
-                        (keep, 1)
-                    }
+                    if is_rn { (keep + keep, 2) } else { (keep, 1) }
                 }
                 _ => continue,
             };

@@ -1,9 +1,9 @@
 use crate::object::{MaybeTraverse, Py, PyObjectRef, PyRef, PyResult};
 use crate::{
+    PyRefExact,
     builtins::{PyBaseExceptionRef, PyType, PyTypeRef},
     types::PyTypeFlags,
     vm::{Context, VirtualMachine},
-    PyRefExact,
 };
 
 cfg_if::cfg_if! {

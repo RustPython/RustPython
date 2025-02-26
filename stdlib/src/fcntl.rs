@@ -3,10 +3,10 @@ pub(crate) use fcntl::make_module;
 #[pymodule]
 mod fcntl {
     use crate::vm::{
+        PyResult, VirtualMachine,
         builtins::PyIntRef,
         function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
         stdlib::{io, os},
-        PyResult, VirtualMachine,
     };
 
     // TODO: supply these from <asm-generic/fnctl.h> (please file an issue/PR upstream):
@@ -20,7 +20,7 @@ mod fcntl {
     //       I_LINK, I_UNLINK, I_PLINK, I_PUNLINK
 
     #[pyattr]
-    use libc::{FD_CLOEXEC, F_GETFD, F_GETFL, F_SETFD, F_SETFL};
+    use libc::{F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC};
 
     #[cfg(not(target_os = "wasi"))]
     #[pyattr]
@@ -45,7 +45,7 @@ mod fcntl {
     #[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
     #[pyattr]
     use libc::{
-        F_ADD_SEALS, F_GETLEASE, F_GETPIPE_SZ, F_GET_SEALS, F_NOTIFY, F_SEAL_GROW, F_SEAL_SEAL,
+        F_ADD_SEALS, F_GET_SEALS, F_GETLEASE, F_GETPIPE_SZ, F_NOTIFY, F_SEAL_GROW, F_SEAL_SEAL,
         F_SEAL_SHRINK, F_SEAL_WRITE, F_SETLEASE, F_SETPIPE_SZ,
     };
 

@@ -1,9 +1,9 @@
 use crate::{
+    PyObject, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
     convert::{IntoPyException, ToPyException},
     function::FuncArgs,
     stdlib::builtins,
-    PyObject, PyResult, VirtualMachine,
 };
 
 use rustpython_format::*;

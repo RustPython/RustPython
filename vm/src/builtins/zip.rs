@@ -1,11 +1,11 @@
 use super::{PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::PyTupleRef,
     class::PyClassImpl,
     function::{ArgIntoBool, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, Iterable, SelfIter},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use rustpython_common::atomic::{self, PyAtomic, Radium};
 

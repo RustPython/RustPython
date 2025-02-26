@@ -4,7 +4,7 @@
 //! desktop.
 //! Implements functions listed here: https://docs.python.org/3/library/builtins.html.
 
-use rustpython_vm::{builtins::PyStrRef, PyObjectRef, PyRef, PyResult, VirtualMachine};
+use rustpython_vm::{PyObjectRef, PyRef, PyResult, VirtualMachine, builtins::PyStrRef};
 use web_sys::{self, console};
 
 pub(crate) fn window() -> web_sys::Window {

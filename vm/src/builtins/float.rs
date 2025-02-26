@@ -1,9 +1,11 @@
 // spell-checker:ignore numer denom
 
 use super::{
-    try_bigint_to_f64, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType, PyTypeRef,
+    PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, PyType, PyTypeRef, try_bigint_to_f64,
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine,
     class::PyClassImpl,
     common::{float_ops, hash},
     convert::{IntoPyException, ToPyObject, ToPyResult},
@@ -14,8 +16,6 @@ use crate::{
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use malachite_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;

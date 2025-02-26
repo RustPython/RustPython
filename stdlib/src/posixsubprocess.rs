@@ -28,7 +28,7 @@ mod _posixsubprocess {
     use rustpython_vm::{AsObject, TryFromBorrowedObject};
 
     use super::*;
-    use crate::vm::{convert::IntoPyException, PyResult, VirtualMachine};
+    use crate::vm::{PyResult, VirtualMachine, convert::IntoPyException};
 
     #[pyfunction]
     fn fork_exec(args: ForkExecArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {

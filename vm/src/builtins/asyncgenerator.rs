@@ -1,5 +1,6 @@
 use super::{PyCode, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
     class::PyClassImpl,
     coroutine::Coro,
@@ -7,7 +8,6 @@ use crate::{
     function::OptionalArg,
     protocol::PyIterReturn,
     types::{IterNext, Iterable, Representable, SelfIter, Unconstructible},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 use crossbeam_utils::atomic::AtomicCell;
@@ -208,7 +208,7 @@ impl PyAsyncGenASend {
             AwaitableState::Closed => {
                 return Err(vm.new_runtime_error(
                     "cannot reuse already awaited __anext__()/asend()".to_owned(),
-                ))
+                ));
             }
             AwaitableState::Iter => val, // already running, all good
             AwaitableState::Init => {

@@ -1,6 +1,9 @@
 use crate::{
+    PyResult, VirtualMachine,
     builtins::{
-        bytes,
+        PyBaseException, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
+        PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned,
+        PyTuple, PyTupleRef, PyType, PyTypeRef, bytes,
         code::{self, PyCode},
         descriptor::{
             MemberGetter, MemberKind, MemberSetter, MemberSetterFunc, PyDescriptorOwned,
@@ -9,9 +12,6 @@ use crate::{
         getset::PyGetSet,
         object, pystr,
         type_::PyAttributes,
-        PyBaseException, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
-        PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned,
-        PyTuple, PyTupleRef, PyType, PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
     common::rc::PyRc,
@@ -23,7 +23,6 @@ use crate::{
     intern::{InternableString, MaybeInternedString, StringPool},
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
-    PyResult, VirtualMachine,
 };
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
