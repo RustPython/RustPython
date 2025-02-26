@@ -1,5 +1,6 @@
 use super::{PyDict, PyDictRef, PyGenericAlias, PyList, PyTuple, PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
     class::PyClassImpl,
     convert::ToPyObject,
@@ -10,7 +11,6 @@ use crate::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Iterable, PyComparisonOp,
         Representable,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use once_cell::sync::Lazy;
 

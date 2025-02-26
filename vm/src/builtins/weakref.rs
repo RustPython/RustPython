@@ -4,10 +4,10 @@ use crate::common::{
     hash::{self, PyHash},
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::OptionalArg,
     types::{Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 pub use crate::object::PyWeak;

@@ -6,16 +6,16 @@ pub(crate) use _hashlib::make_module;
 pub mod _hashlib {
     use crate::common::lock::PyRwLock;
     use crate::vm::{
+        PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBytes, PyStrRef, PyTypeRef},
         convert::ToPyObject,
         function::{ArgBytesLike, ArgStrOrBytesLike, FuncArgs, OptionalArg},
         protocol::PyBuffer,
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use blake2::{Blake2b512, Blake2s256};
-    use digest::{core_api::BlockSizeUser, DynDigest};
+    use digest::{DynDigest, core_api::BlockSizeUser};
     use digest::{ExtendableOutput, Update};
-    use dyn_clone::{clone_trait_object, DynClone};
+    use dyn_clone::{DynClone, clone_trait_object};
     use md5::Md5;
     use sha1::Sha1;
     use sha2::{Sha224, Sha256, Sha384, Sha512};

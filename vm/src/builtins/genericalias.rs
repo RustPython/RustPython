@@ -2,7 +2,8 @@ use once_cell::sync::Lazy;
 
 use super::type_;
 use crate::{
-    atomic_func,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine, atomic_func,
     builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::PyClassImpl,
     common::hash,
@@ -13,8 +14,6 @@ use crate::{
         AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp,
         Representable,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
 };
 use std::fmt;
 

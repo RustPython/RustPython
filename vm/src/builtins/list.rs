@@ -4,6 +4,7 @@ use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
@@ -18,7 +19,6 @@ use crate::{
     },
     utils::collection_repr,
     vm::VirtualMachine,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use std::{fmt, ops::DerefMut};
 

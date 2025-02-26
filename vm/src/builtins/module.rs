@@ -1,11 +1,11 @@
 use super::{PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
-    builtins::{pystr::AsPyStr, PyStrInterned},
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    builtins::{PyStrInterned, pystr::AsPyStr},
     class::PyClassImpl,
     convert::ToPyObject,
     function::{FuncArgs, PyMethodDef},
     types::{GetAttr, Initializer, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "module")]
@@ -183,11 +183,12 @@ impl Initializer for PyModule {
     type Args = ModuleInitArgs;
 
     fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        debug_assert!(zelf
-            .class()
-            .slots
-            .flags
-            .has_feature(crate::types::PyTypeFlags::HAS_DICT));
+        debug_assert!(
+            zelf.class()
+                .slots
+                .flags
+                .has_feature(crate::types::PyTypeFlags::HAS_DICT)
+        );
         zelf.init_dict(vm.ctx.intern_str(args.name.as_str()), args.doc, vm);
         Ok(())
     }

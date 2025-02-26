@@ -1,4 +1,4 @@
-use crate::{builtins::PyBaseExceptionRef, PyObjectRef, PyResult, VirtualMachine};
+use crate::{PyObjectRef, PyResult, VirtualMachine, builtins::PyBaseExceptionRef};
 
 /// Implemented by any type that can be returned from a built-in Python function.
 ///

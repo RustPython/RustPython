@@ -8,7 +8,8 @@ mod mmap {
         lock::{MapImmutable, PyMutex, PyMutexGuard},
     };
     use crate::vm::{
-        atomic_func,
+        AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        TryFromBorrowedObject, VirtualMachine, atomic_func,
         builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
@@ -18,8 +19,6 @@ mod mmap {
         },
         sliceable::{SaturatedSlice, SequenceIndex, SequenceIndexOp},
         types::{AsBuffer, AsMapping, AsSequence, Constructor, Representable},
-        AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-        TryFromBorrowedObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use memmap2::{Advice, Mmap, MmapMut, MmapOptions};

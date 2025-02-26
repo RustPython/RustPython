@@ -5,17 +5,17 @@ pub(crate) use zlib::make_module;
 #[pymodule]
 mod zlib {
     use crate::vm::{
+        PyObject, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyIntRef, PyTypeRef},
         common::lock::PyMutex,
         convert::TryFromBorrowedObject,
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
         types::Constructor,
-        PyObject, PyPayload, PyResult, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
     use flate2::{
-        write::ZlibEncoder, Compress, Compression, Decompress, FlushCompress, FlushDecompress,
-        Status,
+        Compress, Compression, Decompress, FlushCompress, FlushDecompress, Status,
+        write::ZlibEncoder,
     };
     use std::io::Write;
 
@@ -420,7 +420,7 @@ mod zlib {
         fn flush(&self, length: OptionalArg<ArgSize>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
             let length = match length {
                 OptionalArg::Present(ArgSize { value }) if value <= 0 => {
-                    return Err(vm.new_value_error("length must be greater than zero".to_owned()))
+                    return Err(vm.new_value_error("length must be greater than zero".to_owned()));
                 }
                 OptionalArg::Present(ArgSize { value }) => value as usize,
                 OptionalArg::Missing => DEF_BUF_SIZE,

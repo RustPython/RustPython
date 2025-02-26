@@ -5,6 +5,7 @@ mod decl {
     use crate::builtins::code::{CodeObject, Literal, PyObjBag};
     use crate::class::StaticType;
     use crate::{
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
             PyBool, PyByteArray, PyBytes, PyCode, PyComplex, PyDict, PyEllipsis, PyFloat,
             PyFrozenSet, PyInt, PyList, PyNone, PySet, PyStopIteration, PyStr, PyTuple,
@@ -13,7 +14,6 @@ mod decl {
         function::{ArgBytesLike, OptionalArg},
         object::AsObject,
         protocol::PyBuffer,
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use malachite_bigint::BigInt;
     use num_complex::Complex64;

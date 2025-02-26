@@ -1,7 +1,7 @@
 //! Builtin function definitions.
 //!
 //! Implements the list of [builtin Python functions](https://docs.python.org/3/library/builtins.html).
-use crate::{builtins::PyModule, class::PyClassImpl, Py, VirtualMachine};
+use crate::{Py, VirtualMachine, builtins::PyModule, class::PyClassImpl};
 pub(crate) use builtins::{__module_def, DOC};
 pub use builtins::{ascii, print, reversed};
 
@@ -10,13 +10,14 @@ mod builtins {
     use std::io::IsTerminal;
 
     use crate::{
+        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
+            PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
             enumerate::PyReverseSequenceIterator,
             function::{PyCellRef, PyFunction},
             int::PyIntRef,
             iter::PyCallableIterator,
             list::{PyList, SortOptions},
-            PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
         },
         common::{hash::PyHash, str::to_ascii},
         function::{
@@ -29,7 +30,6 @@ mod builtins {
         readline::{Readline, ReadlineResult},
         stdlib::sys,
         types::PyComparisonOp,
-        AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use num_traits::{Signed, ToPrimitive};
 
@@ -157,8 +157,7 @@ mod builtins {
 
             #[cfg(not(feature = "rustpython-parser"))]
             {
-                const PARSER_NOT_SUPPORTED: &str =
-        "can't compile() source code when the `parser` feature of rustpython is disabled";
+                const PARSER_NOT_SUPPORTED: &str = "can't compile() source code when the `parser` feature of rustpython is disabled";
                 Err(vm.new_type_error(PARSER_NOT_SUPPORTED.to_owned()))
             }
             #[cfg(feature = "rustpython-parser")]
@@ -535,7 +534,7 @@ mod builtins {
             None => {
                 return default.ok_or_else(|| {
                     vm.new_value_error(format!("{func_name}() arg is an empty sequence"))
-                })
+                });
             }
         };
 

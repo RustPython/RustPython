@@ -1,10 +1,10 @@
 use crate::{
-    builtins::{type_::PointerSlot, PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
+    PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef, type_::PointerSlot},
     convert::ToPyObject,
     function::PyArithmeticValue,
     object::{Traverse, TraverseFn},
     protocol::{PyMapping, PyNumberBinaryOp},
-    PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;

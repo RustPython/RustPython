@@ -1,7 +1,7 @@
 use crate::{
+    VirtualMachine,
     convert::{ToPyObject, TryFromObject},
     object::{AsObject, PyObjectRef, PyResult},
-    VirtualMachine,
 };
 
 #[derive(result_like::OptionLike)]

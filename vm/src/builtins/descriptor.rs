@@ -1,10 +1,10 @@
 use super::{PyStr, PyStrInterned, PyType};
 use crate::{
-    builtins::{builtin_func::PyNativeMethod, type_, PyTypeRef},
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    builtins::{PyTypeRef, builtin_func::PyNativeMethod, type_},
     class::PyClassImpl,
     function::{FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
     types::{Callable, GetDescriptor, Representable, Unconstructible},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use rustpython_common::lock::PyRwLock;
 

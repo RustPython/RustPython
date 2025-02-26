@@ -5,8 +5,8 @@
 // spell-checker:ignore nfkc unistr unidata
 
 use crate::vm::{
-    builtins::PyModule, builtins::PyStr, convert::TryFromBorrowedObject, PyObject, PyObjectRef,
-    PyPayload, PyRef, PyResult, VirtualMachine,
+    PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyModule,
+    builtins::PyStr, convert::TryFromBorrowedObject,
 };
 
 pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
@@ -61,14 +61,14 @@ impl<'a> TryFromBorrowedObject<'a> for NormalizeForm {
 #[pymodule]
 mod unicodedata {
     use crate::vm::{
-        builtins::PyStrRef, function::OptionalArg, PyObjectRef, PyPayload, PyRef, PyResult,
-        VirtualMachine,
+        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyStrRef,
+        function::OptionalArg,
     };
     use itertools::Itertools;
     use ucd::{Codepoint, EastAsianWidth};
     use unic_char_property::EnumeratedCharProperty;
     use unic_normal::StrNormalForm;
-    use unic_ucd_age::{Age, UnicodeVersion, UNICODE_VERSION};
+    use unic_ucd_age::{Age, UNICODE_VERSION, UnicodeVersion};
     use unic_ucd_bidi::BidiClass;
     use unic_ucd_category::GeneralCategory;
 

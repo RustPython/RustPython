@@ -1,5 +1,5 @@
 use crate::{
-    convert::ToPyObject, AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, convert::ToPyObject,
 };
 use std::borrow::Borrow;
 

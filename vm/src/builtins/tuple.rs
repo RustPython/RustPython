@@ -2,6 +2,7 @@ use super::{PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef};
 use crate::common::{hash::PyHash, lock::PyMutex};
 use crate::object::{Traverse, TraverseFn};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
     class::PyClassImpl,
     convert::{ToPyObject, TransmuteFromObject},
@@ -17,7 +18,6 @@ use crate::{
     },
     utils::collection_repr,
     vm::VirtualMachine,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use once_cell::sync::Lazy;
 use std::{fmt, marker::PhantomData};

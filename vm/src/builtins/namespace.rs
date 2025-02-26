@@ -1,5 +1,6 @@
-use super::{tuple::IntoPyTuple, PyTupleRef, PyType};
+use super::{PyTupleRef, PyType, tuple::IntoPyTuple};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyDict,
     class::PyClassImpl,
     function::{FuncArgs, PyComparisonValue},
@@ -7,7 +8,6 @@ use crate::{
     types::{
         Comparable, Constructor, DefaultConstructor, Initializer, PyComparisonOp, Representable,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// A simple attribute-based namespace.

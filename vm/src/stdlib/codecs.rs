@@ -4,10 +4,10 @@ pub(crate) use _codecs::make_module;
 mod _codecs {
     use crate::common::encodings;
     use crate::{
+        AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
         codecs,
         function::{ArgBytesLike, FuncArgs},
-        AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
     use std::ops::Range;
 

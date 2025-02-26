@@ -1,12 +1,12 @@
 use crate::{
+    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{
+        PyDict, PyStrInterned,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         type_::PointerSlot,
-        PyDict, PyStrInterned,
     },
     convert::ToPyResult,
     object::{Traverse, TraverseFn},
-    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 

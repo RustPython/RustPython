@@ -2,7 +2,7 @@
 
 // See also:
 // https://docs.python.org/3/library/time.html
-use crate::{builtins::PyModule, PyRef, VirtualMachine};
+use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub use decl::time;
 
@@ -33,14 +33,14 @@ unsafe extern "C" {
 #[pymodule(name = "time", with(platform))]
 mod decl {
     use crate::{
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyStrRef, PyTypeRef},
         function::{Either, FuncArgs, OptionalArg},
         types::PyStructSequence,
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use chrono::{
-        naive::{NaiveDate, NaiveDateTime, NaiveTime},
         DateTime, Datelike, Timelike,
+        naive::{NaiveDate, NaiveDateTime, NaiveTime},
     };
     use std::time::Duration;
     #[cfg(target_env = "msvc")]
@@ -509,9 +509,9 @@ mod platform {
     use super::decl::{SEC_TO_NS, US_TO_NS};
     #[cfg_attr(target_os = "macos", allow(unused_imports))]
     use crate::{
+        PyObject, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         builtins::{PyNamespace, PyStrRef},
         convert::IntoPyException,
-        PyObject, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
     use nix::{sys::time::TimeSpec, time::ClockId};
     use std::time::Duration;
@@ -721,7 +721,7 @@ mod platform {
         target_os = "openbsd",
     ))]
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        use nix::sys::resource::{getrusage, UsageWho};
+        use nix::sys::resource::{UsageWho, getrusage};
         fn from_timeval(tv: libc::timeval, vm: &VirtualMachine) -> PyResult<i64> {
             (|tv: libc::timeval| {
                 let t = tv.tv_sec.checked_mul(SEC_TO_NS)?;
@@ -743,11 +743,11 @@ mod platform {
 #[cfg(windows)]
 #[pymodule]
 mod platform {
-    use super::decl::{time_muldiv, MS_TO_NS, SEC_TO_NS};
+    use super::decl::{MS_TO_NS, SEC_TO_NS, time_muldiv};
     use crate::{
+        PyRef, PyResult, VirtualMachine,
         builtins::{PyNamespace, PyStrRef},
         stdlib::os::errno_err,
-        PyRef, PyResult, VirtualMachine,
     };
     use std::time::Duration;
     use windows_sys::Win32::{

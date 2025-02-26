@@ -2,11 +2,11 @@
  * Import mechanics
  */
 use crate::{
-    builtins::{list, traceback::PyTraceback, PyBaseExceptionRef, PyCode},
+    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    builtins::{PyBaseExceptionRef, PyCode, list, traceback::PyTraceback},
     scope::Scope,
     version::get_git_revision,
-    vm::{thread, VirtualMachine},
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    vm::{VirtualMachine, thread},
 };
 
 pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {

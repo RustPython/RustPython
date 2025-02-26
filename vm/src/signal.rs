@@ -69,7 +69,7 @@ pub fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
 #[allow(dead_code)]
 #[cfg(not(target_arch = "wasm32"))]
 pub fn set_interrupt_ex(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
-    use crate::stdlib::signal::_signal::{run_signal, SIG_DFL, SIG_IGN};
+    use crate::stdlib::signal::_signal::{SIG_DFL, SIG_IGN, run_signal};
     assert_in_range(signum, vm)?;
 
     match signum as usize {

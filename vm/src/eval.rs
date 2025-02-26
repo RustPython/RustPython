@@ -1,4 +1,4 @@
-use crate::{compiler, scope::Scope, PyResult, VirtualMachine};
+use crate::{PyResult, VirtualMachine, compiler, scope::Scope};
 
 pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {
     match vm.compile(source, compiler::Mode::Eval, source_path.to_owned()) {

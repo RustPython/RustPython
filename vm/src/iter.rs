@@ -1,4 +1,4 @@
-use crate::{types::PyComparisonOp, vm::VirtualMachine, PyObjectRef, PyResult};
+use crate::{PyObjectRef, PyResult, types::PyComparisonOp, vm::VirtualMachine};
 use itertools::Itertools;
 
 pub trait PyExactSizeIterator<'a>: ExactSizeIterator<Item = &'a PyObjectRef> + Sized {

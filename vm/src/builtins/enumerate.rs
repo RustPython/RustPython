@@ -3,12 +3,12 @@ use super::{
 };
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyObject,
     function::OptionalArg,
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, Iterable, SelfIter},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;

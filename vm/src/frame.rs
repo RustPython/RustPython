@@ -1,11 +1,12 @@
 use crate::common::{boxvec::BoxVec, lock::PyMutex};
 use crate::{
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
+        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
+        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
         asyncgenerator::PyAsyncGenWrappedValue,
         function::{PyCell, PyCellRef, PyFunction},
         tuple::{PyTuple, PyTupleRef, PyTupleTyped},
-        PyBaseExceptionRef, PyCode, PyCoroutine, PyDict, PyDictRef, PyGenerator, PyList, PySet,
-        PySlice, PyStr, PyStrInterned, PyStrRef, PyTraceback, PyType,
     },
     bytecode,
     convert::{IntoObject, ToPyResult},
@@ -17,7 +18,6 @@ use crate::{
     source_code::SourceLocation,
     stdlib::{builtins, typing::_typing},
     vm::{Context, PyMethod},
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -277,15 +277,17 @@ impl Py<Frame> {
     }
 
     pub fn next_external_frame(&self, vm: &VirtualMachine) -> Option<FrameRef> {
-        self.f_back(vm).map(|mut back| loop {
-            back = if let Some(back) = back.to_owned().f_back(vm) {
-                back
-            } else {
-                break back;
-            };
+        self.f_back(vm).map(|mut back| {
+            loop {
+                back = if let Some(back) = back.to_owned().f_back(vm) {
+                    back
+                } else {
+                    break back;
+                };
 
-            if !back.is_internal_frame() {
-                break back;
+                if !back.is_internal_frame() {
+                    break back;
+                }
             }
         })
     }
@@ -638,7 +640,7 @@ impl ExecutingFrame<'_> {
                 match res {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        return Err(name_error(name, vm))
+                        return Err(name_error(name, vm));
                     }
                     Err(e) => return Err(e),
                 }
@@ -649,7 +651,7 @@ impl ExecutingFrame<'_> {
                 match self.globals.del_item(name, vm) {
                     Ok(()) => {}
                     Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
-                        return Err(name_error(name, vm))
+                        return Err(name_error(name, vm));
                     }
                     Err(e) => return Err(e),
                 }
