@@ -1,17 +1,18 @@
 #![allow(clippy::empty_docs)] // TODO: remove it later. false positive by wasm-bindgen generated code
 
 use crate::js_module;
-use crate::vm_class::{stored_vm_from_wasm, WASMVirtualMachine};
+use crate::vm_class::{WASMVirtualMachine, stored_vm_from_wasm};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use rustpython_parser::{lexer::LexicalErrorType, ParseErrorType};
+use rustpython_parser::{ParseErrorType, lexer::LexicalErrorType};
 use rustpython_vm::{
+    AsObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
     builtins::PyBaseExceptionRef,
     compiler::{CompileError, CompileErrorType},
     exceptions,
     function::{ArgBytesLike, FuncArgs},
-    py_serde, AsObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
+    py_serde,
 };
-use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
+use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
 
 #[wasm_bindgen(inline_js = r"
 export class PyError extends Error {

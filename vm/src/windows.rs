@@ -1,11 +1,11 @@
 use crate::common::fileutils::{
-    windows::{get_file_information_by_name, FILE_INFO_BY_NAME_CLASS},
     StatStruct,
+    windows::{FILE_INFO_BY_NAME_CLASS, get_file_information_by_name},
 };
 use crate::{
+    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     convert::{ToPyObject, ToPyResult},
     stdlib::os::errno_err,
-    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{ffi::OsStr, time::SystemTime};
 use windows::Win32::Foundation::HANDLE;
@@ -139,7 +139,7 @@ fn file_id(path: &OsStr) -> std::io::Result<u64> {
     use windows_sys::Win32::{
         Foundation::HANDLE,
         Storage::FileSystem::{
-            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
+            BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, GetFileInformationByHandle,
         },
     };
 

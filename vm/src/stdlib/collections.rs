@@ -3,6 +3,7 @@ pub(crate) use _collections::make_module;
 #[pymodule]
 mod _collections {
     use crate::{
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
@@ -20,7 +21,6 @@ mod _collections {
             Iterable, PyComparisonOp, Representable, SelfIter,
         },
         utils::collection_repr,
-        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::cmp::max;

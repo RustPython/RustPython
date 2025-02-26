@@ -1,6 +1,6 @@
 use crate::vm::{
-    builtins::PyListRef, builtins::PyModule, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
+    PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
+    builtins::PyModule,
 };
 use std::{io, mem};
 
@@ -19,7 +19,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[cfg(unix)]
 mod platform {
-    pub use libc::{fd_set, select, timeval, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO};
+    pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
     pub use std::os::unix::io::RawFd;
 
     pub fn check_err(x: i32) -> bool {
@@ -30,8 +30,8 @@ mod platform {
 #[allow(non_snake_case)]
 #[cfg(windows)]
 mod platform {
+    pub use WinSock::{FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval, select};
     use windows_sys::Win32::Networking::WinSock;
-    pub use WinSock::{select, FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval};
 
     // based off winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
 
@@ -69,7 +69,7 @@ mod platform {
 
 #[cfg(target_os = "wasi")]
 mod platform {
-    pub use libc::{timeval, FD_SETSIZE};
+    pub use libc::{FD_SETSIZE, timeval};
     pub use std::os::wasi::io::RawFd;
 
     pub fn check_err(x: i32) -> bool {
@@ -124,8 +124,8 @@ mod platform {
     }
 }
 
-pub use platform::timeval;
 use platform::RawFd;
+pub use platform::timeval;
 
 #[derive(Traverse)]
 struct Selectable {
@@ -218,11 +218,11 @@ fn sec_to_timeval(sec: f64) -> timeval {
 mod decl {
     use super::*;
     use crate::vm::{
+        PyObjectRef, PyResult, VirtualMachine,
         builtins::PyTypeRef,
         convert::ToPyException,
         function::{Either, OptionalOption},
         stdlib::time,
-        PyObjectRef, PyResult, VirtualMachine,
     };
 
     #[pyattr]
@@ -327,12 +327,12 @@ mod decl {
     pub(super) mod poll {
         use super::*;
         use crate::vm::{
+            AsObject, PyPayload,
             builtins::PyFloat,
             common::lock::PyMutex,
             convert::{IntoPyException, ToPyObject},
             function::OptionalArg,
             stdlib::io::Fildes,
-            AsObject, PyPayload,
         };
         use libc::pollfd;
         use num_traits::{Signed, ToPrimitive};
@@ -494,8 +494,9 @@ mod decl {
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
     #[pyattr]
     use libc::{
-        EPOLLERR, EPOLLEXCLUSIVE, EPOLLHUP, EPOLLIN, EPOLLMSG, EPOLLONESHOT, EPOLLOUT, EPOLLPRI,
-        EPOLLRDBAND, EPOLLRDHUP, EPOLLRDNORM, EPOLLWAKEUP, EPOLLWRBAND, EPOLLWRNORM, EPOLL_CLOEXEC,
+        EPOLL_CLOEXEC, EPOLLERR, EPOLLEXCLUSIVE, EPOLLHUP, EPOLLIN, EPOLLMSG, EPOLLONESHOT,
+        EPOLLOUT, EPOLLPRI, EPOLLRDBAND, EPOLLRDHUP, EPOLLRDNORM, EPOLLWAKEUP, EPOLLWRBAND,
+        EPOLLWRNORM,
     };
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
     #[pyattr]
@@ -505,13 +506,13 @@ mod decl {
     pub(super) mod epoll {
         use super::*;
         use crate::vm::{
+            PyPayload,
             builtins::PyTypeRef,
             common::lock::{PyRwLock, PyRwLockReadGuard},
             convert::{IntoPyException, ToPyObject},
             function::OptionalArg,
             stdlib::io::Fildes,
             types::Constructor,
-            PyPayload,
         };
         use rustix::event::epoll::{self, EventData, EventFlags};
         use std::ops::Deref;
@@ -645,7 +646,7 @@ mod decl {
                     ..-1 => {
                         return Err(vm.new_value_error(format!(
                             "maxevents must be greater than 0, got {maxevents}"
-                        )))
+                        )));
                     }
                     -1 => libc::FD_SETSIZE - 1,
                     _ => maxevents as usize,

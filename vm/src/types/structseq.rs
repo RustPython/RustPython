@@ -1,8 +1,8 @@
 use crate::{
+    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyTuple, PyTupleRef, PyType},
     class::{PyClassImpl, StaticType},
     vm::Context,
-    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass]

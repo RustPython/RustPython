@@ -241,11 +241,7 @@ pub mod levenshtein {
         if b.is_ascii_uppercase() {
             b += b'a' - b'A';
         }
-        if a == b {
-            CASE_COST
-        } else {
-            MOVE_COST
-        }
+        if a == b { CASE_COST } else { MOVE_COST }
     }
 
     pub fn levenshtein_distance(a: &str, b: &str, max_cost: usize) -> usize {

@@ -1,4 +1,4 @@
-use crate::vm::{builtins::PyModule, PyRef, VirtualMachine};
+use crate::vm::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let _ = vm.import("_hashlib", 0);
@@ -7,7 +7,7 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule]
 mod _sha512 {
-    use crate::hashlib::_hashlib::{local_sha384, local_sha512, HashArgs};
+    use crate::hashlib::_hashlib::{HashArgs, local_sha384, local_sha512};
     use crate::vm::{PyPayload, PyResult, VirtualMachine};
 
     #[pyfunction]

@@ -1,4 +1,4 @@
-use crate::{builtins::PyDictRef, function::ArgMapping, VirtualMachine};
+use crate::{VirtualMachine, builtins::PyDictRef, function::ArgMapping};
 use std::fmt;
 
 #[derive(Clone)]

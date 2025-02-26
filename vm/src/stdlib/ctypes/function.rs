@@ -1,5 +1,5 @@
-use crate::stdlib::ctypes::PyCData;
 use crate::PyObjectRef;
+use crate::stdlib::ctypes::PyCData;
 use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::lock::PyRwLock;
 use std::ffi::c_void;

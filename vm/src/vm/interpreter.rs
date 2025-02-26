@@ -1,5 +1,5 @@
-use super::{setting::Settings, thread, Context, VirtualMachine};
-use crate::{stdlib::atexit, vm::PyBaseExceptionRef, PyResult};
+use super::{Context, VirtualMachine, setting::Settings, thread};
+use crate::{PyResult, stdlib::atexit, vm::PyBaseExceptionRef};
 use std::sync::atomic::Ordering;
 
 /// The general interface for the VM
@@ -140,8 +140,8 @@ impl Interpreter {
 mod tests {
     use super::*;
     use crate::{
-        builtins::{int, PyStr},
         PyObjectRef,
+        builtins::{PyStr, int},
     };
     use malachite_bigint::ToBigInt;
 

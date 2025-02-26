@@ -3,11 +3,11 @@ pub(crate) use pwd::make_module;
 #[pymodule]
 mod pwd {
     use crate::{
+        PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyIntRef, PyStrRef},
         convert::{IntoPyException, ToPyObject},
         exceptions,
         types::PyStructSequence,
-        PyObjectRef, PyResult, VirtualMachine,
     };
     use nix::unistd::{self, User};
     use std::ptr::NonNull;

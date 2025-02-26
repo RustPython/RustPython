@@ -1,8 +1,9 @@
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 use rustpython_vm::{
+    AsObject, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyDictRef, PyStrRef},
     function::ArgIterable,
-    identifier, AsObject, PyResult, TryFromObject, VirtualMachine,
+    identifier,
 };
 
 pub struct ShellHelper<'vm> {

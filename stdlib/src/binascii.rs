@@ -2,7 +2,7 @@
 
 pub(super) use decl::crc32;
 pub(crate) use decl::make_module;
-use rustpython_vm::{builtins::PyBaseExceptionRef, convert::ToPyException, VirtualMachine};
+use rustpython_vm::{VirtualMachine, builtins::PyBaseExceptionRef, convert::ToPyException};
 
 const PAD: u8 = 61u8;
 const MAXLINESIZE: usize = 76; // Excluding the CRLF
@@ -11,10 +11,10 @@ const MAXLINESIZE: usize = 76; // Excluding the CRLF
 mod decl {
     use super::{MAXLINESIZE, PAD};
     use crate::vm::{
+        PyResult, VirtualMachine,
         builtins::{PyIntRef, PyTypeRef},
         convert::ToPyException,
         function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
-        PyResult, VirtualMachine,
     };
     use itertools::Itertools;
 
@@ -751,7 +751,10 @@ impl ToPyException for Base64DecodeError {
             InvalidByte(_, _) => "Only base64 data is allowed".to_owned(),
             InvalidLastSymbol(_, PAD) => "Excess data after padding".to_owned(),
             InvalidLastSymbol(length, _) => {
-                format!("Invalid base64-encoded string: number of data characters {} cannot be 1 more than a multiple of 4", length)
+                format!(
+                    "Invalid base64-encoded string: number of data characters {} cannot be 1 more than a multiple of 4",
+                    length
+                )
             }
             InvalidLength => "Incorrect padding".to_owned(),
         };

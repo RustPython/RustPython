@@ -1,6 +1,6 @@
 pub(crate) use _warnings::make_module;
 
-use crate::{builtins::PyType, Py, PyResult, VirtualMachine};
+use crate::{Py, PyResult, VirtualMachine, builtins::PyType};
 
 pub fn warn(
     category: &Py<PyType>,
@@ -20,9 +20,9 @@ pub fn warn(
 #[pymodule]
 mod _warnings {
     use crate::{
+        PyResult, VirtualMachine,
         builtins::{PyStrRef, PyTypeRef},
         function::OptionalArg,
-        PyResult, VirtualMachine,
     };
 
     #[derive(FromArgs)]

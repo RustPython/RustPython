@@ -4,6 +4,7 @@
 
 use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::PyStrInterned,
     bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
@@ -12,7 +13,6 @@ use crate::{
     function::{FuncArgs, OptionalArg},
     source_code::OneIndexed,
     types::Representable,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;

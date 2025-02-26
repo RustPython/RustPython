@@ -5,10 +5,10 @@ use crate::{
 };
 use js_sys::{Object, TypeError};
 use rustpython_vm::{
+    Interpreter, PyObjectRef, PyPayload, PyRef, PyResult, Settings, VirtualMachine,
     builtins::{PyModule, PyWeak},
     compiler::Mode,
     scope::Scope,
-    Interpreter, PyObjectRef, PyPayload, PyRef, PyResult, Settings, VirtualMachine,
 };
 use std::{
     cell::RefCell,

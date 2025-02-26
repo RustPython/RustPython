@@ -3,7 +3,7 @@ pub(crate) use symtable::make_module;
 #[pymodule]
 mod symtable {
     use crate::{
-        builtins::PyStrRef, compiler, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, builtins::PyStrRef, compiler,
     };
     use rustpython_codegen::symboltable::{
         Symbol, SymbolFlags, SymbolScope, SymbolTable, SymbolTableType,

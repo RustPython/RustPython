@@ -1,5 +1,5 @@
 use super::argument::OptionalArg;
-use crate::{builtins::PyIntRef, AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
+use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyIntRef};
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::PrimInt;

@@ -5,17 +5,17 @@ pub(crate) use zlib::make_module;
 #[pymodule]
 mod zlib {
     use crate::vm::{
+        PyObject, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyIntRef, PyTypeRef},
         common::lock::PyMutex,
         convert::TryFromBorrowedObject,
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
-        PyObject, PyPayload, PyResult, VirtualMachine,
     };
     use adler32::RollingAdler32 as Adler32;
     use crossbeam_utils::atomic::AtomicCell;
     use flate2::{
-        write::ZlibEncoder, Compress, Compression, Decompress, FlushCompress, FlushDecompress,
-        Status,
+        Compress, Compression, Decompress, FlushCompress, FlushDecompress, Status,
+        write::ZlibEncoder,
     };
     use std::io::Write;
 

@@ -6,10 +6,10 @@ pub(crate) use syslog::make_module;
 mod syslog {
     use crate::common::lock::PyRwLock;
     use crate::vm::{
+        PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStr, PyStrRef},
         function::{OptionalArg, OptionalOption},
         utils::ToCString,
-        PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use std::{ffi::CStr, os::raw::c_char};
 

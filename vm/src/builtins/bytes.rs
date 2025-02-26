@@ -2,11 +2,13 @@ use super::{
     PositionIterInternal, PyDictRef, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
     bytesinner::{
-        bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-        ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
+        ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
+        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
     common::{hash::PyHash, lock::PyMutex},
@@ -23,8 +25,6 @@ use crate::{
         AsBuffer, AsMapping, AsNumber, AsSequence, Callable, Comparable, Constructor, Hashable,
         IterNext, Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use bstr::ByteSlice;
 use once_cell::sync::Lazy;

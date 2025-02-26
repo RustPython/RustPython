@@ -1,13 +1,14 @@
 use super::{
-    set::PySetInner, IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias,
-    PyMappingProxy, PySet, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
+    IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
+    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set::PySetInner,
 };
 use crate::{
-    atomic_func,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+    TryFromObject, atomic_func,
     builtins::{
+        PyTuple,
         iter::{builtins_iter, builtins_reversed},
         type_::PyAttributes,
-        PyTuple,
     },
     class::{PyClassDef, PyClassImpl},
     common::ascii,
@@ -21,8 +22,6 @@ use crate::{
         Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
     vm::VirtualMachine,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
-    TryFromObject,
 };
 use once_cell::sync::Lazy;
 use rustpython_common::lock::PyMutex;

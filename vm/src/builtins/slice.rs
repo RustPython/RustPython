@@ -2,13 +2,13 @@
 // spell-checker:ignore sliceobject
 use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::hash::{PyHash, PyUHash},
     convert::ToPyObject,
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     sliceable::SaturatedSlice,
     types::{Comparable, Constructor, Hashable, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use malachite_bigint::{BigInt, ToBigInt};
 use num_traits::{One, Signed, Zero};
@@ -264,11 +264,7 @@ impl Comparable for PySlice {
                 let eq = vm.identical_or_equal(zelf.start_ref(vm), other.start_ref(vm))?
                     && vm.identical_or_equal(&zelf.stop, &other.stop)?
                     && vm.identical_or_equal(zelf.step_ref(vm), other.step_ref(vm))?;
-                if op == PyComparisonOp::Ne {
-                    !eq
-                } else {
-                    eq
-                }
+                if op == PyComparisonOp::Ne { !eq } else { eq }
             }
             PyComparisonOp::Gt | PyComparisonOp::Ge => None
                 .or_else(|| {

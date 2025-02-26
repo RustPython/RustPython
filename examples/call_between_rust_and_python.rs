@@ -1,5 +1,5 @@
 use rustpython::vm::{
-    pyclass, pymodule, PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
+    PyObject, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine, pyclass, pymodule,
 };
 
 pub fn main() {
@@ -31,7 +31,7 @@ pub fn main() {
 #[pymodule]
 mod rust_py_module {
     use super::*;
-    use rustpython::vm::{builtins::PyList, convert::ToPyObject, PyObjectRef};
+    use rustpython::vm::{PyObjectRef, builtins::PyList, convert::ToPyObject};
 
     #[pyfunction]
     fn rust_function(

@@ -1,9 +1,9 @@
 use crate::{
+    AsObject, Py, PyPayload, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyModule, PySet},
     common::crt_fd::Fd,
     convert::ToPyException,
     function::{ArgumentError, FromArgs, FuncArgs},
-    AsObject, Py, PyPayload, PyResult, VirtualMachine,
 };
 use std::{ffi, fs, io, path::Path};
 
@@ -125,8 +125,9 @@ fn bytes_as_osstr<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a ffi::OsS
 
 #[pymodule(sub)]
 pub(super) mod _os {
-    use super::{errno_err, DirFd, FollowSymlinks, SupportFunc};
+    use super::{DirFd, FollowSymlinks, SupportFunc, errno_err};
     use crate::{
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
         builtins::{
             PyBytesRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
@@ -144,7 +145,6 @@ pub(super) mod _os {
         types::{IterNext, Iterable, PyStructSequence, Representable, SelfIter},
         utils::ToCString,
         vm::VirtualMachine,
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
@@ -303,11 +303,7 @@ pub(super) mod _os {
         #[cfg(target_os = "redox")]
         let [] = dir_fd.0;
         let res = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
-        if res < 0 {
-            Err(errno_err(vm))
-        } else {
-            Ok(())
-        }
+        if res < 0 { Err(errno_err(vm)) } else { Ok(()) }
     }
 
     #[pyfunction]
@@ -1011,11 +1007,7 @@ pub(super) mod _os {
                 std::mem::transmute::<[i32; 2], i64>(distance_to_move)
             }
         };
-        if res < 0 {
-            Err(errno_err(vm))
-        } else {
-            Ok(res)
-        }
+        if res < 0 { Err(errno_err(vm)) } else { Ok(res) }
     }
 
     #[pyfunction]
@@ -1100,7 +1092,7 @@ pub(super) mod _os {
             (Some(_), Some(_)) => {
                 return Err(vm.new_value_error(
                     "utime: you may specify either 'times' or 'ns' but not both".to_owned(),
-                ))
+                ));
             }
         };
         utime_impl(args.path, acc, modif, args.dir_fd, args.follow_symlinks, vm)
@@ -1138,11 +1130,7 @@ pub(super) mod _os {
                         },
                     )
                 };
-                if ret < 0 {
-                    Err(errno_err(vm))
-                } else {
-                    Ok(())
-                }
+                if ret < 0 { Err(errno_err(vm)) } else { Ok(()) }
             }
             #[cfg(target_os = "redox")]
             {

@@ -10,13 +10,13 @@ pub(crate) use _struct::make_module;
 #[pymodule]
 pub(crate) mod _struct {
     use crate::vm::{
-        buffer::{new_struct_error, struct_error_type, FormatSpec},
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+        buffer::{FormatSpec, new_struct_error, struct_error_type},
         builtins::{PyBytes, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
         function::{ArgBytesLike, ArgMemoryBuffer, PosArgs},
         match_class,
         protocol::PyIterReturn,
         types::{Constructor, IterNext, Iterable, SelfIter},
-        AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
 

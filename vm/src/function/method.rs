@@ -1,11 +1,11 @@
 use crate::{
+    Context, Py, PyObjectRef, PyPayload, PyRef, VirtualMachine,
     builtins::{
+        PyType,
         builtin_func::{PyNativeFunction, PyNativeMethod},
         descriptor::PyMethodDescriptor,
-        PyType,
     },
     function::{IntoPyNativeFn, PyNativeFn},
-    Context, Py, PyObjectRef, PyPayload, PyRef, VirtualMachine,
 };
 
 bitflags::bitflags! {

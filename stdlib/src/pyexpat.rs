@@ -3,7 +3,7 @@
 *
 */
 
-use crate::vm::{builtins::PyModule, extend_module, PyRef, VirtualMachine};
+use crate::vm::{PyRef, VirtualMachine, builtins::PyModule, extend_module};
 
 pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = _pyexpat::make_module(vm);
@@ -32,10 +32,10 @@ macro_rules! create_property {
 #[pymodule(name = "pyexpat")]
 mod _pyexpat {
     use crate::vm::{
+        Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyStr, PyStrRef, PyType},
         function::ArgBytesLike,
         function::{IntoFuncArgs, OptionalArg},
-        Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use rustpython_common::lock::PyRwLock;
     use std::io::Cursor;

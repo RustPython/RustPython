@@ -7,10 +7,10 @@ pub(crate) use _string::make_module;
 mod _string {
     use crate::common::ascii;
     use crate::{
+        PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyList, PyStrRef},
         convert::ToPyException,
         convert::ToPyObject,
-        PyObjectRef, PyResult, VirtualMachine,
     };
     use rustpython_format::{
         FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,

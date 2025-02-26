@@ -1,10 +1,11 @@
-use crate::{builtins::PyModule, convert::ToPyObject, Py, PyResult, VirtualMachine};
+use crate::{Py, PyResult, VirtualMachine, builtins::PyModule, convert::ToPyObject};
 
-pub(crate) use sys::{UnraisableHookArgs, __module_def, DOC, MAXSIZE, MULTIARCH};
+pub(crate) use sys::{__module_def, DOC, MAXSIZE, MULTIARCH, UnraisableHookArgs};
 
 #[pymodule]
 mod sys {
     use crate::{
+        AsObject, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
         builtins::{
             PyBaseExceptionRef, PyDictRef, PyNamespace, PyStr, PyStrRef, PyTupleRef, PyTypeRef,
         },
@@ -19,7 +20,6 @@ mod sys {
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
-        AsObject, PyObject, PyObjectRef, PyRef, PyRefExact, PyResult,
     };
     use num_traits::ToPrimitive;
     use std::{
@@ -85,11 +85,7 @@ mod sys {
     #[pyattr]
     fn default_prefix(_vm: &VirtualMachine) -> &'static str {
         // TODO: the windows one doesn't really make sense
-        if cfg!(windows) {
-            "C:"
-        } else {
-            "/usr/local"
-        }
+        if cfg!(windows) { "C:" } else { "/usr/local" }
     }
     #[pyattr]
     fn prefix(vm: &VirtualMachine) -> &'static str {
@@ -574,9 +570,11 @@ mod sys {
         if vm.is_none(unraisable.exc_type.as_object()) {
             // TODO: early return, but with what error?
         }
-        assert!(unraisable
-            .exc_type
-            .fast_issubclass(vm.ctx.exceptions.base_exception_type));
+        assert!(
+            unraisable
+                .exc_type
+                .fast_issubclass(vm.ctx.exceptions.base_exception_type)
+        );
 
         // TODO: print module name and qualname
 

@@ -5,7 +5,7 @@ use crate::string::{
     is_uni_word, is_word, lower_ascii, lower_locate, lower_unicode, upper_locate, upper_unicode,
 };
 
-use super::{SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor, MAXREPEAT};
+use super::{MAXREPEAT, SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor};
 use optional::Optioned;
 use std::{convert::TryFrom, ptr::null};
 

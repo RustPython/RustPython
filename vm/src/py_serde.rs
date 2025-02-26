@@ -3,7 +3,7 @@ use num_traits::sign::Signed;
 use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
-use crate::builtins::{bool_, dict::PyDictRef, float, int, list::PyList, tuple::PyTuple, PyStr};
+use crate::builtins::{PyStr, bool_, dict::PyDictRef, float, int, list::PyList, tuple::PyTuple};
 use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
 
 #[inline]

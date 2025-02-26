@@ -1,5 +1,6 @@
 use crate::{
-    builtins::{type_::PointerSlot, PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef},
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    builtins::{PyInt, PyStr, PyStrInterned, PyStrRef, PyType, PyTypeRef, type_::PointerSlot},
     bytecode::ComparisonOperator,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
@@ -12,7 +13,6 @@ use crate::{
         PyNumberSlots, PySequence, PySequenceMethods,
     },
     vm::Context,
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::BigInt;

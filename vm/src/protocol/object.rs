@@ -2,9 +2,10 @@
 //! https://docs.python.org/3/c-api/object.html
 
 use crate::{
+    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        pystr::AsPyStr, PyAsyncGen, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList,
-        PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyAsyncGen, PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyStrRef,
+        PyTuple, PyTupleRef, PyType, PyTypeRef, pystr::AsPyStr,
     },
     bytesinner::ByteInnerNewOptions,
     common::{hash::PyHash, str::to_ascii},
@@ -14,7 +15,6 @@ use crate::{
     object::PyPayload,
     protocol::{PyIter, PyMapping, PySequence},
     types::{Constructor, PyComparisonOp},
-    AsObject, Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 // RustPython doesn't need these items

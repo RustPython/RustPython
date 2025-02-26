@@ -2,7 +2,7 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "faulthandler")]
 mod decl {
-    use crate::vm::{frame::Frame, function::OptionalArg, stdlib::sys::PyStderr, VirtualMachine};
+    use crate::vm::{VirtualMachine, frame::Frame, function::OptionalArg, stdlib::sys::PyStderr};
 
     fn dump_frame(frame: &Frame, vm: &VirtualMachine) {
         let stderr = PyStderr(vm);

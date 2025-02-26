@@ -2,7 +2,7 @@ pub(crate) use _statistics::make_module;
 
 #[pymodule]
 mod _statistics {
-    use crate::vm::{function::ArgIntoFloat, PyResult, VirtualMachine};
+    use crate::vm::{PyResult, VirtualMachine, function::ArgIntoFloat};
 
     // See https://github.com/python/cpython/blob/6846d6712a0894f8e1a91716c11dd79f42864216/Modules/_statisticsmodule.c#L28-L120
     #[allow(clippy::excessive_precision)]

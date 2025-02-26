@@ -1,10 +1,10 @@
 use crate::{
+    AsObject, Py, PyObjectRef, VirtualMachine,
     builtins::{PyStr, PyStrRef},
     exceptions::types::PyBaseExceptionRef,
     sliceable::SliceableSequenceOp,
-    AsObject, Py, PyObjectRef, VirtualMachine,
 };
-use rustpython_common::str::levenshtein::{levenshtein_distance, MOVE_COST};
+use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
 use std::iter::ExactSizeIterator;
 
 const MAX_CANDIDATE_ITEMS: usize = 750;

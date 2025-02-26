@@ -157,7 +157,7 @@ impl StrDrive for &str {
 #[inline]
 unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
     // Decode UTF-8
-    let x = unsafe { **ptr};
+    let x = unsafe { **ptr };
     *ptr = unsafe { ptr.offset(1) };
 
     if x < 128 {
@@ -187,7 +187,7 @@ unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
             // use only the lower 3 bits of `init`
             // SAFETY: `bytes` produces an UTF-8-like string,
             // so the iterator must produce a value here.
-            let w = unsafe { **ptr};
+            let w = unsafe { **ptr };
             *ptr = unsafe { ptr.offset(1) };
             ch = ((init & 7) << 18) | utf8_acc_cont_byte(y_z, w);
         }

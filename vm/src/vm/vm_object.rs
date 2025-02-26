@@ -1,6 +1,6 @@
 use super::PyMethod;
 use crate::{
-    builtins::{pystr::AsPyStr, PyBaseExceptionRef, PyList, PyStrInterned},
+    builtins::{PyBaseExceptionRef, PyList, PyStrInterned, pystr::AsPyStr},
     function::IntoFuncArgs,
     identifier,
     object::{AsObject, PyObject, PyObjectRef, PyResult},
@@ -85,11 +85,7 @@ impl VirtualMachine {
         obj.is(&self.ctx.none)
     }
     pub fn option_if_none(&self, obj: PyObjectRef) -> Option<PyObjectRef> {
-        if self.is_none(&obj) {
-            None
-        } else {
-            Some(obj)
-        }
+        if self.is_none(&obj) { None } else { Some(obj) }
     }
     pub fn unwrap_or_none(&self, obj: Option<PyObjectRef>) -> PyObjectRef {
         obj.unwrap_or_else(|| self.ctx.none())

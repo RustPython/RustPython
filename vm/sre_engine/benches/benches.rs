@@ -1,6 +1,6 @@
 use rustpython_sre_engine::{Request, State, StrDrive};
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 struct Pattern {
     pattern: &'static str,

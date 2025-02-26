@@ -5,10 +5,10 @@ use super::{PyStrRef, PyType, PyTypeRef};
 use crate::common::lock::PyRwLock;
 use crate::function::{IntoFuncArgs, PosArgs};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::{FuncArgs, PySetterValue},
     types::{Constructor, GetDescriptor, Initializer},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "property", traverse)]

@@ -1,10 +1,10 @@
 use super::{PyStrRef, PyType, PyTypeRef};
 use crate::{
+    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyObject,
     protocol::PyNumberMethods,
     types::{AsNumber, Constructor, Representable},
-    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "NoneType")]

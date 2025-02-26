@@ -1,8 +1,9 @@
 use super::{
-    builtins_iter, tuple::tuple_hash, PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef,
+    PyInt, PyIntRef, PySlice, PyTupleRef, PyType, PyTypeRef, builtins_iter, tuple::tuple_hash,
 };
 use crate::{
-    atomic_func,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine, atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
     function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
@@ -11,8 +12,6 @@ use crate::{
         AsMapping, AsSequence, Comparable, Hashable, IterNext, Iterable, PyComparisonOp,
         Representable, SelfIter, Unconstructible,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use malachite_bigint::{BigInt, Sign};

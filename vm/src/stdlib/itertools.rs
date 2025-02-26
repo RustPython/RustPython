@@ -4,9 +4,11 @@ pub(crate) use decl::make_module;
 mod decl {
     use crate::stdlib::itertools::decl::int::get_value;
     use crate::{
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
+        VirtualMachine,
         builtins::{
-            int, tuple::IntoPyTuple, PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef,
-            PyTypeRef,
+            PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyTypeRef, int,
+            tuple::IntoPyTuple,
         },
         common::{
             lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
@@ -18,8 +20,6 @@ mod decl {
         protocol::{PyIter, PyIterReturn, PyNumber},
         stdlib::sys,
         types::{Constructor, IterNext, Iterable, Representable, SelfIter},
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, TryFromObject,
-        VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::BigInt;

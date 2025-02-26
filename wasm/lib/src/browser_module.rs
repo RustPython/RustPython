@@ -7,14 +7,14 @@ mod _browser {
     use crate::{convert, js_module::PyPromise, vm_class::weak_vm, wasm_builtins::window};
     use js_sys::Promise;
     use rustpython_vm::{
+        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStrRef},
         class::PyClassImpl,
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg},
         import::import_source,
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
-    use wasm_bindgen::{prelude::*, JsCast};
+    use wasm_bindgen::{JsCast, prelude::*};
     use wasm_bindgen_futures::JsFuture;
 
     enum FetchResponseFormat {

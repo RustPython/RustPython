@@ -10,12 +10,12 @@ cfg_if::cfg_if! {
 }
 
 use crate::{
+    PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyModule},
     common::os::ErrorExt,
     convert::{IntoPyException, ToPyException},
-    PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
-pub use _io::{io_open as open, OpenArgs};
+pub use _io::{OpenArgs, io_open as open};
 
 impl ToPyException for std::io::Error {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -118,6 +118,8 @@ impl std::os::fd::AsRawFd for Fildes {
 mod _io {
     use super::*;
     use crate::{
+        AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        TryFromBorrowedObject, TryFromObject,
         builtins::{
             PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyIntRef, PyMemoryView, PyStr,
             PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
@@ -140,8 +142,6 @@ mod _io {
             Callable, Constructor, DefaultConstructor, Destructor, Initializer, IterNext, Iterable,
         },
         vm::VirtualMachine,
-        AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-        TryFromBorrowedObject, TryFromObject,
     };
     use bstr::ByteSlice;
     use crossbeam_utils::atomic::AtomicCell;
@@ -149,7 +149,7 @@ mod _io {
     use num_traits::ToPrimitive;
     use std::{
         borrow::Cow,
-        io::{self, prelude::*, Cursor, SeekFrom},
+        io::{self, Cursor, SeekFrom, prelude::*},
         ops::Range,
     };
 
@@ -319,11 +319,7 @@ mod _io {
                 // For Cursor, fill_buf returns all of the remaining data unlike other BufReads which have outer reading source.
                 // Unless we add other data by write, there will be no more data.
                 let buf = self.cursor.fill_buf().map_err(|err| os_err(vm, err))?;
-                if size < buf.len() {
-                    &buf[..size]
-                } else {
-                    buf
-                }
+                if size < buf.len() { &buf[..size] } else { buf }
             };
             let buf = match available.find_byte(byte) {
                 Some(i) => available[..=i].to_vec(),
@@ -2496,7 +2492,7 @@ mod _io {
                 _ => {
                     return Err(
                         vm.new_value_error(format!("invalid whence ({how}, should be 0, 1 or 2)"))
-                    )
+                    );
                 }
             };
             use crate::types::PyComparisonOp;
@@ -3006,7 +3002,7 @@ mod _io {
     }
 
     fn parse_decoder_state(state: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyBytesRef, i32)> {
-        use crate::builtins::{int, PyTuple};
+        use crate::builtins::{PyTuple, int};
         let state_err = || vm.new_type_error("illegal decoder state".to_owned());
         let state = state.downcast::<PyTuple>().map_err(|_| state_err())?;
         match state.as_slice() {
@@ -4032,8 +4028,9 @@ mod _io {
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 #[pymodule]
 mod fileio {
-    use super::{Offset, _io::*};
+    use super::{_io::*, Offset};
     use crate::{
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyStr, PyStrRef},
         common::crt_fd::Fd,
         convert::ToPyException,
@@ -4041,7 +4038,6 @@ mod fileio {
         ospath::{IOErrorBuilder, OsPath, OsPathOrFd},
         stdlib::os,
         types::{Constructor, DefaultConstructor, Initializer, Representable},
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use std::io::{Read, Write};

@@ -5,12 +5,12 @@ mod machinery;
 mod _json {
     use super::machinery;
     use crate::vm::{
+        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef},
         convert::{ToPyObject, ToPyResult},
         function::{IntoFuncArgs, OptionalArg},
         protocol::PyIterReturn,
         types::{Callable, Constructor},
-        AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use malachite_bigint::BigInt;
     use std::str::FromStr;
@@ -80,14 +80,14 @@ mod _json {
                 None => {
                     return Ok(PyIterReturn::StopIteration(Some(
                         vm.ctx.new_int(idx).into(),
-                    )))
+                    )));
                 }
             };
             let next_idx = idx + c.len_utf8();
             match c {
                 '"' => {
                     return scanstring(pystr, next_idx, OptionalArg::Present(self.strict), vm)
-                        .map(|x| PyIterReturn::Return(x.to_pyobject(vm)))
+                        .map(|x| PyIterReturn::Return(x.to_pyobject(vm)));
                 }
                 '{' => {
                     // TODO: parse the object in rust

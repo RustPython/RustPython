@@ -40,10 +40,10 @@ use libc::localeconv;
 #[pymodule]
 mod _locale {
     use rustpython_vm::{
+        PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyIntRef, PyListRef, PyStrRef, PyTypeRef},
         convert::ToPyException,
         function::OptionalArg,
-        PyObjectRef, PyResult, VirtualMachine,
     };
     use std::{
         ffi::{CStr, CString},
@@ -56,12 +56,12 @@ mod _locale {
     ))]
     #[pyattr]
     use libc::{
-        ABDAY_1, ABDAY_2, ABDAY_3, ABDAY_4, ABDAY_5, ABDAY_6, ABDAY_7, ABMON_1, ABMON_10, ABMON_11,
-        ABMON_12, ABMON_2, ABMON_3, ABMON_4, ABMON_5, ABMON_6, ABMON_7, ABMON_8, ABMON_9,
-        ALT_DIGITS, AM_STR, CODESET, CRNCYSTR, DAY_1, DAY_2, DAY_3, DAY_4, DAY_5, DAY_6, DAY_7,
-        D_FMT, D_T_FMT, ERA, ERA_D_FMT, ERA_D_T_FMT, ERA_T_FMT, LC_MESSAGES, MON_1, MON_10, MON_11,
-        MON_12, MON_2, MON_3, MON_4, MON_5, MON_6, MON_7, MON_8, MON_9, NOEXPR, PM_STR, RADIXCHAR,
-        THOUSEP, T_FMT, T_FMT_AMPM, YESEXPR,
+        ABDAY_1, ABDAY_2, ABDAY_3, ABDAY_4, ABDAY_5, ABDAY_6, ABDAY_7, ABMON_1, ABMON_2, ABMON_3,
+        ABMON_4, ABMON_5, ABMON_6, ABMON_7, ABMON_8, ABMON_9, ABMON_10, ABMON_11, ABMON_12,
+        ALT_DIGITS, AM_STR, CODESET, CRNCYSTR, D_FMT, D_T_FMT, DAY_1, DAY_2, DAY_3, DAY_4, DAY_5,
+        DAY_6, DAY_7, ERA, ERA_D_FMT, ERA_D_T_FMT, ERA_T_FMT, LC_MESSAGES, MON_1, MON_2, MON_3,
+        MON_4, MON_5, MON_6, MON_7, MON_8, MON_9, MON_10, MON_11, MON_12, NOEXPR, PM_STR,
+        RADIXCHAR, T_FMT, T_FMT_AMPM, THOUSEP, YESEXPR,
     };
 
     #[pyattr]
@@ -148,9 +148,7 @@ mod _locale {
             }
 
             macro_rules! set_int_field {
-                ($lc:expr, $field:ident) => {{
-                    result.set_item(stringify!($field), vm.new_pyobj((*$lc).$field), vm)?
-                }};
+                ($lc:expr, $field:ident) => {{ result.set_item(stringify!($field), vm.new_pyobj((*$lc).$field), vm)? }};
             }
 
             macro_rules! set_group_field {

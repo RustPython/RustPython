@@ -1,12 +1,12 @@
 use super::IntoFuncArgs;
 use crate::{
-    builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
+    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyDict, PyDictRef, iter::PySequenceIterator},
     convert::ToPyObject,
     identifier,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
     types::{AsMapping, GenericMethod},
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 

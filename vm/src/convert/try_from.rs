@@ -1,7 +1,7 @@
 use crate::{
+    Py, VirtualMachine,
     builtins::PyFloat,
     object::{AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult},
-    Py, VirtualMachine,
 };
 use num_traits::ToPrimitive;
 

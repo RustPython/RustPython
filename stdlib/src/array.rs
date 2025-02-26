@@ -1,6 +1,6 @@
 // spell-checker:ignore typecode tofile tolist fromfile
 
-use rustpython_vm::{builtins::PyModule, PyRef, VirtualMachine};
+use rustpython_vm::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = array::make_module(vm);
@@ -41,6 +41,7 @@ mod array {
             str::wchar_t,
         },
         vm::{
+            AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             atomic_func,
             builtins::{
                 PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat, PyInt,
@@ -64,7 +65,6 @@ mod array {
                 AsBuffer, AsMapping, AsSequence, Comparable, Constructor, IterNext, Iterable,
                 PyComparisonOp, Representable, SelfIter,
             },
-            AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         },
     };
     use itertools::Itertools;
@@ -1528,7 +1528,7 @@ mod array {
                         2 => Some(Self::Utf16 { big_endian }),
                         4 => Some(Self::Utf32 { big_endian }),
                         _ => None,
-                    }
+                    };
                 }
                 'f' => {
                     // Copied from CPython
