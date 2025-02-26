@@ -2,7 +2,16 @@ pub(crate) use decl::make_module;
 
 #[pymodule(name = "faulthandler")]
 mod decl {
+    use std::sync::atomic::AtomicBool;
+    use rustpython_common::lock::{PyMutex, PyRwLock};
     use crate::vm::{frame::Frame, function::OptionalArg, stdlib::sys::PyStderr, VirtualMachine};
+
+    struct FaultHandlerThread {
+        enabled: AtomicBool,
+        name: PyMutex<String>
+    }
+
+    static FAULT_HANDLER_THREADS: PyRwLock<Vec<FaultHandlerThread>> = PyRwLock::new(Vec::new());
 
     fn dump_frame(frame: &Frame, vm: &VirtualMachine) {
         let stderr = PyStderr(vm);
@@ -27,6 +36,20 @@ mod decl {
         for frame in vm.frames.borrow().iter() {
             dump_frame(frame, vm);
         }
+    }
+
+    #[pyfunction]
+    fn dump_traceback_later(
+        timeout: f32,
+        repeat: OptionalArg<bool>,
+        _file: OptionalArg<i32>,
+        exit: OptionalArg<bool>,
+        vm: &VirtualMachine,
+    ) {
+        let timeout_micros = std::time::Duration::from_secs_f32(timeout);
+        let repeat = repeat.unwrap_or(false);
+        let exit = exit.unwrap_or(false);
+
     }
 
     #[derive(FromArgs)]
