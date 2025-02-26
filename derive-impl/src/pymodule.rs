@@ -728,7 +728,7 @@ impl ModuleItem for AttributeItem {
             (
                 quote_spanned! { ident.span() => {
                     #let_obj
-                    for name in [(#(#names,)*)] {
+                    for name in [#(#names),*] {
                         vm.__module_set_attr(module, vm.ctx.intern_str(name), obj.clone()).unwrap();
                     }
                 }},
