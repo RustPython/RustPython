@@ -92,7 +92,6 @@ rev = "2024.02.14"
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies = ["openssl" ] }
 
 [package.metadata.packager]
-before-packaging-command = "cargo build --release --features ssl,sqlite,jit"
 product-name = "RustPython"
 identifier = "com.rustpython.rustpython"
 description = "An open source Python 3 interpreter written in Rust"
@@ -105,6 +104,11 @@ icons = ["32x32.png"]
 
 [package.metadata.packager.nsis]
 installer_mode = "both"
+template = "installer-config/installer.nsi"
+
+[package.metadata.packager.wix]
+template = "installer-config/installer.wxs"
+
 
 [workspace]
 resolver = "2"
