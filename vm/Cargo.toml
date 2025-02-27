@@ -100,6 +100,7 @@ uname = "0.1.1"
 rustyline = { workspace = true }
 which = "6"
 errno = "0.3"
+libffi = "3.2"
 libloading = "0.8"
 widestring = { workspace = true }
 

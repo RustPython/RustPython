@@ -1,71 +1,71 @@
 use crate::builtins::PyTypeRef;
 use crate::stdlib::ctypes::PyCData;
 use crate::types::{Callable, Constructor};
-use crate::{Py, PyObjectRef, PyResult, VirtualMachine};
+use crate::{AsObject, Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::lock::{PyMutex, PyRwLock};
 use std::ffi::c_void;
 use std::fmt::Debug;
 use std::sync::Arc;
-
+use crate::class::StaticType;
+use crate::stdlib::ctypes::base::PyCSimple;
+use libffi::middle::{Arg, Cif, CodePtr, Type};
+use libloading::Symbol;
 // https://github.com/python/cpython/blob/4f8bb3947cfbc20f970ff9d9531e1132a9e95396/Modules/_ctypes/callproc.c#L15
 
-#[derive(Debug)]
-pub enum FunctionArgument {
-    Float(std::ffi::c_float),
-    Double(std::ffi::c_double),
-    // TODO: Duplicate char stuff
-    UChar(std::ffi::c_uchar),
-    SChar(std::ffi::c_schar),
-    Char(std::ffi::c_char),
-    UShort(std::ffi::c_ushort),
-    Short(std::ffi::c_short),
-    UInt(std::ffi::c_uint),
-    Int(std::ffi::c_int),
-    ULong(std::ffi::c_ulong),
-    Long(std::ffi::c_long),
-    ULongLong(std::ffi::c_ulonglong),
-    LongLong(std::ffi::c_longlong),
-}
 
 #[derive(Debug)]
 pub struct Function {
     // TODO: no protection from use-after-free
-    pointer: Arc<PyMutex<*mut c_void>>,
-    arguments: Vec<FunctionArgument>,
-    return_type: PyTypeRef,
+    pointer: CodePtr,
+    cif: Cif
 }
 
 unsafe impl Send for Function {}
 unsafe impl Sync for Function {}
 
+type FP = unsafe extern "C" fn ();
+
 impl Function {
     pub unsafe fn load(
         library: &libloading::Library,
         function: &str,
-        args: Vec<PyObjectRef>,
-        return_type: PyTypeRef,
+        args: &[PyObjectRef],
+        ret_type: Option<PyTypeRef>,
+        vm: &VirtualMachine,
     ) -> PyResult<Self> {
+        // map each arg to a PyCSimple
+        let args = args.into_iter().map(|arg| {
+            if arg.is_subclass(PyCSimple::static_type().as_object(), vm).unwrap() {
+                let arg_type = arg.get_attr("_type_", vm).unwrap().str(vm).unwrap().to_string();
+                let value = arg.get_attr("value", vm).unwrap();
+                match &*arg_type {
+                    _ => todo!("HANDLE ARG TYPE")
+                }
+            } else {
+                todo!("HANDLE ERROR")
+            }
+        }).collect::<Vec<Type>>();
         let terminated = format!("{}\0", function);
-        let pointer = library
+        let pointer: Symbol<FP> = library
             .get(terminated.as_bytes())
             .map_err(|err| err.to_string())
             .unwrap();
+        let code_ptr = CodePtr(*pointer as *mut _);
+        let return_type = match ret_type {
+            Some(t) => todo!("HANDLE RETURN TYPE"),
+            None => Type::c_int(),
+        };
+        let cif = Cif::new(args.into_iter(), return_type);
         Ok(Function {
-            pointer: Arc::new(PyMutex::new(*pointer)),
-            arguments: args
-                .iter()
-                .map(|arg| todo!("convert PyObjectRef to FunctionArgument"))
-                .collect(),
-            return_type,
+            cif,
+            pointer: code_ptr,
         })
     }
 
-    pub unsafe fn call(&self, vm: &VirtualMachine) -> PyObjectRef {
-        // assemble function type signature
-        let pointer = self.pointer.lock();
-        let f: extern "C" fn() = std::mem::transmute(*pointer);
-        f();
+    pub unsafe fn call(&self, args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyObjectRef {
+        let args: Vec<Arg> = vec![];
+        let result = self.cif.call(self.pointer, &args);
         vm.ctx.none()
     }
 }
@@ -105,4 +105,6 @@ impl Callable for PyCFuncPtr {
 }
 
 #[pyclass(flags(BASETYPE), with(Callable, Constructor))]
-impl PyCFuncPtr {}
+impl PyCFuncPtr {
+
+}

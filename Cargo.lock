@@ -2282,6 +2282,7 @@ dependencies = [
  "itertools 0.14.0",
  "junction",
  "libc",
+ "libffi",
  "libloading",
  "log",
  "malachite-bigint",
