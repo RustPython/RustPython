@@ -34,7 +34,7 @@ impl SharedLibrary {
 
     pub fn is_closed(&self) -> bool {
         let lib_lock = self.lib.lock();
-        &*lib_lock.is_none()
+        lib_lock.is_none()
     }
 
     pub fn close(&self) {

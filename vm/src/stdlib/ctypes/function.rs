@@ -39,7 +39,7 @@ impl Function {
         let args = args.into_iter().map(|arg| {
             if arg.is_subclass(PyCSimple::static_type().as_object(), vm).unwrap() {
                 let arg_type = arg.get_attr("_type_", vm).unwrap().str(vm).unwrap().to_string();
-                let value = arg.get_attr("value", vm).unwrap();
+                let _value = arg.get_attr("value", vm).unwrap();
                 match &*arg_type {
                     _ => todo!("HANDLE ARG TYPE")
                 }
@@ -54,7 +54,7 @@ impl Function {
             .unwrap() };
         let code_ptr = CodePtr(*pointer as *mut _);
         let return_type = match ret_type {
-            Some(t) => todo!("HANDLE RETURN TYPE"),
+            Some(_t) => todo!("HANDLE RETURN TYPE"),
             None => Type::c_int(),
         };
         let cif = Cif::new(args.into_iter(), return_type);
@@ -64,7 +64,7 @@ impl Function {
         })
     }
 
-    pub unsafe fn call(&self, args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyObjectRef {
+    pub unsafe fn call(&self, _args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyObjectRef {
         let args: Vec<Arg> = vec![];
         // TODO: FIX return type
         let result: i32 = unsafe { self.cif.call(self.pointer, &args) };
@@ -94,7 +94,7 @@ impl Debug for PyCFuncPtr {
 impl Constructor for PyCFuncPtr {
     type Args = FuncArgs;
 
-    fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
         let tuple = args.args.first().unwrap();
         let tuple: &Py<PyTuple> = tuple.downcast_ref().unwrap();
         let name = tuple.first().unwrap().downcast_ref::<PyStr>().unwrap().to_string();

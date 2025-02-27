@@ -182,7 +182,7 @@ pub(crate) mod _ctypes {
     #[pyfunction(name = "LoadLibrary")]
     fn load_library(
         name: String,
-        load_flags: OptionalArg<i32>,
+        _load_flags: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
         // TODO: audit functions first
