@@ -106,6 +106,18 @@
             <Directory Id="ProgramMenuFolder">
                 <Directory Id="ApplicationProgramsFolder" Name="{{product_name}}"/>
             </Directory>
+
+            <Component Id="PathEnvPerMachine" Guid="*">
+                <Condition>ALLUSERS=1 OR (ALLUSERS=2 AND Privileged)</Condition>
+                <RegistryValue Root="HKLM" Key="Software\[Manufacturer]\[ProductName]" Name="InstallDir" Type="string" Value="[APPLICATIONFOLDER]" KeyPath="yes" />
+                <!-- [APPLICATIONFOLDER] contains trailing backslash -->
+                <Environment Id="PathPerMachine" Name="PATH" Value="[APPLICATIONFOLDER]bin" Permanent="no" Part="last" Action="set" System="yes" />
+            </Component>
+            <Component Id="PathEnvPerUser" Guid="*">
+                <Condition>ALLUSERS="" OR (ALLUSERS=2 AND (NOT Privileged))</Condition>
+                <RegistryValue Root="HKCU" Key="Software\[Manufacturer]\[ProductName]" Name="InstallDir" Type="string" Value="[APPLICATIONFOLDER]" KeyPath="yes" />
+                <Environment Id="PathPerUser" Name="PATH" Value="[APPLICATIONFOLDER]bin" Permanent="no" Part="last" Action="set" System="no" />
+            </Component>
         </Directory>
 
         <DirectoryRef Id="INSTALLDIR">
@@ -207,7 +219,6 @@
             {{#each resource_file_ids as |resource_file_id| ~}}
                 <ComponentRef Id="{{ resource_file_id }}"/>
             {{/each~}}
-
             <Feature Id="ShortcutsFeature"
                 Title="Shortcuts"
                 Level="1">
@@ -228,6 +239,15 @@
             <ComponentRef Id="{{ bin.id }}"/>
             {{/each~}}
             </Feature>
+        </Feature>
+
+        <Feature Id="Path"
+            Title="Add to PATH"
+            Description="Add to PATH environment variable"
+            Level="1"
+            AllowAdvertise="no">
+            <ComponentRef Id="PathEnvPerMachine" />
+            <ComponentRef Id="PathEnvPerUser" />
         </Feature>
 
         <Feature Id="External" AllowAdvertise="no" Absent="disallow">
