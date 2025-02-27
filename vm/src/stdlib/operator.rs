@@ -4,6 +4,7 @@ pub(crate) use _operator::make_module;
 mod _operator {
     use crate::common::cmp;
     use crate::{
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyTypeRef},
         function::Either,
         function::{ArgBytesLike, FuncArgs, KwArgs, OptionalArg},
@@ -11,7 +12,6 @@ mod _operator {
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
 
     #[pyfunction]
@@ -336,7 +336,7 @@ mod _operator {
             _ => {
                 return Err(vm.new_type_error(
                     "unsupported operand types(s) or combination of types".to_owned(),
-                ))
+                ));
             }
         };
         Ok(res)

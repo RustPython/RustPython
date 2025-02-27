@@ -3,9 +3,9 @@ pub(crate) use _typing::make_module;
 #[pymodule]
 pub(crate) mod _typing {
     use crate::{
-        builtins::{pystr::AsPyStr, PyGenericAlias, PyTupleRef, PyTypeRef},
-        function::IntoFuncArgs,
         PyObjectRef, PyPayload, PyResult, VirtualMachine,
+        builtins::{PyGenericAlias, PyTupleRef, PyTypeRef, pystr::AsPyStr},
+        function::IntoFuncArgs,
     };
 
     pub(crate) fn _call_typing_func_object<'a>(

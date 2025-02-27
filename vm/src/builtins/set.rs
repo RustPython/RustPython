@@ -2,10 +2,11 @@
  * Builtin set type with a sequence of unique items.
  */
 use super::{
-    builtins_iter, IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef,
-    PyType, PyTypeRef,
+    IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
+    PyTypeRef, builtins_iter,
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
     class::PyClassImpl,
     common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
@@ -21,7 +22,6 @@ use crate::{
     },
     utils::collection_repr,
     vm::VirtualMachine,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use once_cell::sync::Lazy;
 use rustpython_common::{

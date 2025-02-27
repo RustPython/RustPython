@@ -6,14 +6,14 @@
 mod r#gen;
 
 use crate::{
-    builtins::{self, PyDict, PyModule, PyStrRef, PyType},
-    class::{PyClassImpl, StaticType},
-    compiler::core::bytecode::OpArgType,
-    compiler::CompileError,
-    convert::ToPyException,
-    source_code::{LinearLocator, OneIndexed, SourceLocation, SourceRange},
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
+    builtins::{self, PyDict, PyModule, PyStrRef, PyType},
+    class::{PyClassImpl, StaticType},
+    compiler::CompileError,
+    compiler::core::bytecode::OpArgType,
+    convert::ToPyException,
+    source_code::{LinearLocator, OneIndexed, SourceLocation, SourceRange},
 };
 use num_complex::Complex64;
 use num_traits::{ToPrimitive, Zero};
@@ -26,9 +26,9 @@ use rustpython_parser as parser;
 #[pymodule]
 mod _ast {
     use crate::{
+        AsObject, Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyTupleRef},
         function::FuncArgs,
-        AsObject, Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]

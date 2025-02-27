@@ -2,7 +2,7 @@ pub(crate) use _sysconfigdata::make_module;
 
 #[pymodule]
 pub(crate) mod _sysconfigdata {
-    use crate::{builtins::PyDictRef, convert::ToPyObject, stdlib::sys::MULTIARCH, VirtualMachine};
+    use crate::{VirtualMachine, builtins::PyDictRef, convert::ToPyObject, stdlib::sys::MULTIARCH};
 
     #[pyattr]
     fn build_time_vars(vm: &VirtualMachine) -> PyDictRef {

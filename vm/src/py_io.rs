@@ -1,7 +1,7 @@
 use crate::{
+    PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytes, PyStr},
     common::ascii,
-    PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use std::{fmt, io, ops};
 

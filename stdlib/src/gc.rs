@@ -2,7 +2,7 @@ pub(crate) use gc::make_module;
 
 #[pymodule]
 mod gc {
-    use crate::vm::{function::FuncArgs, PyResult, VirtualMachine};
+    use crate::vm::{PyResult, VirtualMachine, function::FuncArgs};
 
     #[pyfunction]
     fn collect(_args: FuncArgs, _vm: &VirtualMachine) -> i32 {

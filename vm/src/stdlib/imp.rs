@@ -1,11 +1,11 @@
 use crate::frozen::FrozenModule;
-use crate::{builtins::PyBaseExceptionRef, VirtualMachine};
+use crate::{VirtualMachine, builtins::PyBaseExceptionRef};
 pub(crate) use _imp::make_module;
 
 #[cfg(feature = "threading")]
 #[pymodule(sub)]
 mod lock {
-    use crate::{stdlib::thread::RawRMutex, PyResult, VirtualMachine};
+    use crate::{PyResult, VirtualMachine, stdlib::thread::RawRMutex};
 
     static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 
@@ -60,7 +60,9 @@ impl FrozenError {
         use FrozenError::*;
         let msg = match self {
             BadName | NotFound => format!("No such frozen object named {mod_name}"),
-            Disabled => format!("Frozen modules are disabled and the frozen object named {mod_name} is not essential"),
+            Disabled => format!(
+                "Frozen modules are disabled and the frozen object named {mod_name} is not essential"
+            ),
             Excluded => format!("Excluded frozen object named {mod_name}"),
             Invalid => format!("Frozen object named {mod_name} is invalid"),
         };
@@ -80,9 +82,10 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 #[pymodule(with(lock))]
 mod _imp {
     use crate::{
+        PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef},
         function::OptionalArg,
-        import, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        import,
     };
 
     #[pyattr]

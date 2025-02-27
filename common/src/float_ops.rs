@@ -64,11 +64,7 @@ pub fn gt_int(value: f64, other_int: &BigInt) -> bool {
 }
 
 pub fn div(v1: f64, v2: f64) -> Option<f64> {
-    if v2 != 0.0 {
-        Some(v1 / v2)
-    } else {
-        None
-    }
+    if v2 != 0.0 { Some(v1 / v2) } else { None }
 }
 
 pub fn mod_(v1: f64, v2: f64) -> Option<f64> {
@@ -125,11 +121,7 @@ pub fn nextafter(x: f64, y: f64) -> f64 {
         let b = x.to_bits();
         let bits = if (y > x) == (x > 0.0) { b + 1 } else { b - 1 };
         let ret = f64::from_bits(bits);
-        if ret == 0.0 {
-            ret.copysign(x)
-        } else {
-            ret
-        }
+        if ret == 0.0 { ret.copysign(x) } else { ret }
     }
 }
 

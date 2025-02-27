@@ -238,7 +238,9 @@ fn settings_from(matches: &ArgMatches) -> (Settings, RunMode) {
         settings.int_max_str_digits = match env::var("PYTHONINTMAXSTRDIGITS").unwrap().parse() {
             Ok(digits @ (0 | 640..)) => digits,
             _ => {
-                error!("Fatal Python error: config_init_int_max_str_digits: PYTHONINTMAXSTRDIGITS: invalid limit; must be >= 640 or 0 for unlimited.\nPython runtime state: preinitialized");
+                error!(
+                    "Fatal Python error: config_init_int_max_str_digits: PYTHONINTMAXSTRDIGITS: invalid limit; must be >= 640 or 0 for unlimited.\nPython runtime state: preinitialized"
+                );
                 std::process::exit(1);
             }
         };

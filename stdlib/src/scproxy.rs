@@ -5,9 +5,9 @@ mod _scproxy {
     // straight-forward port of Modules/_scproxy.c
 
     use crate::vm::{
+        PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStr},
         convert::ToPyObject,
-        PyResult, VirtualMachine,
     };
     use system_configuration::core_foundation::{
         array::CFArray,

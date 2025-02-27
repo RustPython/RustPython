@@ -7,17 +7,17 @@ use crate::common::{
     lock::PyRwLockReadGuard,
 };
 use crate::{
+    VirtualMachine,
     builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
     convert::{IntoPyException, ToPyObject, ToPyResult, TryFromObject},
     vm::Context,
-    VirtualMachine,
 };
 use std::{
     borrow::Borrow,
     fmt,
     marker::PhantomData,
     ops::Deref,
-    ptr::{null_mut, NonNull},
+    ptr::{NonNull, null_mut},
 };
 
 /* Python objects and references.

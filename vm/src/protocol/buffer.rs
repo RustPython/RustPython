@@ -2,6 +2,7 @@
 //! https://docs.python.org/3/c-api/buffer.html
 
 use crate::{
+    Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
         lock::{MapImmutable, PyMutex, PyMutexGuard},
@@ -9,7 +10,6 @@ use crate::{
     object::PyObjectPayload,
     sliceable::SequenceIndexOp,
     types::Unconstructible,
-    Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{borrow::Cow, fmt::Debug, ops::Range};

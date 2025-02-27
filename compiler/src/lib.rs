@@ -1,9 +1,9 @@
 use rustpython_codegen::{compile, symboltable};
-use rustpython_parser::ast::{self as ast, fold::Fold, ConstantOptimizer};
+use rustpython_parser::ast::{self as ast, ConstantOptimizer, fold::Fold};
 
 pub use rustpython_codegen::compile::CompileOpts;
-pub use rustpython_compiler_core::{bytecode::CodeObject, Mode};
-pub use rustpython_parser::{source_code::LinearLocator, Parse};
+pub use rustpython_compiler_core::{Mode, bytecode::CodeObject};
+pub use rustpython_parser::{Parse, source_code::LinearLocator};
 
 // these modules are out of repository. re-exporting them here for convenience.
 pub use rustpython_codegen as codegen;

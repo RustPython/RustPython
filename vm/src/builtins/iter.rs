@@ -4,12 +4,12 @@
 
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
     types::{IterNext, Iterable, SelfIter},
-    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},

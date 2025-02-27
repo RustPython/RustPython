@@ -6,13 +6,13 @@ pub(crate) use _bz2::make_module;
 mod _bz2 {
     use crate::common::lock::PyMutex;
     use crate::vm::{
+        VirtualMachine,
         builtins::{PyBytesRef, PyTypeRef},
         function::{ArgBytesLike, OptionalArg},
         object::{PyPayload, PyResult},
         types::Constructor,
-        VirtualMachine,
     };
-    use bzip2::{write::BzEncoder, Decompress, Status};
+    use bzip2::{Decompress, Status, write::BzEncoder};
     use std::{fmt, io::Write};
 
     // const BUFSIZ: i32 = 8192;
@@ -196,7 +196,7 @@ mod _bz2 {
                 _ => {
                     return Err(
                         vm.new_value_error("compresslevel must be between 1 and 9".to_owned())
-                    )
+                    );
                 }
             };
 
