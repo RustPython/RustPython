@@ -189,8 +189,8 @@ pub(crate) mod _ctypes {
         // TODO: load_flags
         let cache = library::libcache();
         let mut cache_write = cache.write();
-        let lib_ref = cache_write.get_or_insert_lib(&name, vm).unwrap();
-        Ok(lib_ref.get_pointer())
+        let (id, _) = cache_write.get_or_insert_lib(&name, vm).unwrap();
+        Ok(id)
     }
 
     #[pyfunction(name = "FreeLibrary")]
