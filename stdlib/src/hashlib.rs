@@ -91,7 +91,7 @@ pub mod _hashlib {
     }
 
     impl std::fmt::Debug for PyHasher {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "HASH {}", self.name)
         }
     }
@@ -155,7 +155,7 @@ pub mod _hashlib {
     }
 
     impl std::fmt::Debug for PyHasherXof {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "HASHXOF {}", self.name)
         }
     }

@@ -68,7 +68,7 @@ impl<T: ?Sized> Deref for BorrowedValue<'_, T> {
 }
 
 impl fmt::Display for BorrowedValue<'_, str> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self.deref(), f)
     }
 }

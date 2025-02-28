@@ -53,7 +53,7 @@ mod _sre {
     trait SreStr: StrDrive {
         fn slice(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef;
 
-        fn create_request(self, pattern: &Pattern, start: usize, end: usize) -> Request<Self> {
+        fn create_request(self, pattern: &Pattern, start: usize, end: usize) -> Request<'_, Self> {
             Request::new(self, start, end, &pattern.code, false)
         }
     }

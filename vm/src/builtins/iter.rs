@@ -26,7 +26,7 @@ pub enum IterStatus<T> {
 }
 
 unsafe impl<T: Traverse> Traverse for IterStatus<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
             IterStatus::Active(r) => r.traverse(tracer_fn),
             IterStatus::Exhausted => (),
@@ -41,7 +41,7 @@ pub struct PositionIterInternal<T> {
 }
 
 unsafe impl<T: Traverse> Traverse for PositionIterInternal<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.status.traverse(tracer_fn)
     }
 }

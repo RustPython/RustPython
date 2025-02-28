@@ -297,7 +297,7 @@ mod _js {
     }
 
     impl fmt::Debug for JsClosure {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.pad("JsClosure")
         }
     }

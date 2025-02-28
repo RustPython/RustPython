@@ -497,7 +497,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_frame(&self) -> Option<Ref<FrameRef>> {
+    pub fn current_frame(&self) -> Option<Ref<'_, FrameRef>> {
         let frames = self.frames.borrow();
         if frames.is_empty() {
             None
@@ -514,7 +514,7 @@ impl VirtualMachine {
             .locals(self)
     }
 
-    pub fn current_globals(&self) -> Ref<PyDictRef> {
+    pub fn current_globals(&self) -> Ref<'_, PyDictRef> {
         let frame = self
             .current_frame()
             .expect("called current_globals but no frames on the stack");

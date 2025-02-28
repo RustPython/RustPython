@@ -1392,7 +1392,7 @@ mod _io {
         const WRITABLE: bool;
         const SEEKABLE: bool = false;
         fn data(&self) -> &PyThreadMutex<BufferedData>;
-        fn lock(&self, vm: &VirtualMachine) -> PyResult<PyThreadMutexGuard<BufferedData>> {
+        fn lock(&self, vm: &VirtualMachine) -> PyResult<PyThreadMutexGuard<'_, BufferedData>> {
             self.data()
                 .lock()
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside buffered io".to_owned()))
@@ -2273,13 +2273,13 @@ mod _io {
         fn lock_opt(
             &self,
             vm: &VirtualMachine,
-        ) -> PyResult<PyThreadMutexGuard<Option<TextIOData>>> {
+        ) -> PyResult<PyThreadMutexGuard<'_, Option<TextIOData>>> {
             self.data
                 .lock()
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside textio".to_owned()))
         }
 
-        fn lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedThreadMutexGuard<TextIOData>> {
+        fn lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedThreadMutexGuard<'_, TextIOData>> {
             let lock = self.lock_opt(vm)?;
             PyThreadMutexGuard::try_map(lock, |x| x.as_mut())
                 .map_err(|_| vm.new_value_error("I/O operation on uninitialized object".to_owned()))
@@ -3210,7 +3210,7 @@ mod _io {
         fn lock_opt(
             &self,
             vm: &VirtualMachine,
-        ) -> PyResult<PyThreadMutexGuard<Option<IncrementalNewlineDecoderData>>> {
+        ) -> PyResult<PyThreadMutexGuard<'_, Option<IncrementalNewlineDecoderData>>> {
             self.data
                 .lock()
                 .ok_or_else(|| vm.new_runtime_error("reentrant call inside nldecoder".to_owned()))
@@ -3219,7 +3219,7 @@ mod _io {
         fn lock(
             &self,
             vm: &VirtualMachine,
-        ) -> PyResult<PyMappedThreadMutexGuard<IncrementalNewlineDecoderData>> {
+        ) -> PyResult<PyMappedThreadMutexGuard<'_, IncrementalNewlineDecoderData>> {
             let lock = self.lock_opt(vm)?;
             PyThreadMutexGuard::try_map(lock, |x| x.as_mut()).map_err(|_| {
                 vm.new_value_error("I/O operation on uninitialized nldecoder".to_owned())

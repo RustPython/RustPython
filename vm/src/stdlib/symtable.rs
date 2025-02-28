@@ -41,7 +41,7 @@ mod symtable {
     }
 
     impl fmt::Debug for PySymbolTable {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "SymbolTable()")
         }
     }
@@ -157,7 +157,7 @@ mod symtable {
     }
 
     impl fmt::Debug for PySymbol {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "Symbol()")
         }
     }

@@ -12,7 +12,7 @@ pub struct SharedLibrary {
 }
 
 impl fmt::Debug for SharedLibrary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "SharedLibrary")
     }
 }
@@ -30,7 +30,7 @@ impl SharedLibrary {
             unsafe {
                 inner
                     .get(name.as_bytes())
-                    .map(|f: libloading::Symbol<*mut c_void>| *f)
+                    .map(|f: libloading::Symbol<'_, *mut c_void>| *f)
                     .map_err(|err| err.to_string())
             }
         } else {

@@ -138,14 +138,14 @@ impl PyFrozenSet {
 }
 
 impl fmt::Debug for PySet {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("set")
     }
 }
 
 impl fmt::Debug for PyFrozenSet {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("PyFrozenSet ")?;
         f.debug_set().entries(self.elements().iter()).finish()
@@ -170,7 +170,7 @@ pub(super) struct PySetInner {
 }
 
 unsafe impl crate::object::Traverse for PySetInner {
-    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
         // FIXME(discord9): Rc means shared ref, so should it be traced?
         self.content.traverse(tracer_fn)
     }
@@ -1266,7 +1266,7 @@ pub(crate) struct PySetIterator {
 }
 
 impl fmt::Debug for PySetIterator {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("set_iterator")
     }

@@ -115,7 +115,7 @@ pub(crate) mod _thread {
     }
 
     impl fmt::Debug for Lock {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.pad("Lock")
         }
     }
@@ -192,7 +192,7 @@ pub(crate) mod _thread {
     }
 
     impl fmt::Debug for RLock {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.pad("RLock")
         }
     }

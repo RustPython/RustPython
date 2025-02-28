@@ -450,7 +450,7 @@ mod decl {
     }
 
     impl std::fmt::Debug for PyStructTime {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             write!(f, "struct_time()")
         }
     }

@@ -3484,7 +3484,7 @@ mod tests {
     use rustpython_parser_core::source_code::LinearLocator;
 
     fn compile_exec(source: &str) -> CodeObject {
-        let mut locator: LinearLocator = LinearLocator::new(source);
+        let mut locator: LinearLocator<'_> = LinearLocator::new(source);
         use rustpython_parser::ast::fold::Fold;
         let mut compiler: Compiler = Compiler::new(
             CompileOpts::default(),

@@ -81,14 +81,17 @@ pub(super) unsafe fn drop_dealloc_obj<T: PyObjectPayload>(x: *mut PyObject) {
 }
 pub(super) unsafe fn debug_obj<T: PyObjectPayload>(
     x: &PyObject,
-    f: &mut fmt::Formatter,
+    f: &mut fmt::Formatter<'_>,
 ) -> fmt::Result {
     let x = unsafe { &*(x as *const PyObject as *const PyInner<T>) };
     fmt::Debug::fmt(x, f)
 }
 
 /// Call `try_trace` on payload
-pub(super) unsafe fn try_trace_obj<T: PyObjectPayload>(x: &PyObject, tracer_fn: &mut TraverseFn) {
+pub(super) unsafe fn try_trace_obj<T: PyObjectPayload>(
+    x: &PyObject,
+    tracer_fn: &mut TraverseFn<'_>,
+) {
     let x = unsafe { &*(x as *const PyObject as *const PyInner<T>) };
     let payload = &x.payload;
     payload.try_traverse(tracer_fn)
@@ -113,7 +116,7 @@ pub(super) struct PyInner<T> {
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[PyObject {:?}]", &self.payload)
     }
 }
@@ -121,7 +124,7 @@ impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
 unsafe impl<T: PyObjectPayload> Traverse for Py<T> {
     /// DO notice that call `trace` on `Py<T>` means apply `tracer_fn` on `Py<T>`'s children,
     /// not like call `trace` on `PyRef<T>` which apply `tracer_fn` on `PyRef<T>` itself
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.0.traverse(tracer_fn)
     }
 }
@@ -129,7 +132,7 @@ unsafe impl<T: PyObjectPayload> Traverse for Py<T> {
 unsafe impl Traverse for PyObject {
     /// DO notice that call `trace` on `PyObject` means apply `tracer_fn` on `PyObject`'s children,
     /// not like call `trace` on `PyObjectRef` which apply `tracer_fn` on `PyObjectRef` itself
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.0.traverse(tracer_fn)
     }
 }
@@ -139,7 +142,7 @@ pub(super) struct WeakRefList {
 }
 
 impl fmt::Debug for WeakRefList {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("WeakRefList").finish_non_exhaustive()
     }
 }
@@ -972,7 +975,7 @@ where
 }
 
 impl<T: PyObjectPayload> fmt::Debug for Py<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }
 }
@@ -999,7 +1002,7 @@ cfg_if::cfg_if! {
 }
 
 impl<T: PyObjectPayload> fmt::Debug for PyRef<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }
 }

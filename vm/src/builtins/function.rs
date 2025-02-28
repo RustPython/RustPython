@@ -44,7 +44,7 @@ pub struct PyFunction {
 }
 
 unsafe impl Traverse for PyFunction {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.globals.traverse(tracer_fn);
         self.closure.traverse(tracer_fn);
         self.defaults_and_kwdefaults.traverse(tracer_fn);

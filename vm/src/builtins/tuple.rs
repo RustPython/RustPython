@@ -28,7 +28,7 @@ pub struct PyTuple {
 }
 
 impl fmt::Debug for PyTuple {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more informational, non-recursive Debug formatter
         f.write_str("tuple")
     }
@@ -513,7 +513,7 @@ unsafe impl<T> Traverse for PyTupleTyped<T>
 where
     T: TransmuteFromObject + Traverse,
 {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.tuple.traverse(tracer_fn);
     }
 }

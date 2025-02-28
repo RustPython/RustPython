@@ -22,7 +22,7 @@ pub struct PyUnion {
 }
 
 impl fmt::Debug for PyUnion {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("UnionObject")
     }
 }

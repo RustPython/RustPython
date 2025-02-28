@@ -38,7 +38,7 @@ pub enum CodegenErrorType {
 impl std::error::Error for CodegenErrorType {}
 
 impl fmt::Display for CodegenErrorType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use CodegenErrorType::*;
         match self {
             Assign(target) => write!(f, "cannot assign to {target}"),

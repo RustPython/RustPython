@@ -37,7 +37,7 @@ pub struct PyDict {
 pub type PyDictRef = PyRef<PyDict>;
 
 impl fmt::Debug for PyDict {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("dict")
     }

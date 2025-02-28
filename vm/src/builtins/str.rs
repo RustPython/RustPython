@@ -62,7 +62,7 @@ pub struct PyStr {
 }
 
 impl fmt::Debug for PyStr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PyStr")
             .field("value", &self.as_str())
             .field("kind", &self.kind)
@@ -192,7 +192,7 @@ pub struct PyStrIterator {
 }
 
 unsafe impl Traverse for PyStrIterator {
-    fn traverse(&self, tracer: &mut TraverseFn) {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
         // No need to worry about deadlock, for inner is a PyStr and can't make ref cycle
         self.internal.lock().0.traverse(tracer);
     }
@@ -351,7 +351,7 @@ impl PyStr {
         }
     }
 
-    fn borrow(&self) -> &BorrowedStr {
+    fn borrow(&self) -> &BorrowedStr<'_> {
         unsafe { std::mem::transmute(self) }
     }
 

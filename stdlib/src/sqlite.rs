@@ -316,7 +316,7 @@ mod _sqlite {
     }
 
     unsafe impl Traverse for ConnectArgs {
-        fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
             self.isolation_level.traverse(tracer_fn);
             self.factory.traverse(tracer_fn);
         }
@@ -337,7 +337,7 @@ mod _sqlite {
     }
 
     unsafe impl Traverse for BackupArgs {
-        fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
             self.progress.traverse(tracer_fn);
             self.name.traverse(tracer_fn);
         }
@@ -867,12 +867,12 @@ mod _sqlite {
             })
         }
 
-        fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<Sqlite>> {
+        fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, Sqlite>> {
             self.check_thread(vm)?;
             self._db_lock(vm)
         }
 
-        fn _db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<Sqlite>> {
+        fn _db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, Sqlite>> {
             let guard = self.db.lock();
             if guard.is_some() {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
@@ -1437,7 +1437,7 @@ mod _sqlite {
             }
         }
 
-        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<CursorInner>> {
+        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, CursorInner>> {
             let guard = self.inner.lock();
             if guard.is_some() {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
@@ -2103,7 +2103,7 @@ mod _sqlite {
             self.close()
         }
 
-        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<BlobInner>> {
+        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, BlobInner>> {
             let guard = self.inner.lock();
             if guard.is_some() {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
@@ -2314,7 +2314,7 @@ mod _sqlite {
             }))
         }
 
-        fn lock(&self) -> PyMutexGuard<SqliteStatement> {
+        fn lock(&self) -> PyMutexGuard<'_, SqliteStatement> {
             self.st.lock()
         }
     }
@@ -2675,7 +2675,11 @@ mod _sqlite {
             Ok(())
         }
 
-        fn bind_parameters_sequence(self, seq: PySequence, vm: &VirtualMachine) -> PyResult<()> {
+        fn bind_parameters_sequence(
+            self,
+            seq: PySequence<'_>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let num_needed = unsafe { sqlite3_bind_parameter_count(self.st) };
             if seq.length(vm)? != num_needed as usize {
                 return Err(new_programming_error(
