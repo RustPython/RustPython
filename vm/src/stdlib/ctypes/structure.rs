@@ -35,7 +35,7 @@ impl Constructor for PyCStructure {
                 .downcast_ref::<PyTuple>()
                 .ok_or_else(|| vm.new_type_error("Field must be a tuple".to_string()))?;
             let name = field
-                .get(0)
+                .first()
                 .unwrap()
                 .downcast_ref::<PyStr>()
                 .ok_or_else(|| vm.new_type_error("Field name must be a string".to_string()))?;
