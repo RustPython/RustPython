@@ -107,14 +107,14 @@ impl UserSignalSender {
 pub struct UserSignalSendError(pub UserSignal);
 
 impl fmt::Debug for UserSignalSendError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UserSignalSendError")
             .finish_non_exhaustive()
     }
 }
 
 impl fmt::Display for UserSignalSendError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("sending a signal to a exited vm")
     }
 }

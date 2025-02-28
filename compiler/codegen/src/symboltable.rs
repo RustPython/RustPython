@@ -74,7 +74,7 @@ pub enum SymbolTableType {
 }
 
 impl fmt::Display for SymbolTableType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SymbolTableType::Module => write!(f, "module"),
             SymbolTableType::Class => write!(f, "class"),
@@ -195,7 +195,7 @@ impl SymbolTable {
 }
 
 impl std::fmt::Debug for SymbolTable {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "SymbolTable({:?} symbols, {:?} sub scopes)",

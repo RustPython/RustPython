@@ -316,7 +316,7 @@ impl PyCompileArgs {
     }
 }
 
-fn parse_str(input: ParseStream) -> ParseResult<LitStr> {
+fn parse_str(input: ParseStream<'_>) -> ParseResult<LitStr> {
     let span = input.span();
     if input.peek(LitStr) {
         input.parse()

@@ -22,7 +22,7 @@ use std::{
 };
 
 unsafe impl Traverse for PyBaseException {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.traceback.traverse(tracer_fn);
         self.cause.traverse(tracer_fn);
         self.context.traverse(tracer_fn);
@@ -31,7 +31,7 @@ unsafe impl Traverse for PyBaseException {
 }
 
 impl std::fmt::Debug for PyBaseException {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("PyBaseException")
     }

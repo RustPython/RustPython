@@ -483,7 +483,7 @@ mod mmap {
         flags(BASETYPE)
     )]
     impl PyMmap {
-        fn as_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+        fn as_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {
             PyMutexGuard::map(self.mmap.lock(), |m| {
                 match m.as_mut().expect("mmap closed or invalid") {
                     MmapObj::Read(_) => panic!("mmap can't modify a readonly memory map."),
@@ -493,7 +493,7 @@ mod mmap {
             .into()
         }
 
-        fn as_bytes(&self) -> BorrowedValue<[u8]> {
+        fn as_bytes(&self) -> BorrowedValue<'_, [u8]> {
             PyMutexGuard::map_immutable(self.mmap.lock(), |m| {
                 match m.as_ref().expect("mmap closed or invalid") {
                     MmapObj::Read(mmap) => &mmap[..],
@@ -536,7 +536,7 @@ mod mmap {
             }
         }
 
-        fn check_valid(&self, vm: &VirtualMachine) -> PyResult<PyMutexGuard<Option<MmapObj>>> {
+        fn check_valid(&self, vm: &VirtualMachine) -> PyResult<PyMutexGuard<'_, Option<MmapObj>>> {
             let m = self.mmap.lock();
 
             if m.is_none() {

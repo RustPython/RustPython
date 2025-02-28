@@ -25,7 +25,7 @@ impl std::error::Error for CompileErrorType {
     }
 }
 impl std::fmt::Display for CompileErrorType {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CompileErrorType::Codegen(e) => e.fmt(f),
             CompileErrorType::Parse(e) => e.fmt(f),

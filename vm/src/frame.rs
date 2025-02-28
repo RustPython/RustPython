@@ -221,7 +221,7 @@ impl Frame {
 
 impl Py<Frame> {
     #[inline(always)]
-    fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame) -> R) -> R {
+    fn with_exec<R>(&self, f: impl FnOnce(ExecutingFrame<'_>) -> R) -> R {
         let mut state = self.state.lock();
         let exec = ExecutingFrame {
             code: &self.code,
@@ -308,7 +308,7 @@ struct ExecutingFrame<'a> {
 }
 
 impl fmt::Debug for ExecutingFrame<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ExecutingFrame")
             .field("code", self.code)
             // .field("scope", self.scope)
@@ -371,7 +371,7 @@ impl ExecutingFrame<'_> {
                 Err(exception) => {
                     #[cold]
                     fn handle_exception(
-                        frame: &mut ExecutingFrame,
+                        frame: &mut ExecutingFrame<'_>,
                         exception: PyBaseExceptionRef,
                         idx: usize,
                         vm: &VirtualMachine,
@@ -2081,7 +2081,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn pop_multiple(&mut self, count: usize) -> crate::common::boxvec::Drain<PyObjectRef> {
+    fn pop_multiple(&mut self, count: usize) -> crate::common::boxvec::Drain<'_, PyObjectRef> {
         let stack_len = self.state.stack.len();
         self.state.stack.drain(stack_len - count..)
     }
@@ -2119,7 +2119,7 @@ impl ExecutingFrame<'_> {
 }
 
 impl fmt::Debug for Frame {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let state = self.state.lock();
         let stack_str = state.stack.iter().fold(String::new(), |mut s, elem| {
             if elem.payload_is::<Frame>() {

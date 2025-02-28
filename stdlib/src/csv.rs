@@ -910,7 +910,7 @@ mod _csv {
     }
 
     impl fmt::Debug for Reader {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "_csv.reader")
         }
     }
@@ -1064,7 +1064,7 @@ mod _csv {
     }
 
     impl fmt::Debug for Writer {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "_csv.writer")
         }
     }

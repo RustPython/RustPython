@@ -81,7 +81,7 @@ pub struct ArgIterable<T = PyObjectRef> {
 }
 
 unsafe impl<T: Traverse> Traverse for ArgIterable<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.iterable.traverse(tracer_fn)
     }
 }
@@ -143,7 +143,7 @@ impl ArgMapping {
     }
 
     #[inline(always)]
-    pub fn mapping(&self) -> PyMapping {
+    pub fn mapping(&self) -> PyMapping<'_> {
         PyMapping {
             obj: &self.obj,
             methods: self.methods,
@@ -200,7 +200,7 @@ impl TryFromObject for ArgMapping {
 pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
 
 unsafe impl<T: Traverse> Traverse for ArgSequence<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.0.traverse(tracer_fn);
     }
 }

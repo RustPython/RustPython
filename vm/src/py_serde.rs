@@ -41,7 +41,7 @@ impl<'s> PyObjectSerializer<'s> {
         PyObjectSerializer { pyobject, vm }
     }
 
-    fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer {
+    fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer<'_> {
         PyObjectSerializer {
             pyobject,
             vm: self.vm,
@@ -130,7 +130,7 @@ impl<'de> DeserializeSeed<'de> for PyObjectDeserializer<'de> {
 impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     type Value = PyObjectRef;
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("a type that can deserialize in Python")
     }
 

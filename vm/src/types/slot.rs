@@ -1232,7 +1232,7 @@ pub trait AsMapping: PyPayload {
     fn as_mapping() -> &'static PyMappingMethods;
 
     #[inline]
-    fn mapping_downcast(mapping: PyMapping) -> &Py<Self> {
+    fn mapping_downcast(mapping: PyMapping<'_>) -> &Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
 }
@@ -1243,7 +1243,7 @@ pub trait AsSequence: PyPayload {
     fn as_sequence() -> &'static PySequenceMethods;
 
     #[inline]
-    fn sequence_downcast(seq: PySequence) -> &Py<Self> {
+    fn sequence_downcast(seq: PySequence<'_>) -> &Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
     }
 }
@@ -1259,12 +1259,12 @@ pub trait AsNumber: PyPayload {
     }
 
     #[inline]
-    fn number_downcast(num: PyNumber) -> &Py<Self> {
+    fn number_downcast(num: PyNumber<'_>) -> &Py<Self> {
         unsafe { num.obj().downcast_unchecked_ref() }
     }
 
     #[inline]
-    fn number_downcast_exact(num: PyNumber, vm: &VirtualMachine) -> PyRef<Self> {
+    fn number_downcast_exact(num: PyNumber<'_>, vm: &VirtualMachine) -> PyRef<Self> {
         if let Some(zelf) = num.downcast_ref_if_exact::<Self>(vm) {
             zelf.to_owned()
         } else {

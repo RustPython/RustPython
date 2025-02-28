@@ -1920,7 +1920,7 @@ mod _socket {
         };
 
         let host = opts.host.as_ref().map(|s| s.as_str());
-        let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<str> {
+        let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<'_, str> {
             match p {
                 Either::A(s) => s.as_str().into(),
                 Either::B(i) => i.to_string().into(),

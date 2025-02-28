@@ -386,7 +386,7 @@ impl PyMemoryView {
         ret
     }
 
-    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+    fn obj_bytes(&self) -> BorrowedValue<'_, [u8]> {
         if self.desc.is_contiguous() {
             BorrowedValue::map(self.buffer.obj_bytes(), |x| {
                 &x[self.start..self.start + self.desc.len]
@@ -396,7 +396,7 @@ impl PyMemoryView {
         }
     }
 
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+    fn obj_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {
         if self.desc.is_contiguous() {
             BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| {
                 &mut x[self.start..self.start + self.desc.len]
@@ -406,7 +406,7 @@ impl PyMemoryView {
         }
     }
 
-    fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
+    fn as_contiguous(&self) -> Option<BorrowedValue<'_, [u8]>> {
         self.desc.is_contiguous().then(|| {
             BorrowedValue::map(self.buffer.obj_bytes(), |x| {
                 &x[self.start..self.start + self.desc.len]
@@ -414,7 +414,7 @@ impl PyMemoryView {
         })
     }
 
-    fn _as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
+    fn _as_contiguous_mut(&self) -> Option<BorrowedValueMut<'_, [u8]>> {
         self.desc.is_contiguous().then(|| {
             BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| {
                 &mut x[self.start..self.start + self.desc.len]
