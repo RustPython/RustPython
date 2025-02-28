@@ -155,6 +155,8 @@ assert abs(f.value -  3.14) < 1e-06
 if _os.name == "nt":
     from _ctypes import LoadLibrary as _dlopen
     from _ctypes import FUNCFLAG_STDCALL as _FUNCFLAG_STDCALL
+elif _os.name == "posix":
+    from _ctypes import dlopen as _dlopen
 
 class CDLL(object):
     """An instance of this class represents a loaded dll/shared
@@ -258,7 +260,7 @@ class LibraryLoader(object):
 
 cdll = LibraryLoader(CDLL)
 
-if _os.name == "posix" and _sys.platform == "darwin":
+if _os.name == "posix" or _sys.platform == "darwin":
     pass
 else:
     libc = cdll.msvcrt

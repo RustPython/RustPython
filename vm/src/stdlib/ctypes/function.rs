@@ -1,11 +1,10 @@
 use crate::builtins::{PyStr, PyTuple, PyTypeRef};
-use crate::class::StaticType;
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
 use crate::stdlib::ctypes::PyCData;
 use crate::stdlib::ctypes::base::{PyCSimple, ffi_type_from_str};
 use crate::types::{Callable, Constructor};
-use crate::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
+use crate::{Py, PyObjectRef, PyResult, VirtualMachine};
 use crossbeam_utils::atomic::AtomicCell;
 use libffi::middle::{Arg, Cif, CodePtr, Type};
 use libloading::Symbol;
@@ -37,7 +36,7 @@ impl Function {
     ) -> PyResult<Self> {
         // map each arg to a PyCSimple
         let args = args
-            .into_iter()
+            .iter()
             .map(|arg| {
                 if let Some(data) = arg.downcast_ref::<PyCSimple>() {
                     Ok(ffi_type_from_str(&data._type_).unwrap())
@@ -47,7 +46,7 @@ impl Function {
             })
             .collect::<PyResult<Vec<Type>>>()?;
         let terminated = format!("{}\0", function);
-        let pointer: Symbol<FP> = unsafe {
+        let pointer: Symbol<'_, FP> = unsafe {
             library
                 .get(terminated.as_bytes())
                 .map_err(|err| err.to_string())
@@ -61,7 +60,7 @@ impl Function {
             }
             None => Type::c_int(),
         };
-        let cif = Cif::new(args.into_iter(), return_type);
+        let cif = Cif::new(args, return_type);
         Ok(Function {
             cif,
             pointer: code_ptr,
@@ -129,7 +128,6 @@ impl Constructor for PyCFuncPtr {
             .into_iter()
             .nth(1)
             .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements".to_string()))?
-            .to_object()
             .clone();
         Ok(Self {
             _flags_: AtomicCell::new(0),
@@ -165,7 +163,7 @@ impl Callable for PyCFuncPtr {
                 &res_type,
                 vm,
             )?;
-            Ok(func.call(args.args, vm)?)
+            func.call(args.args, vm)
         }
     }
 }
