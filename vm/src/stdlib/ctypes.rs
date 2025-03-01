@@ -215,6 +215,16 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction]
+    fn addressof(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        if obj.is_instance(PyCSimple::static_type().as_ref(), vm)? {
+            let simple = obj.downcast_ref::<PyCSimple>().unwrap();
+            Ok(simple.value.as_ptr() as usize)
+        } else {
+            Err(vm.new_type_error("expected a ctypes instance".to_string()))
+        }
+    }
+
+    #[pyfunction]
     fn get_errno() -> i32 {
         errno::errno().0
     }
