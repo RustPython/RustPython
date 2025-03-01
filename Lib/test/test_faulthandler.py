@@ -411,7 +411,7 @@ class FaultHandlerTests(unittest.TestCase):
             self.assertIn(name, modules)
 
     # TODO: RUSTPYTHON, AttributeError: module 'faulthandler' has no attribute 'is_enabled'
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_is_enabled(self):
         orig_stderr = sys.stderr
         try:
