@@ -1499,8 +1499,10 @@ impl ExecutingFrame<'_> {
         } else {
             IndexMap::new()
         };
-        let args = self.pop_value();
-        let args = args.try_to_value(vm)?;
+        // SAFETY: trust compiler
+        let args = unsafe { self.pop_value().downcast_unchecked::<PyTuple>() }
+            .as_slice()
+            .to_vec();
         Ok(FuncArgs { args, kwargs })
     }
 
