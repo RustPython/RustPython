@@ -710,27 +710,28 @@ impl ExecutingFrame<'_> {
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildListUnpack { size } => {
-                let elements = self.unpack_elements(vm, size.get(arg) as usize)?;
+            bytecode::Instruction::BuildListFromTuples { size } => {
+                // SAFETY: compiler guarantees `size` tuples are on the stack
+                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_list(elements);
                 self.push_value(list_obj.into());
                 Ok(None)
             }
             bytecode::Instruction::BuildSet { size } => {
                 let set = PySet::new_ref(&vm.ctx);
-                {
-                    for element in self.pop_multiple(size.get(arg) as usize) {
-                        set.add(element, vm)?;
-                    }
+                for element in self.pop_multiple(size.get(arg) as usize) {
+                    set.add(element, vm)?;
                 }
                 self.push_value(set.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildSetUnpack { size } => {
+            bytecode::Instruction::BuildSetFromTuples { size } => {
                 let set = PySet::new_ref(&vm.ctx);
-                {
-                    for element in self.pop_multiple(size.get(arg) as usize) {
-                        vm.map_iterable_object(&element, |x| set.add(x, vm))??;
+                for element in self.pop_multiple(size.get(arg) as usize) {
+                    // SAFETY: trust compiler
+                    let tup = unsafe { element.downcast_unchecked::<PyTuple>() };
+                    for item in tup.iter() {
+                        set.add(item.clone(), vm)?;
                     }
                 }
                 self.push_value(set.into());
@@ -742,10 +743,19 @@ impl ExecutingFrame<'_> {
                 self.push_value(list_obj.into());
                 Ok(None)
             }
-            bytecode::Instruction::BuildTupleUnpack { size } => {
-                let elements = self.unpack_elements(vm, size.get(arg) as usize)?;
+            bytecode::Instruction::BuildTupleFromTuples { size } => {
+                // SAFETY: compiler guarantees `size` tuples are on the stack
+                let elements = unsafe { self.flatten_tuples(size.get(arg) as usize) };
                 let list_obj = vm.ctx.new_tuple(elements);
                 self.push_value(list_obj.into());
+                Ok(None)
+            }
+            bytecode::Instruction::BuildTupleFromIter => {
+                if !self.top_value().class().is(vm.ctx.types.tuple_type) {
+                    let elements: Vec<_> = self.pop_value().try_to_value(vm)?;
+                    let list_obj = vm.ctx.new_tuple(elements);
+                    self.push_value(list_obj.into());
+                }
                 Ok(None)
             }
             bytecode::Instruction::BuildMap { size } => self.execute_build_map(vm, size.get(arg)),
@@ -1234,14 +1244,14 @@ impl ExecutingFrame<'_> {
             })
     }
 
-    #[cfg_attr(feature = "flame-it", flame("Frame"))]
-    fn unpack_elements(&mut self, vm: &VirtualMachine, size: usize) -> PyResult<Vec<PyObjectRef>> {
-        let mut result = Vec::<PyObjectRef>::new();
-        for element in self.pop_multiple(size) {
-            let items: Vec<_> = element.try_to_value(vm)?;
-            result.extend(items);
+    unsafe fn flatten_tuples(&mut self, size: usize) -> Vec<PyObjectRef> {
+        let mut elements = Vec::new();
+        for tup in self.pop_multiple(size) {
+            // SAFETY: caller ensures that the elements are tuples
+            let tup = unsafe { tup.downcast_unchecked::<PyTuple>() };
+            elements.extend(tup.iter().cloned());
         }
-        Ok(result)
+        elements
     }
 
     #[cfg_attr(feature = "flame-it", flame("Frame"))]
@@ -1490,8 +1500,10 @@ impl ExecutingFrame<'_> {
         } else {
             IndexMap::new()
         };
-        let args = self.pop_value();
-        let args = args.try_to_value(vm)?;
+        // SAFETY: trust compiler
+        let args = unsafe { self.pop_value().downcast_unchecked::<PyTuple>() }
+            .as_slice()
+            .to_vec();
         Ok(FuncArgs { args, kwargs })
     }
 

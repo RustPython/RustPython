@@ -542,19 +542,20 @@ pub enum Instruction {
     BuildTuple {
         size: Arg<u32>,
     },
-    BuildTupleUnpack {
+    BuildTupleFromTuples {
         size: Arg<u32>,
     },
+    BuildTupleFromIter,
     BuildList {
         size: Arg<u32>,
     },
-    BuildListUnpack {
+    BuildListFromTuples {
         size: Arg<u32>,
     },
     BuildSet {
         size: Arg<u32>,
     },
-    BuildSetUnpack {
+    BuildSetFromTuples {
         size: Arg<u32>,
     },
     BuildMap {
@@ -1260,11 +1261,12 @@ impl Instruction {
             Raise { kind } => -(kind.get(arg) as u8 as i32),
             BuildString { size }
             | BuildTuple { size, .. }
-            | BuildTupleUnpack { size, .. }
+            | BuildTupleFromTuples { size, .. }
             | BuildList { size, .. }
-            | BuildListUnpack { size, .. }
+            | BuildListFromTuples { size, .. }
             | BuildSet { size, .. }
-            | BuildSetUnpack { size, .. } => -(size.get(arg) as i32) + 1,
+            | BuildSetFromTuples { size, .. } => -(size.get(arg) as i32) + 1,
+            BuildTupleFromIter => 0,
             BuildMap { size } => {
                 let nargs = size.get(arg) * 2;
                 -(nargs as i32) + 1
@@ -1447,13 +1449,14 @@ impl Instruction {
             Raise { kind } => w!(Raise, ?kind),
             BuildString { size } => w!(BuildString, size),
             BuildTuple { size } => w!(BuildTuple, size),
-            BuildTupleUnpack { size } => w!(BuildTupleUnpack, size),
+            BuildTupleFromTuples { size } => w!(BuildTupleFromTuples, size),
+            BuildTupleFromIter => w!(BuildTupleFromIter),
             BuildList { size } => w!(BuildList, size),
-            BuildListUnpack { size } => w!(BuildListUnpack, size),
+            BuildListFromTuples { size } => w!(BuildListFromTuples, size),
             BuildSet { size } => w!(BuildSet, size),
-            BuildSetUnpack { size } => w!(BuildSetUnpack, size),
+            BuildSetFromTuples { size } => w!(BuildSetFromTuples, size),
             BuildMap { size } => w!(BuildMap, size),
-            BuildMapForCall { size } => w!(BuildMap, size),
+            BuildMapForCall { size } => w!(BuildMapForCall, size),
             DictUpdate => w!(DictUpdate),
             BuildSlice { step } => w!(BuildSlice, step),
             ListAppend { i } => w!(ListAppend, i),
