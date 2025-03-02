@@ -25,6 +25,7 @@ use crate::{
         lock::{PyMutex, PyMutexGuard, PyRwLock},
         refcount::RefCount,
     },
+    function::PySetterValue,
     vm::VirtualMachine,
 };
 use itertools::Itertools;
@@ -711,14 +712,37 @@ impl PyObject {
 
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
-    pub fn set_dict(&self, dict: PyDictRef) -> Result<(), PyDictRef> {
-        match self.instance_dict() {
-            Some(d) => {
-                d.set(dict);
-                Ok(())
-            }
-            None => Err(dict),
+    pub fn set_dict(&self, dict: PySetterValue<PyDictRef>) -> Option<()> {
+        // NOTE(hanif) - So far, this is the only error condition that I know of so we can use Option
+        // for now.
+        if self.payload_is::<crate::builtins::function::PyFunction>() {
+            return None;
         }
+
+        match (self.instance_dict(), dict) {
+            (Some(d), PySetterValue::Assign(dict)) => {
+                d.set(dict);
+            }
+            (None, PySetterValue::Assign(dict)) => {
+                // self.0.dict = Some(InstanceDict::new(dict));
+                unsafe {
+                    let ptr = self as *const _ as *mut PyObject;
+                    (*ptr).0.dict = Some(InstanceDict::new(dict));
+                }
+            }
+            (Some(_), PySetterValue::Delete) => {
+                // self.0.dict = None;
+                unsafe {
+                    let ptr = self as *const _ as *mut PyObject;
+                    (*ptr).0.dict = None;
+                }
+            }
+            (None, PySetterValue::Delete) => {
+                // NOTE(hanif) - noop?
+            }
+        };
+
+        Some(())
     }
 
     #[inline(always)]
