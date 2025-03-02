@@ -2441,7 +2441,7 @@ impl Compiler {
             Expr::List(ExprList { elts, .. }) => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
                 if unpack {
-                    emit!(self, Instruction::BuildListUnpack { size });
+                    emit!(self, Instruction::BuildListFromTuples { size });
                 } else {
                     emit!(self, Instruction::BuildList { size });
                 }
@@ -2449,7 +2449,7 @@ impl Compiler {
             Expr::Tuple(ExprTuple { elts, .. }) => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
                 if unpack {
-                    emit!(self, Instruction::BuildTupleUnpack { size });
+                    emit!(self, Instruction::BuildTupleFromTuples { size });
                 } else {
                     emit!(self, Instruction::BuildTuple { size });
                 }
@@ -2457,7 +2457,7 @@ impl Compiler {
             Expr::Set(ExprSet { elts, .. }) => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
                 if unpack {
-                    emit!(self, Instruction::BuildSetUnpack { size });
+                    emit!(self, Instruction::BuildSetFromTuples { size });
                 } else {
                     emit!(self, Instruction::BuildSet { size });
                 }
@@ -2819,7 +2819,7 @@ impl Compiler {
         let call = if unpack || has_double_star {
             // Create a tuple with positional args:
             if unpack {
-                emit!(self, Instruction::BuildTupleUnpack { size });
+                emit!(self, Instruction::BuildTupleFromTuples { size });
             } else {
                 emit!(self, Instruction::BuildTuple { size });
             }
@@ -2869,36 +2869,36 @@ impl Compiler {
 
         let size = if has_stars {
             let mut size = 0;
+            let mut iter = elements.iter().peekable();
+            let mut run_size = before;
 
-            if before > 0 {
-                emit!(self, Instruction::BuildTuple { size: before });
-                size += 1;
-            }
-
-            let groups = elements
-                .iter()
-                .map(|element| {
-                    if let located_ast::Expr::Starred(located_ast::ExprStarred { value, .. }) =
-                        &element
-                    {
-                        (true, value.as_ref())
-                    } else {
-                        (false, element)
-                    }
-                })
-                .chunk_by(|(starred, _)| *starred);
-
-            for (starred, run) in &groups {
-                let mut run_size = 0;
-                for (_, value) in run {
-                    self.compile_expression(value)?;
-                    run_size += 1
-                }
-                if starred {
-                    size += run_size
-                } else {
+            loop {
+                if iter
+                    .peek()
+                    .is_none_or(|e| matches!(e, located_ast::Expr::Starred(_)))
+                {
                     emit!(self, Instruction::BuildTuple { size: run_size });
-                    size += 1
+                    run_size = 0;
+                    size += 1;
+                }
+
+                match iter.next() {
+                    Some(located_ast::Expr::Starred(located_ast::ExprStarred {
+                        value, ..
+                    })) => {
+                        self.compile_expression(value)?;
+                        // We need to collect each unpacked element into a
+                        // tuple, since any side-effects during the conversion
+                        // should be made visible before evaluating remaining
+                        // expressions.
+                        emit!(self, Instruction::BuildTupleFromIter);
+                        size += 1;
+                    }
+                    Some(element) => {
+                        self.compile_expression(element)?;
+                        run_size += 1;
+                    }
+                    None => break,
                 }
             }
 
