@@ -372,7 +372,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           cache: "npm"
-          cache-dependency-path: "**/package-lock.json"
+          cache-dependency-path: "wasm/demo/package-lock.json"
       - name: run test
         run: |
           export PATH=$PATH:`pwd`/../../geckodriver
