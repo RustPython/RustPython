@@ -100,8 +100,11 @@ uname = "0.1.1"
 rustyline = { workspace = true }
 which = "6"
 errno = "0.3"
-libloading = "0.8"
 widestring = { workspace = true }
+
+[target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
+libffi = "3.2"
+libloading = "0.8"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.13.1"

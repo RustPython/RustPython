@@ -10,6 +10,31 @@ use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
 use std::fmt::Debug;
 
+pub fn ffi_type_from_str(_type_: &str) -> Option<libffi::middle::Type> {
+    match _type_ {
+        "c" => Some(libffi::middle::Type::u8()),
+        "u" => Some(libffi::middle::Type::u32()),
+        "b" => Some(libffi::middle::Type::i8()),
+        "B" => Some(libffi::middle::Type::u8()),
+        "h" => Some(libffi::middle::Type::i16()),
+        "H" => Some(libffi::middle::Type::u16()),
+        "i" => Some(libffi::middle::Type::i32()),
+        "I" => Some(libffi::middle::Type::u32()),
+        "l" => Some(libffi::middle::Type::i32()),
+        "L" => Some(libffi::middle::Type::u32()),
+        "q" => Some(libffi::middle::Type::i64()),
+        "Q" => Some(libffi::middle::Type::u64()),
+        "f" => Some(libffi::middle::Type::f32()),
+        "d" => Some(libffi::middle::Type::f64()),
+        "g" => Some(libffi::middle::Type::f64()),
+        "?" => Some(libffi::middle::Type::u8()),
+        "z" => Some(libffi::middle::Type::u64()),
+        "Z" => Some(libffi::middle::Type::u64()),
+        "P" => Some(libffi::middle::Type::u64()),
+        _ => None,
+    }
+}
+
 #[allow(dead_code)]
 fn set_primitive(_type_: &str, value: &PyObjectRef, vm: &VirtualMachine) -> PyResult {
     match _type_ {
