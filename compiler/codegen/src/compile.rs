@@ -2449,7 +2449,9 @@ impl Compiler {
             Expr::Tuple(ExprTuple { elts, .. }) => {
                 let (size, unpack) = self.gather_elements(0, elts)?;
                 if unpack {
-                    emit!(self, Instruction::BuildTupleFromTuples { size });
+                    if size > 1 {
+                        emit!(self, Instruction::BuildTupleFromTuples { size });
+                    }
                 } else {
                     emit!(self, Instruction::BuildTuple { size });
                 }
