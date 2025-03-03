@@ -50,6 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: cargo-bins/cargo-binstall@main
 
       - name: Set up Environment
         shell: bash
@@ -77,6 +78,31 @@ jobs:
       - name: Rename Binary
         run: cp target/${{ matrix.platform.target }}/release/rustpython.exe target/rustpython-release-${{ runner.os }}-${{ matrix.platform.target }}.exe
         if: runner.os == 'Windows'
+
+      - name: Install cargo-packager
+        run: cargo binstall cargo-packager
+
+      - name: Generate MSI
+        if: runner.os == 'Windows'
+        run: cargo packager -f wix --release -o installer
+
+      - name: Upload MSI
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustpython-installer-msi-${{ runner.os }}-${{ matrix.platform.target }}
+          path: installer/*.msi
+
+      - name: Generate DMG
+        if: runner.os == 'macOS'
+        run: cargo packager -f dmg --release -o installer
+
+      - name: Upload DMG
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustpython-installer-dmg-${{ runner.os }}-${{ matrix.platform.target }}
+          path: installer/*.dmg
 
       - name: Upload Binary Artifacts
         uses: actions/upload-artifact@v4
@@ -114,7 +140,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: bin
-          pattern: rustpython-release-*
+          pattern: rustpython-*
           merge-multiple: true
 
       - name: List Binaries
