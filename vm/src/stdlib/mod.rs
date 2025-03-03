@@ -76,65 +76,65 @@ pub fn get_module_inits() -> StdlibMap {
         }};
     }
     modules! {
-            #[cfg(all())]
-            {
-                "atexit" => atexit::make_module,
-                "_codecs" => codecs::make_module,
-                "_collections" => collections::make_module,
-                "errno" => errno::make_module,
-                "_functools" => functools::make_module,
-                "itertools" => itertools::make_module,
-                "_io" => io::make_module,
-                "marshal" => marshal::make_module,
-                "_operator" => operator::make_module,
-                "_signal" => signal::make_module,
-                "_sre" => sre::make_module,
-                "_string" => string::make_module,
-                "time" => time::make_module,
-                "_typing" => typing::make_module,
-                "_weakref" => weakref::make_module,
-                "_imp" => imp::make_module,
-                "_warnings" => warnings::make_module,
-                sys::sysconfigdata_name() => sysconfigdata::make_module,
-            }
-            // parser related modules:
-            #[cfg(feature = "rustpython-ast")]
-            {
-                "_ast" => ast::make_module,
-            }
-            // compiler related modules:
-            #[cfg(feature = "rustpython-compiler")]
-            {
-                "symtable" => symtable::make_module,
-            }
-            #[cfg(any(unix, target_os = "wasi"))]
-            {
-                "posix" => posix::make_module,
-                // "fcntl" => fcntl::make_module,
-            }
-            #[cfg(feature = "threading")]
-            {
-                "_thread" => thread::make_module,
-            }
-            // Unix-only
-            #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
-            {
-                "pwd" => pwd::make_module,
-            }
-            // Windows-only
-            #[cfg(windows)]
-            {
-                "nt" => nt::make_module,
-                "msvcrt" => msvcrt::make_module,
-                "_winapi" => winapi::make_module,
-                "winreg" => winreg::make_module,
-            }
-            #[cfg(all(
-                any(target_os = "linux", target_os = "macos", target_os = "windows"),
-                not(any(target_env = "musl", target_env = "sgx"))
-            ))]
-            {
-                    "_ctypes" => ctypes::make_module,
-            }
+        #[cfg(all())]
+        {
+            "atexit" => atexit::make_module,
+            "_codecs" => codecs::make_module,
+            "_collections" => collections::make_module,
+            "errno" => errno::make_module,
+            "_functools" => functools::make_module,
+            "itertools" => itertools::make_module,
+            "_io" => io::make_module,
+            "marshal" => marshal::make_module,
+            "_operator" => operator::make_module,
+            "_signal" => signal::make_module,
+            "_sre" => sre::make_module,
+            "_string" => string::make_module,
+            "time" => time::make_module,
+            "_typing" => typing::make_module,
+            "_weakref" => weakref::make_module,
+            "_imp" => imp::make_module,
+            "_warnings" => warnings::make_module,
+            sys::sysconfigdata_name() => sysconfigdata::make_module,
+        }
+        // parser related modules:
+        #[cfg(feature = "rustpython-ast")]
+        {
+            "_ast" => ast::make_module,
+        }
+        // compiler related modules:
+        #[cfg(feature = "rustpython-compiler")]
+        {
+            "symtable" => symtable::make_module,
+        }
+        #[cfg(any(unix, target_os = "wasi"))]
+        {
+            "posix" => posix::make_module,
+            // "fcntl" => fcntl::make_module,
+        }
+        #[cfg(feature = "threading")]
+        {
+            "_thread" => thread::make_module,
+        }
+        // Unix-only
+        #[cfg(all(unix, not(any(target_os = "android", target_os = "redox"))))]
+        {
+            "pwd" => pwd::make_module,
+        }
+        // Windows-only
+        #[cfg(windows)]
+        {
+            "nt" => nt::make_module,
+            "msvcrt" => msvcrt::make_module,
+            "_winapi" => winapi::make_module,
+            "winreg" => winreg::make_module,
+        }
+        #[cfg(all(
+            any(target_os = "linux", target_os = "macos", target_os = "windows"),
+            not(any(target_env = "musl", target_env = "sgx"))
+        ))]
+        {
+                "_ctypes" => ctypes::make_module,
+        }
     }
 }
