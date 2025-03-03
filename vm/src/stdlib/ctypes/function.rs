@@ -109,15 +109,9 @@ impl Debug for PyCFuncPtr {
 }
 
 impl Constructor for PyCFuncPtr {
-    type Args = FuncArgs;
+    type Args = (PyTupleRef, FuncArgs);
 
-    fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
-        let tuple = args.args.first().ok_or_else(|| {
-            vm.new_type_error("CFuncPtr() takes exactly 1 argument (0 given)".to_string())
-        })?;
-        let tuple: &Py<PyTuple> = tuple
-            .downcast_ref()
-            .ok_or(vm.new_type_error("Expected a tuple".to_string()))?;
+    fn py_new(_cls: PyTypeRef, (tuple, _args): Self::Args, vm: &VirtualMachine) -> PyResult {
         let name = tuple
             .first()
             .ok_or(vm.new_type_error("Expected a tuple with at least 2 elements".to_string()))?
