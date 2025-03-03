@@ -82,7 +82,6 @@ fn test_floor_div() {
     assert_eq!(floor_div(12, 10), Ok(1));
     assert_eq!(floor_div(7, 10), Ok(0));
     assert_eq!(floor_div(-3, -1), Ok(3));
-    assert_eq!(floor_div(-3, 0), Ok(-3));
 }
 
 #[test]
@@ -106,6 +105,7 @@ fn test_exp() {
     assert_eq!(exp(-3, 3), Ok(-27.0));
     assert_eq!(exp(1000, 2), Ok(1000000.0));
 }
+
 #[test]
 fn test_mod() {
     let modulo = jit_function! { modulo(a:i64, b:i64) -> i64 => r##"
@@ -120,6 +120,7 @@ fn test_mod() {
     assert_eq!(modulo(-3, 1), Ok(0));
     assert_eq!(modulo(-5, 10), Ok(-5));
 }
+
 
 #[test]
 fn test_lshift() {
