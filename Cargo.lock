@@ -2252,7 +2252,6 @@ dependencies = [
  "unicode_names2",
  "uuid",
  "widestring",
- "winapi",
  "windows-sys 0.52.0",
  "xml-rs",
 ]
