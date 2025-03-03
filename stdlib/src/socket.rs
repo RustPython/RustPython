@@ -36,27 +36,12 @@ mod _socket {
     #[cfg(windows)]
     mod c {
         pub use windows_sys::Win32::NetworkManagement::IpHelper::{if_indextoname, if_nametoindex};
-    
+
         pub const INADDR_ANY: u32 = 0x00000000;
         pub const INADDR_LOOPBACK: u32 = 0x7f000001;
         pub const INADDR_BROADCAST: u32 = 0xffffffff;
         pub const INADDR_NONE: u32 = 0xffffffff;
-    
-        pub use windows_sys::Win32::Networking::WinSock::{
-            SO_REUSEADDR as SO_EXCLUSIVEADDRUSE, getprotobyname, getservbyname, getservbyport, getsockopt,
-            setsockopt,
-        };
-        pub use windows_sys::Win32::Networking::WinSock::{
-            WSATRY_AGAIN as EAI_AGAIN,
-            WSAEINVAL as EAI_BADFLAGS,
-            WSANO_RECOVERY as EAI_FAIL,
-            WSAEAFNOSUPPORT as EAI_FAMILY,
-            WSA_NOT_ENOUGH_MEMORY as EAI_MEMORY,
-            WSAHOST_NOT_FOUND as EAI_NODATA,
-            WSAHOST_NOT_FOUND as EAI_NONAME,
-            WSATYPE_NOT_FOUND as EAI_SERVICE,
-            WSAESOCKTNOSUPPORT as EAI_SOCKTYPE,
-        };
+
         pub use windows_sys::Win32::Networking::WinSock::{
             AF_APPLETALK, AF_DECnet, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
             AI_NUMERICSERV, AI_V4MAPPED, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL,
@@ -77,6 +62,17 @@ mod _socket {
             SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM,
             SOL_SOCKET, SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNRESET, WSAENOTSOCK,
             WSAEWOULDBLOCK,
+        };
+        pub use windows_sys::Win32::Networking::WinSock::{
+            SO_REUSEADDR as SO_EXCLUSIVEADDRUSE, getprotobyname, getservbyname, getservbyport,
+            getsockopt, setsockopt,
+        };
+        pub use windows_sys::Win32::Networking::WinSock::{
+            WSA_NOT_ENOUGH_MEMORY as EAI_MEMORY, WSAEAFNOSUPPORT as EAI_FAMILY,
+            WSAEINVAL as EAI_BADFLAGS, WSAESOCKTNOSUPPORT as EAI_SOCKTYPE,
+            WSAHOST_NOT_FOUND as EAI_NODATA, WSAHOST_NOT_FOUND as EAI_NONAME,
+            WSANO_RECOVERY as EAI_FAIL, WSATRY_AGAIN as EAI_AGAIN,
+            WSATYPE_NOT_FOUND as EAI_SERVICE,
         };
         pub const IF_NAMESIZE: usize =
             windows_sys::Win32::NetworkManagement::Ndis::IF_MAX_STRING_SIZE as _;
@@ -1766,7 +1762,12 @@ mod _socket {
             .transpose()?;
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
         #[cfg(windows)]
-        let serv = unsafe { c::getservbyname(cstr_name.as_ptr() as windows_sys::core::PCSTR, cstr_proto as windows_sys::core::PCSTR) };
+        let serv = unsafe {
+            c::getservbyname(
+                cstr_name.as_ptr() as windows_sys::core::PCSTR,
+                cstr_proto as windows_sys::core::PCSTR,
+            )
+        };
         #[cfg(not(windows))]
         let serv = unsafe { c::getservbyname(cstr_name.as_ptr(), cstr_proto) };
         if serv.is_null() {
@@ -1791,7 +1792,8 @@ mod _socket {
             .transpose()?;
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
         #[cfg(windows)]
-        let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto as windows_sys::core::PCSTR) };
+        let serv =
+            unsafe { c::getservbyport(port.to_be() as _, cstr_proto as windows_sys::core::PCSTR) };
         #[cfg(not(windows))]
         let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto) };
         if serv.is_null() {
@@ -2211,9 +2213,7 @@ mod _socket {
             let list = list.collect::<PyResult<_>>()?;
             return Ok(list);
 
-            fn get_name(
-                luid: &NET_LUID_LH,
-            ) -> io::Result<widestring::WideCString> {
+            fn get_name(luid: &NET_LUID_LH) -> io::Result<widestring::WideCString> {
                 let mut buf = [0; c::IF_NAMESIZE + 1];
                 let ret = unsafe {
                     IpHelper::ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len())
