@@ -3,10 +3,10 @@ pub(crate) use resource::make_module;
 #[pymodule]
 mod resource {
     use crate::vm::{
+        PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         convert::{ToPyException, ToPyObject},
         stdlib::os,
         types::PyStructSequence,
-        PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     };
     use std::{io, mem};
 
@@ -24,8 +24,8 @@ mod resource {
     // TODO: RLIMIT_OFILE,
     #[pyattr]
     use libc::{
-        RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE, RLIMIT_MEMLOCK,
-        RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_STACK, RLIM_INFINITY,
+        RLIM_INFINITY, RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
+        RLIMIT_MEMLOCK, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_STACK,
     };
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "emscripten"))]

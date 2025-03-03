@@ -2,7 +2,7 @@ pub mod constants;
 pub mod engine;
 pub mod string;
 
-pub use constants::{SreAtCode, SreCatCode, SreFlag, SreInfo, SreOpcode, SRE_MAGIC};
+pub use constants::{SRE_MAGIC, SreAtCode, SreCatCode, SreFlag, SreInfo, SreOpcode};
 pub use engine::{Request, SearchIter, State};
 pub use string::{StrDrive, StringCursor};
 

@@ -1,9 +1,9 @@
 use crate::{
+    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBytes, PyBytesRef, PyStrRef},
     convert::{IntoPyException, ToPyObject},
     function::PyStr,
     protocol::PyBuffer,
-    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{ffi::OsStr, path::PathBuf};
 

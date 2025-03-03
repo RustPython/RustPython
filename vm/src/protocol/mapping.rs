@@ -1,12 +1,12 @@
 use crate::{
+    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{
+        PyDict, PyStrInterned,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         type_::PointerSlot,
-        PyDict, PyStrInterned,
     },
     convert::ToPyResult,
     object::{Traverse, TraverseFn},
-    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 
@@ -22,15 +22,15 @@ impl PyObject {
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PyMappingMethods {
-    pub length: AtomicCell<Option<fn(PyMapping, &VirtualMachine) -> PyResult<usize>>>,
-    pub subscript: AtomicCell<Option<fn(PyMapping, &PyObject, &VirtualMachine) -> PyResult>>,
+    pub length: AtomicCell<Option<fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>>>,
+    pub subscript: AtomicCell<Option<fn(PyMapping<'_>, &PyObject, &VirtualMachine) -> PyResult>>,
     pub ass_subscript: AtomicCell<
-        Option<fn(PyMapping, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
+        Option<fn(PyMapping<'_>, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
     >,
 }
 
 impl std::fmt::Debug for PyMappingMethods {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "mapping methods")
     }
 }
@@ -64,7 +64,7 @@ pub struct PyMapping<'a> {
 }
 
 unsafe impl Traverse for PyMapping<'_> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.obj.traverse(tracer_fn)
     }
 }

@@ -1,13 +1,13 @@
 use crate::{
+    PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytes, PyStr},
     common::ascii,
-    PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use std::{fmt, io, ops};
 
 pub trait Write {
     type Error;
-    fn write_fmt(&mut self, args: fmt::Arguments) -> Result<(), Self::Error>;
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> Result<(), Self::Error>;
 }
 
 #[repr(transparent)]
@@ -37,14 +37,14 @@ where
     W: io::Write,
 {
     type Error = io::Error;
-    fn write_fmt(&mut self, args: fmt::Arguments) -> io::Result<()> {
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> io::Result<()> {
         <W as io::Write>::write_fmt(&mut self.0, args)
     }
 }
 
 impl Write for String {
     type Error = fmt::Error;
-    fn write_fmt(&mut self, args: fmt::Arguments) -> fmt::Result {
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
         <String as fmt::Write>::write_fmt(self, args)
     }
 }
@@ -53,7 +53,7 @@ pub struct PyWriter<'vm>(pub PyObjectRef, pub &'vm VirtualMachine);
 
 impl Write for PyWriter<'_> {
     type Error = PyBaseExceptionRef;
-    fn write_fmt(&mut self, args: fmt::Arguments) -> Result<(), Self::Error> {
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> Result<(), Self::Error> {
         let PyWriter(obj, vm) = self;
         vm.call_method(obj, "write", (args.to_string(),)).map(drop)
     }

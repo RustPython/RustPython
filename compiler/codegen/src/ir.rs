@@ -199,11 +199,7 @@ impl CodeInfo {
             })
             .collect::<Box<[_]>>();
 
-        if found_cellarg {
-            Some(cell2arg)
-        } else {
-            None
-        }
+        if found_cellarg { Some(cell2arg) } else { None }
     }
 
     fn dce(&mut self) {

@@ -5,21 +5,21 @@ use rustpython_vm::VirtualMachine;
 mod _js {
     use crate::{
         convert,
-        vm_class::{stored_vm_from_wasm, WASMVirtualMachine},
+        vm_class::{WASMVirtualMachine, stored_vm_from_wasm},
         weak_vm,
     };
     use js_sys::{Array, Object, Promise, Reflect};
     use rustpython_vm::{
+        Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyFloat, PyStrRef, PyType, PyTypeRef},
         convert::{IntoObject, ToPyObject},
         function::{ArgCallable, OptionalArg, OptionalOption, PosArgs},
         protocol::PyIterReturn,
         types::{IterNext, Representable, SelfIter},
-        Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use std::{cell, fmt, future};
-    use wasm_bindgen::{closure::Closure, prelude::*, JsCast};
-    use wasm_bindgen_futures::{future_to_promise, JsFuture};
+    use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
+    use wasm_bindgen_futures::{JsFuture, future_to_promise};
 
     #[wasm_bindgen(inline_js = "
     export function has_prop(target, prop) { return prop in Object(target); }
@@ -297,7 +297,7 @@ mod _js {
     }
 
     impl fmt::Debug for JsClosure {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.pad("JsClosure")
         }
     }

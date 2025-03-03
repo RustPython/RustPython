@@ -188,7 +188,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
     fn prepare_const<C: bytecode::Constant>(
         &mut self,
-        constant: BorrowedConstant<C>,
+        constant: BorrowedConstant<'_, C>,
     ) -> Result<JitValue, JitCompileError> {
         let value = match constant {
             BorrowedConstant::Integer { value } => {

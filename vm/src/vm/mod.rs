@@ -15,12 +15,13 @@ mod vm_object;
 mod vm_ops;
 
 use crate::{
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
+        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned, PyStrRef,
+        PyTypeRef,
         code::PyCode,
         pystr::AsPyStr,
         tuple::{PyTuple, PyTupleTyped},
-        PyBaseExceptionRef, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned, PyStrRef,
-        PyTypeRef,
     },
     codecs::CodecsRegistry,
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
@@ -33,12 +34,11 @@ use crate::{
     scope::Scope,
     signal, stdlib,
     warn::WarningsState,
-    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(unix)]
 use nix::{
-    sys::signal::{kill, sigaction, SaFlags, SigAction, SigSet, Signal::SIGINT},
+    sys::signal::{SaFlags, SigAction, SigSet, Signal::SIGINT, kill, sigaction},
     unistd::getpid,
 };
 use std::sync::atomic::AtomicBool;
@@ -356,7 +356,9 @@ impl VirtualMachine {
 
         if self.state.settings.allow_external_library && cfg!(feature = "rustpython-compiler") {
             if let Err(e) = import::init_importlib_package(self, importlib) {
-                eprintln!("importlib initialization failed. This is critical for many complicated packages.");
+                eprintln!(
+                    "importlib initialization failed. This is critical for many complicated packages."
+                );
                 self.print_exception(e);
             }
         }
@@ -495,7 +497,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_frame(&self) -> Option<Ref<FrameRef>> {
+    pub fn current_frame(&self) -> Option<Ref<'_, FrameRef>> {
         let frames = self.frames.borrow();
         if frames.is_empty() {
             None
@@ -512,7 +514,7 @@ impl VirtualMachine {
             .locals(self)
     }
 
-    pub fn current_globals(&self) -> Ref<PyDictRef> {
+    pub fn current_globals(&self) -> Ref<'_, PyDictRef> {
         let frame = self
             .current_frame()
             .expect("called current_globals but no frames on the stack");

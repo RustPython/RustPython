@@ -1,6 +1,6 @@
 use super::{PyStr, PyStrRef, PyType, PyTypeRef, PyWeak};
 use crate::{
-    atomic_func,
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
     function::{OptionalArg, PyComparisonValue, PySetterValue},
@@ -10,7 +10,6 @@ use crate::{
         AsMapping, AsSequence, Comparable, Constructor, GetAttr, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SetAttr,
     },
-    Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use once_cell::sync::Lazy;
 

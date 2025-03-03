@@ -4,6 +4,7 @@
 
 use super::{PyStrRef, PyTupleRef, PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::PyStrInterned,
     bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag},
     class::{PyClassImpl, StaticType},
@@ -12,7 +13,6 @@ use crate::{
     function::{FuncArgs, OptionalArg},
     source_code::OneIndexed,
     types::Representable,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use malachite_bigint::BigInt;
 use num_traits::Zero;
@@ -58,7 +58,7 @@ impl From<Literal> for PyObjectRef {
     }
 }
 
-fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<Literal> {
+fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
     match_class!(match obj {
         ref i @ super::int::PyInt => {
             let value = i.as_bigint();
@@ -96,7 +96,7 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<Literal> {
 
 impl Constant for Literal {
     type Name = &'static PyStrInterned;
-    fn borrow_constant(&self) -> BorrowedConstant<Self> {
+    fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
         borrow_obj_constant(&self.0)
     }
 }
@@ -120,7 +120,7 @@ pub struct PyObjBag<'a>(pub &'a Context);
 impl ConstantBag for PyObjBag<'_> {
     type Constant = Literal;
 
-    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
+    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant {
         let ctx = self.0;
         let obj = match constant {
             bytecode::BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
@@ -208,7 +208,7 @@ impl PyCode {
 }
 
 impl fmt::Debug for PyCode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "code: {:?}", self.code)
     }
 }

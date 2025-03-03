@@ -1,8 +1,8 @@
 use crate::{
+    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
@@ -67,7 +67,7 @@ pub struct FuncArgs {
 }
 
 unsafe impl Traverse for IndexMap<String, PyObjectRef> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.values().for_each(|v| v.traverse(tracer_fn));
     }
 }
@@ -336,7 +336,7 @@ unsafe impl<T> Traverse for KwArgs<T>
 where
     T: Traverse,
 {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.0.iter().map(|(_, v)| v.traverse(tracer_fn)).count();
     }
 }
@@ -402,7 +402,7 @@ unsafe impl<T> Traverse for PosArgs<T>
 where
     T: Traverse,
 {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.0.traverse(tracer_fn)
     }
 }
@@ -416,7 +416,7 @@ impl<T> PosArgs<T> {
         self.0
     }
 
-    pub fn iter(&self) -> std::slice::Iter<T> {
+    pub fn iter(&self) -> std::slice::Iter<'_, T> {
         self.0.iter()
     }
 }
@@ -495,7 +495,7 @@ unsafe impl<T> Traverse for OptionalArg<T>
 where
     T: Traverse,
 {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
             OptionalArg::Present(o) => o.traverse(tracer_fn),
             OptionalArg::Missing => (),

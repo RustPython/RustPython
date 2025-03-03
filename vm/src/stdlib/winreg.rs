@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use crate::{builtins::PyModule, PyRef, VirtualMachine};
+use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = winreg::make_module(vm);
@@ -29,10 +29,10 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 mod winreg {
     use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
     use crate::{
-        builtins::PyStrRef, convert::ToPyException, PyObjectRef, PyPayload, PyRef, PyResult,
-        TryFromObject, VirtualMachine,
+        PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::PyStrRef,
+        convert::ToPyException,
     };
-    use ::winreg::{enums::RegType, RegKey, RegValue};
+    use ::winreg::{RegKey, RegValue, enums::RegType};
     use std::mem::ManuallyDrop;
     use std::{ffi::OsStr, io};
     use windows_sys::Win32::Foundation;

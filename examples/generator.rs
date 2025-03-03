@@ -1,9 +1,9 @@
 use rustpython_vm as vm;
 use std::process::ExitCode;
 use vm::{
+    Interpreter, PyResult,
     builtins::PyIntRef,
     protocol::{PyIter, PyIterReturn},
-    Interpreter, PyResult,
 };
 
 fn py_main(interp: &Interpreter) -> vm::PyResult<()> {

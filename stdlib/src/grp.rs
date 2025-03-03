@@ -3,11 +3,11 @@ pub(crate) use grp::make_module;
 #[pymodule]
 mod grp {
     use crate::vm::{
+        PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyIntRef, PyListRef, PyStrRef},
         convert::{IntoPyException, ToPyObject},
         exceptions,
         types::PyStructSequence,
-        PyObjectRef, PyResult, VirtualMachine,
     };
     use nix::unistd;
     use std::ptr::NonNull;

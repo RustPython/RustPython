@@ -1,11 +1,11 @@
 use super::{PyType, PyTypeRef};
 use crate::{
+    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::PyTupleRef,
     class::PyClassImpl,
     function::PosArgs,
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, Iterable, SelfIter},
-    Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "map", traverse)]

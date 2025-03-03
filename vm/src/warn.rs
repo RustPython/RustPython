@@ -1,11 +1,11 @@
 use crate::{
+    AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine,
     builtins::{
         PyDict, PyDictRef, PyListRef, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef,
         PyTypeRef,
     },
     convert::{IntoObject, TryFromObject},
     types::PyComparisonOp,
-    AsObject, Context, Py, PyObjectRef, PyResult, VirtualMachine,
 };
 
 pub struct WarningsState {
@@ -17,15 +17,16 @@ pub struct WarningsState {
 
 impl WarningsState {
     fn create_filter(ctx: &Context) -> PyListRef {
-        ctx.new_list(vec![ctx
-            .new_tuple(vec![
+        ctx.new_list(vec![
+            ctx.new_tuple(vec![
                 ctx.new_str("__main__").into(),
                 ctx.types.none_type.as_object().to_owned(),
                 ctx.exceptions.warning.as_object().to_owned(),
                 ctx.new_str("ACTION").into(),
                 ctx.new_int(0).into(),
             ])
-            .into()])
+            .into(),
+        ])
     }
 
     pub fn init_state(ctx: &Context) -> WarningsState {
