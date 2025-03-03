@@ -117,12 +117,6 @@ paste = { workspace = true }
 schannel = { workspace = true }
 widestring = { workspace = true }
 
-[target.'cfg(windows)'.dependencies.winapi]
-version = "0.3.9"
-features = [
-  "winsock2", "ifdef", "netioapi", "ws2tcpip",
-]
-
 [target.'cfg(windows)'.dependencies.windows-sys]
 workspace = true
 features = [
