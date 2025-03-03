@@ -173,4 +173,14 @@ impl PyCFuncPtr {
     fn set_name(&self, name: String) {
         *self.name.write() = name;
     }
+
+    #[pygetset(name = "_restype_")]
+    fn restype(&self) -> Option<PyTypeRef> {
+        self._restype_.read().as_ref().cloned()
+    }
+
+    #[pygetset(name = "_restype_", setter)]
+    fn set_restype(&self, restype: PyTypeRef) {
+        *self._restype_.write() = Some(restype);
+    }
 }
