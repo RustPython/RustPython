@@ -2182,8 +2182,6 @@ mod _socket {
     ))]
     #[pyfunction]
     fn if_nameindex(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
-
         #[cfg(not(windows))]
         {
             let list = nix::net::if_::if_nameindex()
@@ -2202,6 +2200,7 @@ mod _socket {
         #[cfg(windows)]
         {
             use std::ptr;
+            use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 
             let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
             let list = table.as_slice().iter().map(|entry| {
