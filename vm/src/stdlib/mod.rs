@@ -134,7 +134,7 @@ pub fn get_module_inits() -> StdlibMap {
             not(any(target_env = "musl", target_env = "sgx"))
         ))]
         {
-                "_ctypes" => ctypes::make_module,
+            "_ctypes" => ctypes::make_module,
         }
     }
 }
