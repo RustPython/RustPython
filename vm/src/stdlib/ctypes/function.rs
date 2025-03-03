@@ -1,4 +1,4 @@
-use crate::builtins::{PyStr, PyTuple, PyTypeRef};
+use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
 use crate::stdlib::ctypes::PyCData;
