@@ -3,22 +3,22 @@ use std::ops::Deref;
 use crossbeam_utils::atomic::AtomicCell;
 
 use crate::{
-    builtins::{int, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr},
+    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+    VirtualMachine,
+    builtins::{PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr, int},
     common::int::bytes_to_int,
     function::ArgBytesLike,
     object::{Traverse, TraverseFn},
     stdlib::warnings,
-    AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
-    VirtualMachine,
 };
 
-pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber, &VirtualMachine) -> PyResult<R>;
+pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber<'_>, &VirtualMachine) -> PyResult<R>;
 pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
 pub type PyNumberTernaryFunc = fn(&PyObject, &PyObject, &PyObject, &VirtualMachine) -> PyResult;
 
 impl PyObject {
     #[inline]
-    pub fn to_number(&self) -> PyNumber {
+    pub fn to_number(&self) -> PyNumber<'_> {
         PyNumber(self)
     }
 
@@ -427,7 +427,7 @@ impl PyNumberSlots {
 pub struct PyNumber<'a>(&'a PyObject);
 
 unsafe impl Traverse for PyNumber<'_> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.0.traverse(tracer_fn)
     }
 }

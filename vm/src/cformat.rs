@@ -2,13 +2,13 @@
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
 
 use crate::{
+    AsObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
     builtins::{
-        try_f64_to_bigint, tuple, PyBaseExceptionRef, PyByteArray, PyBytes, PyFloat, PyInt, PyStr,
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyFloat, PyInt, PyStr, try_f64_to_bigint, tuple,
     },
     function::ArgIntoFloat,
     protocol::PyBuffer,
     stdlib::builtins,
-    AsObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use itertools::Itertools;
 use num_traits::cast::ToPrimitive;

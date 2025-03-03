@@ -21,3 +21,6 @@ optional = "0.5"
 
 [dev-dependencies]
 criterion = { workspace = true }
+
+[lints]
+workspace = true

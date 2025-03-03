@@ -3,7 +3,8 @@ use super::{
     PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
-    atomic_func,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine, atomic_func,
     buffer::FormatSpec,
     bytesinner::bytes_to_hex,
     class::PyClassImpl,
@@ -24,8 +25,6 @@ use crate::{
         AsBuffer, AsMapping, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    TryFromBorrowedObject, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -223,14 +222,16 @@ impl PyMemoryView {
     fn pos_from_multi_index(&self, indexes: &[isize], vm: &VirtualMachine) -> PyResult<usize> {
         match indexes.len().cmp(&self.desc.ndim()) {
             Ordering::Less => {
-                return Err(vm.new_not_implemented_error("sub-views are not implemented".to_owned()))
+                return Err(
+                    vm.new_not_implemented_error("sub-views are not implemented".to_owned())
+                );
             }
             Ordering::Greater => {
                 return Err(vm.new_type_error(format!(
                     "cannot index {}-dimension view with {}-element tuple",
                     self.desc.ndim(),
                     indexes.len()
-                )))
+                )));
             }
             Ordering::Equal => (),
         }
@@ -380,16 +381,12 @@ impl PyMemoryView {
                 }
             };
             ret = vm.bool_eq(&a_val, &b_val);
-            if let Ok(b) = ret {
-                !b
-            } else {
-                true
-            }
+            if let Ok(b) = ret { !b } else { true }
         });
         ret
     }
 
-    fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+    fn obj_bytes(&self) -> BorrowedValue<'_, [u8]> {
         if self.desc.is_contiguous() {
             BorrowedValue::map(self.buffer.obj_bytes(), |x| {
                 &x[self.start..self.start + self.desc.len]
@@ -399,7 +396,7 @@ impl PyMemoryView {
         }
     }
 
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+    fn obj_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {
         if self.desc.is_contiguous() {
             BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| {
                 &mut x[self.start..self.start + self.desc.len]
@@ -409,7 +406,7 @@ impl PyMemoryView {
         }
     }
 
-    fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
+    fn as_contiguous(&self) -> Option<BorrowedValue<'_, [u8]>> {
         self.desc.is_contiguous().then(|| {
             BorrowedValue::map(self.buffer.obj_bytes(), |x| {
                 &x[self.start..self.start + self.desc.len]
@@ -417,7 +414,7 @@ impl PyMemoryView {
         })
     }
 
-    fn _as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
+    fn _as_contiguous_mut(&self) -> Option<BorrowedValueMut<'_, [u8]>> {
         self.desc.is_contiguous().then(|| {
             BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| {
                 &mut x[self.start..self.start + self.desc.len]

@@ -1,9 +1,9 @@
 use crate::{
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    VirtualMachine,
     builtins::{PyStr, PyStrRef},
     common::borrow::{BorrowedValue, BorrowedValueMut},
     protocol::PyBuffer,
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
-    VirtualMachine,
 };
 
 // Python/getargs.c

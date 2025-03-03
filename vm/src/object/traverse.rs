@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 
 use rustpython_common::lock::{PyMutex, PyRwLock};
 
-use crate::{function::Either, object::PyObjectPayload, AsObject, PyObject, PyObjectRef, PyRef};
+use crate::{AsObject, PyObject, PyObjectRef, PyRef, function::Either, object::PyObjectPayload};
 
 pub type TraverseFn<'a> = dyn FnMut(&PyObject) + 'a;
 
@@ -14,7 +14,7 @@ pub trait MaybeTraverse {
     /// if is traceable, will be used by vtable to determine
     const IS_TRACE: bool = false;
     // if this type is traceable, then call with tracer_fn, default to do nothing
-    fn try_traverse(&self, traverse_fn: &mut TraverseFn);
+    fn try_traverse(&self, traverse_fn: &mut TraverseFn<'_>);
 }
 
 /// Type that need traverse it's children should impl `Traverse`(Not `MaybeTraverse`)
@@ -27,28 +27,28 @@ pub unsafe trait Traverse {
     ///   but if some field is called repeatedly, panic and deadlock can happen.
     ///
     /// - _**DO NOT**_ clone a `PyObjectRef` or `Pyef<T>` in `traverse()`
-    fn traverse(&self, traverse_fn: &mut TraverseFn);
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>);
 }
 
 unsafe impl Traverse for PyObjectRef {
-    fn traverse(&self, traverse_fn: &mut TraverseFn) {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         traverse_fn(self)
     }
 }
 
 unsafe impl<T: PyObjectPayload> Traverse for PyRef<T> {
-    fn traverse(&self, traverse_fn: &mut TraverseFn) {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         traverse_fn(self.as_object())
     }
 }
 
 unsafe impl Traverse for () {
-    fn traverse(&self, _traverse_fn: &mut TraverseFn) {}
+    fn traverse(&self, _traverse_fn: &mut TraverseFn<'_>) {}
 }
 
 unsafe impl<T: Traverse> Traverse for Option<T> {
     #[inline]
-    fn traverse(&self, traverse_fn: &mut TraverseFn) {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         if let Some(v) = self {
             v.traverse(traverse_fn);
         }
@@ -60,7 +60,7 @@ where
     T: Traverse,
 {
     #[inline]
-    fn traverse(&self, traverse_fn: &mut TraverseFn) {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         for elem in self {
             elem.traverse(traverse_fn);
         }
@@ -72,7 +72,7 @@ where
     T: Traverse,
 {
     #[inline]
-    fn traverse(&self, traverse_fn: &mut TraverseFn) {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         for elem in &**self {
             elem.traverse(traverse_fn);
         }
@@ -84,7 +84,7 @@ where
     T: Traverse,
 {
     #[inline]
-    fn traverse(&self, traverse_fn: &mut TraverseFn) {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         for elem in self {
             elem.traverse(traverse_fn);
         }
@@ -93,7 +93,7 @@ where
 
 unsafe impl<T: Traverse> Traverse for PyRwLock<T> {
     #[inline]
-    fn traverse(&self, traverse_fn: &mut TraverseFn) {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         // if can't get a lock, this means something else is holding the lock,
         // but since gc stopped the world, during gc the lock is always held
         // so it is safe to ignore those in gc
@@ -109,7 +109,7 @@ unsafe impl<T: Traverse> Traverse for PyRwLock<T> {
 /// and refcnt is atomic, so it should be fine?)
 unsafe impl<T: Traverse> Traverse for PyMutex<T> {
     #[inline]
-    fn traverse(&self, traverse_fn: &mut TraverseFn) {
+    fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
         let mut chs: Vec<NonNull<PyObject>> = Vec::new();
         if let Some(obj) = self.try_lock() {
             obj.traverse(&mut |ch| {
@@ -130,7 +130,7 @@ macro_rules! trace_tuple {
     ($(($NAME: ident, $NUM: tt)),*) => {
         unsafe impl<$($NAME: Traverse),*> Traverse for ($($NAME),*) {
             #[inline]
-            fn traverse(&self, traverse_fn: &mut TraverseFn) {
+            fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
                 $(
                     self.$NUM.traverse(traverse_fn);
                 )*
@@ -142,7 +142,7 @@ macro_rules! trace_tuple {
 
 unsafe impl<A: Traverse, B: Traverse> Traverse for Either<A, B> {
     #[inline]
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
             Either::A(a) => a.traverse(tracer_fn),
             Either::B(b) => b.traverse(tracer_fn),
@@ -154,7 +154,7 @@ unsafe impl<A: Traverse, B: Traverse> Traverse for Either<A, B> {
 // because long tuple is extremely rare in almost every case
 unsafe impl<A: Traverse> Traverse for (A,) {
     #[inline]
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.0.traverse(tracer_fn);
     }
 }

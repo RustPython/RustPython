@@ -5,7 +5,7 @@
 pub use libc::stat as StatStruct;
 
 #[cfg(windows)]
-pub use windows::{fstat, StatStruct};
+pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
 pub fn fstat(fd: libc::c_int) -> std::io::Result<StatStruct> {
@@ -28,19 +28,19 @@ pub mod windows {
     use std::ffi::{CString, OsStr, OsString};
     use std::os::windows::ffi::OsStrExt;
     use std::sync::OnceLock;
-    use windows_sys::core::PCWSTR;
     use windows_sys::Win32::Foundation::{
-        FreeLibrary, SetLastError, BOOL, ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME,
-        HANDLE, INVALID_HANDLE_VALUE,
+        BOOL, ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, HANDLE,
+        INVALID_HANDLE_VALUE, SetLastError,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        FileBasicInfo, FileIdInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
-        GetFileType, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY,
+        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_ID_INFO, FILE_TYPE_CHAR,
-        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN,
+        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN, FileBasicInfo, FileIdInfo,
+        GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileType,
     };
     use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_SYMLINK;
+    use windows_sys::core::PCWSTR;
 
     pub const S_IFIFO: libc::c_int = 0o010000;
     pub const S_IFLNK: libc::c_int = 0o120000;

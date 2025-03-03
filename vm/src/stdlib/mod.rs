@@ -37,7 +37,10 @@ pub mod posix;
 #[path = "posix_compat.rs"]
 pub mod posix;
 
-#[cfg(any(target_family = "unix", target_family = "windows"))]
+#[cfg(all(
+    any(target_os = "linux", target_os = "macos", target_os = "windows"),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
 mod ctypes;
 #[cfg(windows)]
 pub(crate) mod msvcrt;
@@ -50,7 +53,7 @@ mod winapi;
 #[cfg(windows)]
 mod winreg;
 
-use crate::{builtins::PyModule, PyRef, VirtualMachine};
+use crate::{PyRef, VirtualMachine, builtins::PyModule};
 use std::{borrow::Cow, collections::HashMap};
 
 pub type StdlibInitFunc = Box<py_dyn_fn!(dyn Fn(&VirtualMachine) -> PyRef<PyModule>)>;
@@ -126,7 +129,10 @@ pub fn get_module_inits() -> StdlibMap {
             "_winapi" => winapi::make_module,
             "winreg" => winreg::make_module,
         }
-        #[cfg(any(target_family = "unix", target_family = "windows"))]
+        #[cfg(all(
+            any(target_os = "linux", target_os = "macos", target_os = "windows"),
+            not(any(target_env = "musl", target_env = "sgx"))
+        ))]
         {
             "_ctypes" => ctypes::make_module,
         }

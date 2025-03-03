@@ -2,10 +2,11 @@
  * Builtin set type with a sequence of unique items.
  */
 use super::{
-    builtins_iter, IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef,
-    PyType, PyTypeRef,
+    IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
+    PyTypeRef, builtins_iter,
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
     class::PyClassImpl,
     common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc},
@@ -21,7 +22,6 @@ use crate::{
     },
     utils::collection_repr,
     vm::VirtualMachine,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
 };
 use once_cell::sync::Lazy;
 use rustpython_common::{
@@ -138,14 +138,14 @@ impl PyFrozenSet {
 }
 
 impl fmt::Debug for PySet {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("set")
     }
 }
 
 impl fmt::Debug for PyFrozenSet {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("PyFrozenSet ")?;
         f.debug_set().entries(self.elements().iter()).finish()
@@ -170,7 +170,7 @@ pub(super) struct PySetInner {
 }
 
 unsafe impl crate::object::Traverse for PySetInner {
-    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
         // FIXME(discord9): Rc means shared ref, so should it be traced?
         self.content.traverse(tracer_fn)
     }
@@ -1266,7 +1266,7 @@ pub(crate) struct PySetIterator {
 }
 
 impl fmt::Debug for PySetIterator {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("set_iterator")
     }

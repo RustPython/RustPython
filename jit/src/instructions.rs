@@ -1,5 +1,5 @@
 use super::{JitCompileError, JitSig, JitType};
-use cranelift::codegen::ir::FuncRef;
+use cranelift::{codegen::ir::FuncRef};
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::bytecode::{
@@ -188,7 +188,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
     fn prepare_const<C: bytecode::Constant>(
         &mut self,
-        constant: BorrowedConstant<C>,
+        constant: BorrowedConstant<'_, C>,
     ) -> Result<JitValue, JitCompileError> {
         let value = match constant {
             BorrowedConstant::Integer { value } => {
@@ -588,6 +588,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let continue_block = self.builder.create_block();
         let exit_block = self.builder.create_block();
 
+        // Set code block params
         // Set code block params
         self.builder.append_block_param(check_block1, types::F64);
         self.builder.append_block_param(check_block1, types::I64);

@@ -1,10 +1,12 @@
 use super::{
+    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
     int::{PyInt, PyIntRef},
     iter::IterStatus::{self, Exhausted},
-    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
 };
 use crate::{
-    anystr::{self, adjust_indices, AnyStr, AnyStrContainer, AnyStrWrapper},
+    AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+    TryFromBorrowedObject, VirtualMachine,
+    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, adjust_indices},
     atomic_func,
     class::PyClassImpl,
     common::str::{BorrowedStr, PyStrKind, PyStrKindData},
@@ -20,8 +22,6 @@ use crate::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter, Unconstructible,
     },
-    AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
-    TryFromBorrowedObject, VirtualMachine,
 };
 use ascii::{AsciiStr, AsciiString};
 use bstr::ByteSlice;
@@ -62,7 +62,7 @@ pub struct PyStr {
 }
 
 impl fmt::Debug for PyStr {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PyStr")
             .field("value", &self.as_str())
             .field("kind", &self.kind)
@@ -192,7 +192,7 @@ pub struct PyStrIterator {
 }
 
 unsafe impl Traverse for PyStrIterator {
-    fn traverse(&self, tracer: &mut TraverseFn) {
+    fn traverse(&self, tracer: &mut TraverseFn<'_>) {
         // No need to worry about deadlock, for inner is a PyStr and can't make ref cycle
         self.internal.lock().0.traverse(tracer);
     }
@@ -351,7 +351,7 @@ impl PyStr {
         }
     }
 
-    fn borrow(&self) -> &BorrowedStr {
+    fn borrow(&self) -> &BorrowedStr<'_> {
         unsafe { std::mem::transmute(self) }
     }
 
@@ -904,11 +904,7 @@ impl PyStr {
                 '\n' => 1,
                 '\r' => {
                     let is_rn = enumerated.next_if(|(_, ch)| *ch == '\n').is_some();
-                    if is_rn {
-                        2
-                    } else {
-                        1
-                    }
+                    if is_rn { 2 } else { 1 }
                 }
                 '\x0b' | '\x0c' | '\x1c' | '\x1d' | '\x1e' | '\u{0085}' | '\u{2028}'
                 | '\u{2029}' => ch.len_utf8(),

@@ -6,11 +6,11 @@ pub(crate) use _random::make_module;
 mod _random {
     use crate::common::lock::PyMutex;
     use crate::vm::{
+        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyTupleRef},
         convert::ToPyException,
         function::OptionalOption,
         types::{Constructor, Initializer},
-        PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use itertools::Itertools;
     use malachite_bigint::{BigInt, BigUint, Sign};
@@ -75,11 +75,7 @@ mod _random {
                     let mut rng = self.rng.lock();
                     let mut gen_u32 = |k| {
                         let r = rng.next_u32();
-                        if k < 32 {
-                            r >> (32 - k)
-                        } else {
-                            r
-                        }
+                        if k < 32 { r >> (32 - k) } else { r }
                     };
 
                     let words = (k - 1) / 32 + 1;

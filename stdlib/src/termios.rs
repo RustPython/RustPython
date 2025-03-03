@@ -3,10 +3,10 @@ pub(crate) use self::termios::make_module;
 #[pymodule]
 mod termios {
     use crate::vm::{
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
         common::os::ErrorExt,
         convert::ToPyObject,
-        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     };
     use termios::Termios;
 
@@ -55,9 +55,9 @@ mod termios {
     ))]
     #[pyattr]
     use libc::{
-        FIONCLEX, FIONREAD, TIOCEXCL, TIOCMBIC, TIOCMBIS, TIOCMGET, TIOCMSET, TIOCM_CAR, TIOCM_CD,
-        TIOCM_CTS, TIOCM_DSR, TIOCM_DTR, TIOCM_LE, TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR,
-        TIOCM_ST, TIOCNXCL, TIOCSCTTY,
+        FIONCLEX, FIONREAD, TIOCEXCL, TIOCM_CAR, TIOCM_CD, TIOCM_CTS, TIOCM_DSR, TIOCM_DTR,
+        TIOCM_LE, TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR, TIOCM_ST, TIOCMBIC, TIOCMBIS, TIOCMGET,
+        TIOCMSET, TIOCNXCL, TIOCSCTTY,
     };
     #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyattr]
@@ -100,12 +100,6 @@ mod termios {
     ))]
     #[pyattr]
     use termios::os::target::TCSASOFT;
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    #[pyattr]
-    use termios::os::target::{
-        B1000000, B1152000, B1500000, B2000000, B2500000, B3000000, B3500000, B4000000, B500000,
-        B576000, CBAUDEX,
-    };
     #[cfg(any(
         target_os = "android",
         target_os = "freebsd",
@@ -116,6 +110,12 @@ mod termios {
     ))]
     #[pyattr]
     use termios::os::target::{B460800, B921600};
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use termios::os::target::{
+        B500000, B576000, B1000000, B1152000, B1500000, B2000000, B2500000, B3000000, B3500000,
+        B4000000, CBAUDEX,
+    };
     #[cfg(any(
         target_os = "android",
         target_os = "illumos",
@@ -154,16 +154,17 @@ mod termios {
     use termios::os::target::{VSWTCH, VSWTCH as VSWTC};
     #[pyattr]
     use termios::{
+        B0, B50, B75, B110, B134, B150, B200, B300, B600, B1200, B1800, B2400, B4800, B9600,
+        B19200, B38400, BRKINT, CLOCAL, CREAD, CS5, CS6, CS7, CS8, CSIZE, CSTOPB, ECHO, ECHOE,
+        ECHOK, ECHONL, HUPCL, ICANON, ICRNL, IEXTEN, IGNBRK, IGNCR, IGNPAR, INLCR, INPCK, ISIG,
+        ISTRIP, IXANY, IXOFF, IXON, NOFLSH, OCRNL, ONLCR, ONLRET, ONOCR, OPOST, PARENB, PARMRK,
+        PARODD, TCIFLUSH, TCIOFF, TCIOFLUSH, TCION, TCOFLUSH, TCOOFF, TCOON, TCSADRAIN, TCSAFLUSH,
+        TCSANOW, TOSTOP, VEOF, VEOL, VERASE, VINTR, VKILL, VMIN, VQUIT, VSTART, VSTOP, VSUSP,
+        VTIME,
         os::target::{
-            B115200, B230400, B57600, CRTSCTS, ECHOCTL, ECHOKE, ECHOPRT, EXTA, EXTB, FLUSHO,
+            B57600, B115200, B230400, CRTSCTS, ECHOCTL, ECHOKE, ECHOPRT, EXTA, EXTB, FLUSHO,
             IMAXBEL, NCCS, PENDIN, VDISCARD, VEOL2, VLNEXT, VREPRINT, VWERASE,
         },
-        B0, B110, B1200, B134, B150, B1800, B19200, B200, B2400, B300, B38400, B4800, B50, B600,
-        B75, B9600, BRKINT, CLOCAL, CREAD, CS5, CS6, CS7, CS8, CSIZE, CSTOPB, ECHO, ECHOE, ECHOK,
-        ECHONL, HUPCL, ICANON, ICRNL, IEXTEN, IGNBRK, IGNCR, IGNPAR, INLCR, INPCK, ISIG, ISTRIP,
-        IXANY, IXOFF, IXON, NOFLSH, OCRNL, ONLCR, ONLRET, ONOCR, OPOST, PARENB, PARMRK, PARODD,
-        TCIFLUSH, TCIOFF, TCIOFLUSH, TCION, TCOFLUSH, TCOOFF, TCOON, TCSADRAIN, TCSAFLUSH, TCSANOW,
-        TOSTOP, VEOF, VEOL, VERASE, VINTR, VKILL, VMIN, VQUIT, VSTART, VSTOP, VSUSP, VTIME,
     };
 
     #[pyfunction]

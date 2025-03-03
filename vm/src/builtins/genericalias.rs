@@ -2,7 +2,8 @@ use once_cell::sync::Lazy;
 
 use super::type_;
 use crate::{
-    atomic_func,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine, atomic_func,
     builtins::{PyList, PyStr, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::PyClassImpl,
     common::hash,
@@ -13,8 +14,6 @@ use crate::{
         AsMapping, AsNumber, Callable, Comparable, Constructor, GetAttr, Hashable, PyComparisonOp,
         Representable,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
 };
 use std::fmt;
 
@@ -37,7 +36,7 @@ pub struct PyGenericAlias {
 }
 
 impl fmt::Debug for PyGenericAlias {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("GenericAlias")
     }
 }

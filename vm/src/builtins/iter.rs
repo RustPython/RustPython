@@ -4,12 +4,12 @@
 
 use super::{PyInt, PyTupleRef, PyType};
 use crate::{
+    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::ArgCallable,
     object::{Traverse, TraverseFn},
     protocol::{PyIterReturn, PySequence, PySequenceMethods},
     types::{IterNext, Iterable, SelfIter},
-    Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use rustpython_common::{
     lock::{PyMutex, PyRwLock, PyRwLockUpgradableReadGuard},
@@ -26,7 +26,7 @@ pub enum IterStatus<T> {
 }
 
 unsafe impl<T: Traverse> Traverse for IterStatus<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
             IterStatus::Active(r) => r.traverse(tracer_fn),
             IterStatus::Exhausted => (),
@@ -41,7 +41,7 @@ pub struct PositionIterInternal<T> {
 }
 
 unsafe impl<T: Traverse> Traverse for PositionIterInternal<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.status.traverse(tracer_fn)
     }
 }

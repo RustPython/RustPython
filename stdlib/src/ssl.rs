@@ -1,4 +1,4 @@
-use crate::vm::{builtins::PyModule, PyRef, VirtualMachine};
+use crate::vm::{PyRef, VirtualMachine, builtins::PyModule};
 use openssl_probe::ProbeResult;
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
@@ -36,6 +36,7 @@ mod _ssl {
         },
         socket::{self, PySocket},
         vm::{
+            PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{PyBaseExceptionRef, PyStrRef, PyType, PyTypeRef, PyWeak},
             convert::{ToPyException, ToPyObject},
             exceptions,
@@ -45,7 +46,6 @@ mod _ssl {
             },
             types::Constructor,
             utils::ToCString,
-            PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         },
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -55,7 +55,7 @@ mod _ssl {
         error::ErrorStack,
         nid::Nid,
         ssl::{self, SslContextBuilder, SslOptions, SslVerifyMode},
-        x509::{self, X509Ref, X509},
+        x509::{self, X509, X509Ref},
     };
     use openssl_sys as sys;
     use rustpython_vm::ospath::OsPath;
@@ -70,9 +70,6 @@ mod _ssl {
     // Constants
     #[pyattr]
     use sys::{
-        SSL_OP_NO_SSLv2 as OP_NO_SSLv2,
-        SSL_OP_NO_SSLv3 as OP_NO_SSLv3,
-        SSL_OP_NO_TLSv1 as OP_NO_TLSv1,
         // TODO: so many more of these
         SSL_AD_DECODE_ERROR as ALERT_DESCRIPTION_DECODE_ERROR,
         SSL_AD_ILLEGAL_PARAMETER as ALERT_DESCRIPTION_ILLEGAL_PARAMETER,
@@ -92,7 +89,10 @@ mod _ssl {
         // X509_V_FLAG_X509_STRICT as VERIFY_X509_STRICT,
         SSL_ERROR_ZERO_RETURN,
         SSL_OP_CIPHER_SERVER_PREFERENCE as OP_CIPHER_SERVER_PREFERENCE,
+        SSL_OP_NO_SSLv2 as OP_NO_SSLv2,
+        SSL_OP_NO_SSLv3 as OP_NO_SSLv3,
         SSL_OP_NO_TICKET as OP_NO_TICKET,
+        SSL_OP_NO_TLSv1 as OP_NO_TLSv1,
         SSL_OP_SINGLE_DH_USE as OP_SINGLE_DH_USE,
     };
 
@@ -601,7 +601,7 @@ mod _ssl {
                     return Err(vm.new_value_error(
                         "Cannot set verify_mode to CERT_NONE when check_hostname is enabled."
                             .to_owned(),
-                    ))
+                    ));
                 }
                 CertRequirements::None => SslVerifyMode::NONE,
                 CertRequirements::Optional => SslVerifyMode::PEER,
@@ -1006,11 +1006,7 @@ mod _ssl {
         #[pymethod]
         fn version(&self) -> Option<&'static str> {
             let v = self.stream.read().ssl().version_str();
-            if v == "unknown" {
-                None
-            } else {
-                Some(v)
-            }
+            if v == "unknown" { None } else { Some(v) }
         }
 
         #[pymethod]
@@ -1058,7 +1054,7 @@ mod _ssl {
                         return Err(socket::timeout_error_msg(
                             vm,
                             "The handshake operation timed out".to_owned(),
-                        ))
+                        ));
                     }
                     SelectRet::Closed => return Err(socket_closed_error(vm)),
                     SelectRet::Nonblocking => {}
@@ -1084,7 +1080,7 @@ mod _ssl {
                     return Err(socket::timeout_error_msg(
                         vm,
                         "The write operation timed out".to_owned(),
-                    ))
+                    ));
                 }
                 SelectRet::Closed => return Err(socket_closed_error(vm)),
                 _ => {}
@@ -1100,7 +1096,7 @@ mod _ssl {
                         return Err(socket::timeout_error_msg(
                             vm,
                             "The write operation timed out".to_owned(),
-                        ))
+                        ));
                     }
                     SelectRet::Closed => return Err(socket_closed_error(vm)),
                     SelectRet::Nonblocking => {}
@@ -1152,7 +1148,7 @@ mod _ssl {
                         return Err(socket::timeout_error_msg(
                             vm,
                             "The read operation timed out".to_owned(),
-                        ))
+                        ));
                     }
                     SelectRet::Nonblocking => {}
                     _ => {
@@ -1385,13 +1381,13 @@ mod _ssl {
     #[cfg(target_os = "android")]
     mod android {
         use super::convert_openssl_error;
-        use crate::vm::{builtins::PyBaseExceptionRef, VirtualMachine};
+        use crate::vm::{VirtualMachine, builtins::PyBaseExceptionRef};
         use openssl::{
             ssl::SslContextBuilder,
-            x509::{store::X509StoreBuilder, X509},
+            x509::{X509, store::X509StoreBuilder},
         };
         use std::{
-            fs::{read_dir, File},
+            fs::{File, read_dir},
             io::Read,
             path::Path,
         };
@@ -1465,8 +1461,8 @@ mod windows {}
 mod ossl101 {
     #[pyattr]
     use openssl_sys::{
-        SSL_OP_NO_TLSv1_1 as OP_NO_TLSv1_1, SSL_OP_NO_TLSv1_2 as OP_NO_TLSv1_2,
-        SSL_OP_NO_COMPRESSION as OP_NO_COMPRESSION,
+        SSL_OP_NO_COMPRESSION as OP_NO_COMPRESSION, SSL_OP_NO_TLSv1_1 as OP_NO_TLSv1_1,
+        SSL_OP_NO_TLSv1_2 as OP_NO_TLSv1_2,
     };
 }
 
@@ -1484,15 +1480,15 @@ mod windows {
     use crate::{
         common::ascii,
         vm::{
+            PyObjectRef, PyPayload, PyResult, VirtualMachine,
             builtins::{PyFrozenSet, PyStrRef},
             convert::ToPyException,
-            PyObjectRef, PyPayload, PyResult, VirtualMachine,
         },
     };
 
     #[pyfunction]
     fn enum_certificates(store_name: PyStrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        use schannel::{cert_context::ValidUses, cert_store::CertStore, RawPointer};
+        use schannel::{RawPointer, cert_context::ValidUses, cert_store::CertStore};
         use windows_sys::Win32::Security::Cryptography;
 
         // TODO: check every store for it, not just 2 of them:

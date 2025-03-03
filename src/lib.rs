@@ -50,14 +50,14 @@ mod interpreter;
 mod settings;
 mod shell;
 
-use rustpython_vm::{scope::Scope, PyResult, VirtualMachine};
+use rustpython_vm::{PyResult, VirtualMachine, scope::Scope};
 use std::env;
 use std::io::IsTerminal;
 use std::process::ExitCode;
 
 pub use interpreter::InterpreterConfig;
 pub use rustpython_vm as vm;
-pub use settings::{opts_with_clap, InstallPipMode, RunMode};
+pub use settings::{InstallPipMode, RunMode, opts_with_clap};
 pub use shell::run_shell;
 
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`

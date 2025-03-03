@@ -1,5 +1,7 @@
-use super::{float, PyByteArray, PyBytes, PyStr, PyType, PyTypeRef};
+use super::{PyByteArray, PyBytes, PyStr, PyType, PyTypeRef, float};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+    TryFromBorrowedObject, VirtualMachine,
     builtins::PyStrRef,
     bytesinner::PyBytesInner,
     class::PyClassImpl,
@@ -14,8 +16,6 @@ use crate::{
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
-    TryFromBorrowedObject, VirtualMachine,
 };
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
@@ -109,11 +109,7 @@ fn inner_pow(int1: &BigInt, int2: &BigInt, vm: &VirtualMachine) -> PyResult {
         } else if int1.is_zero() {
             0
         } else if int1 == &BigInt::from(-1) {
-            if int2.is_odd() {
-                -1
-            } else {
-                1
-            }
+            if int2.is_odd() { -1 } else { 1 }
         } else {
             // missing feature: BigInt exp
             // practically, exp over u64 is not possible to calculate anyway
@@ -426,11 +422,7 @@ impl PyInt {
                     // based on rust-num/num-integer#10, should hopefully be published soon
                     fn normalize(a: BigInt, n: &BigInt) -> BigInt {
                         let a = a % n;
-                        if a.is_negative() {
-                            a + n
-                        } else {
-                            a
-                        }
+                        if a.is_negative() { a + n } else { a }
                     }
                     fn inverse(a: BigInt, n: &BigInt) -> Option<BigInt> {
                         use num_integer::*;
@@ -642,7 +634,7 @@ impl PyInt {
             Sign::Minus if !signed => {
                 return Err(
                     vm.new_overflow_error("can't convert negative int to unsigned".to_owned())
-                )
+                );
             }
             Sign::NoSign => return Ok(vec![0u8; byte_len].into()),
             _ => {}

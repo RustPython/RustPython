@@ -4,11 +4,11 @@
 
 use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
+    AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     frame::{Frame, FrameRef},
     function::PySetterValue,
     types::{Representable, Unconstructible},
-    AsObject, Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
 use num_traits::Zero;
 

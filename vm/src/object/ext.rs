@@ -7,17 +7,17 @@ use crate::common::{
     lock::PyRwLockReadGuard,
 };
 use crate::{
+    VirtualMachine,
     builtins::{PyBaseExceptionRef, PyStrInterned, PyType},
     convert::{IntoPyException, ToPyObject, ToPyResult, TryFromObject},
     vm::Context,
-    VirtualMachine,
 };
 use std::{
     borrow::Borrow,
     fmt,
     marker::PhantomData,
     ops::Deref,
-    ptr::{null_mut, NonNull},
+    ptr::{NonNull, null_mut},
 };
 
 /* Python objects and references.
@@ -43,7 +43,7 @@ impl<T: fmt::Display> fmt::Display for PyRef<T>
 where
     T: PyObjectPayload + fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
@@ -51,7 +51,7 @@ impl<T: fmt::Display> fmt::Display for Py<T>
 where
     T: PyObjectPayload + fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
@@ -534,7 +534,7 @@ impl<T> fmt::Display for PyLease<'_, T>
 where
     T: PyPayload + fmt::Display,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }

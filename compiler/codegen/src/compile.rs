@@ -8,21 +8,21 @@
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
+    IndexSet,
     error::{CodegenError, CodegenErrorType},
     ir,
     symboltable::{self, SymbolFlags, SymbolScope, SymbolTable},
-    IndexSet,
 };
 use itertools::Itertools;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_compiler_core::{
+    Mode,
     bytecode::{
         self, Arg as OpArgMarker, CodeObject, ComparisonOperator, ConstantData, Instruction, OpArg,
         OpArgType,
     },
-    Mode,
 };
 use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 use std::borrow::Cow;
@@ -975,7 +975,7 @@ impl Compiler {
                 }
             }
             located_ast::Expr::BinOp(_) | located_ast::Expr::UnaryOp(_) => {
-                return Err(self.error(CodegenErrorType::Delete("expression")))
+                return Err(self.error(CodegenErrorType::Delete("expression")));
             }
             _ => return Err(self.error(CodegenErrorType::Delete(expression.python_name()))),
         }
@@ -1213,7 +1213,7 @@ impl Compiler {
 
             if !finalbody.is_empty() {
                 emit!(self, Instruction::PopBlock); // pop excepthandler block
-                                                    // We enter the finally block, without exception.
+                // We enter the finally block, without exception.
                 emit!(self, Instruction::EnterFinally);
             }
 
@@ -3124,7 +3124,9 @@ impl Compiler {
                 | "with_statement" | "print_function" | "unicode_literals" | "generator_stop" => {}
                 "annotations" => self.future_annotations = true,
                 other => {
-                    return Err(self.error(CodegenErrorType::InvalidFutureFeature(other.to_owned())))
+                    return Err(
+                        self.error(CodegenErrorType::InvalidFutureFeature(other.to_owned()))
+                    );
                 }
             }
         }
@@ -3477,12 +3479,12 @@ impl ToU32 for usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustpython_parser::ast::Suite;
     use rustpython_parser::Parse;
+    use rustpython_parser::ast::Suite;
     use rustpython_parser_core::source_code::LinearLocator;
 
     fn compile_exec(source: &str) -> CodeObject {
-        let mut locator: LinearLocator = LinearLocator::new(source);
+        let mut locator: LinearLocator<'_> = LinearLocator::new(source);
         use rustpython_parser::ast::fold::Fold;
         let mut compiler: Compiler = Compiler::new(
             CompileOpts::default(),

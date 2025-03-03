@@ -1,9 +1,9 @@
 use super::{PyBoundMethod, PyStr, PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     common::lock::PyMutex,
     types::{Constructor, GetDescriptor, Initializer, Representable},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 
 /// classmethod(function) -> method

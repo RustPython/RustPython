@@ -37,7 +37,7 @@ pub(crate) mod _ctypes {
     use super::base::PyCSimple;
     use crate::builtins::PyTypeRef;
     use crate::class::StaticType;
-    use crate::function::Either;
+    use crate::function::{Either, OptionalArg};
     use crate::stdlib::ctypes::library;
     use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
@@ -180,12 +180,31 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction(name = "LoadLibrary")]
-    fn load_library(name: String, vm: &VirtualMachine) -> PyResult<usize> {
+    fn load_library_windows(
+        name: String,
+        _load_flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
         // TODO: audit functions first
+        // TODO: load_flags
         let cache = library::libcache();
         let mut cache_write = cache.write();
-        let lib_ref = cache_write.get_or_insert_lib(&name, vm).unwrap();
-        Ok(lib_ref.get_pointer())
+        let (id, _) = cache_write.get_or_insert_lib(&name, vm).unwrap();
+        Ok(id)
+    }
+
+    #[pyfunction(name = "dlopen")]
+    fn load_library_unix(
+        name: String,
+        _load_flags: OptionalArg<i32>,
+        vm: &VirtualMachine,
+    ) -> PyResult<usize> {
+        // TODO: audit functions first
+        // TODO: load_flags
+        let cache = library::libcache();
+        let mut cache_write = cache.write();
+        let (id, _) = cache_write.get_or_insert_lib(&name, vm).unwrap();
+        Ok(id)
     }
 
     #[pyfunction(name = "FreeLibrary")]
@@ -211,6 +230,16 @@ pub(crate) mod _ctypes {
             todo!();
         } else {
             Ok(hr)
+        }
+    }
+
+    #[pyfunction]
+    fn addressof(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        if obj.is_instance(PyCSimple::static_type().as_ref(), vm)? {
+            let simple = obj.downcast_ref::<PyCSimple>().unwrap();
+            Ok(simple.value.as_ptr() as usize)
+        } else {
+            Err(vm.new_type_error("expected a ctypes instance".to_string()))
         }
     }
 
