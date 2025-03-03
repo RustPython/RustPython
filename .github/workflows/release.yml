@@ -89,10 +89,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Environment
-        shell: bash
-        run: rustup target add wasm32-wasip1
+        with:
+          targets: wasm32-wasip1
 
       - name: Build RustPython
         run: cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib --release
@@ -112,7 +110,6 @@ jobs:
       - uses: mwilliamson/setup-wabt-action@v3
         with: { wabt-version: "1.0.30" }
       - name: build notebook demo
-        if: github.ref == 'refs/heads/release'
         run: |
           npm install
           npm run dist
