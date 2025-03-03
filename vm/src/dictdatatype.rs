@@ -4,9 +4,9 @@
 //! And: http://code.activestate.com/recipes/578375/
 
 use crate::{
+    AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
     builtins::{PyInt, PyStr, PyStrInterned, PyStrRef},
     convert::ToPyObject,
-    AsObject, Py, PyExact, PyObject, PyObjectRef, PyRefExact, PyResult, VirtualMachine,
 };
 use crate::{
     common::{
@@ -35,7 +35,7 @@ pub struct Dict<T = PyObjectRef> {
 }
 
 unsafe impl<T: Traverse> Traverse for Dict<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.inner.traverse(tracer_fn);
     }
 }
@@ -79,7 +79,7 @@ struct DictInner<T> {
 }
 
 unsafe impl<T: Traverse> Traverse for DictInner<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.entries
             .iter()
             .map(|v| {
@@ -548,7 +548,7 @@ impl<T: Clone> Dict<T> {
         vm: &VirtualMachine,
         key: &K,
         hash_value: HashValue,
-        mut lock: Option<PyRwLockReadGuard<DictInner<T>>>,
+        mut lock: Option<PyRwLockReadGuard<'_, DictInner<T>>>,
     ) -> PyResult<LookupResult> {
         let mut idxs = None;
         let mut free_slot = None;
@@ -915,7 +915,7 @@ fn str_exact<'a>(obj: &'a PyObject, vm: &VirtualMachine) -> Option<&'a PyStr> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{common::ascii, Interpreter};
+    use crate::{Interpreter, common::ascii};
 
     #[test]
     fn test_insert() {

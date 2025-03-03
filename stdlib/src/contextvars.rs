@@ -1,4 +1,4 @@
-use crate::vm::{builtins::PyModule, class::StaticType, PyRef, VirtualMachine};
+use crate::vm::{PyRef, VirtualMachine, builtins::PyModule, class::StaticType};
 use _contextvars::PyContext;
 use std::cell::RefCell;
 
@@ -23,14 +23,13 @@ thread_local! {
 #[pymodule]
 mod _contextvars {
     use crate::vm::{
-        atomic_func,
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyStrRef, PyTypeRef},
         class::StaticType,
         common::hash::PyHash,
         function::{ArgCallable, FuncArgs, OptionalArg},
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{AsMapping, AsSequence, Constructor, Hashable, Representable},
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use indexmap::IndexMap;
@@ -302,7 +301,7 @@ mod _contextvars {
     }
 
     impl std::fmt::Debug for ContextVar {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("ContextVar").finish()
         }
     }

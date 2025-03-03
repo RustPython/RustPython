@@ -1,6 +1,6 @@
 use rustpython_vm as vm;
 use std::process::ExitCode;
-use vm::{builtins::PyStrRef, Interpreter};
+use vm::{Interpreter, builtins::PyStrRef};
 
 fn py_main(interp: &Interpreter) -> vm::PyResult<PyStrRef> {
     interp.enter(|vm| {

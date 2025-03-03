@@ -20,18 +20,18 @@ requires_Decompress_copy = unittest.skipUnless(
     'requires Decompress.copy()')
 
 
-# def _zlib_runtime_version_tuple(zlib_version=zlib.ZLIB_RUNTIME_VERSION):
-#     # Register "1.2.3" as "1.2.3.0"
-#     # or "1.2.0-linux","1.2.0.f","1.2.0.f-linux"
-#     v = zlib_version.split('-', 1)[0].split('.')
-#     if len(v) < 4:
-#         v.append('0')
-#     elif not v[-1].isnumeric():
-#         v[-1] = '0'
-#     return tuple(map(int, v))
-#
-#
-# ZLIB_RUNTIME_VERSION_TUPLE = _zlib_runtime_version_tuple()
+def _zlib_runtime_version_tuple(zlib_version=zlib.ZLIB_RUNTIME_VERSION):
+    # Register "1.2.3" as "1.2.3.0"
+    # or "1.2.0-linux","1.2.0.f","1.2.0.f-linux"
+    v = zlib_version.split('-', 1)[0].split('.')
+    if len(v) < 4:
+        v.append('0')
+    elif not v[-1].isnumeric():
+        v[-1] = '0'
+    return tuple(map(int, v))
+
+
+ZLIB_RUNTIME_VERSION_TUPLE = _zlib_runtime_version_tuple()
 
 
 # bpo-46623: When a hardware accelerator is used (currently only on s390x),
@@ -66,8 +66,6 @@ HW_ACCELERATED = is_s390x
 
 class VersionTestCase(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_library_version(self):
         # Test that the major version of the actual library in use matches the
         # major version that we were compiled against. We can't guarantee that
@@ -282,8 +280,6 @@ class CompressTestCase(BaseCompressTestCase, unittest.TestCase):
 
 
 class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # Test compression object
     def test_pair(self):
         # straightforward compress/decompress objects
@@ -307,8 +303,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
             self.assertIsInstance(dco.unconsumed_tail, bytes)
             self.assertIsInstance(dco.unused_data, bytes)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_keywords(self):
         level = 2
         method = zlib.DEFLATED
@@ -466,8 +460,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
     def test_decompressmaxlenflush(self):
         self.test_decompressmaxlen(flush=True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_maxlenmisc(self):
         # Misc tests of max_length
         dco = zlib.decompressobj()
@@ -498,7 +490,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         ddata += dco.decompress(dco.unconsumed_tail)
         self.assertEqual(dco.unconsumed_tail, b"")
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: Z_BLOCK support in flate2
     @unittest.expectedFailure
     def test_flushes(self):
         # Test flush() with the various options, using all the
@@ -560,8 +552,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco = zlib.decompressobj()
         self.assertEqual(dco.flush(), b"") # Returns nothing
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dictionary(self):
         h = HAMLET_SCENE
         # Build a simulated dictionary out of the words in HAMLET.
@@ -578,8 +568,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         dco = zlib.decompressobj()
         self.assertRaises(zlib.error, dco.decompress, cd)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_dictionary_streaming(self):
         # This simulates the reuse of a compressor object for compressing
         # several separate data streams.
@@ -652,8 +640,6 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
                 self.assertEqual(dco.unconsumed_tail, b'')
                 self.assertEqual(dco.unused_data, remainder)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # issue27164
     def test_decompress_raw_with_dictionary(self):
         zdict = b'abcdefghijklmnopqrstuvwxyz'
@@ -829,7 +815,7 @@ class CompressObjectTestCase(BaseCompressTestCase, unittest.TestCase):
         finally:
             comp = uncomp = data = None
 
-    # TODO: RUSTPYTHON
+    # TODO: RUSTPYTHON: wbits=0 support in flate2
     @unittest.expectedFailure
     def test_wbits(self):
         # wbits=0 only supported since zlib v1.2.3.5
@@ -997,8 +983,6 @@ class ZlibDecompressorTest(unittest.TestCase):
         self.assertEqual(text, self.TEXT)
         self.assertEqual(zlibd.unused_data, unused_data)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testEOFError(self):
         zlibd = zlib._ZlibDecompressor()
         text = zlibd.decompress(self.DATA)
@@ -1029,8 +1013,6 @@ class ZlibDecompressorTest(unittest.TestCase):
             with self.assertRaises(TypeError):
                 pickle.dumps(zlib._ZlibDecompressor(), proto)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def testDecompressorChunksMaxsize(self):
         zlibd = zlib._ZlibDecompressor()
         max_length = 100
@@ -1062,8 +1044,6 @@ class ZlibDecompressorTest(unittest.TestCase):
         self.assertEqual(out, self.BIG_TEXT)
         self.assertEqual(zlibd.unused_data, b"")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompressor_inputbuf_1(self):
         # Test reusing input buffer after moving existing
         # contents to beginning
@@ -1086,8 +1066,6 @@ class ZlibDecompressorTest(unittest.TestCase):
         out.append(zlibd.decompress(self.DATA[105:]))
         self.assertEqual(b''.join(out), self.TEXT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompressor_inputbuf_2(self):
         # Test reusing input buffer by appending data at the
         # end right away
@@ -1109,8 +1087,6 @@ class ZlibDecompressorTest(unittest.TestCase):
         out.append(zlibd.decompress(self.DATA[300:]))
         self.assertEqual(b''.join(out), self.TEXT)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_decompressor_inputbuf_3(self):
         # Test reusing input buffer after extending it
 

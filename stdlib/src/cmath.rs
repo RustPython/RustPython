@@ -4,8 +4,8 @@ pub(crate) use cmath::make_module;
 #[pymodule]
 mod cmath {
     use crate::vm::{
-        function::{ArgIntoComplex, ArgIntoFloat, OptionalArg},
         PyResult, VirtualMachine,
+        function::{ArgIntoComplex, ArgIntoFloat, OptionalArg},
     };
     use num_complex::Complex64;
 

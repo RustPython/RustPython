@@ -3,7 +3,7 @@ use num_traits::sign::Signed;
 use serde::de::{DeserializeSeed, Visitor};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq};
 
-use crate::builtins::{bool_, dict::PyDictRef, float, int, list::PyList, tuple::PyTuple, PyStr};
+use crate::builtins::{PyStr, bool_, dict::PyDictRef, float, int, list::PyList, tuple::PyTuple};
 use crate::{AsObject, PyObject, PyObjectRef, VirtualMachine};
 
 #[inline]
@@ -41,7 +41,7 @@ impl<'s> PyObjectSerializer<'s> {
         PyObjectSerializer { pyobject, vm }
     }
 
-    fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer {
+    fn clone_with_object(&self, pyobject: &'s PyObjectRef) -> PyObjectSerializer<'_> {
         PyObjectSerializer {
             pyobject,
             vm: self.vm,
@@ -130,7 +130,7 @@ impl<'de> DeserializeSeed<'de> for PyObjectDeserializer<'de> {
 impl<'de> Visitor<'de> for PyObjectDeserializer<'de> {
     type Value = PyObjectRef;
 
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("a type that can deserialize in Python")
     }
 

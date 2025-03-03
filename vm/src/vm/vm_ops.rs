@@ -114,7 +114,7 @@ impl VirtualMachine {
                     Ok(None)
                 } else {
                     Err(e)
-                }
+                };
             }
         };
         let hint = result

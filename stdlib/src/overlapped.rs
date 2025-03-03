@@ -6,13 +6,13 @@ mod _overlapped {
     // straight-forward port of Modules/overlapped.c
 
     use crate::vm::{
+        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyTypeRef},
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
         protocol::PyBuffer,
         stdlib::os::errno_err,
         types::Constructor,
-        Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     use windows_sys::Win32::{
         Foundation::{self, GetLastError, HANDLE},
@@ -52,7 +52,7 @@ mod _overlapped {
     unsafe impl Send for OverlappedInner {}
 
     impl std::fmt::Debug for Overlapped {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let zelf = self.inner.lock();
             f.debug_struct("Overlapped")
                 // .field("overlapped", &(self.overlapped as *const _ as usize))
@@ -93,7 +93,7 @@ mod _overlapped {
     }
 
     impl std::fmt::Debug for OverlappedReadFrom {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("OverlappedReadFrom")
                 .field("result", &self.result)
                 .field("allocated_buffer", &self.allocated_buffer)
@@ -114,7 +114,7 @@ mod _overlapped {
     }
 
     impl std::fmt::Debug for OverlappedReadFromInto {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.debug_struct("OverlappedReadFromInto")
                 .field("result", &self.result)
                 .field("user_buffer", &self.user_buffer)

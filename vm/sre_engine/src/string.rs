@@ -157,8 +157,8 @@ impl StrDrive for &str {
 #[inline]
 unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
     // Decode UTF-8
-    let x = **ptr;
-    *ptr = ptr.offset(1);
+    let x = unsafe { **ptr };
+    *ptr = unsafe { ptr.offset(1) };
 
     if x < 128 {
         return x as u32;
@@ -170,16 +170,16 @@ unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
     let init = utf8_first_byte(x, 2);
     // SAFETY: `bytes` produces an UTF-8-like string,
     // so the iterator must produce a value here.
-    let y = **ptr;
-    *ptr = ptr.offset(1);
+    let y = unsafe { **ptr };
+    *ptr = unsafe { ptr.offset(1) };
     let mut ch = utf8_acc_cont_byte(init, y);
     if x >= 0xE0 {
         // [[x y z] w] case
         // 5th bit in 0xE0 .. 0xEF is always clear, so `init` is still valid
         // SAFETY: `bytes` produces an UTF-8-like string,
         // so the iterator must produce a value here.
-        let z = **ptr;
-        *ptr = ptr.offset(1);
+        let z = unsafe { **ptr };
+        *ptr = unsafe { ptr.offset(1) };
         let y_z = utf8_acc_cont_byte((y & CONT_MASK) as u32, z);
         ch = (init << 12) | y_z;
         if x >= 0xF0 {
@@ -187,8 +187,8 @@ unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
             // use only the lower 3 bits of `init`
             // SAFETY: `bytes` produces an UTF-8-like string,
             // so the iterator must produce a value here.
-            let w = **ptr;
-            *ptr = ptr.offset(1);
+            let w = unsafe { **ptr };
+            *ptr = unsafe { ptr.offset(1) };
             ch = ((init & 7) << 18) | utf8_acc_cont_byte(y_z, w);
         }
     }
@@ -205,8 +205,8 @@ unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
 #[inline]
 unsafe fn next_code_point_reverse(ptr: &mut *const u8) -> u32 {
     // Decode UTF-8
-    *ptr = ptr.offset(-1);
-    let w = match **ptr {
+    *ptr = unsafe { ptr.offset(-1) };
+    let w = match unsafe { **ptr } {
         next_byte if next_byte < 128 => return next_byte as u32,
         back_byte => back_byte,
     };
@@ -216,20 +216,20 @@ unsafe fn next_code_point_reverse(ptr: &mut *const u8) -> u32 {
     let mut ch;
     // SAFETY: `bytes` produces an UTF-8-like string,
     // so the iterator must produce a value here.
-    *ptr = ptr.offset(-1);
-    let z = **ptr;
+    *ptr = unsafe { ptr.offset(-1) };
+    let z = unsafe { **ptr };
     ch = utf8_first_byte(z, 2);
     if utf8_is_cont_byte(z) {
         // SAFETY: `bytes` produces an UTF-8-like string,
         // so the iterator must produce a value here.
-        *ptr = ptr.offset(-1);
-        let y = **ptr;
+        *ptr = unsafe { ptr.offset(-1) };
+        let y = unsafe { **ptr };
         ch = utf8_first_byte(y, 3);
         if utf8_is_cont_byte(y) {
             // SAFETY: `bytes` produces an UTF-8-like string,
             // so the iterator must produce a value here.
-            *ptr = ptr.offset(-1);
-            let x = **ptr;
+            *ptr = unsafe { ptr.offset(-1) };
+            let x = unsafe { **ptr };
             ch = utf8_first_byte(x, 4);
             ch = utf8_acc_cont_byte(ch, y);
         }

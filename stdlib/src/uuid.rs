@@ -5,7 +5,7 @@ mod _uuid {
     use crate::{builtins::PyNone, vm::VirtualMachine};
     use mac_address::get_mac_address;
     use once_cell::sync::OnceCell;
-    use uuid::{timestamp::Timestamp, Context, Uuid};
+    use uuid::{Context, Uuid, timestamp::Timestamp};
 
     fn get_node_id() -> [u8; 6] {
         match get_mac_address() {

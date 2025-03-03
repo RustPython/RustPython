@@ -15,7 +15,7 @@ pub use argument::{
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
-pub use builtin::{static_func, static_raw_func, IntoPyNativeFn, PyNativeFn};
+pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
 pub use either::Either;
 pub use fspath::FsPath;
 pub use getset::PySetterValue;
@@ -24,7 +24,7 @@ pub use method::{HeapMethodDef, PyMethodDef, PyMethodFlags};
 pub use number::{ArgIndex, ArgIntoBool, ArgIntoComplex, ArgIntoFloat, ArgPrimitiveIndex, ArgSize};
 pub use protocol::{ArgCallable, ArgIterable, ArgMapping, ArgSequence};
 
-use crate::{builtins::PyStr, convert::TryFromBorrowedObject, PyObject, PyResult, VirtualMachine};
+use crate::{PyObject, PyResult, VirtualMachine, builtins::PyStr, convert::TryFromBorrowedObject};
 use builtin::{BorrowedParam, OwnedParam, RefParam};
 
 #[derive(Clone, Copy, PartialEq, Eq)]

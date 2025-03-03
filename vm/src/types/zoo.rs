@@ -1,4 +1,5 @@
 use crate::{
+    Py,
     builtins::{
         asyncgenerator, bool_, builtin_func, bytearray, bytes, classmethod, code, complex,
         coroutine, descriptor, dict, enumerate, filter, float, frame, function, generator,
@@ -10,7 +11,6 @@ use crate::{
     },
     class::StaticType,
     vm::Context,
-    Py,
 };
 
 /// Holder of references to builtin types.

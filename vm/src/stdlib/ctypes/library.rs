@@ -1,18 +1,17 @@
 use crate::VirtualMachine;
-use crossbeam_utils::atomic::AtomicCell;
 use libloading::Library;
-use rustpython_common::lock::PyRwLock;
+use rustpython_common::lock::{PyMutex, PyRwLock};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt;
 use std::ptr::null;
 
 pub struct SharedLibrary {
-    lib: AtomicCell<Option<Library>>,
+    pub(crate) lib: PyMutex<Option<Library>>,
 }
 
 impl fmt::Debug for SharedLibrary {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "SharedLibrary")
     }
 }
@@ -20,26 +19,13 @@ impl fmt::Debug for SharedLibrary {
 impl SharedLibrary {
     pub fn new(name: &str) -> Result<SharedLibrary, libloading::Error> {
         Ok(SharedLibrary {
-            lib: AtomicCell::new(Some(unsafe { Library::new(name)? })),
+            lib: PyMutex::new(unsafe { Some(Library::new(name)?) }),
         })
     }
 
-    #[allow(dead_code)]
-    pub fn get_sym(&self, name: &str) -> Result<*mut c_void, String> {
-        if let Some(inner) = unsafe { &*self.lib.as_ptr() } {
-            unsafe {
-                inner
-                    .get(name.as_bytes())
-                    .map(|f: libloading::Symbol<*mut c_void>| *f)
-                    .map_err(|err| err.to_string())
-            }
-        } else {
-            Err("The library has been closed".to_string())
-        }
-    }
-
     pub fn get_pointer(&self) -> usize {
-        if let Some(l) = unsafe { &*self.lib.as_ptr() } {
+        let lib_lock = self.lib.lock();
+        if let Some(l) = &*lib_lock {
             l as *const Library as usize
         } else {
             null::<c_void>() as usize
@@ -47,13 +33,12 @@ impl SharedLibrary {
     }
 
     pub fn is_closed(&self) -> bool {
-        unsafe { &*self.lib.as_ptr() }.is_none()
+        let lib_lock = self.lib.lock();
+        lib_lock.is_none()
     }
 
     pub fn close(&self) {
-        let old = self.lib.take();
-        self.lib.store(None);
-        drop(old);
+        *self.lib.lock() = None;
     }
 }
 
@@ -83,7 +68,7 @@ impl ExternalLibs {
         &mut self,
         library_path: &str,
         _vm: &VirtualMachine,
-    ) -> Result<&SharedLibrary, libloading::Error> {
+    ) -> Result<(usize, &SharedLibrary), libloading::Error> {
         let nlib = SharedLibrary::new(library_path)?;
         let key = nlib.get_pointer();
 
@@ -98,7 +83,7 @@ impl ExternalLibs {
             }
         };
 
-        Ok(self.libraries.get(&key).unwrap())
+        Ok((key, self.libraries.get(&key).unwrap()))
     }
 
     pub fn drop_lib(&mut self, key: usize) {

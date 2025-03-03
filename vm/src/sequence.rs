@@ -1,10 +1,10 @@
 use crate::{
+    AsObject, PyObject, PyObjectRef, PyResult,
     builtins::PyIntRef,
     function::OptionalArg,
     sliceable::SequenceIndexOp,
     types::PyComparisonOp,
-    vm::{VirtualMachine, MAX_MEMORY_SIZE},
-    AsObject, PyObject, PyObjectRef, PyResult,
+    vm::{MAX_MEMORY_SIZE, VirtualMachine},
 };
 use optional::Optioned;
 use std::ops::{Deref, Range};

@@ -2,10 +2,10 @@
 
 */
 use crate::{
+    Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     convert::ToPyResult,
     function::{BorrowedParam, OwnedParam, RefParam},
     object::PyThreadingConstraint,
-    Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 
 #[derive(result_like::OptionLike, is_macro::Is, Debug)]

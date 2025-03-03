@@ -14,7 +14,6 @@ license.workspace = true
 default = ["compiler"]
 compiler = ["rustpython-vm/compiler"]
 threading = ["rustpython-common/threading", "rustpython-vm/threading"]
-zlib = ["libz-sys", "flate2/zlib"]
 bz2 = ["bzip2"]
 sqlite = ["dep:libsqlite3-sys"]
 ssl = ["openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
@@ -48,7 +47,6 @@ memchr = { workspace = true }
 base64 = "0.13.0"
 csv-core = "0.1.11"
 dyn-clone = "1.0.10"
-libz-sys = { version = "1.1", default-features = false, optional = true }
 puruspe = "0.4.0"
 xml-rs = "0.8.14"
 
@@ -81,7 +79,8 @@ ucd = "0.1.1"
 # compression
 adler32 = "1.2.0"
 crc32fast = "1.3.2"
-flate2 = "1.0.28"
+flate2 = { version = "1.1", default-features = false, features = ["zlib-rs"] }
+libz-sys = { package = "libz-rs-sys", version = "0.4" }
 bzip2 = { version = "0.4", optional = true }
 
 # uuid

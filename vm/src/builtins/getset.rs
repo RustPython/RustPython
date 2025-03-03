@@ -3,10 +3,10 @@
 */
 use super::{PyType, PyTypeRef};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     function::{IntoPyGetterFunc, IntoPySetterFunc, PyGetterFunc, PySetterFunc, PySetterValue},
     types::{GetDescriptor, Unconstructible},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 
 #[pyclass(module = false, name = "getset_descriptor")]

@@ -3,9 +3,9 @@ pub(crate) use _bisect::make_module;
 #[pymodule]
 mod _bisect {
     use crate::vm::{
+        PyObjectRef, PyResult, VirtualMachine,
         function::{ArgIndex, OptionalArg},
         types::PyComparisonOp,
-        PyObjectRef, PyResult, VirtualMachine,
     };
 
     #[derive(FromArgs)]

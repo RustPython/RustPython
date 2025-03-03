@@ -1,8 +1,8 @@
 use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use std::collections::{HashMap, HashSet};
-use syn::{spanned::Spanned, Attribute, Ident, Result, Signature, UseTree};
+use syn::{Attribute, Ident, Result, Signature, UseTree, spanned::Spanned};
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
     types::*,
@@ -75,7 +75,7 @@ impl ItemNursery {
 
 impl ToTokens for ValidatedItemNursery {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        let mut sorted = self.0 .0.clone();
+        let mut sorted = self.0.0.clone();
         sorted.sort_by(|a, b| a.sort_order.cmp(&b.sort_order));
         tokens.extend(sorted.iter().map(|item| {
             let cfgs = &item.cfgs;
@@ -447,7 +447,7 @@ impl ItemMeta for ExceptionItemMeta {
         Self(ClassItemMeta(inner))
     }
     fn inner(&self) -> &ItemMetaInner {
-        &self.0 .0
+        &self.0.0
     }
 }
 
@@ -470,12 +470,12 @@ impl ExceptionItemMeta {
                         let type_name = inner.item_name();
                         let Some(py_name) = type_name.as_str().strip_prefix("Py") else {
                             bail_span!(
-                            inner.item_ident,
-                            "#[pyexception] expects its underlying type to be named `Py` prefixed"
-                        )
+                                inner.item_ident,
+                                "#[pyexception] expects its underlying type to be named `Py` prefixed"
+                            )
                         };
                         py_name.to_string()
-                    })
+                    });
                 }
                 _ => {}
             }

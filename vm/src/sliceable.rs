@@ -1,7 +1,7 @@
 // export through sliceable module, not slice.
 use crate::{
-    builtins::{int::PyInt, slice::PySlice},
     PyObject, PyResult, VirtualMachine,
+    builtins::{int::PyInt, slice::PySlice},
 };
 use malachite_bigint::BigInt;
 use num_traits::{Signed, ToPrimitive};
@@ -357,13 +357,8 @@ impl SaturatedSlice {
         if step == 0 {
             return Err(vm.new_value_error("slice step cannot be zero".to_owned()));
         }
-        let start = to_isize_index(vm, slice.start_ref(vm))?.unwrap_or_else(|| {
-            if step.is_negative() {
-                isize::MAX
-            } else {
-                0
-            }
-        });
+        let start = to_isize_index(vm, slice.start_ref(vm))?
+            .unwrap_or_else(|| if step.is_negative() { isize::MAX } else { 0 });
 
         let stop = to_isize_index(vm, &slice.stop(vm))?.unwrap_or_else(|| {
             if step.is_negative() {

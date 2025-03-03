@@ -5,7 +5,7 @@ use crate::string::{
     is_uni_word, is_word, lower_ascii, lower_locate, lower_unicode, upper_locate, upper_unicode,
 };
 
-use super::{SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor, MAXREPEAT};
+use super::{MAXREPEAT, SreAtCode, SreCatCode, SreInfo, SreOpcode, StrDrive, StringCursor};
 use optional::Optioned;
 use std::{convert::TryFrom, ptr::null};
 
@@ -122,14 +122,14 @@ pub struct State {
 }
 
 impl State {
-    pub fn reset<S: StrDrive>(&mut self, req: &Request<S>, start: usize) {
+    pub fn reset<S: StrDrive>(&mut self, req: &Request<'_, S>, start: usize) {
         self.marks.clear();
         self.repeat_stack.clear();
         self.start = start;
         req.string.adjust_cursor(&mut self.cursor, start);
     }
 
-    pub fn pymatch<S: StrDrive>(&mut self, req: &Request<S>) -> bool {
+    pub fn pymatch<S: StrDrive>(&mut self, req: &Request<'_, S>) -> bool {
         self.start = req.start;
         req.string.adjust_cursor(&mut self.cursor, self.start);
 
@@ -144,7 +144,7 @@ impl State {
         _match(req, self, ctx)
     }
 
-    pub fn search<S: StrDrive>(&mut self, mut req: Request<S>) -> bool {
+    pub fn search<S: StrDrive>(&mut self, mut req: Request<'_, S>) -> bool {
         self.start = req.start;
         req.string.adjust_cursor(&mut self.cursor, self.start);
 
@@ -279,7 +279,7 @@ enum Jump {
     PossessiveRepeat4,
 }
 
-fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContext) -> bool {
+fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchContext) -> bool {
     let mut context_stack = vec![];
     let mut popped_result = false;
 
@@ -882,7 +882,7 @@ fn _match<S: StrDrive>(req: &Request<S>, state: &mut State, mut ctx: MatchContex
 }
 
 fn search_info_literal<const LITERAL: bool, S: StrDrive>(
-    req: &mut Request<S>,
+    req: &mut Request<'_, S>,
     state: &mut State,
     mut ctx: MatchContext,
 ) -> bool {
@@ -998,7 +998,7 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
 }
 
 fn search_info_charset<S: StrDrive>(
-    req: &mut Request<S>,
+    req: &mut Request<'_, S>,
     state: &mut State,
     mut ctx: MatchContext,
 ) -> bool {
@@ -1054,11 +1054,11 @@ impl MatchContext {
         &req.pattern_codes[self.code_position..]
     }
 
-    fn remaining_codes<S>(&self, req: &Request<S>) -> usize {
+    fn remaining_codes<S>(&self, req: &Request<'_, S>) -> usize {
         req.pattern_codes.len() - self.code_position
     }
 
-    fn remaining_chars<S>(&self, req: &Request<S>) -> usize {
+    fn remaining_chars<S>(&self, req: &Request<'_, S>) -> usize {
         req.end - self.cursor.position
     }
 
@@ -1086,11 +1086,11 @@ impl MatchContext {
         S::back_advance(&mut self.cursor)
     }
 
-    fn peek_code<S>(&self, req: &Request<S>, peek: usize) -> u32 {
+    fn peek_code<S>(&self, req: &Request<'_, S>, peek: usize) -> u32 {
         req.pattern_codes[self.code_position + peek]
     }
 
-    fn try_peek_code_as<T, S>(&self, req: &Request<S>, peek: usize) -> Result<T, T::Error>
+    fn try_peek_code_as<T, S>(&self, req: &Request<'_, S>, peek: usize) -> Result<T, T::Error>
     where
         T: TryFrom<u32>,
     {
@@ -1101,7 +1101,7 @@ impl MatchContext {
         self.code_position += skip;
     }
 
-    fn skip_code_from<S>(&mut self, req: &Request<S>, peek: usize) {
+    fn skip_code_from<S>(&mut self, req: &Request<'_, S>, peek: usize) {
         self.skip_code(self.peek_code(req, peek) as usize + 1);
     }
 
@@ -1110,17 +1110,17 @@ impl MatchContext {
         self.cursor.position == 0
     }
 
-    fn at_end<S>(&self, req: &Request<S>) -> bool {
+    fn at_end<S>(&self, req: &Request<'_, S>) -> bool {
         self.cursor.position == req.end
     }
 
-    fn at_linebreak<S: StrDrive>(&self, req: &Request<S>) -> bool {
+    fn at_linebreak<S: StrDrive>(&self, req: &Request<'_, S>) -> bool {
         !self.at_end(req) && is_linebreak(self.peek_char::<S>())
     }
 
     fn at_boundary<S: StrDrive, F: FnMut(u32) -> bool>(
         &self,
-        req: &Request<S>,
+        req: &Request<'_, S>,
         mut word_checker: F,
     ) -> bool {
         if self.at_beginning() && self.at_end(req) {
@@ -1133,7 +1133,7 @@ impl MatchContext {
 
     fn at_non_boundary<S: StrDrive, F: FnMut(u32) -> bool>(
         &self,
-        req: &Request<S>,
+        req: &Request<'_, S>,
         mut word_checker: F,
     ) -> bool {
         if self.at_beginning() && self.at_end(req) {
@@ -1144,7 +1144,7 @@ impl MatchContext {
         this == that
     }
 
-    fn can_success<S>(&self, req: &Request<S>) -> bool {
+    fn can_success<S>(&self, req: &Request<'_, S>) -> bool {
         if !self.toplevel {
             return true;
         }
@@ -1158,7 +1158,7 @@ impl MatchContext {
     }
 
     #[must_use]
-    fn next_peek_from<S>(&mut self, peek: usize, req: &Request<S>, jump: Jump) -> Self {
+    fn next_peek_from<S>(&mut self, peek: usize, req: &Request<'_, S>, jump: Jump) -> Self {
         self.next_offset(self.peek_code(req, peek) as usize + 1, jump)
     }
 
@@ -1179,7 +1179,7 @@ impl MatchContext {
     }
 }
 
-fn at<S: StrDrive>(req: &Request<S>, ctx: &MatchContext, atcode: SreAtCode) -> bool {
+fn at<S: StrDrive>(req: &Request<'_, S>, ctx: &MatchContext, atcode: SreAtCode) -> bool {
     match atcode {
         SreAtCode::BEGINNING | SreAtCode::BEGINNING_STRING => ctx.at_beginning(),
         SreAtCode::BEGINNING_LINE => ctx.at_beginning() || is_linebreak(ctx.back_peek_char::<S>()),
@@ -1327,7 +1327,7 @@ fn charset(set: &[u32], ch: u32) -> bool {
 }
 
 fn _count<S: StrDrive>(
-    req: &Request<S>,
+    req: &Request<'_, S>,
     state: &mut State,
     ctx: &mut MatchContext,
     max_count: usize,
@@ -1399,7 +1399,7 @@ fn _count<S: StrDrive>(
 }
 
 fn general_count_literal<S: StrDrive, F: FnMut(u32, u32) -> bool>(
-    req: &Request<S>,
+    req: &Request<'_, S>,
     ctx: &mut MatchContext,
     end: usize,
     mut f: F,

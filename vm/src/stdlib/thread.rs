@@ -1,20 +1,20 @@
 //! Implementation of the _thread module
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
-pub(crate) use _thread::{make_module, RawRMutex};
+pub(crate) use _thread::{RawRMutex, make_module};
 
 #[pymodule]
 pub(crate) mod _thread {
     use crate::{
+        AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStr, PyTupleRef, PyTypeRef},
         convert::ToPyException,
         function::{ArgCallable, Either, FuncArgs, KwArgs, OptionalArg, PySetterValue},
         types::{Constructor, GetAttr, Representable, SetAttr},
-        AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use parking_lot::{
-        lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
         RawMutex, RawThreadId,
+        lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
     use std::{cell::RefCell, fmt, thread, time::Duration};
     use thread_local::ThreadLocal;
@@ -115,7 +115,7 @@ pub(crate) mod _thread {
     }
 
     impl fmt::Debug for Lock {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.pad("Lock")
         }
     }
@@ -192,7 +192,7 @@ pub(crate) mod _thread {
     }
 
     impl fmt::Debug for RLock {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             f.pad("RLock")
         }
     }

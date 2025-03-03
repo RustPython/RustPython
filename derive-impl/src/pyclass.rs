@@ -1,14 +1,14 @@
 use super::Diagnostic;
 use crate::util::{
-    format_doc, pyclass_ident_and_attrs, pyexception_ident_and_attrs, text_signature,
-    ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta, ItemMeta,
-    ItemMetaInner, ItemNursery, SimpleItemMeta, ALL_ALLOWED_NAMES,
+    ALL_ALLOWED_NAMES, ClassItemMeta, ContentItem, ContentItemInner, ErrorVec, ExceptionItemMeta,
+    ItemMeta, ItemMetaInner, ItemNursery, SimpleItemMeta, format_doc, pyclass_ident_and_attrs,
+    pyexception_ident_and_attrs, text_signature,
 };
 use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{ToTokens, quote, quote_spanned};
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
-use syn::{parse_quote, spanned::Spanned, Attribute, Ident, Item, Result};
+use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::*;
 
@@ -25,7 +25,7 @@ enum AttrName {
 }
 
 impl std::fmt::Display for AttrName {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             Self::Method => "pymethod",
             Self::ClassMethod => "pyclassmethod",
@@ -126,7 +126,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                                         return Err(syn::Error::new_spanned(
                                             segment,
                                             "Py{Ref}<T> is expected but Py{Ref}<?> is found",
-                                        ))
+                                        ));
                                     }
                                 }
                             }
@@ -134,7 +134,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                                 return Err(syn::Error::new_spanned(
                                     segment,
                                     "Py{Ref}<T> is expected but Py{Ref}? is found",
-                                ))
+                                ));
                             }
                         }
                     } else {
@@ -152,7 +152,7 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
                     return Err(syn::Error::new_spanned(
                         imp.self_ty,
                         "PyImpl can only be implemented for Py{Ref}<T> or T",
-                    ))
+                    ));
                 }
             };
 
@@ -1237,11 +1237,7 @@ impl MethodItemMeta {
             name
         } else {
             let name = inner.item_name();
-            if magic {
-                format!("__{name}__")
-            } else {
-                name
-            }
+            if magic { format!("__{name}__") } else { name }
         })
     }
 }
@@ -1308,11 +1304,7 @@ impl GetSetItemMeta {
                 GetSetItemKind::Set => extract_prefix_name("set_", "setter")?,
                 GetSetItemKind::Delete => extract_prefix_name("del_", "deleter")?,
             };
-            if magic {
-                format!("__{name}__")
-            } else {
-                name
-            }
+            if magic { format!("__{name}__") } else { name }
         };
         Ok((py_name, kind))
     }
@@ -1488,7 +1480,10 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                             )
                         } else {
                             if path.is_ident("DefaultConstructor") {
-                                bail_span!(meta, "Try `#[pyclass(with(Constructor, ...))]` instead of `#[pyclass(with(DefaultConstructor, ...))]`. DefaultConstructor implicitly implements Constructor.")
+                                bail_span!(
+                                    meta,
+                                    "Try `#[pyclass(with(Constructor, ...))]` instead of `#[pyclass(with(DefaultConstructor, ...))]`. DefaultConstructor implicitly implements Constructor."
+                                )
                             }
                             if path.is_ident("Constructor") || path.is_ident("Unconstructible") {
                                 has_constructor = true;

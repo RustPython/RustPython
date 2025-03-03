@@ -3,10 +3,10 @@ pub use msvcrt::*;
 #[pymodule]
 mod msvcrt {
     use crate::{
+        PyRef, PyResult, VirtualMachine,
         builtins::{PyBytes, PyStrRef},
         common::suppress_iph,
         stdlib::os::errno_err,
-        PyRef, PyResult, VirtualMachine,
     };
     use itertools::Itertools;
     use windows_sys::Win32::{

@@ -1,5 +1,6 @@
 use super::{genericalias, type_};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
     builtins::{PyFrozenSet, PyStr, PyTuple, PyTupleRef, PyType},
     class::PyClassImpl,
@@ -8,7 +9,6 @@ use crate::{
     function::PyComparisonValue,
     protocol::{PyMappingMethods, PyNumberMethods},
     types::{AsMapping, AsNumber, Comparable, GetAttr, Hashable, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use once_cell::sync::Lazy;
 use std::fmt;
@@ -22,7 +22,7 @@ pub struct PyUnion {
 }
 
 impl fmt::Debug for PyUnion {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("UnionObject")
     }
 }

@@ -1,10 +1,10 @@
 use crate::{
-    builtins::{type_::PointerSlot, PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
+    PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
+    builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef, type_::PointerSlot},
     convert::ToPyObject,
     function::PyArithmeticValue,
     object::{Traverse, TraverseFn},
     protocol::{PyMapping, PyNumberBinaryOp},
-    PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -28,16 +28,18 @@ impl PyObject {
 #[allow(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PySequenceMethods {
-    pub length: AtomicCell<Option<fn(PySequence, &VirtualMachine) -> PyResult<usize>>>,
-    pub concat: AtomicCell<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub repeat: AtomicCell<Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>>,
-    pub item: AtomicCell<Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>>,
+    pub length: AtomicCell<Option<fn(PySequence<'_>, &VirtualMachine) -> PyResult<usize>>>,
+    pub concat: AtomicCell<Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult>>,
+    pub repeat: AtomicCell<Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>>,
+    pub item: AtomicCell<Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>>,
     pub ass_item: AtomicCell<
-        Option<fn(PySequence, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
+        Option<fn(PySequence<'_>, isize, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>>,
     >,
-    pub contains: AtomicCell<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult<bool>>>,
-    pub inplace_concat: AtomicCell<Option<fn(PySequence, &PyObject, &VirtualMachine) -> PyResult>>,
-    pub inplace_repeat: AtomicCell<Option<fn(PySequence, isize, &VirtualMachine) -> PyResult>>,
+    pub contains:
+        AtomicCell<Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult<bool>>>,
+    pub inplace_concat:
+        AtomicCell<Option<fn(PySequence<'_>, &PyObject, &VirtualMachine) -> PyResult>>,
+    pub inplace_repeat: AtomicCell<Option<fn(PySequence<'_>, isize, &VirtualMachine) -> PyResult>>,
 }
 
 impl Debug for PySequenceMethods {
@@ -67,7 +69,7 @@ pub struct PySequence<'a> {
 }
 
 unsafe impl Traverse for PySequence<'_> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.obj.traverse(tracer_fn)
     }
 }

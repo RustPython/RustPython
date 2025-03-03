@@ -5,9 +5,9 @@ mod _scproxy {
     // straight-forward port of Modules/_scproxy.c
 
     use crate::vm::{
+        PyResult, VirtualMachine,
         builtins::{PyDictRef, PyStr},
         convert::ToPyObject,
-        PyResult, VirtualMachine,
     };
     use system_configuration::core_foundation::{
         array::CFArray,
@@ -56,10 +56,7 @@ mod _scproxy {
                 .map(|s| {
                     unsafe { CFType::from_void(*s) }
                         .downcast::<CFString>()
-                        .map(|s| {
-                            let a_string: std::borrow::Cow<str> = (&s).into();
-                            PyStr::from(a_string.into_owned())
-                        })
+                        .map(|s| PyStr::from(s.to_string()))
                         .to_pyobject(vm)
                 })
                 .collect();

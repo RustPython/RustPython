@@ -1,8 +1,8 @@
 use crate::{
+    PyObjectRef, PyResult, VirtualMachine,
     builtins::PyStr,
     convert::{ToPyException, ToPyObject},
     exceptions::cstring_error,
-    PyObjectRef, PyResult, VirtualMachine,
 };
 
 pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
