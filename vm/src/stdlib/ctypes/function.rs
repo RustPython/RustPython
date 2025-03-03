@@ -50,7 +50,7 @@ impl Function {
             library
                 .get(terminated.as_bytes())
                 .map_err(|err| err.to_string())
-                .map_err(|err| vm.new_value_error(err))?
+                .map_err(|err| vm.new_attribute_error(err))?
         };
         let code_ptr = CodePtr(*pointer as *mut _);
         let return_type = match ret_type {
