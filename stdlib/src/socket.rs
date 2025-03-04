@@ -2135,7 +2135,7 @@ mod _socket {
     #[cfg(all(unix, not(target_os = "redox")))]
     type IfIndex = c::c_uint;
     #[cfg(windows)]
-    type IfIndex = u32;
+    type IfIndex = u32;  // NET_IFINDEX but windows-sys 0.59 doesn't have it
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
