@@ -33,13 +33,16 @@ def create_string_buffer(init, size=None):
         if size is None:
             size = len(init)+1
         _sys.audit("ctypes.create_string_buffer", init, size)
-        buftype = c_char * size
+        buftype = c_char.__mul__(size)
+        print(type(c_char.__mul__(size)))
+        # buftype = c_char * size
         buf = buftype()
         buf.value = init
         return buf
     elif isinstance(init, int):
         _sys.audit("ctypes.create_string_buffer", None, init)
-        buftype = c_char * init
+        buftype = c_char.__mul__(init)
+        # buftype = c_char * init
         buf = buftype()
         return buf
     raise TypeError(init)
@@ -260,8 +263,11 @@ class LibraryLoader(object):
 
 cdll = LibraryLoader(CDLL)
 
+test_byte_array = create_string_buffer(b"Hello, World!")
+
 if _os.name == "posix" or _sys.platform == "darwin":
     pass
 else:
     libc = cdll.msvcrt
-    print("rand", libc.rand())
+    libc.rand()
+    libc.printf(test_byte_array)
