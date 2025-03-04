@@ -50,7 +50,7 @@ impl Function {
             library
                 .get(terminated.as_bytes())
                 .map_err(|err| err.to_string())
-                .map_err(|err| vm.new_value_error(err))?
+                .map_err(|err| vm.new_attribute_error(err))?
         };
         let code_ptr = CodePtr(*pointer as *mut _);
         let return_type = match ret_type {
@@ -172,5 +172,15 @@ impl PyCFuncPtr {
     #[pygetset(setter, magic)]
     fn set_name(&self, name: String) {
         *self.name.write() = name;
+    }
+
+    #[pygetset(name = "_restype_")]
+    fn restype(&self) -> Option<PyTypeRef> {
+        self._restype_.read().as_ref().cloned()
+    }
+
+    #[pygetset(name = "_restype_", setter)]
+    fn set_restype(&self, restype: PyTypeRef) {
+        *self._restype_.write() = Some(restype);
     }
 }
