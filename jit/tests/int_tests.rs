@@ -121,7 +121,6 @@ fn test_mod() {
     assert_eq!(modulo(-5, 10), Ok(-5));
 }
 
-
 #[test]
 fn test_lshift() {
     let lshift = jit_function! { lshift(a:i64, b:i64) -> i64 => r##"

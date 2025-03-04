@@ -1,5 +1,5 @@
 use super::{JitCompileError, JitSig, JitType};
-use cranelift::{codegen::ir::FuncRef};
+use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
 use rustpython_compiler_core::bytecode::{
