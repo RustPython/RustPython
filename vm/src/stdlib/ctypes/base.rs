@@ -1,3 +1,4 @@
+use super::array::{PyCArray, PyCArrayType};
 use crate::builtins::PyType;
 use crate::builtins::{PyBytes, PyFloat, PyInt, PyNone, PyStr, PyTypeRef};
 use crate::convert::ToPyObject;
@@ -245,5 +246,25 @@ impl PyCSimple {
         let content = set_primitive(zelf._type_.as_str(), &value, vm)?;
         zelf.value.store(content);
         Ok(())
+    }
+
+    #[pyclassmethod]
+    fn repeat(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
+        if n < 0 {
+            return Err(vm.new_value_error(format!("Array length must be >= 0, not {}", n)));
+        }
+        Ok(PyCArrayType {
+            inner: PyCArray {
+                typ: PyRwLock::new(cls),
+                length: AtomicCell::new(n as usize),
+                value: PyRwLock::new(vm.ctx.none()),
+            },
+        }
+        .to_pyobject(vm))
+    }
+
+    #[pyclassmethod(magic)]
+    fn mul(cls: PyTypeRef, n: isize, vm: &VirtualMachine) -> PyResult {
+        PyCSimple::repeat(cls, n, vm)
     }
 }
