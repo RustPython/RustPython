@@ -130,7 +130,7 @@ mod _overlapped {
 
     fn mark_as_completed(ov: &mut OVERLAPPED) {
         ov.Internal = 0;
-        if ov.hEvent != std::ptr::null_mut() {
+        if !ov.hEvent.is_null() {
             unsafe { windows_sys::Win32::System::Threading::SetEvent(ov.hEvent) };
         }
     }
@@ -263,7 +263,7 @@ mod _overlapped {
         type Args = (isize,);
 
         fn py_new(cls: PyTypeRef, (mut event,): Self::Args, vm: &VirtualMachine) -> PyResult {
-            if event as isize == INVALID_HANDLE_VALUE as isize {
+            if event == INVALID_HANDLE_VALUE(vm) {
                 event = unsafe {
                     windows_sys::Win32::System::Threading::CreateEventA(
                         std::ptr::null(),
@@ -272,7 +272,7 @@ mod _overlapped {
                         std::ptr::null(),
                     ) as isize
                 };
-                if event as isize == NULL {
+                if event == NULL {
                     return Err(errno_err(vm));
                 }
             }

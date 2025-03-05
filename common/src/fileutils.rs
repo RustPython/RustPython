@@ -320,7 +320,7 @@ pub mod windows {
             .get_or_init(|| {
                 let library_name = OsString::from("api-ms-win-core-file-l2-1-4").to_wide_with_nul();
                 let module = unsafe { LoadLibraryW(library_name.as_ptr()) };
-                if module == std::ptr::null_mut() {
+                if module.is_null() {
                     return None;
                 }
                 let name = CString::new("GetFileInformationByName").unwrap();
