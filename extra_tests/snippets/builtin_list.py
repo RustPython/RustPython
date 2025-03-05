@@ -636,6 +636,27 @@ assert it.__length_hint__() == 0
 a = [*[1, 2], 3, *[4, 5]]
 assert a == [1, 2, 3, 4, 5]
 
+# Test for list unpacking evaluation order (https://github.com/RustPython/RustPython/issues/5566)
+a = [1, 2]
+b = [a.append(3), *a, a.append(4), *a]
+assert a == [1, 2, 3, 4]
+assert b == [None, 1, 2, 3, None, 1, 2, 3, 4]
+
+for base in object, list, tuple:
+    # do not assume that a type inherited from some sequence type behaves like
+    # that sequence type
+    class C(base):
+        def __iter__(self):
+            a.append(2)
+            def inner():
+                yield 3
+                a.append(4)
+            return inner()
+
+    a = [1]
+    b = [*a, *C(), *a.copy()]
+    assert b == [1, 3, 1, 2, 4]
+
 # Test for list entering daedlock or not (https://github.com/RustPython/RustPython/pull/2933)
 class MutatingCompare:
     def __eq__(self, other):
