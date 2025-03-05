@@ -36,7 +36,9 @@ mod _socket {
     #[cfg(windows)]
     mod c {
         pub use windows_sys::Win32::NetworkManagement::IpHelper::{if_indextoname, if_nametoindex};
-        pub use windows_sys::Win32::Networking::WinSock::{INADDR_ANY, INADDR_LOOPBACK, INADDR_BROADCAST, INADDR_NONE};
+        pub use windows_sys::Win32::Networking::WinSock::{
+            INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
+        };
 
         pub use windows_sys::Win32::Networking::WinSock::{
             AF_APPLETALK, AF_DECnet, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
@@ -1757,12 +1759,7 @@ mod _socket {
             .map(|s| s.to_cstring(vm))
             .transpose()?;
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
-        let serv = unsafe {
-            c::getservbyname(
-                cstr_name.as_ptr() as _,
-                cstr_proto as _,
-            )
-        };
+        let serv = unsafe { c::getservbyname(cstr_name.as_ptr() as _, cstr_proto as _) };
         if serv.is_null() {
             return Err(vm.new_os_error("service/proto not found".to_owned()));
         }

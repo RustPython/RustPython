@@ -275,18 +275,14 @@ mod _winapi {
 
         Ok((
             HANDLE(procinfo.hProcess as _),
-            HANDLE(procinfo.hThread  as _),
+            HANDLE(procinfo.hThread as _),
             procinfo.dwProcessId,
             procinfo.dwThreadId,
         ))
     }
 
     #[pyfunction]
-    fn OpenProcess(
-        desired_access: u32,
-        inherit_handle: bool,
-        process_id: u32,
-    ) -> isize {
+    fn OpenProcess(desired_access: u32, inherit_handle: bool, process_id: u32) -> isize {
         unsafe {
             windows_sys::Win32::System::Threading::OpenProcess(
                 desired_access,
@@ -438,7 +434,8 @@ mod _winapi {
 
     #[pyfunction]
     fn WaitForSingleObject(h: HANDLE, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
-        let ret = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0 as _, ms) };
+        let ret =
+            unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0 as _, ms) };
         if ret == windows_sys::Win32::Foundation::WAIT_FAILED {
             Err(errno_err(vm))
         } else {
@@ -512,6 +509,8 @@ mod _winapi {
 
     #[pyfunction]
     fn ReleaseMutex(handle: isize) -> WindowsSysResult<BOOL> {
-        WindowsSysResult(unsafe { windows_sys::Win32::System::Threading::ReleaseMutex(handle as _) })
+        WindowsSysResult(unsafe {
+            windows_sys::Win32::System::Threading::ReleaseMutex(handle as _)
+        })
     }
 }

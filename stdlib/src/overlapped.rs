@@ -303,7 +303,12 @@ mod _overlapped {
         vm: &VirtualMachine,
     ) -> PyResult<isize> {
         let r = unsafe {
-            windows_sys::Win32::System::IO::CreateIoCompletionPort(handle as _, port as _, key, concurrency) as isize
+            windows_sys::Win32::System::IO::CreateIoCompletionPort(
+                handle as _,
+                port as _,
+                key,
+                concurrency,
+            ) as isize
         };
         if r as usize == 0 {
             return Err(errno_err(vm));
