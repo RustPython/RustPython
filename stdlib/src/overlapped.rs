@@ -24,13 +24,17 @@ mod _overlapped {
     use windows_sys::Win32::{
         Foundation::{
             ERROR_IO_PENDING, ERROR_NETNAME_DELETED, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY,
-            ERROR_PORT_UNREACHABLE, ERROR_SEM_TIMEOUT, INVALID_HANDLE_VALUE,
+            ERROR_PORT_UNREACHABLE, ERROR_SEM_TIMEOUT,
         },
         Networking::WinSock::{
             SO_UPDATE_ACCEPT_CONTEXT, SO_UPDATE_CONNECT_CONTEXT, TF_REUSE_SOCKET,
         },
         System::Threading::INFINITE,
     };
+    #[pyattr(once)]
+    fn INVALID_HANDLE_VALUE(_vm: &VirtualMachine) -> isize {
+        windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE as isize
+    }
     #[pyattr]
     const NULL: isize = 0;
 
@@ -126,7 +130,7 @@ mod _overlapped {
 
     fn mark_as_completed(ov: &mut OVERLAPPED) {
         ov.Internal = 0;
-        if ov.hEvent != 0 {
+        if ov.hEvent != std::ptr::null_mut() {
             unsafe { windows_sys::Win32::System::Threading::SetEvent(ov.hEvent) };
         }
     }
@@ -164,7 +168,7 @@ mod _overlapped {
 
         fn WSARecv_inner(
             inner: &mut OverlappedInner,
-            handle: HANDLE,
+            handle: isize,
             buf: &[u8],
             mut flags: u32,
             vm: &VirtualMachine,
@@ -209,7 +213,7 @@ mod _overlapped {
         #[pymethod]
         fn WSARecv(
             zelf: &Py<Self>,
-            handle: HANDLE,
+            handle: isize,
             size: u32,
             flags: u32,
             vm: &VirtualMachine,
@@ -224,9 +228,9 @@ mod _overlapped {
 
             let buf = vec![0u8; std::cmp::max(size, 1) as usize];
             let buf = vm.ctx.new_bytes(buf);
-            inner.handle = handle;
+            inner.handle = handle as _;
 
-            let r = Self::WSARecv_inner(&mut inner, handle, buf.as_bytes(), flags, vm);
+            let r = Self::WSARecv_inner(&mut inner, handle as _, buf.as_bytes(), flags, vm);
             inner.data = OverlappedData::Read(buf);
             r
         }
@@ -256,30 +260,30 @@ mod _overlapped {
     }
 
     impl Constructor for Overlapped {
-        type Args = (HANDLE,);
+        type Args = (isize,);
 
         fn py_new(cls: PyTypeRef, (mut event,): Self::Args, vm: &VirtualMachine) -> PyResult {
-            if event == INVALID_HANDLE_VALUE {
+            if event as isize == INVALID_HANDLE_VALUE as isize {
                 event = unsafe {
                     windows_sys::Win32::System::Threading::CreateEventA(
                         std::ptr::null(),
                         Foundation::TRUE,
                         Foundation::FALSE,
                         std::ptr::null(),
-                    )
+                    ) as isize
                 };
-                if event == NULL {
+                if event as isize == NULL {
                     return Err(errno_err(vm));
                 }
             }
 
             let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
             if event != NULL {
-                overlapped.hEvent = event;
+                overlapped.hEvent = event as _;
             }
             let inner = OverlappedInner {
                 overlapped,
-                handle: NULL,
+                handle: NULL as _,
                 error: 0,
                 data: OverlappedData::None,
             };
@@ -292,29 +296,29 @@ mod _overlapped {
 
     #[pyfunction]
     fn CreateIoCompletionPort(
-        handle: HANDLE,
-        port: HANDLE,
+        handle: isize,
+        port: isize,
         key: usize,
         concurrency: u32,
         vm: &VirtualMachine,
-    ) -> PyResult<HANDLE> {
+    ) -> PyResult<isize> {
         let r = unsafe {
-            windows_sys::Win32::System::IO::CreateIoCompletionPort(handle, port, key, concurrency)
+            windows_sys::Win32::System::IO::CreateIoCompletionPort(handle as _, port as _, key, concurrency) as isize
         };
-        if r == 0 {
+        if r as usize == 0 {
             return Err(errno_err(vm));
         }
         Ok(r)
     }
 
     #[pyfunction]
-    fn GetQueuedCompletionStatus(port: HANDLE, msecs: u32, vm: &VirtualMachine) -> PyResult {
+    fn GetQueuedCompletionStatus(port: isize, msecs: u32, vm: &VirtualMachine) -> PyResult {
         let mut bytes_transferred = 0;
         let mut completion_key = 0;
         let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
         let ret = unsafe {
             windows_sys::Win32::System::IO::GetQueuedCompletionStatus(
-                port,
+                port as _,
                 &mut bytes_transferred,
                 &mut completion_key,
                 &mut overlapped,

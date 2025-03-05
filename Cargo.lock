@@ -2023,7 +2023,7 @@ dependencies = [
  "siphasher 0.3.11",
  "volatile",
  "widestring",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2252,7 +2252,7 @@ dependencies = [
  "unicode_names2",
  "uuid",
  "widestring",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
  "xml-rs",
 ]
 
@@ -2332,7 +2332,7 @@ dependencies = [
  "which",
  "widestring",
  "windows",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
  "winreg",
 ]
 
