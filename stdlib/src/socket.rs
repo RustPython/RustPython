@@ -36,11 +36,7 @@ mod _socket {
     #[cfg(windows)]
     mod c {
         pub use windows_sys::Win32::NetworkManagement::IpHelper::{if_indextoname, if_nametoindex};
-
-        pub const INADDR_ANY: u32 = 0x00000000;
-        pub const INADDR_LOOPBACK: u32 = 0x7f000001;
-        pub const INADDR_BROADCAST: u32 = 0xffffffff;
-        pub const INADDR_NONE: u32 = 0xffffffff;
+        pub use windows_sys::Win32::Networking::WinSock::{INADDR_ANY, INADDR_LOOPBACK, INADDR_BROADCAST, INADDR_NONE};
 
         pub use windows_sys::Win32::Networking::WinSock::{
             AF_APPLETALK, AF_DECnet, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
@@ -2135,7 +2131,7 @@ mod _socket {
     #[cfg(all(unix, not(target_os = "redox")))]
     type IfIndex = c::c_uint;
     #[cfg(windows)]
-    type IfIndex = u32;  // NET_IFINDEX but windows-sys 0.59 doesn't have it
+    type IfIndex = u32; // NET_IFINDEX but windows-sys 0.59 doesn't have it
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]

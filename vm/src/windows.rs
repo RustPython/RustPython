@@ -23,7 +23,7 @@ impl WindowsSysResultValue for RAW_HANDLE {
         *self == INVALID_HANDLE_VALUE
     }
     fn into_ok(self) -> Self::Ok {
-        HANDLE(self)
+        HANDLE(self as _)
     }
 }
 

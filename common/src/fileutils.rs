@@ -116,7 +116,7 @@ pub mod windows {
         let h = h?;
         // reset stat?
 
-        let file_type = unsafe { GetFileType(h) };
+        let file_type = unsafe { GetFileType(h as _) };
         if file_type == FILE_TYPE_UNKNOWN {
             return Err(std::io::Error::last_os_error());
         }
@@ -138,10 +138,10 @@ pub mod windows {
         let mut basic_info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
         let mut id_info: FILE_ID_INFO = unsafe { std::mem::zeroed() };
 
-        if unsafe { GetFileInformationByHandle(h, &mut info) } == 0
+        if unsafe { GetFileInformationByHandle(h as _, &mut info) } == 0
             || unsafe {
                 GetFileInformationByHandleEx(
-                    h,
+                    h as _,
                     FileBasicInfo,
                     &mut basic_info as *mut _ as *mut _,
                     std::mem::size_of_val(&basic_info) as u32,
@@ -153,7 +153,7 @@ pub mod windows {
 
         let p_id_info = if unsafe {
             GetFileInformationByHandleEx(
-                h,
+                h  as _,
                 FileIdInfo,
                 &mut id_info as *mut _ as *mut _,
                 std::mem::size_of_val(&id_info) as u32,
@@ -320,7 +320,7 @@ pub mod windows {
             .get_or_init(|| {
                 let library_name = OsString::from("api-ms-win-core-file-l2-1-4").to_wide_with_nul();
                 let module = unsafe { LoadLibraryW(library_name.as_ptr()) };
-                if module == 0 {
+                if module == std::ptr::null_mut() {
                     return None;
                 }
                 let name = CString::new("GetFileInformationByName").unwrap();
