@@ -422,8 +422,6 @@ class TestNtpath(NtpathTestCase):
         os.symlink(ABSTFN, ntpath.relpath(ABSTFN + "1"))
         self.assertPathEqual(ntpath.realpath(ABSTFN + "1"), ABSTFN)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @os_helper.skip_unless_symlink
     @unittest.skipUnless(HAVE_GETFINALPATHNAME, 'need _getfinalpathname')
     def test_realpath_broken_symlinks(self):
