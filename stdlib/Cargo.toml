@@ -18,6 +18,7 @@ bz2 = ["bzip2"]
 sqlite = ["dep:libsqlite3-sys"]
 ssl = ["openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
 ssl-vendor = ["ssl", "openssl/vendored"]
+tkinter = []
 
 [dependencies]
 # rustpython crates
