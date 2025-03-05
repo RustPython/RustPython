@@ -8,7 +8,7 @@ mod _tkinter {
     use tk::cmd::*;
 
     #[pyattr]
-    const TK_VERSION: &str = "8.6.12";
+    const TK_VERSION: &str = "8.6";
     #[pyattr]
     const TCL_VERSION: &str = "8.6";
 
