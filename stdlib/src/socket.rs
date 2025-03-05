@@ -1757,15 +1757,12 @@ mod _socket {
             .map(|s| s.to_cstring(vm))
             .transpose()?;
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
-        #[cfg(windows)]
         let serv = unsafe {
             c::getservbyname(
-                cstr_name.as_ptr() as windows_sys::core::PCSTR,
-                cstr_proto as windows_sys::core::PCSTR,
+                cstr_name.as_ptr() as _,
+                cstr_proto as _,
             )
         };
-        #[cfg(not(windows))]
-        let serv = unsafe { c::getservbyname(cstr_name.as_ptr(), cstr_proto) };
         if serv.is_null() {
             return Err(vm.new_os_error("service/proto not found".to_owned()));
         }
@@ -1787,18 +1784,11 @@ mod _socket {
             .map(|s| s.to_cstring(vm))
             .transpose()?;
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
-        #[cfg(windows)]
-        let serv =
-            unsafe { c::getservbyport(port.to_be() as _, cstr_proto as windows_sys::core::PCSTR) };
-        #[cfg(not(windows))]
-        let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto) };
+        let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto as _) };
         if serv.is_null() {
             return Err(vm.new_os_error("port/proto not found".to_owned()));
         }
-        #[cfg(windows)]
-        let s = unsafe { ffi::CStr::from_ptr((*serv).s_name as *const i8) };
-        #[cfg(not(windows))]
-        let s = unsafe { ffi::CStr::from_ptr((*serv).s_name) };
+        let s = unsafe { ffi::CStr::from_ptr((*serv).s_name as _) };
         Ok(s.to_string_lossy().into_owned())
     }
 
@@ -2050,10 +2040,7 @@ mod _socket {
     #[pyfunction]
     fn getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let cstr = name.to_cstring(vm)?;
-        #[cfg(windows)]
-        let proto = unsafe { c::getprotobyname(cstr.as_ptr() as *const u8) };
-        #[cfg(not(windows))]
-        let proto = unsafe { c::getprotobyname(cstr.as_ptr()) };
+        let proto = unsafe { c::getprotobyname(cstr.as_ptr() as _) };
         if proto.is_null() {
             return Err(vm.new_os_error("protocol not found".to_owned()));
         }
@@ -2138,10 +2125,7 @@ mod _socket {
     fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         let name = name.to_cstring(vm)?;
 
-        #[cfg(windows)]
-        let ret = unsafe { c::if_nametoindex(name.as_ptr() as *const u8) };
-        #[cfg(not(windows))]
-        let ret = unsafe { c::if_nametoindex(name.as_ptr()) };
+        let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
         if ret == 0 {
             Err(vm.new_os_error("no interface with this name".to_owned()))
         } else {
@@ -2157,10 +2141,7 @@ mod _socket {
         if ret.is_null() {
             Err(crate::vm::stdlib::os::errno_err(vm))
         } else {
-            #[cfg(windows)]
-            let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as *const i8) };
-            #[cfg(not(windows))]
-            let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr()) };
+            let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as _) };
             Ok(buf.to_string_lossy().into_owned())
         }
     }
