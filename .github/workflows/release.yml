@@ -109,6 +109,13 @@ jobs:
       - uses: actions/setup-node@v4
       - uses: mwilliamson/setup-wabt-action@v3
         with: { wabt-version: "1.0.30" }
+      - name: build demo
+        run: |
+          npm install
+          npm run dist
+        env:
+          NODE_OPTIONS: "--openssl-legacy-provider"
+        working-directory: ./wasm/demo
       - name: build notebook demo
         run: |
           npm install
