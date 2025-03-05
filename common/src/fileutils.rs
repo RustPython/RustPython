@@ -153,7 +153,7 @@ pub mod windows {
 
         let p_id_info = if unsafe {
             GetFileInformationByHandleEx(
-                h  as _,
+                h as _,
                 FileIdInfo,
                 &mut id_info as *mut _ as *mut _,
                 std::mem::size_of_val(&id_info) as u32,
