@@ -194,7 +194,6 @@ class TestRmTree(BaseTest, unittest.TestCase):
         self.assertIsInstance(victim, bytes)
         shutil.rmtree(victim)
 
-    @unittest.skipIf(sys.platform == 'win32', 'TODO: RUSTPYTHON; flaky')
     @os_helper.skip_unless_symlink
     def test_rmtree_fails_on_symlink_onerror(self):
         tmp = self.mkdtemp()
