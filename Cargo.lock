@@ -2550,6 +2550,7 @@ dependencies = [
  "sha3",
  "socket2",
  "system-configuration",
+ "tcl",
  "termios",
  "thread_local",
  "tk",
