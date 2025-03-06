@@ -150,7 +150,7 @@ pub(crate) mod module {
         }
 
         let h = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) };
-        if h == 0 {
+        if h.is_null() {
             return Err(errno_err(vm));
         }
         let ret = unsafe { Threading::TerminateProcess(h, sig) };
@@ -172,7 +172,7 @@ pub(crate) mod module {
                 _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
             };
             let h = unsafe { Console::GetStdHandle(stdhandle) };
-            if h == 0 {
+            if h.is_null() {
                 return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
             }
             if h == INVALID_HANDLE_VALUE {

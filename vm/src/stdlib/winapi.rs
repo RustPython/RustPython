@@ -79,7 +79,7 @@ mod _winapi {
 
     #[pyfunction]
     fn CloseHandle(handle: HANDLE) -> WindowsSysResult<BOOL> {
-        WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0) })
+        WindowsSysResult(unsafe { windows_sys::Win32::Foundation::CloseHandle(handle.0 as _) })
     }
 
     #[pyfunction]
@@ -99,8 +99,8 @@ mod _winapi {
             let mut read = std::mem::MaybeUninit::<isize>::uninit();
             let mut write = std::mem::MaybeUninit::<isize>::uninit();
             WindowsSysResult(windows_sys::Win32::System::Pipes::CreatePipe(
-                read.as_mut_ptr(),
-                write.as_mut_ptr(),
+                read.as_mut_ptr() as _,
+                write.as_mut_ptr() as _,
                 std::ptr::null(),
                 size,
             ))
@@ -122,10 +122,10 @@ mod _winapi {
         let target = unsafe {
             let mut target = std::mem::MaybeUninit::<isize>::uninit();
             WindowsSysResult(windows_sys::Win32::Foundation::DuplicateHandle(
-                src_process.0,
-                src.0,
-                target_process.0,
-                target.as_mut_ptr(),
+                src_process.0 as _,
+                src.0 as _,
+                target_process.0 as _,
+                target.as_mut_ptr() as _,
                 access,
                 inherit,
                 options.unwrap_or(0),
@@ -151,7 +151,7 @@ mod _winapi {
         h: HANDLE,
         vm: &VirtualMachine,
     ) -> PyResult<windows_sys::Win32::Storage::FileSystem::FILE_TYPE> {
-        let file_type = unsafe { windows_sys::Win32::Storage::FileSystem::GetFileType(h.0) };
+        let file_type = unsafe { windows_sys::Win32::Storage::FileSystem::GetFileType(h.0 as _) };
         if file_type == 0 && unsafe { windows_sys::Win32::Foundation::GetLastError() } != 0 {
             Err(errno_err(vm))
         } else {
@@ -274,25 +274,21 @@ mod _winapi {
         };
 
         Ok((
-            HANDLE(procinfo.hProcess),
-            HANDLE(procinfo.hThread),
+            HANDLE(procinfo.hProcess as _),
+            HANDLE(procinfo.hThread as _),
             procinfo.dwProcessId,
             procinfo.dwThreadId,
         ))
     }
 
     #[pyfunction]
-    fn OpenProcess(
-        desired_access: u32,
-        inherit_handle: bool,
-        process_id: u32,
-    ) -> windows_sys::Win32::Foundation::HANDLE {
+    fn OpenProcess(desired_access: u32, inherit_handle: bool, process_id: u32) -> isize {
         unsafe {
             windows_sys::Win32::System::Threading::OpenProcess(
                 desired_access,
                 BOOL::from(inherit_handle),
                 process_id,
-            )
+            ) as _
         }
     }
 
@@ -438,7 +434,8 @@ mod _winapi {
 
     #[pyfunction]
     fn WaitForSingleObject(h: HANDLE, ms: u32, vm: &VirtualMachine) -> PyResult<u32> {
-        let ret = unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0, ms) };
+        let ret =
+            unsafe { windows_sys::Win32::System::Threading::WaitForSingleObject(h.0 as _, ms) };
         if ret == windows_sys::Win32::Foundation::WAIT_FAILED {
             Err(errno_err(vm))
         } else {
@@ -451,7 +448,7 @@ mod _winapi {
         unsafe {
             let mut ec = std::mem::MaybeUninit::uninit();
             WindowsSysResult(windows_sys::Win32::System::Threading::GetExitCodeProcess(
-                h.0,
+                h.0 as _,
                 ec.as_mut_ptr(),
             ))
             .to_pyresult(vm)?;
@@ -462,7 +459,7 @@ mod _winapi {
     #[pyfunction]
     fn TerminateProcess(h: HANDLE, exit_code: u32) -> WindowsSysResult<BOOL> {
         WindowsSysResult(unsafe {
-            windows_sys::Win32::System::Threading::TerminateProcess(h.0, exit_code)
+            windows_sys::Win32::System::Threading::TerminateProcess(h.0 as _, exit_code)
         })
     }
 
@@ -507,11 +504,13 @@ mod _winapi {
         // if handle.is_invalid() {
         //     return Err(errno_err(vm));
         // }
-        Ok(handle)
+        Ok(handle as _)
     }
 
     #[pyfunction]
     fn ReleaseMutex(handle: isize) -> WindowsSysResult<BOOL> {
-        WindowsSysResult(unsafe { windows_sys::Win32::System::Threading::ReleaseMutex(handle) })
+        WindowsSysResult(unsafe {
+            windows_sys::Win32::System::Threading::ReleaseMutex(handle as _)
+        })
     }
 }

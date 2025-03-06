@@ -2,6 +2,9 @@ on:
   schedule:
     - cron: '0 0 * * 6'
   workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/cron-ci.yaml
 
 name: Periodic checks/tasks
 
@@ -97,9 +100,9 @@ jobs:
           cd website
           [ -f ./_data/whats_left.temp ] && cp ./_data/whats_left.temp ./_data/whats_left_lastrun.temp
           cp ../whats_left.temp ./_data/whats_left.temp
-          rm _data/whats_left/modules.csv
-          cat _data/whats_left.temp | grep "(entire module)" | cut -d ' ' -f 1 | sort >> ../_data/whats_left/modules.csv
-
+          rm ./_data/whats_left/modules.csv
+          echo -e "modules\n" > ./_data/whats_left/modules.csv
+          cat ./_data/whats_left.temp | grep "(entire module)" | cut -d ' ' -f 1 | sort >> ./_data/whats_left/modules.csv
           git add -A
           if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update what is left results" --author="$GITHUB_ACTOR"; then
             git push
