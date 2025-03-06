@@ -18,7 +18,7 @@ bz2 = ["bzip2"]
 sqlite = ["dep:libsqlite3-sys"]
 ssl = ["openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
 ssl-vendor = ["ssl", "openssl/vendored"]
-tkinter = ["dep:tk"]
+tkinter = ["dep:tk", "dep:tcl"]
 
 [dependencies]
 # rustpython crates
@@ -86,6 +86,7 @@ bzip2 = { version = "0.4", optional = true }
 
 # tkinter
 tk = { version = "0.1.10", optional = true }
+tcl = { version = "0.1.9", optional = true }
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
