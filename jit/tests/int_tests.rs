@@ -124,6 +124,18 @@ fn test_mod() {
 }
 
 #[test]
+fn test_power(){
+    let power = jit_function!{ power(a:i64, b:i64) -> i64 => r##"
+        def power(a: int, b: int):
+            return a ** b
+    "##
+    };
+    assert_eq!(power(10, 2), Ok(100));
+    assert_eq!(power(5, 1), Ok(5));
+    assert_eq!(power(1, 0), Ok(1));
+}
+
+#[test]
 fn test_lshift() {
     let lshift = jit_function! { lshift(a:i64, b:i64) -> i64 => r##"
         def lshift(a: int, b: int):
