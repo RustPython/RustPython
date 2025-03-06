@@ -3,9 +3,10 @@ use crate::{Py, PyObjectRef, PyPayload};
 use crate::{PyResult, VirtualMachine, builtins::PyTypeRef, types::Constructor};
 use crossbeam_utils::atomic::AtomicCell;
 use rustpython_common::lock::PyRwLock;
+use rustpython_vm::stdlib::ctypes::base::PyCSimple;
 
 // TODO: make it metaclass
-#[pyclass(name = "Array", module = "_ctypes")]
+#[pyclass(name = "ArrayType", module = "_ctypes")]
 #[derive(PyPayload)]
 pub struct PyCArrayType {
     pub(super) inner: PyCArray,
@@ -34,15 +35,15 @@ impl Callable for PyCArrayType {
 impl Constructor for PyCArrayType {
     type Args = PyObjectRef;
 
-    fn py_new(_cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
+    fn py_new(_cls: PyTypeRef, _args: Self::Args, _vm: &VirtualMachine) -> PyResult {
         unreachable!()
     }
 }
 
-#[pyclass(flags(IMMUTABLETYPE))]
+#[pyclass(flags(IMMUTABLETYPE), with(Callable, Constructor))]
 impl PyCArrayType {}
 
-#[pyclass(name = "Array", module = "_ctypes")]
+#[pyclass(name = "Array", base = "PyCSimple", module = "_ctypes")]
 #[derive(PyPayload)]
 pub struct PyCArray {
     pub(super) typ: PyRwLock<PyTypeRef>,
@@ -72,7 +73,7 @@ impl Constructor for PyCArray {
     }
 }
 
-#[pyclass(flags(BASETYPE, IMMUTABLETYPE))]
+#[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor))]
 impl PyCArray {
     #[pygetset(name = "_type_")]
     fn typ(&self) -> PyTypeRef {
@@ -84,12 +85,12 @@ impl PyCArray {
         self.length.load()
     }
 
-    #[pygetset(name = "_value_")]
+    #[pygetset]
     fn value(&self) -> PyObjectRef {
         self.value.read().clone()
     }
 
-    #[pygetset(setter, name = "_value_")]
+    #[pygetset(setter)]
     fn set_value(&self, value: PyObjectRef) {
         *self.value.write() = value;
     }
