@@ -2013,6 +2013,7 @@ dependencies = [
  "malachite-base",
  "malachite-bigint",
  "malachite-q",
+ "memchr",
  "num-complex",
  "num-traits",
  "once_cell",

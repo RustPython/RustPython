@@ -1,3 +1,5 @@
+use rustpython_common::wtf8::{CodePoint, Wtf8Buf};
+
 use crate::{
     AsObject, Context, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef},
@@ -570,10 +572,11 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyOb
             return Err(err.downcast().unwrap());
         }
         let s_after_start =
-            crate::common::str::try_get_chars(s.as_str(), range.start..).unwrap_or("");
+            crate::common::str::try_get_codepoints(s.as_wtf8(), range.start..).unwrap_or_default();
         let num_chars = range.len();
         let mut out: Vec<u8> = Vec::with_capacity(num_chars * 4);
-        for c in s_after_start.chars().take(num_chars).map(|x| x as u32) {
+        for c in s_after_start.code_points().take(num_chars) {
+            let c = c.to_u32();
             if !(0xd800..=0xdfff).contains(&c) {
                 // Not a surrogate, fail with original exception
                 return Err(err.downcast().unwrap());
@@ -671,7 +674,7 @@ fn surrogatepass_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyOb
         }
 
         Ok((
-            vm.new_pyobj(format!("\\x{c:x?}")),
+            vm.new_pyobj(CodePoint::from_u32(c).unwrap()),
             range.start + byte_length,
         ))
     } else {
@@ -683,11 +686,11 @@ fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Py
     if err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error) {
         let range = extract_unicode_error_range(&err, vm)?;
         let object = PyStrRef::try_from_object(vm, err.get_attr("object", vm)?)?;
-        let s_after_start =
-            crate::common::str::try_get_chars(object.as_str(), range.start..).unwrap_or("");
+        let s_after_start = crate::common::str::try_get_codepoints(object.as_wtf8(), range.start..)
+            .unwrap_or_default();
         let mut out: Vec<u8> = Vec::with_capacity(range.len());
-        for ch in s_after_start.chars().take(range.len()) {
-            let ch = ch as u32;
+        for ch in s_after_start.code_points().take(range.len()) {
+            let ch = ch.to_u32();
             if !(0xdc80..=0xdcff).contains(&ch) {
                 // Not a UTF-8b surrogate, fail with original exception
                 return Err(err.downcast().unwrap());
@@ -702,14 +705,14 @@ fn surrogateescape_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(Py
         let object = PyBytesRef::try_from_object(vm, object)?;
         let p = &object.as_bytes()[range.clone()];
         let mut consumed = 0;
-        let mut replace = String::with_capacity(4 * range.len());
+        let mut replace = Wtf8Buf::with_capacity(4 * range.len());
         while consumed < 4 && consumed < range.len() {
-            let c = p[consumed] as u32;
+            let c = p[consumed] as u16;
             // Refuse to escape ASCII bytes
             if c < 128 {
                 break;
             }
-            write!(replace, "#{}", 0xdc00 + c).unwrap();
+            replace.push(CodePoint::from(0xdc00 + c));
             consumed += 1;
         }
         if consumed == 0 {

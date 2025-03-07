@@ -21,6 +21,7 @@ use crate::{
 };
 use indexmap::IndexMap;
 use itertools::Itertools;
+use rustpython_common::wtf8::Wtf8Buf;
 #[cfg(feature = "threading")]
 use std::sync::atomic;
 use std::{fmt, iter::zip};
@@ -697,8 +698,8 @@ impl ExecutingFrame<'_> {
                     .pop_multiple(size.get(arg) as usize)
                     .as_slice()
                     .iter()
-                    .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_ref())
-                    .collect::<String>();
+                    .map(|pyobj| pyobj.payload::<PyStr>().unwrap())
+                    .collect::<Wtf8Buf>();
                 let str_obj = vm.ctx.new_str(s);
                 self.push_value(str_obj.into());
                 Ok(None)
@@ -1468,7 +1469,7 @@ impl ExecutingFrame<'_> {
         let kwarg_names = kwarg_names
             .as_slice()
             .iter()
-            .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_ref().to_owned());
+            .map(|pyobj| pyobj.payload::<PyStr>().unwrap().as_str().to_owned());
         FuncArgs::with_kwargs_names(args, kwarg_names)
     }
 
