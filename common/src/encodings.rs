@@ -1,10 +1,12 @@
 use std::ops::Range;
 
+use crate::wtf8::{Wtf8, Wtf8Buf};
+
 pub type EncodeErrorResult<S, B, E> = Result<(EncodeReplace<S, B>, usize), E>;
 
 pub type DecodeErrorResult<S, B, E> = Result<(S, Option<B>, usize), E>;
 
-pub trait StrBuffer: AsRef<str> {
+pub trait StrBuffer: AsRef<Wtf8> {
     fn is_ascii(&self) -> bool {
         self.as_ref().is_ascii()
     }
@@ -63,19 +65,19 @@ fn decode_utf8_compatible<E: ErrorHandler, DecodeF, ErrF>(
     errors: &E,
     decode: DecodeF,
     handle_error: ErrF,
-) -> Result<(String, usize), E::Error>
+) -> Result<(Wtf8Buf, usize), E::Error>
 where
     DecodeF: Fn(&[u8]) -> Result<&str, DecodeError<'_>>,
     ErrF: Fn(&[u8], Option<usize>) -> HandleResult<'_>,
 {
     if data.is_empty() {
-        return Ok((String::new(), 0));
+        return Ok((Wtf8Buf::new(), 0));
     }
     // we need to coerce the lifetime to that of the function body rather than the
     // anonymous input lifetime, so that we can assign it data borrowed from data_from_err
     let mut data = data;
     let mut data_from_err: E::BytesBuf;
-    let mut out = String::with_capacity(data.len());
+    let mut out = Wtf8Buf::with_capacity(data.len());
     let mut remaining_index = 0;
     let mut remaining_data = data;
     loop {
@@ -98,7 +100,7 @@ where
                             err_idx..err_len.map_or_else(|| data.len(), |len| err_idx + len);
                         let (replace, new_data, restart) =
                             errors.handle_decode_error(data, err_range, reason)?;
-                        out.push_str(replace.as_ref());
+                        out.push_wtf8(replace.as_ref());
                         if let Some(new_data) = new_data {
                             data_from_err = new_data;
                             data = data_from_err.as_ref();
@@ -130,7 +132,7 @@ pub mod utf8 {
         data: &[u8],
         errors: &E,
         final_decode: bool,
-    ) -> Result<(String, usize), E::Error> {
+    ) -> Result<(Wtf8Buf, usize), E::Error> {
         decode_utf8_compatible(
             data,
             errors,
@@ -218,7 +220,7 @@ pub mod latin_1 {
                         )?;
                         match replace {
                             EncodeReplace::Str(s) => {
-                                if s.as_ref().chars().any(|c| (c as u32) > 255) {
+                                if s.as_ref().code_points().any(|c| c.to_u32() > 255) {
                                     return Err(
                                         errors.error_encoding(full_data, char_range, ERR_REASON)
                                     );
@@ -240,10 +242,10 @@ pub mod latin_1 {
         Ok(out)
     }
 
-    pub fn decode<E: ErrorHandler>(data: &[u8], _errors: &E) -> Result<(String, usize), E::Error> {
+    pub fn decode<E: ErrorHandler>(data: &[u8], _errors: &E) -> Result<(Wtf8Buf, usize), E::Error> {
         let out: String = data.iter().map(|c| *c as char).collect();
         let out_len = out.len();
-        Ok((out, out_len))
+        Ok((out.into(), out_len))
     }
 }
 
@@ -303,7 +305,7 @@ pub mod ascii {
         Ok(out)
     }
 
-    pub fn decode<E: ErrorHandler>(data: &[u8], errors: &E) -> Result<(String, usize), E::Error> {
+    pub fn decode<E: ErrorHandler>(data: &[u8], errors: &E) -> Result<(Wtf8Buf, usize), E::Error> {
         decode_utf8_compatible(
             data,
             errors,

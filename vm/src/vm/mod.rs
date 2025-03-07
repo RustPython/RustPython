@@ -610,7 +610,10 @@ impl VirtualMachine {
                 let from_list = from_list.to_pyobject(self);
                 import_func
                     .call((module.to_owned(), globals, locals, from_list, level), self)
-                    .map_err(|exc| import::remove_importlib_frames(self, &exc))
+                    .map_err(|exc| {
+                        import::remove_importlib_frames(self, &exc);
+                        exc
+                    })
             }
         }
     }
