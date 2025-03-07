@@ -204,7 +204,7 @@ impl PyUnion {
             vm,
         )?;
         let mut res;
-        if new_args.len() == 0 {
+        if new_args.is_empty() {
             res = make_union(&new_args, vm);
         } else {
             res = new_args.fast_getitem(0);

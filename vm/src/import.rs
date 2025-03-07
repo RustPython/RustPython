@@ -204,15 +204,15 @@ fn remove_importlib_frames_inner(
 
 // TODO: This function should do nothing on verbose mode.
 // TODO: Fix this function after making PyTraceback.next mutable
-pub fn remove_importlib_frames(
-    vm: &VirtualMachine,
-    exc: &PyBaseExceptionRef,
-) -> PyBaseExceptionRef {
+pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &PyBaseExceptionRef) {
+    if vm.state.settings.verbose != 0 {
+        return;
+    }
+
     let always_trim = exc.fast_isinstance(vm.ctx.exceptions.import_error);
 
     if let Some(tb) = exc.traceback() {
         let trimmed_tb = remove_importlib_frames_inner(vm, Some(tb), always_trim).0;
         exc.set_traceback(trimmed_tb);
     }
-    exc.clone()
 }

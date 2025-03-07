@@ -27,23 +27,20 @@ pub(crate) mod _struct {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             // CPython turns str to bytes but we do reversed way here
             // The only performance difference is this transition cost
-            let fmt = match_class! {
-                match obj {
-                    s @ PyStr => if s.is_ascii() {
-                        Some(s)
-                    } else {
-                        None
-                    },
-                    b @ PyBytes => if b.is_ascii() {
-                        Some(unsafe {
-                            PyStr::new_ascii_unchecked(b.as_bytes().to_vec())
-                        }.into_ref(&vm.ctx))
-                    } else {
-                        None
-                    },
-                    other => return Err(vm.new_type_error(format!("Struct() argument 1 must be a str or bytes object, not {}", other.class().name()))),
-                }
-            }.ok_or_else(|| vm.new_unicode_decode_error("Struct format must be a ascii string".to_owned()))?;
+            let fmt = match_class!(match obj {
+                s @ PyStr => s.is_ascii().then_some(s),
+                b @ PyBytes => ascii::AsciiStr::from_ascii(&b)
+                    .ok()
+                    .map(|s| vm.ctx.new_str(s)),
+                other =>
+                    return Err(vm.new_type_error(format!(
+                        "Struct() argument 1 must be a str or bytes object, not {}",
+                        other.class().name()
+                    ))),
+            })
+            .ok_or_else(|| {
+                vm.new_unicode_decode_error("Struct format must be a ascii string".to_owned())
+            })?;
             Ok(IntoStructFormatBytes(fmt))
         }
     }
