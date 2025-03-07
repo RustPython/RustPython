@@ -619,9 +619,9 @@ mod builtins {
                 Ok(character) => Ok(character.to_u32()),
                 Err(_) => {
                     let string_len = string.char_len();
-                    return Err(vm.new_type_error(format!(
+                    Err(vm.new_type_error(format!(
                         "ord() expected a character, but string of length {string_len} found"
-                    )));
+                    )))
                 }
             },
         }

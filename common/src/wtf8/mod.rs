@@ -31,6 +31,8 @@
 //! [WTF-8]: https://simonsapin.github.io/wtf-8
 //! [`OsStr`]: std::ffi::OsStr
 
+#![allow(clippy::precedence, clippy::match_overlapping_arm)]
+
 use core::fmt;
 use core::hash::{Hash, Hasher};
 use core::iter::FusedIterator;
@@ -74,7 +76,9 @@ impl fmt::Debug for CodePoint {
 impl CodePoint {
     /// Unsafely creates a new `CodePoint` without checking the value.
     ///
-    /// Only use when `value` is known to be less than or equal to 0x10FFFF.
+    /// # Safety
+    ///
+    /// `value` must be less than or equal to 0x10FFFF.
     #[inline]
     pub unsafe fn from_u32_unchecked(value: u32) -> CodePoint {
         CodePoint { value }
@@ -197,7 +201,7 @@ impl PartialEq<CodePoint> for char {
 ///
 /// Similar to `String`, but can additionally contain surrogate code points
 /// if they’re not in a surrogate pair.
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Default)]
 pub struct Wtf8Buf {
     bytes: Vec<u8>,
 }
@@ -247,7 +251,7 @@ impl Wtf8Buf {
     /// Creates a new, empty WTF-8 string.
     #[inline]
     pub fn new() -> Wtf8Buf {
-        Wtf8Buf { bytes: Vec::new() }
+        Wtf8Buf::default()
     }
 
     /// Creates a new, empty WTF-8 string with pre-allocated capacity for `capacity` bytes.
@@ -260,8 +264,9 @@ impl Wtf8Buf {
 
     /// Creates a WTF-8 string from a WTF-8 byte vec.
     ///
-    /// Since the byte vec is not checked for valid WTF-8, this function is
-    /// marked unsafe.
+    /// # Safety
+    ///
+    /// `value` must contain valid WTF-8.
     #[inline]
     pub unsafe fn from_bytes_unchecked(value: Vec<u8>) -> Wtf8Buf {
         Wtf8Buf { bytes: value }
@@ -276,18 +281,6 @@ impl Wtf8Buf {
     pub fn from_string(string: String) -> Wtf8Buf {
         Wtf8Buf {
             bytes: string.into_bytes(),
-        }
-    }
-
-    /// Creates a WTF-8 string from a UTF-8 `&str` slice.
-    ///
-    /// This copies the content of the slice.
-    ///
-    /// Since WTF-8 is a superset of UTF-8, this always succeeds.
-    #[inline]
-    pub fn from_str(s: &str) -> Wtf8Buf {
-        Wtf8Buf {
-            bytes: s.as_bytes().to_vec(),
         }
     }
 
@@ -540,6 +533,12 @@ impl From<String> for Wtf8Buf {
     }
 }
 
+impl From<&str> for Wtf8Buf {
+    fn from(s: &str) -> Self {
+        Wtf8Buf::from_string(s.to_owned())
+    }
+}
+
 /// A borrowed slice of well-formed WTF-8 data.
 ///
 /// Similar to `&str`, but can additionally contain surrogate code points
@@ -630,14 +629,15 @@ impl Wtf8 {
     ///
     /// Since WTF-8 is a superset of UTF-8, this always succeeds.
     #[inline]
-    pub fn from_str(value: &str) -> &Wtf8 {
-        unsafe { Wtf8::from_bytes_unchecked(value.as_bytes()) }
+    pub fn new<S: AsRef<Wtf8> + ?Sized>(value: &S) -> &Wtf8 {
+        value.as_ref()
     }
 
     /// Creates a WTF-8 slice from a WTF-8 byte slice.
     ///
-    /// Since the byte slice is not checked for valid WTF-8, this functions is
-    /// marked unsafe.
+    /// # Safety
+    ///
+    /// `value` must contain valid WTF-8.
     #[inline]
     pub unsafe fn from_bytes_unchecked(value: &[u8]) -> &Wtf8 {
         // SAFETY: start with &[u8], end with fancy &[u8]
@@ -967,7 +967,7 @@ impl Wtf8 {
 
 impl AsRef<Wtf8> for str {
     fn as_ref(&self) -> &Wtf8 {
-        Wtf8::from_str(self)
+        unsafe { Wtf8::from_bytes_unchecked(self.as_bytes()) }
     }
 }
 
@@ -1090,6 +1090,10 @@ pub fn check_utf8_boundary(slice: &Wtf8, index: usize) {
 }
 
 /// Copied from core::str::raw::slice_unchecked
+///
+/// # Safety
+///
+/// `begin` and `end` must be within bounds and on codepoint boundaries.
 #[inline]
 pub unsafe fn slice_unchecked(s: &Wtf8, begin: usize, end: usize) -> &Wtf8 {
     // SAFETY: memory layout of a &[u8] and &Wtf8 are the same
@@ -1158,7 +1162,7 @@ pub struct Wtf8CodePointIndices<'a> {
     pub(super) iter: Wtf8CodePoints<'a>,
 }
 
-impl<'a> Iterator for Wtf8CodePointIndices<'a> {
+impl Iterator for Wtf8CodePointIndices<'_> {
     type Item = (usize, CodePoint);
 
     #[inline]
@@ -1187,7 +1191,7 @@ impl<'a> Iterator for Wtf8CodePointIndices<'a> {
     }
 }
 
-impl<'a> DoubleEndedIterator for Wtf8CodePointIndices<'a> {
+impl DoubleEndedIterator for Wtf8CodePointIndices<'_> {
     #[inline]
     fn next_back(&mut self) -> Option<(usize, CodePoint)> {
         self.iter.next_back().map(|ch| {
@@ -1286,8 +1290,11 @@ impl Hash for CodePoint {
 
 // == BOX IMPLS ==
 
-pub unsafe fn from_boxed_wtf8_unchecked(w: Box<[u8]>) -> Box<Wtf8> {
-    unsafe { Box::from_raw(Box::into_raw(w) as *mut Wtf8) }
+/// # Safety
+///
+/// `value` must be valid WTF-8.
+pub unsafe fn from_boxed_wtf8_unchecked(value: Box<[u8]>) -> Box<Wtf8> {
+    unsafe { Box::from_raw(Box::into_raw(value) as *mut Wtf8) }
 }
 
 impl Clone for Box<Wtf8> {

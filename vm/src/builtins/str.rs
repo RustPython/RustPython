@@ -370,7 +370,7 @@ impl Constructor for PyStr {
 impl PyStr {
     /// # Safety: Given `bytes` must be valid data for given `kind`
     unsafe fn new_str_unchecked(data: Box<Wtf8>, kind: StrKind) -> Self {
-        unsafe { StrData::new_str_unchecked(data.into(), kind) }.into()
+        unsafe { StrData::new_str_unchecked(data, kind) }.into()
     }
 
     unsafe fn new_with_char_len<T: DeduceStrKind + Into<Box<Wtf8>>>(s: T, char_len: usize) -> Self {

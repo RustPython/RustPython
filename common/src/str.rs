@@ -159,7 +159,7 @@ impl From<Box<Wtf8>> for StrData {
         // doing the check is ~10x faster for ascii, and is actually only 2% slower worst case for
         // non-ascii; see https://github.com/RustPython/RustPython/pull/2586#issuecomment-844611532
         let kind = value.str_kind();
-        unsafe { Self::new_str_unchecked(value.into(), kind) }
+        unsafe { Self::new_str_unchecked(value, kind) }
     }
 }
 
@@ -219,7 +219,9 @@ impl From<CodePoint> for StrData {
 }
 
 impl StrData {
-    /// # Safety: Given `bytes` must be valid data for given `kind`
+    /// # Safety
+    ///
+    /// Given `bytes` must be valid data for given `kind`
     pub unsafe fn new_str_unchecked(data: Box<Wtf8>, kind: StrKind) -> Self {
         let len = match kind {
             StrKind::Ascii => data.len().into(),
@@ -231,9 +233,9 @@ impl StrData {
     /// # Safety
     ///
     /// `char_len` must be accurate.
-    pub unsafe fn new_with_char_len(s: Box<Wtf8>, kind: StrKind, char_len: usize) -> Self {
+    pub unsafe fn new_with_char_len(data: Box<Wtf8>, kind: StrKind, char_len: usize) -> Self {
         Self {
-            data: s.into(),
+            data,
             kind,
             len: char_len.into(),
         }
@@ -308,7 +310,7 @@ impl StrData {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s[index].into(),
             PyKindStr::Utf8(s) => s.chars().nth(index).unwrap().into(),
-            PyKindStr::Wtf8(w) => w.code_points().nth(index).unwrap().into(),
+            PyKindStr::Wtf8(w) => w.code_points().nth(index).unwrap(),
         }
     }
 }

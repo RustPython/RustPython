@@ -86,9 +86,8 @@ mod unicodedata {
         }
 
         fn check_age(&self, c: CodePoint) -> bool {
-            c.to_char().map_or(true, |c| {
-                Age::of(c).is_some_and(|age| age.actual() <= self.unic_version)
-            })
+            c.to_char()
+                .is_none_or(|c| Age::of(c).is_some_and(|age| age.actual() <= self.unic_version))
         }
 
         fn extract_char(
