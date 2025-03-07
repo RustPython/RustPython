@@ -72,9 +72,9 @@ if args.verbose:
 print("Attempting upgrade of pairs")
 run_base = ["cargo", "run", "--release", "--features=" + ",".join(features), "--", "-m", "test", ]
 careful_run = run_base.copy() + ["-x"] + skips
-for lib_file, test_file in cpy_lib_test_paris:
+for count, (lib_file, test_file) in enumerate(cpy_lib_test_paris):
     if test_file.name not in skips:
-        print(f"Upgrading {lib_file} and {test_file}")
+        print(f"[{count}/{len(cpy_lib_test_paris)}] Upgrading {lib_file} and {test_file}")
         if not args.dry_run:
             # Copy current files to a backup location
             shutil.copy(lib_file, lib_file.with_suffix(".temp"))
@@ -103,8 +103,8 @@ for lib_file, test_file in cpy_lib_test_paris:
         continue
 
 print("Attempting upgrade of non-pairs")
-for test_file in non_pairs:
-    print(f"Upgrading {test_file}")
+for test_file in enumerate(non_pairs):
+    print(f"[{count}/{len(non_pairs)}] Upgrading {test_file}")
     if not args.dry_run:
         # Copy current files to a backup location
         shutil.copy(test_file, test_file.with_suffix(".temp"))
