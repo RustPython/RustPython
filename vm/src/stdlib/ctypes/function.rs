@@ -1,4 +1,5 @@
 use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
+use crate::class::StaticType;
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
 use crate::stdlib::ctypes::PyCData;
@@ -38,13 +39,25 @@ impl Function {
         let args = args
             .iter()
             .map(|arg| {
-                if let Some(data) = arg.downcast_ref::<PyCSimple>() {
-                    Ok(ffi_type_from_str(&data._type_).unwrap())
+                dbg!();
+                if arg.obj_type().is_subclass(PyCSimple::static_type().into(), vm)? {
+                    dbg!();
+                    let typ = arg.get_attr("_type_", vm)?;
+                    let typ = typ.downcast_ref::<PyStr>().unwrap();
+                    let converted = ffi_type_from_str(typ.as_str());
+                    match converted {
+                        Some(t) => Ok(t),
+                        None => Err(vm.new_type_error(format!(
+                            "Invalid type: {}",
+                            typ.as_str()
+                        ))),
+                    }
                 } else {
                     Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
                 }
             })
             .collect::<PyResult<Vec<Type>>>()?;
+        dbg!();
         let terminated = format!("{}\0", function);
         let pointer: Symbol<'_, FP> = unsafe {
             library
