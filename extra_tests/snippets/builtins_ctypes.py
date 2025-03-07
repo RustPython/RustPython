@@ -264,6 +264,7 @@ class LibraryLoader(object):
 cdll = LibraryLoader(CDLL)
 
 test_byte_array = create_string_buffer(b"Hello, World!")
+assert test_byte_array._length_ == 14
 
 if _os.name == "posix" or _sys.platform == "darwin":
     pass
