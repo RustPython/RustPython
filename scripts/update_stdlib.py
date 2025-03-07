@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+import time
 
 def check_cpython_path(pwd):
     pwd = Path(pwd)
@@ -56,10 +57,12 @@ cpy_lib_files = list((cpy / "Lib").glob("*.py"))
 cpy_test_files = list((cpy / "Lib/test").glob("*.py"))
 
 cpy_lib_test_paris = []
+non_pairs = cpy_test_files
 for lib_file in cpy_lib_files:
     test_file = cpy / "Lib/test" / ("test_" + str(lib_file.relative_to(cpy / "Lib")))
     if test_file.exists():
         cpy_lib_test_paris.append((lib_file, test_file))
+        non_pairs.remove(test_file)
 
 print(f"Found {len(cpy_lib_test_paris)} test files")
 if args.verbose:
@@ -76,9 +79,11 @@ for lib_file, test_file in cpy_lib_test_paris:
             # Copy current files to a backup location
             shutil.copy(lib_file, lib_file.with_suffix(".temp"))
             shutil.copy(test_file, test_file.with_suffix(".temp"))
+            time.sleep(0.1)
             # Copy the files
             shutil.copy(lib_file, "Lib/")
             shutil.copy(test_file, "Lib/test/")
+            time.sleep(0.1)
             run = run_base.copy() + [test_file.name.replace(".py", "")]
             if args.careful:
                 run = careful_run
@@ -86,11 +91,37 @@ for lib_file, test_file in cpy_lib_test_paris:
             try:
                 subprocess.run(run, check=True)
             except subprocess.CalledProcessError as e:
+                time.sleep(1)
                 print(f"Test failed, reverting changes to {lib_file} and {test_file}")
                 shutil.copy(lib_file.with_suffix(".temp"), lib_file)
                 shutil.copy(test_file.with_suffix(".temp"), test_file)
+                time.sleep(0.1)
                 if args.verbose:
                     print(e)                
     else:
         print(f"Skipping {test_file}")
         continue
+
+print("Attempting upgrade of non-pairs")
+for test_file in non_pairs:
+    print(f"Upgrading {test_file}")
+    if not args.dry_run:
+        # Copy current files to a backup location
+        shutil.copy(test_file, test_file.with_suffix(".temp"))
+        time.sleep(0.1)
+        # Copy the files
+        shutil.copy(test_file, "Lib/test/")
+        time.sleep(0.1)
+        run = run_base.copy() + [test_file.name.replace(".py", "")]
+        if args.careful:
+            run = careful_run
+        # Run the tests, don't fail, but print the output if verbose and revert if failed
+        try:
+            subprocess.run(run, check=True)
+        except subprocess.CalledProcessError as e:
+            time.sleep(0.1)
+            print(f"Test failed, reverting changes to {test_file}")
+            shutil.copy(test_file.with_suffix(".temp"), test_file)
+            time.sleep(0.1)
+            if args.verbose:
+                print(e) 
