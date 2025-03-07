@@ -48,6 +48,7 @@ if implementation != "CPython":
 print(f"Checking cpython location at {args.cpy}")
 check_cpython_path(args.cpy)
 cpy = Path(args.cpy)
+cwd = Path.cwd()
 
 print("Building rustpython")
 features = ["encodings", "ssl"]
@@ -87,10 +88,12 @@ careful_run = run_base.copy() + ["-x"] + skips
 for count, (lib_file, test_file) in enumerate(cpy_lib_test_paris):
     if test_file.name not in skips:
         print(f"[{count + 1}/{len(cpy_lib_test_paris)}] Upgrading {lib_file} and {test_file}")
-        if not args.dry_run:
-            if filecmp.cmp(lib_file, cpy / "Lib" / lib_file.name) and filecmp.cmp(test_file, cpy / "Lib/test" / test_file.name):
+        dest = cwd / "Lib" / lib_file.name
+        test_dest = cwd / "Lib/test" / test_file.name
+        if dest.exists() and test_dest.exists() and filecmp.cmp(cwd / "Lib" / lib_file.name, cpy / "Lib" / lib_file.name) and filecmp.cmp(cwd / "Lib/test" / test_file.name, cpy / "Lib/test" / test_file.name):
                 print(f"Skipping {lib_file} and {test_file} because they are identical")
-            else:
+        else:
+            if not args.dry_run:
                 # Copy current files to a backup location
                 backup_file(lib_file)
                 backup_file(test_file)
@@ -121,28 +124,32 @@ for count, (lib_file, test_file) in enumerate(cpy_lib_test_paris):
 
 print("Attempting upgrade of non-pairs")
 for count, test_file in enumerate(non_pairs):
-    print(f"[{count + 1}/{len(non_pairs)}] Upgrading {test_file}")
-    if not args.dry_run:
-        if filecmp.cmp(test_file, cpy / "Lib/test" / test_file.name):
+    if test_file.name not in skips:
+        print(f"[{count + 1}/{len(non_pairs)}] Upgrading {test_file}")
+        dest = cwd / "Lib/test" / test_file.name
+        if dest.exists() and filecmp.cmp(dest, cpy / "Lib/test" / test_file.name):
             print(f"Skipping {test_file} because they are identical")
         else:
-            # Copy current files to a backup location
-            backup_file(test_file)
-            time.sleep(0.1)
-            # Copy the files
-            shutil.copy(test_file, "Lib/test/")
-            time.sleep(0.1)
-            run = run_base.copy() + [test_file.name.replace(".py", "")]
-            if args.careful:
-                run = careful_run
-            # Run the tests, don't fail, but print the output if verbose and revert if failed
-            try:
-                subprocess.run(run, check=True)
-            except subprocess.CalledProcessError as e:
+            if not args.dry_run:
+                # Copy current files to a backup location
+                backup_file(test_file)
                 time.sleep(0.1)
-                print(f"Test failed, reverting changes to {test_file}")
-                restore_file(test_file)
+                # Copy the files
+                shutil.copy(test_file, "Lib/test/")
                 time.sleep(0.1)
-                if args.verbose:
-                    print(e) 
-            delete_backup(test_file)
+                run = run_base.copy() + [test_file.name.replace(".py", "")]
+                if args.careful:
+                    run = careful_run
+                # Run the tests, don't fail, but print the output if verbose and revert if failed
+                try:
+                    subprocess.run(run, check=True)
+                except subprocess.CalledProcessError as e:
+                    time.sleep(0.1)
+                    print(f"Test failed, reverting changes to {test_file}")
+                    restore_file(test_file)
+                    time.sleep(0.1)
+                    if args.verbose:
+                        print(e) 
+                delete_backup(test_file)
+    else:
+        print(f"Skipping {test_file}")
