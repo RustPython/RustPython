@@ -2,6 +2,8 @@ pub(crate) use _codecs::make_module;
 
 #[pymodule]
 mod _codecs {
+    use rustpython_common::wtf8::Wtf8Buf;
+
     use crate::common::encodings;
     use crate::{
         AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
@@ -257,7 +259,7 @@ mod _codecs {
         }
     }
 
-    type DecodeResult = PyResult<(String, usize)>;
+    type DecodeResult = PyResult<(Wtf8Buf, usize)>;
 
     #[derive(FromArgs)]
     struct DecodeArgs {

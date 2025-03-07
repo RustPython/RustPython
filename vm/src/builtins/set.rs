@@ -784,9 +784,7 @@ impl Initializer for PySet {
     type Args = OptionalArg<PyObjectRef>;
 
     fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        if zelf.len() > 0 {
-            zelf.clear();
-        }
+        zelf.clear();
         if let OptionalArg::Present(it) = iterable {
             zelf.update(PosArgs::new(vec![it]), vm)?;
         }
