@@ -43,7 +43,7 @@ if not args.dry_run:
     subprocess.run(["cargo", "build", "--release", "--features=" + ",".join(features)], check=True)
 
 # TODO: this is platform dependent
-skips = ["test_glob", "test_io", "test_os", "test_rlcompleter", "test_pathlib", "test_posixpath", "test_venv"]
+skips = ["test_bz2", "test_glob", "test_io", "test_os", "test_rlcompleter", "test_pathlib", "test_posixpath", "test_venv"]
 
 # TODO: Uncomment this
 # TODO: check to make sure nothing is staged or dirty in the git repo
@@ -103,7 +103,7 @@ for count, (lib_file, test_file) in enumerate(cpy_lib_test_paris):
         continue
 
 print("Attempting upgrade of non-pairs")
-for test_file in enumerate(non_pairs):
+for count, test_file in enumerate(non_pairs):
     print(f"[{count}/{len(non_pairs)}] Upgrading {test_file}")
     if not args.dry_run:
         # Copy current files to a backup location
