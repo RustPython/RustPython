@@ -46,8 +46,6 @@ class BoolTest(unittest.TestCase):
         self.assertEqual(complex(True), 1+0j)
         self.assertEqual(complex(True), True)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_math(self):
         self.assertEqual(+False, 0)
         self.assertIsNot(+False, False)
