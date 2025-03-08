@@ -36,10 +36,8 @@ where
 {
     #[inline]
     fn from_setter_value(vm: &VirtualMachine, obj: PySetterValue) -> PyResult<Self> {
-        match obj {
-            PySetterValue::Assign(obj) => T::try_from_object(vm, obj),
-            PySetterValue::Delete => T::try_from_object(vm, vm.ctx.none()),
-        }
+        let obj = obj.ok_or_else(|| vm.new_type_error("can't delete attribute".to_owned()))?;
+        T::try_from_object(vm, obj)
     }
 }
 

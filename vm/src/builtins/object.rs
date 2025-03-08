@@ -502,7 +502,7 @@ pub fn object_set_dict(
     vm: &VirtualMachine,
 ) -> PyResult<()> {
     obj.set_dict(dict)
-        .map_err(|_| vm.new_attribute_error("This object has no __dict__ to delete".to_owned()))
+        .ok_or_else(|| vm.new_type_error("cannot delete __dict__".to_owned()))
 }
 
 pub fn init(ctx: &Context) {
