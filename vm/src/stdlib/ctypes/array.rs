@@ -1,3 +1,4 @@
+use crate::builtins::PyBytes;
 use crate::types::Callable;
 use crate::{Py, PyObjectRef, PyPayload};
 use crate::{PyResult, VirtualMachine, builtins::PyTypeRef, types::Constructor};
@@ -93,5 +94,14 @@ impl PyCArray {
     #[pygetset(setter)]
     fn set_value(&self, value: PyObjectRef) {
         *self.value.write() = value;
+    }
+}
+
+impl PyCArray {
+    pub fn to_arg(&self, _vm: &VirtualMachine) -> PyResult<libffi::middle::Arg> {
+        let value = self.value.read();
+        let py_bytes = value.payload::<PyBytes>().unwrap();
+        let bytes = py_bytes.as_ref().to_vec();
+        Ok(libffi::middle::Arg::new(&bytes))
     }
 }
