@@ -34,6 +34,9 @@ pub(crate) mod module {
     #[pyattr]
     use libc::{O_BINARY, O_TEMPORARY};
 
+    #[pyattr]
+    const _LOAD_LIBRARY_SEARCH_DEFAULT_DIRS: i32 = 4096;
+
     #[pyfunction]
     pub(super) fn access(path: OsPath, mode: u8, vm: &VirtualMachine) -> PyResult<bool> {
         let attr = unsafe { FileSystem::GetFileAttributesW(path.to_widecstring(vm)?.as_ptr()) };
