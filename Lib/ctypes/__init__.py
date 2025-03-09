@@ -296,7 +296,7 @@ def create_unicode_buffer(init, size=None):
         return buf
     elif isinstance(init, int):
         _sys.audit("ctypes.create_unicode_buffer", None, init)
-        buftype = c_wchar * init
+        buftype = c_wchar.__mul__(init)
         buf = buftype()
         return buf
     raise TypeError(init)
@@ -495,14 +495,15 @@ elif sizeof(c_ulonglong) == sizeof(c_void_p):
     c_ssize_t = c_longlong
 
 # functions
-
 from _ctypes import _memmove_addr, _memset_addr, _string_at_addr, _cast_addr
 
 ## void *memmove(void *, const void *, size_t);
-memmove = CFUNCTYPE(c_void_p, c_void_p, c_void_p, c_size_t)(_memmove_addr)
+# TODO: RUSTPYTHON
+# memmove = CFUNCTYPE(c_void_p, c_void_p, c_void_p, c_size_t)(_memmove_addr)
 
 ## void *memset(void *, int, size_t)
-memset = CFUNCTYPE(c_void_p, c_void_p, c_int, c_size_t)(_memset_addr)
+# TODO: RUSTPYTHON
+# memset = CFUNCTYPE(c_void_p, c_void_p, c_int, c_size_t)(_memset_addr)
 
 def PYFUNCTYPE(restype, *argtypes):
     class CFunctionType(_CFuncPtr):
@@ -511,11 +512,13 @@ def PYFUNCTYPE(restype, *argtypes):
         _flags_ = _FUNCFLAG_CDECL | _FUNCFLAG_PYTHONAPI
     return CFunctionType
 
-_cast = PYFUNCTYPE(py_object, c_void_p, py_object, py_object)(_cast_addr)
+# TODO: RUSTPYTHON
+# _cast = PYFUNCTYPE(py_object, c_void_p, py_object, py_object)(_cast_addr)
 def cast(obj, typ):
     return _cast(obj, obj, typ)
 
-_string_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_string_at_addr)
+# TODO: RUSTPYTHON
+# _string_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_string_at_addr)
 def string_at(ptr, size=-1):
     """string_at(addr[, size]) -> string
 
@@ -527,7 +530,8 @@ try:
 except ImportError:
     pass
 else:
-    _wstring_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_wstring_at_addr)
+    # TODO: RUSTPYTHON
+    # _wstring_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_wstring_at_addr)
     def wstring_at(ptr, size=-1):
         """wstring_at(addr[, size]) -> string
 
@@ -551,8 +555,9 @@ if _os.name == "nt": # COM stuff
             return 0 # S_OK
         return ccom.DllCanUnloadNow()
 
-from ctypes._endian import BigEndianStructure, LittleEndianStructure
-from ctypes._endian import BigEndianUnion, LittleEndianUnion
+# TODO: RUSTPYTHON
+# from ctypes._endian import BigEndianStructure, LittleEndianStructure
+# from ctypes._endian import BigEndianUnion, LittleEndianUnion
 
 # Fill in specifically-sized types
 c_int8 = c_byte
@@ -574,4 +579,5 @@ elif SIZEOF_TIME_T == 4:
 else:
     raise SystemError(f"Unexpected sizeof(time_t): {SIZEOF_TIME_T=}")
 
-_reset_cache()
+# TODO: RUSTPYTHON
+# _reset_cache()
