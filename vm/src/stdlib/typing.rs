@@ -87,6 +87,21 @@ pub(crate) mod _typing {
     }
 
     #[pyattr]
+    #[pyclass(name = "NoDefault")]
+    #[derive(Debug, PyPayload)]
+    #[allow(dead_code)]
+    pub(crate) struct NoDefault {
+        name: PyObjectRef,
+    }
+
+    #[pyclass(flags(BASETYPE))]
+    impl NoDefault {}
+
+    // pub(crate) fn make_nodefault(name: PyObjectRef) -> NoDefault {
+    //     NoDefault { name }
+    // }
+
+    #[pyattr]
     #[pyclass(name = "TypeVarTuple")]
     #[derive(Debug, PyPayload)]
     #[allow(dead_code)]
