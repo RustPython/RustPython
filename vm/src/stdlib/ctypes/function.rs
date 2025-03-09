@@ -1,8 +1,8 @@
 use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
-use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::PyCData;
+use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::base::{PyCSimple, ffi_type_from_str};
 use crate::types::{Callable, Constructor};
 use crate::{Py, PyObjectRef, PyResult, VirtualMachine};
@@ -48,8 +48,7 @@ impl Function {
                     match converted {
                         Some(t) => Ok(t),
                         None => Err(vm.new_type_error(format!(
-                            "Invalid type"
-                            // TODO: add type name
+                            "Invalid type" // TODO: add type name
                         ))),
                     }
                 } else {
