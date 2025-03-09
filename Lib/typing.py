@@ -28,7 +28,7 @@ import operator
 import re as stdlib_re  # Avoid confusion with the re we export.
 import sys
 import types
-from types import WrapperDescriptorType, MethodWrapperType, MethodDescriptorType, GenericAlias
+from types import WrapperDescriptorType, MethodWrapperType, MethodDescriptorType, GenericAlias, NoDefault
 
 # Please keep __all__ alphabetized within each category.
 __all__ = [
@@ -118,6 +118,7 @@ __all__ = [
     'NewType',
     'no_type_check',
     'no_type_check_decorator',
+    'NoDefault',
     'NoReturn',
     'overload',
     'ParamSpecArgs',
