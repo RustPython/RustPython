@@ -270,7 +270,11 @@ impl PyCSimple {
 }
 
 impl PyCSimple {
-    pub fn to_arg(&self, ty: libffi::middle::Type, vm: &VirtualMachine) -> Option<libffi::middle::Arg> {
+    pub fn to_arg(
+        &self,
+        ty: libffi::middle::Type,
+        vm: &VirtualMachine,
+    ) -> Option<libffi::middle::Arg> {
         let value = unsafe { (*self.value.as_ptr()).clone() };
         if let Ok(i) = value.try_int(vm) {
             let i = i.as_bigint();
