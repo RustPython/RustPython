@@ -106,9 +106,6 @@ impl Function {
             .enumerate()
             .map(|(count, arg)| {
                 // none type check
-                if vm.is_none(&arg) {
-                    return Ok(Arg::new(std::ptr::null()));
-                }
                 if let Some(d) = arg.payload_if_subclass::<PyCSimple>(vm) {
                     return Ok(d.to_arg(self.args[count].clone(), vm).unwrap());
                 }
