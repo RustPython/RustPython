@@ -1,7 +1,7 @@
 use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
-use crate::class::StaticType;
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
+use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::PyCData;
 use crate::stdlib::ctypes::base::{PyCSimple, ffi_type_from_str};
 use crate::types::{Callable, Constructor};
@@ -17,6 +17,7 @@ use std::fmt::Debug;
 
 #[derive(Debug)]
 pub struct Function {
+    args: Vec<Type>,
     // TODO: no protection from use-after-free
     pointer: CodePtr,
     cif: Cif,
@@ -35,21 +36,20 @@ impl Function {
         ret_type: &Option<PyTypeRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
+        dbg!("Start load");
         // map each arg to a PyCSimple
         let args = args
             .iter()
             .map(|arg| {
-                dbg!();
-                if arg.obj_type().is_subclass(PyCSimple::static_type().into(), vm)? {
-                    dbg!();
-                    let typ = arg.get_attr("_type_", vm)?;
-                    let typ = typ.downcast_ref::<PyStr>().unwrap();
-                    let converted = ffi_type_from_str(typ.as_str());
+                if let Some(arg) = arg.payload_if_subclass::<PyCSimple>(vm) {
+                    dbg!(arg);
+                    let converted = ffi_type_from_str(&arg._type_);
+                    dbg!(&converted);
                     match converted {
                         Some(t) => Ok(t),
                         None => Err(vm.new_type_error(format!(
-                            "Invalid type: {}",
-                            typ.as_str()
+                            "Invalid type"
+                            // TODO: add type name
                         ))),
                     }
                 } else {
@@ -73,8 +73,10 @@ impl Function {
             }
             None => Type::c_int(),
         };
-        let cif = Cif::new(args, return_type);
+        let cif = Cif::new(args.clone(), return_type);
+        dbg!();
         Ok(Function {
+            args,
             cif,
             pointer: code_ptr,
         })
@@ -85,19 +87,30 @@ impl Function {
         args: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
+        dbg!("Start call");
         let args = args
             .into_iter()
-            .map(|arg| {
-                if let Some(data) = arg.downcast_ref::<PyCSimple>() {
-                    dbg!(&data);
-                    todo!("HANDLE ARGUMENTS")
-                } else {
-                    Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
+            .enumerate()
+            .map(|(count, arg)| {
+                dbg!("Arg iter", &arg);
+                dbg!(&arg);
+                if let Some(d) = arg.payload_if_subclass::<PyCSimple>(vm) {
+                    dbg!(d);
+                    dbg!(&d._type_);
+                    unsafe {
+                        dbg!(d.value.as_ptr().as_ref().unwrap());
+                    }
+                    return Ok(d.to_arg(self.args[count].clone(), vm).unwrap());
                 }
+                if let Some(d) = arg.payload_if_subclass::<PyCArray>(vm) {
+                    dbg!(d);
+                }
+                Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
             })
             .collect::<PyResult<Vec<Arg>>>()?;
         // TODO: FIX return type
         let result: i32 = unsafe { self.cif.call(self.pointer, &args) };
+        dbg!("Almost end call");
         Ok(vm.ctx.new_int(result).into())
     }
 }
