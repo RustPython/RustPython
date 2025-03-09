@@ -1268,7 +1268,7 @@ impl ExecutingFrame<'_> {
             }
             bytecode::Instruction::ParamSpec => {
                 let param_spec_name = self.pop_value();
-                let param_spec: PyObjectRef = _typing::make_paramspec(param_spec_name.clone())
+                let param_spec: PyObjectRef = _typing::make_paramspec(param_spec_name.clone(), None)
                     .into_ref(&vm.ctx)
                     .into();
                 self.push_value(param_spec);

@@ -51,6 +51,11 @@ pub(crate) mod _typing {
                 Ok(vm.ctx.none())
             }
         }
+    
+        #[pygetset(magic)]
+        fn name(&self) -> PyObjectRef {
+            self.name.clone()
+        }
     }
 
     pub(crate) fn make_typevar(
@@ -77,13 +82,24 @@ pub(crate) mod _typing {
     #[allow(dead_code)]
     pub(crate) struct ParamSpec {
         name: PyObjectRef,
+        default: Option<PyObjectRef>,
     }
 
     #[pyclass(flags(BASETYPE))]
-    impl ParamSpec {}
+    impl ParamSpec {
+        #[pygetset(magic)]
+        fn name(&self) -> PyObjectRef {
+            self.name.clone()
+        }
+    
+        #[pygetset(magic)]
+        fn default(&self) -> Option<PyObjectRef> {
+            self.default.clone()
+        }
+    }
 
-    pub(crate) fn make_paramspec(name: PyObjectRef) -> ParamSpec {
-        ParamSpec { name }
+    pub(crate) fn make_paramspec(name: PyObjectRef, default: Option<PyObjectRef>) -> ParamSpec {
+        ParamSpec { name, default }
     }
 
     #[pyattr]
