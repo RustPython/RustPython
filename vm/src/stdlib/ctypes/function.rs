@@ -36,27 +36,43 @@ impl Function {
         ret_type: &Option<PyTypeRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        dbg!("Start load");
         // map each arg to a PyCSimple
         let args = args
             .iter()
             .map(|arg| {
                 if let Some(arg) = arg.payload_if_subclass::<PyCSimple>(vm) {
-                    dbg!(arg);
                     let converted = ffi_type_from_str(&arg._type_);
-                    dbg!(&converted);
-                    match converted {
+                    return match converted {
                         Some(t) => Ok(t),
                         None => Err(vm.new_type_error(format!(
                             "Invalid type" // TODO: add type name
                         ))),
-                    }
+                    };
+                }
+                if let Some(arg) = arg.payload_if_subclass::<PyCArray>(vm) {
+                    let t = arg.typ.read();
+                    let ty_attributes = t.attributes.read();
+                    let ty_pystr = ty_attributes.get(vm.ctx.intern_str("_type_")).ok_or_else(|| {
+                        vm.new_type_error("Expected a ctypes simple type".to_string())
+                    })?;
+                    let ty_str = ty_pystr.downcast_ref::<PyStr>().ok_or_else(|| {
+                        vm.new_type_error("Expected a ctypes simple type".to_string())
+                    })?.to_string();
+                    let converted = ffi_type_from_str(&ty_str);
+                    return match converted {
+                        Some(_t) => {
+                            // TODO: Use
+                            Ok(Type::void())
+                        }
+                        None => Err(vm.new_type_error(format!(
+                            "Invalid type" // TODO: add type name
+                        ))),
+                    };
                 } else {
                     Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
                 }
             })
             .collect::<PyResult<Vec<Type>>>()?;
-        dbg!();
         let terminated = format!("{}\0", function);
         let pointer: Symbol<'_, FP> = unsafe {
             library
@@ -73,7 +89,6 @@ impl Function {
             None => Type::c_int(),
         };
         let cif = Cif::new(args.clone(), return_type);
-        dbg!();
         Ok(Function {
             args,
             cif,
@@ -86,30 +101,26 @@ impl Function {
         args: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        dbg!("Start call");
         let args = args
             .into_iter()
             .enumerate()
             .map(|(count, arg)| {
-                dbg!("Arg iter", &arg);
-                dbg!(&arg);
+                // none type check
+                if vm.is_none(&arg) {
+                    return Ok(Arg::new(std::ptr::null()));
+                }
                 if let Some(d) = arg.payload_if_subclass::<PyCSimple>(vm) {
-                    dbg!(d);
-                    dbg!(&d._type_);
-                    unsafe {
-                        dbg!(d.value.as_ptr().as_ref().unwrap());
-                    }
                     return Ok(d.to_arg(self.args[count].clone(), vm).unwrap());
                 }
                 if let Some(d) = arg.payload_if_subclass::<PyCArray>(vm) {
-                    dbg!(d);
+                    return Ok(d.to_arg(vm).unwrap());
                 }
                 Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
             })
             .collect::<PyResult<Vec<Arg>>>()?;
-        // TODO: FIX return type
+        dbg!(&args);
+        // TODO: FIX return
         let result: i32 = unsafe { self.cif.call(self.pointer, &args) };
-        dbg!("Almost end call");
         Ok(vm.ctx.new_int(result).into())
     }
 }
