@@ -31,10 +31,11 @@ mod _overlapped {
         },
         System::Threading::INFINITE,
     };
-    #[pyattr(once)]
-    fn INVALID_HANDLE_VALUE(_vm: &VirtualMachine) -> isize {
-        windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE as isize
-    }
+
+    #[pyattr]
+    const INVALID_HANDLE_VALUE: isize =
+        unsafe { std::mem::transmute(windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE) };
+
     #[pyattr]
     const NULL: isize = 0;
 
@@ -263,7 +264,7 @@ mod _overlapped {
         type Args = (isize,);
 
         fn py_new(cls: PyTypeRef, (mut event,): Self::Args, vm: &VirtualMachine) -> PyResult {
-            if event == INVALID_HANDLE_VALUE(vm) {
+            if event == INVALID_HANDLE_VALUE {
                 event = unsafe {
                     windows_sys::Win32::System::Threading::CreateEventA(
                         std::ptr::null(),
