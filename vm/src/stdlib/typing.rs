@@ -51,7 +51,7 @@ pub(crate) mod _typing {
                 Ok(vm.ctx.none())
             }
         }
-    
+
         #[pygetset(magic)]
         fn name(&self) -> PyObjectRef {
             self.name.clone()
