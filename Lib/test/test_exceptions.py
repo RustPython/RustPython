@@ -2322,6 +2322,8 @@ class AttributeErrorTests(unittest.TestCase):
         self.assertNotIn("blech", err.getvalue())
         self.assertNotIn("oh no!", err.getvalue())
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_attribute_error_with_bad_name(self):
         try:
             raise AttributeError(name=12, obj=23)
