@@ -117,7 +117,6 @@ num_cpus = "1.13.1"
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }
 schannel = { workspace = true }
-winreg = "0.55"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.52.0"
