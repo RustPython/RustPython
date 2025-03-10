@@ -9,6 +9,8 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 
 #[pymodule]
 mod winreg {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
     use std::sync::Arc;
 
     use crate::common::lock::PyRwLock;
@@ -17,6 +19,10 @@ mod winreg {
     use crate::{PyPayload, PyRef, PyResult, VirtualMachine};
     use windows_sys::Win32::Foundation;
     use windows_sys::Win32::System::Registry;
+
+    pub(crate) fn to_utf16<P: AsRef<OsStr>>(s: P) -> Vec<u16> {
+        s.as_ref().encode_wide().chain(Some(0)).collect()
+    }
 
     // access rights
     #[pyattr]
@@ -202,10 +208,30 @@ mod winreg {
         }
     }
 
+    // TODO: Computer name can be `None``
+    #[pyfunction]
+    fn ConnectRegistry(computer_name: String, key: PyRef<PyHKEYObject>, vm: &VirtualMachine) -> PyResult<()> {
+        let wide_computer_name = to_utf16(computer_name);
+        let res = unsafe {
+            Registry::RegConnectRegistryW(
+                wide_computer_name.as_ptr(),
+                *key.hkey.read(),
+                std::ptr::null_mut(),
+            )
+        };
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
     #[pyfunction]
     fn CreateKey(key: PyRef<PyHKEYObject>, sub_key: String, vm: &VirtualMachine) -> PyResult<()> {
+        let mut wide_sub_key = to_utf16(sub_key);
+        wide_sub_key.push(0);
         let res = unsafe {
-            Registry::RegCreateKeyA(*key.hkey.read(), sub_key.as_ptr(), std::ptr::null_mut())
+            Registry::RegCreateKeyW(*key.hkey.read(), wide_sub_key.as_ptr(), std::ptr::null_mut())
         };
         if res == 0 {
             Ok(())
@@ -228,12 +254,13 @@ mod winreg {
 
     #[pyfunction]
     fn CreateKeyEx(args: CreateKeyExArgs, vm: &VirtualMachine) -> PyResult<PyHKEYObject> {
+        let wide_sub_key = to_utf16(args.sub_key);
         let res: *mut *mut std::ffi::c_void = core::ptr::null_mut();
         let err = unsafe {
             let key = *args.key.hkey.read();
-            Registry::RegCreateKeyExA(
+            Registry::RegCreateKeyExW(
                 key,
-                args.sub_key.as_ptr(),
+                wide_sub_key.as_ptr(),
                 args.reserved,
                 std::ptr::null_mut(),
                 0,
@@ -256,7 +283,8 @@ mod winreg {
 
     #[pyfunction]
     fn DeleteKey(key: PyRef<PyHKEYObject>, sub_key: String, vm: &VirtualMachine) -> PyResult<()> {
-        let res = unsafe { Registry::RegDeleteKeyA(*key.hkey.read(), sub_key.as_ptr()) };
+        let wide_sub_key = to_utf16(sub_key);
+        let res = unsafe { Registry::RegDeleteKeyW(*key.hkey.read(), wide_sub_key.as_ptr()) };
         if res == 0 {
             Ok(())
         } else {
@@ -278,10 +306,11 @@ mod winreg {
 
     #[pyfunction]
     fn DeleteKeyEx(args: DeleteKeyExArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let wide_sub_key = to_utf16(args.sub_key);
         let res = unsafe {
-            Registry::RegDeleteKeyExA(
+            Registry::RegDeleteKeyExW(
                 *args.key.hkey.read(),
-                args.sub_key.as_ptr(),
+                wide_sub_key.as_ptr(),
                 args.reserved,
                 args.access,
             )
@@ -310,8 +339,10 @@ mod winreg {
         file_name: String,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let sub_key = to_utf16(sub_key);
+        let file_name = to_utf16(file_name);
         let res = unsafe {
-            Registry::RegLoadKeyA(*key.hkey.read(), sub_key.as_ptr(), file_name.as_ptr())
+            Registry::RegLoadKeyW(*key.hkey.read(), sub_key.as_ptr(), file_name.as_ptr())
         };
         if res == 0 {
             Ok(())
@@ -335,10 +366,11 @@ mod winreg {
     #[pyfunction]
     #[pyfunction(name = "OpenKeyEx")]
     fn OpenKey(args: OpenKeyArgs, vm: &VirtualMachine) -> PyResult<PyHKEYObject> {
+        let wide_sub_key = to_utf16(args.sub_key);
         let res: *mut *mut std::ffi::c_void = core::ptr::null_mut();
         let err = unsafe {
             let key = *args.key.hkey.read();
-            Registry::RegOpenKeyExA(key, args.sub_key.as_ptr(), args.reserved, args.access, res)
+            Registry::RegOpenKeyExW(key, wide_sub_key.as_ptr(), args.reserved, args.access, res)
         };
         if err == 0 {
             unsafe {
@@ -386,8 +418,9 @@ mod winreg {
         let key = *key.hkey.read();
         let mut lpcbdata: i32 = 0;
         // let mut lpdata = 0;
+        let wide_sub_key = to_utf16(sub_key);
         let err = unsafe {
-            Registry::RegQueryValueA(key, sub_key.as_ptr(), std::ptr::null_mut(), &mut lpcbdata)
+            Registry::RegQueryValueW(key, wide_sub_key.as_ptr(), std::ptr::null_mut(), &mut lpcbdata)
         };
 
         if err != 0 {
@@ -400,8 +433,9 @@ mod winreg {
     // TODO: QueryValueEx
     #[pyfunction]
     fn SaveKey(key: PyRef<PyHKEYObject>, file_name: String, vm: &VirtualMachine) -> PyResult<()> {
+        let file_name = to_utf16(file_name);
         let res = unsafe {
-            Registry::RegSaveKeyA(*key.hkey.read(), file_name.as_ptr(), std::ptr::null_mut())
+            Registry::RegSaveKeyW(*key.hkey.read(), file_name.as_ptr(), std::ptr::null_mut())
         };
         if res == 0 {
             Ok(())
@@ -452,8 +486,8 @@ mod winreg {
         };
         let s = String::from_utf8(out[..r as usize].to_vec())
             .unwrap()
-            .strip_suffix('\0')
-            .unwrap()
+            .replace("\0", "")
+            .replace("\x02", "")
             .to_string();
 
         Ok(s)
