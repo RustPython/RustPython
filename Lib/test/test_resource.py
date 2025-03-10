@@ -176,9 +176,5 @@ class ResourceTest(unittest.TestCase):
         self.assertEqual(resource.prlimit(0, resource.RLIMIT_AS, BadSeq()),
                          limits)
 
-
-def test_main(verbose=None):
-    support.run_unittest(ResourceTest)
-
 if __name__ == "__main__":
-    test_main()
+    unittest.main()
