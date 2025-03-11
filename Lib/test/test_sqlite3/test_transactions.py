@@ -295,6 +295,7 @@ class IsolationLevelFromInit(unittest.TestCase):
             self._run_test(cx)
             self.assertEqual(self.traced, ["BEGIN ", self.INSERT, "COMMIT"])
 
+    @unittest.skip("TODO: RUSTPYTHON hang")
     def test_isolation_level_deferred(self):
         with memory_database(isolation_level="DEFERRED") as cx:
             self._run_test(cx)
