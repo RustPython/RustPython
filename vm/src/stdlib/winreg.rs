@@ -154,6 +154,12 @@ mod winreg {
     pub const HKEY_ERR_MSG: &str = "bad operand type";
 
     impl PyHKEYObject {
+        pub fn new(hkey: *mut std::ffi::c_void) -> Self {
+            Self {
+                hkey: Arc::new(PyRwLock::new(hkey)),
+            }
+        }
+
         pub fn unary_fail(vm: &VirtualMachine) -> PyResult {
             Err(vm.new_type_error(HKEY_ERR_MSG.to_owned()))
         }
@@ -208,9 +214,13 @@ mod winreg {
         }
     }
 
-    // TODO: Computer name can be `None``
+    // TODO: Computer name can be `None`
     #[pyfunction]
-    fn ConnectRegistry(computer_name: String, key: PyRef<PyHKEYObject>, vm: &VirtualMachine) -> PyResult<()> {
+    fn ConnectRegistry(
+        computer_name: String,
+        key: PyRef<PyHKEYObject>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let wide_computer_name = to_utf16(computer_name);
         let res = unsafe {
             Registry::RegConnectRegistryW(
@@ -227,14 +237,18 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn CreateKey(key: PyRef<PyHKEYObject>, sub_key: String, vm: &VirtualMachine) -> PyResult<()> {
-        let mut wide_sub_key = to_utf16(sub_key);
-        wide_sub_key.push(0);
+    fn CreateKey(
+        key: PyRef<PyHKEYObject>,
+        sub_key: String,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyHKEYObject> {
+        let wide_sub_key = to_utf16(sub_key);
+        let mut out_key = std::ptr::null_mut();
         let res = unsafe {
-            Registry::RegCreateKeyW(*key.hkey.read(), wide_sub_key.as_ptr(), std::ptr::null_mut())
+            Registry::RegCreateKeyW(*key.hkey.read(), wide_sub_key.as_ptr(), &mut out_key)
         };
         if res == 0 {
-            Ok(())
+            Ok(PyHKEYObject::new(out_key))
         } else {
             Err(vm.new_os_error(format!("error code: {}", res)))
         }
@@ -255,7 +269,7 @@ mod winreg {
     #[pyfunction]
     fn CreateKeyEx(args: CreateKeyExArgs, vm: &VirtualMachine) -> PyResult<PyHKEYObject> {
         let wide_sub_key = to_utf16(args.sub_key);
-        let res: *mut *mut std::ffi::c_void = core::ptr::null_mut();
+        let mut res: *mut std::ffi::c_void = core::ptr::null_mut();
         let err = unsafe {
             let key = *args.key.hkey.read();
             Registry::RegCreateKeyExW(
@@ -266,16 +280,14 @@ mod winreg {
                 0,
                 args.access,
                 std::ptr::null_mut(),
-                res,
+                &mut res,
                 std::ptr::null_mut(),
             )
         };
         if err == 0 {
-            unsafe {
-                Ok(PyHKEYObject {
-                    hkey: Arc::new(PyRwLock::new(*res)),
-                })
-            }
+            Ok(PyHKEYObject {
+                hkey: Arc::new(PyRwLock::new(res)),
+            })
         } else {
             Err(vm.new_os_error(format!("error code: {}", err)))
         }
@@ -370,6 +382,7 @@ mod winreg {
         let res: *mut *mut std::ffi::c_void = core::ptr::null_mut();
         let err = unsafe {
             let key = *args.key.hkey.read();
+            dbg!(wide_sub_key, args);
             Registry::RegOpenKeyExW(key, wide_sub_key.as_ptr(), args.reserved, args.access, res)
         };
         if err == 0 {
@@ -420,7 +433,12 @@ mod winreg {
         // let mut lpdata = 0;
         let wide_sub_key = to_utf16(sub_key);
         let err = unsafe {
-            Registry::RegQueryValueW(key, wide_sub_key.as_ptr(), std::ptr::null_mut(), &mut lpcbdata)
+            Registry::RegQueryValueW(
+                key,
+                wide_sub_key.as_ptr(),
+                std::ptr::null_mut(),
+                &mut lpcbdata,
+            )
         };
 
         if err != 0 {
