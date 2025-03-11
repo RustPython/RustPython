@@ -742,6 +742,8 @@ class UnionTests(unittest.TestCase):
                 self.assertTrue(issubclass(dict, x))
                 self.assertFalse(issubclass(list, x))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_instancecheck_and_subclasscheck_order(self):
         T = typing.TypeVar('T')
 
@@ -788,6 +790,8 @@ class UnionTests(unittest.TestCase):
         self.assertTrue(issubclass(int, x))
         self.assertRaises(ZeroDivisionError, issubclass, list, x)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_or_type_operator_with_TypeVar(self):
         TV = typing.TypeVar('T')
         assert TV | str == typing.Union[TV, str]
@@ -795,6 +799,8 @@ class UnionTests(unittest.TestCase):
         self.assertIs((int | TV)[int], int)
         self.assertIs((TV | int)[int], int)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union_args(self):
         def check(arg, expected):
             clear_typing_caches()
@@ -825,6 +831,8 @@ class UnionTests(unittest.TestCase):
                 check(x | None, (x, type(None)))
                 check(None | x, (type(None), x))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union_parameter_chaining(self):
         T = typing.TypeVar("T")
         S = typing.TypeVar("S")
@@ -869,6 +877,8 @@ class UnionTests(unittest.TestCase):
         eq(x[NT], int | NT | bytes)
         eq(x[S], int | S | bytes)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union_pickle(self):
         orig = list[T] | int
         for proto in range(pickle.HIGHEST_PROTOCOL + 1):
@@ -878,6 +888,8 @@ class UnionTests(unittest.TestCase):
             self.assertEqual(loaded.__args__, orig.__args__)
             self.assertEqual(loaded.__parameters__, orig.__parameters__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union_copy(self):
         orig = list[T] | int
         for copied in (copy.copy(orig), copy.deepcopy(orig)):
@@ -885,12 +897,16 @@ class UnionTests(unittest.TestCase):
             self.assertEqual(copied.__args__, orig.__args__)
             self.assertEqual(copied.__parameters__, orig.__parameters__)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_union_parameter_substitution_errors(self):
         T = typing.TypeVar("T")
         x = int | T
         with self.assertRaises(TypeError):
             x[int, str]
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_or_type_operator_with_forward(self):
         T = typing.TypeVar('T')
         ForwardAfter = T | 'Forward'

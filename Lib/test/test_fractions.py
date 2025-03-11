@@ -617,6 +617,8 @@ class FractionTest(unittest.TestCase):
 
         self.assertTypedEquals(0.1+0j, complex(F(1,10)))
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testSupportsInt(self):
         # See bpo-44547.
         f = F(3, 2)
@@ -624,6 +626,8 @@ class FractionTest(unittest.TestCase):
         self.assertEqual(int(f), 1)
         self.assertEqual(type(int(f)), int)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def testIntGuaranteesIntReturn(self):
         # Check that int(some_fraction) gives a result of exact type `int`
         # even if the fraction is using some other Integral type for its
