@@ -22,13 +22,13 @@ mod sys {
         vm::{Settings, VirtualMachine},
     };
     use num_traits::ToPrimitive;
+    #[cfg(windows)]
+    use std::os::windows::ffi::OsStrExt;
     use std::{
         env::{self, VarError},
         path,
         sync::atomic::Ordering,
     };
-    #[cfg(windows)]
-    use std::os::windows::ffi::OsStrExt;
 
     #[cfg(windows)]
     use windows_sys::Win32::{
@@ -613,11 +613,7 @@ mod sys {
             service_pack_minor: version.wServicePackMinor,
             suite_mask: version.wSuiteMask,
             product_type: version.wProductType,
-            platform_version: (
-                real_version.0,
-                real_version.1,
-                real_version.2,
-            ), // TODO Provide accurate version, like CPython impl
+            platform_version: (real_version.0, real_version.1, real_version.2), // TODO Provide accurate version, like CPython impl
         }
         .into_struct_sequence(vm))
     }
