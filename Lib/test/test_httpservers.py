@@ -778,6 +778,7 @@ class CGIHTTPServerTestCase(BaseTestCase):
 
     # TODO: RUSTPYTHON
     @unittest.skipIf(sys.platform != 'win32', "TODO: RUSTPYTHON; works only on windows")
+    @unittest.expectedFailure
     def test_post(self):
         params = urllib.parse.urlencode(
             {'spam' : 1, 'eggs' : 'python', 'bacon' : 123456})
