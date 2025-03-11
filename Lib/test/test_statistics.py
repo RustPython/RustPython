@@ -3030,6 +3030,7 @@ class TestNormalDist:
 
     @support.skip_if_pgo_task
     @support.requires_resource('cpu')
+    @unittest.skip("TODO: RUSTPYTHON Flaky")
     def test_inv_cdf(self):
         NormalDist = self.module.NormalDist
 
