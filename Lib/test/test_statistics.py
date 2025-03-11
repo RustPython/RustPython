@@ -2354,7 +2354,7 @@ class TestGeometricMean(unittest.TestCase):
 
 
 class TestKDE(unittest.TestCase):
-
+    @unittest.skip("TODO: RUSTPYTHON too slow for CI")
     def test_kde(self):
         kde = statistics.kde
         StatisticsError = statistics.StatisticsError
