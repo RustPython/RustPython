@@ -27,6 +27,17 @@ mod sys {
         path,
         sync::atomic::Ordering,
     };
+    #[cfg(windows)]
+    use std::os::windows::ffi::OsStrExt;
+
+    #[cfg(windows)]
+    use windows_sys::Win32::{
+        Foundation::MAX_PATH,
+        Storage::FileSystem::{
+            GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW,
+        },
+        System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
+    };
 
     // not the same as CPython (e.g. rust's x86_x64-unknown-linux-gnu is just x86_64-linux-gnu)
     // but hopefully that's just an implementation detail? TODO: copy CPython's multiarch exactly,
@@ -486,6 +497,78 @@ mod sys {
     }
 
     #[cfg(windows)]
+    fn get_kernel32_version() -> std::io::Result<(u32, u32, u32)> {
+        unsafe {
+            // Create a wide string for "kernel32.dll"
+            let module_name: Vec<u16> = std::ffi::OsStr::new("kernel32.dll")
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
+            let h_kernel32 = GetModuleHandleW(module_name.as_ptr());
+            if h_kernel32.is_null() {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            // Prepare a buffer for the module file path
+            let mut kernel32_path = [0u16; MAX_PATH as usize];
+            let len = GetModuleFileNameW(
+                h_kernel32,
+                kernel32_path.as_mut_ptr(),
+                kernel32_path.len() as u32,
+            );
+            if len == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            // Get the size of the version information block
+            let verblock_size =
+                GetFileVersionInfoSizeW(kernel32_path.as_ptr(), std::ptr::null_mut());
+            if verblock_size == 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            // Allocate a buffer to hold the version information
+            let mut verblock = vec![0u8; verblock_size as usize];
+            if GetFileVersionInfoW(
+                kernel32_path.as_ptr(),
+                0,
+                verblock_size,
+                verblock.as_mut_ptr() as *mut _,
+            ) == 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            // Prepare an empty sub-block string (L"") as required by VerQueryValueW
+            let sub_block: Vec<u16> = std::ffi::OsStr::new("")
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
+
+            let mut ffi_ptr: *mut VS_FIXEDFILEINFO = std::ptr::null_mut();
+            let mut ffi_len: u32 = 0;
+            if VerQueryValueW(
+                verblock.as_ptr() as *const _,
+                sub_block.as_ptr(),
+                &mut ffi_ptr as *mut *mut VS_FIXEDFILEINFO as *mut *mut _,
+                &mut ffi_len as *mut u32,
+            ) == 0
+                || ffi_ptr.is_null()
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            // Extract the version numbers from the VS_FIXEDFILEINFO structure.
+            let ffi = *ffi_ptr;
+            let real_major = (ffi.dwProductVersionMS >> 16) & 0xFFFF;
+            let real_minor = ffi.dwProductVersionMS & 0xFFFF;
+            let real_build = (ffi.dwProductVersionLS >> 16) & 0xFFFF;
+
+            Ok((real_major, real_minor, real_build))
+        }
+    }
+
+    #[cfg(windows)]
     #[pyfunction]
     fn getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple::PyTupleRef> {
         use std::ffi::OsString;
@@ -519,10 +602,11 @@ mod sys {
             sp.into_string()
                 .map_err(|_| vm.new_os_error("service pack is not ASCII".to_owned()))?
         };
+        let real_version = get_kernel32_version().map_err(|e| vm.new_os_error(e.to_string()))?;
         Ok(WindowsVersion {
-            major: version.dwMajorVersion,
-            minor: version.dwMinorVersion,
-            build: version.dwBuildNumber,
+            major: real_version.0,
+            minor: real_version.1,
+            build: real_version.2,
             platform: version.dwPlatformId,
             service_pack,
             service_pack_major: version.wServicePackMajor,
@@ -530,9 +614,9 @@ mod sys {
             suite_mask: version.wSuiteMask,
             product_type: version.wProductType,
             platform_version: (
-                version.dwMajorVersion,
-                version.dwMinorVersion,
-                version.dwBuildNumber,
+                real_version.0,
+                real_version.1,
+                real_version.2,
             ), // TODO Provide accurate version, like CPython impl
         }
         .into_struct_sequence(vm))
