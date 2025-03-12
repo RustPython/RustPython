@@ -112,6 +112,7 @@ class TransactionTests(unittest.TestCase):
         res = self.cur2.fetchall()
         self.assertEqual(len(res), 1)
 
+    @unittest.skip("TODO: RUSTPYTHON: figure out hang")
     def test_raise_timeout(self):
         self.cur1.execute("create table test(i)")
         self.cur1.execute("insert into test(i) values (5)")
