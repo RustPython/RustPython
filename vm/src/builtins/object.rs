@@ -159,7 +159,7 @@ fn object_getstate_default(obj: &PyObject, required: bool, vm: &VirtualMachine) 
                 slots.set_item(name.as_str(), value, vm).unwrap();
             }
 
-            if slots.len() > 0 {
+            if !slots.is_empty() {
                 return (state, slots).to_pyresult(vm);
             }
         }
