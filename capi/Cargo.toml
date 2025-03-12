@@ -1,0 +1,19 @@
+[package]
+name = "rustpython-capi"
+description = "CAPI for RustPython"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[features]
+
+[dependencies]
+malachite-bigint = { workspace = true }
+rustpython-common = { workspace = true }
+rustpython-vm = { workspace = true }
+
+[lints]
+workspace = true
