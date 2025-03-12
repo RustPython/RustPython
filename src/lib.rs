@@ -99,6 +99,12 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
     config = config.init_hook(Box::new(init));
 
     let interp = config.interpreter();
+    #[cfg(feature = "capi")]
+    {
+        rustpython_capi::VM.with(|vm| {
+            *vm.borrow_mut() = Some(interp.vm.clone());
+        });
+    }
     let exitcode = interp.run(move |vm| run_rustpython(vm, run_mode));
 
     ExitCode::from(exitcode)
