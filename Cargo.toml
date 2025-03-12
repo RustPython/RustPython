@@ -23,8 +23,10 @@ sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
+capi = ["rustpython-capi"]
 
 [dependencies]
+rustpython-capi = { workspace = true, optional = true }
 rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }
@@ -114,7 +116,7 @@ template = "installer-config/installer.wxs"
 [workspace]
 resolver = "2"
 members = [
-    "compiler", "compiler/core", "compiler/codegen", "compiler/literal", "compiler/source",
+    "capi", "compiler", "compiler/core", "compiler/codegen", "compiler/literal", "compiler/source",
     ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl", "wtf8",
     "wasm/lib",
 ]
@@ -129,6 +131,7 @@ license = "MIT"
 
 [workspace.dependencies]
 rustpython-compiler-source = { path = "compiler/source" }
+rustpython-capi = { path = "capi", version = "0.4.0" }
 rustpython-compiler-core = { path = "compiler/core", version = "0.4.0" }
 rustpython-compiler = { path = "compiler", version = "0.4.0" }
 rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
