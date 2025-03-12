@@ -1961,6 +1961,7 @@ dependencies = [
  "libc",
  "log",
  "pyo3",
+ "rustpython-capi",
  "rustpython-compiler",
  "rustpython-parser",
  "rustpython-pylib",
@@ -1979,6 +1980,15 @@ dependencies = [
  "rustpython-literal",
  "rustpython-parser-core",
  "static_assertions",
+]
+
+[[package]]
+name = "rustpython-capi"
+version = "0.4.0"
+dependencies = [
+ "malachite-bigint",
+ "rustpython-common",
+ "rustpython-vm",
 ]
 
 [[package]]
