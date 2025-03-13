@@ -185,9 +185,9 @@ impl Callable for PyCFuncPtr {
             let name = zelf.name.read();
             let res_type = zelf._restype_.read();
             let func = Function::load(
-                inner_lib.as_ref().ok_or_else(|| {
-                    vm.new_value_error("Library not found".to_string())
-                })?,
+                inner_lib
+                    .as_ref()
+                    .ok_or_else(|| vm.new_value_error("Library not found".to_string()))?,
                 &name,
                 &args.args,
                 &res_type,
