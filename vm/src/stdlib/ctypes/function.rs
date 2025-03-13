@@ -21,7 +21,6 @@ pub struct Function {
     // TODO: no protection from use-after-free
     pointer: CodePtr,
     cif: Cif,
-    return_ty: Type,
 }
 
 unsafe impl Send for Function {}
@@ -96,7 +95,6 @@ impl Function {
             args,
             cif,
             pointer: code_ptr,
-            return_ty: return_type
         })
     }
 
