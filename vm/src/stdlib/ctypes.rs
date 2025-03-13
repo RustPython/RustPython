@@ -253,19 +253,19 @@ pub(crate) mod _ctypes {
     #[pyfunction]
     fn byref(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: RUSTPYTHON
-        return Err(vm.new_value_error("not implemented".to_string()));
+        Err(vm.new_value_error("not implemented".to_string()))
     }
 
     #[pyfunction]
     fn alignment(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: RUSTPYTHON
-        return Err(vm.new_value_error("not implemented".to_string()));
+        Err(vm.new_value_error("not implemented".to_string()))
     }
 
     #[pyfunction]
     fn resize(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: RUSTPYTHON
-        return Err(vm.new_value_error("not implemented".to_string()));
+        Err(vm.new_value_error("not implemented".to_string()))
     }
 
     #[pyfunction]
@@ -312,6 +312,6 @@ pub(crate) mod _ctypes {
     #[pyattr]
     fn _cast_addr(_vm: &VirtualMachine) -> usize {
         // TODO: RUSTPYTHON
-        return 0;
+        0
     }
 }
