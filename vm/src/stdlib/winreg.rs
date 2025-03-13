@@ -382,7 +382,6 @@ mod winreg {
         let res: *mut *mut std::ffi::c_void = core::ptr::null_mut();
         let err = unsafe {
             let key = *args.key.hkey.read();
-            dbg!(wide_sub_key, args);
             Registry::RegOpenKeyExW(key, wide_sub_key.as_ptr(), args.reserved, args.access, res)
         };
         if err == 0 {
