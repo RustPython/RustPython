@@ -6,8 +6,7 @@ pub(crate) use _bz2::make_module;
 mod _bz2 {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        FromArgs,
-        VirtualMachine,
+        FromArgs, VirtualMachine,
         builtins::{PyBytesRef, PyTypeRef},
         function::{ArgBytesLike, OptionalArg},
         object::{PyPayload, PyResult},
@@ -26,7 +25,7 @@ mod _bz2 {
         eof: bool,
         // Unused data found after the end of stream.
         unused_data: Option<Vec<u8>>,
-        needs_input: bool
+        needs_input: bool,
     }
 
     #[pyattr]
@@ -51,7 +50,7 @@ mod _bz2 {
                     eof: false,
                     input_buffer: Vec::new(),
                     unused_data: None,
-                    needs_input: true
+                    needs_input: true,
                 }),
             }
             .into_ref_with_type(vm, cls)
@@ -70,11 +69,7 @@ mod _bz2 {
     #[pyclass(with(Constructor))]
     impl BZ2Decompressor {
         #[pymethod]
-        fn decompress(
-            &self,
-            args: DecompressArgs,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyBytesRef> {
+        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
             let DecompressArgs { data, max_length } = args;
             let DecompressorState {
                 eof,
@@ -94,13 +89,13 @@ mod _bz2 {
             // If max_length is nonnegative, read at most that many bytes.
             if max_length >= 0 {
                 let mut limited = decoder.by_ref().take(max_length as u64);
-                limited.read_to_end(&mut output).map_err(|e| {
-                    vm.new_os_error(format!("Decompression error: {}", e))
-                })?;
+                limited
+                    .read_to_end(&mut output)
+                    .map_err(|e| vm.new_os_error(format!("Decompression error: {}", e)))?;
             } else {
-                decoder.read_to_end(&mut output).map_err(|e| {
-                    vm.new_os_error(format!("Decompression error: {}", e))
-                })?;
+                decoder
+                    .read_to_end(&mut output)
+                    .map_err(|e| vm.new_os_error(format!("Decompression error: {}", e)))?;
             }
 
             // Determine how many bytes were consumed from the input.
