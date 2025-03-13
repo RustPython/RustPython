@@ -107,10 +107,6 @@ pub(crate) mod _typing {
     #[pyclass(flags(BASETYPE))]
     impl NoDefault {}
 
-    // pub(crate) fn make_nodefault(name: PyObjectRef) -> NoDefault {
-    //     NoDefault { name }
-    // }
-
     #[pyattr]
     #[pyclass(name = "TypeVarTuple")]
     #[derive(Debug, PyPayload)]
