@@ -1,8 +1,16 @@
-use std::ffi;
+use std::{cell::RefCell, ffi, sync::Arc};
 
 use rustpython_vm as vm;
 
-use malachite_bigint::BigInt;
+mod error;
+
+thread_local ! {
+    pub static VM: RefCell<Option<Arc<vm::VirtualMachine>>> = RefCell::new(None);
+}
+
+fn get_vm() -> Arc<vm::VirtualMachine> {
+    VM.with(|vm| vm.borrow().as_ref().unwrap().clone())
+}
 
 #[repr(C)]
 pub enum PyStatusType {
@@ -50,28 +58,3 @@ pub struct PyInterpreterConfig {
     gil: i32,
 }
 
-macro_rules! pylong_from_num {
-    ($name:ident) => {
-        {
-            let big_int = BigInt::from($name);
-            let pyi = vm::builtins::PyInt::from(big_int);
-            let pyi = Box::new(pyi);
-            Box::into_raw(pyi) as *mut ffi::c_void
-        }    
-    };
-}
-
-#[unsafe(export_name = "PyLong_FromLong")]
-pub extern "C" fn pylong_from_long(v: ffi::c_long) -> *mut ffi::c_void {
-    pylong_from_num!(v)
-}
-
-#[unsafe(export_name = "PyLong_FromUnsignedLong")]
-pub extern "C" fn pylong_from_unsigned_long(v: ffi::c_ulong) -> *mut ffi::c_void {
-    pylong_from_num!(v)
-}
-
-#[unsafe(export_name = "PyLong_FromUnsignedLongLong")]
-pub extern "C" fn pylong_from_unsigned_long_long(v: ffi::c_ulonglong) -> *mut ffi::c_void {
-    pylong_from_num!(v)
-}

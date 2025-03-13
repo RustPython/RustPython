@@ -22,9 +22,10 @@ bz2 = ["stdlib", "rustpython-stdlib/bz2"]
 sqlite = ["rustpython-stdlib/sqlite"]
 ssl = ["rustpython-stdlib/ssl"]
 ssl-vendor = ["ssl", "rustpython-stdlib/ssl-vendor"]
+capi = ["rustpython-capi"]
 
 [dependencies]
-rustpython-capi = { workspace = true }
+rustpython-capi = { workspace = true, optional = true }
 rustpython-compiler = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, optional = true, features = ["compiler"] }

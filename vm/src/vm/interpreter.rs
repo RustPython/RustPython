@@ -1,6 +1,6 @@
 use super::{Context, VirtualMachine, setting::Settings, thread};
 use crate::{PyResult, stdlib::atexit, vm::PyBaseExceptionRef};
-use std::sync::atomic::Ordering;
+use std::sync::{atomic::Ordering, Arc};
 
 /// The general interface for the VM
 ///
@@ -21,7 +21,7 @@ use std::sync::atomic::Ordering;
 /// });
 /// ```
 pub struct Interpreter {
-    vm: VirtualMachine,
+    pub vm: Arc<VirtualMachine>,
 }
 
 impl Interpreter {
@@ -53,7 +53,10 @@ impl Interpreter {
         let mut vm = VirtualMachine::new(settings, ctx.clone());
         init(&mut vm);
         vm.initialize();
-        Self { vm }
+        let vm = Arc::new(vm);
+        Self {
+            vm,
+        }
     }
 
     /// Run a function with the main virtual machine and return a PyResult of the result.
