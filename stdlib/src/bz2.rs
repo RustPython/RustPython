@@ -77,6 +77,12 @@ mod _bz2 {
                 unused_data,
                 needs_input,
             } = &mut *self.state.lock();
+            if *eof {
+                return Err(vm.new_exception_msg(
+                    vm.ctx.exceptions.eof_error.to_owned(),
+                    "End of stream already reached".to_owned(),
+                ));
+            }
             let data_vec = data.borrow_buf().to_vec();
             input_buffer.extend(data_vec);
 
@@ -102,6 +108,10 @@ mod _bz2 {
             let consumed = cursor.position() as usize;
             // Remove the consumed bytes.
             input_buffer.drain(0..consumed);
+            unused_data.replace(input_buffer.clone());
+            // skrink the vector to save memory
+            input_buffer.shrink_to_fit();
+            unused_data.as_mut().map(|v| v.shrink_to_fit());
 
             if *eof {
                 *needs_input = false;
@@ -112,8 +122,6 @@ mod _bz2 {
             // If the decoder reached end-of-stream (i.e. no more input remains), mark eof.
             if input_buffer.is_empty() {
                 *eof = true;
-                *unused_data = Some(input_buffer.clone());
-                input_buffer.clear();
             }
 
             Ok(vm.ctx.new_bytes(output))
@@ -128,10 +136,9 @@ mod _bz2 {
         #[pygetset]
         fn unused_data(&self, vm: &VirtualMachine) -> PyBytesRef {
             let state = self.state.lock();
-            if state.eof {
-                vm.ctx.new_bytes(state.input_buffer.to_vec())
-            } else {
-                vm.ctx.new_bytes(b"".to_vec())
+            match &state.unused_data {
+                Some(data) => vm.ctx.new_bytes(data.clone()),
+                None => vm.ctx.new_bytes(Vec::new()),
             }
         }
 
