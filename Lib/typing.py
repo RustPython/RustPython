@@ -2090,11 +2090,11 @@ class _ProtocolMeta(ABCMeta):
                 and cls.__dict__.get("__subclasshook__") is _proto_hook
             ):
                 _type_check_issubclass_arg_1(other)
-                non_method_attrs = sorted(cls.__non_callable_proto_members__)
-                raise TypeError(
-                    "Protocols with non-method members don't support issubclass()."
-                    f" Non-method members: {str(non_method_attrs)[1:-1]}."
-                )
+                # non_method_attrs = sorted(cls.__non_callable_proto_members__)
+                # raise TypeError(
+                #     "Protocols with non-method members don't support issubclass()."
+                #     f" Non-method members: {str(non_method_attrs)[1:-1]}."
+                # )
         return _abc_subclasscheck(cls, other)
 
     def __instancecheck__(cls, instance):
