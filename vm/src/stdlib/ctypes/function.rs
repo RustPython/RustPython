@@ -21,6 +21,7 @@ pub struct Function {
     // TODO: no protection from use-after-free
     pointer: CodePtr,
     cif: Cif,
+    return_ty: Type,
 }
 
 unsafe impl Send for Function {}
@@ -95,6 +96,7 @@ impl Function {
             args,
             cif,
             pointer: code_ptr,
+            return_ty: return_type
         })
     }
 
@@ -117,7 +119,6 @@ impl Function {
                 Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
             })
             .collect::<PyResult<Vec<Arg>>>()?;
-        dbg!(&args);
         // TODO: FIX return
         let result: i32 = unsafe { self.cif.call(self.pointer, &args) };
         Ok(vm.ctx.new_int(result).into())

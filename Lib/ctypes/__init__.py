@@ -555,9 +555,8 @@ if _os.name == "nt": # COM stuff
             return 0 # S_OK
         return ccom.DllCanUnloadNow()
 
-# TODO: RUSTPYTHON
-# from ctypes._endian import BigEndianStructure, LittleEndianStructure
-# from ctypes._endian import BigEndianUnion, LittleEndianUnion
+from ctypes._endian import BigEndianStructure, LittleEndianStructure
+from ctypes._endian import BigEndianUnion, LittleEndianUnion
 
 # Fill in specifically-sized types
 c_int8 = c_byte
@@ -579,5 +578,4 @@ elif SIZEOF_TIME_T == 4:
 else:
     raise SystemError(f"Unexpected sizeof(time_t): {SIZEOF_TIME_T=}")
 
-# TODO: RUSTPYTHON
-# _reset_cache()
+_reset_cache()
