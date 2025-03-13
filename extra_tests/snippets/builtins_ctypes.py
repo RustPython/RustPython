@@ -5,7 +5,6 @@ from _ctypes import RTLD_LOCAL, RTLD_GLOBAL
 from _ctypes import sizeof
 from _ctypes import _SimpleCData
 from _ctypes import CFuncPtr as _CFuncPtr
-import ctypes
 
 from struct import calcsize as _calcsize
 
@@ -279,8 +278,8 @@ else:
     print(libc.srand(i))
     print(test_byte_array)
     print(test_byte_array._type_)
-    print("start printf")
-    libc.printf(test_byte_array)
+    # print("start printf")
+    # libc.printf(test_byte_array)
 
     # windows pip support
 
@@ -322,4 +321,4 @@ else:
 
         return buf.value
 
-    print(get_win_folder_via_ctypes("CSIDL_DOWNLOADS"))
+    # print(get_win_folder_via_ctypes("CSIDL_DOWNLOADS"))
