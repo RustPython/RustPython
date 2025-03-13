@@ -3,9 +3,9 @@ pub(crate) use self::_tkinter::make_module;
 #[pymodule]
 mod _tkinter {
     use crate::builtins::PyTypeRef;
-    use rustpython_vm::{PyResult, VirtualMachine, function::OptionalArg};
     use rustpython_vm::function::{Either, FuncArgs};
-    
+    use rustpython_vm::{PyResult, VirtualMachine, function::OptionalArg};
+
     use crate::common::lock::PyRwLock;
     use std::sync::Arc;
     use tk::cmd::*;
@@ -50,10 +50,7 @@ mod _tkinter {
     }
 
     #[pyfunction]
-    fn create(
-        args: FuncArgs,
-        _vm: &VirtualMachine,
-    ) -> PyResult<TkApp> {
+    fn create(args: FuncArgs, _vm: &VirtualMachine) -> PyResult<TkApp> {
         // TODO: handle arguements
         // TODO: this means creating 2 tk instances is not possible.
         let tk = Tk::new(()).unwrap();
@@ -86,10 +83,8 @@ mod _tkinter {
             let tk = self.tk.read().unwrap();
             Ok(tk.getvar(name).unwrap())
         }
-    
+
         #[pymethod]
-        fn createcommand(&self, name: String, callback: PyObjectRef) {
-            
-        }
+        fn createcommand(&self, name: String, callback: PyObjectRef) {}
     }
 }
