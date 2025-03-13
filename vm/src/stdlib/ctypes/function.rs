@@ -52,12 +52,18 @@ impl Function {
                 if let Some(arg) = arg.payload_if_subclass::<PyCArray>(vm) {
                     let t = arg.typ.read();
                     let ty_attributes = t.attributes.read();
-                    let ty_pystr = ty_attributes.get(vm.ctx.intern_str("_type_")).ok_or_else(|| {
-                        vm.new_type_error("Expected a ctypes simple type".to_string())
-                    })?;
-                    let ty_str = ty_pystr.downcast_ref::<PyStr>().ok_or_else(|| {
-                        vm.new_type_error("Expected a ctypes simple type".to_string())
-                    })?.to_string();
+                    let ty_pystr =
+                        ty_attributes
+                            .get(vm.ctx.intern_str("_type_"))
+                            .ok_or_else(|| {
+                                vm.new_type_error("Expected a ctypes simple type".to_string())
+                            })?;
+                    let ty_str = ty_pystr
+                        .downcast_ref::<PyStr>()
+                        .ok_or_else(|| {
+                            vm.new_type_error("Expected a ctypes simple type".to_string())
+                        })?
+                        .to_string();
                     let converted = ffi_type_from_str(&ty_str);
                     return match converted {
                         Some(_t) => {
