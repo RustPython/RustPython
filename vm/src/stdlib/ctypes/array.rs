@@ -29,7 +29,7 @@ impl Callable for PyCArrayType {
             length: AtomicCell::new(zelf.inner.length.load()),
             value: PyRwLock::new(zelf.inner.value.read().clone()),
         }
-        .into_pyobject(&vm))
+        .into_pyobject(vm))
     }
 }
 
@@ -70,7 +70,7 @@ impl Constructor for PyCArray {
             length: AtomicCell::new(args.1),
             value: PyRwLock::new(vm.ctx.none()),
         }
-        .into_pyobject(&vm))
+        .into_pyobject(vm))
     }
 }
 

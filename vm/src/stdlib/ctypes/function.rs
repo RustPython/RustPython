@@ -44,9 +44,7 @@ impl Function {
                     let converted = ffi_type_from_str(&arg._type_);
                     return match converted {
                         Some(t) => Ok(t),
-                        None => Err(vm.new_type_error(format!(
-                            "Invalid type" // TODO: add type name
-                        ))),
+                        None => Err(vm.new_type_error("Invalid type".to_string())), // TODO: add type name
                     };
                 }
                 if let Some(arg) = arg.payload_if_subclass::<PyCArray>(vm) {
@@ -65,15 +63,13 @@ impl Function {
                         })?
                         .to_string();
                     let converted = ffi_type_from_str(&ty_str);
-                    return match converted {
+                    match converted {
                         Some(_t) => {
                             // TODO: Use
                             Ok(Type::void())
                         }
-                        None => Err(vm.new_type_error(format!(
-                            "Invalid type" // TODO: add type name
-                        ))),
-                    };
+                        None => Err(vm.new_type_error("Invalid type".to_string())), // TODO: add type name
+                    }
                 } else {
                     Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
                 }
@@ -190,7 +186,9 @@ impl Callable for PyCFuncPtr {
             let name = zelf.name.read();
             let res_type = zelf._restype_.read();
             let func = Function::load(
-                inner_lib.as_ref().unwrap(),
+                inner_lib.as_ref().ok_or_else(|| {
+                    vm.new_value_error("Library not found".to_string())
+                })?,
                 &name,
                 &args.args,
                 &res_type,
