@@ -38,9 +38,6 @@
 #![allow(clippy::needless_doctest_main)]
 
 #[macro_use]
-extern crate clap;
-extern crate env_logger;
-#[macro_use]
 extern crate log;
 
 #[cfg(feature = "flame-it")]
@@ -57,7 +54,7 @@ use std::process::ExitCode;
 
 pub use interpreter::InterpreterConfig;
 pub use rustpython_vm as vm;
-pub use settings::{InstallPipMode, RunMode, opts_with_clap};
+pub use settings::{InstallPipMode, RunMode, parse_opts};
 pub use shell::run_shell;
 
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
@@ -73,7 +70,13 @@ pub fn run(init: impl FnOnce(&mut VirtualMachine) + 'static) -> ExitCode {
         };
     }
 
-    let (settings, run_mode) = opts_with_clap();
+    let (settings, run_mode) = match parse_opts() {
+        Ok(x) => x,
+        Err(e) => {
+            println!("{e}");
+            return ExitCode::FAILURE;
+        }
+    };
 
     // don't translate newlines (\r\n <=> \n)
     #[cfg(windows)]

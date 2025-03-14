@@ -38,8 +38,6 @@ class CmdLineTest(unittest.TestCase):
         self.assertNotIn(b'Traceback', err)
         return out
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_help(self):
         self.verify_valid_flag('-h')
         self.verify_valid_flag('-?')
@@ -82,8 +80,6 @@ class CmdLineTest(unittest.TestCase):
     def test_site_flag(self):
         self.verify_valid_flag('-S')
 
-    # NOTE: RUSTPYTHON version never starts with Python
-    @unittest.expectedFailure
     def test_version(self):
         version = ('Python %d.%d' % sys.version_info[:2]).encode("ascii")
         for switch in '-V', '--version', '-VV':
@@ -550,8 +546,6 @@ class CmdLineTest(unittest.TestCase):
     def test_no_std_streams(self):
         self._test_no_stdio(['stdin', 'stdout', 'stderr'])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_hash_randomization(self):
         # Verify that -R enables hash randomization:
         self.verify_valid_flag('-R')
@@ -966,8 +960,6 @@ class IgnoreEnvironmentTest(unittest.TestCase):
         self.run_ignoring_vars("'{}' not in sys.path".format(path),
                                PYTHONPATH=path)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ignore_PYTHONHASHSEED(self):
         self.run_ignoring_vars("sys.flags.hash_randomization == 1",
                                PYTHONHASHSEED="0")

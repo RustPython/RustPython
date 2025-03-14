@@ -7,66 +7,58 @@
 /// $ cargo run --release --example dis demo*.py
 
 #[macro_use]
-extern crate clap;
-extern crate env_logger;
-#[macro_use]
 extern crate log;
 
-use clap::{App, Arg};
+use lexopt::ValueExt;
 use rustpython_compiler as compiler;
 use std::error::Error;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-fn main() {
+fn main() -> Result<(), lexopt::Error> {
     env_logger::init();
-    let app = App::new("dis")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about("Compiles and disassembles python script files for viewing their bytecode.")
-        .arg(
-            Arg::with_name("scripts")
-                .help("Scripts to scan")
-                .multiple(true)
-                .required(true),
-        )
-        .arg(
-            Arg::with_name("mode")
-                .help("The mode to compile the scripts in")
-                .long("mode")
-                .short("m")
-                .default_value("exec")
-                .possible_values(&["exec", "single", "eval"])
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("no_expand")
-                .help(
-                    "Don't expand CodeObject LoadConst instructions to show \
-                     the instructions inside",
-                )
-                .long("no-expand")
-                .short("x"),
-        )
-        .arg(
-            Arg::with_name("optimize")
-                .help("The amount of optimization to apply to the compiled bytecode")
-                .short("O")
-                .multiple(true),
-        );
-    let matches = app.get_matches();
 
-    let mode = matches.value_of_lossy("mode").unwrap().parse().unwrap();
-    let expand_code_objects = !matches.is_present("no_expand");
-    let optimize = matches.occurrences_of("optimize") as u8;
-    let scripts = matches.values_of_os("scripts").unwrap();
+    let mut scripts = vec![];
+    let mut mode = compiler::Mode::Exec;
+    let mut expand_code_objects = true;
+    let mut optimize = 0;
+
+    let mut parser = lexopt::Parser::from_env();
+    while let Some(arg) = parser.next()? {
+        use lexopt::Arg::*;
+        match arg {
+            Long("help") | Short('h') => {
+                let bin_name = parser.bin_name().unwrap_or("dis");
+                println!(
+                    "usage: {bin_name} <scripts...> [-m,--mode=exec|single|eval] [-x,--no-expand] [-O]"
+                );
+                println!(
+                    "Compiles and disassembles python script files for viewing their bytecode."
+                );
+                return Ok(());
+            }
+            Value(x) => scripts.push(PathBuf::from(x)),
+            Long("mode") | Short('m') => {
+                mode = parser
+                    .value()?
+                    .parse_with(|s| s.parse::<compiler::Mode>().map_err(|e| e.to_string()))?
+            }
+            Long("no-expand") | Short('x') => expand_code_objects = false,
+            Short('O') => optimize += 1,
+            _ => return Err(arg.unexpected()),
+        }
+    }
+
+    if scripts.is_empty() {
+        return Err("expected at least one argument".into());
+    }
 
     let opts = compiler::CompileOpts {
         optimize,
         ..Default::default()
     };
 
-    for script in scripts.map(Path::new) {
+    for script in &scripts {
         if script.exists() && script.is_file() {
             let res = display_script(script, mode, opts.clone(), expand_code_objects);
             if let Err(e) = res {
@@ -76,6 +68,8 @@ fn main() {
             eprintln!("{script:?} is not a file.");
         }
     }
+
+    Ok(())
 }
 
 fn display_script(
