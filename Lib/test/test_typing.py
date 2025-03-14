@@ -2981,8 +2981,6 @@ class HasCallProtocol(Protocol):
 
 
 class ProtocolTests(BaseTestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_basic_protocol(self):
         @runtime_checkable
         class P(Protocol):
@@ -3071,8 +3069,6 @@ class ProtocolTests(BaseTestCase):
         for thing in (object(), 1, (), typing, f):
             self.assertIsInstance(thing, Empty)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_function_implements_protocol(self):
         def f():
             pass
@@ -3163,8 +3159,6 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(c, C)
         self.assertEqual(c.x, 1)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_cannot_instantiate_abstract(self):
         @runtime_checkable
         class P(Protocol):
@@ -3183,8 +3177,6 @@ class ProtocolTests(BaseTestCase):
             B()
         self.assertIsInstance(C(), P)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subprotocols_extending(self):
         class P1(Protocol):
             def meth1(self):
@@ -3217,8 +3209,6 @@ class ProtocolTests(BaseTestCase):
         self.assertIsInstance(C(), P2)
         self.assertIsSubclass(C, P2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_subprotocols_merging(self):
         class P1(Protocol):
             def meth1(self):
@@ -3316,8 +3306,6 @@ class ProtocolTests(BaseTestCase):
             issubclass(1, BadPG)
 
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_implicit_issubclass_between_two_protocols(self):
         @runtime_checkable
         class CallableMembersProto(Protocol):
