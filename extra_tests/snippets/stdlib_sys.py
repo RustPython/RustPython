@@ -81,7 +81,7 @@ if sys.platform.startswith("win"):
         0x00000100 | 0x00000001 | 0x00000020 | 0x00002000 | 0x00000010 | 0x00008000 | 0x00020000
 
     # We really can't test if the results are correct, so it just checks for meaningful value
-    assert winver.major > 0
+    assert winver.major > 6
     assert winver.minor >= 0
     assert winver.build > 0
     assert winver.platform == 2
@@ -91,8 +91,8 @@ if sys.platform.startswith("win"):
 
     # XXX if platform_version is implemented correctly, this'll break on compatiblity mode or a build without manifest
     # these fields can mismatch in CPython
-    # assert winver.major == winver.platform_version[0]
-    # assert winver.minor == winver.platform_version[1]
+    assert winver.major == winver.platform_version[0]
+    assert winver.minor == winver.platform_version[1]
     # assert winver.build == winver.platform_version[2]
 
 # test int_max_str_digits getter and setter
