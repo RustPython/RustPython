@@ -13,12 +13,17 @@ mod winreg {
     use std::os::windows::ffi::OsStrExt;
     use std::sync::Arc;
 
+    use crate::builtins::PyInt;
     use crate::common::lock::PyRwLock;
+    use crate::function::FuncArgs;
     use crate::protocol::PyNumberMethods;
     use crate::types::AsNumber;
-    use crate::{PyPayload, PyRef, PyResult, VirtualMachine};
+    use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+
     use windows_sys::Win32::Foundation;
     use windows_sys::Win32::System::Registry;
+
+    use num_traits::ToPrimitive;
 
     pub(crate) fn to_utf16<P: AsRef<OsStr>>(s: P) -> Vec<u16> {
         s.as_ref().encode_wide().chain(Some(0)).collect()
@@ -105,6 +110,11 @@ mod winreg {
 
     #[pyclass(with(AsNumber))]
     impl PyHKEYObject {
+        #[pygetset]
+        fn handle(&self) -> usize {
+            *self.hkey.read() as usize
+        }
+
         #[pymethod(magic)]
         fn bool(&self) -> bool {
             !self.hkey.read().is_null()
@@ -148,7 +158,31 @@ mod winreg {
         //     }
         // }
 
-        // TODO: __enter__ and __exit__
+        #[pymethod(magic)]
+        fn enter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            Ok(zelf)
+        }
+
+        #[pymethod(magic)]
+        fn exit(zelf: PyRef<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let res = unsafe { Registry::RegCloseKey(*zelf.hkey.write()) };
+            if res == 0 {
+                Ok(())
+            } else {
+                Err(vm.new_os_error("msg TODO".to_string()))
+            }
+        }
+    }
+
+    impl Drop for PyHKEYObject {
+        fn drop(&mut self) {
+            unsafe {
+                let hkey = *self.hkey.write();
+                if !hkey.is_null() {
+                    Registry::RegCloseKey(hkey);
+                }
+            }
+        }
     }
 
     pub const HKEY_ERR_MSG: &str = "bad operand type";
@@ -276,10 +310,10 @@ mod winreg {
                 key,
                 wide_sub_key.as_ptr(),
                 args.reserved,
-                std::ptr::null_mut(),
-                0,
+                std::ptr::null(),
+                Registry::REG_OPTION_NON_VOLATILE,
                 args.access,
-                std::ptr::null_mut(),
+                std::ptr::null(),
                 &mut res,
                 std::ptr::null_mut(),
             )
@@ -461,25 +495,126 @@ mod winreg {
         }
     }
 
-    // #[pyfunction]
-    // fn SetValue(key: PyRef<PyHKEYObject>, sub_key: String, typ: String, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-    //     let res = unsafe {
-    //         Registry::RegSetValueA(
-    //             *key.hkey.read(),
-    //             sub_key.as_ptr(),
-    //             Registry::REG_SZ,
-    //             value.as_ptr(),
-    //             value.len() as u32,
-    //         )
-    //     };
-    //     if res == 0 {
-    //         Ok(())
-    //     } else {
-    //         Err(vm.new_os_error("msg TODO".to_string()))
-    //     }
-    // }
+    #[pyfunction]
+    fn SetValue(key: PyRef<PyHKEYObject>, sub_key: String, typ: u32, value: String, vm: &VirtualMachine) -> PyResult<()> {
+        if typ != Registry::REG_SZ {
+            return Err(vm.new_type_error("type must be winreg.REG_SZ".to_string()));
+        }
+    
+        let wide_sub_key = to_utf16(sub_key);
 
-    // TODO: SetValuEx
+        // TODO: Value check
+        if *key.hkey.read() == Registry::HKEY_PERFORMANCE_DATA {
+            return Err(vm.new_os_error("Cannot set value on HKEY_PERFORMANCE_DATA".to_string()));
+        }
+
+        // if (sub_key && sub_key[0]) {
+        //     // TODO: create key
+        // }
+
+        let res = unsafe {
+            Registry::RegSetValueExW(
+                *key.hkey.read(),
+                wide_sub_key.as_ptr(),
+                0,
+                typ,
+                value.as_ptr(),
+                value.len() as u32,
+            )
+        };
+
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
+    fn py2reg(value: PyObjectRef, typ: u32, vm: &VirtualMachine) -> PyResult<Option<Vec<u8>>> {
+        match typ {
+            REG_DWORD => {
+                let val = value.downcast_ref::<PyInt>();
+                if val.is_none() {
+                    return Err(vm.new_type_error("value must be an integer".to_string()));
+                }
+                let val = val.unwrap().as_bigint().to_u32().unwrap();
+                Ok(Some(val.to_le_bytes().to_vec()))
+            }
+            REG_QWORD => {
+                let val = value.downcast_ref::<PyInt>();
+                if val.is_none() {
+                    return Err(vm.new_type_error("value must be an integer".to_string()));
+                }
+                let val = val.unwrap().as_bigint().to_u64().unwrap();
+                Ok(Some(val.to_le_bytes().to_vec()))
+            }
+            // REG_SZ is fallthrough
+            REG_EXPAND_SZ => {
+                return Err(vm.new_type_error("TODO: RUSTPYTHON REG_EXPAND_SZ is not supported".to_string()));
+            }
+            REG_MULTI_SZ => {
+                return Err(vm.new_type_error("TODO: RUSTPYTHON REG_MULTI_SZ is not supported".to_string()));
+            }
+            // REG_BINARY is fallthrough
+            _ => {
+                if vm.is_none(&value) {
+                    return Ok(None);
+                }
+                return Err(vm.new_type_error("TODO: RUSTPYTHON Not supported".to_string()));
+            }
+        }
+    }
+
+    #[pyfunction]
+    fn SetValueEx(
+        key: PyRef<PyHKEYObject>,
+        value_name: String,
+        reserved: u32,
+        typ: u32,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match py2reg(value, typ, vm) {
+            Ok(Some(v)) => {
+                let len = v.len() as u32;
+                let ptr = v.as_ptr();
+                let wide_value_name = to_utf16(value_name);
+                let res = unsafe {
+                    Registry::RegSetValueExW(
+                        *key.hkey.read(),
+                        wide_value_name.as_ptr(),
+                        0,
+                        typ,
+                        ptr,
+                        len,
+                    )
+                };
+                if res != 0 {
+                    return Err(vm.new_os_error(format!("error code: {}", res)));
+                }
+            },
+            Ok(None) => {
+                let len = 0;
+                let ptr = std::ptr::null();
+                let wide_value_name = to_utf16(value_name);
+                let res = unsafe {
+                    Registry::RegSetValueExW(
+                        *key.hkey.read(),
+                        wide_value_name.as_ptr(),
+                        0,
+                        typ,
+                        ptr,
+                        len,
+                    )
+                };
+                if res != 0 {
+                    return Err(vm.new_os_error(format!("error code: {}", res)));
+                }
+            },
+            Err(_) => return Err(vm.new_type_error("value must be an integer".to_string())),
+        }
+        Ok(())
+    }
 
     #[pyfunction]
     fn EnableReflectionKey(key: PyRef<PyHKEYObject>, vm: &VirtualMachine) -> PyResult<()> {
