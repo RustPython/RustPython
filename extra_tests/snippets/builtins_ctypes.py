@@ -33,13 +33,16 @@ def create_string_buffer(init, size=None):
         if size is None:
             size = len(init)+1
         _sys.audit("ctypes.create_string_buffer", init, size)
-        buftype = c_char * size
+        buftype = c_char.__mul__(size)
+        print(type(c_char.__mul__(size)))
+        # buftype = c_char * size
         buf = buftype()
         buf.value = init
         return buf
     elif isinstance(init, int):
         _sys.audit("ctypes.create_string_buffer", None, init)
-        buftype = c_char * init
+        buftype = c_char.__mul__(init)
+        # buftype = c_char * init
         buf = buftype()
         return buf
     raise TypeError(init)
@@ -260,8 +263,62 @@ class LibraryLoader(object):
 
 cdll = LibraryLoader(CDLL)
 
+test_byte_array = create_string_buffer(b"Hello, World!\n")
+assert test_byte_array._length_ == 15
+
 if _os.name == "posix" or _sys.platform == "darwin":
     pass
 else:
+    import os
+
     libc = cdll.msvcrt
-    print("rand", libc.rand())
+    libc.rand()
+    i = c_int(1)
+    print("start srand")
+    print(libc.srand(i))
+    print(test_byte_array)
+    print(test_byte_array._type_)
+    # print("start printf")
+    # libc.printf(test_byte_array)
+
+    # windows pip support
+
+    def get_win_folder_via_ctypes(csidl_name: str) -> str:
+        """Get folder with ctypes."""
+        # There is no 'CSIDL_DOWNLOADS'.
+        # Use 'CSIDL_PROFILE' (40) and append the default folder 'Downloads' instead.
+        # https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid
+
+        import ctypes  # noqa: PLC0415
+
+        csidl_const = {
+            "CSIDL_APPDATA": 26,
+            "CSIDL_COMMON_APPDATA": 35,
+            "CSIDL_LOCAL_APPDATA": 28,
+            "CSIDL_PERSONAL": 5,
+            "CSIDL_MYPICTURES": 39,
+            "CSIDL_MYVIDEO": 14,
+            "CSIDL_MYMUSIC": 13,
+            "CSIDL_DOWNLOADS": 40,
+            "CSIDL_DESKTOPDIRECTORY": 16,
+        }.get(csidl_name)
+        if csidl_const is None:
+            msg = f"Unknown CSIDL name: {csidl_name}"
+            raise ValueError(msg)
+
+        buf = ctypes.create_unicode_buffer(1024)
+        windll = getattr(ctypes, "windll")  # noqa: B009 # using getattr to avoid false positive with mypy type checker
+        windll.shell32.SHGetFolderPathW(None, csidl_const, None, 0, buf)
+
+        # Downgrade to short path name if it has high-bit chars.
+        if any(ord(c) > 255 for c in buf):  # noqa: PLR2004
+            buf2 = ctypes.create_unicode_buffer(1024)
+            if windll.kernel32.GetShortPathNameW(buf.value, buf2, 1024):
+                buf = buf2
+
+        if csidl_name == "CSIDL_DOWNLOADS":
+            return os.path.join(buf.value, "Downloads")  # noqa: PTH118
+
+        return buf.value
+
+    # print(get_win_folder_via_ctypes("CSIDL_DOWNLOADS"))
