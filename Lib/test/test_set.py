@@ -354,7 +354,7 @@ class TestJointOps:
         self.assertTrue(ref() is None, "Cycle was not collected")
 
     # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.skip("TODO: RustPython hang")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.thetype)
 

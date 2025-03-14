@@ -68,8 +68,6 @@ class FinderTests:
             self.assertIn(path, sys.path_importer_cache)
             self.assertIs(sys.path_importer_cache[path], importer)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_empty_path_hooks(self):
         # Test that if sys.path_hooks is empty a warning is raised,
         # sys.path_importer_cache gets None set, and PathFinder returns None.
