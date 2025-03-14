@@ -442,8 +442,6 @@ class AnnotationsFutureTestCase(unittest.TestCase):
                 def bar(arg: (yield)): pass
             """))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_get_type_hints_on_func_with_variadic_arg(self):
         # `typing.get_type_hints` might break on a function with a variadic
         # annotation (e.g. `f(*args: *Ts)`) if `from __future__ import
