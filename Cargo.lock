@@ -2207,6 +2207,7 @@ dependencies = [
  "itertools 0.14.0",
  "junction",
  "libc",
+ "libm",
  "libsqlite3-sys",
  "libz-rs-sys",
  "mac_address",
