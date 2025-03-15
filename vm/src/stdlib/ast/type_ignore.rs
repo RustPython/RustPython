@@ -40,24 +40,21 @@ pub(super) struct TypeIgnoreTypeIgnore {
 
 // constructor
 impl Node for TypeIgnoreTypeIgnore {
-    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
-        let Self {
-            lineno,
-            tag,
-            range: _range,
-        } = self;
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+        let Self { lineno, tag, range } = self;
         let node = NodeAst
             .into_ref_with_type(vm, gen::NodeTypeIgnoreTypeIgnore::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("lineno", lineno.to_pyobject(vm), vm).unwrap();
         dict.set_item("tag", tag.to_pyobject(vm), vm).unwrap();
+        node_add_location(&dict, range, vm, source_code);
         node.into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
+        source_code: &SourceCodeOwned,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
@@ -67,7 +64,7 @@ impl Node for TypeIgnoreTypeIgnore {
             tag: get_node_field(vm, &object, "tag", "TypeIgnore")?
                 .downcast_exact(vm)
                 .unwrap(),
-            range: Default::default(),
+            range: range_from_object(vm, source_code, object, "TypeIgnore")?,
         })
     }
 }
