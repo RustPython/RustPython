@@ -445,6 +445,7 @@ class ClassTests(unittest.TestCase):
         del testme.cardinal
         self.assertCallStack([('__delattr__', (testme, "cardinal"))])
 
+    @cpython_only
     def testHasAttrString(self):
         import sys
         from test.support import import_helper
@@ -846,8 +847,10 @@ class ClassTests(unittest.TestCase):
             Type(i)
         self.assertEqual(calls, 100)
 
-
-from _testinternalcapi import has_inline_values
+try:
+    from _testinternalcapi import has_inline_values
+except ImportError:
+    has_inline_values = None
 
 Py_TPFLAGS_MANAGED_DICT = (1 << 2)
 
@@ -869,20 +872,27 @@ class TestInlineValues(unittest.TestCase):
     def test_flags(self):
         self.assertEqual(Plain.__flags__ & Py_TPFLAGS_MANAGED_DICT, Py_TPFLAGS_MANAGED_DICT)
         self.assertEqual(WithAttrs.__flags__ & Py_TPFLAGS_MANAGED_DICT, Py_TPFLAGS_MANAGED_DICT)
+
+    @cpython_only
     def test_has_inline_values(self):
         c = Plain()
         self.assertTrue(has_inline_values(c))
         del c.__dict__
         self.assertFalse(has_inline_values(c))
 
+    @cpython_only
     def test_instances(self):
         self.assertTrue(has_inline_values(Plain()))
         self.assertTrue(has_inline_values(WithAttrs()))
+
+    @cpython_only
     def test_inspect_dict(self):
         for cls in (Plain, WithAttrs):
             c = cls()
             c.__dict__
             self.assertTrue(has_inline_values(c))
+
+    @cpython_only
     def test_update_dict(self):
         d = { "e": 5, "f": 6 }
         for cls in (Plain, WithAttrs):
@@ -898,6 +908,8 @@ class TestInlineValues(unittest.TestCase):
     def check_100(self, obj):
         for i in range(100):
             self.assertEqual(getattr(obj, f"a{i}"), i)
+
+    @cpython_only
     def test_many_attributes(self):
         class C: pass
         c = C()
@@ -907,6 +919,8 @@ class TestInlineValues(unittest.TestCase):
         self.check_100(c)
         c = C()
         self.assertTrue(has_inline_values(c))
+
+    @cpython_only
     def test_many_attributes_with_dict(self):
         class C: pass
         c = C()
@@ -972,6 +986,8 @@ class TestInlineValues(unittest.TestCase):
         # destructor shouldn't be able to see inconsistent state
         C.a = X()
         C.a = X()
+
+    @cpython_only
     def test_detach_materialized_dict_no_memory(self):
         # Skip test if _testcapi is not available:
         import_helper.import_module('_testcapi')
@@ -1001,5 +1017,6 @@ class TestInlineValues(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertFalse(out, msg=out.decode('utf-8'))
         self.assertFalse(err, msg=err.decode('utf-8'))
+
 if __name__ == '__main__':
     unittest.main()
