@@ -14,7 +14,6 @@ import random
 import struct
 import sys
 
-
 eps = 1E-05
 NAN = float('nan')
 INF = float('inf')
@@ -24,7 +23,7 @@ FLOAT_MIN = sys.float_info.min
 
 # detect evidence of double-rounding: fsum is not always correctly
 # rounded on machines that suffer from double rounding.
-x, y = 1e16, 2.9999 # use temporary values to defeat peephole optimizer
+x, y = 1e16, 2.9999  # use temporary values to defeat peephole optimizer
 HAVE_DOUBLE_ROUNDING = (x + y == 1e16 + 4)
 
 # locate file with test values
@@ -33,8 +32,8 @@ if __name__ == '__main__':
 else:
     file = __file__
 test_dir = os.path.dirname(file) or os.curdir
-math_testcases = os.path.join(test_dir, 'math_testcases.txt')
-test_file = os.path.join(test_dir, 'cmath_testcases.txt')
+math_testcases = os.path.join(test_dir, 'mathdata', 'math_testcases.txt')
+test_file = os.path.join(test_dir, 'mathdata', 'cmath_testcases.txt')
 
 
 def to_ulps(x):
@@ -50,7 +49,7 @@ def to_ulps(x):
     """
     n = struct.unpack('<q', struct.pack('<d', x))[0]
     if n < 0:
-        n = ~(n+2**63)
+        n = ~(n + 2 ** 63)
     return n
 
 
@@ -79,6 +78,7 @@ def count_set_bits(n):
     """Number of '1' bits in binary expansion of a nonnnegative integer."""
     return 1 + count_set_bits(n & n - 1) if n else 0
 
+
 def partial_product(start, stop):
     """Product of integers in range(start, stop, 2), computed recursively.
     start and stop should both be odd, with start <= stop.
@@ -93,6 +93,7 @@ def partial_product(start, stop):
         mid = (start + numfactors) | 1
         return partial_product(start, mid) * partial_product(mid, stop)
 
+
 def py_factorial(n):
     """Factorial of nonnegative integer n, via "Binary Split Factorial Formula"
     described at http://www.luschny.de/math/factorial/binarysplitfact.html
@@ -103,6 +104,7 @@ def py_factorial(n):
         inner *= partial_product((n >> i + 1) + 1 | 1, (n >> i) + 1 | 1)
         outer *= inner
     return outer << (n - count_set_bits(n))
+
 
 def ulp_abs_check(expected, got, ulp_tol, abs_tol):
     """Given finite floats `expected` and `got`, check that they're
@@ -121,6 +123,7 @@ def ulp_abs_check(expected, got, ulp_tol, abs_tol):
         fmt = ("error = {:.3g} ({:d} ulps); "
                "permitted error = {:.3g} or {:d} ulps")
         return fmt.format(abs_error, ulp_error, abs_tol, ulp_tol)
+
 
 def parse_mtestfile(fname):
     """Parse a file with test values
@@ -220,6 +223,7 @@ def result_check(expected, got, ulp_tol=5, abs_tol=0.0):
     else:
         return None
 
+
 class FloatLike:
     def __init__(self, value):
         self.value = value
@@ -227,8 +231,10 @@ class FloatLike:
     def __float__(self):
         return self.value
 
+
 class IntSubclass(int):
     pass
+
 
 # Class providing an __index__ method.
 class MyIndexable(object):
@@ -238,9 +244,11 @@ class MyIndexable(object):
     def __index__(self):
         return self.value
 
+
 class BadDescr:
     def __get__(self, obj, objtype=None):
         raise ValueError
+
 
 class MathTests(unittest.TestCase):
 
@@ -261,12 +269,12 @@ class MathTests(unittest.TestCase):
         # Ref: Abramowitz & Stegun (Dover, 1965)
         self.ftest('pi', math.pi, 3.141592653589793238462643)
         self.ftest('e', math.e, 2.718281828459045235360287)
-        self.assertEqual(math.tau, 2*math.pi)
+        self.assertEqual(math.tau, 2 * math.pi)
 
     def testAcos(self):
         self.assertRaises(TypeError, math.acos)
         self.ftest('acos(-1)', math.acos(-1), math.pi)
-        self.ftest('acos(0)', math.acos(0), math.pi/2)
+        self.ftest('acos(0)', math.acos(0), math.pi / 2)
         self.ftest('acos(1)', math.acos(1), 0)
         self.assertRaises(ValueError, math.acos, INF)
         self.assertRaises(ValueError, math.acos, NINF)
@@ -286,9 +294,9 @@ class MathTests(unittest.TestCase):
 
     def testAsin(self):
         self.assertRaises(TypeError, math.asin)
-        self.ftest('asin(-1)', math.asin(-1), -math.pi/2)
+        self.ftest('asin(-1)', math.asin(-1), -math.pi / 2)
         self.ftest('asin(0)', math.asin(0), 0)
-        self.ftest('asin(1)', math.asin(1), math.pi/2)
+        self.ftest('asin(1)', math.asin(1), math.pi / 2)
         self.assertRaises(ValueError, math.asin, INF)
         self.assertRaises(ValueError, math.asin, NINF)
         self.assertRaises(ValueError, math.asin, 1 + eps)
@@ -306,11 +314,11 @@ class MathTests(unittest.TestCase):
 
     def testAtan(self):
         self.assertRaises(TypeError, math.atan)
-        self.ftest('atan(-1)', math.atan(-1), -math.pi/4)
+        self.ftest('atan(-1)', math.atan(-1), -math.pi / 4)
         self.ftest('atan(0)', math.atan(0), 0)
-        self.ftest('atan(1)', math.atan(1), math.pi/4)
-        self.ftest('atan(inf)', math.atan(INF), math.pi/2)
-        self.ftest('atan(-inf)', math.atan(NINF), -math.pi/2)
+        self.ftest('atan(1)', math.atan(1), math.pi / 4)
+        self.ftest('atan(inf)', math.atan(INF), math.pi / 2)
+        self.ftest('atan(-inf)', math.atan(NINF), -math.pi / 2)
         self.assertTrue(math.isnan(math.atan(NAN)))
 
     def testAtanh(self):
@@ -326,12 +334,12 @@ class MathTests(unittest.TestCase):
 
     def testAtan2(self):
         self.assertRaises(TypeError, math.atan2)
-        self.ftest('atan2(-1, 0)', math.atan2(-1, 0), -math.pi/2)
-        self.ftest('atan2(-1, 1)', math.atan2(-1, 1), -math.pi/4)
+        self.ftest('atan2(-1, 0)', math.atan2(-1, 0), -math.pi / 2)
+        self.ftest('atan2(-1, 1)', math.atan2(-1, 1), -math.pi / 4)
         self.ftest('atan2(0, 1)', math.atan2(0, 1), 0)
-        self.ftest('atan2(1, 1)', math.atan2(1, 1), math.pi/4)
-        self.ftest('atan2(1, 0)', math.atan2(1, 0), math.pi/2)
-        self.ftest('atan2(1, -1)', math.atan2(1, -1), 3*math.pi/4)
+        self.ftest('atan2(1, 1)', math.atan2(1, 1), math.pi / 4)
+        self.ftest('atan2(1, 0)', math.atan2(1, 0), math.pi / 2)
+        self.ftest('atan2(1, -1)', math.atan2(1, -1), 3 * math.pi / 4)
 
         # math.atan2(0, x)
         self.ftest('atan2(0., -inf)', math.atan2(0., NINF), math.pi)
@@ -350,31 +358,31 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.atan2(-0., INF), -0.)
         self.assertTrue(math.isnan(math.atan2(-0., NAN)))
         # math.atan2(INF, x)
-        self.ftest('atan2(inf, -inf)', math.atan2(INF, NINF), math.pi*3/4)
-        self.ftest('atan2(inf, -2.3)', math.atan2(INF, -2.3), math.pi/2)
-        self.ftest('atan2(inf, -0.)', math.atan2(INF, -0.0), math.pi/2)
-        self.ftest('atan2(inf, 0.)', math.atan2(INF, 0.0), math.pi/2)
-        self.ftest('atan2(inf, 2.3)', math.atan2(INF, 2.3), math.pi/2)
-        self.ftest('atan2(inf, inf)', math.atan2(INF, INF), math.pi/4)
+        self.ftest('atan2(inf, -inf)', math.atan2(INF, NINF), math.pi * 3 / 4)
+        self.ftest('atan2(inf, -2.3)', math.atan2(INF, -2.3), math.pi / 2)
+        self.ftest('atan2(inf, -0.)', math.atan2(INF, -0.0), math.pi / 2)
+        self.ftest('atan2(inf, 0.)', math.atan2(INF, 0.0), math.pi / 2)
+        self.ftest('atan2(inf, 2.3)', math.atan2(INF, 2.3), math.pi / 2)
+        self.ftest('atan2(inf, inf)', math.atan2(INF, INF), math.pi / 4)
         self.assertTrue(math.isnan(math.atan2(INF, NAN)))
         # math.atan2(NINF, x)
-        self.ftest('atan2(-inf, -inf)', math.atan2(NINF, NINF), -math.pi*3/4)
-        self.ftest('atan2(-inf, -2.3)', math.atan2(NINF, -2.3), -math.pi/2)
-        self.ftest('atan2(-inf, -0.)', math.atan2(NINF, -0.0), -math.pi/2)
-        self.ftest('atan2(-inf, 0.)', math.atan2(NINF, 0.0), -math.pi/2)
-        self.ftest('atan2(-inf, 2.3)', math.atan2(NINF, 2.3), -math.pi/2)
-        self.ftest('atan2(-inf, inf)', math.atan2(NINF, INF), -math.pi/4)
+        self.ftest('atan2(-inf, -inf)', math.atan2(NINF, NINF), -math.pi * 3 / 4)
+        self.ftest('atan2(-inf, -2.3)', math.atan2(NINF, -2.3), -math.pi / 2)
+        self.ftest('atan2(-inf, -0.)', math.atan2(NINF, -0.0), -math.pi / 2)
+        self.ftest('atan2(-inf, 0.)', math.atan2(NINF, 0.0), -math.pi / 2)
+        self.ftest('atan2(-inf, 2.3)', math.atan2(NINF, 2.3), -math.pi / 2)
+        self.ftest('atan2(-inf, inf)', math.atan2(NINF, INF), -math.pi / 4)
         self.assertTrue(math.isnan(math.atan2(NINF, NAN)))
         # math.atan2(+finite, x)
         self.ftest('atan2(2.3, -inf)', math.atan2(2.3, NINF), math.pi)
-        self.ftest('atan2(2.3, -0.)', math.atan2(2.3, -0.), math.pi/2)
-        self.ftest('atan2(2.3, 0.)', math.atan2(2.3, 0.), math.pi/2)
+        self.ftest('atan2(2.3, -0.)', math.atan2(2.3, -0.), math.pi / 2)
+        self.ftest('atan2(2.3, 0.)', math.atan2(2.3, 0.), math.pi / 2)
         self.assertEqual(math.atan2(2.3, INF), 0.)
         self.assertTrue(math.isnan(math.atan2(2.3, NAN)))
         # math.atan2(-finite, x)
         self.ftest('atan2(-2.3, -inf)', math.atan2(-2.3, NINF), -math.pi)
-        self.ftest('atan2(-2.3, -0.)', math.atan2(-2.3, -0.), -math.pi/2)
-        self.ftest('atan2(-2.3, 0.)', math.atan2(-2.3, 0.), -math.pi/2)
+        self.ftest('atan2(-2.3, -0.)', math.atan2(-2.3, -0.), -math.pi / 2)
+        self.ftest('atan2(-2.3, 0.)', math.atan2(-2.3, 0.), -math.pi / 2)
         self.assertEqual(math.atan2(-2.3, INF), -0.)
         self.assertTrue(math.isnan(math.atan2(-2.3, NAN)))
         # math.atan2(NAN, x)
@@ -413,20 +421,25 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.ceil(-1.5), -1)
         self.assertEqual(math.ceil(0.0), 0)
         self.assertEqual(math.ceil(-0.0), 0)
-        #self.assertEqual(math.ceil(INF), INF)
-        #self.assertEqual(math.ceil(NINF), NINF)
-        #self.assertTrue(math.isnan(math.ceil(NAN)))
+
+        # self.assertEqual(math.ceil(INF), INF)
+        # self.assertEqual(math.ceil(NINF), NINF)
+        # self.assertTrue(math.isnan(math.ceil(NAN)))
 
         class TestCeil:
             def __ceil__(self):
                 return 42
+
         class FloatCeil(float):
             def __ceil__(self):
                 return 42
+
         class TestNoCeil:
             pass
+
         class TestBadCeil:
             __ceil__ = BadDescr()
+
         self.assertEqual(math.ceil(TestCeil()), 42)
         self.assertEqual(math.ceil(FloatCeil()), 42)
         self.assertEqual(math.ceil(FloatLike(42.5)), 43)
@@ -477,9 +490,9 @@ class MathTests(unittest.TestCase):
 
     def testCos(self):
         self.assertRaises(TypeError, math.cos)
-        self.ftest('cos(-pi/2)', math.cos(-math.pi/2), 0, abs_tol=math.ulp(1))
+        self.ftest('cos(-pi/2)', math.cos(-math.pi / 2), 0, abs_tol=math.ulp(1))
         self.ftest('cos(0)', math.cos(0), 1)
-        self.ftest('cos(pi/2)', math.cos(math.pi/2), 0, abs_tol=math.ulp(1))
+        self.ftest('cos(pi/2)', math.cos(math.pi / 2), 0, abs_tol=math.ulp(1))
         self.ftest('cos(pi)', math.cos(math.pi), -1)
         try:
             self.assertTrue(math.isnan(math.cos(INF)))
@@ -490,11 +503,11 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(math.cos(NAN)))
 
     @unittest.skipIf(sys.platform == 'win32' and platform.machine() in ('ARM', 'ARM64'),
-                    "Windows UCRT is off by 2 ULP this test requires accuracy within 1 ULP")
+                     "Windows UCRT is off by 2 ULP this test requires accuracy within 1 ULP")
     def testCosh(self):
         self.assertRaises(TypeError, math.cosh)
         self.ftest('cosh(0)', math.cosh(0), 1)
-        self.ftest('cosh(2)-2*cosh(1)**2', math.cosh(2)-2*math.cosh(1)**2, -1) # Thanks to Lambert
+        self.ftest('cosh(2)-2*cosh(1)**2', math.cosh(2) - 2 * math.cosh(1) ** 2, -1)  # Thanks to Lambert
         self.assertEqual(math.cosh(INF), INF)
         self.assertEqual(math.cosh(NINF), INF)
         self.assertTrue(math.isnan(math.cosh(NAN)))
@@ -502,13 +515,13 @@ class MathTests(unittest.TestCase):
     def testDegrees(self):
         self.assertRaises(TypeError, math.degrees)
         self.ftest('degrees(pi)', math.degrees(math.pi), 180.0)
-        self.ftest('degrees(pi/2)', math.degrees(math.pi/2), 90.0)
-        self.ftest('degrees(-pi/4)', math.degrees(-math.pi/4), -45.0)
+        self.ftest('degrees(pi/2)', math.degrees(math.pi / 2), 90.0)
+        self.ftest('degrees(-pi/4)', math.degrees(-math.pi / 4), -45.0)
         self.ftest('degrees(0)', math.degrees(0), 0)
 
     def testExp(self):
         self.assertRaises(TypeError, math.exp)
-        self.ftest('exp(-1)', math.exp(-1), 1/math.e)
+        self.ftest('exp(-1)', math.exp(-1), 1 / math.e)
         self.ftest('exp(0)', math.exp(0), 1)
         self.ftest('exp(1)', math.exp(1), math.e)
         self.assertEqual(math.exp(INF), INF)
@@ -541,7 +554,7 @@ class MathTests(unittest.TestCase):
             self.assertEqual(math.factorial(i), total)
             self.assertEqual(math.factorial(i), py_factorial(i))
         self.assertRaises(ValueError, math.factorial, -1)
-        self.assertRaises(ValueError, math.factorial, -10**100)
+        self.assertRaises(ValueError, math.factorial, -10 ** 100)
 
     def testFactorialNonIntegers(self):
         self.assertRaises(TypeError, math.factorial, 5.0)
@@ -557,7 +570,7 @@ class MathTests(unittest.TestCase):
     def testFactorialHugeInputs(self):
         # Currently raises OverflowError for inputs that are too large
         # to fit into a C long.
-        self.assertRaises(OverflowError, math.factorial, 10**100)
+        self.assertRaises(OverflowError, math.factorial, 10 ** 100)
         self.assertRaises(TypeError, math.factorial, 1e100)
 
     def testFloor(self):
@@ -569,20 +582,25 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.floor(-0.5), -1)
         self.assertEqual(math.floor(-1.0), -1)
         self.assertEqual(math.floor(-1.5), -2)
-        #self.assertEqual(math.ceil(INF), INF)
-        #self.assertEqual(math.ceil(NINF), NINF)
-        #self.assertTrue(math.isnan(math.floor(NAN)))
+
+        # self.assertEqual(math.ceil(INF), INF)
+        # self.assertEqual(math.ceil(NINF), NINF)
+        # self.assertTrue(math.isnan(math.floor(NAN)))
 
         class TestFloor:
             def __floor__(self):
                 return 42
+
         class FloatFloor(float):
             def __floor__(self):
                 return 42
+
         class TestNoFloor:
             pass
+
         class TestBadFloor:
             __floor__ = BadDescr()
+
         self.assertEqual(math.floor(TestFloor()), 42)
         self.assertEqual(math.floor(FloatFloor()), 42)
         self.assertEqual(math.floor(FloatLike(41.9)), 41)
@@ -625,8 +643,8 @@ class MathTests(unittest.TestCase):
 
         def testfrexp(name, result, expected):
             (mant, exp), (emant, eexp) = result, expected
-            if abs(mant-emant) > eps or exp != eexp:
-                self.fail('%s returned %r, expected %r'%\
+            if abs(mant - emant) > eps or exp != eexp:
+                self.fail('%s returned %r, expected %r' % \
                           (name, result, expected))
 
         testfrexp('frexp(-1)', math.frexp(-1), (-0.5, 1))
@@ -640,7 +658,7 @@ class MathTests(unittest.TestCase):
 
     @requires_IEEE_754
     @unittest.skipIf(HAVE_DOUBLE_ROUNDING,
-                         "fsum is not exact on machines with double rounding")
+                     "fsum is not exact on machines with double rounding")
     def testFsum(self):
         # math.fsum relies on exact rounding for correct operation.
         # There's a known problem with IA32 floating-point that causes
@@ -668,19 +686,19 @@ class MathTests(unittest.TestCase):
                 mant, exp = math.frexp(x)
                 mant, exp = int(math.ldexp(mant, mant_dig)), exp - mant_dig
                 if texp > exp:
-                    tmant <<= texp-exp
+                    tmant <<= texp - exp
                     texp = exp
                 else:
-                    mant <<= exp-texp
+                    mant <<= exp - texp
                 tmant += mant
             # Round tmant * 2**texp to a float.  The original recipe
             # used float(str(tmant)) * 2.0**texp for this, but that's
             # a little unsafe because str -> float conversion can't be
             # relied upon to do correct rounding on all platforms.
-            tail = max(len(bin(abs(tmant)))-2 - mant_dig, etiny - texp)
+            tail = max(len(bin(abs(tmant))) - 2 - mant_dig, etiny - texp)
             if tail > 0:
-                h = 1 << (tail-1)
-                tmant = tmant // (2*h) + bool(tmant & h and tmant & 3*h-1)
+                h = 1 << (tail - 1)
+                tmant = tmant // (2 * h) + bool(tmant & h and tmant & 3 * h - 1)
                 texp += tail
             return math.ldexp(tmant, texp)
 
@@ -689,26 +707,26 @@ class MathTests(unittest.TestCase):
             ([0.0], 0.0),
             ([1e100, 1.0, -1e100, 1e-100, 1e50, -1.0, -1e50], 1e-100),
             ([1e100, 1.0, -1e100, 1e-100, 1e50, -1, -1e50], 1e-100),
-            ([2.0**53, -0.5, -2.0**-54], 2.0**53-1.0),
-            ([2.0**53, 1.0, 2.0**-100], 2.0**53+2.0),
-            ([2.0**53+10.0, 1.0, 2.0**-100], 2.0**53+12.0),
-            ([2.0**53-4.0, 0.5, 2.0**-54], 2.0**53-3.0),
-            ([1./n for n in range(1, 1001)],
+            ([2.0 ** 53, -0.5, -2.0 ** -54], 2.0 ** 53 - 1.0),
+            ([2.0 ** 53, 1.0, 2.0 ** -100], 2.0 ** 53 + 2.0),
+            ([2.0 ** 53 + 10.0, 1.0, 2.0 ** -100], 2.0 ** 53 + 12.0),
+            ([2.0 ** 53 - 4.0, 0.5, 2.0 ** -54], 2.0 ** 53 - 3.0),
+            ([1. / n for n in range(1, 1001)],
              float.fromhex('0x1.df11f45f4e61ap+2')),
-            ([(-1.)**n/n for n in range(1, 1001)],
+            ([(-1.) ** n / n for n in range(1, 1001)],
              float.fromhex('-0x1.62a2af1bd3624p-1')),
             ([1e16, 1., 1e-16], 10000000000000002.0),
-            ([1e16-2., 1.-2.**-53, -(1e16-2.), -(1.-2.**-53)], 0.0),
+            ([1e16 - 2., 1. - 2. ** -53, -(1e16 - 2.), -(1. - 2. ** -53)], 0.0),
             # exercise code for resizing partials array
-            ([2.**n - 2.**(n+50) + 2.**(n+52) for n in range(-1074, 972, 2)] +
-             [-2.**1022],
+            ([2. ** n - 2. ** (n + 50) + 2. ** (n + 52) for n in range(-1074, 972, 2)] +
+             [-2. ** 1022],
              float.fromhex('0x1.5555555555555p+970')),
-            ]
+        ]
 
         # Telescoping sum, with exact differences (due to Sterbenz)
-        terms = [1.7**i for i in range(1001)]
+        terms = [1.7 ** i for i in range(1001)]
         test_values.append((
-            [terms[i+1] - terms[i] for i in range(1000)] + [-terms[1000]],
+            [terms[i + 1] - terms[i] for i in range(1000)] + [-terms[1000]],
             -terms[0]
         ))
 
@@ -744,7 +762,7 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, math.fsum, [math.inf, -math.inf])
         self.assertRaises(TypeError, math.fsum, ['spam'])
         self.assertRaises(TypeError, math.fsum, 1)
-        self.assertRaises(OverflowError, math.fsum, [10**1000])
+        self.assertRaises(OverflowError, math.fsum, [10 ** 1000])
 
         def bad_iter():
             yield 1.0
@@ -803,10 +821,10 @@ class MathTests(unittest.TestCase):
         # Test different numbers of arguments (from zero to five)
         # against a straightforward pure python implementation
         args = math.e, math.pi, math.sqrt(2.0), math.gamma(3.5), math.sin(2.1)
-        for i in range(len(args)+1):
+        for i in range(len(args) + 1):
             self.assertAlmostEqual(
                 hypot(*args[:i]),
-                math.sqrt(sum(s**2 for s in args[:i]))
+                math.sqrt(sum(s ** 2 for s in args[:i]))
             )
 
         # Test allowable types (those with __float__)
@@ -821,21 +839,21 @@ class MathTests(unittest.TestCase):
         self.assertEqual(hypot(True, False, True, True, True), 2.0)
 
         # Test corner cases
-        self.assertEqual(hypot(0.0, 0.0), 0.0)     # Max input is zero
-        self.assertEqual(hypot(-10.5), 10.5)       # Negative input
-        self.assertEqual(hypot(), 0.0)             # Negative input
+        self.assertEqual(hypot(0.0, 0.0), 0.0)  # Max input is zero
+        self.assertEqual(hypot(-10.5), 10.5)  # Negative input
+        self.assertEqual(hypot(), 0.0)  # Negative input
         self.assertEqual(1.0,
-            math.copysign(1.0, hypot(-0.0))        # Convert negative zero to positive zero
-        )
-        self.assertEqual(                          # Handling of moving max to the end
+                         math.copysign(1.0, hypot(-0.0))  # Convert negative zero to positive zero
+                         )
+        self.assertEqual(  # Handling of moving max to the end
             hypot(1.5, 1.5, 0.5),
             hypot(1.5, 0.5, 1.5),
         )
 
         # Test handling of bad arguments
-        with self.assertRaises(TypeError):         # Reject keyword args
+        with self.assertRaises(TypeError):  # Reject keyword args
             hypot(x=1)
-        with self.assertRaises(TypeError):         # Reject values without __float__
+        with self.assertRaises(TypeError):  # Reject values without __float__
             hypot(1.1, 'string', 2.2)
         int_too_big_for_float = 10 ** (sys.float_info.max_10_exp + 5)
         with self.assertRaises((ValueError, OverflowError)):
@@ -865,15 +883,15 @@ class MathTests(unittest.TestCase):
         # Verify scaling for extremely large values
         fourthmax = FLOAT_MAX / 4.0
         for n in range(32):
-            self.assertTrue(math.isclose(hypot(*([fourthmax]*n)),
+            self.assertTrue(math.isclose(hypot(*([fourthmax] * n)),
                                          fourthmax * math.sqrt(n)))
 
         # Verify scaling for extremely small values
         for exp in range(32):
             scale = FLOAT_MIN / 2.0 ** exp
-            self.assertEqual(math.hypot(4*scale, 3*scale), 5*scale)
+            self.assertEqual(math.hypot(4 * scale, 3 * scale), 5 * scale)
 
-        self.assertRaises(TypeError, math.hypot, *([1.0]*18), 'spam')
+        self.assertRaises(TypeError, math.hypot, *([1.0] * 18), 'spam')
 
     @requires_IEEE_754
     @unittest.skipIf(HAVE_DOUBLE_ROUNDING,
@@ -935,7 +953,7 @@ class MathTests(unittest.TestCase):
             y = float.fromhex(hy)
             with self.subTest(hx=hx, hy=hy, x=x, y=y):
                 with decimal.localcontext(high_precision):
-                    z = float((Decimal(x)**2 + Decimal(y)**2).sqrt())
+                    z = float((Decimal(x) ** 2 + Decimal(y) ** 2).sqrt())
                 self.assertEqual(hypot(x, y), z)
 
     def testDist(self):
@@ -981,15 +999,15 @@ class MathTests(unittest.TestCase):
         # Test corner cases
         self.assertEqual(dist((13.25, 12.5, -3.25),
                               (13.25, 12.5, -3.25)),
-                         0.0)                      # Distance with self is zero
-        self.assertEqual(dist((), ()), 0.0)        # Zero-dimensional case
-        self.assertEqual(1.0,                      # Convert negative zero to positive zero
-            math.copysign(1.0, dist((-0.0,), (0.0,)))
-        )
-        self.assertEqual(1.0,                      # Convert negative zero to positive zero
-            math.copysign(1.0, dist((0.0,), (-0.0,)))
-        )
-        self.assertEqual(                          # Handling of moving max to the end
+                         0.0)  # Distance with self is zero
+        self.assertEqual(dist((), ()), 0.0)  # Zero-dimensional case
+        self.assertEqual(1.0,  # Convert negative zero to positive zero
+                         math.copysign(1.0, dist((-0.0,), (0.0,)))
+                         )
+        self.assertEqual(1.0,  # Convert negative zero to positive zero
+                         math.copysign(1.0, dist((0.0,), (-0.0,)))
+                         )
+        self.assertEqual(  # Handling of moving max to the end
             dist((1.5, 1.5, 0.5), (0, 0, 0)),
             dist((1.5, 0.5, 1.5), (0, 0, 0))
         )
@@ -997,26 +1015,27 @@ class MathTests(unittest.TestCase):
         # Verify tuple subclasses are allowed
         class T(tuple):
             pass
+
         self.assertEqual(dist(T((1, 2, 3)), ((4, 2, -1))), 5.0)
 
         # Test handling of bad arguments
-        with self.assertRaises(TypeError):         # Reject keyword args
+        with self.assertRaises(TypeError):  # Reject keyword args
             dist(p=(1, 2, 3), q=(4, 5, 6))
-        with self.assertRaises(TypeError):         # Too few args
+        with self.assertRaises(TypeError):  # Too few args
             dist((1, 2, 3))
-        with self.assertRaises(TypeError):         # Too many args
+        with self.assertRaises(TypeError):  # Too many args
             dist((1, 2, 3), (4, 5, 6), (7, 8, 9))
-        with self.assertRaises(TypeError):         # Scalars not allowed
+        with self.assertRaises(TypeError):  # Scalars not allowed
             dist(1, 2)
-        with self.assertRaises(TypeError):         # Reject values without __float__
+        with self.assertRaises(TypeError):  # Reject values without __float__
             dist((1.1, 'string', 2.2), (1, 2, 3))
-        with self.assertRaises(ValueError):        # Check dimension agree
+        with self.assertRaises(ValueError):  # Check dimension agree
             dist((1, 2, 3, 4), (5, 6, 7))
-        with self.assertRaises(ValueError):        # Check dimension agree
+        with self.assertRaises(ValueError):  # Check dimension agree
             dist((1, 2, 3), (4, 5, 6, 7))
         with self.assertRaises(TypeError):
-            dist((1,)*17 + ("spam",), (1,)*18)
-        with self.assertRaises(TypeError):         # Rejects invalid types
+            dist((1,) * 17 + ("spam",), (1,) * 18)
+        with self.assertRaises(TypeError):  # Rejects invalid types
             dist("abc", "xyz")
         int_too_big_for_float = 10 ** (sys.float_info.max_10_exp + 5)
         with self.assertRaises((ValueError, OverflowError)):
@@ -1062,10 +1081,10 @@ class MathTests(unittest.TestCase):
         # Verify scaling for extremely small values
         for exp in range(32):
             scale = FLOAT_MIN / 2.0 ** exp
-            p = (4*scale, 3*scale)
+            p = (4 * scale, 3 * scale)
             q = (0.0, 0.0)
-            self.assertEqual(math.dist(p, q), 5*scale)
-            self.assertEqual(math.dist(q, p), 5*scale)
+            self.assertEqual(math.dist(p, q), 5 * scale)
+            self.assertEqual(math.dist(q, p), 5 * scale)
 
     def test_math_dist_leak(self):
         # gh-98897: Check for error handling does not leak memory
@@ -1075,18 +1094,18 @@ class MathTests(unittest.TestCase):
     def testIsqrt(self):
         # Test a variety of inputs, large and small.
         test_values = (
-            list(range(1000))
-            + list(range(10**6 - 1000, 10**6 + 1000))
-            + [2**e + i for e in range(60, 200) for i in range(-40, 40)]
-            + [3**9999, 10**5001]
+                list(range(1000))
+                + list(range(10 ** 6 - 1000, 10 ** 6 + 1000))
+                + [2 ** e + i for e in range(60, 200) for i in range(-40, 40)]
+                + [3 ** 9999, 10 ** 5001]
         )
 
         for value in test_values:
             with self.subTest(value=value):
                 s = math.isqrt(value)
                 self.assertIs(type(s), int)
-                self.assertLessEqual(s*s, value)
-                self.assertLess(value, (s+1)*(s+1))
+                self.assertLessEqual(s * s, value)
+                self.assertLess(value, (s + 1) * (s + 1))
 
         # Negative values
         with self.assertRaises(ValueError):
@@ -1139,7 +1158,7 @@ class MathTests(unittest.TestCase):
         self.assertEqual(lcm(84, -120), 840)
         self.assertEqual(lcm(1216342683557601535506311712,
                              436522681849110124616458784),
-                             16592536571065866494401400422922201534178938447014944)
+                         16592536571065866494401400422922201534178938447014944)
 
         x = 43461045657039990237
         y = 10645022458251153277
@@ -1172,10 +1191,10 @@ class MathTests(unittest.TestCase):
     def testLdexp(self):
         self.assertRaises(TypeError, math.ldexp)
         self.assertRaises(TypeError, math.ldexp, 2.0, 1.1)
-        self.ftest('ldexp(0,1)', math.ldexp(0,1), 0)
-        self.ftest('ldexp(1,1)', math.ldexp(1,1), 2)
-        self.ftest('ldexp(1,-1)', math.ldexp(1,-1), 0.5)
-        self.ftest('ldexp(-1,1)', math.ldexp(-1,1), -2)
+        self.ftest('ldexp(0,1)', math.ldexp(0, 1), 0)
+        self.ftest('ldexp(1,1)', math.ldexp(1, 1), 2)
+        self.ftest('ldexp(1,-1)', math.ldexp(1, -1), 0.5)
+        self.ftest('ldexp(-1,1)', math.ldexp(-1, 1), -2)
         self.assertRaises(OverflowError, math.ldexp, 1., 1000000)
         self.assertRaises(OverflowError, math.ldexp, -1., 1000000)
         self.assertEqual(math.ldexp(1., -1000000), 0.)
@@ -1185,7 +1204,7 @@ class MathTests(unittest.TestCase):
         self.assertTrue(math.isnan(math.ldexp(NAN, 0)))
 
         # large second argument
-        for n in [10**5, 10**10, 10**20, 10**40]:
+        for n in [10 ** 5, 10 ** 10, 10 ** 20, 10 ** 40]:
             self.assertEqual(math.ldexp(INF, -n), INF)
             self.assertEqual(math.ldexp(NINF, -n), NINF)
             self.assertEqual(math.ldexp(1., -n), 0.)
@@ -1205,16 +1224,16 @@ class MathTests(unittest.TestCase):
     def testLog(self):
         self.assertRaises(TypeError, math.log)
         self.assertRaises(TypeError, math.log, 1, 2, 3)
-        self.ftest('log(1/e)', math.log(1/math.e), -1)
+        self.ftest('log(1/e)', math.log(1 / math.e), -1)
         self.ftest('log(1)', math.log(1), 0)
         self.ftest('log(e)', math.log(math.e), 1)
-        self.ftest('log(32,2)', math.log(32,2), 5)
-        self.ftest('log(10**40, 10)', math.log(10**40, 10), 40)
-        self.ftest('log(10**40, 10**20)', math.log(10**40, 10**20), 2)
-        self.ftest('log(10**1000)', math.log(10**1000),
+        self.ftest('log(32,2)', math.log(32, 2), 5)
+        self.ftest('log(10**40, 10)', math.log(10 ** 40, 10), 40)
+        self.ftest('log(10**40, 10**20)', math.log(10 ** 40, 10 ** 20), 2)
+        self.ftest('log(10**1000)', math.log(10 ** 1000),
                    2302.5850929940457)
         self.assertRaises(ValueError, math.log, -1.5)
-        self.assertRaises(ValueError, math.log, -10**1000)
+        self.assertRaises(ValueError, math.log, -10 ** 1000)
         self.assertRaises(ValueError, math.log, 10, -10)
         self.assertRaises(ValueError, math.log, NINF)
         self.assertEqual(math.log(INF), INF)
@@ -1222,7 +1241,7 @@ class MathTests(unittest.TestCase):
 
     def testLog1p(self):
         self.assertRaises(TypeError, math.log1p)
-        for n in [2, 2**90, 2**300]:
+        for n in [2, 2 ** 90, 2 ** 300]:
             self.assertAlmostEqual(math.log1p(n), math.log1p(float(n)))
         self.assertRaises(ValueError, math.log1p, -1)
         self.assertEqual(math.log1p(INF), INF)
@@ -1237,9 +1256,9 @@ class MathTests(unittest.TestCase):
         self.assertEqual(math.log2(4), 2.0)
 
         # Large integer values
-        self.assertEqual(math.log2(2**1023), 1023.0)
-        self.assertEqual(math.log2(2**1024), 1024.0)
-        self.assertEqual(math.log2(2**2000), 2000.0)
+        self.assertEqual(math.log2(2 ** 1023), 1023.0)
+        self.assertEqual(math.log2(2 ** 1024), 1024.0)
+        self.assertEqual(math.log2(2 ** 2000), 2000.0)
 
         self.assertRaises(ValueError, math.log2, -1.5)
         self.assertRaises(ValueError, math.log2, NINF)
@@ -1259,9 +1278,9 @@ class MathTests(unittest.TestCase):
         self.ftest('log10(0.1)', math.log10(0.1), -1)
         self.ftest('log10(1)', math.log10(1), 0)
         self.ftest('log10(10)', math.log10(10), 1)
-        self.ftest('log10(10**1000)', math.log10(10**1000), 1000.0)
+        self.ftest('log10(10**1000)', math.log10(10 ** 1000), 1000.0)
         self.assertRaises(ValueError, math.log10, -1.5)
-        self.assertRaises(ValueError, math.log10, -10**1000)
+        self.assertRaises(ValueError, math.log10, -10 ** 1000)
         self.assertRaises(ValueError, math.log10, NINF)
         self.assertEqual(math.log(INF), INF)
         self.assertTrue(math.isnan(math.log10(NAN)))
@@ -1284,10 +1303,10 @@ class MathTests(unittest.TestCase):
             (1.5, -2.5),
             (Fraction(3, 5), Fraction(4, 5)),
             (Decimal(3.5), Decimal(4.5)),
-            (2.5, 10),             # float/int
-            (2.5, Fraction(3, 5)), # float/fraction
+            (2.5, 10),  # float/int
+            (2.5, Fraction(3, 5)),  # float/fraction
             (25, Fraction(3, 5)),  # int/fraction
-            (25, Decimal(4.5)),    # int/decimal
+            (25, Decimal(4.5)),  # int/decimal
         ]:
             for p, q in [(v, v), (v, v[::-1])]:
                 with self.subTest(p=p, q=q):
@@ -1297,11 +1316,11 @@ class MathTests(unittest.TestCase):
                     self.assertEqual(type(expected), type(actual))
 
         # Bad arguments
-        self.assertRaises(TypeError, sumprod)               # No args
-        self.assertRaises(TypeError, sumprod, [])           # One arg
-        self.assertRaises(TypeError, sumprod, [], [], [])   # Three args
-        self.assertRaises(TypeError, sumprod, None, [10])   # Non-iterable
-        self.assertRaises(TypeError, sumprod, [10], None)   # Non-iterable
+        self.assertRaises(TypeError, sumprod)  # No args
+        self.assertRaises(TypeError, sumprod, [])  # One arg
+        self.assertRaises(TypeError, sumprod, [], [], [])  # Three args
+        self.assertRaises(TypeError, sumprod, None, [10])  # Non-iterable
+        self.assertRaises(TypeError, sumprod, [10], None)  # Non-iterable
         self.assertRaises(TypeError, sumprod, ['x'], [1.0])
 
         # Uneven lengths
@@ -1309,18 +1328,19 @@ class MathTests(unittest.TestCase):
         self.assertRaises(ValueError, sumprod, [10], [20, 30])
 
         # Overflows
-        self.assertEqual(sumprod([10**20], [1]), 10**20)
-        self.assertEqual(sumprod([1], [10**20]), 10**20)
-        self.assertEqual(sumprod([10**10], [10**10]), 10**20)
-        self.assertEqual(sumprod([10**7]*10**5, [10**7]*10**5), 10**19)
-        self.assertRaises(OverflowError, sumprod, [10**1000], [1.0])
-        self.assertRaises(OverflowError, sumprod, [1.0], [10**1000])
+        self.assertEqual(sumprod([10 ** 20], [1]), 10 ** 20)
+        self.assertEqual(sumprod([1], [10 ** 20]), 10 ** 20)
+        self.assertEqual(sumprod([10 ** 10], [10 ** 10]), 10 ** 20)
+        self.assertEqual(sumprod([10 ** 7] * 10 ** 5, [10 ** 7] * 10 ** 5), 10 ** 19)
+        self.assertRaises(OverflowError, sumprod, [10 ** 1000], [1.0])
+        self.assertRaises(OverflowError, sumprod, [1.0], [10 ** 1000])
 
         # Error in iterator
         def raise_after(n):
             for i in range(n):
                 yield i
             raise RuntimeError
+
         with self.assertRaises(RuntimeError):
             sumprod(range(10), raise_after(5))
         with self.assertRaises(RuntimeError):
@@ -1335,8 +1355,10 @@ class MathTests(unittest.TestCase):
         class BadMultiply:
             def __mul__(self, other):
                 raise RuntimeError
+
             def __rmul__(self, other):
                 raise RuntimeError
+
         with self.assertRaises(RuntimeError):
             sumprod([10, BadMultiply(), 30], [1, 2, 3])
         with self.assertRaises(RuntimeError):
@@ -1362,17 +1384,16 @@ class MathTests(unittest.TestCase):
         args = ((-5, -5, 10), (1.5, 4611686018427387904, 2305843009213693952))
         self.assertEqual(sumprod(*args), 0.0)
 
-
     @requires_IEEE_754
     @unittest.skipIf(HAVE_DOUBLE_ROUNDING,
-                         "sumprod() accuracy not guaranteed on machines with double rounding")
-    @support.cpython_only    # Other implementations may choose a different algorithm
+                     "sumprod() accuracy not guaranteed on machines with double rounding")
+    @support.cpython_only  # Other implementations may choose a different algorithm
     def test_sumprod_accuracy(self):
         sumprod = math.sumprod
-        self.assertEqual(sumprod([0.1] * 10, [1]*10), 1.0)
+        self.assertEqual(sumprod([0.1] * 10, [1] * 10), 1.0)
         self.assertEqual(sumprod([0.1] * 20, [True, False] * 10), 1.0)
         self.assertEqual(sumprod([True, False] * 10, [0.1] * 20), 1.0)
-        self.assertEqual(sumprod([1.0, 10E100, 1.0, -10E100], [1.0]*4), 2.0)
+        self.assertEqual(sumprod([1.0, 10E100, 1.0, -10E100], [1.0] * 4), 2.0)
 
     @support.requires_resource('cpu')
     def test_sumprod_stress(self):
@@ -1384,20 +1405,26 @@ class MathTests(unittest.TestCase):
         class Int(int):
             def __add__(self, other):
                 return Int(int(self) + int(other))
+
             def __mul__(self, other):
                 return Int(int(self) * int(other))
+
             __radd__ = __add__
             __rmul__ = __mul__
+
             def __repr__(self):
                 return f'Int({int(self)})'
 
         class Flt(float):
             def __add__(self, other):
                 return Int(int(self) + int(other))
+
             def __mul__(self, other):
                 return Int(int(self) * int(other))
+
             __radd__ = __add__
             __rmul__ = __mul__
+
             def __repr__(self):
                 return f'Flt({int(self)})'
 
@@ -1422,18 +1449,18 @@ class MathTests(unittest.TestCase):
             return None, type(result), repr(result)
 
         pools = [
-            (-5, 10, -2**20, 2**31, 2**40, 2**61, 2**62, 2**80, 1.5, Int(7)),
+            (-5, 10, -2 ** 20, 2 ** 31, 2 ** 40, 2 ** 61, 2 ** 62, 2 ** 80, 1.5, Int(7)),
             (5.25, -3.5, 4.75, 11.25, 400.5, 0.046875, 0.25, -1.0, -0.078125),
-            (-19.0*2**500, 11*2**1000, -3*2**1500, 17*2*333,
-               5.25, -3.25, -3.0*2**(-333),  3, 2**513),
+            (-19.0 * 2 ** 500, 11 * 2 ** 1000, -3 * 2 ** 1500, 17 * 2 * 333,
+             5.25, -3.25, -3.0 * 2 ** (-333), 3, 2 ** 513),
             (3.75, 2.5, -1.5, float('inf'), -float('inf'), float('NaN'), 14,
-                9, 3+4j, Flt(13), 0.0),
+             9, 3 + 4j, Flt(13), 0.0),
             (13.25, -4.25, Decimal('10.5'), Decimal('-2.25'), Fraction(13, 8),
-                 Fraction(-11, 16), 4.75 + 0.125j, 97, -41, Int(3)),
+             Fraction(-11, 16), 4.75 + 0.125j, 97, -41, Int(3)),
             (Decimal('6.125'), Decimal('12.375'), Decimal('-2.75'), Decimal(0),
-                 Decimal('Inf'), -Decimal('Inf'), Decimal('NaN'), 12, 13.5),
-            (-2.0 ** -1000, 11*2**1000, 3, 7, -37*2**32, -2*2**-537, -2*2**-538,
-                 2*2**-513),
+             Decimal('Inf'), -Decimal('Inf'), Decimal('NaN'), 12, 13.5),
+            (-2.0 ** -1000, 11 * 2 ** 1000, 3, 7, -37 * 2 ** 32, -2 * 2 ** -537, -2 * 2 ** -538,
+             2 * 2 ** -513),
             (-7 * 2.0 ** -510, 5 * 2.0 ** -520, 17, -19.0, -6.25),
             (11.25, -3.75, -0.625, 23.375, True, False, 7, Int(5)),
         ]
@@ -1451,8 +1478,8 @@ class MathTests(unittest.TestCase):
 
     @requires_IEEE_754
     @unittest.skipIf(HAVE_DOUBLE_ROUNDING,
-                         "sumprod() accuracy not guaranteed on machines with double rounding")
-    @support.cpython_only    # Other implementations may choose a different algorithm
+                     "sumprod() accuracy not guaranteed on machines with double rounding")
+    @support.cpython_only  # Other implementations may choose a different algorithm
     @support.requires_resource('cpu')
     def test_sumprod_extended_precision_accuracy(self):
         import operator
@@ -1495,7 +1522,7 @@ class MathTests(unittest.TestCase):
             b = log2(c)
 
             # First half with exponents from 0 to |_b/2_| and random ints in between
-            e = choices(range(int(b/2)), k=n2)
+            e = choices(range(int(b / 2)), k=n2)
             e[0] = int(b / 2) + 1
             e[-1] = 0.0
 
@@ -1503,7 +1530,7 @@ class MathTests(unittest.TestCase):
             y[:n2] = [uniform(-1.0, 1.0) * exp2(p) for p in e]
 
             # Second half
-            e = list(map(round, linspace(b/2, 0.0 , n-n2)))
+            e = list(map(round, linspace(b / 2, 0.0, n - n2)))
             for i in range(n2, n):
                 x[i] = uniform(-1.0, 1.0) * exp2(e[i - n2])
                 y[i] = (uniform(-1.0, 1.0) * exp2(e[i - n2]) - DotExact(x, y)) / x[i]
@@ -1525,9 +1552,9 @@ class MathTests(unittest.TestCase):
             res = dotfunc(ex.x, ex.y)
             return RelativeError(res, ex)
 
-        times = 1000          # Number of trials
-        n = 20                # Length of vectors
-        c = 1e30              # Target condition number
+        times = 1000  # Number of trials
+        n = 20  # Length of vectors
+        c = 1e30  # Target condition number
 
         # If the following test fails, it means that the C math library
         # implementation of fma() is not compliant with the C99 standard
@@ -1542,8 +1569,8 @@ class MathTests(unittest.TestCase):
 
         def testmodf(name, result, expected):
             (v1, v2), (e1, e2) = result, expected
-            if abs(v1-e1) > eps or abs(v2-e2):
-                self.fail('%s returned %r, expected %r'%\
+            if abs(v1 - e1) > eps or abs(v2 - e2):
+                self.fail('%s returned %r, expected %r' % \
                           (name, result, expected))
 
         testmodf('modf(1.5)', math.modf(1.5), (0.5, 1.0))
@@ -1558,10 +1585,10 @@ class MathTests(unittest.TestCase):
 
     def testPow(self):
         self.assertRaises(TypeError, math.pow)
-        self.ftest('pow(0,1)', math.pow(0,1), 0)
-        self.ftest('pow(1,0)', math.pow(1,0), 1)
-        self.ftest('pow(2,1)', math.pow(2,1), 2)
-        self.ftest('pow(2,-1)', math.pow(2,-1), 0.5)
+        self.ftest('pow(0,1)', math.pow(0, 1), 0)
+        self.ftest('pow(1,0)', math.pow(1, 0), 1)
+        self.ftest('pow(2,1)', math.pow(2, 1), 2)
+        self.ftest('pow(2,-1)', math.pow(2, -1), 0.5)
         self.assertEqual(math.pow(INF, 1), INF)
         self.assertEqual(math.pow(NINF, 1), NINF)
         self.assertEqual((math.pow(1, INF)), 1.)
@@ -1697,20 +1724,20 @@ class MathTests(unittest.TestCase):
         # the following tests have been commented out since they don't
         # really belong here:  the implementation of ** for floats is
         # independent of the implementation of math.pow
-        #self.assertEqual(1**NAN, 1)
-        #self.assertEqual(1**INF, 1)
-        #self.assertEqual(1**NINF, 1)
-        #self.assertEqual(1**0, 1)
-        #self.assertEqual(1.**NAN, 1)
-        #self.assertEqual(1.**INF, 1)
-        #self.assertEqual(1.**NINF, 1)
-        #self.assertEqual(1.**0, 1)
+        # self.assertEqual(1**NAN, 1)
+        # self.assertEqual(1**INF, 1)
+        # self.assertEqual(1**NINF, 1)
+        # self.assertEqual(1**0, 1)
+        # self.assertEqual(1.**NAN, 1)
+        # self.assertEqual(1.**INF, 1)
+        # self.assertEqual(1.**NINF, 1)
+        # self.assertEqual(1.**0, 1)
 
     def testRadians(self):
         self.assertRaises(TypeError, math.radians)
         self.ftest('radians(180)', math.radians(180), math.pi)
-        self.ftest('radians(90)', math.radians(90), math.pi/2)
-        self.ftest('radians(-45)', math.radians(-45), -math.pi/4)
+        self.ftest('radians(90)', math.radians(90), math.pi / 2)
+        self.ftest('radians(-45)', math.radians(-45), -math.pi / 4)
         self.ftest('radians(0)', math.radians(0), 0)
 
     @requires_IEEE_754
@@ -1724,13 +1751,13 @@ class MathTests(unittest.TestCase):
             """
             fx, fy, fr = Fraction(x), Fraction(y), Fraction(r)
             # r should not exceed y/2 in absolute value
-            self.assertLessEqual(abs(fr), abs(fy/2))
+            self.assertLessEqual(abs(fr), abs(fy / 2))
             # x - r should be an exact integer multiple of y
             n = (fx - fr) / fy
             self.assertEqual(n, int(n))
-            if abs(fr) == abs(fy/2):
+            if abs(fr) == abs(fy / 2):
                 # If |r| == |y/2|, n should be even.
-                self.assertEqual(n/2, int(n/2))
+                self.assertEqual(n / 2, int(n / 2))
 
         # triples (x, y, remainder(x, y)) in hexadecimal form.
         testcases = [
@@ -1845,8 +1872,8 @@ class MathTests(unittest.TestCase):
     def testSin(self):
         self.assertRaises(TypeError, math.sin)
         self.ftest('sin(0)', math.sin(0), 0)
-        self.ftest('sin(pi/2)', math.sin(math.pi/2), 1)
-        self.ftest('sin(-pi/2)', math.sin(-math.pi/2), -1)
+        self.ftest('sin(pi/2)', math.sin(math.pi / 2), 1)
+        self.ftest('sin(-pi/2)', math.sin(-math.pi / 2), -1)
         try:
             self.assertTrue(math.isnan(math.sin(INF)))
             self.assertTrue(math.isnan(math.sin(NINF)))
@@ -1858,8 +1885,8 @@ class MathTests(unittest.TestCase):
     def testSinh(self):
         self.assertRaises(TypeError, math.sinh)
         self.ftest('sinh(0)', math.sinh(0), 0)
-        self.ftest('sinh(1)**2-cosh(1)**2', math.sinh(1)**2-math.cosh(1)**2, -1)
-        self.ftest('sinh(1)+sinh(-1)', math.sinh(1)+math.sinh(-1), 0)
+        self.ftest('sinh(1)**2-cosh(1)**2', math.sinh(1) ** 2 - math.cosh(1) ** 2, -1)
+        self.ftest('sinh(1)+sinh(-1)', math.sinh(1) + math.sinh(-1), 0)
         self.assertEqual(math.sinh(INF), INF)
         self.assertEqual(math.sinh(NINF), NINF)
         self.assertTrue(math.isnan(math.sinh(NAN)))
@@ -1881,8 +1908,8 @@ class MathTests(unittest.TestCase):
     def testTan(self):
         self.assertRaises(TypeError, math.tan)
         self.ftest('tan(0)', math.tan(0), 0)
-        self.ftest('tan(pi/4)', math.tan(math.pi/4), 1)
-        self.ftest('tan(-pi/4)', math.tan(-math.pi/4), -1)
+        self.ftest('tan(pi/4)', math.tan(math.pi / 4), 1)
+        self.ftest('tan(-pi/4)', math.tan(-math.pi / 4), -1)
         try:
             self.assertTrue(math.isnan(math.tan(INF)))
             self.assertTrue(math.isnan(math.tan(NINF)))
@@ -1894,7 +1921,7 @@ class MathTests(unittest.TestCase):
     def testTanh(self):
         self.assertRaises(TypeError, math.tanh)
         self.ftest('tanh(0)', math.tanh(0), 0)
-        self.ftest('tanh(1)+tanh(-1)', math.tanh(1)+math.tanh(-1), 0,
+        self.ftest('tanh(1)+tanh(-1)', math.tanh(1) + math.tanh(-1), 0,
                    abs_tol=math.ulp(1))
         self.ftest('tanh(inf)', math.tanh(INF), 1)
         self.ftest('tanh(-inf)', math.tanh(NINF), -1)
@@ -1922,11 +1949,14 @@ class MathTests(unittest.TestCase):
         class TestTrunc:
             def __trunc__(self):
                 return 23
+
         class FloatTrunc(float):
             def __trunc__(self):
                 return 23
+
         class TestNoTrunc:
             pass
+
         class TestBadTrunc:
             __trunc__ = BadDescr()
 
@@ -1989,7 +2019,7 @@ class MathTests(unittest.TestCase):
             # mathmodule.c is failing to weed out underflows from libm, or
             # we've got an fp format with huge dynamic range
             self.fail("underflowing exp() should not have raised "
-                        "an exception")
+                      "an exception")
         if x != 0:
             self.fail("underflowing exp() should have returned 0")
 
@@ -2153,8 +2183,8 @@ class MathTests(unittest.TestCase):
         prod = math.prod
         self.assertEqual(prod([]), 1)
         self.assertEqual(prod([], start=5), 5)
-        self.assertEqual(prod(list(range(2,8))), 5040)
-        self.assertEqual(prod(iter(list(range(2,8)))), 5040)
+        self.assertEqual(prod(list(range(2, 8))), 5040)
+        self.assertEqual(prod(iter(list(range(2, 8)))), 5040)
         self.assertEqual(prod(range(1, 10), start=10), 3628800)
 
         self.assertEqual(prod([1, 2, 3, 4, 5]), 120)
@@ -2167,13 +2197,14 @@ class MathTests(unittest.TestCase):
         class BadMultiply:
             def __rmul__(self, other):
                 raise RuntimeError
+
         with self.assertRaises(RuntimeError):
             prod([10., BadMultiply()])
 
         # Test overflow in fast-path for integers
-        self.assertEqual(prod([1, 1, 2**32, 1, 1]), 2**32)
+        self.assertEqual(prod([1, 1, 2 ** 32, 1, 1]), 2 ** 32)
         # Test overflow in fast-path for floats
-        self.assertEqual(prod([1.0, 1.0, 2**32, 1, 1]), float(2**32))
+        self.assertEqual(prod([1.0, 1.0, 2 ** 32, 1, 1]), float(2 ** 32))
 
         self.assertRaises(TypeError, prod)
         self.assertRaises(TypeError, prod, 42)
@@ -2183,17 +2214,17 @@ class MathTests(unittest.TestCase):
         values = [bytearray(b'a'), bytearray(b'b')]
         self.assertRaises(TypeError, prod, values, start=bytearray(b''))
         self.assertRaises(TypeError, prod, [[1], [2], [3]])
-        self.assertRaises(TypeError, prod, [{2:3}])
-        self.assertRaises(TypeError, prod, [{2:3}]*2, start={2:3})
+        self.assertRaises(TypeError, prod, [{2: 3}])
+        self.assertRaises(TypeError, prod, [{2: 3}] * 2, start={2: 3})
         self.assertRaises(TypeError, prod, [[1], [2], [3]], start=[])
 
         # Some odd cases
         self.assertEqual(prod([2, 3], start='ab'), 'abababababab')
         self.assertEqual(prod([2, 3], start=[1, 2]), [1, 2, 1, 2, 1, 2, 1, 2, 1, 2, 1, 2])
-        self.assertEqual(prod([], start={2: 3}), {2:3})
+        self.assertEqual(prod([], start={2: 3}), {2: 3})
 
         with self.assertRaises(TypeError):
-            prod([10, 20], 1)     # start is a keyword-only argument
+            prod([10, 20], 1)  # start is a keyword-only argument
 
         self.assertEqual(prod([0, 1, 2, 3]), 0)
         self.assertEqual(prod([1, 0, 2, 3]), 0)
@@ -2227,16 +2258,16 @@ class MathTests(unittest.TestCase):
         self.assertIsNaN(prod([1, 2, 3, float("nan"), 2, 3]))
         self.assertIsNaN(prod([1, 0, float("nan"), 2, 3]))
         self.assertIsNaN(prod([1, float("nan"), 0, 3]))
-        self.assertIsNaN(prod([1, float("inf"), float("nan"),3]))
-        self.assertIsNaN(prod([1, float("-inf"), float("nan"),3]))
-        self.assertIsNaN(prod([1, float("nan"), float("inf"),3]))
-        self.assertIsNaN(prod([1, float("nan"), float("-inf"),3]))
+        self.assertIsNaN(prod([1, float("inf"), float("nan"), 3]))
+        self.assertIsNaN(prod([1, float("-inf"), float("nan"), 3]))
+        self.assertIsNaN(prod([1, float("nan"), float("inf"), 3]))
+        self.assertIsNaN(prod([1, float("nan"), float("-inf"), 3]))
 
-        self.assertEqual(prod([1, 2, 3, float('inf'),-3,4]), float('-inf'))
-        self.assertEqual(prod([1, 2, 3, float('-inf'),-3,4]), float('inf'))
+        self.assertEqual(prod([1, 2, 3, float('inf'), -3, 4]), float('-inf'))
+        self.assertEqual(prod([1, 2, 3, float('-inf'), -3, 4]), float('inf'))
 
-        self.assertIsNaN(prod([1,2,0,float('inf'), -3, 4]))
-        self.assertIsNaN(prod([1,2,0,float('-inf'), -3, 4]))
+        self.assertIsNaN(prod([1, 2, 0, float('inf'), -3, 4]))
+        self.assertIsNaN(prod([1, 2, 0, float('-inf'), -3, 4]))
         self.assertIsNaN(prod([1, 2, 3, float('inf'), -3, 0, 3]))
         self.assertIsNaN(prod([1, 2, 3, float('-inf'), -3, 0, 2]))
 
@@ -2289,18 +2320,18 @@ class MathTests(unittest.TestCase):
 
         # Raises Value error if not k or n are negative numbers
         self.assertRaises(ValueError, perm, -1, 1)
-        self.assertRaises(ValueError, perm, -2**1000, 1)
+        self.assertRaises(ValueError, perm, -2 ** 1000, 1)
         self.assertRaises(ValueError, perm, 1, -1)
-        self.assertRaises(ValueError, perm, 1, -2**1000)
+        self.assertRaises(ValueError, perm, 1, -2 ** 1000)
 
         # Returns zero if k is greater than n
         self.assertEqual(perm(1, 2), 0)
-        self.assertEqual(perm(1, 2**1000), 0)
+        self.assertEqual(perm(1, 2 ** 1000), 0)
 
-        n = 2**1000
+        n = 2 ** 1000
         self.assertEqual(perm(n, 0), 1)
         self.assertEqual(perm(n, 1), n)
-        self.assertEqual(perm(n, 2), n * (n-1))
+        self.assertEqual(perm(n, 2), n * (n - 1))
         if support.check_impl_detail(cpython=True):
             self.assertRaises(OverflowError, perm, n, n)
 
@@ -2320,7 +2351,7 @@ class MathTests(unittest.TestCase):
         for n in range(500):
             for k in (range(n + 1) if n < 100 else range(30) if n < 200 else range(10)):
                 self.assertEqual(comb(n, k), factorial(n)
-                    // (factorial(k) * factorial(n - k)))
+                                 // (factorial(k) * factorial(n - k)))
 
         # Test for Pascal's identity
         for n in range(1, 100):
@@ -2356,23 +2387,23 @@ class MathTests(unittest.TestCase):
 
         # Raises Value error if not k or n are negative numbers
         self.assertRaises(ValueError, comb, -1, 1)
-        self.assertRaises(ValueError, comb, -2**1000, 1)
+        self.assertRaises(ValueError, comb, -2 ** 1000, 1)
         self.assertRaises(ValueError, comb, 1, -1)
-        self.assertRaises(ValueError, comb, 1, -2**1000)
+        self.assertRaises(ValueError, comb, 1, -2 ** 1000)
 
         # Returns zero if k is greater than n
         self.assertEqual(comb(1, 2), 0)
-        self.assertEqual(comb(1, 2**1000), 0)
+        self.assertEqual(comb(1, 2 ** 1000), 0)
 
-        n = 2**1000
+        n = 2 ** 1000
         self.assertEqual(comb(n, 0), 1)
         self.assertEqual(comb(n, 1), n)
-        self.assertEqual(comb(n, 2), n * (n-1) // 2)
+        self.assertEqual(comb(n, 2), n * (n - 1) // 2)
         self.assertEqual(comb(n, n), 1)
-        self.assertEqual(comb(n, n-1), n)
-        self.assertEqual(comb(n, n-2), n * (n-1) // 2)
+        self.assertEqual(comb(n, n - 1), n)
+        self.assertEqual(comb(n, n - 2), n * (n - 1) // 2)
         if support.check_impl_detail(cpython=True):
-            self.assertRaises(OverflowError, comb, n, n//2)
+            self.assertRaises(OverflowError, comb, n, n // 2)
 
         for n, k in (True, True), (True, False), (False, False):
             self.assertEqual(comb(n, k), 1)
@@ -2442,7 +2473,6 @@ class MathTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             math.nextafter(1.0, INF, steps=-1)
 
-
     @requires_IEEE_754
     def test_ulp(self):
         self.assertEqual(math.ulp(1.0), sys.float_info.epsilon)
@@ -2472,7 +2502,8 @@ class MathTests(unittest.TestCase):
         class F:
             def __float__(self):
                 self.converted = True
-                1/0
+                1 / 0
+
         for func in math.atan2, math.copysign, math.remainder:
             y = F()
             with self.assertRaises(TypeError):
@@ -2623,15 +2654,256 @@ class IsCloseTests(unittest.TestCase):
         fraction_examples = [
             (Fraction(1, 100000000) + 1, Fraction(1)),
             (Fraction(100000001), Fraction(100000000)),
-            (Fraction(10**8 + 1, 10**28), Fraction(1, 10**20))]
+            (Fraction(10 ** 8 + 1, 10 ** 28), Fraction(1, 10 ** 20))]
         self.assertAllClose(fraction_examples, rel_tol=1e-8)
         self.assertAllNotClose(fraction_examples, rel_tol=1e-9)
 
 
+class FMATests(unittest.TestCase):
+    """ Tests for math.fma. """
+
+    def test_fma_nan_results(self):
+        # Selected representative values.
+        values = [
+            -math.inf, -1e300, -2.3, -1e-300, -0.0,
+            0.0, 1e-300, 2.3, 1e300, math.inf, math.nan
+        ]
+
+        # If any input is a NaN, the result should be a NaN, too.
+        for a, b in itertools.product(values, repeat=2):
+            self.assertIsNaN(math.fma(math.nan, a, b))
+            self.assertIsNaN(math.fma(a, math.nan, b))
+            self.assertIsNaN(math.fma(a, b, math.nan))
+
+    def test_fma_infinities(self):
+        # Cases involving infinite inputs or results.
+        positives = [1e-300, 2.3, 1e300, math.inf]
+        finites = [-1e300, -2.3, -1e-300, -0.0, 0.0, 1e-300, 2.3, 1e300]
+        non_nans = [-math.inf, -2.3, -0.0, 0.0, 2.3, math.inf]
+
+        # ValueError due to inf * 0 computation.
+        for c in non_nans:
+            for infinity in [math.inf, -math.inf]:
+                for zero in [0.0, -0.0]:
+                    with self.assertRaises(ValueError):
+                        math.fma(infinity, zero, c)
+                    with self.assertRaises(ValueError):
+                        math.fma(zero, infinity, c)
+
+        # ValueError when a*b and c both infinite of opposite signs.
+        for b in positives:
+            with self.assertRaises(ValueError):
+                math.fma(math.inf, b, -math.inf)
+            with self.assertRaises(ValueError):
+                math.fma(math.inf, -b, math.inf)
+            with self.assertRaises(ValueError):
+                math.fma(-math.inf, -b, -math.inf)
+            with self.assertRaises(ValueError):
+                math.fma(-math.inf, b, math.inf)
+            with self.assertRaises(ValueError):
+                math.fma(b, math.inf, -math.inf)
+            with self.assertRaises(ValueError):
+                math.fma(-b, math.inf, math.inf)
+            with self.assertRaises(ValueError):
+                math.fma(-b, -math.inf, -math.inf)
+            with self.assertRaises(ValueError):
+                math.fma(b, -math.inf, math.inf)
+
+        # Infinite result when a*b and c both infinite of the same sign.
+        for b in positives:
+            self.assertEqual(math.fma(math.inf, b, math.inf), math.inf)
+            self.assertEqual(math.fma(math.inf, -b, -math.inf), -math.inf)
+            self.assertEqual(math.fma(-math.inf, -b, math.inf), math.inf)
+            self.assertEqual(math.fma(-math.inf, b, -math.inf), -math.inf)
+            self.assertEqual(math.fma(b, math.inf, math.inf), math.inf)
+            self.assertEqual(math.fma(-b, math.inf, -math.inf), -math.inf)
+            self.assertEqual(math.fma(-b, -math.inf, math.inf), math.inf)
+            self.assertEqual(math.fma(b, -math.inf, -math.inf), -math.inf)
+
+        # Infinite result when a*b finite, c infinite.
+        for a, b in itertools.product(finites, finites):
+            self.assertEqual(math.fma(a, b, math.inf), math.inf)
+            self.assertEqual(math.fma(a, b, -math.inf), -math.inf)
+
+        # Infinite result when a*b infinite, c finite.
+        for b, c in itertools.product(positives, finites):
+            self.assertEqual(math.fma(math.inf, b, c), math.inf)
+            self.assertEqual(math.fma(-math.inf, b, c), -math.inf)
+            self.assertEqual(math.fma(-math.inf, -b, c), math.inf)
+            self.assertEqual(math.fma(math.inf, -b, c), -math.inf)
+
+            self.assertEqual(math.fma(b, math.inf, c), math.inf)
+            self.assertEqual(math.fma(b, -math.inf, c), -math.inf)
+            self.assertEqual(math.fma(-b, -math.inf, c), math.inf)
+            self.assertEqual(math.fma(-b, math.inf, c), -math.inf)
+
+    # gh-73468: On some platforms, libc fma() doesn't implement IEE 754-2008
+    # properly: it doesn't use the right sign when the result is zero.
+    @unittest.skipIf(
+        sys.platform.startswith(("freebsd", "wasi", "netbsd"))
+        or (sys.platform == "android" and platform.machine() == "x86_64"),
+        f"this platform doesn't implement IEE 754-2008 properly")
+    def test_fma_zero_result(self):
+        nonnegative_finites = [0.0, 1e-300, 2.3, 1e300]
+
+        # Zero results from exact zero inputs.
+        for b in nonnegative_finites:
+            self.assertIsPositiveZero(math.fma(0.0, b, 0.0))
+            self.assertIsPositiveZero(math.fma(0.0, b, -0.0))
+            self.assertIsNegativeZero(math.fma(0.0, -b, -0.0))
+            self.assertIsPositiveZero(math.fma(0.0, -b, 0.0))
+            self.assertIsPositiveZero(math.fma(-0.0, -b, 0.0))
+            self.assertIsPositiveZero(math.fma(-0.0, -b, -0.0))
+            self.assertIsNegativeZero(math.fma(-0.0, b, -0.0))
+            self.assertIsPositiveZero(math.fma(-0.0, b, 0.0))
+
+            self.assertIsPositiveZero(math.fma(b, 0.0, 0.0))
+            self.assertIsPositiveZero(math.fma(b, 0.0, -0.0))
+            self.assertIsNegativeZero(math.fma(-b, 0.0, -0.0))
+            self.assertIsPositiveZero(math.fma(-b, 0.0, 0.0))
+            self.assertIsPositiveZero(math.fma(-b, -0.0, 0.0))
+            self.assertIsPositiveZero(math.fma(-b, -0.0, -0.0))
+            self.assertIsNegativeZero(math.fma(b, -0.0, -0.0))
+            self.assertIsPositiveZero(math.fma(b, -0.0, 0.0))
+
+        # Exact zero result from nonzero inputs.
+        self.assertIsPositiveZero(math.fma(2.0, 2.0, -4.0))
+        self.assertIsPositiveZero(math.fma(2.0, -2.0, 4.0))
+        self.assertIsPositiveZero(math.fma(-2.0, -2.0, -4.0))
+        self.assertIsPositiveZero(math.fma(-2.0, 2.0, 4.0))
+
+        # Underflow to zero.
+        tiny = 1e-300
+        self.assertIsPositiveZero(math.fma(tiny, tiny, 0.0))
+        # TODO: RUSTPYTHON incompatibility between fma inside libc and musl
+        # self.assertIsNegativeZero(math.fma(tiny, -tiny, 0.0))
+        self.assertIsPositiveZero(math.fma(-tiny, -tiny, 0.0))
+        # TODO: RUSTPYTHON incompatibility between fma inside libc and musl
+        # self.assertIsNegativeZero(math.fma(-tiny, tiny, 0.0))
+        self.assertIsPositiveZero(math.fma(tiny, tiny, -0.0))
+        self.assertIsNegativeZero(math.fma(tiny, -tiny, -0.0))
+        self.assertIsPositiveZero(math.fma(-tiny, -tiny, -0.0))
+        self.assertIsNegativeZero(math.fma(-tiny, tiny, -0.0))
+
+        # Corner case where rounding the multiplication would
+        # give the wrong result.
+        x = float.fromhex('0x1p-500')
+        y = float.fromhex('0x1p-550')
+        z = float.fromhex('0x1p-1000')
+        self.assertIsNegativeZero(math.fma(x - y, x + y, -z))
+        self.assertIsPositiveZero(math.fma(y - x, x + y, z))
+        self.assertIsNegativeZero(math.fma(y - x, -(x + y), -z))
+        self.assertIsPositiveZero(math.fma(x - y, -(x + y), z))
+
+    def test_fma_overflow(self):
+        a = b = float.fromhex('0x1p512')
+        c = float.fromhex('0x1p1023')
+        # Overflow from multiplication.
+        with self.assertRaises(OverflowError):
+            math.fma(a, b, 0.0)
+        self.assertEqual(math.fma(a, b / 2.0, 0.0), c)
+        # Overflow from the addition.
+        with self.assertRaises(OverflowError):
+            math.fma(a, b / 2.0, c)
+        # No overflow, even though a*b overflows a float.
+        self.assertEqual(math.fma(a, b, -c), c)
+
+        # Extreme case: a * b is exactly at the overflow boundary, so the
+        # tiniest offset makes a difference between overflow and a finite
+        # result.
+        a = float.fromhex('0x1.ffffffc000000p+511')
+        b = float.fromhex('0x1.0000002000000p+512')
+        c = float.fromhex('0x0.0000000000001p-1022')
+        with self.assertRaises(OverflowError):
+            math.fma(a, b, 0.0)
+        with self.assertRaises(OverflowError):
+            math.fma(a, b, c)
+        self.assertEqual(math.fma(a, b, -c),
+                         float.fromhex('0x1.fffffffffffffp+1023'))
+
+        # Another extreme case: here a*b is about as large as possible subject
+        # to math.fma(a, b, c) being finite.
+        a = float.fromhex('0x1.ae565943785f9p+512')
+        b = float.fromhex('0x1.3094665de9db8p+512')
+        c = float.fromhex('0x1.fffffffffffffp+1023')
+        self.assertEqual(math.fma(a, b, -c), c)
+
+    def test_fma_single_round(self):
+        a = float.fromhex('0x1p-50')
+        self.assertEqual(math.fma(a - 1.0, a + 1.0, 1.0), a * a)
+
+    def test_random(self):
+        # A collection of randomly generated inputs for which the naive FMA
+        # (with two rounds) gives a different result from a singly-rounded FMA.
+
+        # tuples (a, b, c, expected)
+        test_values = [
+            ('0x1.694adde428b44p-1', '0x1.371b0d64caed7p-1',
+             '0x1.f347e7b8deab8p-4', '0x1.19f10da56c8adp-1'),
+            ('0x1.605401ccc6ad6p-2', '0x1.ce3a40bf56640p-2',
+             '0x1.96e3bf7bf2e20p-2', '0x1.1af6d8aa83101p-1'),
+            ('0x1.e5abd653a67d4p-2', '0x1.a2e400209b3e6p-1',
+             '0x1.a90051422ce13p-1', '0x1.37d68cc8c0fbbp+0'),
+            ('0x1.f94e8efd54700p-2', '0x1.123065c812cebp-1',
+             '0x1.458f86fb6ccd0p-1', '0x1.ccdcee26a3ff3p-1'),
+            ('0x1.bd926f1eedc96p-1', '0x1.eee9ca68c5740p-1',
+             '0x1.960c703eb3298p-2', '0x1.3cdcfb4fdb007p+0'),
+            ('0x1.27348350fbccdp-1', '0x1.3b073914a53f1p-1',
+             '0x1.e300da5c2b4cbp-1', '0x1.4c51e9a3c4e29p+0'),
+            ('0x1.2774f00b3497bp-1', '0x1.7038ec336bff0p-2',
+             '0x1.2f6f2ccc3576bp-1', '0x1.99ad9f9c2688bp-1'),
+            ('0x1.51d5a99300e5cp-1', '0x1.5cd74abd445a1p-1',
+             '0x1.8880ab0bbe530p-1', '0x1.3756f96b91129p+0'),
+            ('0x1.73cb965b821b8p-2', '0x1.218fd3d8d5371p-1',
+             '0x1.d1ea966a1f758p-2', '0x1.5217b8fd90119p-1'),
+            ('0x1.4aa98e890b046p-1', '0x1.954d85dff1041p-1',
+             '0x1.122b59317ebdfp-1', '0x1.0bf644b340cc5p+0'),
+            ('0x1.e28f29e44750fp-1', '0x1.4bcc4fdcd18fep-1',
+             '0x1.fd47f81298259p-1', '0x1.9b000afbc9995p+0'),
+            ('0x1.d2e850717fe78p-3', '0x1.1dd7531c303afp-1',
+             '0x1.e0869746a2fc2p-2', '0x1.316df6eb26439p-1'),
+            ('0x1.cf89c75ee6fbap-2', '0x1.b23decdc66825p-1',
+             '0x1.3d1fe76ac6168p-1', '0x1.00d8ea4c12abbp+0'),
+            ('0x1.3265ae6f05572p-2', '0x1.16d7ec285f7a2p-1',
+             '0x1.0b8405b3827fbp-1', '0x1.5ef33c118a001p-1'),
+            ('0x1.c4d1bf55ec1a5p-1', '0x1.bc59618459e12p-2',
+             '0x1.ce5b73dc1773dp-1', '0x1.496cf6164f99bp+0'),
+            ('0x1.d350026ac3946p-1', '0x1.9a234e149a68cp-2',
+             '0x1.f5467b1911fd6p-2', '0x1.b5cee3225caa5p-1'),
+        ]
+        for a_hex, b_hex, c_hex, expected_hex in test_values:
+            a = float.fromhex(a_hex)
+            b = float.fromhex(b_hex)
+            c = float.fromhex(c_hex)
+            expected = float.fromhex(expected_hex)
+            self.assertEqual(math.fma(a, b, c), expected)
+            self.assertEqual(math.fma(b, a, c), expected)
+
+    # Custom assertions.
+    def assertIsNaN(self, value):
+        self.assertTrue(
+            math.isnan(value),
+            msg="Expected a NaN, got {!r}".format(value)
+        )
+
+    def assertIsPositiveZero(self, value):
+        self.assertTrue(
+            value == 0 and math.copysign(1, value) > 0,
+            msg="Expected a positive zero, got {!r}".format(value)
+        )
+
+    def assertIsNegativeZero(self, value):
+        self.assertTrue(
+            value == 0 and math.copysign(1, value) < 0,
+            msg="Expected a negative zero, got {!r}".format(value)
+        )
+
+
 def load_tests(loader, tests, pattern):
     from doctest import DocFileSuite
-    tests.addTest(DocFileSuite("ieee754.txt"))
+    tests.addTest(DocFileSuite(os.path.join("mathdata", "ieee754.txt")))
     return tests
+
 
 if __name__ == '__main__':
     unittest.main()
