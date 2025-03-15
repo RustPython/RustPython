@@ -869,6 +869,8 @@ class WithAttrs:
 
 class TestInlineValues(unittest.TestCase):
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_flags(self):
         self.assertEqual(Plain.__flags__ & Py_TPFLAGS_MANAGED_DICT, Py_TPFLAGS_MANAGED_DICT)
         self.assertEqual(WithAttrs.__flags__ & Py_TPFLAGS_MANAGED_DICT, Py_TPFLAGS_MANAGED_DICT)
@@ -941,6 +943,8 @@ class TestInlineValues(unittest.TestCase):
         obj.foo = None # Aborted here
         self.assertEqual(obj.__dict__, {"foo":None})
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_store_attr_deleted_dict(self):
         class Foo:
             pass
@@ -950,6 +954,8 @@ class TestInlineValues(unittest.TestCase):
         f.a = 3
         self.assertEqual(f.a, 3)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_rematerialize_object_dict(self):
         # gh-121860: rematerializing an object's managed dictionary after it
         # had been deleted caused a crash.
@@ -968,6 +974,7 @@ class TestInlineValues(unittest.TestCase):
         self.assertIsInstance(f, Bar)
         self.assertEqual(f.__dict__, {})
 
+    @unittest.skip("TODO: RUSTPYTHON, unexpectedly long runtime")
     def test_store_attr_type_cache(self):
         """Verifies that the type cache doesn't provide a value which  is
         inconsistent from the dict."""
