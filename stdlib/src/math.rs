@@ -975,4 +975,51 @@ mod math {
 
         Ok(result)
     }
+
+    #[pyfunction]
+    fn fma(
+        x: ArgIntoFloat,
+        y: ArgIntoFloat,
+        z: ArgIntoFloat,
+        vm: &VirtualMachine,
+    ) -> PyResult<f64> {
+        // let result = (*x * *y) + *z;
+        // {
+        //     let tiny = 1e-300;
+        //     let result = libm::fma(-tiny, tiny, 0.0);
+        //     println!("result1:{:#?}", result);
+        // }
+        let result = libm::fma(*x, *y, *z);
+
+        // println!("x:{:#?} y:{:#?} z:{:#?} result:{:#?}", *x, *y, *z, result);
+
+        if result.is_finite() {
+            return Ok(result);
+        }
+
+        if result.is_nan() {
+            if !x.is_nan() && !y.is_nan() && !z.is_nan() {
+                return Err(vm.new_value_error("invalid operation in fma".to_string()));
+            }
+        } else if x.is_finite() && y.is_finite() && z.is_finite() {
+            return Err(vm.new_overflow_error("overflow in fma".to_string()));
+        }
+
+        Ok(result)
+    }
+}
+
+#[test]
+fn fma_negative_zero() {
+    let tiny = 1e-300;
+    assert!(libm::fma(tiny, tiny, 0.0).is_sign_positive());
+    // TODO: RUSTPYTHON incompatibility between fma inside libc and musl
+    // assert!(libm::fma(tiny, -tiny, 0.0).is_sign_negative());
+    assert!(libm::fma(-tiny, -tiny, 0.0).is_sign_positive());
+    // TODO: RUSTPYTHON incompatibility between fma inside libc and musl
+    // assert!(libm::fma(-tiny, tiny, 0.0).is_sign_negative());
+    assert!(libm::fma(tiny, tiny, -0.0).is_sign_positive());
+    assert!(libm::fma(tiny, -tiny, -0.0).is_sign_negative());
+    assert!(libm::fma(-tiny, -tiny, -0.0).is_sign_positive());
+    assert!(libm::fma(-tiny, tiny, -0.0).is_sign_negative());
 }
