@@ -713,7 +713,7 @@ impl PyObject {
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
     pub fn set_dict(&self, dict: PySetterValue<PyDictRef>) -> Option<()> {
-        // NOTE(hanif) - So far, this is the only error condition that I know of so we can use Option
+        // NOTE: So far, this is the only error condition that I know of so we can use Option
         // for now.
         if self.payload_is::<crate::builtins::function::PyFunction>() {
             return None;
