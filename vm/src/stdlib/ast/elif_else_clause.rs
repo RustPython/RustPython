@@ -26,7 +26,7 @@ pub(super) fn ast_to_object(
         return body.ast_to_object(vm, source_code);
     };
     let node = NodeAst
-        .into_ref_with_type(vm, gen::NodeStmtIf::static_type().to_owned())
+        .into_ref_with_type(vm, pyast::NodeStmtIf::static_type().to_owned())
         .unwrap();
     let dict = node.as_object().dict().unwrap();
 

@@ -10,7 +10,7 @@ impl Node for ruff::MatchCase {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeMatchCase::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeMatchCase::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("pattern", pattern.ast_to_object(_vm, source_code), _vm)
@@ -64,49 +64,49 @@ impl Node for ruff::Pattern {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(gen::NodePatternMatchValue::static_type()) {
+        Ok(if _cls.is(pyast::NodePatternMatchValue::static_type()) {
             ruff::Pattern::MatchValue(ruff::PatternMatchValue::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodePatternMatchSingleton::static_type()) {
+        } else if _cls.is(pyast::NodePatternMatchSingleton::static_type()) {
             ruff::Pattern::MatchSingleton(ruff::PatternMatchSingleton::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodePatternMatchSequence::static_type()) {
+        } else if _cls.is(pyast::NodePatternMatchSequence::static_type()) {
             ruff::Pattern::MatchSequence(ruff::PatternMatchSequence::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodePatternMatchMapping::static_type()) {
+        } else if _cls.is(pyast::NodePatternMatchMapping::static_type()) {
             ruff::Pattern::MatchMapping(ruff::PatternMatchMapping::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodePatternMatchClass::static_type()) {
+        } else if _cls.is(pyast::NodePatternMatchClass::static_type()) {
             ruff::Pattern::MatchClass(ruff::PatternMatchClass::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodePatternMatchStar::static_type()) {
+        } else if _cls.is(pyast::NodePatternMatchStar::static_type()) {
             ruff::Pattern::MatchStar(ruff::PatternMatchStar::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodePatternMatchAs::static_type()) {
+        } else if _cls.is(pyast::NodePatternMatchAs::static_type()) {
             ruff::Pattern::MatchAs(ruff::PatternMatchAs::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodePatternMatchOr::static_type()) {
+        } else if _cls.is(pyast::NodePatternMatchOr::static_type()) {
             ruff::Pattern::MatchOr(ruff::PatternMatchOr::ast_from_object(
                 _vm,
                 source_code,
@@ -128,7 +128,7 @@ impl Node for ruff::PatternMatchValue {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodePatternMatchValue::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodePatternMatchValue::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(_vm, source_code), _vm)
@@ -161,7 +161,7 @@ impl Node for ruff::PatternMatchSingleton {
         let node = NodeAst
             .into_ref_with_type(
                 _vm,
-                gen::NodePatternMatchSingleton::static_type().to_owned(),
+                pyast::NodePatternMatchSingleton::static_type().to_owned(),
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
@@ -206,7 +206,10 @@ impl Node for ruff::PatternMatchSequence {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodePatternMatchSequence::static_type().to_owned())
+            .into_ref_with_type(
+                _vm,
+                pyast::NodePatternMatchSequence::static_type().to_owned(),
+            )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("patterns", patterns.ast_to_object(_vm, source_code), _vm)
@@ -239,7 +242,10 @@ impl Node for ruff::PatternMatchMapping {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodePatternMatchMapping::static_type().to_owned())
+            .into_ref_with_type(
+                _vm,
+                pyast::NodePatternMatchMapping::static_type().to_owned(),
+            )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("keys", keys.ast_to_object(_vm, source_code), _vm)
@@ -284,7 +290,7 @@ impl Node for ruff::PatternMatchClass {
         } = self;
         let (patterns, kwd_attrs, kwd_patterns) = split_pattern_match_class(arguments);
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodePatternMatchClass::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchClass::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("cls", cls.ast_to_object(vm, source_code), vm)
@@ -401,7 +407,7 @@ impl Node for ruff::PatternMatchStar {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodePatternMatchStar::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodePatternMatchStar::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(_vm, source_code), _vm)
@@ -431,7 +437,7 @@ impl Node for ruff::PatternMatchAs {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodePatternMatchAs::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodePatternMatchAs::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("pattern", pattern.ast_to_object(_vm, source_code), _vm)
@@ -465,7 +471,7 @@ impl Node for ruff::PatternMatchOr {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodePatternMatchOr::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodePatternMatchOr::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("patterns", patterns.ast_to_object(_vm, source_code), _vm)

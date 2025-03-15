@@ -39,17 +39,17 @@ impl Node for Mod {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let cls = object.class();
-        Ok(if cls.is(gen::NodeModModule::static_type()) {
+        Ok(if cls.is(pyast::NodeModModule::static_type()) {
             Self::Module(ruff::ModModule::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeModInteractive::static_type()) {
+        } else if cls.is(pyast::NodeModInteractive::static_type()) {
             Self::Interactive(ModInteractive::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeModExpression::static_type()) {
+        } else if cls.is(pyast::NodeModExpression::static_type()) {
             Self::Expression(ruff::ModExpression::ast_from_object(
                 vm,
                 source_code,
                 object,
             )?)
-        } else if cls.is(gen::NodeModFunctionType::static_type()) {
+        } else if cls.is(pyast::NodeModFunctionType::static_type()) {
             Self::FunctionType(ModFunctionType::ast_from_object(vm, source_code, object)?)
         } else {
             return Err(vm.new_type_error(format!(
@@ -68,7 +68,7 @@ impl Node for ruff::ModModule {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeModModule::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeModModule::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("body", body.ast_to_object(vm, source_code), vm)
@@ -115,7 +115,7 @@ impl Node for ModInteractive {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { body, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeModInteractive::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeModInteractive::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("body", body.ast_to_object(vm, source_code), vm)
@@ -143,7 +143,7 @@ impl Node for ruff::ModExpression {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { body, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeModExpression::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeModExpression::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("body", body.ast_to_object(vm, source_code), vm)
@@ -182,7 +182,7 @@ impl Node for ModFunctionType {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeModFunctionType::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeModFunctionType::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item(

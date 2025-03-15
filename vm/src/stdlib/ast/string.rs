@@ -247,7 +247,7 @@ impl Node for JoinedStr {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { values, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprJoinedStr::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprJoinedStr::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item(
@@ -296,7 +296,7 @@ impl Node for JoinedStrPart {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let cls = object.class();
-        if cls.is(gen::NodeExprFormattedValue::static_type()) {
+        if cls.is(pyast::NodeExprFormattedValue::static_type()) {
             Ok(Self::FormattedValue(Node::ast_from_object(
                 vm,
                 source_code,
@@ -330,7 +330,7 @@ impl Node for FormattedValue {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprFormattedValue::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprFormattedValue::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_code), vm)

@@ -2223,7 +2223,7 @@ version = "0.4.0"
 dependencies = [
  "rustpython-compiler",
  "rustpython-derive-impl",
- "syn 2.0.98",
+ "syn 2.0.96",
 ]
 
 [[package]]
@@ -2237,7 +2237,7 @@ dependencies = [
  "quote",
  "rustpython-compiler-core",
  "rustpython-doc",
- "syn 2.0.98",
+ "syn 2.0.96",
  "syn-ext",
  "textwrap 0.16.1",
 ]
@@ -2739,7 +2739,7 @@ checksum = "b126de4ef6c2a628a68609dd00733766c3b015894698a438ebdf374933fc31d1"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.98",
+ "syn 2.0.96",
 ]
 
 [[package]]

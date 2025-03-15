@@ -17,7 +17,7 @@ impl Node for TypeIgnore {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(gen::NodeTypeIgnoreTypeIgnore::static_type()) {
+        Ok(if _cls.is(pyast::NodeTypeIgnoreTypeIgnore::static_type()) {
             TypeIgnore::TypeIgnore(TypeIgnoreTypeIgnore::ast_from_object(
                 _vm,
                 source_code,
@@ -43,7 +43,10 @@ impl Node for TypeIgnoreTypeIgnore {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { lineno, tag, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeTypeIgnoreTypeIgnore::static_type().to_owned())
+            .into_ref_with_type(
+                vm,
+                pyast::NodeTypeIgnoreTypeIgnore::static_type().to_owned(),
+            )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("lineno", lineno.to_pyobject(vm), vm).unwrap();

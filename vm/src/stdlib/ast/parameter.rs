@@ -15,7 +15,7 @@ impl Node for ruff::Parameters {
             extract_positional_parameter_defaults(posonlyargs, args);
         let (kwonlyargs, kw_defaults) = extract_keyword_parameter_defaults(kwonlyargs);
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeArguments::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeArguments::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item(
@@ -101,7 +101,7 @@ impl Node for ruff::Parameter {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeArg::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeArg::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("arg", name.ast_to_object(_vm, source_code), _vm)
@@ -160,7 +160,7 @@ impl Node for ruff::Keyword {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeKeyword::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeKeyword::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("arg", arg.ast_to_object(_vm, source_code), _vm)

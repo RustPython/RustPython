@@ -55,7 +55,7 @@ impl Node for ruff::Alias {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeAlias::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeAlias::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(vm, source_code), vm)
@@ -92,7 +92,7 @@ impl Node for ruff::WithItem {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeWithItem::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeWithItem::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item(

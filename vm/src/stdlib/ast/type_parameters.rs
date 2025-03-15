@@ -33,19 +33,19 @@ impl Node for ruff::TypeParam {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(gen::NodeTypeParamTypeVar::static_type()) {
+        Ok(if _cls.is(pyast::NodeTypeParamTypeVar::static_type()) {
             ruff::TypeParam::TypeVar(ruff::TypeParamTypeVar::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeTypeParamParamSpec::static_type()) {
+        } else if _cls.is(pyast::NodeTypeParamParamSpec::static_type()) {
             ruff::TypeParam::ParamSpec(ruff::TypeParamParamSpec::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeTypeParamTypeVarTuple::static_type()) {
+        } else if _cls.is(pyast::NodeTypeParamTypeVarTuple::static_type()) {
             ruff::TypeParam::TypeVarTuple(ruff::TypeParamTypeVarTuple::ast_from_object(
                 _vm,
                 source_code,
@@ -69,7 +69,7 @@ impl Node for ruff::TypeParamTypeVar {
             default: _,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeTypeParamTypeVar::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeTypeParamTypeVar::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(_vm, source_code), _vm)
@@ -111,7 +111,7 @@ impl Node for ruff::TypeParamParamSpec {
             default,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeTypeParamParamSpec::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeTypeParamParamSpec::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(_vm, source_code), _vm)
@@ -156,7 +156,7 @@ impl Node for ruff::TypeParamTypeVarTuple {
         let node = NodeAst
             .into_ref_with_type(
                 _vm,
-                gen::NodeTypeParamTypeVarTuple::static_type().to_owned(),
+                pyast::NodeTypeParamTypeVarTuple::static_type().to_owned(),
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();

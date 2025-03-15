@@ -39,117 +39,117 @@ impl Node for ruff::Stmt {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         let _cls = _object.class();
-        Ok(if _cls.is(gen::NodeStmtFunctionDef::static_type()) {
+        Ok(if _cls.is(pyast::NodeStmtFunctionDef::static_type()) {
             ruff::Stmt::FunctionDef(ruff::StmtFunctionDef::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtAsyncFunctionDef::static_type()) {
+        } else if _cls.is(pyast::NodeStmtAsyncFunctionDef::static_type()) {
             ruff::Stmt::FunctionDef(ruff::StmtFunctionDef::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtClassDef::static_type()) {
+        } else if _cls.is(pyast::NodeStmtClassDef::static_type()) {
             ruff::Stmt::ClassDef(ruff::StmtClassDef::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtReturn::static_type()) {
+        } else if _cls.is(pyast::NodeStmtReturn::static_type()) {
             ruff::Stmt::Return(ruff::StmtReturn::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtDelete::static_type()) {
+        } else if _cls.is(pyast::NodeStmtDelete::static_type()) {
             ruff::Stmt::Delete(ruff::StmtDelete::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtAssign::static_type()) {
+        } else if _cls.is(pyast::NodeStmtAssign::static_type()) {
             ruff::Stmt::Assign(ruff::StmtAssign::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtTypeAlias::static_type()) {
+        } else if _cls.is(pyast::NodeStmtTypeAlias::static_type()) {
             ruff::Stmt::TypeAlias(ruff::StmtTypeAlias::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtAugAssign::static_type()) {
+        } else if _cls.is(pyast::NodeStmtAugAssign::static_type()) {
             ruff::Stmt::AugAssign(ruff::StmtAugAssign::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtAnnAssign::static_type()) {
+        } else if _cls.is(pyast::NodeStmtAnnAssign::static_type()) {
             ruff::Stmt::AnnAssign(ruff::StmtAnnAssign::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtFor::static_type()) {
+        } else if _cls.is(pyast::NodeStmtFor::static_type()) {
             ruff::Stmt::For(ruff::StmtFor::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtAsyncFor::static_type()) {
+        } else if _cls.is(pyast::NodeStmtAsyncFor::static_type()) {
             ruff::Stmt::For(ruff::StmtFor::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtWhile::static_type()) {
+        } else if _cls.is(pyast::NodeStmtWhile::static_type()) {
             ruff::Stmt::While(ruff::StmtWhile::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtIf::static_type()) {
+        } else if _cls.is(pyast::NodeStmtIf::static_type()) {
             ruff::Stmt::If(ruff::StmtIf::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtWith::static_type()) {
+        } else if _cls.is(pyast::NodeStmtWith::static_type()) {
             ruff::Stmt::With(ruff::StmtWith::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtAsyncWith::static_type()) {
+        } else if _cls.is(pyast::NodeStmtAsyncWith::static_type()) {
             ruff::Stmt::With(ruff::StmtWith::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtMatch::static_type()) {
+        } else if _cls.is(pyast::NodeStmtMatch::static_type()) {
             ruff::Stmt::Match(ruff::StmtMatch::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtRaise::static_type()) {
+        } else if _cls.is(pyast::NodeStmtRaise::static_type()) {
             ruff::Stmt::Raise(ruff::StmtRaise::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtTry::static_type()) {
+        } else if _cls.is(pyast::NodeStmtTry::static_type()) {
             ruff::Stmt::Try(ruff::StmtTry::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtTryStar::static_type()) {
+        } else if _cls.is(pyast::NodeStmtTryStar::static_type()) {
             ruff::Stmt::Try(ruff::StmtTry::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtAssert::static_type()) {
+        } else if _cls.is(pyast::NodeStmtAssert::static_type()) {
             ruff::Stmt::Assert(ruff::StmtAssert::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtImport::static_type()) {
+        } else if _cls.is(pyast::NodeStmtImport::static_type()) {
             ruff::Stmt::Import(ruff::StmtImport::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtImportFrom::static_type()) {
+        } else if _cls.is(pyast::NodeStmtImportFrom::static_type()) {
             ruff::Stmt::ImportFrom(ruff::StmtImportFrom::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtGlobal::static_type()) {
+        } else if _cls.is(pyast::NodeStmtGlobal::static_type()) {
             ruff::Stmt::Global(ruff::StmtGlobal::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtNonlocal::static_type()) {
+        } else if _cls.is(pyast::NodeStmtNonlocal::static_type()) {
             ruff::Stmt::Nonlocal(ruff::StmtNonlocal::ast_from_object(
                 _vm,
                 source_code,
                 _object,
             )?)
-        } else if _cls.is(gen::NodeStmtExpr::static_type()) {
+        } else if _cls.is(pyast::NodeStmtExpr::static_type()) {
             ruff::Stmt::Expr(ruff::StmtExpr::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtPass::static_type()) {
+        } else if _cls.is(pyast::NodeStmtPass::static_type()) {
             ruff::Stmt::Pass(ruff::StmtPass::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtBreak::static_type()) {
+        } else if _cls.is(pyast::NodeStmtBreak::static_type()) {
             ruff::Stmt::Break(ruff::StmtBreak::ast_from_object(_vm, source_code, _object)?)
-        } else if _cls.is(gen::NodeStmtContinue::static_type()) {
+        } else if _cls.is(pyast::NodeStmtContinue::static_type()) {
             ruff::Stmt::Continue(ruff::StmtContinue::ast_from_object(
                 _vm,
                 source_code,
@@ -179,9 +179,9 @@ impl Node for ruff::StmtFunctionDef {
         } = self;
 
         let cls = if !is_async {
-            gen::NodeStmtFunctionDef::static_type().to_owned()
+            pyast::NodeStmtFunctionDef::static_type().to_owned()
         } else {
-            gen::NodeStmtAsyncFunctionDef::static_type().to_owned()
+            pyast::NodeStmtAsyncFunctionDef::static_type().to_owned()
         };
 
         let node = NodeAst.into_ref_with_type(vm, cls).unwrap();
@@ -218,7 +218,7 @@ impl Node for ruff::StmtFunctionDef {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         let _cls = _object.class();
-        let is_async = _cls.is(gen::NodeStmtAsyncFunctionDef::static_type());
+        let is_async = _cls.is(pyast::NodeStmtAsyncFunctionDef::static_type());
         Ok(Self {
             name: Node::ast_from_object(
                 _vm,
@@ -270,7 +270,7 @@ impl Node for ruff::StmtClassDef {
         } = self;
         let (bases, keywords) = split_class_def_args(arguments);
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtClassDef::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtClassDef::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(_vm, source_code), _vm)
@@ -345,7 +345,7 @@ impl Node for ruff::StmtReturn {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtReturn::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtReturn::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(_vm, source_code), _vm)
@@ -374,7 +374,7 @@ impl Node for ruff::StmtDelete {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtDelete::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtDelete::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("targets", targets.ast_to_object(_vm, source_code), _vm)
@@ -407,7 +407,7 @@ impl Node for ruff::StmtAssign {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeStmtAssign::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtAssign::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("targets", targets.ast_to_object(vm, source_code), vm)
@@ -452,7 +452,7 @@ impl Node for ruff::StmtTypeAlias {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtTypeAlias::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtTypeAlias::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", name.ast_to_object(_vm, source_code), _vm)
@@ -503,7 +503,7 @@ impl Node for ruff::StmtAugAssign {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtAugAssign::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtAugAssign::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("target", target.ast_to_object(_vm, source_code), _vm)
@@ -551,7 +551,7 @@ impl Node for ruff::StmtAnnAssign {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtAnnAssign::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtAnnAssign::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("target", target.ast_to_object(_vm, source_code), _vm)
@@ -611,9 +611,9 @@ impl Node for ruff::StmtFor {
         } = self;
 
         let cls = if !is_async {
-            gen::NodeStmtFor::static_type().to_owned()
+            pyast::NodeStmtFor::static_type().to_owned()
         } else {
-            gen::NodeStmtAsyncFor::static_type().to_owned()
+            pyast::NodeStmtAsyncFor::static_type().to_owned()
         };
 
         let node = NodeAst.into_ref_with_type(_vm, cls).unwrap();
@@ -638,10 +638,10 @@ impl Node for ruff::StmtFor {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         debug_assert!(
-            _cls.is(gen::NodeStmtFor::static_type())
-                || _cls.is(gen::NodeStmtAsyncFor::static_type())
+            _cls.is(pyast::NodeStmtFor::static_type())
+                || _cls.is(pyast::NodeStmtAsyncFor::static_type())
         );
-        let is_async = _cls.is(gen::NodeStmtAsyncFor::static_type());
+        let is_async = _cls.is(pyast::NodeStmtAsyncFor::static_type());
         Ok(Self {
             target: Node::ast_from_object(
                 _vm,
@@ -681,7 +681,7 @@ impl Node for ruff::StmtWhile {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtWhile::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtWhile::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("test", test.ast_to_object(_vm, source_code), _vm)
@@ -758,9 +758,9 @@ impl Node for ruff::StmtWith {
         } = self;
 
         let cls = if !is_async {
-            gen::NodeStmtWith::static_type().to_owned()
+            pyast::NodeStmtWith::static_type().to_owned()
         } else {
-            gen::NodeStmtAsyncWith::static_type().to_owned()
+            pyast::NodeStmtAsyncWith::static_type().to_owned()
         };
 
         let node = NodeAst.into_ref_with_type(_vm, cls).unwrap();
@@ -781,10 +781,10 @@ impl Node for ruff::StmtWith {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         debug_assert!(
-            _cls.is(gen::NodeStmtWith::static_type())
-                || _cls.is(gen::NodeStmtAsyncWith::static_type())
+            _cls.is(pyast::NodeStmtWith::static_type())
+                || _cls.is(pyast::NodeStmtAsyncWith::static_type())
         );
-        let is_async = _cls.is(gen::NodeStmtAsyncWith::static_type());
+        let is_async = _cls.is(pyast::NodeStmtAsyncWith::static_type());
         Ok(Self {
             items: Node::ast_from_object(
                 _vm,
@@ -813,7 +813,7 @@ impl Node for ruff::StmtMatch {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtMatch::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtMatch::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("subject", subject.ast_to_object(_vm, source_code), _vm)
@@ -852,7 +852,7 @@ impl Node for ruff::StmtRaise {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtRaise::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtRaise::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("exc", exc.ast_to_object(_vm, source_code), _vm)
@@ -892,9 +892,9 @@ impl Node for ruff::StmtTry {
 
         // let cls = gen::NodeStmtTry::static_type().to_owned();
         let cls = if is_star {
-            gen::NodeStmtTryStar::static_type()
+            pyast::NodeStmtTryStar::static_type()
         } else {
-            gen::NodeStmtTry::static_type()
+            pyast::NodeStmtTry::static_type()
         }
         .to_owned();
 
@@ -917,11 +917,11 @@ impl Node for ruff::StmtTry {
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         let _cls = _object.class();
-        let is_star = _cls.is(gen::NodeStmtTryStar::static_type());
+        let is_star = _cls.is(pyast::NodeStmtTryStar::static_type());
         let _cls = _object.class();
         debug_assert!(
-            _cls.is(gen::NodeStmtTry::static_type())
-                || _cls.is(gen::NodeStmtTryStar::static_type())
+            _cls.is(pyast::NodeStmtTry::static_type())
+                || _cls.is(pyast::NodeStmtTryStar::static_type())
         );
 
         Ok(Self {
@@ -959,7 +959,7 @@ impl Node for ruff::StmtAssert {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtAssert::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtAssert::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("test", test.ast_to_object(_vm, source_code), _vm)
@@ -995,7 +995,7 @@ impl Node for ruff::StmtImport {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtImport::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtImport::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("names", names.ast_to_object(_vm, source_code), _vm)
@@ -1028,7 +1028,7 @@ impl Node for ruff::StmtImportFrom {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeStmtImportFrom::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtImportFrom::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("module", module.ast_to_object(vm, source_code), vm)
@@ -1070,7 +1070,7 @@ impl Node for ruff::StmtGlobal {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtGlobal::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtGlobal::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("names", names.ast_to_object(_vm, source_code), _vm)
@@ -1101,7 +1101,7 @@ impl Node for ruff::StmtNonlocal {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtNonlocal::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtNonlocal::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("names", names.ast_to_object(_vm, source_code), _vm)
@@ -1132,7 +1132,7 @@ impl Node for ruff::StmtExpr {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtExpr::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtExpr::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(_vm, source_code), _vm)
@@ -1160,7 +1160,7 @@ impl Node for ruff::StmtPass {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let ruff::StmtPass { range: _range } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtPass::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtPass::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         node_add_location(&dict, _range, _vm, source_code);
@@ -1181,7 +1181,7 @@ impl Node for ruff::StmtBreak {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let ruff::StmtBreak { range: _range } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtBreak::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtBreak::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         node_add_location(&dict, _range, _vm, source_code);
@@ -1202,7 +1202,7 @@ impl Node for ruff::StmtContinue {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let ruff::StmtContinue { range: _range } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, gen::NodeStmtContinue::static_type().to_owned())
+            .into_ref_with_type(_vm, pyast::NodeStmtContinue::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         node_add_location(&dict, _range, _vm, source_code);

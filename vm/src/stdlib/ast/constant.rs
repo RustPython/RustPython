@@ -125,7 +125,7 @@ impl Node for Constant {
         // TODO: Figure out how this works
         let kind = vm.ctx.new_str("u").to_pyobject(vm);
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprConstant::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprConstant::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value, vm).unwrap();

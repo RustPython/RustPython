@@ -49,81 +49,81 @@ impl Node for ruff::Expr {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let cls = object.class();
-        Ok(if cls.is(gen::NodeExprBoolOp::static_type()) {
+        Ok(if cls.is(pyast::NodeExprBoolOp::static_type()) {
             ruff::Expr::BoolOp(ruff::ExprBoolOp::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprNamedExpr::static_type()) {
+        } else if cls.is(pyast::NodeExprNamedExpr::static_type()) {
             ruff::Expr::Named(ruff::ExprNamed::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprBinOp::static_type()) {
+        } else if cls.is(pyast::NodeExprBinOp::static_type()) {
             ruff::Expr::BinOp(ruff::ExprBinOp::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprUnaryOp::static_type()) {
+        } else if cls.is(pyast::NodeExprUnaryOp::static_type()) {
             ruff::Expr::UnaryOp(ruff::ExprUnaryOp::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprLambda::static_type()) {
+        } else if cls.is(pyast::NodeExprLambda::static_type()) {
             ruff::Expr::Lambda(ruff::ExprLambda::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprIfExp::static_type()) {
+        } else if cls.is(pyast::NodeExprIfExp::static_type()) {
             ruff::Expr::If(ruff::ExprIf::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprDict::static_type()) {
+        } else if cls.is(pyast::NodeExprDict::static_type()) {
             ruff::Expr::Dict(ruff::ExprDict::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprSet::static_type()) {
+        } else if cls.is(pyast::NodeExprSet::static_type()) {
             ruff::Expr::Set(ruff::ExprSet::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprListComp::static_type()) {
+        } else if cls.is(pyast::NodeExprListComp::static_type()) {
             ruff::Expr::ListComp(ruff::ExprListComp::ast_from_object(
                 vm,
                 source_code,
                 object,
             )?)
-        } else if cls.is(gen::NodeExprSetComp::static_type()) {
+        } else if cls.is(pyast::NodeExprSetComp::static_type()) {
             ruff::Expr::SetComp(ruff::ExprSetComp::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprDictComp::static_type()) {
+        } else if cls.is(pyast::NodeExprDictComp::static_type()) {
             ruff::Expr::DictComp(ruff::ExprDictComp::ast_from_object(
                 vm,
                 source_code,
                 object,
             )?)
-        } else if cls.is(gen::NodeExprGeneratorExp::static_type()) {
+        } else if cls.is(pyast::NodeExprGeneratorExp::static_type()) {
             ruff::Expr::Generator(ruff::ExprGenerator::ast_from_object(
                 vm,
                 source_code,
                 object,
             )?)
-        } else if cls.is(gen::NodeExprAwait::static_type()) {
+        } else if cls.is(pyast::NodeExprAwait::static_type()) {
             ruff::Expr::Await(ruff::ExprAwait::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprYield::static_type()) {
+        } else if cls.is(pyast::NodeExprYield::static_type()) {
             ruff::Expr::Yield(ruff::ExprYield::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprYieldFrom::static_type()) {
+        } else if cls.is(pyast::NodeExprYieldFrom::static_type()) {
             ruff::Expr::YieldFrom(ruff::ExprYieldFrom::ast_from_object(
                 vm,
                 source_code,
                 object,
             )?)
-        } else if cls.is(gen::NodeExprCompare::static_type()) {
+        } else if cls.is(pyast::NodeExprCompare::static_type()) {
             ruff::Expr::Compare(ruff::ExprCompare::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprCall::static_type()) {
+        } else if cls.is(pyast::NodeExprCall::static_type()) {
             ruff::Expr::Call(ruff::ExprCall::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprAttribute::static_type()) {
+        } else if cls.is(pyast::NodeExprAttribute::static_type()) {
             ruff::Expr::Attribute(ruff::ExprAttribute::ast_from_object(
                 vm,
                 source_code,
                 object,
             )?)
-        } else if cls.is(gen::NodeExprSubscript::static_type()) {
+        } else if cls.is(pyast::NodeExprSubscript::static_type()) {
             ruff::Expr::Subscript(ruff::ExprSubscript::ast_from_object(
                 vm,
                 source_code,
                 object,
             )?)
-        } else if cls.is(gen::NodeExprStarred::static_type()) {
+        } else if cls.is(pyast::NodeExprStarred::static_type()) {
             ruff::Expr::Starred(ruff::ExprStarred::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprName::static_type()) {
+        } else if cls.is(pyast::NodeExprName::static_type()) {
             ruff::Expr::Name(ruff::ExprName::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprList::static_type()) {
+        } else if cls.is(pyast::NodeExprList::static_type()) {
             ruff::Expr::List(ruff::ExprList::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprTuple::static_type()) {
+        } else if cls.is(pyast::NodeExprTuple::static_type()) {
             ruff::Expr::Tuple(ruff::ExprTuple::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprSlice::static_type()) {
+        } else if cls.is(pyast::NodeExprSlice::static_type()) {
             ruff::Expr::Slice(ruff::ExprSlice::ast_from_object(vm, source_code, object)?)
-        } else if cls.is(gen::NodeExprConstant::static_type()) {
+        } else if cls.is(pyast::NodeExprConstant::static_type()) {
             Constant::ast_from_object(vm, source_code, object)?.into_expr()
-        } else if cls.is(gen::NodeExprJoinedStr::static_type()) {
+        } else if cls.is(pyast::NodeExprJoinedStr::static_type()) {
             JoinedStr::ast_from_object(vm, source_code, object)?.into_expr()
         } else {
             return Err(vm.new_type_error(format!(
@@ -138,7 +138,7 @@ impl Node for ruff::ExprBoolOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { op, values, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprBoolOp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprBoolOp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("op", op.ast_to_object(vm, source_code), vm)
@@ -177,7 +177,7 @@ impl Node for ruff::ExprNamed {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprNamedExpr::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprNamedExpr::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("target", target.ast_to_object(vm, source_code), vm)
@@ -217,7 +217,7 @@ impl Node for ruff::ExprBinOp {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprBinOp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprBinOp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("left", left.ast_to_object(vm, source_code), vm)
@@ -259,7 +259,7 @@ impl Node for ruff::ExprUnaryOp {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { op, operand, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprUnaryOp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprUnaryOp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("op", op.ast_to_object(vm, source_code), vm)
@@ -298,7 +298,7 @@ impl Node for ruff::ExprLambda {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprLambda::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprLambda::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("args", parameters.ast_to_object(vm, source_code), vm)
@@ -338,7 +338,7 @@ impl Node for ruff::ExprIf {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprIfExp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprIfExp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("test", test.ast_to_object(vm, source_code), vm)
@@ -388,7 +388,7 @@ impl Node for ruff::ExprDict {
                     (keys, values)
                 });
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprDict::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprDict::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("keys", keys.ast_to_object(vm, source_code), vm)
@@ -429,7 +429,7 @@ impl Node for ruff::ExprSet {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { elts, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprSet::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprSet::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("elts", elts.ast_to_object(vm, source_code), vm)
@@ -461,7 +461,7 @@ impl Node for ruff::ExprListComp {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprListComp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprListComp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("elt", elt.ast_to_object(vm, source_code), vm)
@@ -500,7 +500,7 @@ impl Node for ruff::ExprSetComp {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprSetComp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprSetComp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("elt", elt.ast_to_object(vm, source_code), vm)
@@ -540,7 +540,7 @@ impl Node for ruff::ExprDictComp {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprDictComp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprDictComp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("key", key.ast_to_object(vm, source_code), vm)
@@ -587,7 +587,7 @@ impl Node for ruff::ExprGenerator {
             parenthesized: _,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprGeneratorExp::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprGeneratorExp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("elt", elt.ast_to_object(vm, source_code), vm)
@@ -624,7 +624,7 @@ impl Node for ruff::ExprAwait {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { value, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprAwait::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprAwait::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_code), vm)
@@ -652,7 +652,7 @@ impl Node for ruff::ExprYield {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let ruff::ExprYield { value, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprYield::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprYield::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_code), vm)
@@ -678,7 +678,7 @@ impl Node for ruff::ExprYieldFrom {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { value, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprYieldFrom::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprYieldFrom::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_code), vm)
@@ -711,7 +711,7 @@ impl Node for ruff::ExprCompare {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprCompare::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprCompare::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("left", left.ast_to_object(vm, source_code), vm)
@@ -768,7 +768,7 @@ impl Node for ruff::ExprCall {
         } = self;
         let (positional_arguments, keyword_arguments) = split_function_call_arguments(arguments);
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprCall::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprCall::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("func", func.ast_to_object(vm, source_code), vm)
@@ -826,7 +826,7 @@ impl Node for ruff::ExprAttribute {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprAttribute::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprAttribute::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_code), vm)
@@ -873,7 +873,7 @@ impl Node for ruff::ExprSubscript {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprSubscript::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprSubscript::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_code), vm)
@@ -915,7 +915,7 @@ impl Node for ruff::ExprStarred {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { value, ctx, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprStarred::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprStarred::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value.ast_to_object(vm, source_code), vm)
@@ -950,7 +950,7 @@ impl Node for ruff::ExprName {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { id, ctx, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprName::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprName::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("id", id.to_pyobject(vm), vm).unwrap();
@@ -980,7 +980,7 @@ impl Node for ruff::ExprList {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let ruff::ExprList { elts, ctx, range } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprList::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprList::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("elts", elts.ast_to_object(vm, source_code), vm)
@@ -1020,7 +1020,7 @@ impl Node for ruff::ExprTuple {
             parenthesized: _,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprTuple::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprTuple::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("elts", elts.ast_to_object(vm, source_code), vm)
@@ -1061,7 +1061,7 @@ impl Node for ruff::ExprSlice {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeExprSlice::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprSlice::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("lower", lower.ast_to_object(vm, source_code), vm)
@@ -1096,9 +1096,9 @@ impl Node for ruff::ExprSlice {
 impl Node for ruff::ExprContext {
     fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
         let node_type = match self {
-            ruff::ExprContext::Load => gen::NodeExprContextLoad::static_type(),
-            ruff::ExprContext::Store => gen::NodeExprContextStore::static_type(),
-            ruff::ExprContext::Del => gen::NodeExprContextDel::static_type(),
+            ruff::ExprContext::Load => pyast::NodeExprContextLoad::static_type(),
+            ruff::ExprContext::Store => pyast::NodeExprContextStore::static_type(),
+            ruff::ExprContext::Del => pyast::NodeExprContextDel::static_type(),
             ruff::ExprContext::Invalid => todo!(),
         };
         NodeAst
@@ -1112,11 +1112,11 @@ impl Node for ruff::ExprContext {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let _cls = object.class();
-        Ok(if _cls.is(gen::NodeExprContextLoad::static_type()) {
+        Ok(if _cls.is(pyast::NodeExprContextLoad::static_type()) {
             ruff::ExprContext::Load
-        } else if _cls.is(gen::NodeExprContextStore::static_type()) {
+        } else if _cls.is(pyast::NodeExprContextStore::static_type()) {
             ruff::ExprContext::Store
-        } else if _cls.is(gen::NodeExprContextDel::static_type()) {
+        } else if _cls.is(pyast::NodeExprContextDel::static_type()) {
             ruff::ExprContext::Del
         } else {
             return Err(vm.new_type_error(format!(
@@ -1138,7 +1138,7 @@ impl Node for ruff::Comprehension {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, gen::NodeComprehension::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeComprehension::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("target", target.ast_to_object(vm, source_code), vm)

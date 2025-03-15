@@ -14,7 +14,7 @@ impl Node for ruff::ExceptHandler {
     ) -> PyResult<Self> {
         let _cls = _object.class();
         Ok(
-            if _cls.is(gen::NodeExceptHandlerExceptHandler::static_type()) {
+            if _cls.is(pyast::NodeExceptHandlerExceptHandler::static_type()) {
                 ruff::ExceptHandler::ExceptHandler(
                     ruff::ExceptHandlerExceptHandler::ast_from_object(_vm, source_code, _object)?,
                 )
@@ -39,7 +39,7 @@ impl Node for ruff::ExceptHandlerExceptHandler {
         let node = NodeAst
             .into_ref_with_type(
                 _vm,
-                gen::NodeExceptHandlerExceptHandler::static_type().to_owned(),
+                pyast::NodeExceptHandlerExceptHandler::static_type().to_owned(),
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
