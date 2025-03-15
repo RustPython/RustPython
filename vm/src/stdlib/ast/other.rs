@@ -33,16 +33,18 @@ impl Node for ruff::ConversionFlag {
 // }
 
 impl Node for ruff::Decorator {
-    fn ast_to_object(self, _vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
-        todo!()
+    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
+        ruff::Expr::ast_to_object(self.expression, vm, source_code)
     }
 
     fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
+        vm: &VirtualMachine,
+        source_code: &SourceCodeOwned,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        todo!()
+        let expression = ruff::Expr::ast_from_object(vm, source_code, object)?;
+        let range = expression.range();
+        Ok(ruff::Decorator { expression, range })
     }
 }
 

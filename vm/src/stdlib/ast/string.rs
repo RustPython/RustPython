@@ -1,22 +1,6 @@
 use super::constant::{Constant, ConstantLiteral};
 use super::*;
 
-impl Node for ruff::ExprStringLiteral {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let Self { range, value } = self;
-        let c = Constant::new_str(value.to_str(), range);
-        c.ast_to_object(vm, source_code)
-    }
-
-    fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
-    ) -> PyResult<Self> {
-        todo!()
-    }
-}
-
 fn ruff_fstring_value_into_iter(
     mut fstring_value: ruff::FStringValue,
 ) -> impl Iterator<Item = ruff::FStringPart> + 'static {
@@ -44,26 +28,6 @@ fn ruff_fstring_element_into_iter(
         let tmp = fstring_element.into_iter().nth(i).unwrap();
         std::mem::replace(tmp, default.clone())
     })
-}
-
-impl Node for ruff::ExprFString {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let Self { range, value } = self;
-        let values: Vec<_> = ruff_fstring_value_into_iter(value)
-            .flat_map(fstring_part_to_joined_str_part)
-            .collect();
-        let values = values.into_boxed_slice();
-        let c = JoinedStr { range, values };
-        c.ast_to_object(vm, source_code)
-    }
-
-    fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
-    ) -> PyResult<Self> {
-        todo!()
-    }
 }
 
 fn fstring_part_to_joined_str_part(fstring_part: ruff::FStringPart) -> Vec<JoinedStrPart> {
@@ -368,4 +332,18 @@ impl Node for FormattedValue {
             range: range_from_object(vm, source_code, object, "FormattedValue")?,
         })
     }
+}
+
+pub(super) fn fstring_to_object(
+    vm: &VirtualMachine,
+    source_code: &SourceCodeOwned,
+    expression: ruff::ExprFString,
+) -> PyObjectRef {
+    let ruff::ExprFString { range, value } = expression;
+    let values: Vec<_> = ruff_fstring_value_into_iter(value)
+        .flat_map(fstring_part_to_joined_str_part)
+        .collect();
+    let values = values.into_boxed_slice();
+    let c = JoinedStr { range, values };
+    c.ast_to_object(vm, source_code)
 }

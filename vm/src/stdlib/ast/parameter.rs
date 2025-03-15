@@ -138,19 +138,7 @@ impl Node for ruff::Parameter {
         })
     }
 }
-impl Node for ruff::ParameterWithDefault {
-    fn ast_to_object(self, _vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
-        todo!()
-    }
 
-    fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
-    ) -> PyResult<Self> {
-        todo!()
-    }
-}
 // product
 impl Node for ruff::Keyword {
     fn ast_to_object(self, _vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {

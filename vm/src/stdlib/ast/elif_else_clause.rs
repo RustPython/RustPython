@@ -1,19 +1,5 @@
 use super::*;
 
-impl Node for Vec<ruff::ElifElseClause> {
-    fn ast_to_object(self, _vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
-        todo!()
-    }
-
-    fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
-    ) -> PyResult<Self> {
-        todo!()
-    }
-}
-
 pub(super) fn ast_to_object(
     clause: ruff::ElifElseClause,
     mut rest: std::vec::IntoIter<ruff::ElifElseClause>,

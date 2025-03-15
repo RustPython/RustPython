@@ -30,13 +30,25 @@ impl Node for ruff::Expr {
             ruff::Expr::List(cons) => cons.ast_to_object(vm, source_code),
             ruff::Expr::Tuple(cons) => cons.ast_to_object(vm, source_code),
             ruff::Expr::Slice(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Expr::NumberLiteral(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Expr::StringLiteral(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Expr::FString(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Expr::BytesLiteral(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Expr::BooleanLiteral(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Expr::NoneLiteral(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Expr::EllipsisLiteral(cons) => cons.ast_to_object(vm, source_code),
+            ruff::Expr::NumberLiteral(cons) => {
+                constant::number_literal_to_object(vm, source_code, cons)
+            }
+            ruff::Expr::StringLiteral(cons) => {
+                constant::string_literal_to_object(vm, source_code, cons)
+            }
+            ruff::Expr::FString(cons) => string::fstring_to_object(vm, source_code, cons),
+            ruff::Expr::BytesLiteral(cons) => {
+                constant::bytes_literal_to_object(vm, source_code, cons)
+            }
+            ruff::Expr::BooleanLiteral(cons) => {
+                constant::boolean_literal_to_object(vm, source_code, cons)
+            }
+            ruff::Expr::NoneLiteral(cons) => {
+                constant::none_literal_to_object(vm, source_code, cons)
+            }
+            ruff::Expr::EllipsisLiteral(cons) => {
+                constant::ellipsis_literal_to_object(vm, source_code, cons)
+            }
             ruff::Expr::Named(cons) => cons.ast_to_object(vm, source_code),
             ruff::Expr::IpyEscapeCommand(_) => {
                 unimplemented!("IPython escape command is not allowed in Python AST")
@@ -1099,7 +1111,9 @@ impl Node for ruff::ExprContext {
             ruff::ExprContext::Load => pyast::NodeExprContextLoad::static_type(),
             ruff::ExprContext::Store => pyast::NodeExprContextStore::static_type(),
             ruff::ExprContext::Del => pyast::NodeExprContextDel::static_type(),
-            ruff::ExprContext::Invalid => todo!(),
+            ruff::ExprContext::Invalid => {
+                unimplemented!("Invalid expression context is not allowed in Python AST")
+            }
         };
         NodeAst
             .into_ref_with_type(vm, node_type.to_owned())
@@ -1179,90 +1193,5 @@ impl Node for ruff::Comprehension {
             )?,
             range: Default::default(),
         })
-    }
-}
-
-impl Node for ruff::ExprBytesLiteral {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let Self { range, value } = self;
-        let bytes = value.as_slice().iter().flat_map(|b| b.value.iter());
-        let c = Constant::new_bytes(bytes.copied(), range);
-        c.ast_to_object(vm, source_code)
-    }
-
-    fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
-    ) -> PyResult<Self> {
-        todo!()
-    }
-}
-
-impl Node for ruff::ExprBooleanLiteral {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let Self { range, value } = self;
-        let c = Constant::new_bool(value, range);
-        c.ast_to_object(vm, source_code)
-    }
-
-    fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
-    ) -> PyResult<Self> {
-        todo!()
-    }
-}
-
-impl Node for ruff::ExprNoneLiteral {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let Self { range } = self;
-        let c = Constant::new_none(range);
-        c.ast_to_object(vm, source_code)
-    }
-
-    fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
-    ) -> PyResult<Self> {
-        todo!()
-    }
-}
-
-impl Node for ruff::ExprEllipsisLiteral {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let Self { range } = self;
-        let c = Constant::new_ellipsis(range);
-        c.ast_to_object(vm, source_code)
-    }
-
-    fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
-    ) -> PyResult<Self> {
-        todo!()
-    }
-}
-
-impl Node for ruff::ExprNumberLiteral {
-    fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-        let Self { range, value } = self;
-        let c = match value {
-            ruff::Number::Int(n) => Constant::new_int(n, range),
-            ruff::Number::Float(n) => Constant::new_float(n, range),
-            ruff::Number::Complex { real, imag } => Constant::new_complex(real, imag, range),
-        };
-        c.ast_to_object(vm, source_code)
-    }
-
-    fn ast_from_object(
-        _vm: &VirtualMachine,
-        _source_code: &SourceCodeOwned,
-        _object: PyObjectRef,
-    ) -> PyResult<Self> {
-        todo!()
     }
 }

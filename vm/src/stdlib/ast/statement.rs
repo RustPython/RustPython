@@ -28,7 +28,9 @@ impl Node for ruff::Stmt {
             ruff::Stmt::Pass(cons) => cons.ast_to_object(vm, source_code),
             ruff::Stmt::Break(cons) => cons.ast_to_object(vm, source_code),
             ruff::Stmt::Continue(cons) => cons.ast_to_object(vm, source_code),
-            ruff::Stmt::IpyEscapeCommand(_) => todo!(),
+            ruff::Stmt::IpyEscapeCommand(_) => {
+                unimplemented!("IPython escape command is not allowed in Python AST")
+            }
         }
     }
 

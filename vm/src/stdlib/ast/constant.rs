@@ -1,6 +1,5 @@
 use super::*;
 use crate::builtins::{PyComplex, PyTuple};
-use ruff_python_ast::ExprContext;
 
 #[derive(Debug)]
 pub(super) struct Constant {
@@ -83,9 +82,15 @@ pub(crate) enum ConstantLiteral {
     Str(String),
     Bytes(Vec<u8>),
     Int(ruff::Int),
-    Tuple(Vec<Constant>),
+    Tuple {
+        value: Vec<Constant>,
+        ctx: ruff::ExprContext,
+    },
     Float(f64),
-    Complex { real: f64, imag: f64 },
+    Complex {
+        real: f64,
+        imag: f64,
+    },
     Ellipsis,
 }
 
@@ -93,28 +98,25 @@ pub(crate) enum ConstantLiteral {
 impl Node for Constant {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
         let Self { range, value } = self;
-        let is_str = matches!(&value, ConstantLiteral::Str(_));
-        let mut is_unicode = false;
+        let mut string_kind = None;
+        let mut tuple_ctx = None;
         let value = match value {
             ConstantLiteral::None => vm.ctx.none(),
             ConstantLiteral::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
             ConstantLiteral::Str(value) => {
-                if !value.is_ascii() {
-                    is_unicode = true;
-                }
+                string_kind = Some(!value.is_ascii());
                 vm.ctx.new_str(value).to_pyobject(vm)
             }
             ConstantLiteral::Bytes(value) => vm.ctx.new_bytes(value).to_pyobject(vm),
             ConstantLiteral::Int(value) => value.ast_to_object(vm, source_code),
-            ConstantLiteral::Tuple(value) => vm
-                .ctx
-                .new_tuple(
-                    value
-                        .into_iter()
-                        .map(|c| c.ast_to_object(vm, source_code))
-                        .collect(),
-                )
-                .to_pyobject(vm),
+            ConstantLiteral::Tuple { value, ctx } => {
+                tuple_ctx = Some(ctx.ast_to_object(vm, source_code));
+                let value = value
+                    .into_iter()
+                    .map(|c| c.ast_to_object(vm, source_code))
+                    .collect();
+                vm.ctx.new_tuple(value).to_pyobject(vm)
+            }
             ConstantLiteral::Float(value) => vm.ctx.new_float(value).into_pyobject(vm),
             ConstantLiteral::Complex { real, imag } => vm
                 .ctx
@@ -122,20 +124,22 @@ impl Node for Constant {
                 .into_pyobject(vm),
             ConstantLiteral::Ellipsis => vm.ctx.ellipsis(),
         };
-        // TODO: Figure out how this works
-        let kind = vm.ctx.new_str("u").to_pyobject(vm);
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprConstant::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value, vm).unwrap();
-        if is_str {
-            if is_unicode {
-                dict.set_item("kind", kind, vm).unwrap();
+        if let Some(is_unicode_str) = string_kind {
+            // TODO: Figure out how this works
+            let kind = if is_unicode_str {
+                vm.ctx.new_str("u").to_pyobject(vm)
             } else {
-                dict.set_item("kind", vm.ctx.empty_str.to_pyobject(vm), vm)
-                    .unwrap();
-            }
+                vm.ctx.empty_str.to_pyobject(vm)
+            };
+            dict.set_item("kind", kind, vm).unwrap();
+        }
+        if let Some(tuple_ctx) = tuple_ctx {
+            dict.set_item("ctx", tuple_ctx, vm).unwrap();
         }
         node_add_location(&dict, range, vm, source_code);
         node.into()
@@ -177,7 +181,12 @@ impl Node for Constant {
                 .cloned()
                 .map(|object| Node::ast_from_object(vm, source_code, object))
                 .collect::<PyResult<_>>()?;
-            ConstantLiteral::Tuple(tuple)
+            let ctx_object = get_node_field(vm, &object, "ctx", "Constant")?;
+            let ctx_object = Node::ast_from_object(vm, source_code, ctx_object)?;
+            ConstantLiteral::Tuple {
+                value: tuple,
+                ctx: ctx_object,
+            }
         } else if cls.is(vm.ctx.types.float_type) {
             let float = value_object.try_into_value(vm)?;
             ConstantLiteral::Float(float)
@@ -247,11 +256,10 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
             range,
             value: ruff::Number::Int(value),
         }),
-        ConstantLiteral::Tuple(value) => ruff::Expr::Tuple(ruff::ExprTuple {
+        ConstantLiteral::Tuple { value, ctx } => ruff::Expr::Tuple(ruff::ExprTuple {
             range,
             elts: value.into_iter().map(constant_to_ruff_expr).collect(),
-            // TODO
-            ctx: ExprContext::Invalid,
+            ctx,
             // TODO: Does this matter?
             parenthesized: true,
         }),
@@ -269,4 +277,69 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
             ruff::Expr::EllipsisLiteral(ruff::ExprEllipsisLiteral { range })
         }
     }
+}
+
+pub(super) fn number_literal_to_object(
+    vm: &VirtualMachine,
+    source_code: &SourceCodeOwned,
+    constant: ruff::ExprNumberLiteral,
+) -> PyObjectRef {
+    let ruff::ExprNumberLiteral { range, value } = constant;
+    let c = match value {
+        ruff::Number::Int(n) => Constant::new_int(n, range),
+        ruff::Number::Float(n) => Constant::new_float(n, range),
+        ruff::Number::Complex { real, imag } => Constant::new_complex(real, imag, range),
+    };
+    c.ast_to_object(vm, source_code)
+}
+
+pub(super) fn string_literal_to_object(
+    vm: &VirtualMachine,
+    source_code: &SourceCodeOwned,
+    constant: ruff::ExprStringLiteral,
+) -> PyObjectRef {
+    let ruff::ExprStringLiteral { range, value } = constant;
+    let c = Constant::new_str(value.to_str(), range);
+    c.ast_to_object(vm, source_code)
+}
+
+pub(super) fn bytes_literal_to_object(
+    vm: &VirtualMachine,
+    source_code: &SourceCodeOwned,
+    constant: ruff::ExprBytesLiteral,
+) -> PyObjectRef {
+    let ruff::ExprBytesLiteral { range, value } = constant;
+    let bytes = value.as_slice().iter().flat_map(|b| b.value.iter());
+    let c = Constant::new_bytes(bytes.copied(), range);
+    c.ast_to_object(vm, source_code)
+}
+
+pub(super) fn boolean_literal_to_object(
+    vm: &VirtualMachine,
+    source_code: &SourceCodeOwned,
+    constant: ruff::ExprBooleanLiteral,
+) -> PyObjectRef {
+    let ruff::ExprBooleanLiteral { range, value } = constant;
+    let c = Constant::new_bool(value, range);
+    c.ast_to_object(vm, source_code)
+}
+
+pub(super) fn none_literal_to_object(
+    vm: &VirtualMachine,
+    source_code: &SourceCodeOwned,
+    constant: ruff::ExprNoneLiteral,
+) -> PyObjectRef {
+    let ruff::ExprNoneLiteral { range } = constant;
+    let c = Constant::new_none(range);
+    c.ast_to_object(vm, source_code)
+}
+
+pub(super) fn ellipsis_literal_to_object(
+    vm: &VirtualMachine,
+    source_code: &SourceCodeOwned,
+    constant: ruff::ExprEllipsisLiteral,
+) -> PyObjectRef {
+    let ruff::ExprEllipsisLiteral { range } = constant;
+    let c = Constant::new_ellipsis(range);
+    c.ast_to_object(vm, source_code)
 }
