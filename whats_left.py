@@ -97,8 +97,8 @@ PEP_594_MODULES = {
 
 # CPython specific modules (mostly consisting of templates/tests)
 CPYTHON_SPECIFIC_MODS = {
-    'xxmodule', 'xxsubtype', 'xxlimited', '_xxtestfuzz'
-    '_testbuffer', '_testcapi', '_testimportmultiple', '_testinternalcapi', '_testmultiphase',
+    'xxmodule', 'xxsubtype', 'xxlimited', '_xxtestfuzz',
+    '_testbuffer', '_testcapi', '_testimportmultiple', '_testinternalcapi', '_testmultiphase', '_testlimitedcapi'
 }
 
 IGNORED_MODULES = {"this", "antigravity"} | PEP_594_MODULES | CPYTHON_SPECIFIC_MODS
