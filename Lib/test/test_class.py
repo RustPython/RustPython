@@ -874,26 +874,30 @@ class TestInlineValues(unittest.TestCase):
         self.assertEqual(Plain.__flags__ & Py_TPFLAGS_MANAGED_DICT, Py_TPFLAGS_MANAGED_DICT)
         self.assertEqual(WithAttrs.__flags__ & Py_TPFLAGS_MANAGED_DICT, Py_TPFLAGS_MANAGED_DICT)
 
-    @cpython_only
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_has_inline_values(self):
         c = Plain()
         self.assertTrue(has_inline_values(c))
         del c.__dict__
         self.assertFalse(has_inline_values(c))
 
-    @cpython_only
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_instances(self):
         self.assertTrue(has_inline_values(Plain()))
         self.assertTrue(has_inline_values(WithAttrs()))
 
-    @cpython_only
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_inspect_dict(self):
         for cls in (Plain, WithAttrs):
             c = cls()
             c.__dict__
             self.assertTrue(has_inline_values(c))
 
-    @cpython_only
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_update_dict(self):
         d = { "e": 5, "f": 6 }
         for cls in (Plain, WithAttrs):
@@ -910,7 +914,8 @@ class TestInlineValues(unittest.TestCase):
         for i in range(100):
             self.assertEqual(getattr(obj, f"a{i}"), i)
 
-    @cpython_only
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_many_attributes(self):
         class C: pass
         c = C()
@@ -921,7 +926,8 @@ class TestInlineValues(unittest.TestCase):
         c = C()
         self.assertTrue(has_inline_values(c))
 
-    @cpython_only
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_many_attributes_with_dict(self):
         class C: pass
         c = C()
