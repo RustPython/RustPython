@@ -445,7 +445,6 @@ class ClassTests(unittest.TestCase):
         del testme.cardinal
         self.assertCallStack([('__delattr__', (testme, "cardinal"))])
 
-    @cpython_only
     def testHasAttrString(self):
         import sys
         from test.support import import_helper
