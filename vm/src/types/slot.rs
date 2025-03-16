@@ -363,7 +363,10 @@ fn descr_set_wrapper(
 fn init_wrapper(obj: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
     let res = vm.call_special_method(&obj, identifier!(vm, __init__), args)?;
     if !vm.is_none(&res) {
-        return Err(vm.new_type_error("__init__ must return None".to_owned()));
+        return Err(vm.new_type_error(format!(
+            "__init__ should return None, not '{:.200}'",
+            res.class().name()
+        )));
     }
     Ok(())
 }
@@ -511,6 +514,7 @@ impl PyType {
                 update_slot!(descr_set, descr_set_wrapper);
             }
             _ if name == identifier!(ctx, __init__) => {
+                eprintln!("init of {:?}", self.name());
                 toggle_slot!(init, init_wrapper);
             }
             _ if name == identifier!(ctx, __new__) => {
@@ -826,12 +830,6 @@ pub trait Initializer: PyPayload {
     fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let zelf = zelf.try_into_value(vm)?;
         let args: Self::Args = args.bind(vm)?;
-        Self::init(zelf, args, vm)
-    }
-
-    #[pymethod]
-    #[inline]
-    fn __init__(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         Self::init(zelf, args, vm)
     }
 

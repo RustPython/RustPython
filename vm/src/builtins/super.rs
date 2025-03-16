@@ -125,8 +125,8 @@ impl Initializer for PySuper {
             (typ, obj)
         };
 
-        let mut inner = PySuperInner::new(typ, obj, vm)?;
-        std::mem::swap(&mut inner, &mut zelf.inner.write());
+        let inner = PySuperInner::new(typ, obj, vm)?;
+        let _ = std::mem::replace::<PySuperInner>(&mut zelf.inner.write(), inner);
 
         Ok(())
     }
@@ -173,14 +173,19 @@ impl GetAttr for PySuper {
                 .skip(1) // skip su->type (if any)
                 .collect();
             for cls in mro.iter() {
+                println!("traversing mro: {}", cls.name());
                 if let Some(descr) = cls.get_direct_attr(name) {
+                    // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
+                    let obj = if obj.is(&start_type) {
+                        None
+                    } else {
+                        println!("getattr {}.{} as {}", obj.class().name(), name, cls.name());
+
+                        Some(obj)
+                    };
+                    let cls = cls.as_object().to_owned();
                     return vm
-                        .call_get_descriptor_specific(
-                            &descr,
-                            // Only pass 'obj' param if this is instance-mode super (See https://bugs.python.org/issue743267)
-                            if obj.is(&start_type) { None } else { Some(obj) },
-                            Some(start_type.as_object().to_owned()),
-                        )
+                        .call_get_descriptor_specific(&descr, obj, Some(cls))
                         .unwrap_or(Ok(descr));
                 }
             }
