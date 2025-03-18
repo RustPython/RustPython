@@ -168,8 +168,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             let label = Label(offset as u32);
             let (instruction, arg) = arg_state.get(raw_instr);
 
-            println!("currnt Instruction: {:?}, Argument: {:?}\n", instruction, arg);
-
             // If this is a label that some earlier jump can target,
             // treat it as the start of a new reachable block:
             if label_targets.contains(&label) {
