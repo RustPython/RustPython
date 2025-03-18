@@ -122,8 +122,8 @@ fn test_mod() {
 }
 
 #[test]
-fn test_power(){
-    let power = jit_function!{ power(a:i64, b:i64) -> i64 => r##"
+fn test_power() {
+    let power = jit_function! { power(a:i64, b:i64) -> i64 => r##"
         def power(a: int, b: int):
             return a ** b
     "##

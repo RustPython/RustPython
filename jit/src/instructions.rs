@@ -7,7 +7,6 @@ use rustpython_compiler_core::bytecode::{
     OpArg, OpArgState, UnaryOperator,
 };
 use std::collections::HashMap;
-use core::f64;
 
 #[repr(u16)]
 enum CustomTrapCode {
@@ -281,7 +280,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let then_block = self.get_or_create_block(target.get(arg));
                 let else_block = self.builder.create_block();
 
-                self.builder.ins().brif(val, else_block, &[], then_block, &[]);
+                self.builder
+                    .ins()
+                    .brif(val, else_block, &[], then_block, &[]);
                 self.builder.switch_to_block(else_block);
 
                 Ok(())
@@ -292,7 +293,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let then_block = self.get_or_create_block(target.get(arg));
                 let else_block = self.builder.create_block();
 
-                self.builder.ins().brif(val, then_block, &[], else_block, &[]);
+                self.builder
+                    .ins()
+                    .brif(val, then_block, &[], else_block, &[]);
                 self.builder.switch_to_block(else_block);
 
                 Ok(())
@@ -452,14 +455,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::FloorDivide, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().sdiv(a, b))
                     }
-                    (BinaryOperator::Multiply, JitValue::Int(a), JitValue::Int(b)) =>{
+                    (BinaryOperator::Multiply, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().imul(a, b))
                     }
                     (BinaryOperator::Modulo, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().srem(a, b))
                     }
-                    (BinaryOperator::Power, JitValue::Int(a), JitValue::Int(b)) => { 
-                        JitValue::Int(self.compile_ipow(a, b)) 
+                    (BinaryOperator::Power, JitValue::Int(a), JitValue::Int(b)) => {
+                        JitValue::Int(self.compile_ipow(a, b))
                     }
                     (
                         BinaryOperator::Lshift | BinaryOperator::Rshift,
@@ -546,10 +549,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::SetupLoop { .. } =>{
-                let loop_head = self.builder.create_block(); 
-                self.builder.ins().jump(loop_head, &[]); 
-                self.builder.switch_to_block(loop_head);   
+            Instruction::SetupLoop { .. } => {
+                let loop_head = self.builder.create_block();
+                self.builder.ins().jump(loop_head, &[]);
+                self.builder.switch_to_block(loop_head);
                 Ok(())
             }
             Instruction::PopBlock => {
@@ -592,9 +595,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
     fn compile_sub(&mut self, a: Value, b: Value) -> Value {
         let (out, carry) = self.builder.ins().ssub_overflow(a, b);
-        self.builder
-            .ins()
-            .trapnz(carry, TrapCode::INTEGER_OVERFLOW);
+        self.builder.ins().trapnz(carry, TrapCode::INTEGER_OVERFLOW);
         out
     }
 
@@ -660,7 +661,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let hi_new = self.builder.ins().fadd(s, lo_sum);
         let hi_new_minus_s = self.builder.ins().fsub(hi_new, s);
         let lo_new = self.builder.ins().fsub(lo_sum, hi_new_minus_s);
-        DDValue { hi: hi_new, lo: lo_new }
+        DDValue {
+            hi: hi_new,
+            lo: lo_new,
+        }
     }
 
     /// Subtracts DDValue b from DDValue a by negating b and then using the addition function.
@@ -699,7 +703,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let hi_new = self.builder.ins().fadd(s, lo_sum);
         let hi_new_minus_s = self.builder.ins().fsub(hi_new, s);
         let lo_new = self.builder.ins().fsub(lo_sum, hi_new_minus_s);
-        DDValue { hi: hi_new, lo: lo_new }
+        DDValue {
+            hi: hi_new,
+            lo: lo_new,
+        }
     }
 
     /// Multiplies a DDValue by a regular f64 (Value) using similar techniques as dd_mul.
@@ -728,7 +735,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let hi_new = self.builder.ins().fadd(s, lo_sum);
         let hi_new_minus_s = self.builder.ins().fsub(hi_new, s);
         let lo_new = self.builder.ins().fsub(lo_sum, hi_new_minus_s);
-        DDValue { hi: hi_new, lo: lo_new }
+        DDValue {
+            hi: hi_new,
+            lo: lo_new,
+        }
     }
 
     /// Scales a DDValue by multiplying both its high and low parts by the given factor.
@@ -781,7 +791,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let zero_f64 = self.builder.ins().f64const(0.0);
 
         // Check if x is less than or equal to 0 or is NaN.
-        let cmp_le = self.builder.ins().fcmp(FloatCC::LessThanOrEqual, x, zero_f64);
+        let cmp_le = self
+            .builder
+            .ins()
+            .fcmp(FloatCC::LessThanOrEqual, x, zero_f64);
         let cmp_nan = self.builder.ins().fcmp(FloatCC::Unordered, x, x);
         let need_nan = self.builder.ins().bor(cmp_le, cmp_nan);
 
@@ -807,14 +820,17 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let frac_one_bor = self.builder.ins().bor(fraction_part, implicit_one);
         let fraction_with_leading_one = self.builder.ins().select(
             zero_exp,
-            fraction_part,  // For subnormals, do not add the implicit 1.
+            fraction_part, // For subnormals, do not add the implicit 1.
             frac_one_bor,
         );
 
         // (F) Force the exponent bits to 1023, yielding a mantissa m in [1, 2).
         let new_exp = self.builder.ins().iconst(types::I64, 0x3FF0_0000_0000_0000);
         let fraction_bits = self.builder.ins().bor(fraction_with_leading_one, new_exp);
-        let m = self.builder.ins().bitcast(types::F64, MemFlags::new(), fraction_bits);
+        let m = self
+            .builder
+            .ins()
+            .bitcast(types::F64, MemFlags::new(), fraction_bits);
 
         // (G) Compute ln(m) using the series ln(1+f) with f = m - 1.
         let one_f64 = self.builder.ins().f64const(1.0);
@@ -822,7 +838,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let dd_ln_m = self.dd_ln_1p_series(f_val);
 
         // (H) Compute k*ln2 in double–double arithmetic.
-        let ln2_dd = self.dd_from_parts(f64::from_bits(0x3fe62e42fefa39ef), f64::from_bits(0x3c7abc9e3b39803f));
+        let ln2_dd = self.dd_from_parts(
+            f64::from_bits(0x3fe62e42fefa39ef),
+            f64::from_bits(0x3c7abc9e3b39803f),
+        );
         let k_f64 = self.builder.ins().fcvt_from_sint(types::F64, k_i64);
         let dd_ln2_k = self.dd_mul_f64(ln2_dd, k_f64);
 
@@ -830,10 +849,19 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let normal_result = self.dd_add(dd_ln_m, dd_ln2_k);
 
         // (I) If x was nonpositive or NaN, return NaN; otherwise, return the computed result.
-        let final_hi = self.builder.ins().select(need_nan, dd_nan.hi, normal_result.hi);
-        let final_lo = self.builder.ins().select(need_nan, dd_nan.lo, normal_result.lo);
+        let final_hi = self
+            .builder
+            .ins()
+            .select(need_nan, dd_nan.hi, normal_result.hi);
+        let final_lo = self
+            .builder
+            .ins()
+            .select(need_nan, dd_nan.lo, normal_result.lo);
 
-        DDValue { hi: final_hi, lo: final_lo }
+        DDValue {
+            hi: final_hi,
+            lo: final_lo,
+        }
     }
 
     /// Computes the exponential function exp(x) in double–double arithmetic.
@@ -842,7 +870,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     fn dd_exp(&mut self, dd: DDValue) -> DDValue {
         // (A) Range reduction: Convert dd to a single f64 value.
         let x = self.dd_to_f64(dd.clone());
-        let ln2_f64 = self.builder.ins().f64const(f64::from_bits(0x3fe62e42fefa39ef));
+        let ln2_f64 = self
+            .builder
+            .ins()
+            .f64const(f64::from_bits(0x3fe62e42fefa39ef));
         let div = self.builder.ins().fdiv(x, ln2_f64);
         let half = self.builder.ins().f64const(0.5);
         let div_plus_half = self.builder.ins().fadd(div, half);
@@ -860,13 +891,16 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
         // (B) Compute exp(x) normally when not overflowing.
         // Compute k*ln2 in double–double arithmetic and subtract it from x.
-        let ln2_dd = self.dd_from_parts(f64::from_bits(0x3fe62e42fefa39ef), f64::from_bits(0x3c7abc9e3b39803f));
+        let ln2_dd = self.dd_from_parts(
+            f64::from_bits(0x3fe62e42fefa39ef),
+            f64::from_bits(0x3c7abc9e3b39803f),
+        );
         let k_f64 = self.builder.ins().fcvt_from_sint(types::F64, k);
         let k_ln2 = self.dd_mul_f64(ln2_dd, k_f64);
         let r = self.dd_sub(dd, k_ln2);
 
         // Compute exp(r) using a Taylor series.
-        let mut sum = self.dd_from_f64(1.0);  // Initialize sum to 1.
+        let mut sum = self.dd_from_f64(1.0); // Initialize sum to 1.
         let mut term = self.dd_from_f64(1.0); // Initialize the first term to 1.
         let n_terms = 1000;
         for i in 1..=n_terms {
@@ -882,13 +916,19 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let k_plus_bias = self.builder.ins().iadd(k, bias);
         let shift_count = self.builder.ins().iconst(types::I64, 52);
         let shifted = self.builder.ins().ishl(k_plus_bias, shift_count);
-        let two_to_k = self.builder.ins().bitcast(types::F64, MemFlags::new(), shifted);
+        let two_to_k = self
+            .builder
+            .ins()
+            .bitcast(types::F64, MemFlags::new(), shifted);
         let result = self.dd_scale(sum, two_to_k);
 
         // (C) If overflow was detected, return infinity; otherwise, return the computed value.
         let final_hi = self.builder.ins().select(is_overflow, inf, result.hi);
         let final_lo = self.builder.ins().select(is_overflow, zero, result.lo);
-        DDValue { hi: final_hi, lo: final_lo }
+        DDValue {
+            hi: final_hi,
+            lo: final_lo,
+        }
     }
 
     /// Computes the power function a^b (f_pow) for f64 values using double–double arithmetic for high precision.
@@ -900,95 +940,113 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let f64_ty = types::F64;
         let i64_ty = types::I64;
         let zero_f = self.builder.ins().f64const(0.0);
-        let one_f  = self.builder.ins().f64const(1.0);
-        let nan_f  = self.builder.ins().f64const(f64::NAN);
-        let inf_f  = self.builder.ins().f64const(f64::INFINITY);
+        let one_f = self.builder.ins().f64const(1.0);
+        let nan_f = self.builder.ins().f64const(f64::NAN);
+        let inf_f = self.builder.ins().f64const(f64::INFINITY);
         let neg_inf_f = self.builder.ins().f64const(f64::NEG_INFINITY);
-    
+
         // Merge block for final result.
         let merge_block = self.builder.create_block();
         self.builder.append_block_param(merge_block, f64_ty);
-    
+
         // --- Edge Case 1: b == 0.0 → return 1.0
         let cmp_b_zero = self.builder.ins().fcmp(FloatCC::Equal, b, zero_f);
         let b_zero_block = self.builder.create_block();
         let continue_block = self.builder.create_block();
-        self.builder.ins().brif(cmp_b_zero, b_zero_block, &[], continue_block, &[]);
+        self.builder
+            .ins()
+            .brif(cmp_b_zero, b_zero_block, &[], continue_block, &[]);
         self.builder.switch_to_block(b_zero_block);
         self.builder.ins().jump(merge_block, &[one_f]);
         self.builder.switch_to_block(continue_block);
-    
+
         // --- Edge Case 2: b is NaN → return NaN
         let cmp_b_nan = self.builder.ins().fcmp(FloatCC::Unordered, b, b);
         let b_nan_block = self.builder.create_block();
         let continue_block2 = self.builder.create_block();
-        self.builder.ins().brif(cmp_b_nan, b_nan_block, &[], continue_block2, &[]);
+        self.builder
+            .ins()
+            .brif(cmp_b_nan, b_nan_block, &[], continue_block2, &[]);
         self.builder.switch_to_block(b_nan_block);
         self.builder.ins().jump(merge_block, &[nan_f]);
         self.builder.switch_to_block(continue_block2);
-    
+
         // --- Edge Case 3: a == 0.0 → return 0.0
         let cmp_a_zero = self.builder.ins().fcmp(FloatCC::Equal, a, zero_f);
         let a_zero_block = self.builder.create_block();
         let continue_block3 = self.builder.create_block();
-        self.builder.ins().brif(cmp_a_zero, a_zero_block, &[], continue_block3, &[]);
+        self.builder
+            .ins()
+            .brif(cmp_a_zero, a_zero_block, &[], continue_block3, &[]);
         self.builder.switch_to_block(a_zero_block);
         self.builder.ins().jump(merge_block, &[zero_f]);
         self.builder.switch_to_block(continue_block3);
-    
+
         // --- Edge Case 4: a is NaN → return NaN
         let cmp_a_nan = self.builder.ins().fcmp(FloatCC::Unordered, a, a);
         let a_nan_block = self.builder.create_block();
         let continue_block4 = self.builder.create_block();
-        self.builder.ins().brif(cmp_a_nan, a_nan_block, &[], continue_block4, &[]);
+        self.builder
+            .ins()
+            .brif(cmp_a_nan, a_nan_block, &[], continue_block4, &[]);
         self.builder.switch_to_block(a_nan_block);
         self.builder.ins().jump(merge_block, &[nan_f]);
         self.builder.switch_to_block(continue_block4);
-    
+
         // --- Edge Case 5: b == +infinity → return +infinity
         let cmp_b_inf = self.builder.ins().fcmp(FloatCC::Equal, b, inf_f);
         let b_inf_block = self.builder.create_block();
         let continue_block5 = self.builder.create_block();
-        self.builder.ins().brif(cmp_b_inf, b_inf_block, &[], continue_block5, &[]);
+        self.builder
+            .ins()
+            .brif(cmp_b_inf, b_inf_block, &[], continue_block5, &[]);
         self.builder.switch_to_block(b_inf_block);
         self.builder.ins().jump(merge_block, &[inf_f]);
         self.builder.switch_to_block(continue_block5);
-    
+
         // --- Edge Case 6: b == -infinity → return 0.0
         let cmp_b_neg_inf = self.builder.ins().fcmp(FloatCC::Equal, b, neg_inf_f);
         let b_neg_inf_block = self.builder.create_block();
         let continue_block6 = self.builder.create_block();
-        self.builder.ins().brif(cmp_b_neg_inf, b_neg_inf_block, &[], continue_block6, &[]);
+        self.builder
+            .ins()
+            .brif(cmp_b_neg_inf, b_neg_inf_block, &[], continue_block6, &[]);
         self.builder.switch_to_block(b_neg_inf_block);
         self.builder.ins().jump(merge_block, &[zero_f]);
         self.builder.switch_to_block(continue_block6);
-    
+
         // --- Edge Case 7: a == +infinity → return +infinity
         let cmp_a_inf = self.builder.ins().fcmp(FloatCC::Equal, a, inf_f);
         let a_inf_block = self.builder.create_block();
         let continue_block7 = self.builder.create_block();
-        self.builder.ins().brif(cmp_a_inf, a_inf_block, &[], continue_block7, &[]);
+        self.builder
+            .ins()
+            .brif(cmp_a_inf, a_inf_block, &[], continue_block7, &[]);
         self.builder.switch_to_block(a_inf_block);
         self.builder.ins().jump(merge_block, &[inf_f]);
         self.builder.switch_to_block(continue_block7);
-    
+
         // --- Edge Case 8: a == -infinity → check exponent parity
         let cmp_a_neg_inf = self.builder.ins().fcmp(FloatCC::Equal, a, neg_inf_f);
         let a_neg_inf_block = self.builder.create_block();
         let continue_block8 = self.builder.create_block();
-        self.builder.ins().brif(cmp_a_neg_inf, a_neg_inf_block, &[], continue_block8, &[]);
-            
+        self.builder
+            .ins()
+            .brif(cmp_a_neg_inf, a_neg_inf_block, &[], continue_block8, &[]);
+
         self.builder.switch_to_block(a_neg_inf_block);
         // a is -infinity here. First, ensure that b is an integer.
         let b_floor = self.builder.ins().floor(b);
         let cmp_int = self.builder.ins().fcmp(FloatCC::Equal, b_floor, b);
         let domain_error_blk = self.builder.create_block();
         let continue_neg_inf = self.builder.create_block();
-        self.builder.ins().brif(cmp_int, continue_neg_inf, &[], domain_error_blk, &[]);
-            
+        self.builder
+            .ins()
+            .brif(cmp_int, continue_neg_inf, &[], domain_error_blk, &[]);
+
         self.builder.switch_to_block(domain_error_blk);
         self.builder.ins().jump(merge_block, &[nan_f]);
-            
+
         self.builder.switch_to_block(continue_neg_inf);
         // b is an integer here; convert b_floor to an i64.
         let b_i64 = self.builder.ins().fcvt_to_sint(i64_ty, b_floor);
@@ -996,75 +1054,82 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let remainder = self.builder.ins().band(b_i64, one_i);
         let zero_i = self.builder.ins().iconst(i64_ty, 0);
         let is_odd = self.builder.ins().icmp(IntCC::NotEqual, remainder, zero_i);
-            
+
         // Create separate blocks for odd and even cases.
-        let odd_block  = self.builder.create_block();
+        let odd_block = self.builder.create_block();
         let even_block = self.builder.create_block();
         self.builder.append_block_param(odd_block, f64_ty);
         self.builder.append_block_param(even_block, f64_ty);
-        self.builder.ins().brif(is_odd, odd_block, &[neg_inf_f], even_block, &[inf_f]);
-            
+        self.builder
+            .ins()
+            .brif(is_odd, odd_block, &[neg_inf_f], even_block, &[inf_f]);
+
         self.builder.switch_to_block(odd_block);
         let phi_neg_inf = self.builder.block_params(odd_block)[0];
         self.builder.ins().jump(merge_block, &[phi_neg_inf]);
-            
+
         self.builder.switch_to_block(even_block);
         let phi_inf = self.builder.block_params(even_block)[0];
         self.builder.ins().jump(merge_block, &[phi_inf]);
-            
+
         self.builder.switch_to_block(continue_block8);
 
-    
         // --- Normal branch: neither a nor b hit the special cases.
         // Here we branch based on the sign of a.
         let cmp_lt = self.builder.ins().fcmp(FloatCC::LessThan, a, zero_f);
         let a_neg_block = self.builder.create_block();
         let a_pos_block = self.builder.create_block();
-        self.builder.ins().brif(cmp_lt, a_neg_block, &[], a_pos_block, &[]);
-    
+        self.builder
+            .ins()
+            .brif(cmp_lt, a_neg_block, &[], a_pos_block, &[]);
+
         // ----- Case: a > 0: Compute a^b = exp(b * ln(a)) using double–double arithmetic.
         self.builder.switch_to_block(a_pos_block);
         let ln_a_dd = self.dd_ln(a);
-        let b_dd    = self.dd_from_value(b);
+        let b_dd = self.dd_from_value(b);
         let product_dd = self.dd_mul(ln_a_dd, b_dd);
-        let exp_dd  = self.dd_exp(product_dd);
+        let exp_dd = self.dd_exp(product_dd);
         let pos_res = self.dd_to_f64(exp_dd);
         self.builder.ins().jump(merge_block, &[pos_res]);
-    
+
         // ----- Case: a < 0: Only allow an integral exponent.
         self.builder.switch_to_block(a_neg_block);
         let b_floor = self.builder.ins().floor(b);
         let cmp_int = self.builder.ins().fcmp(FloatCC::Equal, b_floor, b);
         let neg_int_block = self.builder.create_block();
         let domain_error_blk = self.builder.create_block();
-        self.builder.ins().brif(cmp_int, neg_int_block, &[], domain_error_blk, &[]);
-    
+        self.builder
+            .ins()
+            .brif(cmp_int, neg_int_block, &[], domain_error_blk, &[]);
+
         // Domain error: non-integer exponent for negative base
         self.builder.switch_to_block(domain_error_blk);
         self.builder.ins().jump(merge_block, &[nan_f]);
-    
+
         // For negative base with an integer exponent:
         self.builder.switch_to_block(neg_int_block);
         let abs_a = self.builder.ins().fabs(a);
         let ln_abs_dd = self.dd_ln(abs_a);
-        let b_dd     = self.dd_from_value(b);
+        let b_dd = self.dd_from_value(b);
         let product_dd = self.dd_mul(ln_abs_dd, b_dd);
-        let exp_dd   = self.dd_exp(product_dd);
-        let mag_val  = self.dd_to_f64(exp_dd);
+        let exp_dd = self.dd_exp(product_dd);
+        let mag_val = self.dd_to_f64(exp_dd);
 
-        let b_i64   = self.builder.ins().fcvt_to_sint(i64_ty, b_floor);
-        let one_i   = self.builder.ins().iconst(i64_ty, 1);
+        let b_i64 = self.builder.ins().fcvt_to_sint(i64_ty, b_floor);
+        let one_i = self.builder.ins().iconst(i64_ty, 1);
         let remainder = self.builder.ins().band(b_i64, one_i);
-        let zero_i  = self.builder.ins().iconst(i64_ty, 0);
-        let is_odd  = self.builder.ins().icmp(IntCC::NotEqual, remainder, zero_i);
+        let zero_i = self.builder.ins().iconst(i64_ty, 0);
+        let is_odd = self.builder.ins().icmp(IntCC::NotEqual, remainder, zero_i);
 
-        let odd_block  = self.builder.create_block();
+        let odd_block = self.builder.create_block();
         let even_block = self.builder.create_block();
         // Append block parameters for both branches:
         self.builder.append_block_param(odd_block, f64_ty);
         self.builder.append_block_param(even_block, f64_ty);
         // Pass mag_val to both branches:
-        self.builder.ins().brif(is_odd, odd_block, &[mag_val], even_block, &[mag_val]);
+        self.builder
+            .ins()
+            .brif(is_odd, odd_block, &[mag_val], even_block, &[mag_val]);
 
         self.builder.switch_to_block(odd_block);
         let phi_mag_val = self.builder.block_params(odd_block)[0];
@@ -1074,7 +1139,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.switch_to_block(even_block);
         let phi_mag_val_even = self.builder.block_params(even_block)[0];
         self.builder.ins().jump(merge_block, &[phi_mag_val_even]);
-    
+
         // ----- Merge: Return the final result.
         self.builder.switch_to_block(merge_block);
         let final_val = self.builder.block_params(merge_block)[0];
@@ -1082,95 +1147,107 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     fn compile_ipow(&mut self, a: Value, b: Value) -> Value {
-
         let zero = self.builder.ins().iconst(types::I64, 0);
         let one_i64 = self.builder.ins().iconst(types::I64, 1);
-        
+
         // Create required blocks
         let check_negative = self.builder.create_block();
         let handle_negative = self.builder.create_block();
         let loop_block = self.builder.create_block();
         let continue_block = self.builder.create_block();
         let exit_block = self.builder.create_block();
-        
+
         // Set up block parameters
-        self.builder.append_block_param(check_negative, types::I64);  // exponent
-        self.builder.append_block_param(check_negative, types::I64);  // base
-        
+        self.builder.append_block_param(check_negative, types::I64); // exponent
+        self.builder.append_block_param(check_negative, types::I64); // base
+
         self.builder.append_block_param(handle_negative, types::I64); // abs(exponent)
         self.builder.append_block_param(handle_negative, types::I64); // base
-        
-        self.builder.append_block_param(loop_block, types::I64);     // exponent
-        self.builder.append_block_param(loop_block, types::I64);     // result
-        self.builder.append_block_param(loop_block, types::I64);     // base
-        
-        self.builder.append_block_param(exit_block, types::I64);     // final result
-    
+
+        self.builder.append_block_param(loop_block, types::I64); // exponent
+        self.builder.append_block_param(loop_block, types::I64); // result
+        self.builder.append_block_param(loop_block, types::I64); // base
+
+        self.builder.append_block_param(exit_block, types::I64); // final result
+
         // Set up parameters for continue_block
         self.builder.append_block_param(continue_block, types::I64); // exponent
         self.builder.append_block_param(continue_block, types::I64); // result
         self.builder.append_block_param(continue_block, types::I64); // base
-        
+
         // Initial jump to check if exponent is negative
         self.builder.ins().jump(check_negative, &[b, a]);
-        
+
         // Check if exponent is negative
         self.builder.switch_to_block(check_negative);
         let params = self.builder.block_params(check_negative);
         let exp_check = params[0];
         let base_check = params[1];
-        
-        let is_negative = self.builder.ins().icmp(IntCC::SignedLessThan, exp_check, zero);
-        //self.builder.ins().brnz(is_negative, handle_negative, &[exp_check, base_check]);
-        //self.builder.ins().jump(loop_block, &[exp_check, one_i64, base_check]);
-        self.builder.ins().brif(is_negative, handle_negative, &[exp_check, base_check], loop_block, &[exp_check, one_i64, base_check]);
-        
+
+        let is_negative = self
+            .builder
+            .ins()
+            .icmp(IntCC::SignedLessThan, exp_check, zero);
+        self.builder.ins().brif(
+            is_negative,
+            handle_negative,
+            &[exp_check, base_check],
+            loop_block,
+            &[exp_check, one_i64, base_check],
+        );
+
         // Handle negative exponent (return 0 for integer exponentiation)
         self.builder.switch_to_block(handle_negative);
-        self.builder.ins().jump(exit_block, &[zero]);  // Return 0 for negative exponents
-    
+        self.builder.ins().jump(exit_block, &[zero]); // Return 0 for negative exponents
+
         // Loop block logic (square-and-multiply algorithm)
         self.builder.switch_to_block(loop_block);
         let params = self.builder.block_params(loop_block);
-        let exp_phi = params[0];    
-        let result_phi = params[1]; 
-        let base_phi = params[2];   
-    
+        let exp_phi = params[0];
+        let result_phi = params[1];
+        let base_phi = params[2];
+
         // Check if exponent is zero
         let is_zero = self.builder.ins().icmp(IntCC::Equal, exp_phi, zero);
-        //self.builder.ins().brnz(is_zero, exit_block, &[result_phi]);
-        //self.builder.ins().jump(continue_block, &[exp_phi, result_phi, base_phi]);
-        self.builder.ins().brif(is_zero, exit_block, &[result_phi], continue_block, &[exp_phi, result_phi, base_phi]);
-    
+        self.builder.ins().brif(
+            is_zero,
+            exit_block,
+            &[result_phi],
+            continue_block,
+            &[exp_phi, result_phi, base_phi],
+        );
+
         // Continue block for non-zero case
         self.builder.switch_to_block(continue_block);
         let params = self.builder.block_params(continue_block);
         let exp_phi = params[0];
         let result_phi = params[1];
         let base_phi = params[2];
-        
+
         // If exponent is odd, multiply result by base
         let is_odd = self.builder.ins().band_imm(exp_phi, 1);
         let is_odd = self.builder.ins().icmp_imm(IntCC::Equal, is_odd, 1);
         let mul_result = self.builder.ins().imul(result_phi, base_phi);
         let new_result = self.builder.ins().select(is_odd, mul_result, result_phi);
-        
+
         // Square the base and divide exponent by 2
         let squared_base = self.builder.ins().imul(base_phi, base_phi);
         let new_exp = self.builder.ins().sshr_imm(exp_phi, 1);
-        self.builder.ins().jump(loop_block, &[new_exp, new_result, squared_base]);
-    
+        self.builder
+            .ins()
+            .jump(loop_block, &[new_exp, new_result, squared_base]);
+
         // Exit block
         self.builder.switch_to_block(exit_block);
         let res = self.builder.block_params(exit_block)[0];
-    
+
         // Seal all blocks
         self.builder.seal_block(check_negative);
         self.builder.seal_block(handle_negative);
         self.builder.seal_block(loop_block);
         self.builder.seal_block(continue_block);
         self.builder.seal_block(exit_block);
-    
-        res 
+
+        res
     }
 }

@@ -111,7 +111,7 @@ fn test_mul_with_integer() {
 }
 
 #[test]
-fn test_power(){
+fn test_power() {
     let pow = jit_function! { pow(a:f64, b:f64) -> f64 => r##"
         def pow(a:float, b: float):
             return a**b
