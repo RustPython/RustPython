@@ -457,7 +457,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     }
                     (BinaryOperator::Divide, JitValue::Int(a), JitValue::Int(b)) => {
                         // Check if b == 0, If so trap with a division by zero error
-                        self.builder.ins().trapz(b, TrapCode::INTEGER_DIVISION_BY_ZERO);
+                        self.builder
+                            .ins()
+                            .trapz(b, TrapCode::INTEGER_DIVISION_BY_ZERO);
                         // Else convert to float and divide
                         let a_float = self.builder.ins().fcvt_from_sint(types::F64, a);
                         let b_float = self.builder.ins().fcvt_from_sint(types::F64, b);
