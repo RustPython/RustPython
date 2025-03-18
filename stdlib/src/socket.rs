@@ -35,18 +35,11 @@ mod _socket {
     use libc as c;
     #[cfg(windows)]
     mod c {
-        pub use winapi::shared::netioapi::{if_indextoname, if_nametoindex};
-        pub use winapi::shared::ws2def::{
+        pub use windows_sys::Win32::NetworkManagement::IpHelper::{if_indextoname, if_nametoindex};
+        pub use windows_sys::Win32::Networking::WinSock::{
             INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
         };
-        pub use winapi::um::winsock2::{
-            SO_EXCLUSIVEADDRUSE, getprotobyname, getservbyname, getservbyport, getsockopt,
-            setsockopt,
-        };
-        pub use winapi::um::ws2tcpip::{
-            EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NODATA, EAI_NONAME,
-            EAI_SERVICE, EAI_SOCKTYPE,
-        };
+
         pub use windows_sys::Win32::Networking::WinSock::{
             AF_APPLETALK, AF_DECnet, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
             AI_NUMERICSERV, AI_V4MAPPED, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL,
@@ -67,6 +60,17 @@ mod _socket {
             SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM,
             SOL_SOCKET, SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNRESET, WSAENOTSOCK,
             WSAEWOULDBLOCK,
+        };
+        pub use windows_sys::Win32::Networking::WinSock::{
+            SO_REUSEADDR as SO_EXCLUSIVEADDRUSE, getprotobyname, getservbyname, getservbyport,
+            getsockopt, setsockopt,
+        };
+        pub use windows_sys::Win32::Networking::WinSock::{
+            WSA_NOT_ENOUGH_MEMORY as EAI_MEMORY, WSAEAFNOSUPPORT as EAI_FAMILY,
+            WSAEINVAL as EAI_BADFLAGS, WSAESOCKTNOSUPPORT as EAI_SOCKTYPE,
+            WSAHOST_NOT_FOUND as EAI_NODATA, WSAHOST_NOT_FOUND as EAI_NONAME,
+            WSANO_RECOVERY as EAI_FAIL, WSATRY_AGAIN as EAI_AGAIN,
+            WSATYPE_NOT_FOUND as EAI_SERVICE,
         };
         pub const IF_NAMESIZE: usize =
             windows_sys::Win32::NetworkManagement::Ndis::IF_MAX_STRING_SIZE as _;
@@ -755,7 +759,7 @@ mod _socket {
 }
 
     #[cfg(windows)]
-    use winapi::shared::netioapi;
+    use windows_sys::Win32::NetworkManagement::IpHelper;
 
     fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
         #[cfg(unix)]
@@ -1755,7 +1759,7 @@ mod _socket {
             .map(|s| s.to_cstring(vm))
             .transpose()?;
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
-        let serv = unsafe { c::getservbyname(cstr_name.as_ptr(), cstr_proto) };
+        let serv = unsafe { c::getservbyname(cstr_name.as_ptr() as _, cstr_proto as _) };
         if serv.is_null() {
             return Err(vm.new_os_error("service/proto not found".to_owned()));
         }
@@ -1777,11 +1781,11 @@ mod _socket {
             .map(|s| s.to_cstring(vm))
             .transpose()?;
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
-        let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto) };
+        let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto as _) };
         if serv.is_null() {
             return Err(vm.new_os_error("port/proto not found".to_owned()));
         }
-        let s = unsafe { ffi::CStr::from_ptr((*serv).s_name) };
+        let s = unsafe { ffi::CStr::from_ptr((*serv).s_name as _) };
         Ok(s.to_string_lossy().into_owned())
     }
 
@@ -2033,7 +2037,7 @@ mod _socket {
     #[pyfunction]
     fn getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let cstr = name.to_cstring(vm)?;
-        let proto = unsafe { c::getprotobyname(cstr.as_ptr()) };
+        let proto = unsafe { c::getprotobyname(cstr.as_ptr() as _) };
         if proto.is_null() {
             return Err(vm.new_os_error("protocol not found".to_owned()));
         }
@@ -2111,14 +2115,14 @@ mod _socket {
     #[cfg(all(unix, not(target_os = "redox")))]
     type IfIndex = c::c_uint;
     #[cfg(windows)]
-    type IfIndex = winapi::shared::ifdef::NET_IFINDEX;
+    type IfIndex = u32; // NET_IFINDEX but windows-sys 0.59 doesn't have it
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         let name = name.to_cstring(vm)?;
 
-        let ret = unsafe { c::if_nametoindex(name.as_ptr()) };
+        let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
         if ret == 0 {
             Err(vm.new_os_error("no interface with this name".to_owned()))
         } else {
@@ -2134,7 +2138,7 @@ mod _socket {
         if ret.is_null() {
             Err(crate::vm::stdlib::os::errno_err(vm))
         } else {
-            let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr()) };
+            let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as _) };
             Ok(buf.to_string_lossy().into_owned())
         }
     }
@@ -2170,6 +2174,7 @@ mod _socket {
         #[cfg(windows)]
         {
             use std::ptr;
+            use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 
             let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
             let list = table.as_slice().iter().map(|entry| {
@@ -2181,12 +2186,10 @@ mod _socket {
             let list = list.collect::<PyResult<_>>()?;
             return Ok(list);
 
-            fn get_name(
-                luid: &winapi::shared::ifdef::NET_LUID,
-            ) -> io::Result<widestring::WideCString> {
+            fn get_name(luid: &NET_LUID_LH) -> io::Result<widestring::WideCString> {
                 let mut buf = [0; c::IF_NAMESIZE + 1];
                 let ret = unsafe {
-                    netioapi::ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len())
+                    IpHelper::ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len())
                 };
                 if ret == 0 {
                     Ok(widestring::WideCString::from_ustr_truncate(
@@ -2197,12 +2200,12 @@ mod _socket {
                 }
             }
             struct MibTable {
-                ptr: ptr::NonNull<netioapi::MIB_IF_TABLE2>,
+                ptr: ptr::NonNull<IpHelper::MIB_IF_TABLE2>,
             }
             impl MibTable {
                 fn get_raw() -> io::Result<Self> {
                     let mut ptr = ptr::null_mut();
-                    let ret = unsafe { netioapi::GetIfTable2Ex(netioapi::MibIfTableRaw, &mut ptr) };
+                    let ret = unsafe { IpHelper::GetIfTable2Ex(IpHelper::MibIfTableRaw, &mut ptr) };
                     if ret == 0 {
                         let ptr = unsafe { ptr::NonNull::new_unchecked(ptr) };
                         Ok(Self { ptr })
@@ -2212,17 +2215,17 @@ mod _socket {
                 }
             }
             impl MibTable {
-                fn as_slice(&self) -> &[netioapi::MIB_IF_ROW2] {
+                fn as_slice(&self) -> &[IpHelper::MIB_IF_ROW2] {
                     unsafe {
                         let p = self.ptr.as_ptr();
-                        let ptr = &raw const (*p).Table as *const netioapi::MIB_IF_ROW2;
+                        let ptr = &raw const (*p).Table as *const IpHelper::MIB_IF_ROW2;
                         std::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
                     }
                 }
             }
             impl Drop for MibTable {
                 fn drop(&mut self) {
-                    unsafe { netioapi::FreeMibTable(self.ptr.as_ptr() as *mut _) }
+                    unsafe { IpHelper::FreeMibTable(self.ptr.as_ptr() as *mut _) };
                 }
             }
         }

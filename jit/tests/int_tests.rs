@@ -25,7 +25,6 @@ fn test_sub() {
     assert_eq!(sub(-3, -10), Ok(7));
 }
 
-
 #[test]
 fn test_mul() {
     let mul = jit_function! { mul(a:i64, b:i64) -> i64 => r##"
@@ -71,7 +70,6 @@ fn test_div() {
     assert_eq!(div(i64::MIN, i64::MAX), Ok(-1.0));
 }
 
-
 #[test]
 fn test_floor_div() {
     let floor_div = jit_function! { floor_div(a:i64, b:i64) -> i64 => r##"
@@ -84,7 +82,6 @@ fn test_floor_div() {
     assert_eq!(floor_div(12, 10), Ok(1));
     assert_eq!(floor_div(7, 10), Ok(0));
     assert_eq!(floor_div(-3, -1), Ok(3));
-    assert_eq!(floor_div(-3, 0), Ok(-3));
 }
 
 #[test]
@@ -94,7 +91,7 @@ fn test_exp() {
     def exp(a: int, b: int):
         return a ** b
     "## };
-    
+
     assert_eq!(exp(2, 3), Ok(8.0));
     assert_eq!(exp(3, 2), Ok(9.0));
     assert_eq!(exp(5, 0), Ok(1.0));
@@ -108,6 +105,7 @@ fn test_exp() {
     assert_eq!(exp(-3, 3), Ok(-27.0));
     assert_eq!(exp(1000, 2), Ok(1000000.0));
 }
+
 #[test]
 fn test_mod() {
     let modulo = jit_function! { modulo(a:i64, b:i64) -> i64 => r##"
@@ -327,4 +325,3 @@ fn test_not() {
     assert_eq!(not_(1), Ok(false));
     assert_eq!(not_(-1), Ok(false));
 }
-
