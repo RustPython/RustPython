@@ -215,9 +215,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok(())
     }
 
-    fn prepare_const<'c, C: bytecode::Constant>(
+    fn prepare_const<C: bytecode::Constant>(
         &mut self,
-        constant: BorrowedConstant<'c, C>,
+        constant: BorrowedConstant<'_, C>,
     ) -> Result<JitValue, JitCompileError> {
         let value = match constant {
             BorrowedConstant::Integer { value } => {
@@ -822,7 +822,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let dd_ln_m = self.dd_ln_1p_series(f_val);
 
         // (H) Compute k*ln2 in double–double arithmetic.
-        let ln2_dd = self.dd_from_parts(0.6931471805599453, 2.3190468138462996e-17);
+        let ln2_dd = self.dd_from_parts(f64::from_bits(0x3fe62e42fefa39ef), f64::from_bits(0x3c7abc9e3b39803f));
         let k_f64 = self.builder.ins().fcvt_from_sint(types::F64, k_i64);
         let dd_ln2_k = self.dd_mul_f64(ln2_dd, k_f64);
 
@@ -842,7 +842,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     fn dd_exp(&mut self, dd: DDValue) -> DDValue {
         // (A) Range reduction: Convert dd to a single f64 value.
         let x = self.dd_to_f64(dd.clone());
-        let ln2_f64 = self.builder.ins().f64const(0.6931471805599453);
+        let ln2_f64 = self.builder.ins().f64const(f64::from_bits(0x3fe62e42fefa39ef));
         let div = self.builder.ins().fdiv(x, ln2_f64);
         let half = self.builder.ins().f64const(0.5);
         let div_plus_half = self.builder.ins().fadd(div, half);
@@ -860,7 +860,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
         // (B) Compute exp(x) normally when not overflowing.
         // Compute k*ln2 in double–double arithmetic and subtract it from x.
-        let ln2_dd = self.dd_from_parts(0.6931471805599453, 2.3190468138462996e-17);
+        let ln2_dd = self.dd_from_parts(f64::from_bits(0x3fe62e42fefa39ef), f64::from_bits(0x3c7abc9e3b39803f));
         let k_f64 = self.builder.ins().fcvt_from_sint(types::F64, k);
         let k_ln2 = self.dd_mul_f64(ln2_dd, k_f64);
         let r = self.dd_sub(dd, k_ln2);
