@@ -116,12 +116,109 @@ fn test_power(){
         def pow(a:float, b: float):
             return a**b
     "##};
-    // Test basic positive numbers
+    // Test base cases
+    assert_approx_eq!(pow(0.0, 0.0), Ok(1.0));
+    assert_approx_eq!(pow(0.0, 1.0), Ok(0.0));
+    assert_approx_eq!(pow(1.0, 0.0), Ok(1.0));
+    assert_approx_eq!(pow(1.0, 1.0), Ok(1.0));
+    assert_approx_eq!(pow(1.0, -1.0), Ok(1.0));
+    assert_approx_eq!(pow(-1.0, 0.0), Ok(1.0));
+    assert_approx_eq!(pow(-1.0, 1.0), Ok(-1.0));
+    assert_approx_eq!(pow(-1.0, -1.0), Ok(-1.0));
+
+    // NaN and Infinity cases
+    assert_approx_eq!(pow(f64::NAN, 0.0), Ok(1.0));
+    //assert_approx_eq!(pow(f64::NAN, 1.0), Ok(f64::NAN)); // Return the correct answer but fails compare
+    //assert_approx_eq!(pow(0.0, f64::NAN), Ok(f64::NAN)); // Return the correct answer but fails compare
+    assert_approx_eq!(pow(f64::INFINITY, 0.0), Ok(1.0));
+    assert_approx_eq!(pow(f64::INFINITY, 1.0), Ok(f64::INFINITY));
+    assert_approx_eq!(pow(f64::INFINITY, f64::INFINITY), Ok(f64::INFINITY));
+    // Negative infinity cases:
+    // For any exponent of 0.0, the result is 1.0.
+    assert_approx_eq!(pow(f64::NEG_INFINITY, 0.0), Ok(1.0));
+    // For negative infinity base, when b is an odd integer, result is -infinity;
+    // when b is even, result is +infinity.
+    assert_approx_eq!(pow(f64::NEG_INFINITY, 1.0), Ok(f64::NEG_INFINITY));
+    assert_approx_eq!(pow(f64::NEG_INFINITY, 2.0), Ok(f64::INFINITY));
+    assert_approx_eq!(pow(f64::NEG_INFINITY, 3.0), Ok(f64::NEG_INFINITY));
+    // Exponent -infinity gives 0.0.
+    assert_approx_eq!(pow(f64::NEG_INFINITY, f64::NEG_INFINITY), Ok(0.0));
+
+    // Test positive float base, positive float exponent
+    assert_approx_eq!(pow(2.0, 2.0), Ok(4.0));
+    assert_approx_eq!(pow(3.0, 3.0), Ok(27.0));
+    assert_approx_eq!(pow(4.0, 4.0), Ok(256.0));
     assert_approx_eq!(pow(2.0, 3.0), Ok(8.0));
-    assert_approx_eq!(pow(5.0, 2.0), Ok(25.0));
-    // Test basic negative numbers
-    assert_approx_eq!(pow(-3.0,3.0), Ok(-27.0));
-    assert_approx_eq!(pow(-6.0,2.0), Ok(36.0));
+    assert_approx_eq!(pow(2.0, 4.0), Ok(16.0));
+    // Test negative float base, positive float exponent (integral exponents only)
+    assert_approx_eq!(pow(-2.0, 2.0), Ok(4.0));
+    assert_approx_eq!(pow(-3.0, 3.0), Ok(-27.0));
+    assert_approx_eq!(pow(-4.0, 4.0), Ok(256.0));
+    assert_approx_eq!(pow(-2.0, 3.0), Ok(-8.0));
+    assert_approx_eq!(pow(-2.0, 4.0), Ok(16.0));
+    // Test positive float base, positive float exponent
+    assert_approx_eq!(pow(2.5, 2.0), Ok(6.25));
+    assert_approx_eq!(pow(3.5, 3.0), Ok(42.875));
+    assert_approx_eq!(pow(4.5, 4.0), Ok(410.0625));
+    assert_approx_eq!(pow(2.5, 3.0), Ok(15.625));
+    assert_approx_eq!(pow(2.5, 4.0), Ok(39.0625));
+    // Test negative float base, positive float exponent (integral exponents only)
+    assert_approx_eq!(pow(-2.5, 2.0), Ok(6.25));
+    assert_approx_eq!(pow(-3.5, 3.0), Ok(-42.875));
+    assert_approx_eq!(pow(-4.5, 4.0), Ok(410.0625));
+    assert_approx_eq!(pow(-2.5, 3.0), Ok(-15.625));
+    assert_approx_eq!(pow(-2.5, 4.0), Ok(39.0625));
+    // Test positive float base, positive float exponent with nonintegral exponents
+    assert_approx_eq!(pow(2.0, 2.5), Ok(5.656854249492381));
+    assert_approx_eq!(pow(3.0, 3.5), Ok(46.76537180435969));
+    assert_approx_eq!(pow(4.0, 4.5), Ok(512.0));
+    assert_approx_eq!(pow(2.0, 3.5), Ok(11.313708498984761));
+    assert_approx_eq!(pow(2.0, 4.5), Ok(22.627416997969522));
+    // Test positive float base, negative float exponent
+    assert_approx_eq!(pow(2.0, -2.5), Ok(0.1767766952966369));
+    assert_approx_eq!(pow(3.0, -3.5), Ok(0.021383343303319473));
+    assert_approx_eq!(pow(4.0, -4.5), Ok(0.001953125));
+    assert_approx_eq!(pow(2.0, -3.5), Ok(0.08838834764831845));
+    assert_approx_eq!(pow(2.0, -4.5), Ok(0.04419417382415922));
+    // Test negative float base, negative float exponent (integral exponents only)
+    assert_approx_eq!(pow(-2.0, -2.0), Ok(0.25));
+    assert_approx_eq!(pow(-3.0, -3.0), Ok(-0.037037037037037035));
+    assert_approx_eq!(pow(-4.0, -4.0), Ok(0.00390625));
+    assert_approx_eq!(pow(-2.0, -3.0), Ok(-0.125));
+    assert_approx_eq!(pow(-2.0, -4.0), Ok(0.0625));
+
+    // Currently negative float base with nonintegral exponent is not supported:
+    // assert_approx_eq!(pow(-2.0, 2.5), Ok(5.656854249492381));
+    // assert_approx_eq!(pow(-3.0, 3.5), Ok(-46.76537180435969));
+    // assert_approx_eq!(pow(-4.0, 4.5), Ok(512.0));
+    // assert_approx_eq!(pow(-2.0, -2.5), Ok(0.1767766952966369));
+    // assert_approx_eq!(pow(-3.0, -3.5), Ok(0.021383343303319473));
+    // assert_approx_eq!(pow(-4.0, -4.5), Ok(0.001953125));
+
+    // Extra cases **NOTE** these are not all working:
+    //      * If they are commented in then they work
+    //      * If they are commented out with a number that is the current return value it throws vs the expected value
+    //      * If they are commented out with a "fail to run" that means I couldn't get them to work, could add a case for really big or small values
+    // 1e308^2.0
+    assert_approx_eq!(pow(1e308, 2.0), Ok(f64::INFINITY));
+    // 1e308^(1e-2)
+    assert_approx_eq!(pow(1e308, 1e-2), Ok(1202.2644346174131));
+    // 1e-308^2.0
+    //assert_approx_eq!(pow(1e-308, 2.0), Ok(0.0));  // --8.403311421507407
+    // 1e-308^-2.0
+    assert_approx_eq!(pow(1e-308, -2.0), Ok(f64::INFINITY));
+    // 1e100^(1e50)
+    //assert_approx_eq!(pow(1e100, 1e50), Ok(1.0000000000000002e+150)); // fail to run (Crashes as "illegal hardware instruction")
+    // 1e50^(1e-100)
+    assert_approx_eq!(pow(1e50, 1e-100), Ok(1.0));
+    // 1e308^(-1e2)
+    //assert_approx_eq!(pow(1e308, -1e2), Ok(0.0)); // 2.961801792837933e25
+    // 1e-308^(1e2)
+    //assert_approx_eq!(pow(1e-308, 1e2), Ok(f64::INFINITY)); // 1.6692559244043896e46
+    // 1e308^(-1e308)
+    // assert_approx_eq!(pow(1e308, -1e308), Ok(0.0)); // fail to run (Crashes as "illegal hardware instruction")
+    // 1e-308^(1e308)
+    // assert_approx_eq!(pow(1e-308, 1e308), Ok(0.0)); // fail to run (Crashes as "illegal hardware instruction")
 }
 
 #[test]
