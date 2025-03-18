@@ -45,7 +45,6 @@ fn test_mul() {
 }
 
 #[test]
-
 fn test_div() {
     let div = jit_function! { div(a:i64, b:i64) -> f64 => r##"
         def div(a: int, b: int):
@@ -87,23 +86,23 @@ fn test_floor_div() {
 #[test]
 
 fn test_exp() {
-    let exp = jit_function! { exp(a: i64, b: i64) -> f64 => r##"
+    let exp = jit_function! { exp(a: i64, b: i64) -> i64 => r##"
     def exp(a: int, b: int):
         return a ** b
     "## };
 
-    assert_eq!(exp(2, 3), Ok(8.0));
-    assert_eq!(exp(3, 2), Ok(9.0));
-    assert_eq!(exp(5, 0), Ok(1.0));
-    assert_eq!(exp(0, 0), Ok(1.0));
-    assert_eq!(exp(-5, 0), Ok(1.0));
-    assert_eq!(exp(0, 1), Ok(0.0));
-    assert_eq!(exp(0, 5), Ok(0.0));
-    assert_eq!(exp(-2, 2), Ok(4.0));
-    assert_eq!(exp(-3, 4), Ok(81.0));
-    assert_eq!(exp(-2, 3), Ok(-8.0));
-    assert_eq!(exp(-3, 3), Ok(-27.0));
-    assert_eq!(exp(1000, 2), Ok(1000000.0));
+    assert_eq!(exp(2, 3), Ok(8));
+    assert_eq!(exp(3, 2), Ok(9));
+    assert_eq!(exp(5, 0), Ok(1));
+    assert_eq!(exp(0, 0), Ok(1));
+    assert_eq!(exp(-5, 0), Ok(1));
+    assert_eq!(exp(0, 1), Ok(0));
+    assert_eq!(exp(0, 5), Ok(0));
+    assert_eq!(exp(-2, 2), Ok(4));
+    assert_eq!(exp(-3, 4), Ok(81));
+    assert_eq!(exp(-2, 3), Ok(-8));
+    assert_eq!(exp(-3, 3), Ok(-27));
+    assert_eq!(exp(1000, 2), Ok(1000000));
 }
 
 #[test]

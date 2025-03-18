@@ -455,6 +455,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::FloorDivide, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().sdiv(a, b))
                     }
+                    (BinaryOperator::Divide, JitValue::Int(a), JitValue::Int(b)) => {
+                        // Check if b == 0, If so trap with a division by zero error
+                        self.builder.ins().trapz(b, TrapCode::INTEGER_DIVISION_BY_ZERO);
+                        // Else convert to float and divide
+                        let a_float = self.builder.ins().fcvt_from_sint(types::F64, a);
+                        let b_float = self.builder.ins().fcvt_from_sint(types::F64, b);
+                        JitValue::Float(self.builder.ins().fdiv(a_float, b_float))
+                    }
                     (BinaryOperator::Multiply, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().imul(a, b))
                     }
