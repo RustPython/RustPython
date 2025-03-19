@@ -70,7 +70,7 @@ mod _browser {
             None => FetchResponseFormat::Text,
         };
 
-        let mut opts = web_sys::RequestInit::new();
+        let opts = web_sys::RequestInit::new();
 
         match method {
             Some(s) => opts.set_method(s.as_str()),
@@ -225,7 +225,7 @@ mod _browser {
     fn load_module(module: PyStrRef, path: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let weak_vm = weak_vm(vm);
 
-        let mut opts = web_sys::RequestInit::new();
+        let opts = web_sys::RequestInit::new();
         opts.set_method("GET");
 
         let request = web_sys::Request::new_with_str_and_init(path.as_str(), &opts)

@@ -2,8 +2,6 @@ import unittest
 
 class PEP3131Test(unittest.TestCase):
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_valid(self):
         class T:
             ä = 1
@@ -15,8 +13,6 @@ class PEP3131Test(unittest.TestCase):
         self.assertEqual(getattr(T, '\u87d2'), 3)
         self.assertEqual(getattr(T, 'x\U000E0100'), 4)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_non_bmp_normalized(self):
         𝔘𝔫𝔦𝔠𝔬𝔡𝔢 = 1
         self.assertIn("Unicode", dir())
