@@ -23,6 +23,7 @@ pub mod int;
 pub mod linked_list;
 pub mod lock;
 pub mod os;
+pub mod rand;
 pub mod rc;
 pub mod refcount;
 pub mod static_cell;

@@ -158,7 +158,7 @@ chrono = "0.4.39"
 criterion = { version = "0.3.5", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 flame = "0.2.2"
-getrandom = "0.3"
+getrandom = { version = "0.3", features = ["std"] }
 glob = "0.3"
 hex = "0.4.3"
 indexmap = { version = "2.2.6", features = ["std"] }
@@ -185,6 +185,7 @@ paste = "1.0.15"
 proc-macro2 = "1.0.93"
 quote = "1.0.38"
 rand = "0.9"
+rand_core = { version = "0.9", features = ["os_rng"] }
 rustix = { version = "0.38", features = ["event"] }
 rustyline = "15.0.0"
 serde = { version = "1.0.133", default-features = false }

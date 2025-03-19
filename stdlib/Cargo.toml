@@ -50,7 +50,7 @@ puruspe = "0.4.0"
 xml-rs = "0.8.14"
 
 # random
-rand = { workspace = true }
+rand_core = { workspace = true }
 mt19937 = "3.1"
 
 # Crypto:

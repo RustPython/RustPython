@@ -21,7 +21,7 @@ pub fn get_version() -> String {
         get_version_number(),
         get_build_info(),
         env!("CARGO_PKG_VERSION"),
-        get_compiler()
+        COMPILER,
     )
 }
 
@@ -33,9 +33,7 @@ pub fn get_winver_number() -> String {
     format!("{MAJOR}.{MINOR}")
 }
 
-pub fn get_compiler() -> String {
-    format!("rustc {}", env!("RUSTC_VERSION"))
-}
+const COMPILER: &str = env!("RUSTC_VERSION");
 
 pub fn get_build_info() -> String {
     // See: https://reproducible-builds.org/docs/timestamps/
