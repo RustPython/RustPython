@@ -264,7 +264,7 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
                 range,
                 value: ruff::BytesLiteralValue::single(ruff::BytesLiteral {
                     range,
-                    value: value.into(),
+                    value,
                     flags: Default::default(), // TODO
                 }),
             })
