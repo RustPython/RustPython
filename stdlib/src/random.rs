@@ -16,7 +16,7 @@ mod _random {
     use malachite_bigint::{BigInt, BigUint, Sign};
     use mt19937::MT19937;
     use num_traits::{Signed, Zero};
-    use rand::{RngCore, SeedableRng};
+    use rand_core::{RngCore, SeedableRng};
     use rustpython_vm::types::DefaultConstructor;
 
     #[pyattr]

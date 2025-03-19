@@ -109,7 +109,8 @@ pub struct PyGlobalState {
 pub fn process_hash_secret_seed() -> u32 {
     use std::sync::OnceLock;
     static SEED: OnceLock<u32> = OnceLock::new();
-    *SEED.get_or_init(rand::random)
+    // os_random is expensive, but this is only ever called once
+    *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
 }
 
 impl VirtualMachine {

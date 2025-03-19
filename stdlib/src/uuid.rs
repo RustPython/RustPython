@@ -10,7 +10,8 @@ mod _uuid {
     fn get_node_id() -> [u8; 6] {
         match get_mac_address() {
             Ok(Some(_ma)) => get_mac_address().unwrap().unwrap().bytes(),
-            _ => rand::random::<[u8; 6]>(),
+            // os_random is expensive, but this is only ever called once
+            _ => rustpython_common::rand::os_random::<6>(),
         }
     }
 

@@ -19,5 +19,8 @@ ruff_source_file = { workspace = true }
 ruff_text_size = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+rand = { workspace = true }
+
 [lints]
 workspace = true

@@ -20,10 +20,7 @@ fn main() {
     );
     println!("cargo:rustc-env=RUSTPYTHON_GIT_TAG={}", git_tag());
     println!("cargo:rustc-env=RUSTPYTHON_GIT_BRANCH={}", git_branch());
-    println!(
-        "cargo:rustc-env=RUSTC_VERSION={}",
-        rustc_version::version().unwrap()
-    );
+    println!("cargo:rustc-env=RUSTC_VERSION={}", rustc_version());
 
     println!(
         "cargo:rustc-env=RUSTPYTHON_TARGET_TRIPLE={}",
@@ -61,7 +58,12 @@ fn git(args: &[&str]) -> String {
     command("git", args)
 }
 
-fn command(cmd: &str, args: &[&str]) -> String {
+fn rustc_version() -> String {
+    let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
+    command(rustc, &["-V"])
+}
+
+fn command(cmd: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> String {
     match Command::new(cmd).args(args).output() {
         Ok(output) => match String::from_utf8(output.stdout) {
             Ok(s) => s,

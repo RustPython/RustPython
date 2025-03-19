@@ -37,15 +37,6 @@ impl BuildHasher for HashSecret {
     }
 }
 
-impl rand::distr::Distribution<HashSecret> for rand::distr::StandardUniform {
-    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> HashSecret {
-        HashSecret {
-            k0: rng.random(),
-            k1: rng.random(),
-        }
-    }
-}
-
 impl HashSecret {
     pub fn new(seed: u32) -> Self {
         let mut buf = [0u8; 16];

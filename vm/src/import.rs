@@ -49,7 +49,8 @@ pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef
         let mut magic = get_git_revision().into_bytes();
         magic.truncate(4);
         if magic.len() != 4 {
-            magic = rand::random::<[u8; 4]>().to_vec();
+            // os_random is expensive, but this is only ever called once
+            magic = rustpython_common::rand::os_random::<4>().to_vec();
         }
         let magic: PyObjectRef = vm.ctx.new_bytes(magic).into();
         importlib_external.set_attr("MAGIC_NUMBER", magic, vm)?;
