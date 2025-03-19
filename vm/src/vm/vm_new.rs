@@ -313,6 +313,16 @@ impl VirtualMachine {
         if let Some(msg) = msg.get_mut(..1) {
             msg.make_ascii_lowercase();
         }
+        match error {
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::FStringError(_)
+                    | ruff_python_parser::ParseErrorType::UnexpectedExpressionToken,
+                ..
+            }) => msg.insert_str(0, "invalid syntax: "),
+            _ => {}
+        }
         let syntax_error = self.new_exception_msg(syntax_error_type, msg);
         let (lineno, offset) = error.python_location();
         let lineno = self.ctx.new_int(lineno);

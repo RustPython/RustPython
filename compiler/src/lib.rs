@@ -142,7 +142,7 @@ pub fn _compile_symtable(
         }
         Mode::Eval => {
             let ast =
-                ruff_python_parser::parse(source_code.text, ruff_python_parser::Mode::Ipython)
+                ruff_python_parser::parse(source_code.text, ruff_python_parser::Mode::Expression)
                     .map_err(|e| CompileError::from_ruff_parse_error(e, &source_code))?;
             symboltable::SymbolTable::scan_expr(
                 &ast.into_syntax().expect_expression(),

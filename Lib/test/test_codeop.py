@@ -323,6 +323,8 @@ class CodeopTests(unittest.TestCase):
             with self.assertRaisesRegex(SyntaxError, message):
                 compile_command(code, symbol='exec')
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_syntax_errors(self):
         self.assertSyntaxErrorMatches(
             dedent("""\

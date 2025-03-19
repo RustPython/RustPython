@@ -67,11 +67,17 @@ struct Compiler<'src> {
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
     qualified_path: Vec<String>,
-    done_with_future_stmts: bool,
+    done_with_future_stmts: DoneWithFuture,
     future_annotations: bool,
     ctx: CompileContext,
     class_name: Option<String>,
     opts: CompileOpts,
+}
+
+enum DoneWithFuture {
+    No,
+    DoneWithDoc,
+    Yes,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -230,7 +236,7 @@ impl<'src> Compiler<'src> {
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
             qualified_path: Vec::new(),
-            done_with_future_stmts: false,
+            done_with_future_stmts: DoneWithFuture::No,
             future_annotations: false,
             ctx: CompileContext {
                 loop_data: None,
@@ -583,9 +589,14 @@ impl Compiler<'_> {
                 self.compile_future_features(names)?
             }
             // ignore module-level doc comments
-            Stmt::Expr(StmtExpr { value, .. }) if matches!(&**value, Expr::StringLiteral(..)) => {}
+            Stmt::Expr(StmtExpr { value, .. })
+                if matches!(&**value, Expr::StringLiteral(..))
+                    && matches!(self.done_with_future_stmts, DoneWithFuture::No) =>
+            {
+                self.done_with_future_stmts = DoneWithFuture::DoneWithDoc
+            }
             // if we find any other statement, stop accepting future statements
-            _ => self.done_with_future_stmts = true,
+            _ => self.done_with_future_stmts = DoneWithFuture::Yes,
         }
 
         match &statement {
@@ -3080,9 +3091,10 @@ impl Compiler<'_> {
     }
 
     fn compile_future_features(&mut self, features: &[Alias]) -> Result<(), CodegenError> {
-        if self.done_with_future_stmts {
+        if let DoneWithFuture::Yes = self.done_with_future_stmts {
             return Err(self.error(CodegenErrorType::InvalidFuturePlacement));
         }
+        self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
         for feature in features {
             match feature.name.as_str() {
                 // Python 3 features; we've already implemented them by default

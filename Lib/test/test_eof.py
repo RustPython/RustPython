@@ -7,9 +7,9 @@ from test.support import script_helper
 from test.support import warnings_helper
 import unittest
 
-# TODO: RUSTPYTHON
-@unittest.expectedFailure
 class EOFTestCase(unittest.TestCase):
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_EOF_single_quote(self):
         expect = "unterminated string literal (detected at line 1) (<string>, line 1)"
         for quote in ("'", "\""):
@@ -22,6 +22,8 @@ class EOFTestCase(unittest.TestCase):
             else:
                 raise support.TestFailed
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_EOFS(self):
         expect = ("unterminated triple-quoted string literal (detected at line 1) (<string>, line 1)")
         try:
@@ -32,6 +34,8 @@ class EOFTestCase(unittest.TestCase):
         else:
             raise support.TestFailed
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_EOFS_with_file(self):
         expect = ("(<string>, line 1)")
         with os_helper.temp_dir() as temp_dir:
@@ -39,6 +43,8 @@ class EOFTestCase(unittest.TestCase):
             rc, out, err = script_helper.assert_python_failure(file_name)
         self.assertIn(b'unterminated triple-quoted string literal (detected at line 3)', err)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @warnings_helper.ignore_warnings(category=SyntaxWarning)
     def test_eof_with_line_continuation(self):
         expect = "unexpected EOF while parsing (<string>, line 1)"
@@ -49,6 +55,8 @@ class EOFTestCase(unittest.TestCase):
         else:
             raise support.TestFailed
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_line_continuation_EOF(self):
         """A continuation at the end of input must be an error; bpo2180."""
         expect = 'unexpected EOF while parsing (<string>, line 1)'

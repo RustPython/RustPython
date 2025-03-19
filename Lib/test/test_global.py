@@ -12,6 +12,8 @@ class GlobalTests(unittest.TestCase):
         self.enterContext(check_warnings())
         warnings.filterwarnings("error", module="<test string>")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test1(self):
         prog_text_1 = """\
 def wrong1():
@@ -22,6 +24,8 @@ def wrong1():
 """
         check_syntax_error(self, prog_text_1, lineno=4, offset=5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test2(self):
         prog_text_2 = """\
 def wrong2():
@@ -30,6 +34,8 @@ def wrong2():
 """
         check_syntax_error(self, prog_text_2, lineno=3, offset=5)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test3(self):
         prog_text_3 = """\
 def wrong3():

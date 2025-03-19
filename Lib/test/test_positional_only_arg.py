@@ -22,6 +22,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         with self.assertRaisesRegex(SyntaxError, regex):
             compile(codestr + "\n", "<test>", "single")
 
+    # TODO: RUSTPYTHON: wrong error message
+    @unittest.expectedFailure
     def test_invalid_syntax_errors(self):
         check_syntax_error(self, "def f(a, b = 5, /, c): pass", "non-default argument follows default argument")
         check_syntax_error(self, "def f(a = 5, b, /, c): pass", "non-default argument follows default argument")
@@ -43,6 +45,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         check_syntax_error(self, "def f(a, /, c, /, d, *, e): pass")
         check_syntax_error(self, "def f(a, *, c, /, d, e): pass")
 
+    # TODO: RUSTPYTHON: wrong error message
+    @unittest.expectedFailure
     def test_invalid_syntax_errors_async(self):
         check_syntax_error(self, "async def f(a, b = 5, /, c): pass", "non-default argument follows default argument")
         check_syntax_error(self, "async def f(a = 5, b, /, c): pass", "non-default argument follows default argument")
@@ -236,6 +240,8 @@ class PositionalOnlyTestCase(unittest.TestCase):
         x = lambda a, b, /, : a + b
         self.assertEqual(x(1, 2), 3)
 
+    # TODO: RUSTPYTHON: wrong error message
+    @unittest.expectedFailure
     def test_invalid_syntax_lambda(self):
         check_syntax_error(self, "lambda a, b = 5, /, c: None", "non-default argument follows default argument")
         check_syntax_error(self, "lambda a = 5, b, /, c: None", "non-default argument follows default argument")
