@@ -1,3 +1,5 @@
+use rustpython_codegen::compile::ruff_int_to_bigint;
+
 use super::*;
 
 impl Node for ruff::Identifier {
@@ -18,20 +20,7 @@ impl Node for ruff::Identifier {
 
 impl Node for ruff::Int {
     fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
-        if let Some(int) = self.as_i32() {
-            vm.ctx.new_int(int)
-        } else if let Some(int) = self.as_u32() {
-            vm.ctx.new_int(int)
-        } else if let Some(int) = self.as_i64() {
-            vm.ctx.new_int(int)
-        } else if let Some(int) = self.as_u64() {
-            vm.ctx.new_int(int)
-        } else {
-            // FIXME: performance
-            let int = self.to_string().parse().unwrap();
-            vm.ctx.new_bigint(&int)
-        }
-        .into()
+        vm.ctx.new_int(ruff_int_to_bigint(&self).unwrap()).into()
     }
 
     fn ast_from_object(

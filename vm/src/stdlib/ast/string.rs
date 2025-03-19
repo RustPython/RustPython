@@ -35,10 +35,11 @@ fn fstring_part_to_joined_str_part(fstring_part: ruff::FStringPart) -> Vec<Joine
         ruff::FStringPart::Literal(ruff::StringLiteral {
             range,
             value,
-            flags: _, // TODO
+            flags,
         }) => {
-            vec![JoinedStrPart::Constant(Constant::new_string(
-                value.into(),
+            vec![JoinedStrPart::Constant(Constant::new_str(
+                value,
+                flags.prefix(),
                 range,
             ))]
         }
@@ -55,7 +56,11 @@ fn fstring_part_to_joined_str_part(fstring_part: ruff::FStringPart) -> Vec<Joine
 fn ruff_fstring_element_to_joined_str_part(element: ruff::FStringElement) -> JoinedStrPart {
     match element {
         ruff::FStringElement::Literal(ruff::FStringLiteralElement { range, value }) => {
-            JoinedStrPart::Constant(Constant::new_string(value.into(), range))
+            JoinedStrPart::Constant(Constant::new_str(
+                value,
+                ruff::str_prefix::StringLiteralPrefix::Empty,
+                range,
+            ))
         }
         ruff::FStringElement::Expression(ruff::FStringExpressionElement {
             range,
@@ -198,7 +203,7 @@ fn joined_str_part_to_ruff_fstring_element(part: JoinedStrPart) -> ruff::FString
             ruff::FStringElement::Literal(ruff::FStringLiteralElement {
                 range: value.range,
                 value: match value.value {
-                    ConstantLiteral::Str(value) => value.into(),
+                    ConstantLiteral::Str { value, .. } => value,
                     _ => todo!(),
                 },
             })

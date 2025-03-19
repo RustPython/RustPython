@@ -8,6 +8,10 @@ pub(crate) trait Node: Sized {
         source_code: &SourceCodeOwned,
         object: PyObjectRef,
     ) -> PyResult<Self>;
+    /// Used in `Option::ast_from_object`; if `true`, that impl will return None.
+    fn is_none(&self) -> bool {
+        false
+    }
 }
 
 impl<T: Node> Node for Vec<T> {
@@ -42,6 +46,10 @@ impl<T: Node> Node for Box<T> {
     ) -> PyResult<Self> {
         T::ast_from_object(vm, source_code, object).map(Box::new)
     }
+
+    fn is_none(&self) -> bool {
+        (**self).is_none()
+    }
 }
 
 impl<T: Node> Node for Option<T> {
@@ -60,7 +68,8 @@ impl<T: Node> Node for Option<T> {
         if vm.is_none(&object) {
             Ok(None)
         } else {
-            Ok(Some(T::ast_from_object(vm, source_code, object)?))
+            let x = T::ast_from_object(vm, source_code, object)?;
+            Ok((!x.is_none()).then_some(x))
         }
     }
 }

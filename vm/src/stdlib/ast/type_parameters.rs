@@ -16,6 +16,10 @@ impl Node for ruff::TypeParams {
             .unwrap_or_default();
         Ok(Self { type_params, range })
     }
+
+    fn is_none(&self) -> bool {
+        self.type_params.is_empty()
+    }
 }
 // sum
 impl Node for ruff::TypeParam {

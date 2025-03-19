@@ -90,6 +90,10 @@ impl Node for ruff::Parameters {
             range: Default::default(),
         })
     }
+
+    fn is_none(&self) -> bool {
+        self.is_empty()
+    }
 }
 // product
 impl Node for ruff::Parameter {
@@ -98,8 +102,12 @@ impl Node for ruff::Parameter {
             name,
             annotation,
             // type_comment,
-            range: _range,
+            range,
         } = self;
+
+        // ruff covers the ** in range but python expects it to start at the ident
+        let range = TextRange::new(name.start(), range.end());
+
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeArg::static_type().to_owned())
             .unwrap();
@@ -114,7 +122,7 @@ impl Node for ruff::Parameter {
         .unwrap();
         // dict.set_item("type_comment", type_comment.ast_to_object(_vm), _vm)
         //     .unwrap();
-        node_add_location(&dict, _range, _vm, source_code);
+        node_add_location(&dict, range, _vm, source_code);
         node.into()
     }
     fn ast_from_object(

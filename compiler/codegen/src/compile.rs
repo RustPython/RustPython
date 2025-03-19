@@ -2680,11 +2680,7 @@ impl Compiler<'_> {
             }
             Expr::NumberLiteral(number) => match &number.value {
                 Number::Int(int) => {
-                    let value = if let Some(small) = int.as_u64() {
-                        BigInt::from(small)
-                    } else {
-                        parse_big_integer(int).map_err(|e| self.error(e))?
-                    };
+                    let value = ruff_int_to_bigint(int).map_err(|e| self.error(e))?;
                     self.emit_load_const(ConstantData::Integer { value });
                 }
                 Number::Float(float) => {
@@ -3532,6 +3528,14 @@ fn split_doc<'a>(body: &'a [Stmt], opts: &CompileOpts) -> (Option<String>, &'a [
         }
     }
     (None, body)
+}
+
+pub fn ruff_int_to_bigint(int: &Int) -> Result<BigInt, CodegenErrorType> {
+    if let Some(small) = int.as_u64() {
+        Ok(BigInt::from(small))
+    } else {
+        parse_big_integer(int)
+    }
 }
 
 /// Converts a `ruff` ast integer into a `BigInt`.
