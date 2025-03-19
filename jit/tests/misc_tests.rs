@@ -95,7 +95,6 @@ fn test_while_loop() {
                 a -= 1
             return b
     "## };
-
     assert_eq!(while_loop(0), Ok(0));
     assert_eq!(while_loop(-1), Ok(0));
     assert_eq!(while_loop(1), Ok(1));

@@ -11,7 +11,7 @@ use std::collections::HashMap;
 #[repr(u16)]
 enum CustomTrapCode {
     /// Raised when shifting by a negative number
-    NegativeShiftCount = 0,
+    NegativeShiftCount = 1,
 }
 
 #[derive(Clone)]
@@ -54,6 +54,12 @@ impl JitValue {
             JitValue::None | JitValue::Tuple(_) | JitValue::FuncRef(_) => None,
         }
     }
+}
+
+#[derive(Clone)]
+struct DDValue {
+    hi: Value,
+    lo: Value,
 }
 
 pub struct FunctionCompiler<'a, 'b> {
@@ -123,14 +129,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     fn boolean_val(&mut self, val: JitValue) -> Result<Value, JitCompileError> {
         match val {
             JitValue::Float(val) => {
-                let zero = self.builder.ins().f64const(0);
+                let zero = self.builder.ins().f64const(0.0);
                 let val = self.builder.ins().fcmp(FloatCC::NotEqual, val, zero);
-                Ok(self.builder.ins().bint(types::I8, val))
+                Ok(val)
             }
             JitValue::Int(val) => {
                 let zero = self.builder.ins().iconst(types::I64, 0);
                 let val = self.builder.ins().icmp(IntCC::NotEqual, val, zero);
-                Ok(self.builder.ins().bint(types::I8, val))
+                Ok(val)
             }
             JitValue::Bool(val) => Ok(val),
             JitValue::None => Ok(self.builder.ins().iconst(types::I8, 0)),
@@ -151,38 +157,60 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
     ) -> Result<(), JitCompileError> {
-        // TODO: figure out if this is sufficient -- previously individual labels were associated
-        // pretty much per-bytecode that uses them, or at least per "type" of block -- in theory an
-        // if block and a with block might jump to the same place. Now it's all "flattened", so
-        // there might be less distinction between different types of blocks going off
-        // label_targets alone
         let label_targets = bytecode.label_targets();
-
         let mut arg_state = OpArgState::default();
-        for (offset, instruction) in bytecode.instructions.iter().enumerate() {
-            let (instruction, arg) = arg_state.get(*instruction);
-            let label = Label(offset as u32);
-            if label_targets.contains(&label) {
-                let block = self.get_or_create_block(label);
 
-                // If the current block is not terminated/filled just jump
-                // into the new block.
-                if !self.builder.is_filled() {
-                    self.builder.ins().jump(block, &[]);
+        // Track whether we have "returned" in the current block
+        let mut in_unreachable_code = false;
+
+        for (offset, &raw_instr) in bytecode.instructions.iter().enumerate() {
+            let label = Label(offset as u32);
+            let (instruction, arg) = arg_state.get(raw_instr);
+
+            // If this is a label that some earlier jump can target,
+            // treat it as the start of a new reachable block:
+            if label_targets.contains(&label) {
+                // Create or get the block for this label:
+                let target_block = self.get_or_create_block(label);
+
+                // If the current block isn't terminated, jump:
+                if let Some(cur) = self.builder.current_block() {
+                    if cur != target_block && self.builder.func.layout.last_inst(cur).is_none() {
+                        self.builder.ins().jump(target_block, &[]);
+                    }
+                }
+                // Switch to the target block
+                if self.builder.current_block() != Some(target_block) {
+                    self.builder.switch_to_block(target_block);
                 }
 
-                self.builder.switch_to_block(block);
+                // We are definitely reachable again at this label
+                in_unreachable_code = false;
             }
 
-            // Sometimes the bytecode contains instructions after a return
-            // just ignore those until we are at the next label
-            if self.builder.is_filled() {
+            // If we're in unreachable code, skip this instruction unless the label re-entered above.
+            if in_unreachable_code {
                 continue;
             }
 
+            // Actually compile this instruction:
             self.add_instruction(func_ref, bytecode, instruction, arg)?;
+
+            // If that was a return instruction, mark future instructions unreachable
+            match instruction {
+                Instruction::ReturnValue | Instruction::ReturnConst { .. } => {
+                    in_unreachable_code = true;
+                }
+                _ => {}
+            }
         }
 
+        // After processing, if the current block is unterminated, insert a trap or fallthrough
+        if let Some(cur) = self.builder.current_block() {
+            if self.builder.func.layout.last_inst(cur).is_none() {
+                self.builder.ins().trap(TrapCode::user(0).unwrap());
+            }
+        }
         Ok(())
     }
 
@@ -214,10 +242,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
     fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
         if let Some(ref ty) = self.sig.ret {
+            // If the signature has a return type, enforce it
             if val.to_jit_type().as_ref() != Some(ty) {
                 return Err(JitCompileError::NotSupported);
             }
         } else {
+            // First time we see a return, define it in the signature
             let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
             self.sig.ret = Some(ty.clone());
             self.builder
@@ -226,7 +256,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 .returns
                 .push(AbiParam::new(ty.to_cranelift()));
         }
-        self.builder.ins().return_(&[val.into_value().unwrap()]);
+
+        // If this is e.g. an Int, Float, or Bool we have a Cranelift `Value`.
+        // If we have JitValue::None or .Tuple(...) but can't handle that, error out (or handle differently).
+        let cr_val = val.into_value().ok_or(JitCompileError::NotSupported)?;
+
+        self.builder.ins().return_(&[cr_val]);
         Ok(())
     }
 
@@ -241,34 +276,34 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::ExtendedArg => Ok(()),
             Instruction::JumpIfFalse { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
-                self.builder.ins().brz(val, then_block, &[]);
+                let else_block = self.builder.create_block();
 
-                let block = self.builder.create_block();
-                self.builder.ins().jump(block, &[]);
-                self.builder.switch_to_block(block);
+                self.builder
+                    .ins()
+                    .brif(val, else_block, &[], then_block, &[]);
+                self.builder.switch_to_block(else_block);
 
                 Ok(())
             }
             Instruction::JumpIfTrue { target } => {
                 let cond = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-
                 let val = self.boolean_val(cond)?;
                 let then_block = self.get_or_create_block(target.get(arg));
-                self.builder.ins().brnz(val, then_block, &[]);
+                let else_block = self.builder.create_block();
 
-                let block = self.builder.create_block();
-                self.builder.ins().jump(block, &[]);
-                self.builder.switch_to_block(block);
+                self.builder
+                    .ins()
+                    .brif(val, then_block, &[], else_block, &[]);
+                self.builder.switch_to_block(else_block);
 
                 Ok(())
             }
+
             Instruction::Jump { target } => {
                 let target_block = self.get_or_create_block(target.get(arg));
                 self.builder.ins().jump(target_block, &[]);
-
                 Ok(())
             }
             Instruction::LoadFast(idx) => {
@@ -354,9 +389,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         };
 
                         let val = self.builder.ins().icmp(cond, operand_one, operand_two);
-                        // TODO: Remove this `bint` in cranelift 0.90 as icmp now returns i8
-                        self.stack
-                            .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
+                        self.stack.push(JitValue::Bool(val));
                         Ok(())
                     }
                     (JitValue::Float(a), JitValue::Float(b)) => {
@@ -370,9 +403,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         };
 
                         let val = self.builder.ins().fcmp(cond, a, b);
-                        // TODO: Remove this `bint` in cranelift 0.90 as fcmp now returns i8
-                        self.stack
-                            .push(JitValue::Bool(self.builder.ins().bint(types::I8, val)));
+                        self.stack.push(JitValue::Bool(val));
                         Ok(())
                     }
                     _ => Err(JitCompileError::NotSupported),
@@ -414,35 +445,34 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 let val = match (op, a, b) {
                     (BinaryOperator::Add, JitValue::Int(a), JitValue::Int(b)) => {
-                        let (out, carry) = self.builder.ins().iadd_ifcout(a, b);
-                        self.builder.ins().trapif(
-                            IntCC::Overflow,
-                            carry,
-                            TrapCode::IntegerOverflow,
-                        );
+                        let (out, carry) = self.builder.ins().sadd_overflow(a, b);
+                        self.builder.ins().trapnz(carry, TrapCode::INTEGER_OVERFLOW);
                         JitValue::Int(out)
                     }
                     (BinaryOperator::Subtract, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.compile_sub(a, b))
                     }
-                    (BinaryOperator::Multiply, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Int(self.builder.ins().imul(a, b))
-                    }
                     (BinaryOperator::FloorDivide, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().sdiv(a, b))
                     }
                     (BinaryOperator::Divide, JitValue::Int(a), JitValue::Int(b)) => {
-                        // Convert to float for regular division
+                        // Check if b == 0, If so trap with a division by zero error
+                        self.builder
+                            .ins()
+                            .trapz(b, TrapCode::INTEGER_DIVISION_BY_ZERO);
+                        // Else convert to float and divide
                         let a_float = self.builder.ins().fcvt_from_sint(types::F64, a);
                         let b_float = self.builder.ins().fcvt_from_sint(types::F64, b);
                         JitValue::Float(self.builder.ins().fdiv(a_float, b_float))
                     }
+                    (BinaryOperator::Multiply, JitValue::Int(a), JitValue::Int(b)) => {
+                        JitValue::Int(self.builder.ins().imul(a, b))
+                    }
                     (BinaryOperator::Modulo, JitValue::Int(a), JitValue::Int(b)) => {
                         JitValue::Int(self.builder.ins().srem(a, b))
                     }
-                    // Todo: This should return int when possible
                     (BinaryOperator::Power, JitValue::Int(a), JitValue::Int(b)) => {
-                        JitValue::Float(self.compile_ipow(a, b))
+                        JitValue::Int(self.compile_ipow(a, b))
                     }
                     (
                         BinaryOperator::Lshift | BinaryOperator::Rshift,
@@ -454,7 +484,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                         let sign = self.builder.ins().ushr_imm(b, 63);
                         self.builder.ins().trapnz(
                             sign,
-                            TrapCode::User(CustomTrapCode::NegativeShiftCount as u16),
+                            TrapCode::user(CustomTrapCode::NegativeShiftCount as u8).unwrap(),
                         );
 
                         let out = if op == BinaryOperator::Lshift {
@@ -487,6 +517,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     (BinaryOperator::Divide, JitValue::Float(a), JitValue::Float(b)) => {
                         JitValue::Float(self.builder.ins().fdiv(a, b))
                     }
+                    (BinaryOperator::Power, JitValue::Float(a), JitValue::Float(b)) => {
+                        JitValue::Float(self.compile_fpow(a, b))
+                    }
 
                     // Floats and Integers
                     (_, JitValue::Int(a), JitValue::Float(b))
@@ -514,6 +547,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                             BinaryOperator::Divide => {
                                 JitValue::Float(self.builder.ins().fdiv(operand_one, operand_two))
                             }
+                            BinaryOperator::Power => {
+                                JitValue::Float(self.compile_fpow(operand_one, operand_two))
+                            }
                             _ => return Err(JitCompileError::NotSupported),
                         }
                     }
@@ -523,7 +559,13 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
 
                 Ok(())
             }
-            Instruction::SetupLoop { .. } | Instruction::PopBlock => {
+            Instruction::SetupLoop { .. } => {
+                let loop_head = self.builder.create_block();
+                self.builder.ins().jump(loop_head, &[]);
+                self.builder.switch_to_block(loop_head);
+                Ok(())
+            }
+            Instruction::PopBlock => {
                 // TODO: block support
                 Ok(())
             }
@@ -562,167 +604,660 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     fn compile_sub(&mut self, a: Value, b: Value) -> Value {
-        // TODO: this should be fine, but cranelift doesn't special-case isub_ifbout
-        // let (out, carry) = self.builder.ins().isub_ifbout(a, b);
-        // self.builder
-        //     .ins()
-        //     .trapif(IntCC::Overflow, carry, TrapCode::IntegerOverflow);
-        // TODO: this shouldn't wrap
-        let neg_b = self.builder.ins().ineg(b);
-        let (out, carry) = self.builder.ins().iadd_ifcout(a, neg_b);
-        self.builder
-            .ins()
-            .trapif(IntCC::Overflow, carry, TrapCode::IntegerOverflow);
+        let (out, carry) = self.builder.ins().ssub_overflow(a, b);
+        self.builder.ins().trapnz(carry, TrapCode::INTEGER_OVERFLOW);
         out
     }
-    fn compile_ipow(&mut self, a: Value, b: Value) -> Value {
-        // Convert base to float since result might not always be a Int
-        let float_base = self.builder.ins().fcvt_from_sint(types::F64, a);
 
-        // Create code blocks
-        let check_block1 = self.builder.create_block();
-        let check_block2 = self.builder.create_block();
-        let check_block3 = self.builder.create_block();
-        let handle_neg_exp = self.builder.create_block();
+    /// Creates a double–double (DDValue) from a regular f64 constant.
+    /// The high part is set to x and the low part is set to 0.0.
+    fn dd_from_f64(&mut self, x: f64) -> DDValue {
+        DDValue {
+            hi: self.builder.ins().f64const(x),
+            lo: self.builder.ins().f64const(0.0),
+        }
+    }
+
+    /// Creates a DDValue from a Value (assumed to represent an f64).
+    /// This function initializes the high part with x and the low part to 0.0.
+    fn dd_from_value(&mut self, x: Value) -> DDValue {
+        DDValue {
+            hi: x,
+            lo: self.builder.ins().f64const(0.0),
+        }
+    }
+
+    /// Creates a DDValue from two f64 parts.
+    /// The 'hi' parameter sets the high part and 'lo' sets the low part.
+    fn dd_from_parts(&mut self, hi: f64, lo: f64) -> DDValue {
+        DDValue {
+            hi: self.builder.ins().f64const(hi),
+            lo: self.builder.ins().f64const(lo),
+        }
+    }
+
+    /// Converts a DDValue back to a single f64 value by adding the high and low parts.
+    fn dd_to_f64(&mut self, dd: DDValue) -> Value {
+        self.builder.ins().fadd(dd.hi, dd.lo)
+    }
+
+    /// Computes the negation of a DDValue.
+    /// It subtracts both the high and low parts from zero.
+    fn dd_neg(&mut self, dd: DDValue) -> DDValue {
+        let zero = self.builder.ins().f64const(0.0);
+        DDValue {
+            hi: self.builder.ins().fsub(zero, dd.hi),
+            lo: self.builder.ins().fsub(zero, dd.lo),
+        }
+    }
+
+    /// Adds two DDValue numbers using error-free transformations to maintain extra precision.
+    /// It carefully adds the high parts, computes the rounding error, adds the low parts along with the error,
+    /// and then normalizes the result.
+    fn dd_add(&mut self, a: DDValue, b: DDValue) -> DDValue {
+        // Compute the sum of the high parts.
+        let s = self.builder.ins().fadd(a.hi, b.hi);
+        // Compute t = s - a.hi to capture part of the rounding error.
+        let t = self.builder.ins().fsub(s, a.hi);
+        // Compute the error e from the high part additions.
+        let s_minus_t = self.builder.ins().fsub(s, t);
+        let part1 = self.builder.ins().fsub(a.hi, s_minus_t);
+        let part2 = self.builder.ins().fsub(b.hi, t);
+        let e = self.builder.ins().fadd(part1, part2);
+        // Sum the low parts along with the error.
+        let lo = self.builder.ins().fadd(a.lo, b.lo);
+        let lo_sum = self.builder.ins().fadd(lo, e);
+        // Renormalize: add the low sum to s and compute a new low component.
+        let hi_new = self.builder.ins().fadd(s, lo_sum);
+        let hi_new_minus_s = self.builder.ins().fsub(hi_new, s);
+        let lo_new = self.builder.ins().fsub(lo_sum, hi_new_minus_s);
+        DDValue {
+            hi: hi_new,
+            lo: lo_new,
+        }
+    }
+
+    /// Subtracts DDValue b from DDValue a by negating b and then using the addition function.
+    fn dd_sub(&mut self, a: DDValue, b: DDValue) -> DDValue {
+        let neg_b = self.dd_neg(b);
+        self.dd_add(a, neg_b)
+    }
+
+    /// Multiplies two DDValue numbers using double–double arithmetic.
+    /// It calculates the high product, uses a fused multiply–add (FMA) to capture rounding error,
+    /// computes the cross products, and then normalizes the result.
+    fn dd_mul(&mut self, a: DDValue, b: DDValue) -> DDValue {
+        // p = a.hi * b.hi (primary product)
+        let p = self.builder.ins().fmul(a.hi, b.hi);
+        // err = fma(a.hi, b.hi, -p) recovers the rounding error.
+        let zero = self.builder.ins().f64const(0.0);
+        let neg_p = self.builder.ins().fsub(zero, p);
+        let err = self.builder.ins().fma(a.hi, b.hi, neg_p);
+        // Compute cross terms: a.hi*b.lo + a.lo*b.hi.
+        let a_hi_b_lo = self.builder.ins().fmul(a.hi, b.lo);
+        let a_lo_b_hi = self.builder.ins().fmul(a.lo, b.hi);
+        let cross = self.builder.ins().fadd(a_hi_b_lo, a_lo_b_hi);
+        // Sum p and the cross terms.
+        let s = self.builder.ins().fadd(p, cross);
+        // Isolate rounding error from the addition.
+        let t = self.builder.ins().fsub(s, p);
+        let s_minus_t = self.builder.ins().fsub(s, t);
+        let part1 = self.builder.ins().fsub(p, s_minus_t);
+        let part2 = self.builder.ins().fsub(cross, t);
+        let e = self.builder.ins().fadd(part1, part2);
+        // Include the error from the low parts multiplication.
+        let a_lo_b_lo = self.builder.ins().fmul(a.lo, b.lo);
+        let err_plus_e = self.builder.ins().fadd(err, e);
+        let lo_sum = self.builder.ins().fadd(err_plus_e, a_lo_b_lo);
+        // Renormalize the sum.
+        let hi_new = self.builder.ins().fadd(s, lo_sum);
+        let hi_new_minus_s = self.builder.ins().fsub(hi_new, s);
+        let lo_new = self.builder.ins().fsub(lo_sum, hi_new_minus_s);
+        DDValue {
+            hi: hi_new,
+            lo: lo_new,
+        }
+    }
+
+    /// Multiplies a DDValue by a regular f64 (Value) using similar techniques as dd_mul.
+    /// It multiplies both the high and low parts by b, computes the rounding error,
+    /// and then renormalizes the result.
+    fn dd_mul_f64(&mut self, a: DDValue, b: Value) -> DDValue {
+        // p = a.hi * b (primary product)
+        let p = self.builder.ins().fmul(a.hi, b);
+        // Compute the rounding error using fma.
+        let zero = self.builder.ins().f64const(0.0);
+        let neg_p = self.builder.ins().fsub(zero, p);
+        let err = self.builder.ins().fma(a.hi, b, neg_p);
+        // Multiply the low part.
+        let cross = self.builder.ins().fmul(a.lo, b);
+        // Sum the primary product and the low multiplication.
+        let s = self.builder.ins().fadd(p, cross);
+        // Capture rounding error from addition.
+        let t = self.builder.ins().fsub(s, p);
+        let s_minus_t = self.builder.ins().fsub(s, t);
+        let part1 = self.builder.ins().fsub(p, s_minus_t);
+        let part2 = self.builder.ins().fsub(cross, t);
+        let e = self.builder.ins().fadd(part1, part2);
+        // Combine the error components.
+        let lo_sum = self.builder.ins().fadd(err, e);
+        // Renormalize to form the final double–double number.
+        let hi_new = self.builder.ins().fadd(s, lo_sum);
+        let hi_new_minus_s = self.builder.ins().fsub(hi_new, s);
+        let lo_new = self.builder.ins().fsub(lo_sum, hi_new_minus_s);
+        DDValue {
+            hi: hi_new,
+            lo: lo_new,
+        }
+    }
+
+    /// Scales a DDValue by multiplying both its high and low parts by the given factor.
+    fn dd_scale(&mut self, dd: DDValue, factor: Value) -> DDValue {
+        DDValue {
+            hi: self.builder.ins().fmul(dd.hi, factor),
+            lo: self.builder.ins().fmul(dd.lo, factor),
+        }
+    }
+
+    /// Approximates ln(1+f) using its Taylor series expansion in double–double arithmetic.
+    /// It computes the series ∑ (-1)^(i-1) * f^i / i from i = 1 to 1000 for high precision.
+    fn dd_ln_1p_series(&mut self, f: Value) -> DDValue {
+        // Convert f to a DDValue and initialize the sum and term.
+        let f_dd = self.dd_from_value(f);
+        let mut sum = f_dd.clone();
+        let mut term = f_dd;
+        // Alternating sign starts at -1 for the second term.
+        let mut sign = -1.0_f64;
+        let range = 1000;
+
+        // Loop over terms from i = 2 to 1000.
+        for i in 2..=range {
+            // Compute f^i by multiplying the previous term by f.
+            term = self.dd_mul_f64(term, f);
+            // Divide the term by i.
+            let inv_i = 1.0 / (i as f64);
+            let c_inv_i = self.builder.ins().f64const(inv_i);
+            let term_div = self.dd_mul_f64(term.clone(), c_inv_i);
+            // Multiply by the alternating sign.
+            let dd_sign = self.dd_from_f64(sign);
+            let to_add = self.dd_mul(dd_sign, term_div);
+            // Add the term to the cumulative sum.
+            sum = self.dd_add(sum, to_add);
+            // Flip the sign for the next term.
+            sign = -sign;
+        }
+        sum
+    }
+
+    /// Computes the natural logarithm ln(x) in double–double arithmetic.
+    /// It first checks for domain errors (x ≤ 0 or NaN), then extracts the exponent
+    /// and mantissa from the bit-level representation of x. It computes ln(mantissa) using
+    /// the ln(1+f) series and adds k*ln2 to obtain ln(x).
+    fn dd_ln(&mut self, x: Value) -> DDValue {
+        // (A) Prepare a DDValue representing NaN.
+        let dd_nan = self.dd_from_f64(f64::NAN);
+
+        // Build a zero constant for comparisons.
+        let zero_f64 = self.builder.ins().f64const(0.0);
+
+        // Check if x is less than or equal to 0 or is NaN.
+        let cmp_le = self
+            .builder
+            .ins()
+            .fcmp(FloatCC::LessThanOrEqual, x, zero_f64);
+        let cmp_nan = self.builder.ins().fcmp(FloatCC::Unordered, x, x);
+        let need_nan = self.builder.ins().bor(cmp_le, cmp_nan);
+
+        // (B) Reinterpret the bits of x as an integer.
+        let bits = self.builder.ins().bitcast(types::I64, MemFlags::new(), x);
+
+        // (C) Extract the exponent (top 11 bits) from the bit representation.
+        let shift_52 = self.builder.ins().ushr_imm(bits, 52);
+        let exponent_mask = self.builder.ins().iconst(types::I64, 0x7FF);
+        let exponent = self.builder.ins().band(shift_52, exponent_mask);
+
+        // k = exponent - 1023 (unbias the exponent).
+        let bias = self.builder.ins().iconst(types::I64, 1023);
+        let k_i64 = self.builder.ins().isub(exponent, bias);
+
+        // (D) Extract the fraction (mantissa) from the lower 52 bits.
+        let fraction_mask = self.builder.ins().iconst(types::I64, 0x000F_FFFF_FFFF_FFFF);
+        let fraction_part = self.builder.ins().band(bits, fraction_mask);
+
+        // (E) For normal numbers (exponent ≠ 0), add the implicit leading 1.
+        let implicit_one = self.builder.ins().iconst(types::I64, 1 << 52);
+        let zero_exp = self.builder.ins().icmp_imm(IntCC::Equal, exponent, 0);
+        let frac_one_bor = self.builder.ins().bor(fraction_part, implicit_one);
+        let fraction_with_leading_one = self.builder.ins().select(
+            zero_exp,
+            fraction_part, // For subnormals, do not add the implicit 1.
+            frac_one_bor,
+        );
+
+        // (F) Force the exponent bits to 1023, yielding a mantissa m in [1, 2).
+        let new_exp = self.builder.ins().iconst(types::I64, 0x3FF0_0000_0000_0000);
+        let fraction_bits = self.builder.ins().bor(fraction_with_leading_one, new_exp);
+        let m = self
+            .builder
+            .ins()
+            .bitcast(types::F64, MemFlags::new(), fraction_bits);
+
+        // (G) Compute ln(m) using the series ln(1+f) with f = m - 1.
+        let one_f64 = self.builder.ins().f64const(1.0);
+        let f_val = self.builder.ins().fsub(m, one_f64);
+        let dd_ln_m = self.dd_ln_1p_series(f_val);
+
+        // (H) Compute k*ln2 in double–double arithmetic.
+        let ln2_dd = self.dd_from_parts(
+            f64::from_bits(0x3fe62e42fefa39ef),
+            f64::from_bits(0x3c7abc9e3b39803f),
+        );
+        let k_f64 = self.builder.ins().fcvt_from_sint(types::F64, k_i64);
+        let dd_ln2_k = self.dd_mul_f64(ln2_dd, k_f64);
+
+        // Add ln(m) and k*ln2 to get the final ln(x).
+        let normal_result = self.dd_add(dd_ln_m, dd_ln2_k);
+
+        // (I) If x was nonpositive or NaN, return NaN; otherwise, return the computed result.
+        let final_hi = self
+            .builder
+            .ins()
+            .select(need_nan, dd_nan.hi, normal_result.hi);
+        let final_lo = self
+            .builder
+            .ins()
+            .select(need_nan, dd_nan.lo, normal_result.lo);
+
+        DDValue {
+            hi: final_hi,
+            lo: final_lo,
+        }
+    }
+
+    /// Computes the exponential function exp(x) in double–double arithmetic.
+    /// It uses range reduction to write x = k*ln2 + r, computes exp(r) via a Taylor series,
+    /// scales the result by 2^k, and handles overflow by checking if k exceeds the maximum.
+    fn dd_exp(&mut self, dd: DDValue) -> DDValue {
+        // (A) Range reduction: Convert dd to a single f64 value.
+        let x = self.dd_to_f64(dd.clone());
+        let ln2_f64 = self
+            .builder
+            .ins()
+            .f64const(f64::from_bits(0x3fe62e42fefa39ef));
+        let div = self.builder.ins().fdiv(x, ln2_f64);
+        let half = self.builder.ins().f64const(0.5);
+        let div_plus_half = self.builder.ins().fadd(div, half);
+        // Rounding: floor(div + 0.5) gives the nearest integer k.
+        let k = self.builder.ins().fcvt_to_sint(types::I64, div_plus_half);
+
+        // --- OVERFLOW CHECK ---
+        // Check if k is greater than the maximum exponent for finite doubles (1023).
+        let max_k = self.builder.ins().iconst(types::I64, 1023);
+        let is_overflow = self.builder.ins().icmp(IntCC::SignedGreaterThan, k, max_k);
+
+        // Define infinity and zero for the overflow case.
+        let inf = self.builder.ins().f64const(f64::INFINITY);
+        let zero = self.builder.ins().f64const(0.0);
+
+        // (B) Compute exp(x) normally when not overflowing.
+        // Compute k*ln2 in double–double arithmetic and subtract it from x.
+        let ln2_dd = self.dd_from_parts(
+            f64::from_bits(0x3fe62e42fefa39ef),
+            f64::from_bits(0x3c7abc9e3b39803f),
+        );
+        let k_f64 = self.builder.ins().fcvt_from_sint(types::F64, k);
+        let k_ln2 = self.dd_mul_f64(ln2_dd, k_f64);
+        let r = self.dd_sub(dd, k_ln2);
+
+        // Compute exp(r) using a Taylor series.
+        let mut sum = self.dd_from_f64(1.0); // Initialize sum to 1.
+        let mut term = self.dd_from_f64(1.0); // Initialize the first term to 1.
+        let n_terms = 1000;
+        for i in 1..=n_terms {
+            term = self.dd_mul(term, r.clone());
+            let inv = 1.0 / (i as f64);
+            let inv_const = self.builder.ins().f64const(inv);
+            term = self.dd_mul_f64(term, inv_const);
+            sum = self.dd_add(sum, term.clone());
+        }
+
+        // Reconstruct the final result by scaling with 2^k.
+        let bias = self.builder.ins().iconst(types::I64, 1023);
+        let k_plus_bias = self.builder.ins().iadd(k, bias);
+        let shift_count = self.builder.ins().iconst(types::I64, 52);
+        let shifted = self.builder.ins().ishl(k_plus_bias, shift_count);
+        let two_to_k = self
+            .builder
+            .ins()
+            .bitcast(types::F64, MemFlags::new(), shifted);
+        let result = self.dd_scale(sum, two_to_k);
+
+        // (C) If overflow was detected, return infinity; otherwise, return the computed value.
+        let final_hi = self.builder.ins().select(is_overflow, inf, result.hi);
+        let final_lo = self.builder.ins().select(is_overflow, zero, result.lo);
+        DDValue {
+            hi: final_hi,
+            lo: final_lo,
+        }
+    }
+
+    /// Computes the power function a^b (f_pow) for f64 values using double–double arithmetic for high precision.
+    /// It handles different cases for the base 'a':
+    /// - For a > 0: Computes exp(b * ln(a)).
+    /// - For a == 0: Handles special cases for 0^b, including returning 0, 1, or a domain error.
+    /// - For a < 0: Allows only an integer exponent b and adjusts the sign if b is odd.
+    fn compile_fpow(&mut self, a: Value, b: Value) -> Value {
+        let f64_ty = types::F64;
+        let i64_ty = types::I64;
+        let zero_f = self.builder.ins().f64const(0.0);
+        let one_f = self.builder.ins().f64const(1.0);
+        let nan_f = self.builder.ins().f64const(f64::NAN);
+        let inf_f = self.builder.ins().f64const(f64::INFINITY);
+        let neg_inf_f = self.builder.ins().f64const(f64::NEG_INFINITY);
+
+        // Merge block for final result.
+        let merge_block = self.builder.create_block();
+        self.builder.append_block_param(merge_block, f64_ty);
+
+        // --- Edge Case 1: b == 0.0 → return 1.0
+        let cmp_b_zero = self.builder.ins().fcmp(FloatCC::Equal, b, zero_f);
+        let b_zero_block = self.builder.create_block();
+        let continue_block = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_b_zero, b_zero_block, &[], continue_block, &[]);
+        self.builder.switch_to_block(b_zero_block);
+        self.builder.ins().jump(merge_block, &[one_f]);
+        self.builder.switch_to_block(continue_block);
+
+        // --- Edge Case 2: b is NaN → return NaN
+        let cmp_b_nan = self.builder.ins().fcmp(FloatCC::Unordered, b, b);
+        let b_nan_block = self.builder.create_block();
+        let continue_block2 = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_b_nan, b_nan_block, &[], continue_block2, &[]);
+        self.builder.switch_to_block(b_nan_block);
+        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.switch_to_block(continue_block2);
+
+        // --- Edge Case 3: a == 0.0 → return 0.0
+        let cmp_a_zero = self.builder.ins().fcmp(FloatCC::Equal, a, zero_f);
+        let a_zero_block = self.builder.create_block();
+        let continue_block3 = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_a_zero, a_zero_block, &[], continue_block3, &[]);
+        self.builder.switch_to_block(a_zero_block);
+        self.builder.ins().jump(merge_block, &[zero_f]);
+        self.builder.switch_to_block(continue_block3);
+
+        // --- Edge Case 4: a is NaN → return NaN
+        let cmp_a_nan = self.builder.ins().fcmp(FloatCC::Unordered, a, a);
+        let a_nan_block = self.builder.create_block();
+        let continue_block4 = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_a_nan, a_nan_block, &[], continue_block4, &[]);
+        self.builder.switch_to_block(a_nan_block);
+        self.builder.ins().jump(merge_block, &[nan_f]);
+        self.builder.switch_to_block(continue_block4);
+
+        // --- Edge Case 5: b == +infinity → return +infinity
+        let cmp_b_inf = self.builder.ins().fcmp(FloatCC::Equal, b, inf_f);
+        let b_inf_block = self.builder.create_block();
+        let continue_block5 = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_b_inf, b_inf_block, &[], continue_block5, &[]);
+        self.builder.switch_to_block(b_inf_block);
+        self.builder.ins().jump(merge_block, &[inf_f]);
+        self.builder.switch_to_block(continue_block5);
+
+        // --- Edge Case 6: b == -infinity → return 0.0
+        let cmp_b_neg_inf = self.builder.ins().fcmp(FloatCC::Equal, b, neg_inf_f);
+        let b_neg_inf_block = self.builder.create_block();
+        let continue_block6 = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_b_neg_inf, b_neg_inf_block, &[], continue_block6, &[]);
+        self.builder.switch_to_block(b_neg_inf_block);
+        self.builder.ins().jump(merge_block, &[zero_f]);
+        self.builder.switch_to_block(continue_block6);
+
+        // --- Edge Case 7: a == +infinity → return +infinity
+        let cmp_a_inf = self.builder.ins().fcmp(FloatCC::Equal, a, inf_f);
+        let a_inf_block = self.builder.create_block();
+        let continue_block7 = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_a_inf, a_inf_block, &[], continue_block7, &[]);
+        self.builder.switch_to_block(a_inf_block);
+        self.builder.ins().jump(merge_block, &[inf_f]);
+        self.builder.switch_to_block(continue_block7);
+
+        // --- Edge Case 8: a == -infinity → check exponent parity
+        let cmp_a_neg_inf = self.builder.ins().fcmp(FloatCC::Equal, a, neg_inf_f);
+        let a_neg_inf_block = self.builder.create_block();
+        let continue_block8 = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_a_neg_inf, a_neg_inf_block, &[], continue_block8, &[]);
+
+        self.builder.switch_to_block(a_neg_inf_block);
+        // a is -infinity here. First, ensure that b is an integer.
+        let b_floor = self.builder.ins().floor(b);
+        let cmp_int = self.builder.ins().fcmp(FloatCC::Equal, b_floor, b);
+        let domain_error_blk = self.builder.create_block();
+        let continue_neg_inf = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_int, continue_neg_inf, &[], domain_error_blk, &[]);
+
+        self.builder.switch_to_block(domain_error_blk);
+        self.builder.ins().jump(merge_block, &[nan_f]);
+
+        self.builder.switch_to_block(continue_neg_inf);
+        // b is an integer here; convert b_floor to an i64.
+        let b_i64 = self.builder.ins().fcvt_to_sint(i64_ty, b_floor);
+        let one_i = self.builder.ins().iconst(i64_ty, 1);
+        let remainder = self.builder.ins().band(b_i64, one_i);
+        let zero_i = self.builder.ins().iconst(i64_ty, 0);
+        let is_odd = self.builder.ins().icmp(IntCC::NotEqual, remainder, zero_i);
+
+        // Create separate blocks for odd and even cases.
+        let odd_block = self.builder.create_block();
+        let even_block = self.builder.create_block();
+        self.builder.append_block_param(odd_block, f64_ty);
+        self.builder.append_block_param(even_block, f64_ty);
+        self.builder
+            .ins()
+            .brif(is_odd, odd_block, &[neg_inf_f], even_block, &[inf_f]);
+
+        self.builder.switch_to_block(odd_block);
+        let phi_neg_inf = self.builder.block_params(odd_block)[0];
+        self.builder.ins().jump(merge_block, &[phi_neg_inf]);
+
+        self.builder.switch_to_block(even_block);
+        let phi_inf = self.builder.block_params(even_block)[0];
+        self.builder.ins().jump(merge_block, &[phi_inf]);
+
+        self.builder.switch_to_block(continue_block8);
+
+        // --- Normal branch: neither a nor b hit the special cases.
+        // Here we branch based on the sign of a.
+        let cmp_lt = self.builder.ins().fcmp(FloatCC::LessThan, a, zero_f);
+        let a_neg_block = self.builder.create_block();
+        let a_pos_block = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_lt, a_neg_block, &[], a_pos_block, &[]);
+
+        // ----- Case: a > 0: Compute a^b = exp(b * ln(a)) using double–double arithmetic.
+        self.builder.switch_to_block(a_pos_block);
+        let ln_a_dd = self.dd_ln(a);
+        let b_dd = self.dd_from_value(b);
+        let product_dd = self.dd_mul(ln_a_dd, b_dd);
+        let exp_dd = self.dd_exp(product_dd);
+        let pos_res = self.dd_to_f64(exp_dd);
+        self.builder.ins().jump(merge_block, &[pos_res]);
+
+        // ----- Case: a < 0: Only allow an integral exponent.
+        self.builder.switch_to_block(a_neg_block);
+        let b_floor = self.builder.ins().floor(b);
+        let cmp_int = self.builder.ins().fcmp(FloatCC::Equal, b_floor, b);
+        let neg_int_block = self.builder.create_block();
+        let domain_error_blk = self.builder.create_block();
+        self.builder
+            .ins()
+            .brif(cmp_int, neg_int_block, &[], domain_error_blk, &[]);
+
+        // Domain error: non-integer exponent for negative base
+        self.builder.switch_to_block(domain_error_blk);
+        self.builder.ins().jump(merge_block, &[nan_f]);
+
+        // For negative base with an integer exponent:
+        self.builder.switch_to_block(neg_int_block);
+        let abs_a = self.builder.ins().fabs(a);
+        let ln_abs_dd = self.dd_ln(abs_a);
+        let b_dd = self.dd_from_value(b);
+        let product_dd = self.dd_mul(ln_abs_dd, b_dd);
+        let exp_dd = self.dd_exp(product_dd);
+        let mag_val = self.dd_to_f64(exp_dd);
+
+        let b_i64 = self.builder.ins().fcvt_to_sint(i64_ty, b_floor);
+        let one_i = self.builder.ins().iconst(i64_ty, 1);
+        let remainder = self.builder.ins().band(b_i64, one_i);
+        let zero_i = self.builder.ins().iconst(i64_ty, 0);
+        let is_odd = self.builder.ins().icmp(IntCC::NotEqual, remainder, zero_i);
+
+        let odd_block = self.builder.create_block();
+        let even_block = self.builder.create_block();
+        // Append block parameters for both branches:
+        self.builder.append_block_param(odd_block, f64_ty);
+        self.builder.append_block_param(even_block, f64_ty);
+        // Pass mag_val to both branches:
+        self.builder
+            .ins()
+            .brif(is_odd, odd_block, &[mag_val], even_block, &[mag_val]);
+
+        self.builder.switch_to_block(odd_block);
+        let phi_mag_val = self.builder.block_params(odd_block)[0];
+        let neg_val = self.builder.ins().fneg(phi_mag_val);
+        self.builder.ins().jump(merge_block, &[neg_val]);
+
+        self.builder.switch_to_block(even_block);
+        let phi_mag_val_even = self.builder.block_params(even_block)[0];
+        self.builder.ins().jump(merge_block, &[phi_mag_val_even]);
+
+        // ----- Merge: Return the final result.
+        self.builder.switch_to_block(merge_block);
+        let final_val = self.builder.block_params(merge_block)[0];
+        final_val
+    }
+
+    fn compile_ipow(&mut self, a: Value, b: Value) -> Value {
+        let zero = self.builder.ins().iconst(types::I64, 0);
+        let one_i64 = self.builder.ins().iconst(types::I64, 1);
+
+        // Create required blocks
+        let check_negative = self.builder.create_block();
+        let handle_negative = self.builder.create_block();
         let loop_block = self.builder.create_block();
         let continue_block = self.builder.create_block();
         let exit_block = self.builder.create_block();
 
-        // Set code block params
-        // Set code block params
-        self.builder.append_block_param(check_block1, types::F64);
-        self.builder.append_block_param(check_block1, types::I64);
+        // Set up block parameters
+        self.builder.append_block_param(check_negative, types::I64); // exponent
+        self.builder.append_block_param(check_negative, types::I64); // base
 
-        self.builder.append_block_param(check_block2, types::F64);
-        self.builder.append_block_param(check_block2, types::I64);
+        self.builder.append_block_param(handle_negative, types::I64); // abs(exponent)
+        self.builder.append_block_param(handle_negative, types::I64); // base
 
-        self.builder.append_block_param(check_block3, types::F64);
-        self.builder.append_block_param(check_block3, types::I64);
+        self.builder.append_block_param(loop_block, types::I64); // exponent
+        self.builder.append_block_param(loop_block, types::I64); // result
+        self.builder.append_block_param(loop_block, types::I64); // base
 
-        self.builder.append_block_param(handle_neg_exp, types::F64);
-        self.builder.append_block_param(handle_neg_exp, types::I64);
+        self.builder.append_block_param(exit_block, types::I64); // final result
 
-        self.builder.append_block_param(loop_block, types::F64); //base
-        self.builder.append_block_param(loop_block, types::F64); //result
-        self.builder.append_block_param(loop_block, types::I64); //exponent
+        // Set up parameters for continue_block
+        self.builder.append_block_param(continue_block, types::I64); // exponent
+        self.builder.append_block_param(continue_block, types::I64); // result
+        self.builder.append_block_param(continue_block, types::I64); // base
 
-        self.builder.append_block_param(continue_block, types::F64); //base
-        self.builder.append_block_param(continue_block, types::F64); //result
-        self.builder.append_block_param(continue_block, types::I64); //exponent
+        // Initial jump to check if exponent is negative
+        self.builder.ins().jump(check_negative, &[b, a]);
 
-        self.builder.append_block_param(exit_block, types::F64);
+        // Check if exponent is negative
+        self.builder.switch_to_block(check_negative);
+        let params = self.builder.block_params(check_negative);
+        let exp_check = params[0];
+        let base_check = params[1];
 
-        // Begin evaluating by jumping to first check block
-        self.builder.ins().jump(check_block1, &[float_base, b]);
-
-        // Check block one:
-        // Checks if input is O ** n where n > 0
-        // Jumps to exit_block as 0 if true
-        self.builder.switch_to_block(check_block1);
-        let paramsc1 = self.builder.block_params(check_block1);
-        let basec1 = paramsc1[0];
-        let expc1 = paramsc1[1];
-        let zero_f64 = self.builder.ins().f64const(0.0);
-        let zero_i64 = self.builder.ins().iconst(types::I64, 0);
-        let is_base_zero = self.builder.ins().fcmp(FloatCC::Equal, zero_f64, basec1);
-        let is_exp_positive = self
+        let is_negative = self
             .builder
             .ins()
-            .icmp(IntCC::SignedGreaterThan, expc1, zero_i64);
-        let is_zero_to_positive = self.builder.ins().band(is_base_zero, is_exp_positive);
-        self.builder
-            .ins()
-            .brnz(is_zero_to_positive, exit_block, &[zero_f64]);
-        self.builder.ins().jump(check_block2, &[basec1, expc1]);
+            .icmp(IntCC::SignedLessThan, exp_check, zero);
+        self.builder.ins().brif(
+            is_negative,
+            handle_negative,
+            &[exp_check, base_check],
+            loop_block,
+            &[exp_check, one_i64, base_check],
+        );
 
-        // Check block two:
-        // Checks if exponent is negative
-        // Jumps to a special handle_neg_exponent block if true
-        self.builder.switch_to_block(check_block2);
-        let paramsc2 = self.builder.block_params(check_block2);
-        let basec2 = paramsc2[0];
-        let expc2 = paramsc2[1];
-        let zero_i64 = self.builder.ins().iconst(types::I64, 0);
-        let is_neg = self
-            .builder
-            .ins()
-            .icmp(IntCC::SignedLessThan, expc2, zero_i64);
-        self.builder
-            .ins()
-            .brnz(is_neg, handle_neg_exp, &[basec2, expc2]);
-        self.builder.ins().jump(check_block3, &[basec2, expc2]);
+        // Handle negative exponent (return 0 for integer exponentiation)
+        self.builder.switch_to_block(handle_negative);
+        self.builder.ins().jump(exit_block, &[zero]); // Return 0 for negative exponents
 
-        // Check block three:
-        // Checks if exponent is one
-        // jumps to exit block with the base of the exponents value
-        self.builder.switch_to_block(check_block3);
-        let paramsc3 = self.builder.block_params(check_block3);
-        let basec3 = paramsc3[0];
-        let expc3 = paramsc3[1];
-        let resc3 = self.builder.ins().f64const(1.0);
-        let one_i64 = self.builder.ins().iconst(types::I64, 1);
-        let is_one = self.builder.ins().icmp(IntCC::Equal, expc3, one_i64);
-        self.builder.ins().brnz(is_one, exit_block, &[basec3]);
-        self.builder.ins().jump(loop_block, &[basec3, resc3, expc3]);
-
-        // Handles negative Exponents
-        // calculates x^(-n) = (1/x)^n
-        // then proceeds to the loop to evaluate
-        self.builder.switch_to_block(handle_neg_exp);
-        let paramshn = self.builder.block_params(handle_neg_exp);
-        let basehn = paramshn[0];
-        let exphn = paramshn[1];
-        let one_f64 = self.builder.ins().f64const(1.0);
-        let base_inverse = self.builder.ins().fdiv(one_f64, basehn);
-        let pos_exp = self.builder.ins().ineg(exphn);
-        self.builder
-            .ins()
-            .jump(loop_block, &[base_inverse, one_f64, pos_exp]);
-
-        // Main loop block
-        // checks loop condition (exp > 0)
-        // Jumps to continue block if true, exit block if false
+        // Loop block logic (square-and-multiply algorithm)
         self.builder.switch_to_block(loop_block);
-        let paramslb = self.builder.block_params(loop_block);
-        let baselb = paramslb[0];
-        let reslb = paramslb[1];
-        let explb = paramslb[2];
-        let zero = self.builder.ins().iconst(types::I64, 0);
-        let is_zero = self.builder.ins().icmp(IntCC::Equal, explb, zero);
-        self.builder.ins().brnz(is_zero, exit_block, &[reslb]);
-        self.builder
-            .ins()
-            .jump(continue_block, &[baselb, reslb, explb]);
+        let params = self.builder.block_params(loop_block);
+        let exp_phi = params[0];
+        let result_phi = params[1];
+        let base_phi = params[2];
 
-        // Continue block
-        // Main math logic
-        // Always jumps back to loob_block
+        // Check if exponent is zero
+        let is_zero = self.builder.ins().icmp(IntCC::Equal, exp_phi, zero);
+        self.builder.ins().brif(
+            is_zero,
+            exit_block,
+            &[result_phi],
+            continue_block,
+            &[exp_phi, result_phi, base_phi],
+        );
+
+        // Continue block for non-zero case
         self.builder.switch_to_block(continue_block);
-        let paramscb = self.builder.block_params(continue_block);
-        let basecb = paramscb[0];
-        let rescb = paramscb[1];
-        let expcb = paramscb[2];
-        let is_odd = self.builder.ins().band_imm(expcb, 1);
+        let params = self.builder.block_params(continue_block);
+        let exp_phi = params[0];
+        let result_phi = params[1];
+        let base_phi = params[2];
+
+        // If exponent is odd, multiply result by base
+        let is_odd = self.builder.ins().band_imm(exp_phi, 1);
         let is_odd = self.builder.ins().icmp_imm(IntCC::Equal, is_odd, 1);
-        let mul_result = self.builder.ins().fmul(rescb, basecb);
-        let new_result = self.builder.ins().select(is_odd, mul_result, rescb);
-        let squared_base = self.builder.ins().fmul(basecb, basecb);
-        let new_exp = self.builder.ins().sshr_imm(expcb, 1);
+        let mul_result = self.builder.ins().imul(result_phi, base_phi);
+        let new_result = self.builder.ins().select(is_odd, mul_result, result_phi);
+
+        // Square the base and divide exponent by 2
+        let squared_base = self.builder.ins().imul(base_phi, base_phi);
+        let new_exp = self.builder.ins().sshr_imm(exp_phi, 1);
         self.builder
             .ins()
-            .jump(loop_block, &[squared_base, new_result, new_exp]);
+            .jump(loop_block, &[new_exp, new_result, squared_base]);
 
+        // Exit block
         self.builder.switch_to_block(exit_block);
-        let result = self.builder.block_params(exit_block)[0];
+        let res = self.builder.block_params(exit_block)[0];
 
-        self.builder.seal_block(check_block1);
-        self.builder.seal_block(check_block2);
-        self.builder.seal_block(check_block3);
-        self.builder.seal_block(handle_neg_exp);
+        // Seal all blocks
+        self.builder.seal_block(check_negative);
+        self.builder.seal_block(handle_negative);
         self.builder.seal_block(loop_block);
         self.builder.seal_block(continue_block);
         self.builder.seal_block(exit_block);
 
-        result
+        res
     }
 }
