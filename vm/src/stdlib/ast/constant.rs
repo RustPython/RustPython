@@ -198,7 +198,7 @@ impl Node for Constant {
                         "Expected type {}, not {}",
                         PyComplex::static_type().name(),
                         value_object.class().name()
-                    )))
+                    )));
                 }
                 Some((value, _was_coerced)) => value,
             };

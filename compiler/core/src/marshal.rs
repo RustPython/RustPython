@@ -21,7 +21,7 @@ pub enum MarshalError {
 }
 
 impl std::fmt::Display for MarshalError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Eof => f.write_str("unexpected end of data"),
             Self::InvalidBytecode => f.write_str("invalid bytecode"),

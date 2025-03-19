@@ -1,7 +1,7 @@
 /* Several function to retrieve version information.
  */
 
-use chrono::{prelude::DateTime, Local};
+use chrono::{Local, prelude::DateTime};
 use std::time::{Duration, UNIX_EPOCH};
 
 // = 3.13.0alpha
@@ -17,9 +17,10 @@ pub const VERSION_HEX: usize =
 
 pub fn get_version() -> String {
     format!(
-        "{:.80} ({:.80}) \n[{:.80}]", // \n is PyPy convention
+        "{:.80} ({:.80}) \n[RustPython {} with {:.80}]", // \n is PyPy convention
         get_version_number(),
         get_build_info(),
+        env!("CARGO_PKG_VERSION"),
         get_compiler()
     )
 }

@@ -262,7 +262,7 @@ impl<T> BoxVec<T> {
     ///
     /// **Panics** if the starting point is greater than the end point or if
     /// the end point is greater than the length of the vector.
-    pub fn drain<R>(&mut self, range: R) -> Drain<T>
+    pub fn drain<R>(&mut self, range: R) -> Drain<'_, T>
     where
         R: RangeBounds<usize>,
     {
@@ -290,7 +290,7 @@ impl<T> BoxVec<T> {
         self.drain_range(start, end)
     }
 
-    fn drain_range(&mut self, start: usize, end: usize) -> Drain<T> {
+    fn drain_range(&mut self, start: usize, end: usize) -> Drain<'_, T> {
         let len = self.len();
 
         // bounds check happens here (before length is changed!)
@@ -438,7 +438,7 @@ impl<T> fmt::Debug for IntoIter<T>
 where
     T: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(&self.v[self.index..]).finish()
     }
 }
@@ -658,7 +658,7 @@ impl<T> fmt::Debug for BoxVec<T>
 where
     T: fmt::Debug,
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         (**self).fmt(f)
     }
 }
@@ -691,13 +691,13 @@ const CAPERROR: &str = "insufficient capacity";
 impl<T> std::error::Error for CapacityError<T> {}
 
 impl<T> fmt::Display for CapacityError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{CAPERROR}")
     }
 }
 
 impl<T> fmt::Debug for CapacityError<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "capacity error: {CAPERROR}")
     }
 }

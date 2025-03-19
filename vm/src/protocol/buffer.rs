@@ -2,6 +2,7 @@
 //! https://docs.python.org/3/c-api/buffer.html
 
 use crate::{
+    Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
         lock::{MapImmutable, PyMutex, PyMutexGuard},
@@ -9,14 +10,13 @@ use crate::{
     object::PyObjectPayload,
     sliceable::SequenceIndexOp,
     types::Unconstructible,
-    Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject, VirtualMachine,
 };
 use itertools::Itertools;
 use std::{borrow::Cow, fmt::Debug, ops::Range};
 
 pub struct BufferMethods {
-    pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<[u8]>,
-    pub obj_bytes_mut: fn(&PyBuffer) -> BorrowedValueMut<[u8]>,
+    pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<'_, [u8]>,
+    pub obj_bytes_mut: fn(&PyBuffer) -> BorrowedValueMut<'_, [u8]>,
     pub release: fn(&PyBuffer),
     pub retain: fn(&PyBuffer),
 }
@@ -52,13 +52,13 @@ impl PyBuffer {
         zelf
     }
 
-    pub fn as_contiguous(&self) -> Option<BorrowedValue<[u8]>> {
+    pub fn as_contiguous(&self) -> Option<BorrowedValue<'_, [u8]>> {
         self.desc
             .is_contiguous()
             .then(|| unsafe { self.contiguous_unchecked() })
     }
 
-    pub fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<[u8]>> {
+    pub fn as_contiguous_mut(&self) -> Option<BorrowedValueMut<'_, [u8]>> {
         (!self.desc.readonly && self.desc.is_contiguous())
             .then(|| unsafe { self.contiguous_mut_unchecked() })
     }
@@ -74,13 +74,13 @@ impl PyBuffer {
 
     /// # Safety
     /// assume the buffer is contiguous
-    pub unsafe fn contiguous_unchecked(&self) -> BorrowedValue<[u8]> {
+    pub unsafe fn contiguous_unchecked(&self) -> BorrowedValue<'_, [u8]> {
         self.obj_bytes()
     }
 
     /// # Safety
     /// assume the buffer is contiguous and writable
-    pub unsafe fn contiguous_mut_unchecked(&self) -> BorrowedValueMut<[u8]> {
+    pub unsafe fn contiguous_mut_unchecked(&self) -> BorrowedValueMut<'_, [u8]> {
         self.obj_bytes_mut()
     }
 
@@ -113,11 +113,11 @@ impl PyBuffer {
         unsafe { self.obj.downcast_unchecked_ref() }
     }
 
-    pub fn obj_bytes(&self) -> BorrowedValue<[u8]> {
+    pub fn obj_bytes(&self) -> BorrowedValue<'_, [u8]> {
         (self.methods.obj_bytes)(self)
     }
 
-    pub fn obj_bytes_mut(&self) -> BorrowedValueMut<[u8]> {
+    pub fn obj_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {
         (self.methods.obj_bytes_mut)(self)
     }
 

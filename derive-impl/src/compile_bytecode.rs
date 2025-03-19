@@ -17,17 +17,16 @@ use crate::Diagnostic;
 use once_cell::sync::Lazy;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use rustpython_compiler_core::{bytecode::CodeObject, frozen, Mode};
+use rustpython_compiler_core::{Mode, bytecode::CodeObject, frozen};
 use std::{
     collections::HashMap,
     env, fs,
     path::{Path, PathBuf},
 };
 use syn::{
-    self,
+    self, LitByteStr, LitStr, Macro,
     parse::{ParseStream, Parser, Result as ParseResult},
     spanned::Spanned,
-    LitByteStr, LitStr, Macro,
 };
 
 static CARGO_MANIFEST_DIR: Lazy<PathBuf> = Lazy::new(|| {
@@ -118,11 +117,13 @@ impl CompilationSource {
                 })?;
                 self.compile_string(&source, mode, module_name, compiler, || rel_path.display())
             }
-            CompilationSourceKind::SourceCode(code) => {
-                self.compile_string(&textwrap::dedent(code), mode, module_name, compiler, || {
-                    "string literal"
-                })
-            }
+            CompilationSourceKind::SourceCode(code) => self.compile_string(
+                &textwrap::dedent(code),
+                mode,
+                module_name,
+                compiler,
+                || "string literal",
+            ),
             CompilationSourceKind::Dir(_) => {
                 unreachable!("Can't use compile_single with directory source")
             }
@@ -315,7 +316,7 @@ impl PyCompileArgs {
     }
 }
 
-fn parse_str(input: ParseStream) -> ParseResult<LitStr> {
+fn parse_str(input: ParseStream<'_>) -> ParseResult<LitStr> {
     let span = input.span();
     if input.peek(LitStr) {
         input.parse()

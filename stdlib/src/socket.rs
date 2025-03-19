@@ -1,6 +1,6 @@
-use crate::vm::{builtins::PyModule, PyRef, VirtualMachine};
+use crate::vm::{PyRef, VirtualMachine, builtins::PyModule};
 #[cfg(feature = "ssl")]
-pub(super) use _socket::{sock_select, timeout_error_msg, PySocket, SelectKind};
+pub(super) use _socket::{PySocket, SelectKind, sock_select, timeout_error_msg};
 
 pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     #[cfg(windows)]
@@ -12,13 +12,13 @@ pub fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 mod _socket {
     use crate::common::lock::{PyMappedRwLockReadGuard, PyRwLock, PyRwLockReadGuard};
     use crate::vm::{
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyListRef, PyStrRef, PyTupleRef, PyTypeRef},
         common::os::ErrorExt,
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgMemoryBuffer, Either, FsPath, OptionalArg, OptionalOption},
         types::{Constructor, DefaultConstructor, Initializer, Representable},
         utils::ToCString,
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::ToPrimitive;
@@ -35,37 +35,42 @@ mod _socket {
     use libc as c;
     #[cfg(windows)]
     mod c {
-        pub use winapi::shared::netioapi::{if_indextoname, if_nametoindex};
-        pub use winapi::shared::ws2def::{
+        pub use windows_sys::Win32::NetworkManagement::IpHelper::{if_indextoname, if_nametoindex};
+        pub use windows_sys::Win32::Networking::WinSock::{
             INADDR_ANY, INADDR_BROADCAST, INADDR_LOOPBACK, INADDR_NONE,
         };
-        pub use winapi::um::winsock2::{
-            getprotobyname, getservbyname, getservbyport, getsockopt, setsockopt,
-            SO_EXCLUSIVEADDRUSE,
-        };
-        pub use winapi::um::ws2tcpip::{
-            EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NODATA, EAI_NONAME,
-            EAI_SERVICE, EAI_SOCKTYPE,
+
+        pub use windows_sys::Win32::Networking::WinSock::{
+            AF_APPLETALK, AF_DECnet, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
+            AI_NUMERICSERV, AI_V4MAPPED, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_HDRINCL,
+            IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_OPTIONS, IP_RECVDSTADDR,
+            IP_TOS, IP_TTL, IPPORT_RESERVED, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
+            IPPROTO_FRAGMENT, IPPROTO_GGP, IPPROTO_HOPOPTS, IPPROTO_ICMP, IPPROTO_ICMPV6,
+            IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP, IPPROTO_IPV4,
+            IPPROTO_IPV6, IPPROTO_ND, IPPROTO_NONE, IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW,
+            IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP, IPV6_CHECKSUM, IPV6_DONTFRAG, IPV6_HOPLIMIT,
+            IPV6_HOPOPTS, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS,
+            IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_PKTINFO, IPV6_RECVRTHDR, IPV6_RECVTCLASS,
+            IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY, MSG_BCAST, MSG_CTRUNC,
+            MSG_DONTROUTE, MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM,
+            NI_MAXHOST, NI_MAXSERV, NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV,
+            RCVALL_IPLEVEL, RCVALL_OFF, RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH as SHUT_RDWR,
+            SD_RECEIVE as SHUT_RD, SD_SEND as SHUT_WR, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH,
+            SIO_RCVALL, SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE,
+            SO_USELOOPBACK, SOCK_DGRAM, SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM,
+            SOL_SOCKET, SOMAXCONN, TCP_NODELAY, WSAEBADF, WSAECONNRESET, WSAENOTSOCK,
+            WSAEWOULDBLOCK,
         };
         pub use windows_sys::Win32::Networking::WinSock::{
-            AF_DECnet, AF_APPLETALK, AF_IPX, AF_LINK, AI_ADDRCONFIG, AI_ALL, AI_CANONNAME,
-            AI_NUMERICSERV, AI_V4MAPPED, IPPORT_RESERVED, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP,
-            IPPROTO_ESP, IPPROTO_FRAGMENT, IPPROTO_GGP, IPPROTO_HOPOPTS, IPPROTO_ICMP,
-            IPPROTO_ICMPV6, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IP, IPPROTO_IP as IPPROTO_IPIP,
-            IPPROTO_IPV4, IPPROTO_IPV6, IPPROTO_ND, IPPROTO_NONE, IPPROTO_PIM, IPPROTO_PUP,
-            IPPROTO_RAW, IPPROTO_ROUTING, IPPROTO_TCP, IPPROTO_UDP, IPV6_CHECKSUM, IPV6_DONTFRAG,
-            IPV6_HOPLIMIT, IPV6_HOPOPTS, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, IPV6_MULTICAST_HOPS,
-            IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP, IPV6_PKTINFO, IPV6_RECVRTHDR, IPV6_RECVTCLASS,
-            IPV6_RTHDR, IPV6_TCLASS, IPV6_UNICAST_HOPS, IPV6_V6ONLY, IP_ADD_MEMBERSHIP,
-            IP_DROP_MEMBERSHIP, IP_HDRINCL, IP_MULTICAST_IF, IP_MULTICAST_LOOP, IP_MULTICAST_TTL,
-            IP_OPTIONS, IP_RECVDSTADDR, IP_TOS, IP_TTL, MSG_BCAST, MSG_CTRUNC, MSG_DONTROUTE,
-            MSG_MCAST, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST, NI_MAXSERV,
-            NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, RCVALL_IPLEVEL, RCVALL_OFF,
-            RCVALL_ON, RCVALL_SOCKETLEVELONLY, SD_BOTH as SHUT_RDWR, SD_RECEIVE as SHUT_RD,
-            SD_SEND as SHUT_WR, SIO_KEEPALIVE_VALS, SIO_LOOPBACK_FAST_PATH, SIO_RCVALL, SOCK_DGRAM,
-            SOCK_RAW, SOCK_RDM, SOCK_SEQPACKET, SOCK_STREAM, SOL_SOCKET, SOMAXCONN, SO_BROADCAST,
-            SO_ERROR, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, SO_USELOOPBACK, TCP_NODELAY,
-            WSAEBADF, WSAECONNRESET, WSAENOTSOCK, WSAEWOULDBLOCK,
+            SO_REUSEADDR as SO_EXCLUSIVEADDRUSE, getprotobyname, getservbyname, getservbyport,
+            getsockopt, setsockopt,
+        };
+        pub use windows_sys::Win32::Networking::WinSock::{
+            WSA_NOT_ENOUGH_MEMORY as EAI_MEMORY, WSAEAFNOSUPPORT as EAI_FAMILY,
+            WSAEINVAL as EAI_BADFLAGS, WSAESOCKTNOSUPPORT as EAI_SOCKTYPE,
+            WSAHOST_NOT_FOUND as EAI_NODATA, WSAHOST_NOT_FOUND as EAI_NONAME,
+            WSANO_RECOVERY as EAI_FAIL, WSATRY_AGAIN as EAI_AGAIN,
+            WSATYPE_NOT_FOUND as EAI_SERVICE,
         };
         pub const IF_NAMESIZE: usize =
             windows_sys::Win32::NetworkManagement::Ndis::IF_MAX_STRING_SIZE as _;
@@ -86,14 +91,14 @@ mod _socket {
         IPPROTO_ICMPV6, IPPROTO_IP, IPPROTO_IPV6, IPPROTO_TCP, IPPROTO_TCP as SOL_TCP, IPPROTO_UDP,
         MSG_CTRUNC, MSG_DONTROUTE, MSG_OOB, MSG_PEEK, MSG_TRUNC, MSG_WAITALL, NI_DGRAM, NI_MAXHOST,
         NI_NAMEREQD, NI_NOFQDN, NI_NUMERICHOST, NI_NUMERICSERV, SHUT_RD, SHUT_RDWR, SHUT_WR,
-        SOCK_DGRAM, SOCK_STREAM, SOL_SOCKET, SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE,
-        SO_REUSEADDR, SO_TYPE, TCP_NODELAY,
+        SO_BROADCAST, SO_ERROR, SO_LINGER, SO_OOBINLINE, SO_REUSEADDR, SO_TYPE, SOCK_DGRAM,
+        SOCK_STREAM, SOL_SOCKET, TCP_NODELAY,
     };
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
     use c::{
-        AF_DECnet, AF_APPLETALK, AF_IPX, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
+        AF_APPLETALK, AF_DECnet, AF_IPX, IPPROTO_AH, IPPROTO_DSTOPTS, IPPROTO_EGP, IPPROTO_ESP,
         IPPROTO_FRAGMENT, IPPROTO_HOPOPTS, IPPROTO_IDP, IPPROTO_IGMP, IPPROTO_IPIP, IPPROTO_NONE,
         IPPROTO_PIM, IPPROTO_PUP, IPPROTO_RAW, IPPROTO_ROUTING,
     };
@@ -126,8 +131,9 @@ mod _socket {
         J1939_IDLE_ADDR, J1939_MAX_UNICAST_ADDR, J1939_NLA_BYTES_ACKED, J1939_NLA_PAD,
         J1939_NO_ADDR, J1939_NO_NAME, J1939_NO_PGN, J1939_PGN_ADDRESS_CLAIMED,
         J1939_PGN_ADDRESS_COMMANDED, J1939_PGN_MAX, J1939_PGN_PDU1_MAX, J1939_PGN_REQUEST,
-        SCM_J1939_DEST_ADDR, SCM_J1939_DEST_NAME, SCM_J1939_ERRQUEUE, SCM_J1939_PRIO, SOL_CAN_BASE,
-        SOL_CAN_RAW, SO_J1939_ERRQUEUE, SO_J1939_FILTER, SO_J1939_PROMISC, SO_J1939_SEND_PRIO,
+        SCM_J1939_DEST_ADDR, SCM_J1939_DEST_NAME, SCM_J1939_ERRQUEUE, SCM_J1939_PRIO,
+        SO_J1939_ERRQUEUE, SO_J1939_FILTER, SO_J1939_PROMISC, SO_J1939_SEND_PRIO, SOL_CAN_BASE,
+        SOL_CAN_RAW,
     };
 
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -168,11 +174,11 @@ mod _socket {
     #[pyattr]
     use c::{
         ALG_OP_DECRYPT, ALG_OP_ENCRYPT, ALG_SET_AEAD_ASSOCLEN, ALG_SET_AEAD_AUTHSIZE, ALG_SET_IV,
-        ALG_SET_KEY, ALG_SET_OP, IPV6_DSTOPTS, IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS,
-        IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS, IPV6_RECVPATHMTU, IPV6_RTHDRDSTOPTS,
-        IP_DEFAULT_MULTICAST_LOOP, IP_RECVOPTS, IP_RETOPTS, NETLINK_CRYPTO, NETLINK_DNRTMSG,
-        NETLINK_FIREWALL, NETLINK_IP6_FW, NETLINK_NFLOG, NETLINK_ROUTE, NETLINK_USERSOCK,
-        NETLINK_XFRM, SOL_ALG, SO_PASSSEC, SO_PEERSEC,
+        ALG_SET_KEY, ALG_SET_OP, IP_DEFAULT_MULTICAST_LOOP, IP_RECVOPTS, IP_RETOPTS, IPV6_DSTOPTS,
+        IPV6_NEXTHOP, IPV6_PATHMTU, IPV6_RECVDSTOPTS, IPV6_RECVHOPLIMIT, IPV6_RECVHOPOPTS,
+        IPV6_RECVPATHMTU, IPV6_RTHDRDSTOPTS, NETLINK_CRYPTO, NETLINK_DNRTMSG, NETLINK_FIREWALL,
+        NETLINK_IP6_FW, NETLINK_NFLOG, NETLINK_ROUTE, NETLINK_USERSOCK, NETLINK_XFRM, SO_PASSSEC,
+        SO_PEERSEC, SOL_ALG,
     };
 
     #[cfg(any(target_os = "android", target_vendor = "apple"))]
@@ -190,9 +196,9 @@ mod _socket {
     #[cfg(any(unix, target_os = "android", windows))]
     #[pyattr]
     use c::{
-        INADDR_BROADCAST, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF, IPV6_MULTICAST_LOOP,
-        IPV6_UNICAST_HOPS, IPV6_V6ONLY, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_MULTICAST_IF,
-        IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_TTL,
+        INADDR_BROADCAST, IP_ADD_MEMBERSHIP, IP_DROP_MEMBERSHIP, IP_MULTICAST_IF,
+        IP_MULTICAST_LOOP, IP_MULTICAST_TTL, IP_TTL, IPV6_MULTICAST_HOPS, IPV6_MULTICAST_IF,
+        IPV6_MULTICAST_LOOP, IPV6_UNICAST_HOPS, IPV6_V6ONLY,
     };
 
     #[cfg(any(unix, target_os = "android", windows))]
@@ -213,8 +219,8 @@ mod _socket {
         AF_ALG, AF_ASH, AF_ATMPVC, AF_ATMSVC, AF_AX25, AF_BRIDGE, AF_CAN, AF_ECONET, AF_IRDA,
         AF_LLC, AF_NETBEUI, AF_NETLINK, AF_NETROM, AF_PACKET, AF_PPPOX, AF_RDS, AF_SECURITY,
         AF_TIPC, AF_VSOCK, AF_WANPIPE, AF_X25, IP_TRANSPARENT, MSG_CONFIRM, MSG_ERRQUEUE,
-        MSG_FASTOPEN, MSG_MORE, PF_CAN, PF_PACKET, PF_RDS, SCM_CREDENTIALS, SOL_IP, SOL_TIPC,
-        SOL_UDP, SO_BINDTODEVICE, SO_MARK, TCP_CORK, TCP_DEFER_ACCEPT, TCP_LINGER2, TCP_QUICKACK,
+        MSG_FASTOPEN, MSG_MORE, PF_CAN, PF_PACKET, PF_RDS, SCM_CREDENTIALS, SO_BINDTODEVICE,
+        SO_MARK, SOL_IP, SOL_TIPC, SOL_UDP, TCP_CORK, TCP_DEFER_ACCEPT, TCP_LINGER2, TCP_QUICKACK,
         TCP_SYNCNT, TCP_WINDOW_CLAMP,
     };
 
@@ -271,7 +277,7 @@ mod _socket {
 
     #[cfg(any(target_os = "android", target_os = "linux", windows))]
     #[pyattr]
-    use c::{IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR, IP_OPTIONS};
+    use c::{IP_OPTIONS, IPV6_HOPOPTS, IPV6_RECVRTHDR, IPV6_RTHDR};
 
     #[cfg(any(
         target_os = "dragonfly",
@@ -525,7 +531,7 @@ mod _socket {
     ))]
     #[pyattr]
     use c::{
-        AF_LINK, IPPROTO_GGP, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, IP_RECVDSTADDR, SO_USELOOPBACK,
+        AF_LINK, IP_RECVDSTADDR, IPPROTO_GGP, IPV6_JOIN_GROUP, IPV6_LEAVE_GROUP, SO_USELOOPBACK,
     };
 
     #[cfg(any(
@@ -633,7 +639,7 @@ mod _socket {
     #[pyattr]
     use c::{
         EAI_AGAIN, EAI_BADFLAGS, EAI_FAIL, EAI_FAMILY, EAI_MEMORY, EAI_NONAME, EAI_SERVICE,
-        EAI_SOCKTYPE, IPV6_RECVTCLASS, IPV6_TCLASS, IP_HDRINCL, IP_TOS, SOMAXCONN,
+        EAI_SOCKTYPE, IP_HDRINCL, IP_TOS, IPV6_RECVTCLASS, IPV6_TCLASS, SOMAXCONN,
     };
 
     #[cfg(not(any(
@@ -753,7 +759,7 @@ mod _socket {
 }
 
     #[cfg(windows)]
-    use winapi::shared::netioapi;
+    use windows_sys::Win32::NetworkManagement::IpHelper;
 
     fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
         #[cfg(unix)]
@@ -1473,11 +1479,7 @@ mod _socket {
         #[pymethod]
         fn gettimeout(&self) -> Option<f64> {
             let timeout = self.timeout.load();
-            if timeout >= 0.0 {
-                Some(timeout)
-            } else {
-                None
-            }
+            if timeout >= 0.0 { Some(timeout) } else { None }
         }
 
         #[pymethod]
@@ -1601,7 +1603,7 @@ mod _socket {
                 _ => {
                     return Err(vm
                         .new_value_error("`how` must be SHUT_RD, SHUT_WR, or SHUT_RDWR".to_owned())
-                        .into())
+                        .into());
                 }
             };
             Ok(self.sock()?.shutdown(how)?)
@@ -1757,7 +1759,7 @@ mod _socket {
             .map(|s| s.to_cstring(vm))
             .transpose()?;
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
-        let serv = unsafe { c::getservbyname(cstr_name.as_ptr(), cstr_proto) };
+        let serv = unsafe { c::getservbyname(cstr_name.as_ptr() as _, cstr_proto as _) };
         if serv.is_null() {
             return Err(vm.new_os_error("service/proto not found".to_owned()));
         }
@@ -1779,11 +1781,11 @@ mod _socket {
             .map(|s| s.to_cstring(vm))
             .transpose()?;
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
-        let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto) };
+        let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto as _) };
         if serv.is_null() {
             return Err(vm.new_os_error("port/proto not found".to_owned()));
         }
-        let s = unsafe { ffi::CStr::from_ptr((*serv).s_name) };
+        let s = unsafe { ffi::CStr::from_ptr((*serv).s_name as _) };
         Ok(s.to_string_lossy().into_owned())
     }
 
@@ -1922,7 +1924,7 @@ mod _socket {
         };
 
         let host = opts.host.as_ref().map(|s| s.as_str());
-        let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<str> {
+        let port = opts.port.as_ref().map(|p| -> std::borrow::Cow<'_, str> {
             match p {
                 Either::A(s) => s.as_str().into(),
                 Either::B(i) => i.to_string().into(),
@@ -2035,7 +2037,7 @@ mod _socket {
     #[pyfunction]
     fn getprotobyname(name: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let cstr = name.to_cstring(vm)?;
-        let proto = unsafe { c::getprotobyname(cstr.as_ptr()) };
+        let proto = unsafe { c::getprotobyname(cstr.as_ptr() as _) };
         if proto.is_null() {
             return Err(vm.new_os_error("protocol not found".to_owned()));
         }
@@ -2054,7 +2056,7 @@ mod _socket {
             _ => {
                 return Err(vm
                     .new_type_error("illegal sockaddr argument".to_owned())
-                    .into())
+                    .into());
             }
         }
         let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&address, vm)?;
@@ -2113,14 +2115,14 @@ mod _socket {
     #[cfg(all(unix, not(target_os = "redox")))]
     type IfIndex = c::c_uint;
     #[cfg(windows)]
-    type IfIndex = winapi::shared::ifdef::NET_IFINDEX;
+    type IfIndex = u32; // NET_IFINDEX but windows-sys 0.59 doesn't have it
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
     fn if_nametoindex(name: FsPath, vm: &VirtualMachine) -> PyResult<IfIndex> {
         let name = name.to_cstring(vm)?;
 
-        let ret = unsafe { c::if_nametoindex(name.as_ptr()) };
+        let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
         if ret == 0 {
             Err(vm.new_os_error("no interface with this name".to_owned()))
         } else {
@@ -2136,7 +2138,7 @@ mod _socket {
         if ret.is_null() {
             Err(crate::vm::stdlib::os::errno_err(vm))
         } else {
-            let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr()) };
+            let buf = unsafe { ffi::CStr::from_ptr(buf.as_ptr() as _) };
             Ok(buf.to_string_lossy().into_owned())
         }
     }
@@ -2172,6 +2174,7 @@ mod _socket {
         #[cfg(windows)]
         {
             use std::ptr;
+            use windows_sys::Win32::NetworkManagement::Ndis::NET_LUID_LH;
 
             let table = MibTable::get_raw().map_err(|err| err.into_pyexception(vm))?;
             let list = table.as_slice().iter().map(|entry| {
@@ -2183,12 +2186,10 @@ mod _socket {
             let list = list.collect::<PyResult<_>>()?;
             return Ok(list);
 
-            fn get_name(
-                luid: &winapi::shared::ifdef::NET_LUID,
-            ) -> io::Result<widestring::WideCString> {
+            fn get_name(luid: &NET_LUID_LH) -> io::Result<widestring::WideCString> {
                 let mut buf = [0; c::IF_NAMESIZE + 1];
                 let ret = unsafe {
-                    netioapi::ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len())
+                    IpHelper::ConvertInterfaceLuidToNameW(luid, buf.as_mut_ptr(), buf.len())
                 };
                 if ret == 0 {
                     Ok(widestring::WideCString::from_ustr_truncate(
@@ -2199,12 +2200,12 @@ mod _socket {
                 }
             }
             struct MibTable {
-                ptr: ptr::NonNull<netioapi::MIB_IF_TABLE2>,
+                ptr: ptr::NonNull<IpHelper::MIB_IF_TABLE2>,
             }
             impl MibTable {
                 fn get_raw() -> io::Result<Self> {
                     let mut ptr = ptr::null_mut();
-                    let ret = unsafe { netioapi::GetIfTable2Ex(netioapi::MibIfTableRaw, &mut ptr) };
+                    let ret = unsafe { IpHelper::GetIfTable2Ex(IpHelper::MibIfTableRaw, &mut ptr) };
                     if ret == 0 {
                         let ptr = unsafe { ptr::NonNull::new_unchecked(ptr) };
                         Ok(Self { ptr })
@@ -2214,17 +2215,17 @@ mod _socket {
                 }
             }
             impl MibTable {
-                fn as_slice(&self) -> &[netioapi::MIB_IF_ROW2] {
+                fn as_slice(&self) -> &[IpHelper::MIB_IF_ROW2] {
                     unsafe {
                         let p = self.ptr.as_ptr();
-                        let ptr = &raw const (*p).Table as *const netioapi::MIB_IF_ROW2;
+                        let ptr = &raw const (*p).Table as *const IpHelper::MIB_IF_ROW2;
                         std::slice::from_raw_parts(ptr, (*p).NumEntries as usize)
                     }
                 }
             }
             impl Drop for MibTable {
                 fn drop(&mut self) {
-                    unsafe { netioapi::FreeMibTable(self.ptr.as_ptr() as *mut _) }
+                    unsafe { IpHelper::FreeMibTable(self.ptr.as_ptr() as *mut _) };
                 }
             }
         }
@@ -2259,7 +2260,7 @@ mod _socket {
                 _ => {
                     return Err(vm
                         .new_os_error("address family mismatched".to_owned())
-                        .into())
+                        .into());
                 }
             }
             return Ok(SocketAddr::V4(net::SocketAddrV4::new(
@@ -2433,11 +2434,7 @@ mod _socket {
     #[pyfunction]
     fn getdefaulttimeout() -> Option<f64> {
         let timeout = DEFAULT_TIMEOUT.load();
-        if timeout >= 0.0 {
-            Some(timeout)
-        } else {
-            None
-        }
+        if timeout >= 0.0 { Some(timeout) } else { None }
     }
 
     #[pyfunction]

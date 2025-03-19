@@ -2,8 +2,9 @@ use self::types::{PyBaseException, PyBaseExceptionRef};
 use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
+    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
-        traceback::PyTracebackRef, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, traceback::PyTracebackRef,
     },
     class::{PyClassImpl, StaticType},
     convert::{ToPyException, ToPyObject},
@@ -12,7 +13,6 @@ use crate::{
     stdlib::sys,
     suggestion::offer_suggestions,
     types::{Callable, Constructor, Initializer, Representable},
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
@@ -22,7 +22,7 @@ use std::{
 };
 
 unsafe impl Traverse for PyBaseException {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.traceback.traverse(tracer_fn);
         self.cause.traverse(tracer_fn);
         self.context.traverse(tracer_fn);
@@ -31,7 +31,7 @@ unsafe impl Traverse for PyBaseException {
 }
 
 impl std::fmt::Debug for PyBaseException {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("PyBaseException")
     }
@@ -1177,13 +1177,13 @@ pub(super) mod types {
     use crate::common::lock::PyRwLock;
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use crate::{
+        AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
         builtins::{
-            traceback::PyTracebackRef, tuple::IntoPyTuple, PyInt, PyStrRef, PyTupleRef, PyTypeRef,
+            PyInt, PyStrRef, PyTupleRef, PyTypeRef, traceback::PyTracebackRef, tuple::IntoPyTuple,
         },
         convert::ToPyResult,
         function::FuncArgs,
         types::{Constructor, Initializer},
-        AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;

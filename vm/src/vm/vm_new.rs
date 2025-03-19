@@ -1,15 +1,15 @@
 use crate::{
+    AsObject, Py, PyObject, PyObjectRef, PyRef,
     builtins::{
+        PyBaseException, PyBaseExceptionRef, PyDictRef, PyModule, PyStrRef, PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
-        PyBaseException, PyBaseExceptionRef, PyDictRef, PyModule, PyStrRef, PyType, PyTypeRef,
     },
     convert::ToPyObject,
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
     vm::VirtualMachine,
-    AsObject, Py, PyObject, PyObjectRef, PyRef,
 };
 
 /// Collection of object creation helpers

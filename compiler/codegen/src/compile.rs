@@ -8,10 +8,10 @@
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
+    IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType},
     ir,
     symboltable::{self, SymbolFlags, SymbolScope, SymbolTable},
-    IndexSet, ToPythonName,
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -30,8 +30,8 @@ use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
 // use rustpython_ast::located::{self as located_ast, Located};
 use rustpython_compiler_core::{
-    bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
     Mode,
+    bytecode::{self, Arg as OpArgMarker, CodeObject, ConstantData, Instruction, OpArg, OpArgType},
 };
 use rustpython_compiler_source::SourceCode;
 // use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
@@ -112,7 +112,7 @@ enum ComprehensionType {
 /// Compile an Mod produced from ruff parser
 pub fn compile_top(
     ast: ruff_python_ast::Mod,
-    source_code: SourceCode,
+    source_code: SourceCode<'_>,
     mode: Mode,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
@@ -129,7 +129,7 @@ pub fn compile_top(
 /// Compile a standard Python program to bytecode
 pub fn compile_program(
     ast: &ModModule,
-    source_code: SourceCode,
+    source_code: SourceCode<'_>,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_code.clone())
@@ -144,7 +144,7 @@ pub fn compile_program(
 /// Compile a Python program to bytecode for the context of a REPL
 pub fn compile_program_single(
     ast: &ModModule,
-    source_code: SourceCode,
+    source_code: SourceCode<'_>,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_code.clone())
@@ -158,7 +158,7 @@ pub fn compile_program_single(
 
 pub fn compile_block_expression(
     ast: &ModModule,
-    source_code: SourceCode,
+    source_code: SourceCode<'_>,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_program(ast, source_code.clone())
@@ -172,7 +172,7 @@ pub fn compile_block_expression(
 
 pub fn compile_expression(
     ast: &ModExpression,
-    source_code: SourceCode,
+    source_code: SourceCode<'_>,
     opts: CompileOpts,
 ) -> CompileResult<CodeObject> {
     let symbol_table = SymbolTable::scan_expr(ast, source_code.clone())
@@ -974,7 +974,7 @@ impl Compiler<'_> {
                 }
             }
             Expr::BinOp(_) | Expr::UnaryOp(_) => {
-                return Err(self.error(CodegenErrorType::Delete("expression")))
+                return Err(self.error(CodegenErrorType::Delete("expression")));
             }
             _ => return Err(self.error(CodegenErrorType::Delete(expression.python_name()))),
         }
@@ -1216,7 +1216,7 @@ impl Compiler<'_> {
 
             if !finalbody.is_empty() {
                 emit!(self, Instruction::PopBlock); // pop excepthandler block
-                                                    // We enter the finally block, without exception.
+                // We enter the finally block, without exception.
                 emit!(self, Instruction::EnterFinally);
             }
 
@@ -3094,7 +3094,9 @@ impl Compiler<'_> {
                 | "with_statement" | "print_function" | "unicode_literals" | "generator_stop" => {}
                 "annotations" => self.future_annotations = true,
                 other => {
-                    return Err(self.error(CodegenErrorType::InvalidFutureFeature(other.to_owned())))
+                    return Err(
+                        self.error(CodegenErrorType::InvalidFutureFeature(other.to_owned()))
+                    );
                 }
             }
         }
@@ -3681,12 +3683,12 @@ mod tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustpython_parser::ast::Suite;
     use rustpython_parser::Parse;
+    use rustpython_parser::ast::Suite;
     use rustpython_parser_core::source_code::LinearLocator;
 
     fn compile_exec(source: &str) -> CodeObject {
-        let mut locator: LinearLocator = LinearLocator::new(source);
+        let mut locator: LinearLocator<'_> = LinearLocator::new(source);
         use rustpython_parser::ast::fold::Fold;
         let mut compiler: Compiler = Compiler::new(
             CompileOpts::default(),

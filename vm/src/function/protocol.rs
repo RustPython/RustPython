@@ -1,12 +1,12 @@
 use super::IntoFuncArgs;
 use crate::{
-    builtins::{iter::PySequenceIterator, PyDict, PyDictRef},
+    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyDict, PyDictRef, iter::PySequenceIterator},
     convert::ToPyObject,
     identifier,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterIter, PyMapping, PyMappingMethods},
     types::{AsMapping, GenericMethod},
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::{borrow::Borrow, marker::PhantomData, ops::Deref};
 
@@ -81,7 +81,7 @@ pub struct ArgIterable<T = PyObjectRef> {
 }
 
 unsafe impl<T: Traverse> Traverse for ArgIterable<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.iterable.traverse(tracer_fn)
     }
 }
@@ -143,7 +143,7 @@ impl ArgMapping {
     }
 
     #[inline(always)]
-    pub fn mapping(&self) -> PyMapping {
+    pub fn mapping(&self) -> PyMapping<'_> {
         PyMapping {
             obj: &self.obj,
             methods: self.methods,
@@ -200,7 +200,7 @@ impl TryFromObject for ArgMapping {
 pub struct ArgSequence<T = PyObjectRef>(Vec<T>);
 
 unsafe impl<T: Traverse> Traverse for ArgSequence<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.0.traverse(tracer_fn);
     }
 }

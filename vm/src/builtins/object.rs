@@ -2,11 +2,11 @@ use super::{PyDictRef, PyList, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::common::hash::PyHash;
 use crate::types::PyTypeFlags;
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyResult,
     function::{Either, FuncArgs, PyArithmeticValue, PyComparisonValue, PySetterValue},
     types::{Constructor, PyComparisonOp},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
 

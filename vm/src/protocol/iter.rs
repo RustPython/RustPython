@@ -1,8 +1,8 @@
 use crate::{
+    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
     builtins::iter::PySequenceIterator,
     convert::{ToPyObject, ToPyResult},
     object::{Traverse, TraverseFn},
-    AsObject, PyObject, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
 };
 use std::borrow::Borrow;
 use std::ops::Deref;
@@ -16,7 +16,7 @@ where
     O: Borrow<PyObject>;
 
 unsafe impl<O: Borrow<PyObject>> Traverse for PyIter<O> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.0.borrow().traverse(tracer_fn);
     }
 }
@@ -70,7 +70,7 @@ where
 
 impl PyIter<PyObjectRef> {
     /// Returns an iterator over this sequence of objects.
-    pub fn into_iter<U>(self, vm: &VirtualMachine) -> PyResult<PyIterIter<U, PyObjectRef>> {
+    pub fn into_iter<U>(self, vm: &VirtualMachine) -> PyResult<PyIterIter<'_, U, PyObjectRef>> {
         let length_hint = vm.length_hint_opt(self.as_object().to_owned())?;
         Ok(PyIterIter::new(vm, self.0, length_hint))
     }
@@ -157,7 +157,7 @@ pub enum PyIterReturn<T = PyObjectRef> {
 }
 
 unsafe impl<T: Traverse> Traverse for PyIterReturn<T> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         match self {
             PyIterReturn::Return(r) => r.traverse(tracer_fn),
             PyIterReturn::StopIteration(Some(obj)) => obj.traverse(tracer_fn),
@@ -233,7 +233,7 @@ unsafe impl<T, O> Traverse for PyIterIter<'_, T, O>
 where
     O: Traverse + Borrow<PyObject>,
 {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.obj.traverse(tracer_fn)
     }
 }

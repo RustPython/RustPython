@@ -8,8 +8,8 @@ Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.
 */
 
 use crate::{
-    error::{CodegenError, CodegenErrorType},
     IndexMap,
+    error::{CodegenError, CodegenErrorType},
 };
 use bitflags::bitflags;
 use ruff_python_ast::{
@@ -59,13 +59,16 @@ impl SymbolTable {
         }
     }
 
-    pub fn scan_program(program: &ModModule, source_code: SourceCode) -> SymbolTableResult<Self> {
+    pub fn scan_program(
+        program: &ModModule,
+        source_code: SourceCode<'_>,
+    ) -> SymbolTableResult<Self> {
         let mut builder = SymbolTableBuilder::new(source_code);
         builder.scan_statements(program.body.as_ref())?;
         builder.finish()
     }
 
-    pub fn scan_expr(expr: &ModExpression, source_code: SourceCode) -> SymbolTableResult<Self> {
+    pub fn scan_expr(expr: &ModExpression, source_code: SourceCode<'_>) -> SymbolTableResult<Self> {
         let mut builder = SymbolTableBuilder::new(source_code);
         builder.scan_expression(expr.body.as_ref(), ExpressionContext::Load)?;
         builder.finish()
@@ -82,7 +85,7 @@ pub enum SymbolTableType {
 }
 
 impl fmt::Display for SymbolTableType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SymbolTableType::Module => write!(f, "module"),
             SymbolTableType::Class => write!(f, "class"),
@@ -200,7 +203,7 @@ impl SymbolTable {
 }
 
 impl std::fmt::Debug for SymbolTable {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "SymbolTable({:?} symbols, {:?} sub scopes)",
@@ -510,7 +513,10 @@ impl SymbolTableAnalyzer {
                         // check if assignee is an iterator in top scope
                         if parent_symbol.flags.contains(SymbolFlags::ITER) {
                             return Err(SymbolTableError {
-                                error: format!("assignment expression cannot rebind comprehension iteration variable {}", symbol.name),
+                                error: format!(
+                                    "assignment expression cannot rebind comprehension iteration variable {}",
+                                    symbol.name
+                                ),
                                 location: None,
                             });
                         }
@@ -1492,7 +1498,7 @@ impl SymbolTableBuilder<'_> {
                     return Err(SymbolTableError {
                         error: format!("cannot define nonlocal '{name}' at top level."),
                         location,
-                    })
+                    });
                 }
                 _ => {
                     // Ok!

@@ -16,7 +16,7 @@ permissions:
   contents: write
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,zlib,importlib,encodings,sqlite,ssl
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,encodings,sqlite,ssl
 
 jobs:
   build:
@@ -89,10 +89,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Set up Environment
-        shell: bash
-        run: rustup target add wasm32-wasip1
+        with:
+          targets: wasm32-wasip1
 
       - name: Build RustPython
         run: cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib --release
@@ -105,6 +103,34 @@ jobs:
         with:
           name: rustpython-release-wasm32-wasip1
           path: target/rustpython-release-wasm32-wasip1.wasm
+
+      - name: install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - uses: actions/setup-node@v4
+      - uses: mwilliamson/setup-wabt-action@v3
+        with: { wabt-version: "1.0.30" }
+      - name: build demo
+        run: |
+          npm install
+          npm run dist
+        env:
+          NODE_OPTIONS: "--openssl-legacy-provider"
+        working-directory: ./wasm/demo
+      - name: build notebook demo
+        run: |
+          npm install
+          npm run dist
+          mv dist ../demo/dist/notebook
+        env:
+          NODE_OPTIONS: "--openssl-legacy-provider"
+        working-directory: ./wasm/notebook
+      - name: Deploy demo to Github Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          deploy_key: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
+          publish_dir: ./wasm/demo/dist
+          external_repository: RustPython/demo
+          publish_branch: master
 
   release:
     runs-on: ubuntu-latest

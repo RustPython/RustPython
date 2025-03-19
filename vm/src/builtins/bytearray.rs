@@ -4,12 +4,14 @@ use super::{
     PyType, PyTypeRef,
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
     byte::{bytes_from_object, value_from_object},
     bytesinner::{
-        bytes_decode, ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-        ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
+        ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
+        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
     common::{
@@ -33,8 +35,6 @@ use crate::{
         DefaultConstructor, Initializer, IterNext, Iterable, PyComparisonOp, Representable,
         SelfIter, Unconstructible,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
 };
 use bstr::ByteSlice;
 use std::mem::size_of;

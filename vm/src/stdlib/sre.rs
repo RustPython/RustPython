@@ -3,7 +3,8 @@ pub(crate) use _sre::make_module;
 #[pymodule]
 mod _sre {
     use crate::{
-        atomic_func,
+        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
+        TryFromObject, VirtualMachine, atomic_func,
         builtins::{
             PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyListRef, PyStr,
             PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
@@ -14,16 +15,14 @@ mod _sre {
         protocol::{PyBuffer, PyCallable, PyMappingMethods},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable, Representable},
-        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
-        TryFromObject, VirtualMachine,
     };
     use core::str;
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
     use num_traits::ToPrimitive;
     use rustpython_sre_engine::{
-        string::{lower_ascii, lower_unicode, upper_unicode},
         Request, SearchIter, SreFlag, State, StrDrive,
+        string::{lower_ascii, lower_unicode, upper_unicode},
     };
 
     #[pyattr]
@@ -54,7 +53,7 @@ mod _sre {
     trait SreStr: StrDrive {
         fn slice(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef;
 
-        fn create_request(self, pattern: &Pattern, start: usize, end: usize) -> Request<Self> {
+        fn create_request(self, pattern: &Pattern, start: usize, end: usize) -> Request<'_, Self> {
             Request::new(self, start, end, &pattern.code, false)
         }
     }

@@ -1,4 +1,4 @@
-use crate::{builtins::PyDictRef, function::ArgMapping, VirtualMachine};
+use crate::{VirtualMachine, builtins::PyDictRef, function::ArgMapping};
 use std::fmt;
 
 #[derive(Clone)]
@@ -8,7 +8,7 @@ pub struct Scope {
 }
 
 impl fmt::Debug for Scope {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: have a more informative Debug impl that DOESN'T recurse and cause a stack overflow
         f.write_str("Scope")
     }

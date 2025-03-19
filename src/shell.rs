@@ -1,14 +1,14 @@
 mod helper;
 
 use rustpython_compiler::{
-    parser::lexer::LexicalErrorType, parser::ParseErrorType, CompileError, ParseError,
+    CompileError, ParseError, parser::ParseErrorType, parser::lexer::LexicalErrorType,
 };
 use rustpython_vm::{
+    AsObject, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
     compiler::{self},
     readline::{Readline, ReadlineResult},
     scope::Scope,
-    AsObject, PyResult, VirtualMachine,
 };
 
 enum ShellExecResult {

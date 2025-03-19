@@ -3,9 +3,9 @@ use super::PY_COMPILE_FLAG_AST_ONLY;
 #[pymodule]
 pub(crate) mod _ast {
     use crate::{
+        AsObject, Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyTupleRef},
         function::FuncArgs,
-        AsObject, Context, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     };
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]

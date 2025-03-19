@@ -100,7 +100,7 @@ impl<R: RawMutex, G: GetThreadId, T> From<T> for ThreadMutex<R, G, T> {
     }
 }
 impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
-    pub fn lock(&self) -> Option<ThreadMutexGuard<R, G, T>> {
+    pub fn lock(&self) -> Option<ThreadMutexGuard<'_, R, G, T>> {
         if self.raw.lock() {
             Some(ThreadMutexGuard {
                 mu: self,
@@ -110,7 +110,7 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> ThreadMutex<R, G, T> {
             None
         }
     }
-    pub fn try_lock(&self) -> Result<ThreadMutexGuard<R, G, T>, TryLockThreadError> {
+    pub fn try_lock(&self) -> Result<ThreadMutexGuard<'_, R, G, T>, TryLockThreadError> {
         match self.raw.try_lock() {
             Some(true) => Ok(ThreadMutexGuard {
                 mu: self,
@@ -218,14 +218,14 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> Drop for ThreadMutexGuard<'_, R, G,
 impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Display> fmt::Display
     for ThreadMutexGuard<'_, R, G, T>
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
     for ThreadMutexGuard<'_, R, G, T>
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
@@ -285,14 +285,14 @@ impl<R: RawMutex, G: GetThreadId, T: ?Sized> Drop for MappedThreadMutexGuard<'_,
 impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Display> fmt::Display
     for MappedThreadMutexGuard<'_, R, G, T>
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 impl<R: RawMutex, G: GetThreadId, T: ?Sized + fmt::Debug> fmt::Debug
     for MappedThreadMutexGuard<'_, R, G, T>
 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }

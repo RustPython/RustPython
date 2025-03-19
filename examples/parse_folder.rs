@@ -4,14 +4,10 @@
 ///
 /// example usage:
 /// $ RUST_LOG=info cargo run --release parse_folder /usr/lib/python3.7
-
-#[macro_use]
-extern crate clap;
 extern crate env_logger;
 #[macro_use]
 extern crate log;
 
-use clap::{App, Arg};
 use ruff_python_parser::parse_module;
 use rustpython_compiler::ast;
 use std::{
@@ -21,22 +17,16 @@ use std::{
 
 fn main() {
     env_logger::init();
-    let app = App::new("parse_folders")
-        .version(crate_version!())
-        .author(crate_authors!())
-        .about("Walks over all .py files in a folder, and parses them.")
-        .arg(
-            Arg::with_name("folder")
-                .help("Folder to scan")
-                .required(true),
-        );
-    let matches = app.get_matches();
 
-    let folder = Path::new(matches.value_of("folder").unwrap());
+    let folder: PathBuf = std::env::args_os()
+        .nth(1)
+        .expect("please pass a path argument")
+        .into();
+
     if folder.exists() && folder.is_dir() {
         println!("Parsing folder of python code: {folder:?}");
         let t1 = Instant::now();
-        let parsed_files = parse_folder(folder).unwrap();
+        let parsed_files = parse_folder(&folder).unwrap();
         let t2 = Instant::now();
         let results = ScanResult {
             t1,

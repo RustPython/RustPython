@@ -4,6 +4,7 @@ use crate::common::lock::{
     PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
@@ -18,7 +19,6 @@ use crate::{
     },
     utils::collection_repr,
     vm::VirtualMachine,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
 };
 use std::{fmt, ops::DerefMut};
 
@@ -29,7 +29,7 @@ pub struct PyList {
 }
 
 impl fmt::Debug for PyList {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // TODO: implement more detailed, non-recursive Debug formatter
         f.write_str("list")
     }

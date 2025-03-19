@@ -1,16 +1,18 @@
 use super::{
-    mappingproxy::PyMappingProxy, object, union_, PyClassMethod, PyDictRef, PyList, PyStr,
-    PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    PyClassMethod, PyDictRef, PyList, PyStr, PyStrInterned, PyStrRef, PyTuple, PyTupleRef, PyWeak,
+    mappingproxy::PyMappingProxy, object, union_,
 };
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
     builtins::{
+        PyBaseExceptionRef,
         descriptor::{
             MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMemberDef,
             PyMemberDescriptor,
         },
         function::PyCellRef,
         tuple::{IntoPyTuple, PyTupleTyped},
-        PyBaseExceptionRef,
     },
     class::{PyClassImpl, StaticType},
     common::{
@@ -26,10 +28,8 @@ use crate::{
     types::{
         AsNumber, Callable, Constructor, GetAttr, PyTypeFlags, PyTypeSlots, Representable, SetAttr,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
-    VirtualMachine,
 };
-use indexmap::{map::Entry, IndexMap};
+use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashSet, fmt, ops::Deref, pin::Pin, ptr::NonNull};
 
@@ -45,7 +45,7 @@ pub struct PyType {
 }
 
 unsafe impl crate::object::Traverse for PyType {
-    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
         self.base.traverse(tracer_fn);
         self.bases.traverse(tracer_fn);
         self.mro.traverse(tracer_fn);
@@ -119,7 +119,7 @@ cfg_if::cfg_if! {
 pub type PyAttributes = IndexMap<&'static PyStrInterned, PyObjectRef, ahash::RandomState>;
 
 unsafe impl Traverse for PyAttributes {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.values().for_each(|v| v.traverse(tracer_fn));
     }
 }
@@ -131,7 +131,7 @@ impl fmt::Display for PyType {
 }
 
 impl fmt::Debug for PyType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[PyType {}]", &self.name())
     }
 }
@@ -406,14 +406,14 @@ impl PyType {
         }
     }
 
-    pub fn slot_name(&self) -> BorrowedValue<str> {
+    pub fn slot_name(&self) -> BorrowedValue<'_, str> {
         self.name_inner(
             |name| name.into(),
             |ext| PyRwLockReadGuard::map(ext.name.read(), |name| name.as_str()).into(),
         )
     }
 
-    pub fn name(&self) -> BorrowedValue<str> {
+    pub fn name(&self) -> BorrowedValue<'_, str> {
         self.name_inner(
             |name| name.rsplit_once('.').map_or(name, |(_, name)| name).into(),
             |ext| PyRwLockReadGuard::map(ext.name.read(), |name| name.as_str()).into(),

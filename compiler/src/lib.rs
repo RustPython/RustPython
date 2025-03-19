@@ -2,7 +2,7 @@ use ruff_source_file::SourceLocation;
 use rustpython_codegen::{compile, symboltable};
 
 pub use rustpython_codegen::compile::CompileOpts;
-pub use rustpython_compiler_core::{bytecode::CodeObject, Mode};
+pub use rustpython_compiler_core::{Mode, bytecode::CodeObject};
 use rustpython_compiler_source::SourceCode;
 
 // these modules are out of repository. re-exporting them here for convenience.
@@ -44,7 +44,7 @@ pub enum CompileError {
 }
 
 impl CompileError {
-    pub fn from_ruff_parse_error(error: parser::ParseError, source_code: &SourceCode) -> Self {
+    pub fn from_ruff_parse_error(error: parser::ParseError, source_code: &SourceCode<'_>) -> Self {
         let location = source_code.source_location(error.location.start());
         Self::Parse(ParseError {
             error: error.error,
@@ -111,7 +111,7 @@ pub fn compile(
 }
 
 fn _compile(
-    source_code: SourceCode,
+    source_code: SourceCode<'_>,
     mode: Mode,
     opts: CompileOpts,
 ) -> Result<CodeObject, CompileError> {
@@ -131,7 +131,7 @@ pub fn compile_symtable(
 }
 
 pub fn _compile_symtable(
-    source_code: SourceCode,
+    source_code: SourceCode<'_>,
     mode: Mode,
 ) -> Result<symboltable::SymbolTable, CompileError> {
     let res = match mode {

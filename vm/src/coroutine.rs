@@ -1,9 +1,9 @@
 use crate::{
+    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyStrRef},
     common::lock::PyMutex,
     frame::{ExecutionResult, FrameRef},
     protocol::PyIterReturn,
-    AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
 };
 use crossbeam_utils::atomic::AtomicCell;
 

@@ -5,7 +5,7 @@ use crate::{
     function::PyMethodDef,
     identifier,
     object::Py,
-    types::{hash_not_implemented, PyTypeFlags, PyTypeSlots},
+    types::{PyTypeFlags, PyTypeSlots, hash_not_implemented},
     vm::Context,
 };
 use rustpython_common::static_cell;

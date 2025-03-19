@@ -1,9 +1,9 @@
 use crate::{
+    AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
     builtins::{PyCode, PyDictRef},
     compiler::{self, CompileError, CompileOpts},
     convert::TryFromObject,
     scope::Scope,
-    AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
 };
 
 impl VirtualMachine {

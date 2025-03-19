@@ -10,6 +10,8 @@ use crate::stdlib::ast::module::{Mod, ModInteractive};
 use crate::stdlib::ast::node::BoxedSlice;
 use crate::stdlib::ast::python::_ast;
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
+    TryFromObject, VirtualMachine,
     builtins::PyIntRef,
     builtins::{PyDict, PyModule, PyStrRef, PyType},
     class::{PyClassImpl, StaticType},
@@ -18,8 +20,6 @@ use crate::{
     convert::ToPyObject,
     source::SourceCode,
     source::SourceLocation,
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
-    TryFromObject, VirtualMachine,
 };
 use node::Node;
 use ruff_python_ast as ruff;

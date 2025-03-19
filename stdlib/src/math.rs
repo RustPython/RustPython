@@ -3,9 +3,10 @@ pub(crate) use math::make_module;
 #[pymodule]
 mod math {
     use crate::vm::{
-        builtins::{try_bigint_to_f64, try_f64_to_bigint, PyFloat, PyInt, PyIntRef, PyStrInterned},
+        PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        builtins::{PyFloat, PyInt, PyIntRef, PyStrInterned, try_bigint_to_f64, try_f64_to_bigint},
         function::{ArgIndex, ArgIntoFloat, ArgIterable, Either, OptionalArg, PosArgs},
-        identifier, PyObject, PyObjectRef, PyRef, PyResult, VirtualMachine,
+        identifier,
     };
     use itertools::Itertools;
     use malachite_bigint::BigInt;
@@ -475,21 +476,13 @@ mod math {
     #[pyfunction]
     fn erf(x: ArgIntoFloat) -> f64 {
         let x = *x;
-        if x.is_nan() {
-            x
-        } else {
-            puruspe::erf(x)
-        }
+        if x.is_nan() { x } else { puruspe::erf(x) }
     }
 
     #[pyfunction]
     fn erfc(x: ArgIntoFloat) -> f64 {
         let x = *x;
-        if x.is_nan() {
-            x
-        } else {
-            puruspe::erfc(x)
-        }
+        if x.is_nan() { x } else { puruspe::erfc(x) }
     }
 
     #[pyfunction]

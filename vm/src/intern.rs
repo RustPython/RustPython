@@ -1,8 +1,8 @@
 use crate::{
+    AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, VirtualMachine,
     builtins::{PyStr, PyStrInterned, PyTypeRef},
     common::lock::PyRwLock,
     convert::ToPyObject,
-    AsObject, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, VirtualMachine,
 };
 use std::{
     borrow::{Borrow, ToOwned},

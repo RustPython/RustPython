@@ -17,12 +17,12 @@ pub trait Constant: Sized {
     type Name: AsRef<str>;
 
     /// Transforms the given Constant to a BorrowedConstant
-    fn borrow_constant(&self) -> BorrowedConstant<Self>;
+    fn borrow_constant(&self) -> BorrowedConstant<'_, Self>;
 }
 
 impl Constant for ConstantData {
     type Name = String;
-    fn borrow_constant(&self) -> BorrowedConstant<Self> {
+    fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
         use BorrowedConstant::*;
         match self {
             ConstantData::Integer { value } => Integer { value },
@@ -42,7 +42,7 @@ impl Constant for ConstantData {
 /// A Constant Bag
 pub trait ConstantBag: Sized + Copy {
     type Constant: Constant;
-    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant;
+    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant;
     fn make_int(&self, value: BigInt) -> Self::Constant;
     fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant;
     fn make_code(&self, code: CodeObject<Self::Constant>) -> Self::Constant;
@@ -67,7 +67,7 @@ pub struct BasicBag;
 
 impl ConstantBag for BasicBag {
     type Constant = ConstantData;
-    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<C>) -> Self::Constant {
+    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant {
         constant.to_owned()
     }
     fn make_int(&self, value: BigInt) -> Self::Constant {
@@ -308,7 +308,7 @@ impl<T: OpArgType> PartialEq for Arg<T> {
 impl<T: OpArgType> Eq for Arg<T> {}
 
 impl<T: OpArgType> fmt::Debug for Arg<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Arg<{}>", std::any::type_name::<T>())
     }
 }
@@ -331,7 +331,7 @@ impl OpArgType for Label {
 }
 
 impl fmt::Display for Label {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
@@ -754,7 +754,7 @@ impl<C: Constant> Clone for BorrowedConstant<'_, C> {
 }
 
 impl<C: Constant> BorrowedConstant<'_, C> {
-    pub fn fmt_display(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    pub fn fmt_display(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BorrowedConstant::Integer { value } => write!(f, "{value}"),
             BorrowedConstant::Float { value } => write!(f, "{value}"),
@@ -941,7 +941,7 @@ impl<N: AsRef<str>> fmt::Debug for Arguments<'_, N> {
 impl<C: Constant> CodeObject<C> {
     /// Get all arguments of the code object
     /// like inspect.getargs
-    pub fn arg_names(&self) -> Arguments<C::Name> {
+    pub fn arg_names(&self) -> Arguments<'_, C::Name> {
         let nargs = self.arg_count as usize;
         let nkwargs = self.kwonlyarg_count as usize;
         let mut varargs_pos = nargs + nkwargs;
@@ -986,7 +986,7 @@ impl<C: Constant> CodeObject<C> {
 
     fn display_inner(
         &self,
-        f: &mut fmt::Formatter,
+        f: &mut fmt::Formatter<'_>,
         expand_code_objects: bool,
         level: usize,
     ) -> fmt::Result {
@@ -1036,7 +1036,7 @@ impl<C: Constant> CodeObject<C> {
     pub fn display_expand_code_objects(&self) -> impl fmt::Display + '_ {
         struct Display<'a, C: Constant>(&'a CodeObject<C>);
         impl<C: Constant> fmt::Display for Display<'_, C> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 self.0.display_inner(f, true, 1)
             }
         }
@@ -1109,7 +1109,7 @@ impl<C: Constant> CodeObject<C> {
 }
 
 impl<C: Constant> fmt::Display for CodeObject<C> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.display_inner(f, false, 1)?;
         for constant in &*self.constants {
             if let BorrowedConstant::Code { code } = constant.borrow_constant() {
@@ -1304,19 +1304,19 @@ impl Instruction {
         ctx: &'a impl InstrDisplayContext,
     ) -> impl fmt::Display + 'a {
         struct FmtFn<F>(F);
-        impl<F: Fn(&mut fmt::Formatter) -> fmt::Result> fmt::Display for FmtFn<F> {
-            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        impl<F: Fn(&mut fmt::Formatter<'_>) -> fmt::Result> fmt::Display for FmtFn<F> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 (self.0)(f)
             }
         }
-        FmtFn(move |f: &mut fmt::Formatter| self.fmt_dis(arg, f, ctx, false, 0, 0))
+        FmtFn(move |f: &mut fmt::Formatter<'_>| self.fmt_dis(arg, f, ctx, false, 0, 0))
     }
 
     #[allow(clippy::too_many_arguments)]
     fn fmt_dis(
         &self,
         arg: OpArg,
-        f: &mut fmt::Formatter,
+        f: &mut fmt::Formatter<'_>,
         ctx: &impl InstrDisplayContext,
         expand_code_objects: bool,
         pad: usize,
@@ -1348,7 +1348,7 @@ impl Instruction {
         let cell_name = |i: u32| ctx.get_cell_name(i as usize);
 
         let fmt_const =
-            |op: &str, arg: OpArg, f: &mut fmt::Formatter, idx: &Arg<u32>| -> fmt::Result {
+            |op: &str, arg: OpArg, f: &mut fmt::Formatter<'_>, idx: &Arg<u32>| -> fmt::Result {
                 let value = ctx.get_constant(idx.get(arg) as usize);
                 match value.borrow_constant() {
                     BorrowedConstant::Code { code } if expand_code_objects => {
@@ -1498,13 +1498,13 @@ impl<C: Constant> InstrDisplayContext for CodeObject<C> {
 }
 
 impl fmt::Display for ConstantData {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.borrow_constant().fmt_display(f)
     }
 }
 
 impl<C: Constant> fmt::Debug for CodeObject<C> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "<code object {} at ??? file {:?}, line {}>",

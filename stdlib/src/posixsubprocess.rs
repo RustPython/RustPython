@@ -28,7 +28,7 @@ mod _posixsubprocess {
     use rustpython_vm::{AsObject, TryFromBorrowedObject};
 
     use super::*;
-    use crate::vm::{convert::IntoPyException, PyResult, VirtualMachine};
+    use crate::vm::{PyResult, VirtualMachine, convert::IntoPyException};
 
     #[pyfunction]
     fn fork_exec(args: ForkExecArgs, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
@@ -152,7 +152,7 @@ struct ProcArgs<'a> {
     extra_groups: Option<&'a [Gid]>,
 }
 
-fn exec(args: &ForkExecArgs, procargs: ProcArgs) -> ! {
+fn exec(args: &ForkExecArgs, procargs: ProcArgs<'_>) -> ! {
     let mut ctx = ExecErrorContext::NoExec;
     match exec_inner(args, procargs, &mut ctx) {
         Ok(x) => match x {},
@@ -183,7 +183,7 @@ impl ExecErrorContext {
 
 fn exec_inner(
     args: &ForkExecArgs,
-    procargs: ProcArgs,
+    procargs: ProcArgs<'_>,
     ctx: &mut ExecErrorContext,
 ) -> nix::Result<Never> {
     for &fd in args.fds_to_keep.as_slice() {

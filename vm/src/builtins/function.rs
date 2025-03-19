@@ -2,8 +2,8 @@
 mod jitfunc;
 
 use super::{
-    tuple::PyTupleTyped, PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef,
-    PyTupleRef, PyType, PyTypeRef,
+    PyAsyncGen, PyCode, PyCoroutine, PyDictRef, PyGenerator, PyStr, PyStrRef, PyTupleRef, PyType,
+    PyTypeRef, tuple::PyTupleTyped,
 };
 #[cfg(feature = "jit")]
 use crate::common::lock::OnceCell;
@@ -12,6 +12,7 @@ use crate::convert::ToPyObject;
 use crate::function::ArgMapping;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     bytecode,
     class::PyClassImpl,
     frame::Frame,
@@ -20,7 +21,6 @@ use crate::{
     types::{
         Callable, Comparable, Constructor, GetAttr, GetDescriptor, PyComparisonOp, Representable,
     },
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use itertools::Itertools;
 #[cfg(feature = "jit")]
@@ -44,7 +44,7 @@ pub struct PyFunction {
 }
 
 unsafe impl Traverse for PyFunction {
-    fn traverse(&self, tracer_fn: &mut TraverseFn) {
+    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.globals.traverse(tracer_fn);
         self.closure.traverse(tracer_fn);
         self.defaults_and_kwdefaults.traverse(tracer_fn);

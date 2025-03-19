@@ -3,7 +3,7 @@ pub(crate) use atexit::make_module;
 
 #[pymodule]
 mod atexit {
-    use crate::{function::FuncArgs, AsObject, PyObjectRef, PyResult, VirtualMachine};
+    use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine, function::FuncArgs};
 
     #[pyfunction]
     fn register(func: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {

@@ -1,4 +1,4 @@
-use crate::{builtins::PyModule, PyRef, VirtualMachine};
+use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub use module::raw_set_handle_inheritable;
 
@@ -11,13 +11,13 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 #[pymodule(name = "nt", with(super::os::_os))]
 pub(crate) mod module {
     use crate::{
+        PyResult, TryFromObject, VirtualMachine,
         builtins::{PyDictRef, PyListRef, PyStrRef, PyTupleRef},
         common::{crt_fd::Fd, os::last_os_error, suppress_iph},
         convert::ToPyException,
         function::{Either, OptionalArg},
         ospath::OsPath,
-        stdlib::os::{errno_err, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, _os},
-        PyResult, TryFromObject, VirtualMachine,
+        stdlib::os::{_os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, errno_err},
     };
     use libc::intptr_t;
     use std::{
@@ -150,7 +150,7 @@ pub(crate) mod module {
         }
 
         let h = unsafe { Threading::OpenProcess(Threading::PROCESS_ALL_ACCESS, 0, pid) };
-        if h == 0 {
+        if h.is_null() {
             return Err(errno_err(vm));
         }
         let ret = unsafe { Threading::TerminateProcess(h, sig) };
@@ -172,7 +172,7 @@ pub(crate) mod module {
                 _ => return Err(vm.new_value_error("bad file descriptor".to_owned())),
             };
             let h = unsafe { Console::GetStdHandle(stdhandle) };
-            if h == 0 {
+            if h.is_null() {
                 return Err(vm.new_os_error("handle cannot be retrieved".to_owned()));
             }
             if h == INVALID_HANDLE_VALUE {

@@ -1,5 +1,6 @@
-use super::{float, PyStr, PyType, PyTypeRef};
+use super::{PyStr, PyType, PyTypeRef, float};
 use crate::{
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::{ToPyObject, ToPyResult},
     function::{
@@ -11,7 +12,6 @@ use crate::{
     protocol::PyNumberMethods,
     stdlib::warnings,
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
-    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
 };
 use num_complex::Complex64;
 use num_traits::Zero;

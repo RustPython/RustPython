@@ -5,7 +5,7 @@
 pub use libc::stat as StatStruct;
 
 #[cfg(windows)]
-pub use windows::{fstat, StatStruct};
+pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
 pub fn fstat(fd: libc::c_int) -> std::io::Result<StatStruct> {
@@ -28,19 +28,19 @@ pub mod windows {
     use std::ffi::{CString, OsStr, OsString};
     use std::os::windows::ffi::OsStrExt;
     use std::sync::OnceLock;
-    use windows_sys::core::PCWSTR;
     use windows_sys::Win32::Foundation::{
-        FreeLibrary, SetLastError, BOOL, ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME,
-        HANDLE, INVALID_HANDLE_VALUE,
+        BOOL, ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, HANDLE,
+        INVALID_HANDLE_VALUE, SetLastError,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        FileBasicInfo, FileIdInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
-        GetFileType, BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY,
+        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_BASIC_INFO, FILE_ID_INFO, FILE_TYPE_CHAR,
-        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN,
+        FILE_TYPE_DISK, FILE_TYPE_PIPE, FILE_TYPE_UNKNOWN, FileBasicInfo, FileIdInfo,
+        GetFileInformationByHandle, GetFileInformationByHandleEx, GetFileType,
     };
     use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_SYMLINK;
+    use windows_sys::core::PCWSTR;
 
     pub const S_IFIFO: libc::c_int = 0o010000;
     pub const S_IFLNK: libc::c_int = 0o120000;
@@ -116,7 +116,7 @@ pub mod windows {
         let h = h?;
         // reset stat?
 
-        let file_type = unsafe { GetFileType(h) };
+        let file_type = unsafe { GetFileType(h as _) };
         if file_type == FILE_TYPE_UNKNOWN {
             return Err(std::io::Error::last_os_error());
         }
@@ -138,10 +138,10 @@ pub mod windows {
         let mut basic_info: FILE_BASIC_INFO = unsafe { std::mem::zeroed() };
         let mut id_info: FILE_ID_INFO = unsafe { std::mem::zeroed() };
 
-        if unsafe { GetFileInformationByHandle(h, &mut info) } == 0
+        if unsafe { GetFileInformationByHandle(h as _, &mut info) } == 0
             || unsafe {
                 GetFileInformationByHandleEx(
-                    h,
+                    h as _,
                     FileBasicInfo,
                     &mut basic_info as *mut _ as *mut _,
                     std::mem::size_of_val(&basic_info) as u32,
@@ -153,7 +153,7 @@ pub mod windows {
 
         let p_id_info = if unsafe {
             GetFileInformationByHandleEx(
-                h,
+                h as _,
                 FileIdInfo,
                 &mut id_info as *mut _ as *mut _,
                 std::mem::size_of_val(&id_info) as u32,
@@ -320,7 +320,7 @@ pub mod windows {
             .get_or_init(|| {
                 let library_name = OsString::from("api-ms-win-core-file-l2-1-4").to_wide_with_nul();
                 let module = unsafe { LoadLibraryW(library_name.as_ptr()) };
-                if module == 0 {
+                if module.is_null() {
                     return None;
                 }
                 let name = CString::new("GetFileInformationByName").unwrap();

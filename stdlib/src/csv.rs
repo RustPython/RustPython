@@ -4,11 +4,11 @@ pub(crate) use _csv::make_module;
 mod _csv {
     use crate::common::lock::PyMutex;
     use crate::vm::{
+        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyNone, PyStr, PyType, PyTypeError, PyTypeRef},
         function::{ArgIterable, ArgumentError, FromArgs, FuncArgs, OptionalArg},
         protocol::{PyIter, PyIterReturn},
         types::{Constructor, IterNext, Iterable, SelfIter},
-        AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     };
     use csv_core::Terminator;
     use itertools::{self, Itertools};
@@ -396,7 +396,7 @@ mod _csv {
             Some(write_meth) => write_meth,
             None if file.is_callable() => file,
             None => {
-                return Err(vm.new_type_error("argument 1 must have a \"write\" method".to_owned()))
+                return Err(vm.new_type_error("argument 1 must have a \"write\" method".to_owned()));
             }
         };
 
@@ -910,7 +910,7 @@ mod _csv {
     }
 
     impl fmt::Debug for Reader {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "_csv.reader")
         }
     }
@@ -995,7 +995,7 @@ mod _csv {
                     csv_core::ReadRecordResult::OutputEndsFull => resize_buf(output_ends),
                     csv_core::ReadRecordResult::Record => break,
                     csv_core::ReadRecordResult::End => {
-                        return Ok(PyIterReturn::StopIteration(None))
+                        return Ok(PyIterReturn::StopIteration(None));
                     }
                 }
             }
@@ -1064,7 +1064,7 @@ mod _csv {
     }
 
     impl fmt::Debug for Writer {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "_csv.writer")
         }
     }

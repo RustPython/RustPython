@@ -69,7 +69,7 @@ pub fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
 #[allow(dead_code)]
 #[cfg(not(target_arch = "wasm32"))]
 pub fn set_interrupt_ex(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
-    use crate::stdlib::signal::_signal::{run_signal, SIG_DFL, SIG_IGN};
+    use crate::stdlib::signal::_signal::{SIG_DFL, SIG_IGN, run_signal};
     assert_in_range(signum, vm)?;
 
     match signum as usize {
@@ -107,14 +107,14 @@ impl UserSignalSender {
 pub struct UserSignalSendError(pub UserSignal);
 
 impl fmt::Debug for UserSignalSendError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("UserSignalSendError")
             .finish_non_exhaustive()
     }
 }
 
 impl fmt::Display for UserSignalSendError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("sending a signal to a exited vm")
     }
 }

@@ -8,7 +8,7 @@
 // spell-checker:ignore cantlock commithook foreignkey notnull primarykey gettemppath autoindex convpath
 // spell-checker:ignore dbmoved vnode nbytes
 
-use rustpython_vm::{builtins::PyModule, AsObject, PyRef, VirtualMachine};
+use rustpython_vm::{AsObject, PyRef, VirtualMachine, builtins::PyModule};
 
 // pub(crate) use _sqlite::make_module;
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
@@ -21,29 +21,29 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 #[pymodule]
 mod _sqlite {
     use libsqlite3_sys::{
-        sqlite3, sqlite3_aggregate_context, sqlite3_backup_finish, sqlite3_backup_init,
-        sqlite3_backup_pagecount, sqlite3_backup_remaining, sqlite3_backup_step, sqlite3_bind_blob,
-        sqlite3_bind_double, sqlite3_bind_int64, sqlite3_bind_null, sqlite3_bind_parameter_count,
-        sqlite3_bind_parameter_name, sqlite3_bind_text, sqlite3_blob, sqlite3_blob_bytes,
-        sqlite3_blob_close, sqlite3_blob_open, sqlite3_blob_read, sqlite3_blob_write,
-        sqlite3_busy_timeout, sqlite3_changes, sqlite3_close_v2, sqlite3_column_blob,
-        sqlite3_column_bytes, sqlite3_column_count, sqlite3_column_decltype, sqlite3_column_double,
-        sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text, sqlite3_column_type,
-        sqlite3_complete, sqlite3_context, sqlite3_context_db_handle, sqlite3_create_collation_v2,
-        sqlite3_create_function_v2, sqlite3_create_window_function, sqlite3_data_count,
-        sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec, sqlite3_expanded_sql,
-        sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt,
-        sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit, sqlite3_open_v2,
-        sqlite3_prepare_v2, sqlite3_progress_handler, sqlite3_reset, sqlite3_result_blob,
-        sqlite3_result_double, sqlite3_result_error, sqlite3_result_error_nomem,
-        sqlite3_result_error_toobig, sqlite3_result_int64, sqlite3_result_null,
-        sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep, sqlite3_step, sqlite3_stmt,
-        sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe, sqlite3_total_changes,
-        sqlite3_trace_v2, sqlite3_user_data, sqlite3_value, sqlite3_value_blob,
-        sqlite3_value_bytes, sqlite3_value_double, sqlite3_value_int64, sqlite3_value_text,
-        sqlite3_value_type, SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER,
-        SQLITE_NULL, SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT,
-        SQLITE_TRACE_STMT, SQLITE_TRANSIENT, SQLITE_UTF8,
+        SQLITE_BLOB, SQLITE_DETERMINISTIC, SQLITE_FLOAT, SQLITE_INTEGER, SQLITE_NULL,
+        SQLITE_OPEN_CREATE, SQLITE_OPEN_READWRITE, SQLITE_OPEN_URI, SQLITE_TEXT, SQLITE_TRACE_STMT,
+        SQLITE_TRANSIENT, SQLITE_UTF8, sqlite3, sqlite3_aggregate_context, sqlite3_backup_finish,
+        sqlite3_backup_init, sqlite3_backup_pagecount, sqlite3_backup_remaining,
+        sqlite3_backup_step, sqlite3_bind_blob, sqlite3_bind_double, sqlite3_bind_int64,
+        sqlite3_bind_null, sqlite3_bind_parameter_count, sqlite3_bind_parameter_name,
+        sqlite3_bind_text, sqlite3_blob, sqlite3_blob_bytes, sqlite3_blob_close, sqlite3_blob_open,
+        sqlite3_blob_read, sqlite3_blob_write, sqlite3_busy_timeout, sqlite3_changes,
+        sqlite3_close_v2, sqlite3_column_blob, sqlite3_column_bytes, sqlite3_column_count,
+        sqlite3_column_decltype, sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name,
+        sqlite3_column_text, sqlite3_column_type, sqlite3_complete, sqlite3_context,
+        sqlite3_context_db_handle, sqlite3_create_collation_v2, sqlite3_create_function_v2,
+        sqlite3_create_window_function, sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode,
+        sqlite3_errmsg, sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode,
+        sqlite3_finalize, sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid,
+        sqlite3_libversion, sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2,
+        sqlite3_progress_handler, sqlite3_reset, sqlite3_result_blob, sqlite3_result_double,
+        sqlite3_result_error, sqlite3_result_error_nomem, sqlite3_result_error_toobig,
+        sqlite3_result_int64, sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer,
+        sqlite3_sleep, sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly,
+        sqlite3_threadsafe, sqlite3_total_changes, sqlite3_trace_v2, sqlite3_user_data,
+        sqlite3_value, sqlite3_value_blob, sqlite3_value_bytes, sqlite3_value_double,
+        sqlite3_value_int64, sqlite3_value_text, sqlite3_value_type,
     };
     use malachite_bigint::Sign;
     use rustpython_common::{
@@ -53,13 +53,16 @@ mod _sqlite {
         static_cell,
     };
     use rustpython_vm::{
-        atomic_func,
+        __exports::paste,
+        AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
+        TryFromBorrowedObject, VirtualMachine, atomic_func,
         builtins::{
             PyBaseException, PyBaseExceptionRef, PyByteArray, PyBytes, PyDict, PyDictRef, PyFloat,
             PyInt, PyIntRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         },
         convert::IntoObject,
         function::{ArgCallable, ArgIterable, FsPath, FuncArgs, OptionalArg, PyComparisonValue},
+        object::{Traverse, TraverseFn},
         protocol::{PyBuffer, PyIterReturn, PyMappingMethods, PySequence, PySequenceMethods},
         sliceable::{SaturatedSliceIter, SliceableSequenceOp},
         types::{
@@ -67,16 +70,12 @@ mod _sqlite {
             PyComparisonOp, SelfIter,
         },
         utils::ToCString,
-        AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-        TryFromBorrowedObject, VirtualMachine,
-        __exports::paste,
-        object::{Traverse, TraverseFn},
     };
     use std::{
-        ffi::{c_int, c_longlong, c_uint, c_void, CStr},
+        ffi::{CStr, c_int, c_longlong, c_uint, c_void},
         fmt::Debug,
         ops::Deref,
-        ptr::{null, null_mut, NonNull},
+        ptr::{NonNull, null, null_mut},
         thread::ThreadId,
     };
 
@@ -317,7 +316,7 @@ mod _sqlite {
     }
 
     unsafe impl Traverse for ConnectArgs {
-        fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
             self.isolation_level.traverse(tracer_fn);
             self.factory.traverse(tracer_fn);
         }
@@ -338,7 +337,7 @@ mod _sqlite {
     }
 
     unsafe impl Traverse for BackupArgs {
-        fn traverse(&self, tracer_fn: &mut TraverseFn) {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
             self.progress.traverse(tracer_fn);
             self.name.traverse(tracer_fn);
         }
@@ -445,7 +444,7 @@ mod _sqlite {
                             vm,
                             exc,
                             "user-defined aggregate's '__init__' method raised error\0",
-                        )
+                        );
                     }
                 }
             }
@@ -868,12 +867,12 @@ mod _sqlite {
             })
         }
 
-        fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<Sqlite>> {
+        fn db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, Sqlite>> {
             self.check_thread(vm)?;
             self._db_lock(vm)
         }
 
-        fn _db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<Sqlite>> {
+        fn _db_lock(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, Sqlite>> {
             let guard = self.db.lock();
             if guard.is_some() {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
@@ -1438,7 +1437,7 @@ mod _sqlite {
             }
         }
 
-        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<CursorInner>> {
+        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, CursorInner>> {
             let guard = self.inner.lock();
             if guard.is_some() {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
@@ -2082,7 +2081,7 @@ mod _sqlite {
                 _ => {
                     return Err(vm.new_value_error(
                         "'origin' should be os.SEEK_SET, os.SEEK_CUR, or os.SEEK_END".to_owned(),
-                    ))
+                    ));
                 }
             }
 
@@ -2104,7 +2103,7 @@ mod _sqlite {
             self.close()
         }
 
-        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<BlobInner>> {
+        fn inner(&self, vm: &VirtualMachine) -> PyResult<PyMappedMutexGuard<'_, BlobInner>> {
             let guard = self.inner.lock();
             if guard.is_some() {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
@@ -2315,7 +2314,7 @@ mod _sqlite {
             }))
         }
 
-        fn lock(&self) -> PyMutexGuard<SqliteStatement> {
+        fn lock(&self) -> PyMutexGuard<'_, SqliteStatement> {
             self.st.lock()
         }
     }
@@ -2676,7 +2675,11 @@ mod _sqlite {
             Ok(())
         }
 
-        fn bind_parameters_sequence(self, seq: PySequence, vm: &VirtualMachine) -> PyResult<()> {
+        fn bind_parameters_sequence(
+            self,
+            seq: PySequence<'_>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             let num_needed = unsafe { sqlite3_bind_parameter_count(self.st) };
             if seq.length(vm)? != num_needed as usize {
                 return Err(new_programming_error(
