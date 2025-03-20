@@ -255,7 +255,7 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
                 value: ruff::StringLiteralValue::single(ruff::StringLiteral {
                     range,
                     value,
-                    flags: ruff::StringLiteralFlags::default().with_prefix(prefix),
+                    flags: ruff::StringLiteralFlags::empty().with_prefix(prefix),
                 }),
             })
         }
@@ -265,7 +265,7 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
                 value: ruff::BytesLiteralValue::single(ruff::BytesLiteral {
                     range,
                     value,
-                    flags: Default::default(), // TODO
+                    flags: ruff::BytesLiteralFlags::empty(), // TODO
                 }),
             })
         }
@@ -293,7 +293,7 @@ fn constant_to_ruff_expr(value: Constant) -> ruff::Expr {
             // idk lol
             func: Box::new(ruff::Expr::Name(ruff::ExprName {
                 range: TextRange::default(),
-                id: "frozenset".to_owned(),
+                id: ruff::name::Name::new_static("frozenset"),
                 ctx: ruff::ExprContext::Load,
             })),
             arguments: ruff::Arguments {

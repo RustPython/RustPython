@@ -2029,8 +2029,7 @@ impl Compiler<'_> {
         if self.future_annotations {
             // FIXME: codegen?
             let ident = Default::default();
-            let codegen =
-                ruff_python_codegen::Generator::new(&ident, Default::default(), Default::default());
+            let codegen = ruff_python_codegen::Generator::new(&ident, Default::default());
             self.emit_load_const(ConstantData::Str {
                 value: codegen.expr(annotation),
             });
@@ -3595,18 +3594,19 @@ impl ToU32 for usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ruff_python_ast::name::Name;
     use ruff_python_ast::*;
 
     /// Test if the compiler can correctly identify fstrings containing an `await` expression.
     #[test]
     fn test_fstring_contains_await() {
         let range = TextRange::default();
-        let flags = FStringFlags::default();
+        let flags = FStringFlags::empty();
 
         // f'{x}'
         let expr_x = Expr::Name(ExprName {
             range,
-            id: "x".to_owned(),
+            id: Name::new("x"),
             ctx: ExprContext::Load,
         });
         let not_present = &Expr::FString(ExprFString {
@@ -3631,7 +3631,7 @@ mod tests {
             range,
             value: Box::new(Expr::Name(ExprName {
                 range,
-                id: "x".to_owned(),
+                id: Name::new("x"),
                 ctx: ExprContext::Load,
             })),
         });
@@ -3655,14 +3655,14 @@ mod tests {
         // f'{x:{await y}}'
         let expr_x = Expr::Name(ExprName {
             range,
-            id: "x".to_owned(),
+            id: Name::new("x"),
             ctx: ExprContext::Load,
         });
         let expr_await_y = Expr::Await(ExprAwait {
             range,
             value: Box::new(Expr::Name(ExprName {
                 range,
-                id: "y".to_owned(),
+                id: Name::new("y"),
                 ctx: ExprContext::Load,
             })),
         });

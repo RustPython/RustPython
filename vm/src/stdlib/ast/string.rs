@@ -7,7 +7,7 @@ fn ruff_fstring_value_into_iter(
     let default = ruff::FStringPart::FString(ruff::FString {
         range: Default::default(),
         elements: Default::default(),
-        flags: Default::default(),
+        flags: ruff::FStringFlags::empty(),
     });
     (0..fstring_value.as_slice().len()).map(move |i| {
         let fstring_value = &mut fstring_value;
@@ -100,7 +100,7 @@ fn ruff_fstring_element_to_ruff_fstring_part(element: ruff::FStringElement) -> r
             ruff::FStringPart::Literal(ruff::StringLiteral {
                 range,
                 value,
-                flags: Default::default(),
+                flags: ruff::StringLiteralFlags::empty(),
             })
         }
         ruff::FStringElement::Expression(value) => {
@@ -123,7 +123,7 @@ fn ruff_fstring_element_to_ruff_fstring_part(element: ruff::FStringElement) -> r
                     },
                 )]
                 .into(),
-                flags: Default::default(),
+                flags: ruff::FStringFlags::empty(),
             })
         }
     }
@@ -164,7 +164,7 @@ impl JoinedStr {
                 0 => ruff::FStringValue::single(ruff::FString {
                     range,
                     elements: vec![].into(),
-                    flags: Default::default(),
+                    flags: ruff::FStringFlags::empty(),
                 }),
                 1 => ruff::FStringValue::single(
                     Box::<[_]>::into_iter(values)
@@ -172,7 +172,7 @@ impl JoinedStr {
                         .map(|element| ruff::FString {
                             range,
                             elements: vec![element].into(),
-                            flags: Default::default(),
+                            flags: ruff::FStringFlags::empty(),
                         })
                         .next()
                         .expect("FString has exactly one part"),

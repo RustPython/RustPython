@@ -270,7 +270,7 @@ impl VirtualMachine {
             crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
                 error:
                     ruff_python_parser::ParseErrorType::Lexical(
-                        ruff_python_parser::lexer::LexicalErrorType::IndentationError,
+                        ruff_python_parser::LexicalErrorType::IndentationError,
                     ),
                 ..
             }) => self.ctx.exceptions.tab_error,

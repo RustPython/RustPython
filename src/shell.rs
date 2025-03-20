@@ -1,7 +1,7 @@
 mod helper;
 
 use rustpython_compiler::{
-    CompileError, ParseError, parser::ParseErrorType, parser::lexer::LexicalErrorType,
+    CompileError, ParseError, parser::LexicalErrorType, parser::ParseErrorType,
 };
 use rustpython_vm::{
     AsObject, PyResult, VirtualMachine,

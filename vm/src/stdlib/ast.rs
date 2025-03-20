@@ -242,7 +242,7 @@ pub(crate) fn parse(
     mode: parser::Mode,
 ) -> Result<PyObjectRef, CompileError> {
     let source_code = SourceCodeOwned::new("".to_owned(), source.to_owned());
-    let top = parser::parse(source, mode)
+    let top = parser::parse(source, mode.into())
         .map_err(|parse_error| ParseError {
             error: parse_error.error,
             location: text_range_to_source_range(&source_code, parse_error.location)

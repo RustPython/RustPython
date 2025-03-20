@@ -122,11 +122,11 @@ rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.
 rustpython-sre_engine = { path = "vm/sre_engine", version = "0.4.0" }
 rustpython-doc = { git = "https://github.com/RustPython/__doc__", tag = "0.3.0", version = "0.3.0" }
 
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", tag = "v0.4.10" }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", tag = "v0.4.10" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", tag = "v0.4.10" }
-ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "v0.4.10" }
-ruff_python_codegen = { git = "https://github.com/astral-sh/ruff.git", tag = "v0.4.10" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
+ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
+ruff_python_codegen = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
 # rustpython-literal = { version = "0.4.0" }
 # rustpython-parser-core = { version = "0.4.0" }
 # rustpython-parser = { version = "0.4.0" }

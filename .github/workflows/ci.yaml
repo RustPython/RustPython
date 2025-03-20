@@ -132,6 +132,7 @@ jobs:
       - name: Set up the Windows environment
         shell: bash
         run: |
+          git config --system core.longpaths true
           cargo install --target-dir=target -v cargo-vcpkg
           cargo vcpkg -v build
         if: runner.os == 'Windows'
@@ -255,6 +256,7 @@ jobs:
       - name: Set up the Windows environment
         shell: bash
         run: |
+          git config --system core.longpaths true
           cargo install cargo-vcpkg
           cargo vcpkg build
         if: runner.os == 'Windows'

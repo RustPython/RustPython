@@ -977,7 +977,7 @@ impl Node for ruff::ExprName {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
-            id: get_node_field(vm, &object, "id", "Name")?.try_into_value(vm)?,
+            id: Node::ast_from_object(vm, source_code, get_node_field(vm, &object, "id", "Name")?)?,
             ctx: Node::ast_from_object(
                 vm,
                 source_code,
