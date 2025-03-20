@@ -351,7 +351,18 @@ impl ExecutingFrame<'_> {
         // Execute until return or exception:
         let instrs = &self.code.instructions;
         let mut arg_state = bytecode::OpArgState::default();
+        #[allow(unused_variables)]
+        #[allow(unused_mut)]
+        let mut gc_count = 0;
         loop {
+            #[cfg(feature = "gc")]
+            {
+                gc_count += 1;
+                if gc_count > 1000 {
+                    crate::object::gc::try_gc();
+                    gc_count = 0;
+                }
+            }
             let idx = self.lasti() as usize;
             // eprintln!(
             //     "location: {:?} {}",
