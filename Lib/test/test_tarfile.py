@@ -1274,7 +1274,6 @@ class WriteTest(WriteTestBase, unittest.TestCase):
             self.assertEqual(tarinfo.name, tarinfo2.name)
             self.assertEqual(tarinfo.size, 3)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(hasattr(os, "link"),
                          "Missing hardlink implementation")
     def test_link_size(self):
@@ -1299,7 +1298,6 @@ class WriteTest(WriteTestBase, unittest.TestCase):
             os_helper.unlink(target)
             os_helper.unlink(link)
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_symlink_size(self):
         path = os.path.join(TEMPDIR, "symlink")
@@ -1847,7 +1845,6 @@ class HardlinkTest(unittest.TestCase):
         self.assertEqual(tarinfo.type, tarfile.REGTYPE,
                 "add file as regular failed")
 
-    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_add_hardlink(self):
         tarinfo = self.tar.gettarinfo(self.bar)
         self.assertEqual(tarinfo.type, tarfile.LNKTYPE,
