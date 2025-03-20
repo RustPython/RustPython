@@ -34,12 +34,6 @@ mod _tkinter {
         Ok(main_loop())
     }
 
-    // TODO: Remove once enough has been implemented.
-    #[pyfunction]
-    fn tk_demo() {
-        let _ = demo();
-    }
-
     #[pyattr(once, name = "TclError")]
     fn tcl_error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
