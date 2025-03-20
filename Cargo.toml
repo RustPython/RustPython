@@ -94,8 +94,8 @@ x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies =
 [workspace]
 resolver = "2"
 members = [
-    "compiler", "compiler/core", "compiler/codegen", "compiler/source",
-    ".", "common", "format", "derive", "jit", "literal", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl",
+    "compiler", "compiler/core", "compiler/codegen", "compiler/literal", "compiler/source",
+    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl",
     "wasm/lib",
 ]
 
@@ -115,9 +115,8 @@ rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
 rustpython-common = { path = "common", version = "0.4.0" }
 rustpython-derive = { path = "derive", version = "0.4.0" }
 rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
-rustpython-format = { path = "format", version = "0.4.0" }
 rustpython-jit = { path = "jit", version = "0.4.0" }
-rustpython-literal = { path = "literal", version = "0.4.0" }
+rustpython-literal = { path = "compiler/literal", version = "0.4.0" }
 rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
 rustpython-pylib = { path = "pylib", version = "0.4.0" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }

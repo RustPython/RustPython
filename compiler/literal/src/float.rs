@@ -53,7 +53,7 @@ fn trim_slice<T>(v: &[T], mut trim: impl FnMut(&T) -> bool) -> &[T] {
 
 fn parse_inner(literal: &[u8]) -> Option<f64> {
     use lexical_parse_float::{
-        format::PYTHON3_LITERAL, FromLexicalWithOptions, NumberFormatBuilder, Options,
+        FromLexicalWithOptions, NumberFormatBuilder, Options, format::PYTHON3_LITERAL,
     };
 
     // Use custom function for underline handling for now.
@@ -296,8 +296,8 @@ pub fn to_hex(value: f64) -> String {
 fn test_to_hex() {
     use rand::Rng;
     for _ in 0..20000 {
-        let bytes = rand::thread_rng().gen::<[u64; 1]>();
-        let f = f64::from_bits(bytes[0]);
+        let bytes = rand::rng().random::<u64>();
+        let f = f64::from_bits(bytes);
         if !f.is_finite() {
             continue;
         }

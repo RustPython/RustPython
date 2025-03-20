@@ -6,7 +6,7 @@ use crate::{
     stdlib::builtins,
 };
 
-use rustpython_format::*;
+use crate::common::format::*;
 
 impl IntoPyException for FormatSpecError {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {

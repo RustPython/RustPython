@@ -2152,7 +2152,7 @@ dependencies = [
  "parking_lot",
  "radium",
  "rand 0.9.0",
- "rustpython-format",
+ "rustpython-literal",
  "siphasher 0.3.11",
  "volatile",
  "widestring",
@@ -2227,17 +2227,6 @@ version = "0.3.0"
 source = "git+https://github.com/RustPython/__doc__?tag=0.3.0#8b62ce5d796d68a091969c9fa5406276cb483f79"
 dependencies = [
  "once_cell",
-]
-
-[[package]]
-name = "rustpython-format"
-version = "0.4.0"
-dependencies = [
- "bitflags 2.8.0",
- "itertools 0.14.0",
- "malachite-bigint",
- "num-traits",
- "rustpython-literal",
 ]
 
 [[package]]
@@ -2415,7 +2404,6 @@ dependencies = [
  "rustpython-compiler-core",
  "rustpython-compiler-source",
  "rustpython-derive",
- "rustpython-format",
  "rustpython-jit",
  "rustpython-literal",
  "rustpython-sre_engine",

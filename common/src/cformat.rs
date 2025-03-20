@@ -1,7 +1,7 @@
 //! Implementation of Printf-Style string formatting
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
-use crate::bigint::{BigInt, Sign};
 use bitflags::bitflags;
+use malachite_bigint::{BigInt, Sign};
 use num_traits::Signed;
 use rustpython_literal::{float, format::Case};
 use std::{
@@ -30,7 +30,7 @@ pub struct CFormatError {
 }
 
 impl fmt::Display for CFormatError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         use CFormatErrorType::*;
         match self.typ {
             UnmatchedKeyParentheses => write!(f, "incomplete format key"),
