@@ -12,6 +12,7 @@ mod bisect;
 mod cmath;
 mod contextvars;
 mod csv;
+mod datetime;
 mod dis;
 mod gc;
 
@@ -79,6 +80,7 @@ mod termios;
     target_os = "redox",
 )))]
 mod uuid;
+mod zoneinfo;
 
 use rustpython_common as common;
 use rustpython_vm as vm;
@@ -111,6 +113,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "cmath" => cmath::make_module,
             "_contextvars" => contextvars::make_module,
             "_csv" => csv::make_module,
+            "_datetime" => datetime::make_module,
             "_dis" => dis::make_module,
             "faulthandler" => faulthandler::make_module,
             "gc" => gc::make_module,
@@ -129,6 +132,7 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
             "_struct" => pystruct::make_module,
             "unicodedata" => unicodedata::make_module,
             "zlib" => zlib::make_module,
+            "_zoneinfo" => zoneinfo::make_module,
             "_statistics" => statistics::make_module,
             // crate::vm::sysmodule::sysconfigdata_name() => sysconfigdata::make_module,
         }
