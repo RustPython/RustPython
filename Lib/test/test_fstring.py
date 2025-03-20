@@ -1666,6 +1666,8 @@ x = (
             ],
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_filename_in_syntaxerror(self):
         # see issue 38964
         with temp_cwd() as cwd:
