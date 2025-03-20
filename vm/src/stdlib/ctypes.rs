@@ -17,6 +17,7 @@ pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     extend_module!(vm, module, {
         "_CData" => PyCData::make_class(ctx),
         "_SimpleCData" => PyCSimple::make_class(ctx),
+        "ArrayType" => array::PyCArrayType::make_class(ctx),
         "Array" => array::PyCArray::make_class(ctx),
         "CFuncPtr" => function::PyCFuncPtr::make_class(ctx),
         "_Pointer" => pointer::PyCPointer::make_class(ctx),
@@ -37,7 +38,7 @@ pub(crate) mod _ctypes {
     use super::base::PyCSimple;
     use crate::builtins::PyTypeRef;
     use crate::class::StaticType;
-    use crate::function::{Either, OptionalArg};
+    use crate::function::{Either, FuncArgs, OptionalArg};
     use crate::stdlib::ctypes::library;
     use crate::{AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine};
     use crossbeam_utils::atomic::AtomicCell;
@@ -124,11 +125,12 @@ pub(crate) mod _ctypes {
             "d" | "g" => mem::size_of::<c_double>(),
             "?" | "B" => mem::size_of::<c_uchar>(),
             "P" | "z" | "Z" => mem::size_of::<usize>(),
+            "O" => mem::size_of::<PyObjectRef>(),
             _ => unreachable!(),
         }
     }
 
-    const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZPqQ?";
+    const SIMPLE_TYPE_CHARS: &str = "cbBhHiIlLdfguzZPqQ?O";
 
     pub fn new_simple_type(
         cls: Either<&PyObjectRef, &PyTypeRef>,
@@ -218,8 +220,13 @@ pub(crate) mod _ctypes {
     #[pyfunction(name = "POINTER")]
     pub fn pointer(_cls: PyTypeRef) {}
 
-    #[pyfunction]
+    #[pyfunction(name = "pointer")]
     pub fn pointer_fn(_inst: PyObjectRef) {}
+
+    #[pyfunction]
+    fn _pointer_type_cache() -> PyObjectRef {
+        todo!()
+    }
 
     #[cfg(target_os = "windows")]
     #[pyfunction(name = "_check_HRESULT")]
@@ -244,6 +251,24 @@ pub(crate) mod _ctypes {
     }
 
     #[pyfunction]
+    fn byref(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: RUSTPYTHON
+        Err(vm.new_value_error("not implemented".to_string()))
+    }
+
+    #[pyfunction]
+    fn alignment(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: RUSTPYTHON
+        Err(vm.new_value_error("not implemented".to_string()))
+    }
+
+    #[pyfunction]
+    fn resize(_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        // TODO: RUSTPYTHON
+        Err(vm.new_value_error("not implemented".to_string()))
+    }
+
+    #[pyfunction]
     fn get_errno() -> i32 {
         errno::errno().0
     }
@@ -251,5 +276,42 @@ pub(crate) mod _ctypes {
     #[pyfunction]
     fn set_errno(value: i32) {
         errno::set_errno(errno::Errno(value));
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn get_last_error() -> PyResult<u32> {
+        Ok(unsafe { windows_sys::Win32::Foundation::GetLastError() })
+    }
+
+    #[cfg(windows)]
+    #[pyfunction]
+    fn set_last_error(value: u32) -> PyResult<()> {
+        unsafe { windows_sys::Win32::Foundation::SetLastError(value) };
+        Ok(())
+    }
+
+    #[pyattr]
+    fn _memmove_addr(_vm: &VirtualMachine) -> usize {
+        let f = libc::memmove;
+        f as usize
+    }
+
+    #[pyattr]
+    fn _memset_addr(_vm: &VirtualMachine) -> usize {
+        let f = libc::memset;
+        f as usize
+    }
+
+    #[pyattr]
+    fn _string_at_addr(_vm: &VirtualMachine) -> usize {
+        let f = libc::strnlen;
+        f as usize
+    }
+
+    #[pyattr]
+    fn _cast_addr(_vm: &VirtualMachine) -> usize {
+        // TODO: RUSTPYTHON
+        0
     }
 }

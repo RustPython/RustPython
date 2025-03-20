@@ -2,6 +2,7 @@ use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
 use crate::stdlib::ctypes::PyCData;
+use crate::stdlib::ctypes::array::PyCArray;
 use crate::stdlib::ctypes::base::{PyCSimple, ffi_type_from_str};
 use crate::types::{Callable, Constructor};
 use crate::{Py, PyObjectRef, PyResult, VirtualMachine};
@@ -16,6 +17,7 @@ use std::fmt::Debug;
 
 #[derive(Debug)]
 pub struct Function {
+    args: Vec<Type>,
     // TODO: no protection from use-after-free
     pointer: CodePtr,
     cif: Cif,
@@ -38,8 +40,36 @@ impl Function {
         let args = args
             .iter()
             .map(|arg| {
-                if let Some(data) = arg.downcast_ref::<PyCSimple>() {
-                    Ok(ffi_type_from_str(&data._type_).unwrap())
+                if let Some(arg) = arg.payload_if_subclass::<PyCSimple>(vm) {
+                    let converted = ffi_type_from_str(&arg._type_);
+                    return match converted {
+                        Some(t) => Ok(t),
+                        None => Err(vm.new_type_error("Invalid type".to_string())), // TODO: add type name
+                    };
+                }
+                if let Some(arg) = arg.payload_if_subclass::<PyCArray>(vm) {
+                    let t = arg.typ.read();
+                    let ty_attributes = t.attributes.read();
+                    let ty_pystr =
+                        ty_attributes
+                            .get(vm.ctx.intern_str("_type_"))
+                            .ok_or_else(|| {
+                                vm.new_type_error("Expected a ctypes simple type".to_string())
+                            })?;
+                    let ty_str = ty_pystr
+                        .downcast_ref::<PyStr>()
+                        .ok_or_else(|| {
+                            vm.new_type_error("Expected a ctypes simple type".to_string())
+                        })?
+                        .to_string();
+                    let converted = ffi_type_from_str(&ty_str);
+                    match converted {
+                        Some(_t) => {
+                            // TODO: Use
+                            Ok(Type::void())
+                        }
+                        None => Err(vm.new_type_error("Invalid type".to_string())), // TODO: add type name
+                    }
                 } else {
                     Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
                 }
@@ -50,7 +80,7 @@ impl Function {
             library
                 .get(terminated.as_bytes())
                 .map_err(|err| err.to_string())
-                .map_err(|err| vm.new_value_error(err))?
+                .map_err(|err| vm.new_attribute_error(err))?
         };
         let code_ptr = CodePtr(*pointer as *mut _);
         let return_type = match ret_type {
@@ -60,8 +90,9 @@ impl Function {
             }
             None => Type::c_int(),
         };
-        let cif = Cif::new(args, return_type);
+        let cif = Cif::new(args.clone(), return_type);
         Ok(Function {
+            args,
             cif,
             pointer: code_ptr,
         })
@@ -74,16 +105,19 @@ impl Function {
     ) -> PyResult<PyObjectRef> {
         let args = args
             .into_iter()
-            .map(|arg| {
-                if let Some(data) = arg.downcast_ref::<PyCSimple>() {
-                    dbg!(&data);
-                    todo!("HANDLE ARGUMENTS")
-                } else {
-                    Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
+            .enumerate()
+            .map(|(count, arg)| {
+                // none type check
+                if let Some(d) = arg.payload_if_subclass::<PyCSimple>(vm) {
+                    return Ok(d.to_arg(self.args[count].clone(), vm).unwrap());
                 }
+                if let Some(d) = arg.payload_if_subclass::<PyCArray>(vm) {
+                    return Ok(d.to_arg(vm).unwrap());
+                }
+                Err(vm.new_type_error("Expected a ctypes simple type".to_string()))
             })
             .collect::<PyResult<Vec<Arg>>>()?;
-        // TODO: FIX return type
+        // TODO: FIX return
         let result: i32 = unsafe { self.cif.call(self.pointer, &args) };
         Ok(vm.ctx.new_int(result).into())
     }
@@ -151,7 +185,9 @@ impl Callable for PyCFuncPtr {
             let name = zelf.name.read();
             let res_type = zelf._restype_.read();
             let func = Function::load(
-                inner_lib.as_ref().unwrap(),
+                inner_lib
+                    .as_ref()
+                    .ok_or_else(|| vm.new_value_error("Library not found".to_string()))?,
                 &name,
                 &args.args,
                 &res_type,
@@ -172,5 +208,15 @@ impl PyCFuncPtr {
     #[pygetset(setter, magic)]
     fn set_name(&self, name: String) {
         *self.name.write() = name;
+    }
+
+    #[pygetset(name = "_restype_")]
+    fn restype(&self) -> Option<PyTypeRef> {
+        self._restype_.read().as_ref().cloned()
+    }
+
+    #[pygetset(name = "_restype_", setter)]
+    fn set_restype(&self, restype: PyTypeRef) {
+        *self._restype_.write() = Some(restype);
     }
 }
