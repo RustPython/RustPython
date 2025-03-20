@@ -95,7 +95,7 @@ x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies =
 resolver = "2"
 members = [
     "compiler", "compiler/core", "compiler/codegen", "compiler/source",
-    ".", "common", "derive", "jit", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl",
+    ".", "common", "format", "derive", "jit", "literal", "vm", "vm/sre_engine", "pylib", "stdlib", "derive-impl",
     "wasm/lib",
 ]
 
@@ -115,7 +115,9 @@ rustpython-codegen = { path = "compiler/codegen", version = "0.4.0" }
 rustpython-common = { path = "common", version = "0.4.0" }
 rustpython-derive = { path = "derive", version = "0.4.0" }
 rustpython-derive-impl = { path = "derive-impl", version = "0.4.0" }
+rustpython-format = { path = "format", version = "0.4.0" }
 rustpython-jit = { path = "jit", version = "0.4.0" }
+rustpython-literal = { path = "literal", version = "0.4.0" }
 rustpython-vm = { path = "vm", default-features = false, version = "0.4.0" }
 rustpython-pylib = { path = "pylib", version = "0.4.0" }
 rustpython-stdlib = { path = "stdlib", default-features = false, version = "0.4.0" }
@@ -132,11 +134,9 @@ ruff_python_codegen = { git = "https://github.com/astral-sh/ruff.git", tag = "0.
 # rustpython-parser = { version = "0.4.0" }
 # rustpython-ast = { version = "0.4.0" }
 # rustpython-format= { version = "0.4.0" }
-rustpython-literal = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
 # rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
 # rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
 # rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
-rustpython-format = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
 # rustpython-literal = { path = "../RustPython-parser/literal" }
 # rustpython-parser-core = { path = "../RustPython-parser/core" }
 # rustpython-parser = { path = "../RustPython-parser/parser" }
