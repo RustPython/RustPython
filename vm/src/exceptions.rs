@@ -378,7 +378,7 @@ fn write_traceback_entry<W: Write>(
         tb_entry.lineno,
         tb_entry.frame.code.obj_name
     )?;
-    print_source_line(output, filename, tb_entry.lineno.to_usize())?;
+    print_source_line(output, filename, tb_entry.lineno.get())?;
 
     Ok(())
 }

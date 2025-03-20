@@ -110,10 +110,15 @@ mod builtins {
         _feature_version: OptionalArg<i32>,
     }
 
-    #[cfg(any(feature = "rustpython-parser", feature = "rustpython-codegen"))]
+    #[cfg(any(feature = "parser", feature = "compiler"))]
     #[pyfunction]
     fn compile(args: CompileArgs, vm: &VirtualMachine) -> PyResult {
-        #[cfg(feature = "rustpython-ast")]
+        #[cfg(not(feature = "ast"))]
+        {
+            _ = args; // to disable unused warning
+            return Err(vm.new_type_error("AST Not Supported".to_owned()));
+        }
+        #[cfg(feature = "ast")]
         {
             use crate::{class::PyClassImpl, stdlib::ast};
 
@@ -155,16 +160,16 @@ mod builtins {
                 }
             }
 
-            #[cfg(not(feature = "rustpython-parser"))]
+            #[cfg(not(feature = "parser"))]
             {
                 const PARSER_NOT_SUPPORTED: &str = "can't compile() source code when the `parser` feature of rustpython is disabled";
                 Err(vm.new_type_error(PARSER_NOT_SUPPORTED.to_owned()))
             }
-            #[cfg(feature = "rustpython-parser")]
+            #[cfg(feature = "parser")]
             {
                 use crate::convert::ToPyException;
                 use num_traits::Zero;
-                use rustpython_parser as parser;
+                use ruff_python_parser as parser;
 
                 let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
                 let source = source.borrow_bytes();
@@ -180,11 +185,11 @@ mod builtins {
                 }
 
                 if (flags & ast::PY_COMPILE_FLAG_AST_ONLY).is_zero() {
-                    #[cfg(not(feature = "rustpython-compiler"))]
+                    #[cfg(not(feature = "compiler"))]
                     {
                         Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED.to_owned()))
                     }
-                    #[cfg(feature = "rustpython-compiler")]
+                    #[cfg(feature = "compiler")]
                     {
                         let mode = mode_str
                             .parse::<crate::compiler::Mode>()

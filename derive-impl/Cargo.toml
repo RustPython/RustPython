@@ -10,7 +10,7 @@ license.workspace = true
 
 [dependencies]
 rustpython-compiler-core = { workspace = true }
-rustpython-parser-core = { workspace = true }
+# rustpython-parser-core = { workspace = true }
 rustpython-doc = { workspace = true }
 
 itertools = { workspace = true }

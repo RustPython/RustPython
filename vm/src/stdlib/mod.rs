@@ -1,4 +1,4 @@
-#[cfg(feature = "rustpython-ast")]
+#[cfg(feature = "ast")]
 pub(crate) mod ast;
 pub mod atexit;
 pub mod builtins;
@@ -15,7 +15,7 @@ mod operator;
 // mod re;
 mod sre;
 mod string;
-#[cfg(feature = "rustpython-compiler")]
+#[cfg(feature = "compiler")]
 mod symtable;
 mod sysconfigdata;
 #[cfg(feature = "threading")]
@@ -98,12 +98,12 @@ pub fn get_module_inits() -> StdlibMap {
             sys::sysconfigdata_name() => sysconfigdata::make_module,
         }
         // parser related modules:
-        #[cfg(feature = "rustpython-ast")]
+        #[cfg(feature = "ast")]
         {
             "_ast" => ast::make_module,
         }
         // compiler related modules:
-        #[cfg(feature = "rustpython-compiler")]
+        #[cfg(feature = "compiler")]
         {
             "symtable" => symtable::make_module,
         }

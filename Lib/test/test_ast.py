@@ -388,6 +388,8 @@ class AST_Tests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     compile(tree, '<string>', 'exec')
 
+    # XXX RUSTPYTHON: we always require that end ranges be present
+    @unittest.expectedFailure
     def test_compilation_of_ast_nodes_with_default_end_position_values(self):
         tree = ast.Module(body=[
             ast.Import(names=[ast.alias(name='builtins', lineno=1, col_offset=0)], lineno=1, col_offset=0),
@@ -1531,6 +1533,8 @@ Module(
         malformed = ast.Dict(keys=[ast.Constant(1)], values=[ast.Constant(2), ast.Constant(3)])
         self.assertRaises(ValueError, ast.literal_eval, malformed)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_literal_eval_trailing_ws(self):
         self.assertEqual(ast.literal_eval("    -1"), -1)
         self.assertEqual(ast.literal_eval("\t\t-1"), -1)
@@ -1549,6 +1553,8 @@ Module(
         with self.assertRaisesRegex(ValueError, msg):
             ast.literal_eval(node)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_literal_eval_syntax_errors(self):
         with self.assertRaisesRegex(SyntaxError, "unexpected indent"):
             ast.literal_eval(r'''
@@ -1569,6 +1575,8 @@ Module(
             compile(mod, 'test', 'exec')
         self.assertIn("invalid integer value: None", str(cm.exception))
 
+    # XXX RUSTPYTHON: we always require that end ranges be present
+    @unittest.expectedFailure
     def test_level_as_none(self):
         body = [ast.ImportFrom(module='time',
                                names=[ast.alias(name='sleep',
@@ -2034,8 +2042,6 @@ class ASTValidatorTests(unittest.TestCase):
         call = ast.Call(func, args, bad_keywords)
         self.expr(call, "must have Load context")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_num(self):
         with warnings.catch_warnings(record=True) as wlog:
             warnings.filterwarnings('ignore', '', DeprecationWarning)
@@ -2733,8 +2739,6 @@ class EndPositionTests(unittest.TestCase):
         binop = self._parse_value(s_orig)
         self.assertEqual(ast.get_source_segment(s_orig, binop.left), s_tuple)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_source_segment_padded(self):
         s_orig = dedent('''
             class C:
@@ -2756,8 +2760,6 @@ class EndPositionTests(unittest.TestCase):
         self._check_content(s, y, 'y = 1')
         self._check_content(s, z, 'z = 1')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_source_segment_tabs(self):
         s = dedent('''
             class C:

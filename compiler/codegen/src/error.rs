@@ -1,6 +1,23 @@
+use ruff_source_file::SourceLocation;
 use std::fmt;
+use thiserror::Error;
 
-pub type CodegenError = rustpython_parser_core::source_code::LocatedError<CodegenErrorType>;
+// pub type CodegenError = rustpython_parser_core::source_code::LocatedError<CodegenErrorType>;
+
+#[derive(Error, Debug)]
+pub struct CodegenError {
+    pub location: Option<SourceLocation>,
+    #[source]
+    pub error: CodegenErrorType,
+    pub source_path: String,
+}
+
+impl fmt::Display for CodegenError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // TODO:
+        self.error.fmt(f)
+    }
+}
 
 #[derive(Debug)]
 #[non_exhaustive]

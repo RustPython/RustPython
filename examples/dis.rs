@@ -79,7 +79,7 @@ fn display_script(
     expand_code_objects: bool,
 ) -> Result<(), Box<dyn Error>> {
     let source = fs::read_to_string(path)?;
-    let code = compiler::compile(&source, mode, path.to_string_lossy().into_owned(), opts)?;
+    let code = compiler::compile(&source, mode, &path.to_string_lossy(), opts)?;
     println!("{}:", path.display());
     if expand_code_objects {
         println!("{}", code.display_expand_code_objects());

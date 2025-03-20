@@ -1,10 +1,11 @@
 use std::ops;
 
 use crate::IndexSet;
+use ruff_source_file::{OneIndexed, SourceLocation};
 use rustpython_compiler_core::bytecode::{
     CodeFlags, CodeObject, CodeUnit, ConstantData, InstrDisplayContext, Instruction, Label, OpArg,
 };
-use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
+// use rustpython_parser_core::source_code::{LineNumber, SourceLocation};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct BlockIdx(pub u32);
@@ -37,11 +38,12 @@ impl ops::IndexMut<BlockIdx> for Vec<Block> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub struct InstructionInfo {
     pub instr: Instruction,
     pub arg: OpArg,
     pub target: BlockIdx,
+    // pub range: TextRange,
     pub location: SourceLocation,
 }
 
@@ -68,7 +70,7 @@ pub struct CodeInfo {
     pub arg_count: u32,
     pub kwonlyarg_count: u32,
     pub source_path: String,
-    pub first_line_number: LineNumber,
+    pub first_line_number: OneIndexed,
     pub obj_name: String, // Name of the object that created this code object
 
     pub blocks: Vec<Block>,
@@ -134,7 +136,8 @@ impl CodeInfo {
                         *arg = new_arg;
                     }
                     let (extras, lo_arg) = arg.split();
-                    locations.extend(std::iter::repeat(info.location).take(arg.instr_size()));
+                    locations
+                        .extend(std::iter::repeat(info.location.clone()).take(arg.instr_size()));
                     instructions.extend(
                         extras
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))

@@ -23,7 +23,7 @@ impl VirtualMachine {
         source_path: String,
         opts: CompileOpts,
     ) -> Result<PyRef<PyCode>, CompileError> {
-        compiler::compile(source, mode, source_path, opts).map(|code| self.ctx.new_code(code))
+        compiler::compile(source, mode, &source_path, opts).map(|code| self.ctx.new_code(code))
     }
 
     pub fn run_script(&self, scope: Scope, path: &str) -> PyResult<()> {

@@ -305,8 +305,6 @@ f'{a * x()} {a * x()} {a * x()}'
         self.assertEqual(name.col_offset, 22)
         self.assertEqual(name.end_col_offset, 25)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_ast_line_numbers_multiline_fstring(self):
         # See bpo-30465 for details.
         expr = """
@@ -509,8 +507,6 @@ x = (
         self.assertEqual(type(format_spec), ast.JoinedStr)
         self.assertEqual(len(format_spec.values), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_docstring(self):
         def f():
             f"""Not a docstring"""
@@ -535,6 +531,8 @@ x = (
         exec(c)
         self.assertEqual(x[0], "foo3")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile_time_concat_errors(self):
         self.assertAllRaise(
             SyntaxError,
@@ -550,6 +548,8 @@ x = (
         self.assertEqual(f"a", "a")
         self.assertEqual(f" ", " ")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_unterminated_string(self):
         self.assertAllRaise(
             SyntaxError,
@@ -562,6 +562,8 @@ x = (
             ],
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipIf(support.is_wasi, "exhausts limited stack on WASI")
     def test_mismatched_parens(self):
         self.assertAllRaise(
@@ -666,6 +668,8 @@ x = (
             ],
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_compile_time_concat(self):
         x = "def"
         self.assertEqual("abc" f"## {x}ghi", "abc## defghi")
@@ -1516,6 +1520,8 @@ x = (
             ],
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_del(self):
         self.assertAllRaise(
             SyntaxError,

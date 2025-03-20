@@ -3,11 +3,10 @@
 use crate::js_module;
 use crate::vm_class::{WASMVirtualMachine, stored_vm_from_wasm};
 use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
-use rustpython_parser::{ParseErrorType, lexer::LexicalErrorType};
 use rustpython_vm::{
     AsObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
     builtins::PyBaseExceptionRef,
-    compiler::{CompileError, CompileErrorType},
+    compiler::{CompileError, ParseError, parser::ParseErrorType, parser::lexer::LexicalErrorType},
     exceptions,
     function::{ArgBytesLike, FuncArgs},
     py_serde,
@@ -252,21 +251,21 @@ pub fn syntax_err(err: CompileError) -> SyntaxError {
     let _ = Reflect::set(
         &js_err,
         &"row".into(),
-        &(err.location.unwrap().row.get()).into(),
+        &(err.location().unwrap().row.get()).into(),
     );
     let _ = Reflect::set(
         &js_err,
         &"col".into(),
-        &(err.location.unwrap().column.get()).into(),
+        &(err.location().unwrap().column.get()).into(),
     );
+    // | ParseErrorType::UnrecognizedToken(Token::Dedent, _)
     let can_continue = matches!(
-        &err.error,
-        CompileErrorType::Parse(
-            ParseErrorType::Eof
-                | ParseErrorType::Lexical(LexicalErrorType::Eof)
-                | ParseErrorType::Lexical(LexicalErrorType::IndentationError)
-                | ParseErrorType::UnrecognizedToken(rustpython_parser::Tok::Dedent, _)
-        )
+        &err,
+        CompileError::Parse(ParseError {
+            error: ParseErrorType::Lexical(LexicalErrorType::Eof)
+                | ParseErrorType::Lexical(LexicalErrorType::IndentationError),
+            ..
+        })
     );
     let _ = Reflect::set(&js_err, &"canContinue".into(), &can_continue.into());
     js_err

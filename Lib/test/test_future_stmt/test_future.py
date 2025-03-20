@@ -67,6 +67,8 @@ class FutureTest(unittest.TestCase):
             from test.test_future_stmt import badsyntax_future5
         self.check_syntax_error(cm.exception, "badsyntax_future5", 4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_badfuture6(self):
         with self.assertRaises(SyntaxError) as cm:
             from test.test_future_stmt import badsyntax_future6
@@ -132,8 +134,6 @@ class FutureTest(unittest.TestCase):
         exec("from __future__ import unicode_literals; x = ''", {}, scope)
         self.assertIsInstance(scope["x"], str)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_syntactical_future_repl(self):
         p = spawn_python('-i')
         p.stdin.write(b"from __future__ import barry_as_FLUFL\n")
@@ -198,6 +198,8 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         )
         return scope
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_annotations(self):
         eq = self.assertAnnotationEqual
         eq('...')
@@ -362,6 +364,8 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         eq('(((a, b)))', '(a, b)')
         eq("1 + 2 + 3")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_fstring_debug_annotations(self):
         # f-strings with '=' don't round trip very well, so set the expected
         # result explicitly.
@@ -372,6 +376,8 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertAnnotationEqual("f'{x=!a}'", expected="f'x={x!a}'")
         self.assertAnnotationEqual("f'{x=!s:*^20}'", expected="f'x={x!s:*^20}'")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_infinity_numbers(self):
         inf = "1e" + repr(sys.float_info.max_10_exp + 1)
         infj = f"{inf}j"

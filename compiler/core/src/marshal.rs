@@ -1,7 +1,7 @@
 use crate::bytecode::*;
 use malachite_bigint::{BigInt, Sign};
 use num_complex::Complex64;
-use rustpython_parser_core::source_code::{OneIndexed, SourceLocation};
+use ruff_source_file::{OneIndexed, SourceLocation};
 use std::convert::Infallible;
 
 pub const FORMAT_VERSION: u32 = 4;
@@ -185,8 +185,8 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let locations = (0..len)
         .map(|_| {
             Ok(SourceLocation {
-                row: OneIndexed::new(rdr.read_u32()?).ok_or(MarshalError::InvalidLocation)?,
-                column: OneIndexed::from_zero_indexed(rdr.read_u32()?),
+                row: OneIndexed::new(rdr.read_u32()? as _).ok_or(MarshalError::InvalidLocation)?,
+                column: OneIndexed::from_zero_indexed(rdr.read_u32()? as _),
             })
         })
         .collect::<Result<Box<[SourceLocation]>>>()?;
@@ -200,7 +200,7 @@ pub fn deserialize_code<R: Read, Bag: ConstantBag>(
     let len = rdr.read_u32()?;
     let source_path = bag.make_name(rdr.read_str(len)?);
 
-    let first_line_number = OneIndexed::new(rdr.read_u32()?);
+    let first_line_number = OneIndexed::new(rdr.read_u32()? as _);
     let max_stackdepth = rdr.read_u32()?;
 
     let len = rdr.read_u32()?;
@@ -589,8 +589,8 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
 
     write_len(buf, code.locations.len());
     for loc in &*code.locations {
-        buf.write_u32(loc.row.get());
-        buf.write_u32(loc.column.to_zero_indexed());
+        buf.write_u32(loc.row.get() as _);
+        buf.write_u32(loc.column.to_zero_indexed() as _);
     }
 
     buf.write_u16(code.flags.bits());
@@ -601,7 +601,7 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
 
     write_vec(buf, code.source_path.as_ref().as_bytes());
 
-    buf.write_u32(code.first_line_number.map_or(0, |x| x.get()));
+    buf.write_u32(code.first_line_number.map_or(0, |x| x.get() as _));
     buf.write_u32(code.max_stackdepth);
 
     write_vec(buf, code.obj_name.as_ref().as_bytes());

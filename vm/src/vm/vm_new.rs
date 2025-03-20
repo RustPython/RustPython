@@ -256,22 +256,39 @@ impl VirtualMachine {
         self.new_exception_msg(overflow_error, msg)
     }
 
-    #[cfg(any(feature = "rustpython-parser", feature = "rustpython-codegen"))]
+    #[cfg(any(feature = "parser", feature = "compiler"))]
     pub fn new_syntax_error(
         &self,
         error: &crate::compiler::CompileError,
         source: Option<&str>,
     ) -> PyBaseExceptionRef {
-        use crate::source_code::SourceLocation;
+        use crate::source::SourceLocation;
 
-        let syntax_error_type = match &error.error {
-            #[cfg(feature = "rustpython-parser")]
-            crate::compiler::CompileErrorType::Parse(p) if p.is_indentation_error() => {
-                self.ctx.exceptions.indentation_error
-            }
-            #[cfg(feature = "rustpython-parser")]
-            crate::compiler::CompileErrorType::Parse(p) if p.is_tab_error() => {
-                self.ctx.exceptions.tab_error
+        let syntax_error_type = match &error {
+            #[cfg(feature = "parser")]
+            // FIXME: this condition will cause TabError even when the matching actual error is IndentationError
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::Lexical(
+                        ruff_python_parser::lexer::LexicalErrorType::IndentationError,
+                    ),
+                ..
+            }) => self.ctx.exceptions.tab_error,
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::UnexpectedIndentation,
+                ..
+            }) => self.ctx.exceptions.indentation_error,
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error: ruff_python_parser::ParseErrorType::OtherError(s),
+                ..
+            }) => {
+                if s.starts_with("Expected an indented block after") {
+                    self.ctx.exceptions.indentation_error
+                } else {
+                    self.ctx.exceptions.syntax_error
+                }
             }
             _ => self.ctx.exceptions.syntax_error,
         }
@@ -281,18 +298,32 @@ impl VirtualMachine {
         fn get_statement(source: &str, loc: Option<SourceLocation>) -> Option<String> {
             let line = source
                 .split('\n')
-                .nth(loc?.row.to_zero_indexed_usize())?
+                .nth(loc?.row.to_zero_indexed())?
                 .to_owned();
             Some(line + "\n")
         }
 
         let statement = if let Some(source) = source {
-            get_statement(source, error.location)
+            get_statement(source, error.location())
         } else {
             None
         };
 
-        let syntax_error = self.new_exception_msg(syntax_error_type, error.error.to_string());
+        let mut msg = error.to_string();
+        if let Some(msg) = msg.get_mut(..1) {
+            msg.make_ascii_lowercase();
+        }
+        match error {
+            #[cfg(feature = "parser")]
+            crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                error:
+                    ruff_python_parser::ParseErrorType::FStringError(_)
+                    | ruff_python_parser::ParseErrorType::UnexpectedExpressionToken,
+                ..
+            }) => msg.insert_str(0, "invalid syntax: "),
+            _ => {}
+        }
+        let syntax_error = self.new_exception_msg(syntax_error_type, msg);
         let (lineno, offset) = error.python_location();
         let lineno = self.ctx.new_int(lineno);
         let offset = self.ctx.new_int(offset);
@@ -311,11 +342,7 @@ impl VirtualMachine {
             .unwrap();
         syntax_error
             .as_object()
-            .set_attr(
-                "filename",
-                self.ctx.new_str(error.source_path.clone()),
-                self,
-            )
+            .set_attr("filename", self.ctx.new_str(error.source_path()), self)
             .unwrap();
         syntax_error
     }

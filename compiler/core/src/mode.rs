@@ -1,4 +1,4 @@
-pub use rustpython_parser_core::mode::ModeParseError;
+pub use ruff_python_parser::ModeParseError;
 
 #[derive(Clone, Copy)]
 pub enum Mode {
@@ -22,12 +22,14 @@ impl std::str::FromStr for Mode {
     }
 }
 
-impl From<Mode> for rustpython_parser_core::Mode {
+impl From<Mode> for ruff_python_parser::Mode {
     fn from(mode: Mode) -> Self {
         match mode {
             Mode::Exec => Self::Module,
             Mode::Eval => Self::Expression,
-            Mode::Single | Mode::BlockExpr => Self::Interactive,
+            // TODO: Improve ruff API
+            // ruff does not have an interactive mode
+            Mode::Single | Mode::BlockExpr => Self::Ipython,
         }
     }
 }

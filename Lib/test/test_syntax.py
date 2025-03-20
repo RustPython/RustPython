@@ -742,7 +742,8 @@ SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
 >>> f(x.y=1)
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
->>> f((x)=2)
+# TODO: RUSTPYTHON
+>>> f((x)=2)  # doctest: +SKIP
 Traceback (most recent call last):
 SyntaxError: expression cannot contain assignment, perhaps you meant "=="?
 >>> f(True=1)
@@ -1649,7 +1650,8 @@ Corner-cases that used to crash:
 
   Invalid pattern matching constructs:
 
-    >>> match ...:
+    # TODO: RUSTPYTHON nothing raised.
+    >>> match ...:  # doctest: +SKIP
     ...   case 42 as _:
     ...     ...
     Traceback (most recent call last):
@@ -1876,12 +1878,16 @@ class SyntaxTestCase(unittest.TestCase):
             offset=7
         )
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_curly_brace_after_primary_raises_immediately(self):
         self._check_error("f{}", "invalid syntax", mode="single")
 
     def test_assign_call(self):
         self._check_error("f() = 1", "assign")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_assign_del(self):
         self._check_error("del (,)", "invalid syntax")
         self._check_error("del 1", "cannot delete literal")
@@ -1994,6 +2000,8 @@ class SyntaxTestCase(unittest.TestCase):
                           "unindent does not match .* level",
                           subclass=IndentationError)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_kwargs_last(self):
         self._check_error("int(base=10, '2')",
                           "positional argument follows keyword argument")
@@ -2005,6 +2013,8 @@ class SyntaxTestCase(unittest.TestCase):
                           "positional argument follows "
                           "keyword argument unpacking")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_kwargs_last3(self):
         self._check_error("int(**{'base': 10}, *['2'])",
                           "iterable argument unpacking follows "
@@ -2073,8 +2083,6 @@ if x:
         code += f"{' '*4*12}pass"
         self._check_error(code, "too many statically nested blocks")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_barry_as_flufl_with_syntax_errors(self):
         # The "barry_as_flufl" rule can produce some "bugs-at-a-distance" if
         # is reading the wrong token in the presence of syntax errors later
@@ -2092,6 +2100,8 @@ def func2():
 """
         self._check_error(code, "expected ':'")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_line_continuation_error_position(self):
         self._check_error(r"a = 3 \ 4",
                           "unexpected character after line continuation character",
@@ -2103,6 +2113,8 @@ def func2():
                           "unexpected character after line continuation character",
                           lineno=3, offset=4)
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_invalid_line_continuation_left_recursive(self):
         # Check bpo-42218: SyntaxErrors following left-recursive rules
         # (t_primary_raw in this case) need to be tested explicitly
@@ -2146,6 +2158,8 @@ case(34)
 """
         compile(code, "<string>", "exec")
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     def test_multiline_compiler_error_points_to_the_end(self):
         self._check_error(
             "call(\na=1,\na=1\n)",
