@@ -6,14 +6,14 @@ pub(crate) use _string::make_module;
 #[pymodule]
 mod _string {
     use crate::common::ascii;
+    use crate::common::format::{
+        FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
+    };
     use crate::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyList, PyStrRef},
         convert::ToPyException,
         convert::ToPyObject,
-    };
-    use rustpython_format::{
-        FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
     };
     use std::mem;
 

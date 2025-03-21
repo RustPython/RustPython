@@ -7,7 +7,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine,
     class::PyClassImpl,
-    common::{float_ops, hash},
+    common::{float_ops, format::FormatSpec, hash},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
         ArgBytesLike, OptionalArg, OptionalOption,
@@ -21,7 +21,6 @@ use malachite_bigint::{BigInt, ToBigInt};
 use num_complex::Complex64;
 use num_traits::{Signed, ToPrimitive, Zero};
 use rustpython_common::int::float_to_ratio;
-use rustpython_format::FormatSpec;
 
 #[pyclass(module = false, name = "float")]
 #[derive(Debug, Copy, Clone, PartialEq)]

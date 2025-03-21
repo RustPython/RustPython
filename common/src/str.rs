@@ -1,9 +1,9 @@
 use crate::{
     atomic::{PyAtomic, Radium},
+    format::CharLen,
     hash::PyHash,
 };
 use ascii::AsciiString;
-use rustpython_format::CharLen;
 use std::ops::{Bound, RangeBounds};
 
 #[cfg(not(target_arch = "wasm32"))]

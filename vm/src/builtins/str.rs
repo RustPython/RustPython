@@ -31,10 +31,10 @@ use once_cell::sync::Lazy;
 use rustpython_common::{
     ascii,
     atomic::{self, PyAtomic, Radium},
+    format::{FormatSpec, FormatString, FromTemplate},
     hash,
     lock::PyMutex,
 };
-use rustpython_format::{FormatSpec, FormatString, FromTemplate};
 use std::{char, fmt, ops::Range, string::ToString};
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;

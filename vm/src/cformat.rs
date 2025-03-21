@@ -1,6 +1,7 @@
 //! Implementation of Printf-Style string formatting
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
 
+use crate::common::cformat::*;
 use crate::{
     AsObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
     builtins::{
@@ -12,7 +13,6 @@ use crate::{
 };
 use itertools::Itertools;
 use num_traits::cast::ToPrimitive;
-use rustpython_format::cformat::*;
 use std::str::FromStr;
 
 fn spec_format_bytes(

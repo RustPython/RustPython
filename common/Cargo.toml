@@ -12,7 +12,7 @@ license.workspace = true
 threading = ["parking_lot"]
 
 [dependencies]
-rustpython-format = { workspace = true }
+rustpython-literal = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }
