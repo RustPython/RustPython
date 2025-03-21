@@ -75,6 +75,12 @@ impl fmt::Debug for CodePoint {
     }
 }
 
+impl fmt::Display for CodePoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.to_char_lossy().fmt(f)
+    }
+}
+
 impl CodePoint {
     /// Unsafely creates a new `CodePoint` without checking the value.
     ///
@@ -109,13 +115,13 @@ impl CodePoint {
 
     /// Returns the numeric value of the code point.
     #[inline]
-    pub fn to_u32(&self) -> u32 {
+    pub fn to_u32(self) -> u32 {
         self.value
     }
 
     /// Returns the numeric value of the code point if it is a leading surrogate.
     #[inline]
-    pub fn to_lead_surrogate(&self) -> Option<u16> {
+    pub fn to_lead_surrogate(self) -> Option<u16> {
         match self.value {
             lead @ 0xD800..=0xDBFF => Some(lead as u16),
             _ => None,
@@ -124,7 +130,7 @@ impl CodePoint {
 
     /// Returns the numeric value of the code point if it is a trailing surrogate.
     #[inline]
-    pub fn to_trail_surrogate(&self) -> Option<u16> {
+    pub fn to_trail_surrogate(self) -> Option<u16> {
         match self.value {
             trail @ 0xDC00..=0xDFFF => Some(trail as u16),
             _ => None,
@@ -135,7 +141,7 @@ impl CodePoint {
     ///
     /// Returns `None` if the code point is a surrogate (from U+D800 to U+DFFF).
     #[inline]
-    pub fn to_char(&self) -> Option<char> {
+    pub fn to_char(self) -> Option<char> {
         match self.value {
             0xD800..=0xDFFF => None,
             _ => Some(unsafe { char::from_u32_unchecked(self.value) }),
@@ -147,7 +153,7 @@ impl CodePoint {
     /// Returns `'\u{FFFD}'` (the replacement character “�”)
     /// if the code point is a surrogate (from U+D800 to U+DFFF).
     #[inline]
-    pub fn to_char_lossy(&self) -> char {
+    pub fn to_char_lossy(self) -> char {
         self.to_char().unwrap_or('\u{FFFD}')
     }
 
@@ -167,6 +173,12 @@ impl CodePoint {
 impl From<u16> for CodePoint {
     fn from(value: u16) -> Self {
         unsafe { Self::from_u32_unchecked(value.into()) }
+    }
+}
+
+impl From<u8> for CodePoint {
+    fn from(value: u8) -> Self {
+        char::from(value).into()
     }
 }
 
@@ -515,6 +527,13 @@ impl Extend<CodePoint> for Wtf8Buf {
     }
 }
 
+impl<W: AsRef<Wtf8>> Extend<W> for Wtf8Buf {
+    fn extend<T: IntoIterator<Item = W>>(&mut self, iter: T) {
+        iter.into_iter()
+            .for_each(move |w| self.push_wtf8(w.as_ref()));
+    }
+}
+
 impl<W: AsRef<Wtf8>> FromIterator<W> for Wtf8Buf {
     fn from_iter<T: IntoIterator<Item = W>>(iter: T) -> Self {
         let mut buf = Wtf8Buf::new();
@@ -538,6 +557,12 @@ impl From<String> for Wtf8Buf {
 impl From<&str> for Wtf8Buf {
     fn from(s: &str) -> Self {
         Wtf8Buf::from_string(s.to_owned())
+    }
+}
+
+impl From<ascii::AsciiString> for Wtf8Buf {
+    fn from(s: ascii::AsciiString) -> Self {
+        Wtf8Buf::from_string(s.into())
     }
 }
 

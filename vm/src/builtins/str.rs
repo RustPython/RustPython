@@ -857,8 +857,8 @@ impl PyStr {
     }
 
     #[pymethod(name = "__mod__")]
-    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        cformat_string(vm, self.as_str(), values)
+    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        cformat_string(vm, self.as_wtf8(), values)
     }
 
     #[pymethod(magic)]

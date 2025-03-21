@@ -12,6 +12,7 @@ use crate::{
     common::{
         hash,
         lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
+        wtf8::{Wtf8, Wtf8Buf},
     },
     object::{Traverse, TraverseFn},
 };
@@ -750,7 +751,7 @@ impl DictKey for Py<PyStr> {
         if self.is(other_key) {
             Ok(true)
         } else if let Some(pystr) = other_key.payload_if_exact::<PyStr>(vm) {
-            Ok(pystr.as_str() == self.as_str())
+            Ok(self.as_wtf8() == pystr.as_wtf8())
         } else {
             vm.bool_eq(self.as_object(), other_key)
         }
@@ -834,7 +835,7 @@ impl DictKey for str {
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         if let Some(pystr) = other_key.payload_if_exact::<PyStr>(vm) {
-            Ok(pystr.as_str() == self)
+            Ok(pystr.as_wtf8() == self.as_ref())
         } else {
             // Fall back to PyObjectRef implementation.
             let s = vm.ctx.new_str(self);
@@ -868,6 +869,63 @@ impl DictKey for String {
 
     fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
         self.as_str().key_as_isize(vm)
+    }
+}
+
+impl DictKey for Wtf8 {
+    type Owned = Wtf8Buf;
+    #[inline(always)]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        self.to_owned()
+    }
+    #[inline]
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        // follow a similar route as the hashing of PyStrRef
+        Ok(vm.state.hash_secret.hash_bytes(self.as_bytes()))
+    }
+    #[inline(always)]
+    fn key_is(&self, _other: &PyObject) -> bool {
+        // No matter who the other pyobject is, we are never the same thing, since
+        // we are a str, not a pyobject.
+        false
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
+        if let Some(pystr) = other_key.payload_if_exact::<PyStr>(vm) {
+            Ok(pystr.as_wtf8() == self)
+        } else {
+            // Fall back to PyObjectRef implementation.
+            let s = vm.ctx.new_str(self);
+            s.key_eq(vm, other_key)
+        }
+    }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        Err(vm.new_type_error("'str' object cannot be interpreted as an integer".to_owned()))
+    }
+}
+
+impl DictKey for Wtf8Buf {
+    type Owned = Wtf8Buf;
+    #[inline]
+    fn _to_owned(&self, _vm: &VirtualMachine) -> Self::Owned {
+        self.clone()
+    }
+
+    fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
+        (**self).key_hash(vm)
+    }
+
+    fn key_is(&self, other: &PyObject) -> bool {
+        (**self).key_is(other)
+    }
+
+    fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
+        (**self).key_eq(vm, other_key)
+    }
+
+    fn key_as_isize(&self, vm: &VirtualMachine) -> PyResult<isize> {
+        (**self).key_as_isize(vm)
     }
 }
 

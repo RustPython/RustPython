@@ -11,11 +11,13 @@ use std::{
     str::FromStr,
 };
 
+use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
+
 #[derive(Debug, PartialEq)]
 pub enum CFormatErrorType {
     UnmatchedKeyParentheses,
     MissingModuloSign,
-    UnsupportedFormatChar(char),
+    UnsupportedFormatChar(CodePoint),
     IncompleteFormat,
     IntTooBig,
     // Unimplemented,
@@ -39,7 +41,9 @@ impl fmt::Display for CFormatError {
             UnsupportedFormatChar(c) => write!(
                 f,
                 "unsupported format character '{}' ({:#x}) at index {}",
-                c, c as u32, self.index
+                c,
+                c.to_u32(),
+                self.index
             ),
             IntTooBig => write!(f, "width/precision too big"),
             _ => write!(f, "unexpected error parsing format string"),
@@ -160,7 +164,7 @@ pub trait FormatBuf:
     fn concat(self, other: Self) -> Self;
 }
 
-pub trait FormatChar: Copy + Into<char> + From<u8> {
+pub trait FormatChar: Copy + Into<CodePoint> + From<u8> {
     fn to_char_lossy(self) -> char;
     fn eq_char(self, c: char) -> bool;
 }
@@ -182,6 +186,29 @@ impl FormatBuf for String {
 impl FormatChar for char {
     fn to_char_lossy(self) -> char {
         self
+    }
+    fn eq_char(self, c: char) -> bool {
+        self == c
+    }
+}
+
+impl FormatBuf for Wtf8Buf {
+    type Char = CodePoint;
+    fn chars(&self) -> impl Iterator<Item = Self::Char> {
+        self.code_points()
+    }
+    fn len(&self) -> usize {
+        (**self).len()
+    }
+    fn concat(mut self, other: Self) -> Self {
+        self.extend([other]);
+        self
+    }
+}
+
+impl FormatChar for CodePoint {
+    fn to_char_lossy(self) -> char {
+        self.to_char_lossy()
     }
     fn eq_char(self, c: char) -> bool {
         self == c
@@ -797,6 +824,15 @@ impl FromStr for CFormatString {
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let mut iter = text.chars().enumerate().peekable();
+        Self::parse(&mut iter)
+    }
+}
+
+pub type CFormatWtf8 = CFormatStrOrBytes<Wtf8Buf>;
+
+impl CFormatWtf8 {
+    pub fn parse_from_wtf8(s: &Wtf8) -> Result<Self, CFormatError> {
+        let mut iter = s.code_points().enumerate().peekable();
         Self::parse(&mut iter)
     }
 }
