@@ -8,6 +8,7 @@ use crate::{
     TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, adjust_indices},
     atomic_func,
+    cformat::cformat_string,
     class::PyClassImpl,
     common::str::{PyKindStr, StrData, StrKind},
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
@@ -856,9 +857,8 @@ impl PyStr {
     }
 
     #[pymethod(name = "__mod__")]
-    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        let formatted = self.as_str().py_cformat(values, vm)?;
-        Ok(formatted)
+    fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        cformat_string(vm, self.as_wtf8(), values)
     }
 
     #[pymethod(magic)]
@@ -1828,10 +1828,6 @@ impl AnyStr for str {
         self.as_bytes()
     }
 
-    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error> {
-        Ok(self)
-    }
-
     fn elements(&self) -> impl Iterator<Item = char> {
         str::chars(self)
     }
@@ -1941,10 +1937,6 @@ impl AnyStr for Wtf8 {
 
     fn as_bytes(&self) -> &[u8] {
         self.as_bytes()
-    }
-
-    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error> {
-        self.as_str()
     }
 
     fn elements(&self) -> impl Iterator<Item = Self::Char> {
@@ -2065,10 +2057,6 @@ impl AnyStr for AsciiStr {
 
     fn as_bytes(&self) -> &[u8] {
         self.as_bytes()
-    }
-
-    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error> {
-        Ok(self.as_str())
     }
 
     fn elements(&self) -> impl Iterator<Item = Self::Char> {

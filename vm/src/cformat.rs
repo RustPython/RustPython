@@ -2,6 +2,7 @@
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
 
 use crate::common::cformat::*;
+use crate::common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 use crate::{
     AsObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine,
     builtins::{
@@ -13,7 +14,6 @@ use crate::{
 };
 use itertools::Itertools;
 use num_traits::cast::ToPrimitive;
-use std::str::FromStr;
 
 fn spec_format_bytes(
     vm: &VirtualMachine,
@@ -48,36 +48,38 @@ fn spec_format_bytes(
             }
         },
         CFormatType::Number(number_type) => match number_type {
-            CNumberType::Decimal => match_class!(match &obj {
-                ref i @ PyInt => {
-                    Ok(spec.format_number(i.as_bigint()).into_bytes())
-                }
-                ref f @ PyFloat => {
-                    Ok(spec
-                        .format_number(&try_f64_to_bigint(f.to_f64(), vm)?)
-                        .into_bytes())
-                }
-                obj => {
-                    if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
-                        let result = method?.call((), vm)?;
-                        if let Some(i) = result.payload::<PyInt>() {
-                            return Ok(spec.format_number(i.as_bigint()).into_bytes());
-                        }
+            CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
+                match_class!(match &obj {
+                    ref i @ PyInt => {
+                        Ok(spec.format_number(i.as_bigint()).into_bytes())
                     }
-                    Err(vm.new_type_error(format!(
-                        "%{} format: a number is required, not {}",
-                        spec.format_char,
-                        obj.class().name()
-                    )))
-                }
-            }),
+                    ref f @ PyFloat => {
+                        Ok(spec
+                            .format_number(&try_f64_to_bigint(f.to_f64(), vm)?)
+                            .into_bytes())
+                    }
+                    obj => {
+                        if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
+                            let result = method?.call((), vm)?;
+                            if let Some(i) = result.payload::<PyInt>() {
+                                return Ok(spec.format_number(i.as_bigint()).into_bytes());
+                            }
+                        }
+                        Err(vm.new_type_error(format!(
+                            "%{} format: a number is required, not {}",
+                            spec.format_type.to_char(),
+                            obj.class().name()
+                        )))
+                    }
+                })
+            }
             _ => {
                 if let Some(i) = obj.payload::<PyInt>() {
                     Ok(spec.format_number(i.as_bigint()).into_bytes())
                 } else {
                     Err(vm.new_type_error(format!(
                         "%{} format: an integer is required, not {}",
-                        spec.format_char,
+                        spec.format_type.to_char(),
                         obj.class().name()
                     )))
                 }
@@ -96,22 +98,21 @@ fn spec_format_bytes(
             })?;
             Ok(spec.format_float(value.into()).into_bytes())
         }
-        CFormatType::Character => {
+        CFormatType::Character(CCharacterType::Character) => {
             if let Some(i) = obj.payload::<PyInt>() {
                 let ch = i
                     .try_to_primitive::<u8>(vm)
-                    .map_err(|_| vm.new_overflow_error("%c arg not in range(256)".to_owned()))?
-                    as char;
-                return Ok(spec.format_char(ch).into_bytes());
+                    .map_err(|_| vm.new_overflow_error("%c arg not in range(256)".to_owned()))?;
+                return Ok(spec.format_char(ch));
             }
             if let Some(b) = obj.payload::<PyBytes>() {
                 if b.len() == 1 {
-                    return Ok(spec.format_char(b.as_bytes()[0] as char).into_bytes());
+                    return Ok(spec.format_char(b.as_bytes()[0]));
                 }
             } else if let Some(ba) = obj.payload::<PyByteArray>() {
                 let buf = ba.borrow_buf();
                 if buf.len() == 1 {
-                    return Ok(spec.format_char(buf[0] as char).into_bytes());
+                    return Ok(spec.format_char(buf[0]));
                 }
             }
             Err(vm
@@ -124,14 +125,14 @@ fn spec_format_string(
     vm: &VirtualMachine,
     spec: &CFormatSpec,
     obj: PyObjectRef,
-    idx: &usize,
-) -> PyResult<String> {
+    idx: usize,
+) -> PyResult<Wtf8Buf> {
     match &spec.format_type {
         CFormatType::String(conversion) => {
             let result = match conversion {
                 CFormatConversion::Ascii => builtins::ascii(obj, vm)?.into(),
-                CFormatConversion::Str => obj.str(vm)?.as_str().to_owned(),
-                CFormatConversion::Repr => obj.repr(vm)?.as_str().to_owned(),
+                CFormatConversion::Str => obj.str(vm)?.as_wtf8().to_owned(),
+                CFormatConversion::Repr => obj.repr(vm)?.as_wtf8().to_owned(),
                 CFormatConversion::Bytes => {
                     // idx is the position of the %, we want the position of the b
                     return Err(vm.new_value_error(format!(
@@ -143,34 +144,38 @@ fn spec_format_string(
             Ok(spec.format_string(result))
         }
         CFormatType::Number(number_type) => match number_type {
-            CNumberType::Decimal => match_class!(match &obj {
-                ref i @ PyInt => {
-                    Ok(spec.format_number(i.as_bigint()))
-                }
-                ref f @ PyFloat => {
-                    Ok(spec.format_number(&try_f64_to_bigint(f.to_f64(), vm)?))
-                }
-                obj => {
-                    if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
-                        let result = method?.call((), vm)?;
-                        if let Some(i) = result.payload::<PyInt>() {
-                            return Ok(spec.format_number(i.as_bigint()));
-                        }
+            CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
+                match_class!(match &obj {
+                    ref i @ PyInt => {
+                        Ok(spec.format_number(i.as_bigint()).into())
                     }
-                    Err(vm.new_type_error(format!(
-                        "%{} format: a number is required, not {}",
-                        spec.format_char,
-                        obj.class().name()
-                    )))
-                }
-            }),
+                    ref f @ PyFloat => {
+                        Ok(spec
+                            .format_number(&try_f64_to_bigint(f.to_f64(), vm)?)
+                            .into())
+                    }
+                    obj => {
+                        if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
+                            let result = method?.call((), vm)?;
+                            if let Some(i) = result.payload::<PyInt>() {
+                                return Ok(spec.format_number(i.as_bigint()).into());
+                            }
+                        }
+                        Err(vm.new_type_error(format!(
+                            "%{} format: a number is required, not {}",
+                            spec.format_type.to_char(),
+                            obj.class().name()
+                        )))
+                    }
+                })
+            }
             _ => {
                 if let Some(i) = obj.payload::<PyInt>() {
-                    Ok(spec.format_number(i.as_bigint()))
+                    Ok(spec.format_number(i.as_bigint()).into())
                 } else {
                     Err(vm.new_type_error(format!(
                         "%{} format: an integer is required, not {}",
-                        spec.format_char,
+                        spec.format_type.to_char(),
                         obj.class().name()
                     )))
                 }
@@ -178,21 +183,21 @@ fn spec_format_string(
         },
         CFormatType::Float(_) => {
             let value = ArgIntoFloat::try_from_object(vm, obj)?;
-            Ok(spec.format_float(value.into()))
+            Ok(spec.format_float(value.into()).into())
         }
-        CFormatType::Character => {
+        CFormatType::Character(CCharacterType::Character) => {
             if let Some(i) = obj.payload::<PyInt>() {
                 let ch = i
                     .as_bigint()
                     .to_u32()
-                    .and_then(std::char::from_u32)
+                    .and_then(CodePoint::from_u32)
                     .ok_or_else(|| {
                         vm.new_overflow_error("%c arg not in range(0x110000)".to_owned())
                     })?;
                 return Ok(spec.format_char(ch));
             }
             if let Some(s) = obj.payload::<PyStr>() {
-                if let Ok(ch) = s.as_str().chars().exactly_one() {
+                if let Ok(ch) = s.as_wtf8().code_points().exactly_one() {
                     return Ok(spec.format_char(ch));
                 }
             }
@@ -313,19 +318,14 @@ pub(crate) fn cformat_bytes(
     if mapping_required {
         // dict
         return if is_mapping {
-            for (_, part) in format.iter_mut() {
+            for (_, part) in format {
                 match part {
-                    CFormatPart::Literal(literal) => result.append(literal),
-                    CFormatPart::Spec(spec) => {
-                        let value = match &spec.mapping_key {
-                            Some(key) => {
-                                let k = vm.ctx.new_bytes(key.as_str().as_bytes().to_vec());
-                                values_obj.get_item(k.as_object(), vm)?
-                            }
-                            None => unreachable!(),
-                        };
-                        let mut part_result = spec_format_bytes(vm, spec, value)?;
-                        result.append(&mut part_result);
+                    CFormatPart::Literal(literal) => result.extend(literal),
+                    CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
+                        let key = mapping_key.unwrap();
+                        let value = values_obj.get_item(&key, vm)?;
+                        let part_result = spec_format_bytes(vm, &spec, value)?;
+                        result.extend(part_result);
                     }
                 }
             }
@@ -343,10 +343,10 @@ pub(crate) fn cformat_bytes(
     };
     let mut value_iter = values.iter();
 
-    for (_, part) in format.iter_mut() {
+    for (_, part) in format {
         match part {
-            CFormatPart::Literal(literal) => result.append(literal),
-            CFormatPart::Spec(spec) => {
+            CFormatPart::Literal(literal) => result.extend(literal),
+            CFormatPart::Spec(CFormatSpecKeyed { mut spec, .. }) => {
                 try_update_quantity_from_tuple(
                     vm,
                     &mut value_iter,
@@ -361,8 +361,8 @@ pub(crate) fn cformat_bytes(
                         Err(vm.new_type_error("not enough arguments for format string".to_owned()))
                     }
                 }?;
-                let mut part_result = spec_format_bytes(vm, spec, value)?;
-                result.append(&mut part_result);
+                let part_result = spec_format_bytes(vm, &spec, value)?;
+                result.extend(part_result);
             }
         }
     }
@@ -377,16 +377,16 @@ pub(crate) fn cformat_bytes(
 
 pub(crate) fn cformat_string(
     vm: &VirtualMachine,
-    format_string: &str,
+    format_string: &Wtf8,
     values_obj: PyObjectRef,
-) -> PyResult<String> {
-    let mut format = CFormatString::from_str(format_string)
+) -> PyResult<Wtf8Buf> {
+    let format = CFormatWtf8::parse_from_wtf8(format_string)
         .map_err(|err| vm.new_value_error(err.to_string()))?;
     let (num_specifiers, mapping_required) = format
         .check_specifiers()
         .ok_or_else(|| specifier_error(vm))?;
 
-    let mut result = String::new();
+    let mut result = Wtf8Buf::new();
 
     let is_mapping = values_obj.class().has_attr(identifier!(vm, __getitem__))
         && !values_obj.fast_isinstance(vm.ctx.types.tuple_type)
@@ -401,7 +401,7 @@ pub(crate) fn cformat_string(
         {
             for (_, part) in format.iter() {
                 match part {
-                    CFormatPart::Literal(literal) => result.push_str(literal),
+                    CFormatPart::Literal(literal) => result.push_wtf8(literal),
                     CFormatPart::Spec(_) => unreachable!(),
                 }
             }
@@ -415,16 +415,13 @@ pub(crate) fn cformat_string(
     if mapping_required {
         // dict
         return if is_mapping {
-            for (idx, part) in format.iter() {
+            for (idx, part) in format {
                 match part {
-                    CFormatPart::Literal(literal) => result.push_str(literal),
-                    CFormatPart::Spec(spec) => {
-                        let value = match &spec.mapping_key {
-                            Some(key) => values_obj.get_item(key.as_str(), vm)?,
-                            None => unreachable!(),
-                        };
-                        let part_result = spec_format_string(vm, spec, value, idx)?;
-                        result.push_str(&part_result);
+                    CFormatPart::Literal(literal) => result.push_wtf8(&literal),
+                    CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
+                        let value = values_obj.get_item(&mapping_key.unwrap(), vm)?;
+                        let part_result = spec_format_string(vm, &spec, value, idx)?;
+                        result.push_wtf8(&part_result);
                     }
                 }
             }
@@ -442,10 +439,10 @@ pub(crate) fn cformat_string(
     };
     let mut value_iter = values.iter();
 
-    for (idx, part) in format.iter_mut() {
+    for (idx, part) in format {
         match part {
-            CFormatPart::Literal(literal) => result.push_str(literal),
-            CFormatPart::Spec(spec) => {
+            CFormatPart::Literal(literal) => result.push_wtf8(&literal),
+            CFormatPart::Spec(CFormatSpecKeyed { mut spec, .. }) => {
                 try_update_quantity_from_tuple(
                     vm,
                     &mut value_iter,
@@ -460,8 +457,8 @@ pub(crate) fn cformat_string(
                         Err(vm.new_type_error("not enough arguments for format string".to_owned()))
                     }
                 }?;
-                let part_result = spec_format_string(vm, spec, value, idx)?;
-                result.push_str(&part_result);
+                let part_result = spec_format_string(vm, &spec, value, idx)?;
+                result.push_wtf8(&part_result);
             }
         }
     }
