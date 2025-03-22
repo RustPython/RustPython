@@ -143,10 +143,4 @@ class TestScanstring:
 
 
 class TestPyScanstring(TestScanstring, PyTest): pass
-# TODO: RUSTPYTHON
-class TestPyScanstring(TestScanstring, PyTest):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    def test_bad_escapes(self):
-        super().test_bad_escapes()
 class TestCScanstring(TestScanstring, CTest): pass

@@ -1066,8 +1066,6 @@ class CommonTest(BaseTest):
             hash(b)
         self.assertEqual(hash(a), hash(b))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_capitalize_nonascii(self):
         # check that titlecased chars are lowered correctly
         # \u1ffc is the titlecased char

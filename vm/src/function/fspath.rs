@@ -74,10 +74,10 @@ impl FsPath {
         }
     }
 
-    pub fn as_str(&self) -> &str {
+    pub fn to_string_lossy(&self) -> Cow<'_, str> {
         match self {
-            FsPath::Bytes(b) => std::str::from_utf8(b).unwrap(),
-            FsPath::Str(s) => s.as_str(),
+            FsPath::Str(s) => s.to_string_lossy(),
+            FsPath::Bytes(s) => String::from_utf8_lossy(s),
         }
     }
 

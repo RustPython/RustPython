@@ -403,8 +403,8 @@ mod _ssl {
             .to_str()
             .unwrap();
         let (cert_file, cert_dir) = get_cert_file_dir();
-        let cert_file = OsPath::new_str(cert_file).filename(vm)?;
-        let cert_dir = OsPath::new_str(cert_dir).filename(vm)?;
+        let cert_file = OsPath::new_str(cert_file).filename(vm);
+        let cert_dir = OsPath::new_str(cert_dir).filename(vm);
         Ok((cert_file_env, cert_file, cert_dir_env, cert_dir))
     }
 

@@ -102,8 +102,6 @@ class UnicodeNamesTest(unittest.TestCase):
         self.checkletter("CJK UNIFIED IDEOGRAPH-2B81D", "\U0002B81D")
         self.checkletter("CJK UNIFIED IDEOGRAPH-3134A", "\U0003134A")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bmp_characters(self):
         for code in range(0x10000):
             char = chr(code)

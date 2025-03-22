@@ -918,10 +918,12 @@ impl VirtualMachine {
     pub fn fsdecode(&self, s: impl Into<OsString>) -> PyStrRef {
         let bytes = self.ctx.new_bytes(s.into().into_encoded_bytes());
         let errors = self.fs_encode_errors().to_owned();
-        self.state
+        let res = self
+            .state
             .codec_registry
-            .decode_text(bytes.into(), "utf-8", Some(errors), self)
-            .unwrap() // this should never fail, since fsdecode should be lossless from the fs encoding
+            .decode_text(bytes.into(), "utf-8", Some(errors), self);
+        // this should never fail, since fsdecode should be lossless from the fs encoding
+        self.unwrap_pyresult(res)
     }
 
     pub fn fsencode<'a>(&self, s: &'a Py<PyStr>) -> PyResult<Cow<'a, OsStr>> {
