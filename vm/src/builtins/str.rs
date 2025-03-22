@@ -871,8 +871,9 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn format(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
-        let format_str = FormatString::from_str(self.as_str()).map_err(|e| e.to_pyexception(vm))?;
+    fn format(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let format_str =
+            FormatString::from_str(self.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
         format(&format_str, &args, vm)
     }
 
@@ -881,9 +882,9 @@ impl PyStr {
     /// Return a formatted version of S, using substitutions from mapping.
     /// The substitutions are identified by braces ('{' and '}').
     #[pymethod]
-    fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
+    fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let format_string =
-            FormatString::from_str(self.as_str()).map_err(|err| err.to_pyexception(vm))?;
+            FormatString::from_str(self.as_wtf8()).map_err(|err| err.to_pyexception(vm))?;
         format_map(&format_string, &mapping, vm)
     }
 
@@ -1568,6 +1569,18 @@ impl ToPyObject for &str {
 }
 
 impl ToPyObject for &String {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self.clone()).into()
+    }
+}
+
+impl ToPyObject for &Wtf8 {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self).into()
+    }
+}
+
+impl ToPyObject for &Wtf8Buf {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self.clone()).into()
     }

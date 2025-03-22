@@ -7,6 +7,7 @@ use crate::{
 };
 
 use crate::common::format::*;
+use crate::common::wtf8::{Wtf8, Wtf8Buf};
 
 impl IntoPyException for FormatSpecError {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
@@ -62,18 +63,18 @@ fn format_internal(
     vm: &VirtualMachine,
     format: &FormatString,
     field_func: &mut impl FnMut(FieldType) -> PyResult,
-) -> PyResult<String> {
-    let mut final_string = String::new();
+) -> PyResult<Wtf8Buf> {
+    let mut final_string = Wtf8Buf::new();
     for part in &format.format_parts {
         let pystr;
-        let result_string: &str = match part {
+        let result_string: &Wtf8 = match part {
             FormatPart::Field {
                 field_name,
                 conversion_spec,
                 format_spec,
             } => {
                 let FieldName { field_type, parts } =
-                    FieldName::parse(field_name.as_str()).map_err(|e| e.to_pyexception(vm))?;
+                    FieldName::parse(field_name).map_err(|e| e.to_pyexception(vm))?;
 
                 let mut argument = field_func(field_type)?;
 
@@ -113,7 +114,7 @@ fn format_internal(
             }
             FormatPart::Literal(literal) => literal,
         };
-        final_string.push_str(result_string);
+        final_string.push_wtf8(result_string);
     }
     Ok(final_string)
 }
@@ -122,7 +123,7 @@ pub(crate) fn format(
     format: &FormatString,
     arguments: &FuncArgs,
     vm: &VirtualMachine,
-) -> PyResult<String> {
+) -> PyResult<Wtf8Buf> {
     let mut auto_argument_index: usize = 0;
     let mut seen_index = false;
     format_internal(vm, format, &mut |field_type| match field_type {
@@ -154,8 +155,10 @@ pub(crate) fn format(
                 .cloned()
                 .ok_or_else(|| vm.new_index_error("tuple index out of range".to_owned()))
         }
-        FieldType::Keyword(keyword) => arguments
-            .get_optional_kwarg(&keyword)
+        FieldType::Keyword(keyword) => keyword
+            .as_str()
+            .ok()
+            .and_then(|keyword| arguments.get_optional_kwarg(keyword))
             .ok_or_else(|| vm.new_key_error(vm.ctx.new_str(keyword).into())),
     })
 }
@@ -164,7 +167,7 @@ pub(crate) fn format_map(
     format: &FormatString,
     dict: &PyObject,
     vm: &VirtualMachine,
-) -> PyResult<String> {
+) -> PyResult<Wtf8Buf> {
     format_internal(vm, format, &mut |field_type| match field_type {
         FieldType::Auto | FieldType::Index(_) => {
             Err(vm.new_value_error("Format string contains positional fields".to_owned()))
