@@ -19,18 +19,22 @@ impl Node for ruff::ConversionFlag {
 }
 
 // /// This is just a string, not strictly an AST node. But it makes AST conversions easier.
-// impl Node for ruff::name::Name {
-//     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
-//         vm.ctx.new_str(self.as_str()).to_pyobject(vm)
-//     }
+impl Node for ruff::name::Name {
+    fn ast_to_object(self, vm: &VirtualMachine, _source_code: &SourceCodeOwned) -> PyObjectRef {
+        vm.ctx.new_str(self.as_str()).to_pyobject(vm)
+    }
 
-//     fn ast_from_object(vm: &VirtualMachine, source_code: &SourceCodeOwned, object: PyObjectRef) -> PyResult<Self> {
-//         match object.downcast::<PyStr>() {
-//             Ok(name) => Ok(Self::new(name)),
-//             Err(_) => Err(vm.new_value_error("expected str for name".to_owned())),
-//         }
-//     }
-// }
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        _source_code: &SourceCodeOwned,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        match object.downcast::<PyStr>() {
+            Ok(name) => Ok(Self::new(name)),
+            Err(_) => Err(vm.new_value_error("expected str for name".to_owned())),
+        }
+    }
+}
 
 impl Node for ruff::Decorator {
     fn ast_to_object(self, vm: &VirtualMachine, source_code: &SourceCodeOwned) -> PyObjectRef {
