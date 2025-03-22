@@ -2929,9 +2929,12 @@ mod _sqlite {
     }
 
     fn str_to_ptr_len(s: &PyStr, vm: &VirtualMachine) -> PyResult<(*const libc::c_char, i32)> {
-        let len = c_int::try_from(s.byte_len())
+        let s = s
+            .to_str()
+            .ok_or_else(|| vm.new_unicode_encode_error("surrogates not allowed".to_owned()))?;
+        let len = c_int::try_from(s.len())
             .map_err(|_| vm.new_overflow_error("TEXT longer than INT_MAX bytes".to_owned()))?;
-        let ptr = s.as_str().as_ptr().cast();
+        let ptr = s.as_ptr().cast();
         Ok((ptr, len))
     }
 

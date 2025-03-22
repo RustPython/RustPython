@@ -1033,12 +1033,6 @@ class NtCommonTest(test_genericpath.CommonTest, unittest.TestCase):
     attributes = ['relpath']
 
     # TODO: RUSTPYTHON
-    if sys.platform == "linux":
-        @unittest.expectedFailure
-        def test_nonascii_abspath(self):
-            super().test_nonascii_abspath()
-
-    # TODO: RUSTPYTHON
     if sys.platform == "win32":
         # TODO: RUSTPYTHON, ValueError: illegal environment variable name
         @unittest.expectedFailure

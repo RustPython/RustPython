@@ -721,8 +721,6 @@ class UnicodeTest(string_tests.CommonTest,
                    '\U0001F40D', '\U0001F46F']:
             self.assertFalse(ch.isspace(), '{!a} is not space.'.format(ch))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @support.requires_resource('cpu')
     def test_isspace_invariant(self):
         for codepoint in range(sys.maxunicode + 1):

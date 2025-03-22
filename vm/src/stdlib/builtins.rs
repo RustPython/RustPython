@@ -155,7 +155,7 @@ mod builtins {
                     return ast::compile(
                         vm,
                         args.source,
-                        args.filename.as_str(),
+                        &args.filename.to_string_lossy(),
                         mode,
                         Some(optimize),
                     );
@@ -204,7 +204,7 @@ mod builtins {
                             .compile_with_opts(
                                 source,
                                 mode,
-                                args.filename.as_str().to_owned(),
+                                args.filename.to_string_lossy().into_owned(),
                                 opts,
                             )
                             .map_err(|err| (err, Some(source)).to_pyexception(vm))?;

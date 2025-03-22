@@ -38,7 +38,7 @@ use rustpython_common::{
     str::DeduceStrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk},
 };
-use std::{char, fmt, ops::Range};
+use std::{borrow::Cow, char, fmt, ops::Range};
 use unic_ucd_bidi::BidiClass;
 use unic_ucd_category::GeneralCategory;
 use unic_ucd_ident::{is_xid_continue, is_xid_start};
@@ -420,6 +420,16 @@ impl PyStr {
         self.data.as_str().expect("str has surrogates")
     }
 
+    pub fn to_str(&self) -> Option<&str> {
+        self.data.as_str()
+    }
+
+    pub fn to_string_lossy(&self) -> Cow<'_, str> {
+        self.to_str()
+            .map(Cow::Borrowed)
+            .unwrap_or_else(|| self.as_wtf8().to_string_lossy())
+    }
+
     pub fn kind(&self) -> StrKind {
         self.data.kind()
     }
@@ -629,16 +639,42 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn capitalize(&self) -> String {
-        let mut chars = self.as_str().chars();
-        if let Some(first_char) = chars.next() {
-            format!(
-                "{}{}",
-                first_char.to_uppercase(),
-                &chars.as_str().to_lowercase(),
-            )
-        } else {
-            "".to_owned()
+    fn capitalize(&self) -> Wtf8Buf {
+        match self.as_str_kind() {
+            PyKindStr::Ascii(s) => {
+                let mut s = s.to_owned();
+                if let [first, rest @ ..] = s.as_mut_slice() {
+                    first.make_ascii_uppercase();
+                    ascii::AsciiStr::make_ascii_lowercase(rest.into());
+                }
+                s.into()
+            }
+            PyKindStr::Utf8(s) => {
+                let mut chars = s.chars();
+                let mut out = String::with_capacity(s.len());
+                if let Some(c) = chars.next() {
+                    out.extend(c.to_titlecase());
+                    out.push_str(&chars.as_str().to_lowercase());
+                }
+                out.into()
+            }
+            PyKindStr::Wtf8(s) => {
+                let mut out = Wtf8Buf::with_capacity(s.len());
+                let mut chars = s.code_points();
+                if let Some(ch) = chars.next() {
+                    match ch.to_char() {
+                        Some(ch) => out.extend(ch.to_titlecase()),
+                        None => out.push(ch),
+                    }
+                    for chunk in chars.as_wtf8().chunks() {
+                        match chunk {
+                            Wtf8Chunk::Utf8(s) => out.push_str(&s.to_lowercase()),
+                            Wtf8Chunk::Surrogate(ch) => out.push(ch),
+                        }
+                    }
+                }
+                out
+            }
         }
     }
 
@@ -844,14 +880,11 @@ impl PyStr {
     #[pymethod]
     fn isdigit(&self) -> bool {
         // python's isdigit also checks if exponents are digits, these are the unicode codepoints for exponents
-        let valid_codepoints: [u16; 10] = [
-            0x2070, 0x00B9, 0x00B2, 0x00B3, 0x2074, 0x2075, 0x2076, 0x2077, 0x2078, 0x2079,
-        ];
-        let s = self.as_str();
-        !s.is_empty()
-            && s.chars()
-                .filter(|c| !c.is_ascii_digit())
-                .all(|c| valid_codepoints.contains(&(c as u16)))
+        !self.data.is_empty()
+            && self.char_all(|c| {
+                c.is_ascii_digit()
+                    || matches!(c, '⁰' | '¹' | '²' | '³' | '⁴' | '⁵' | '⁶' | '⁷' | '⁸' | '⁹')
+            })
     }
 
     #[pymethod]
@@ -910,43 +943,45 @@ impl PyStr {
     /// Return a titlecased version of the string where words start with an
     /// uppercase character and the remaining characters are lowercase.
     #[pymethod]
-    fn title(&self) -> String {
-        let mut title = String::with_capacity(self.data.len());
+    fn title(&self) -> Wtf8Buf {
+        let mut title = Wtf8Buf::with_capacity(self.data.len());
         let mut previous_is_cased = false;
-        for c in self.as_str().chars() {
+        for c_orig in self.as_wtf8().code_points() {
+            let c = c_orig.to_char_lossy();
             if c.is_lowercase() {
                 if !previous_is_cased {
                     title.extend(c.to_titlecase());
                 } else {
-                    title.push(c);
+                    title.push_char(c);
                 }
                 previous_is_cased = true;
             } else if c.is_uppercase() || c.is_titlecase() {
                 if previous_is_cased {
                     title.extend(c.to_lowercase());
                 } else {
-                    title.push(c);
+                    title.push_char(c);
                 }
                 previous_is_cased = true;
             } else {
                 previous_is_cased = false;
-                title.push(c);
+                title.push(c_orig);
             }
         }
         title
     }
 
     #[pymethod]
-    fn swapcase(&self) -> String {
-        let mut swapped_str = String::with_capacity(self.data.len());
-        for c in self.as_str().chars() {
+    fn swapcase(&self) -> Wtf8Buf {
+        let mut swapped_str = Wtf8Buf::with_capacity(self.data.len());
+        for c_orig in self.as_wtf8().code_points() {
+            let c = c_orig.to_char_lossy();
             // to_uppercase returns an iterator, to_ascii_uppercase returns the char
             if c.is_lowercase() {
-                swapped_str.push(c.to_ascii_uppercase());
+                swapped_str.push_char(c.to_ascii_uppercase());
             } else if c.is_uppercase() {
-                swapped_str.push(c.to_ascii_lowercase());
+                swapped_str.push_char(c.to_ascii_lowercase());
             } else {
-                swapped_str.push(c);
+                swapped_str.push(c_orig);
             }
         }
         swapped_str
@@ -958,20 +993,20 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn replace(&self, old: PyStrRef, new: PyStrRef, count: OptionalArg<isize>) -> String {
-        let s = self.as_str();
+    fn replace(&self, old: PyStrRef, new: PyStrRef, count: OptionalArg<isize>) -> Wtf8Buf {
+        let s = self.as_wtf8();
         match count {
             OptionalArg::Present(max_count) if max_count >= 0 => {
                 if max_count == 0 || (s.is_empty() && !old.is_empty()) {
                     // nothing to do; return the original bytes
                     s.to_owned()
                 } else if s.is_empty() && old.is_empty() {
-                    new.as_str().to_owned()
+                    new.as_wtf8().to_owned()
                 } else {
-                    s.replacen(old.as_str(), new.as_str(), max_count as usize)
+                    s.replacen(old.as_wtf8(), new.as_wtf8(), max_count as usize)
                 }
             }
-            _ => s.replace(old.as_str(), new.as_str()),
+            _ => s.replace(old.as_wtf8(), new.as_wtf8()),
         }
     }
 
@@ -1148,7 +1183,7 @@ impl PyStr {
             if has_mid {
                 sep
             } else {
-                vm.ctx.new_str(ascii!(""))
+                vm.ctx.empty_str.to_owned()
             },
             self.new_substr(back),
         )
@@ -1165,7 +1200,7 @@ impl PyStr {
 
         let mut cased = false;
         let mut previous_is_cased = false;
-        for c in self.as_str().chars() {
+        for c in self.as_wtf8().code_points().map(CodePoint::to_char_lossy) {
             if c.is_uppercase() || c.is_titlecase() {
                 if previous_is_cased {
                     return false;
@@ -1188,15 +1223,15 @@ impl PyStr {
     #[pymethod]
     fn count(&self, args: FindArgs) -> usize {
         let (needle, range) = args.get_value(self.len());
-        self.as_str()
-            .py_count(needle.as_str(), range, |h, n| h.matches(n).count())
+        self.as_wtf8()
+            .py_count(needle.as_wtf8(), range, |h, n| h.find_iter(n).count())
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize) -> String {
+    fn zfill(&self, width: isize) -> Wtf8Buf {
         unsafe {
-            // SAFETY: this is safe-guaranteed because the original self.as_str() is valid utf8
-            String::from_utf8_unchecked(self.as_str().py_zfill(width))
+            // SAFETY: this is safe-guaranteed because the original self.as_wtf8() is valid wtf8
+            Wtf8Buf::from_bytes_unchecked(self.as_wtf8().py_zfill(width))
         }
     }
 
@@ -1205,20 +1240,20 @@ impl PyStr {
         &self,
         width: isize,
         fillchar: OptionalArg<PyStrRef>,
-        pad: fn(&str, usize, char, usize) -> String,
+        pad: fn(&Wtf8, usize, CodePoint, usize) -> Wtf8Buf,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
-        let fillchar = fillchar.map_or(Ok(' '), |ref s| {
-            s.as_str().chars().exactly_one().map_err(|_| {
+    ) -> PyResult<Wtf8Buf> {
+        let fillchar = fillchar.map_or(Ok(' '.into()), |ref s| {
+            s.as_wtf8().code_points().exactly_one().map_err(|_| {
                 vm.new_type_error(
                     "The fill character must be exactly one character long".to_owned(),
                 )
             })
         })?;
         Ok(if self.len() as isize >= width {
-            String::from(self.as_str())
+            self.as_wtf8().to_owned()
         } else {
-            pad(self.as_str(), width as usize, fillchar, self.len())
+            pad(self.as_wtf8(), width as usize, fillchar, self.len())
         })
     }
 
@@ -1228,7 +1263,7 @@ impl PyStr {
         width: isize,
         fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    ) -> PyResult<Wtf8Buf> {
         self._pad(width, fillchar, AnyStr::py_center, vm)
     }
 
@@ -1238,7 +1273,7 @@ impl PyStr {
         width: isize,
         fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    ) -> PyResult<Wtf8Buf> {
         self._pad(width, fillchar, AnyStr::py_ljust, vm)
     }
 
@@ -1248,7 +1283,7 @@ impl PyStr {
         width: isize,
         fillchar: OptionalArg<PyStrRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    ) -> PyResult<Wtf8Buf> {
         self._pad(width, fillchar, AnyStr::py_rjust, vm)
     }
 
@@ -2186,7 +2221,7 @@ mod tests {
             ("Greek ῼitlecases ...", "greek ῳitlecases ..."),
         ];
         for (title, input) in tests {
-            assert_eq!(PyStr::from(input).title().as_str(), title);
+            assert_eq!(PyStr::from(input).title().as_str(), Ok(title));
         }
     }
 

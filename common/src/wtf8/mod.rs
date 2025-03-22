@@ -552,6 +552,12 @@ impl Extend<CodePoint> for Wtf8Buf {
     }
 }
 
+impl Extend<char> for Wtf8Buf {
+    fn extend<T: IntoIterator<Item = char>>(&mut self, iter: T) {
+        self.extend(iter.into_iter().map(CodePoint::from))
+    }
+}
+
 impl<W: AsRef<Wtf8>> Extend<W> for Wtf8Buf {
     fn extend<T: IntoIterator<Item = W>>(&mut self, iter: T) {
         iter.into_iter()
@@ -1004,6 +1010,14 @@ impl Wtf8 {
         memchr::memmem::rfind(self.as_bytes(), pat.as_bytes())
     }
 
+    pub fn find_iter(&self, pat: &Wtf8) -> impl Iterator<Item = usize> {
+        memchr::memmem::find_iter(self.as_bytes(), pat.as_bytes())
+    }
+
+    pub fn rfind_iter(&self, pat: &Wtf8) -> impl Iterator<Item = usize> {
+        memchr::memmem::rfind_iter(self.as_bytes(), pat.as_bytes())
+    }
+
     pub fn contains(&self, pat: &Wtf8) -> bool {
         self.bytes.contains_str(pat)
     }
@@ -1055,6 +1069,11 @@ impl Wtf8 {
 
     pub fn replace(&self, from: &Wtf8, to: &Wtf8) -> Wtf8Buf {
         let w = self.bytes.replace(from, to);
+        unsafe { Wtf8Buf::from_bytes_unchecked(w) }
+    }
+
+    pub fn replacen(&self, from: &Wtf8, to: &Wtf8, n: usize) -> Wtf8Buf {
+        let w = self.bytes.replacen(from, to, n);
         unsafe { Wtf8Buf::from_bytes_unchecked(w) }
     }
 }
