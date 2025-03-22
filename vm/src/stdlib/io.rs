@@ -147,6 +147,7 @@ mod _io {
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::{BigInt, BigUint};
     use num_traits::ToPrimitive;
+    use rustpython_common::wtf8::Wtf8Buf;
     use std::{
         borrow::Cow,
         io::{self, Cursor, SeekFrom, prelude::*},
@@ -2082,7 +2083,7 @@ mod _io {
     impl PendingWrite {
         fn as_bytes(&self) -> &[u8] {
             match self {
-                Self::Utf8(s) => s.as_str().as_bytes(),
+                Self::Utf8(s) => s.as_bytes(),
                 Self::Bytes(b) => b.as_bytes(),
             }
         }
@@ -3305,14 +3306,14 @@ mod _io {
             };
             let orig_output: PyStrRef = output.try_into_value(vm)?;
             // this being Cow::Owned means we need to allocate a new string
-            let mut output = Cow::Borrowed(orig_output.as_str());
+            let mut output = Cow::Borrowed(orig_output.as_wtf8());
             if self.pendingcr && (final_ || !output.is_empty()) {
-                output = ["\r", &*output].concat().into();
+                output.to_mut().insert(0, '\r'.into());
                 self.pendingcr = false;
             }
             if !final_ {
-                if let Some(s) = output.strip_suffix('\r') {
-                    output = s.to_owned().into();
+                if let Some(s) = output.strip_suffix("\r".as_ref()) {
+                    output = Cow::Owned(s.to_owned());
                     self.pendingcr = true;
                 }
             }
@@ -3321,19 +3322,21 @@ mod _io {
                 return Ok(vm.ctx.empty_str.to_owned());
             }
 
-            if (self.seennl == SeenNewline::LF || self.seennl.is_empty()) && !output.contains('\r')
+            if (self.seennl == SeenNewline::LF || self.seennl.is_empty())
+                && !output.contains_code_point('\r'.into())
             {
-                if self.seennl.is_empty() && output.contains('\n') {
+                if self.seennl.is_empty() && output.contains_code_point('\n'.into()) {
                     self.seennl.insert(SeenNewline::LF);
                 }
             } else if !self.translate {
-                let mut matches = output.match_indices(['\r', '\n']);
+                let output = output.as_bytes();
+                let mut matches = memchr::memchr2_iter(b'\r', b'\n', output);
                 while !self.seennl.is_all() {
-                    let Some((i, c)) = matches.next() else { break };
-                    match c {
-                        "\n" => self.seennl.insert(SeenNewline::LF),
+                    let Some(i) = matches.next() else { break };
+                    match output[i] {
+                        b'\n' => self.seennl.insert(SeenNewline::LF),
                         // if c isn't \n, it can only be \r
-                        _ if output[i + 1..].starts_with('\n') => {
+                        _ if output.get(i + 1) == Some(&b'\n') => {
                             matches.next();
                             self.seennl.insert(SeenNewline::CRLF);
                         }
@@ -3341,30 +3344,31 @@ mod _io {
                     }
                 }
             } else {
-                let mut chunks = output.match_indices(['\r', '\n']);
-                let mut new_string = String::with_capacity(output.len());
+                let bytes = output.as_bytes();
+                let mut matches = memchr::memchr2_iter(b'\r', b'\n', bytes);
+                let mut new_string = Wtf8Buf::with_capacity(output.len());
                 let mut last_modification_index = 0;
-                while let Some((cr_index, chunk)) = chunks.next() {
-                    if chunk == "\r" {
+                while let Some(cr_index) = matches.next() {
+                    if bytes[cr_index] == b'\r' {
                         // skip copying the CR
                         let mut next_chunk_index = cr_index + 1;
-                        if output[cr_index + 1..].starts_with('\n') {
-                            chunks.next();
+                        if bytes.get(cr_index + 1) == Some(&b'\n') {
+                            matches.next();
                             self.seennl.insert(SeenNewline::CRLF);
                             // skip the LF too
                             next_chunk_index += 1;
                         } else {
                             self.seennl.insert(SeenNewline::CR);
                         }
-                        new_string.push_str(&output[last_modification_index..cr_index]);
-                        new_string.push('\n');
+                        new_string.push_wtf8(&output[last_modification_index..cr_index]);
+                        new_string.push_char('\n');
                         last_modification_index = next_chunk_index;
                     } else {
                         self.seennl.insert(SeenNewline::LF);
                     }
                 }
-                new_string.push_str(&output[last_modification_index..]);
-                output = new_string.into();
+                new_string.push_wtf8(&output[last_modification_index..]);
+                output = Cow::Owned(new_string);
             }
 
             Ok(match output {
@@ -3404,7 +3408,7 @@ mod _io {
         ) -> PyResult {
             let raw_bytes = object
                 .flatten()
-                .map_or_else(Vec::new, |v| v.as_str().as_bytes().to_vec());
+                .map_or_else(Vec::new, |v| v.as_bytes().to_vec());
 
             StringIO {
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(raw_bytes))),
@@ -3453,7 +3457,7 @@ mod _io {
         // write string to underlying vector
         #[pymethod]
         fn write(&self, data: PyStrRef, vm: &VirtualMachine) -> PyResult<u64> {
-            let bytes = data.as_str().as_bytes();
+            let bytes = data.as_bytes();
             self.buffer(vm)?
                 .write(bytes)
                 .ok_or_else(|| vm.new_type_error("Error Writing String".to_owned()))

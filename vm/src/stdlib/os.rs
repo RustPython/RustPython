@@ -376,7 +376,7 @@ pub(super) mod _os {
 
     fn env_bytes_as_bytes(obj: &Either<PyStrRef, PyBytesRef>) -> &[u8] {
         match obj {
-            Either::A(s) => s.as_str().as_bytes(),
+            Either::A(s) => s.as_bytes(),
             Either::B(b) => b.as_bytes(),
         }
     }

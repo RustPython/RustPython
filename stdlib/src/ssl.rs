@@ -708,7 +708,7 @@ mod _ssl {
                         if !s.is_ascii() {
                             return Err(invalid_cadata(vm));
                         }
-                        X509::stack_from_pem(s.as_str().as_bytes())
+                        X509::stack_from_pem(s.as_bytes())
                     }
                     Either::B(b) => b.with_ref(x509_stack_from_der),
                 };

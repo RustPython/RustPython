@@ -26,7 +26,7 @@ impl FsPath {
         let match1 = |obj: PyObjectRef| {
             let pathlike = match_class!(match obj {
                 s @ PyStr => {
-                    check_nul(s.as_str().as_bytes())?;
+                    check_nul(s.as_bytes())?;
                     FsPath::Str(s)
                 }
                 b @ PyBytes => {
@@ -61,7 +61,11 @@ impl FsPath {
     pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<&OsStr> {
         // TODO: FS encodings
         match self {
-            FsPath::Str(s) => Ok(s.as_str().as_ref()),
+            FsPath::Str(s) => {
+                // XXX RUSTPYTHON: this is sketchy on windows; it's not guaranteed that its
+                //                 OsStr encoding will always be compatible with WTF-8.
+                Ok(unsafe { OsStr::from_encoded_bytes_unchecked(s.as_wtf8().as_bytes()) })
+            }
             FsPath::Bytes(b) => Self::bytes_as_osstr(b.as_bytes(), vm),
         }
     }
@@ -69,7 +73,7 @@ impl FsPath {
     pub fn as_bytes(&self) -> &[u8] {
         // TODO: FS encodings
         match self {
-            FsPath::Str(s) => s.as_str().as_bytes(),
+            FsPath::Str(s) => s.as_bytes(),
             FsPath::Bytes(b) => b.as_bytes(),
         }
     }

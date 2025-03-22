@@ -198,9 +198,9 @@ mod _csv {
     ) -> PyResult<Terminator> {
         match_class!(match obj.get_attr("lineterminator", vm)? {
             s @ PyStr => {
-                Ok(if s.as_str().as_bytes().eq(b"\r\n") {
+                Ok(if s.as_bytes().eq(b"\r\n") {
                     csv_core::Terminator::CRLF
-                } else if let Some(t) = s.as_str().as_bytes().first() {
+                } else if let Some(t) = s.as_bytes().first() {
                     // Due to limitations in the current implementation within csv_core
                     // the support for multiple characters in lineterminator is not complete.
                     // only capture the first character
@@ -942,7 +942,7 @@ mod _csv {
             ),
                 )
             })?;
-            let input = string.as_str().as_bytes();
+            let input = string.as_bytes();
             if input.is_empty() || input.starts_with(b"\n") {
                 return Ok(PyIterReturn::Return(vm.ctx.new_list(vec![]).into()));
             }
@@ -1101,11 +1101,11 @@ mod _csv {
                 let field: PyObjectRef = field?;
                 let stringified;
                 let data: &[u8] = match_class!(match field {
-                    ref s @ PyStr => s.as_str().as_bytes(),
+                    ref s @ PyStr => s.as_bytes(),
                     crate::builtins::PyNone => b"",
                     ref obj => {
                         stringified = obj.str(vm)?;
-                        stringified.as_str().as_bytes()
+                        stringified.as_bytes()
                     }
                 });
                 let mut input_offset = 0;

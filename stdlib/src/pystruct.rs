@@ -47,7 +47,7 @@ pub(crate) mod _struct {
 
     impl IntoStructFormatBytes {
         fn format_spec(&self, vm: &VirtualMachine) -> PyResult<FormatSpec> {
-            FormatSpec::parse(self.0.as_str().as_bytes(), vm)
+            FormatSpec::parse(self.0.as_bytes(), vm)
         }
     }
 
