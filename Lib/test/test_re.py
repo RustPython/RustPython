@@ -854,8 +854,6 @@ class ReTests(unittest.TestCase):
         # Can match around the whitespace.
         self.assertEqual(len(re.findall(r"\B", " ")), 2)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bigcharset(self):
         self.assertEqual(re.match("([\u2222\u2223])",
                                   "\u2222").group(1), "\u2222")

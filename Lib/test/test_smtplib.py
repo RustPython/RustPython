@@ -1459,8 +1459,6 @@ class SMTPUTF8SimTests(unittest.TestCase):
         self.assertIn('SMTPUTF8', self.serv.last_mail_options)
         self.assertEqual(self.serv.last_rcpt_options, [])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_send_message_uses_smtputf8_if_addrs_non_ascii(self):
         msg = EmailMessage()
         msg['From'] = "Páolo <főo@bar.com>"

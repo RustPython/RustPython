@@ -14,7 +14,12 @@ license.workspace = true
 name = "benches"
 harness = false
 
+[features]
+default = ["wtf8"]
+wtf8 = ["rustpython-common"]
+
 [dependencies]
+rustpython-common = { workspace = true, optional = true }
 num_enum = { workspace = true }
 bitflags = { workspace = true }
 optional = "0.5"

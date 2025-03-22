@@ -9,6 +9,7 @@ mod _sre {
             PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyListRef, PyStr,
             PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
         },
+        common::wtf8::{Wtf8, Wtf8Buf},
         common::{ascii, hash::PyHash},
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg, PosArgs, PyComparisonValue},
@@ -66,10 +67,15 @@ mod _sre {
         }
     }
 
-    impl SreStr for &str {
+    impl SreStr for &Wtf8 {
         fn slice(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx
-                .new_str(self.chars().take(end).skip(start).collect::<String>())
+                .new_str(
+                    self.code_points()
+                        .take(end)
+                        .skip(start)
+                        .collect::<Wtf8Buf>(),
+                )
                 .into()
         }
     }
@@ -206,12 +212,12 @@ mod _sre {
     impl Pattern {
         fn with_str<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
         where
-            F: FnOnce(&str) -> PyResult<R>,
+            F: FnOnce(&Wtf8) -> PyResult<R>,
         {
             let string = string.payload::<PyStr>().ok_or_else(|| {
                 vm.new_type_error(format!("expected string got '{}'", string.class()))
             })?;
-            f(string.as_str())
+            f(string.as_wtf8())
         }
 
         fn with_bytes<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
@@ -425,7 +431,7 @@ mod _sre {
                 let is_template = if zelf.isbytes {
                     Self::with_bytes(&repl, vm, |x| Ok(x.contains(&b'\\')))?
                 } else {
-                    Self::with_str(&repl, vm, |x| Ok(x.contains('\\')))?
+                    Self::with_str(&repl, vm, |x| Ok(x.contains("\\".as_ref())))?
                 };
 
                 if is_template {

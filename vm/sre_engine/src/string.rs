@@ -1,3 +1,6 @@
+#[cfg(feature = "wtf8")]
+use rustpython_common::wtf8::Wtf8;
+
 #[derive(Debug, Clone, Copy)]
 pub struct StringCursor {
     pub(crate) ptr: *const u8,
@@ -92,6 +95,73 @@ impl StrDrive for &str {
     fn create_cursor(&self, n: usize) -> StringCursor {
         let mut cursor = StringCursor {
             ptr: self.as_ptr(),
+            position: 0,
+        };
+        Self::skip(&mut cursor, n);
+        cursor
+    }
+
+    #[inline]
+    fn adjust_cursor(&self, cursor: &mut StringCursor, n: usize) {
+        if cursor.ptr.is_null() || cursor.position > n {
+            *cursor = Self::create_cursor(self, n);
+        } else if cursor.position < n {
+            Self::skip(cursor, n - cursor.position);
+        }
+    }
+
+    #[inline]
+    fn advance(cursor: &mut StringCursor) -> u32 {
+        cursor.position += 1;
+        unsafe { next_code_point(&mut cursor.ptr) }
+    }
+
+    #[inline]
+    fn peek(cursor: &StringCursor) -> u32 {
+        let mut ptr = cursor.ptr;
+        unsafe { next_code_point(&mut ptr) }
+    }
+
+    #[inline]
+    fn skip(cursor: &mut StringCursor, n: usize) {
+        cursor.position += n;
+        for _ in 0..n {
+            unsafe { next_code_point(&mut cursor.ptr) };
+        }
+    }
+
+    #[inline]
+    fn back_advance(cursor: &mut StringCursor) -> u32 {
+        cursor.position -= 1;
+        unsafe { next_code_point_reverse(&mut cursor.ptr) }
+    }
+
+    #[inline]
+    fn back_peek(cursor: &StringCursor) -> u32 {
+        let mut ptr = cursor.ptr;
+        unsafe { next_code_point_reverse(&mut ptr) }
+    }
+
+    #[inline]
+    fn back_skip(cursor: &mut StringCursor, n: usize) {
+        cursor.position -= n;
+        for _ in 0..n {
+            unsafe { next_code_point_reverse(&mut cursor.ptr) };
+        }
+    }
+}
+
+#[cfg(feature = "wtf8")]
+impl StrDrive for &Wtf8 {
+    #[inline]
+    fn count(&self) -> usize {
+        self.code_points().count()
+    }
+
+    #[inline]
+    fn create_cursor(&self, n: usize) -> StringCursor {
+        let mut cursor = StringCursor {
+            ptr: self.as_bytes().as_ptr(),
             position: 0,
         };
         Self::skip(&mut cursor, n);
