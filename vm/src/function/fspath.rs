@@ -5,7 +5,7 @@ use crate::{
     function::PyStr,
     protocol::PyBuffer,
 };
-use std::{ffi::OsStr, path::PathBuf};
+use std::{borrow::Cow, ffi::OsStr, path::PathBuf};
 
 #[derive(Clone)]
 pub enum FsPath {
@@ -58,15 +58,11 @@ impl FsPath {
         })
     }
 
-    pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<&OsStr> {
+    pub fn as_os_str(&self, vm: &VirtualMachine) -> PyResult<Cow<'_, OsStr>> {
         // TODO: FS encodings
         match self {
-            FsPath::Str(s) => {
-                // XXX RUSTPYTHON: this is sketchy on windows; it's not guaranteed that its
-                //                 OsStr encoding will always be compatible with WTF-8.
-                Ok(unsafe { OsStr::from_encoded_bytes_unchecked(s.as_wtf8().as_bytes()) })
-            }
-            FsPath::Bytes(b) => Self::bytes_as_osstr(b.as_bytes(), vm),
+            FsPath::Str(s) => vm.fsencode(s),
+            FsPath::Bytes(b) => Self::bytes_as_osstr(b.as_bytes(), vm).map(Cow::Borrowed),
         }
     }
 

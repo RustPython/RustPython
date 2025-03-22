@@ -51,7 +51,7 @@ pub struct Context {
 }
 
 macro_rules! declare_const_name {
-    ($($name:ident,)*) => {
+    ($($name:ident$(: $s:literal)?,)*) => {
         #[derive(Debug, Clone, Copy)]
         #[allow(non_snake_case)]
         pub struct ConstName {
@@ -61,11 +61,13 @@ macro_rules! declare_const_name {
         impl ConstName {
             unsafe fn new(pool: &StringPool, typ: &PyTypeRef) -> Self {
                 Self {
-                    $($name: unsafe { pool.intern(stringify!($name), typ.clone()) },)*
+                    $($name: unsafe { pool.intern(declare_const_name!(@string $name $($s)?), typ.clone()) },)*
                 }
             }
         }
-    }
+    };
+    (@string $name:ident) => { stringify!($name) };
+    (@string $name:ident $string:literal) => { $string };
 }
 
 declare_const_name! {
@@ -236,6 +238,15 @@ declare_const_name! {
     flush,
     close,
     WarningMessage,
+    strict,
+    ignore,
+    replace,
+    xmlcharrefreplace,
+    backslashreplace,
+    namereplace,
+    surrogatepass,
+    surrogateescape,
+    utf_8: "utf-8",
 }
 
 // Basic objects:

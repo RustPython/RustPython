@@ -2225,7 +2225,7 @@ mod _io {
             *data = None;
 
             let encoding = match args.encoding {
-                None if vm.state.settings.utf8_mode > 0 => PyStr::from("utf-8").into_ref(&vm.ctx),
+                None if vm.state.settings.utf8_mode > 0 => identifier!(vm, utf_8).to_owned(),
                 Some(enc) if enc.as_wtf8() != "locale" => enc,
                 _ => {
                     // None without utf8_mode or "locale" encoding
@@ -2238,7 +2238,7 @@ mod _io {
 
             let errors = args
                 .errors
-                .unwrap_or_else(|| PyStr::from("strict").into_ref(&vm.ctx));
+                .unwrap_or_else(|| identifier!(vm, strict).to_owned());
 
             let has_read1 = vm.get_attribute_opt(buffer.clone(), "read1")?.is_some();
             let seekable = vm.call_method(&buffer, "seekable", ())?.try_to_bool(vm)?;
