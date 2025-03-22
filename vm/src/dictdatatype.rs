@@ -835,7 +835,7 @@ impl DictKey for str {
 
     fn key_eq(&self, vm: &VirtualMachine, other_key: &PyObject) -> PyResult<bool> {
         if let Some(pystr) = other_key.payload_if_exact::<PyStr>(vm) {
-            Ok(pystr.as_wtf8() == self.as_ref())
+            Ok(pystr.as_wtf8() == self)
         } else {
             // Fall back to PyObjectRef implementation.
             let s = vm.ctx.new_str(self);
