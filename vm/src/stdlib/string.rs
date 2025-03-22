@@ -9,6 +9,7 @@ mod _string {
     use crate::common::format::{
         FieldName, FieldNamePart, FieldType, FormatPart, FormatString, FromTemplate,
     };
+    use crate::common::wtf8::{CodePoint, Wtf8Buf};
     use crate::{
         PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyList, PyStrRef},
@@ -18,10 +19,10 @@ mod _string {
     use std::mem;
 
     fn create_format_part(
-        literal: String,
-        field_name: Option<String>,
-        format_spec: Option<String>,
-        conversion_spec: Option<char>,
+        literal: Wtf8Buf,
+        field_name: Option<Wtf8Buf>,
+        format_spec: Option<Wtf8Buf>,
+        conversion_spec: Option<CodePoint>,
         vm: &VirtualMachine,
     ) -> PyObjectRef {
         let tuple = (
@@ -36,10 +37,10 @@ mod _string {
     #[pyfunction]
     fn formatter_parser(text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyList> {
         let format_string =
-            FormatString::from_str(text.as_str()).map_err(|e| e.to_pyexception(vm))?;
+            FormatString::from_str(text.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
 
-        let mut result = Vec::new();
-        let mut literal = String::new();
+        let mut result: Vec<PyObjectRef> = Vec::new();
+        let mut literal = Wtf8Buf::new();
         for part in format_string.format_parts {
             match part {
                 FormatPart::Field {
@@ -55,7 +56,7 @@ mod _string {
                         vm,
                     ));
                 }
-                FormatPart::Literal(text) => literal.push_str(&text),
+                FormatPart::Literal(text) => literal.push_wtf8(&text),
             }
         }
         if !literal.is_empty() {
@@ -75,7 +76,7 @@ mod _string {
         text: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, PyList)> {
-        let field_name = FieldName::parse(text.as_str()).map_err(|e| e.to_pyexception(vm))?;
+        let field_name = FieldName::parse(text.as_wtf8()).map_err(|e| e.to_pyexception(vm))?;
 
         let first = match field_name.field_type {
             FieldType::Auto => vm.ctx.new_str(ascii!("")).into(),

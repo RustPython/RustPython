@@ -7,8 +7,10 @@ use rustpython_literal::format::Case;
 use std::ops::Deref;
 use std::{cmp, str::FromStr};
 
+use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
+
 trait FormatParse {
-    fn parse(text: &str) -> (Option<Self>, &str)
+    fn parse(text: &Wtf8) -> (Option<Self>, &Wtf8)
     where
         Self: Sized;
 }
@@ -23,20 +25,20 @@ pub enum FormatConversion {
 }
 
 impl FormatParse for FormatConversion {
-    fn parse(text: &str) -> (Option<Self>, &str) {
+    fn parse(text: &Wtf8) -> (Option<Self>, &Wtf8) {
         let Some(conversion) = Self::from_string(text) else {
             return (None, text);
         };
-        let mut chars = text.chars();
+        let mut chars = text.code_points();
         chars.next(); // Consume the bang
         chars.next(); // Consume one r,s,a char
-        (Some(conversion), chars.as_str())
+        (Some(conversion), chars.as_wtf8())
     }
 }
 
 impl FormatConversion {
-    pub fn from_char(c: char) -> Option<FormatConversion> {
-        match c {
+    pub fn from_char(c: CodePoint) -> Option<FormatConversion> {
+        match c.to_char_lossy() {
             's' => Some(FormatConversion::Str),
             'r' => Some(FormatConversion::Repr),
             'a' => Some(FormatConversion::Ascii),
@@ -45,9 +47,9 @@ impl FormatConversion {
         }
     }
 
-    fn from_string(text: &str) -> Option<FormatConversion> {
-        let mut chars = text.chars();
-        if chars.next() != Some('!') {
+    fn from_string(text: &Wtf8) -> Option<FormatConversion> {
+        let mut chars = text.code_points();
+        if chars.next()? != '!' {
             return None;
         }
 
@@ -64,8 +66,8 @@ pub enum FormatAlign {
 }
 
 impl FormatAlign {
-    fn from_char(c: char) -> Option<FormatAlign> {
-        match c {
+    fn from_char(c: CodePoint) -> Option<FormatAlign> {
+        match c.to_char_lossy() {
             '<' => Some(FormatAlign::Left),
             '>' => Some(FormatAlign::Right),
             '=' => Some(FormatAlign::AfterSign),
@@ -76,10 +78,10 @@ impl FormatAlign {
 }
 
 impl FormatParse for FormatAlign {
-    fn parse(text: &str) -> (Option<Self>, &str) {
-        let mut chars = text.chars();
+    fn parse(text: &Wtf8) -> (Option<Self>, &Wtf8) {
+        let mut chars = text.code_points();
         if let Some(maybe_align) = chars.next().and_then(Self::from_char) {
-            (Some(maybe_align), chars.as_str())
+            (Some(maybe_align), chars.as_wtf8())
         } else {
             (None, text)
         }
@@ -94,12 +96,12 @@ pub enum FormatSign {
 }
 
 impl FormatParse for FormatSign {
-    fn parse(text: &str) -> (Option<Self>, &str) {
-        let mut chars = text.chars();
-        match chars.next() {
-            Some('-') => (Some(Self::Minus), chars.as_str()),
-            Some('+') => (Some(Self::Plus), chars.as_str()),
-            Some(' ') => (Some(Self::MinusOrSpace), chars.as_str()),
+    fn parse(text: &Wtf8) -> (Option<Self>, &Wtf8) {
+        let mut chars = text.code_points();
+        match chars.next().and_then(CodePoint::to_char) {
+            Some('-') => (Some(Self::Minus), chars.as_wtf8()),
+            Some('+') => (Some(Self::Plus), chars.as_wtf8()),
+            Some(' ') => (Some(Self::MinusOrSpace), chars.as_wtf8()),
             _ => (None, text),
         }
     }
@@ -112,11 +114,11 @@ pub enum FormatGrouping {
 }
 
 impl FormatParse for FormatGrouping {
-    fn parse(text: &str) -> (Option<Self>, &str) {
-        let mut chars = text.chars();
-        match chars.next() {
-            Some('_') => (Some(Self::Underscore), chars.as_str()),
-            Some(',') => (Some(Self::Comma), chars.as_str()),
+    fn parse(text: &Wtf8) -> (Option<Self>, &Wtf8) {
+        let mut chars = text.code_points();
+        match chars.next().and_then(CodePoint::to_char) {
+            Some('_') => (Some(Self::Underscore), chars.as_wtf8()),
+            Some(',') => (Some(Self::Comma), chars.as_wtf8()),
             _ => (None, text),
         }
     }
@@ -161,25 +163,25 @@ impl From<&FormatType> for char {
 }
 
 impl FormatParse for FormatType {
-    fn parse(text: &str) -> (Option<Self>, &str) {
-        let mut chars = text.chars();
-        match chars.next() {
-            Some('s') => (Some(Self::String), chars.as_str()),
-            Some('b') => (Some(Self::Binary), chars.as_str()),
-            Some('c') => (Some(Self::Character), chars.as_str()),
-            Some('d') => (Some(Self::Decimal), chars.as_str()),
-            Some('o') => (Some(Self::Octal), chars.as_str()),
-            Some('n') => (Some(Self::Number(Case::Lower)), chars.as_str()),
-            Some('N') => (Some(Self::Number(Case::Upper)), chars.as_str()),
-            Some('x') => (Some(Self::Hex(Case::Lower)), chars.as_str()),
-            Some('X') => (Some(Self::Hex(Case::Upper)), chars.as_str()),
-            Some('e') => (Some(Self::Exponent(Case::Lower)), chars.as_str()),
-            Some('E') => (Some(Self::Exponent(Case::Upper)), chars.as_str()),
-            Some('f') => (Some(Self::FixedPoint(Case::Lower)), chars.as_str()),
-            Some('F') => (Some(Self::FixedPoint(Case::Upper)), chars.as_str()),
-            Some('g') => (Some(Self::GeneralFormat(Case::Lower)), chars.as_str()),
-            Some('G') => (Some(Self::GeneralFormat(Case::Upper)), chars.as_str()),
-            Some('%') => (Some(Self::Percentage), chars.as_str()),
+    fn parse(text: &Wtf8) -> (Option<Self>, &Wtf8) {
+        let mut chars = text.code_points();
+        match chars.next().and_then(CodePoint::to_char) {
+            Some('s') => (Some(Self::String), chars.as_wtf8()),
+            Some('b') => (Some(Self::Binary), chars.as_wtf8()),
+            Some('c') => (Some(Self::Character), chars.as_wtf8()),
+            Some('d') => (Some(Self::Decimal), chars.as_wtf8()),
+            Some('o') => (Some(Self::Octal), chars.as_wtf8()),
+            Some('n') => (Some(Self::Number(Case::Lower)), chars.as_wtf8()),
+            Some('N') => (Some(Self::Number(Case::Upper)), chars.as_wtf8()),
+            Some('x') => (Some(Self::Hex(Case::Lower)), chars.as_wtf8()),
+            Some('X') => (Some(Self::Hex(Case::Upper)), chars.as_wtf8()),
+            Some('e') => (Some(Self::Exponent(Case::Lower)), chars.as_wtf8()),
+            Some('E') => (Some(Self::Exponent(Case::Upper)), chars.as_wtf8()),
+            Some('f') => (Some(Self::FixedPoint(Case::Lower)), chars.as_wtf8()),
+            Some('F') => (Some(Self::FixedPoint(Case::Upper)), chars.as_wtf8()),
+            Some('g') => (Some(Self::GeneralFormat(Case::Lower)), chars.as_wtf8()),
+            Some('G') => (Some(Self::GeneralFormat(Case::Upper)), chars.as_wtf8()),
+            Some('%') => (Some(Self::Percentage), chars.as_wtf8()),
             _ => (None, text),
         }
     }
@@ -188,7 +190,7 @@ impl FormatParse for FormatType {
 #[derive(Debug, PartialEq)]
 pub struct FormatSpec {
     conversion: Option<FormatConversion>,
-    fill: Option<char>,
+    fill: Option<CodePoint>,
     align: Option<FormatAlign>,
     sign: Option<FormatSign>,
     alternate_form: bool,
@@ -198,17 +200,17 @@ pub struct FormatSpec {
     format_type: Option<FormatType>,
 }
 
-fn get_num_digits(text: &str) -> usize {
-    for (index, character) in text.char_indices() {
-        if !character.is_ascii_digit() {
+fn get_num_digits(text: &Wtf8) -> usize {
+    for (index, character) in text.code_point_indices() {
+        if !character.is_char_and(|c| c.is_ascii_digit()) {
             return index;
         }
     }
     text.len()
 }
 
-fn parse_fill_and_align(text: &str) -> (Option<char>, Option<FormatAlign>, &str) {
-    let char_indices: Vec<(usize, char)> = text.char_indices().take(3).collect();
+fn parse_fill_and_align(text: &Wtf8) -> (Option<CodePoint>, Option<FormatAlign>, &Wtf8) {
+    let char_indices: Vec<(usize, CodePoint)> = text.code_point_indices().take(3).collect();
     if char_indices.is_empty() {
         (None, None, text)
     } else if char_indices.len() == 1 {
@@ -225,12 +227,12 @@ fn parse_fill_and_align(text: &str) -> (Option<char>, Option<FormatAlign>, &str)
     }
 }
 
-fn parse_number(text: &str) -> Result<(Option<usize>, &str), FormatSpecError> {
+fn parse_number(text: &Wtf8) -> Result<(Option<usize>, &Wtf8), FormatSpecError> {
     let num_digits: usize = get_num_digits(text);
     if num_digits == 0 {
         return Ok((None, text));
     }
-    if let Ok(num) = text[..num_digits].parse::<usize>() {
+    if let Some(num) = parse_usize(&text[..num_digits]) {
         Ok((Some(num), &text[num_digits..]))
     } else {
         // NOTE: this condition is different from CPython
@@ -238,27 +240,27 @@ fn parse_number(text: &str) -> Result<(Option<usize>, &str), FormatSpecError> {
     }
 }
 
-fn parse_alternate_form(text: &str) -> (bool, &str) {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some('#') => (true, chars.as_str()),
+fn parse_alternate_form(text: &Wtf8) -> (bool, &Wtf8) {
+    let mut chars = text.code_points();
+    match chars.next().and_then(CodePoint::to_char) {
+        Some('#') => (true, chars.as_wtf8()),
         _ => (false, text),
     }
 }
 
-fn parse_zero(text: &str) -> (bool, &str) {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some('0') => (true, chars.as_str()),
+fn parse_zero(text: &Wtf8) -> (bool, &Wtf8) {
+    let mut chars = text.code_points();
+    match chars.next().and_then(CodePoint::to_char) {
+        Some('0') => (true, chars.as_wtf8()),
         _ => (false, text),
     }
 }
 
-fn parse_precision(text: &str) -> Result<(Option<usize>, &str), FormatSpecError> {
-    let mut chars = text.chars();
-    Ok(match chars.next() {
+fn parse_precision(text: &Wtf8) -> Result<(Option<usize>, &Wtf8), FormatSpecError> {
+    let mut chars = text.code_points();
+    Ok(match chars.next().and_then(CodePoint::to_char) {
         Some('.') => {
-            let (size, remaining) = parse_number(chars.as_str())?;
+            let (size, remaining) = parse_number(chars.as_wtf8())?;
             if let Some(size) = size {
                 if size > i32::MAX as usize {
                     return Err(FormatSpecError::PrecisionTooBig);
@@ -273,7 +275,10 @@ fn parse_precision(text: &str) -> Result<(Option<usize>, &str), FormatSpecError>
 }
 
 impl FormatSpec {
-    pub fn parse(text: &str) -> Result<Self, FormatSpecError> {
+    pub fn parse(text: impl AsRef<Wtf8>) -> Result<Self, FormatSpecError> {
+        Self::_parse(text.as_ref())
+    }
+    fn _parse(text: &Wtf8) -> Result<Self, FormatSpecError> {
         // get_integer in CPython
         let (conversion, text) = FormatConversion::parse(text);
         let (mut fill, mut align, text) = parse_fill_and_align(text);
@@ -289,7 +294,7 @@ impl FormatSpec {
         }
 
         if zero && fill.is_none() {
-            fill.replace('0');
+            fill.replace('0'.into());
             align = align.or(Some(FormatAlign::AfterSign));
         }
 
@@ -306,10 +311,8 @@ impl FormatSpec {
         })
     }
 
-    fn compute_fill_string(fill_char: char, fill_chars_needed: i32) -> String {
-        (0..fill_chars_needed)
-            .map(|_| fill_char)
-            .collect::<String>()
+    fn compute_fill_string(fill_char: CodePoint, fill_chars_needed: i32) -> Wtf8Buf {
+        (0..fill_chars_needed).map(|_| fill_char).collect()
     }
 
     fn add_magnitude_separators_for_char(
@@ -625,7 +628,7 @@ impl FormatSpec {
         let align = self.align.unwrap_or(default_align);
 
         let num_chars = magnitude_str.char_len();
-        let fill_char = self.fill.unwrap_or(' ');
+        let fill_char = self.fill.unwrap_or(' '.into());
         let fill_chars_needed: i32 = self.width.map_or(0, |w| {
             cmp::max(0, (w as i32) - (num_chars as i32) - (sign_str.len() as i32))
         });
@@ -726,20 +729,20 @@ impl FromStr for FormatSpec {
 
 #[derive(Debug, PartialEq)]
 pub enum FieldNamePart {
-    Attribute(String),
+    Attribute(Wtf8Buf),
     Index(usize),
-    StringIndex(String),
+    StringIndex(Wtf8Buf),
 }
 
 impl FieldNamePart {
     fn parse_part(
-        chars: &mut impl PeekingNext<Item = char>,
+        chars: &mut impl PeekingNext<Item = CodePoint>,
     ) -> Result<Option<FieldNamePart>, FormatParseError> {
         chars
             .next()
-            .map(|ch| match ch {
+            .map(|ch| match ch.to_char_lossy() {
                 '.' => {
-                    let mut attribute = String::new();
+                    let mut attribute = Wtf8Buf::new();
                     for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
                         attribute.push(ch);
                     }
@@ -750,12 +753,12 @@ impl FieldNamePart {
                     }
                 }
                 '[' => {
-                    let mut index = String::new();
+                    let mut index = Wtf8Buf::new();
                     for ch in chars {
                         if ch == ']' {
                             return if index.is_empty() {
                                 Err(FormatParseError::EmptyAttribute)
-                            } else if let Ok(index) = index.parse::<usize>() {
+                            } else if let Some(index) = parse_usize(&index) {
                                 Ok(FieldNamePart::Index(index))
                             } else {
                                 Ok(FieldNamePart::StringIndex(index))
@@ -775,7 +778,7 @@ impl FieldNamePart {
 pub enum FieldType {
     Auto,
     Index(usize),
-    Keyword(String),
+    Keyword(Wtf8Buf),
 }
 
 #[derive(Debug, PartialEq)]
@@ -784,17 +787,20 @@ pub struct FieldName {
     pub parts: Vec<FieldNamePart>,
 }
 
+fn parse_usize(s: &Wtf8) -> Option<usize> {
+    s.as_str().ok().and_then(|s| s.parse().ok())
+}
+
 impl FieldName {
-    pub fn parse(text: &str) -> Result<FieldName, FormatParseError> {
-        let mut chars = text.chars().peekable();
-        let mut first = String::new();
-        for ch in chars.peeking_take_while(|ch| *ch != '.' && *ch != '[') {
-            first.push(ch);
-        }
+    pub fn parse(text: &Wtf8) -> Result<FieldName, FormatParseError> {
+        let mut chars = text.code_points().peekable();
+        let first: Wtf8Buf = chars
+            .peeking_take_while(|ch| *ch != '.' && *ch != '[')
+            .collect();
 
         let field_type = if first.is_empty() {
             FieldType::Auto
-        } else if let Ok(index) = first.parse::<usize>() {
+        } else if let Some(index) = parse_usize(&first) {
             FieldType::Index(index)
         } else {
             FieldType::Keyword(first)
@@ -812,11 +818,11 @@ impl FieldName {
 #[derive(Debug, PartialEq)]
 pub enum FormatPart {
     Field {
-        field_name: String,
-        conversion_spec: Option<char>,
-        format_spec: String,
+        field_name: Wtf8Buf,
+        conversion_spec: Option<CodePoint>,
+        format_spec: Wtf8Buf,
     },
-    Literal(String),
+    Literal(Wtf8Buf),
 }
 
 #[derive(Debug, PartialEq)]
@@ -825,8 +831,8 @@ pub struct FormatString {
 }
 
 impl FormatString {
-    fn parse_literal_single(text: &str) -> Result<(char, &str), FormatParseError> {
-        let mut chars = text.chars();
+    fn parse_literal_single(text: &Wtf8) -> Result<(CodePoint, &Wtf8), FormatParseError> {
+        let mut chars = text.code_points();
         // This should never be called with an empty str
         let first_char = chars.next().unwrap();
         // isn't this detectable only with bytes operation?
@@ -836,15 +842,15 @@ impl FormatString {
             return if maybe_next_char.is_none() || maybe_next_char.unwrap() != first_char {
                 Err(FormatParseError::UnescapedStartBracketInLiteral)
             } else {
-                Ok((first_char, chars.as_str()))
+                Ok((first_char, chars.as_wtf8()))
             };
         }
-        Ok((first_char, chars.as_str()))
+        Ok((first_char, chars.as_wtf8()))
     }
 
-    fn parse_literal(text: &str) -> Result<(FormatPart, &str), FormatParseError> {
+    fn parse_literal(text: &Wtf8) -> Result<(FormatPart, &Wtf8), FormatParseError> {
         let mut cur_text = text;
-        let mut result_string = String::new();
+        let mut result_string = Wtf8Buf::new();
         while !cur_text.is_empty() {
             match FormatString::parse_literal_single(cur_text) {
                 Ok((next_char, remaining)) => {
@@ -860,14 +866,14 @@ impl FormatString {
                 }
             }
         }
-        Ok((FormatPart::Literal(result_string), ""))
+        Ok((FormatPart::Literal(result_string), "".as_ref()))
     }
 
-    fn parse_part_in_brackets(text: &str) -> Result<FormatPart, FormatParseError> {
-        let mut chars = text.chars().peekable();
+    fn parse_part_in_brackets(text: &Wtf8) -> Result<FormatPart, FormatParseError> {
+        let mut chars = text.code_points().peekable();
 
-        let mut left = String::new();
-        let mut right = String::new();
+        let mut left = Wtf8Buf::new();
+        let mut right = Wtf8Buf::new();
 
         let mut split = false;
         let mut selected = &mut left;
@@ -899,12 +905,12 @@ impl FormatString {
         }
 
         // before the comma is a keyword or arg index, after the comma is maybe a spec.
-        let arg_part: &str = &left;
+        let arg_part: &Wtf8 = &left;
 
-        let format_spec = if split { right } else { String::new() };
+        let format_spec = if split { right } else { Wtf8Buf::new() };
 
         // left can still be the conversion (!r, !s, !a)
-        let parts: Vec<&str> = arg_part.splitn(2, '!').collect();
+        let parts: Vec<&Wtf8> = arg_part.splitn(2, "!".as_ref()).collect();
         // before the bang is a keyword or arg index, after the comma is maybe a conversion spec.
         let arg_part = parts[0];
 
@@ -913,7 +919,7 @@ impl FormatString {
             .map(|conversion| {
                 // conversions are only every one character
                 conversion
-                    .chars()
+                    .code_points()
                     .exactly_one()
                     .map_err(|_| FormatParseError::UnknownConversion)
             })
@@ -926,13 +932,13 @@ impl FormatString {
         })
     }
 
-    fn parse_spec(text: &str) -> Result<(FormatPart, &str), FormatParseError> {
+    fn parse_spec(text: &Wtf8) -> Result<(FormatPart, &Wtf8), FormatParseError> {
         let mut nested = false;
         let mut end_bracket_pos = None;
-        let mut left = String::new();
+        let mut left = Wtf8Buf::new();
 
         // There may be one layer nesting brackets in spec
-        for (idx, c) in text.char_indices() {
+        for (idx, c) in text.code_point_indices() {
             if idx == 0 {
                 if c != '{' {
                     return Err(FormatParseError::MissingStartBracket);
@@ -959,7 +965,7 @@ impl FormatString {
             }
         }
         if let Some(pos) = end_bracket_pos {
-            let (_, right) = text.split_at(pos);
+            let right = &text[pos..];
             let format_part = FormatString::parse_part_in_brackets(&left)?;
             Ok((format_part, &right[1..]))
         } else {
@@ -970,14 +976,14 @@ impl FormatString {
 
 pub trait FromTemplate<'a>: Sized {
     type Err;
-    fn from_str(s: &'a str) -> Result<Self, Self::Err>;
+    fn from_str(s: &'a Wtf8) -> Result<Self, Self::Err>;
 }
 
 impl<'a> FromTemplate<'a> for FormatString {
     type Err = FormatParseError;
 
-    fn from_str(text: &'a str) -> Result<Self, Self::Err> {
-        let mut cur_text: &str = text;
+    fn from_str(text: &'a Wtf8) -> Result<Self, Self::Err> {
+        let mut cur_text: &Wtf8 = text;
         let mut parts: Vec<FormatPart> = Vec::new();
         while !cur_text.is_empty() {
             // Try to parse both literals and bracketed format parts until we
@@ -1001,6 +1007,14 @@ mod tests {
 
     #[test]
     fn test_fill_and_align() {
+        let parse_fill_and_align = |text| {
+            let (fill, align, rest) = parse_fill_and_align(str::as_ref(text));
+            (
+                fill.and_then(CodePoint::to_char),
+                align,
+                rest.as_str().unwrap(),
+            )
+        };
         assert_eq!(
             parse_fill_and_align(" <"),
             (Some(' '), Some(FormatAlign::Left), "")
@@ -1043,7 +1057,7 @@ mod tests {
     fn test_fill_and_width() {
         let expected = Ok(FormatSpec {
             conversion: None,
-            fill: Some('<'),
+            fill: Some('<'.into()),
             align: Some(FormatAlign::Right),
             sign: None,
             alternate_form: false,
@@ -1059,7 +1073,7 @@ mod tests {
     fn test_all() {
         let expected = Ok(FormatSpec {
             conversion: None,
-            fill: Some('<'),
+            fill: Some('<'.into()),
             align: Some(FormatAlign::Right),
             sign: Some(FormatSign::Minus),
             alternate_form: true,
@@ -1167,33 +1181,33 @@ mod tests {
     fn test_format_parse() {
         let expected = Ok(FormatString {
             format_parts: vec![
-                FormatPart::Literal("abcd".to_owned()),
+                FormatPart::Literal("abcd".into()),
                 FormatPart::Field {
-                    field_name: "1".to_owned(),
+                    field_name: "1".into(),
                     conversion_spec: None,
-                    format_spec: String::new(),
+                    format_spec: "".into(),
                 },
-                FormatPart::Literal(":".to_owned()),
+                FormatPart::Literal(":".into()),
                 FormatPart::Field {
-                    field_name: "key".to_owned(),
+                    field_name: "key".into(),
                     conversion_spec: None,
-                    format_spec: String::new(),
+                    format_spec: "".into(),
                 },
             ],
         });
 
-        assert_eq!(FormatString::from_str("abcd{1}:{key}"), expected);
+        assert_eq!(FormatString::from_str("abcd{1}:{key}".as_ref()), expected);
     }
 
     #[test]
     fn test_format_parse_multi_byte_char() {
-        assert!(FormatString::from_str("{a:%ЫйЯЧ}").is_ok());
+        assert!(FormatString::from_str("{a:%ЫйЯЧ}".as_ref()).is_ok());
     }
 
     #[test]
     fn test_format_parse_fail() {
         assert_eq!(
-            FormatString::from_str("{s"),
+            FormatString::from_str("{s".as_ref()),
             Err(FormatParseError::UnmatchedBracket)
         );
     }
@@ -1201,27 +1215,27 @@ mod tests {
     #[test]
     fn test_square_brackets_inside_format() {
         assert_eq!(
-            FormatString::from_str("{[:123]}"),
+            FormatString::from_str("{[:123]}".as_ref()),
             Ok(FormatString {
                 format_parts: vec![FormatPart::Field {
-                    field_name: "[:123]".to_owned(),
+                    field_name: "[:123]".into(),
                     conversion_spec: None,
-                    format_spec: "".to_owned(),
+                    format_spec: "".into(),
                 }],
             }),
         );
 
-        assert_eq!(FormatString::from_str("{asdf[:123]asdf}"), {
+        assert_eq!(FormatString::from_str("{asdf[:123]asdf}".as_ref()), {
             Ok(FormatString {
                 format_parts: vec![FormatPart::Field {
-                    field_name: "asdf[:123]asdf".to_owned(),
+                    field_name: "asdf[:123]asdf".into(),
                     conversion_spec: None,
-                    format_spec: "".to_owned(),
+                    format_spec: "".into(),
                 }],
             })
         });
 
-        assert_eq!(FormatString::from_str("{[1234}"), {
+        assert_eq!(FormatString::from_str("{[1234}".as_ref()), {
             Err(FormatParseError::MissingRightBracket)
         });
     }
@@ -1230,17 +1244,17 @@ mod tests {
     fn test_format_parse_escape() {
         let expected = Ok(FormatString {
             format_parts: vec![
-                FormatPart::Literal("{".to_owned()),
+                FormatPart::Literal("{".into()),
                 FormatPart::Field {
-                    field_name: "key".to_owned(),
+                    field_name: "key".into(),
                     conversion_spec: None,
-                    format_spec: String::new(),
+                    format_spec: "".into(),
                 },
-                FormatPart::Literal("}ddfe".to_owned()),
+                FormatPart::Literal("}ddfe".into()),
             ],
         });
 
-        assert_eq!(FormatString::from_str("{{{key}}}ddfe"), expected);
+        assert_eq!(FormatString::from_str("{{{key}}}ddfe".as_ref()), expected);
     }
 
     #[test]
@@ -1277,52 +1291,44 @@ mod tests {
 
     #[test]
     fn test_parse_field_name() {
+        let parse = |s: &str| FieldName::parse(s.as_ref());
         assert_eq!(
-            FieldName::parse(""),
+            parse(""),
             Ok(FieldName {
                 field_type: FieldType::Auto,
                 parts: Vec::new(),
             })
         );
         assert_eq!(
-            FieldName::parse("0"),
+            parse("0"),
             Ok(FieldName {
                 field_type: FieldType::Index(0),
                 parts: Vec::new(),
             })
         );
         assert_eq!(
-            FieldName::parse("key"),
+            parse("key"),
             Ok(FieldName {
-                field_type: FieldType::Keyword("key".to_owned()),
+                field_type: FieldType::Keyword("key".into()),
                 parts: Vec::new(),
             })
         );
         assert_eq!(
-            FieldName::parse("key.attr[0][string]"),
+            parse("key.attr[0][string]"),
             Ok(FieldName {
-                field_type: FieldType::Keyword("key".to_owned()),
+                field_type: FieldType::Keyword("key".into()),
                 parts: vec![
-                    FieldNamePart::Attribute("attr".to_owned()),
+                    FieldNamePart::Attribute("attr".into()),
                     FieldNamePart::Index(0),
-                    FieldNamePart::StringIndex("string".to_owned())
+                    FieldNamePart::StringIndex("string".into())
                 ],
             })
         );
+        assert_eq!(parse("key.."), Err(FormatParseError::EmptyAttribute));
+        assert_eq!(parse("key[]"), Err(FormatParseError::EmptyAttribute));
+        assert_eq!(parse("key["), Err(FormatParseError::MissingRightBracket));
         assert_eq!(
-            FieldName::parse("key.."),
-            Err(FormatParseError::EmptyAttribute)
-        );
-        assert_eq!(
-            FieldName::parse("key[]"),
-            Err(FormatParseError::EmptyAttribute)
-        );
-        assert_eq!(
-            FieldName::parse("key["),
-            Err(FormatParseError::MissingRightBracket)
-        );
-        assert_eq!(
-            FieldName::parse("key[0]after"),
+            parse("key[0]after"),
             Err(FormatParseError::InvalidCharacterAfterRightBracket)
         );
     }
