@@ -2263,6 +2263,7 @@ dependencies = [
  "criterion",
  "num_enum",
  "optional",
+ "rustpython-common",
 ]
 
 [[package]]
