@@ -128,19 +128,6 @@ ruff_python_ast = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0
 ruff_text_size = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
 ruff_source_file = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
 ruff_python_codegen = { git = "https://github.com/astral-sh/ruff.git", tag = "0.11.0" }
-# rustpython-literal = { version = "0.4.0" }
-# rustpython-parser-core = { version = "0.4.0" }
-# rustpython-parser = { version = "0.4.0" }
-# rustpython-ast = { version = "0.4.0" }
-# rustpython-format= { version = "0.4.0" }
-# rustpython-parser-core = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
-# rustpython-parser = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
-# rustpython-ast = { git = "https://github.com/RustPython/Parser.git", version = "0.4.0", rev = "d2f137b372ec08ce4a243564a80f8f9153c45a23" }
-# rustpython-literal = { path = "../RustPython-parser/literal" }
-# rustpython-parser-core = { path = "../RustPython-parser/core" }
-# rustpython-parser = { path = "../RustPython-parser/parser" }
-# rustpython-ast = { path = "../RustPython-parser/ast" }
-# rustpython-format = { path = "../RustPython-parser/format" }
 
 ahash = "0.8.11"
 ascii = "1.1"
