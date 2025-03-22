@@ -312,7 +312,12 @@ mod _codecs {
 
     #[pyfunction]
     fn utf_8_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
-        if args.s.is_utf8() {
+        if args.s.is_utf8()
+            || args
+                .errors
+                .as_ref()
+                .is_some_and(|s| s.is(identifier!(vm, surrogatepass)))
+        {
             return Ok((args.s.as_bytes().to_vec(), args.s.byte_len()));
         }
         do_codec!(utf8::encode, args, vm)

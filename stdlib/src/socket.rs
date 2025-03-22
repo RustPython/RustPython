@@ -930,10 +930,15 @@ mod _socket {
             match family {
                 #[cfg(unix)]
                 c::AF_UNIX => {
+                    use crate::vm::function::ArgStrOrBytesLike;
                     use std::os::unix::ffi::OsStrExt;
-                    let buf = crate::vm::function::ArgStrOrBytesLike::try_from_object(vm, addr)?;
-                    let path = &*buf.borrow_bytes();
-                    socket2::SockAddr::unix(ffi::OsStr::from_bytes(path))
+                    let buf = ArgStrOrBytesLike::try_from_object(vm, addr)?;
+                    let bytes = &*buf.borrow_bytes();
+                    let path = match &buf {
+                        ArgStrOrBytesLike::Buf(_) => ffi::OsStr::from_bytes(bytes).into(),
+                        ArgStrOrBytesLike::Str(s) => vm.fsencode(s)?,
+                    };
+                    socket2::SockAddr::unix(path)
                         .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()).into())
                 }
                 c::AF_INET => {
@@ -1704,7 +1709,7 @@ mod _socket {
             let path = ffi::OsStr::as_bytes(addr.as_pathname().unwrap_or("".as_ref()).as_ref());
             let nul_pos = memchr::memchr(b'\0', path).unwrap_or(path.len());
             let path = ffi::OsStr::from_bytes(&path[..nul_pos]);
-            return vm.ctx.new_str(path.to_string_lossy()).into();
+            return vm.fsdecode(path).into();
         }
         // TODO: support more address families
         (String::new(), 0).to_pyobject(vm)

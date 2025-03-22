@@ -21,28 +21,14 @@ pub(super) enum OutputMode {
 }
 
 impl OutputMode {
-    pub(super) fn process_path(self, path: impl Into<PathBuf>, vm: &VirtualMachine) -> PyResult {
-        fn inner(mode: OutputMode, path: PathBuf, vm: &VirtualMachine) -> PyResult {
-            let path_as_string = |p: PathBuf| {
-                p.into_os_string().into_string().map_err(|_| {
-                    vm.new_unicode_decode_error(
-                        "Can't convert OS path to valid UTF-8 string".into(),
-                    )
-                })
-            };
+    pub(super) fn process_path(self, path: impl Into<PathBuf>, vm: &VirtualMachine) -> PyObjectRef {
+        fn inner(mode: OutputMode, path: PathBuf, vm: &VirtualMachine) -> PyObjectRef {
             match mode {
-                OutputMode::String => path_as_string(path).map(|s| vm.ctx.new_str(s).into()),
-                OutputMode::Bytes => {
-                    #[cfg(any(unix, target_os = "wasi"))]
-                    {
-                        use rustpython_common::os::ffi::OsStringExt;
-                        Ok(vm.ctx.new_bytes(path.into_os_string().into_vec()).into())
-                    }
-                    #[cfg(windows)]
-                    {
-                        path_as_string(path).map(|s| vm.ctx.new_bytes(s.into_bytes()).into())
-                    }
-                }
+                OutputMode::String => vm.fsdecode(path).into(),
+                OutputMode::Bytes => vm
+                    .ctx
+                    .new_bytes(path.into_os_string().into_encoded_bytes())
+                    .into(),
             }
         }
         inner(self, path.into(), vm)
@@ -59,7 +45,7 @@ impl OsPath {
     }
 
     pub(crate) fn from_fspath(fspath: FsPath, vm: &VirtualMachine) -> PyResult<OsPath> {
-        let path = fspath.as_os_str(vm)?.to_owned();
+        let path = fspath.as_os_str(vm)?.into_owned();
         let mode = match fspath {
             FsPath::Str(_) => OutputMode::String,
             FsPath::Bytes(_) => OutputMode::Bytes,
@@ -88,7 +74,7 @@ impl OsPath {
         widestring::WideCString::from_os_str(&self.path).map_err(|err| err.to_pyexception(vm))
     }
 
-    pub fn filename(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         self.mode.process_path(self.path.clone(), vm)
     }
 }
@@ -133,7 +119,7 @@ impl From<OsPath> for OsPathOrFd {
 impl OsPathOrFd {
     pub fn filename(&self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            OsPathOrFd::Path(path) => path.filename(vm).unwrap_or_else(|_| vm.ctx.none()),
+            OsPathOrFd::Path(path) => path.filename(vm),
             OsPathOrFd::Fd(fd) => vm.ctx.new_int(*fd).into(),
         }
     }

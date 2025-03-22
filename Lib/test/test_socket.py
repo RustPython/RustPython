@@ -1578,7 +1578,6 @@ class GeneralModuleTests(unittest.TestCase):
         # only IP addresses are allowed
         self.assertRaises(OSError, socket.getnameinfo, ('mail.python.org',0), 0)
 
-    @unittest.expectedFailureIf(sys.platform != "darwin", "TODO: RUSTPYTHON; socket.gethostbyname_ex")
     @unittest.skipUnless(support.is_resource_enabled('network'),
                          'network is not enabled')
     def test_idna(self):
@@ -5519,8 +5518,6 @@ class TestUnixDomain(unittest.TestCase):
         self.addCleanup(os_helper.unlink, path)
         self.assertEqual(self.sock.getsockname(), path)
 
-    # TODO: RUSTPYTHON, surrogateescape
-    @unittest.expectedFailure
     def testSurrogateescapeBind(self):
         # Test binding to a valid non-ASCII pathname, with the
         # non-ASCII bytes supplied using surrogateescape encoding.
