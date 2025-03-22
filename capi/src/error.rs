@@ -2,11 +2,6 @@ use std::{ffi, ptr};
 
 use rustpython_vm::{PyObject, PyObjectRef};
 
-#[unsafe(export_name = "PyErr_Clear")]
-pub unsafe extern "C" fn err_clear() {
-    todo!()
-}
-
 #[unsafe(export_name = "PyErr_NewException")]
 pub unsafe extern "C" fn err_new_exception(
     name: *const ffi::c_char,

@@ -39,16 +39,6 @@ pub unsafe extern "C" fn status_ok() -> PyStatus {
     }
 }
 
-#[unsafe(export_name = "Py_Initialize")]
-pub unsafe extern "C" fn initialize() {
-    todo!()
-}
-
-#[unsafe(export_name = "Py_InitializeEx")]
-pub unsafe extern "C" fn initialize_ex(_initsigs: ffi::c_int) {
-    todo!()
-}
-
 #[repr(C)]
 pub struct PyInterpreterConfig {
     use_main_obmalloc: i32,
