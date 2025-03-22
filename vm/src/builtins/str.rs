@@ -1408,14 +1408,14 @@ impl PyStrRef {
         (**self).is_empty()
     }
 
-    pub fn concat_in_place(&mut self, other: &str, vm: &VirtualMachine) {
+    pub fn concat_in_place(&mut self, other: &Wtf8, vm: &VirtualMachine) {
         // TODO: call [A]Rc::get_mut on the str to try to mutate the data in place
         if other.is_empty() {
             return;
         }
-        let mut s = String::with_capacity(self.byte_len() + other.len());
-        s.push_str(self.as_ref());
-        s.push_str(other);
+        let mut s = Wtf8Buf::with_capacity(self.byte_len() + other.len());
+        s.push_wtf8(self.as_ref());
+        s.push_wtf8(other);
         *self = PyStr::from(s).into_ref(&vm.ctx);
     }
 }

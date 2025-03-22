@@ -613,6 +613,12 @@ impl ToOwned for Wtf8 {
     }
 }
 
+impl PartialEq<str> for Wtf8 {
+    fn eq(&self, other: &str) -> bool {
+        self.as_bytes().eq(other.as_bytes())
+    }
+}
+
 /// Formats the string in double quotes, with characters escaped according to
 /// [`char::escape_debug`] and unpaired surrogates represented as `\u{xxxx}`,
 /// where each `x` is a hexadecimal digit.
@@ -1045,6 +1051,11 @@ impl Wtf8 {
         self.bytes
             .strip_suffix(w.as_bytes())
             .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
+    }
+
+    pub fn replace(&self, from: &Wtf8, to: &Wtf8) -> Wtf8Buf {
+        let w = self.bytes.replace(from, to);
+        unsafe { Wtf8Buf::from_bytes_unchecked(w) }
     }
 }
 

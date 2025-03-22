@@ -129,6 +129,7 @@ mod _io {
             PyMappedThreadMutexGuard, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard,
             PyThreadMutex, PyThreadMutexGuard,
         },
+        common::wtf8::{Wtf8, Wtf8Buf},
         convert::ToPyObject,
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Either, FuncArgs, IntoFuncArgs,
@@ -147,7 +148,6 @@ mod _io {
     use crossbeam_utils::atomic::AtomicCell;
     use malachite_bigint::{BigInt, BigUint};
     use num_traits::ToPrimitive;
-    use rustpython_common::wtf8::Wtf8Buf;
     use std::{
         borrow::Cow,
         io::{self, Cursor, SeekFrom, prelude::*},
@@ -1910,10 +1910,12 @@ mod _io {
     impl Newlines {
         /// returns position where the new line starts if found, otherwise position at which to
         /// continue the search after more is read into the buffer
-        fn find_newline(&self, s: &str) -> Result<usize, usize> {
+        fn find_newline(&self, s: &Wtf8) -> Result<usize, usize> {
             let len = s.len();
             match self {
-                Newlines::Universal | Newlines::Lf => s.find('\n').map(|p| p + 1).ok_or(len),
+                Newlines::Universal | Newlines::Lf => {
+                    s.find("\n".as_ref()).map(|p| p + 1).ok_or(len)
+                }
                 Newlines::Passthrough => {
                     let bytes = s.as_bytes();
                     memchr::memchr2(b'\n', b'\r', bytes)
@@ -1928,7 +1930,7 @@ mod _io {
                         })
                         .ok_or(len)
                 }
-                Newlines::Cr => s.find('\n').map(|p| p + 1).ok_or(len),
+                Newlines::Cr => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),
                 Newlines::Crlf => {
                     // s[searched..] == remaining
                     let mut searched = 0;
@@ -1993,10 +1995,10 @@ mod _io {
             }
         }
 
-        fn len_str(s: &str) -> Self {
+        fn len_str(s: &Wtf8) -> Self {
             Utf8size {
                 bytes: s.len(),
-                chars: s.chars().count(),
+                chars: s.code_points().count(),
             }
         }
     }
@@ -2224,7 +2226,7 @@ mod _io {
 
             let encoding = match args.encoding {
                 None if vm.state.settings.utf8_mode > 0 => PyStr::from("utf-8").into_ref(&vm.ctx),
-                Some(enc) if enc.as_str() != "locale" => enc,
+                Some(enc) if enc.as_wtf8() != "locale" => enc,
                 _ => {
                     // None without utf8_mode or "locale" encoding
                     vm.import("locale", 0)?
@@ -2534,9 +2536,10 @@ mod _io {
                 *snapshot = Some((cookie.dec_flags, input_chunk.clone()));
                 let decoded = vm.call_method(decoder, "decode", (input_chunk, cookie.need_eof))?;
                 let decoded = check_decoded(decoded, vm)?;
-                let pos_is_valid = decoded
-                    .as_str()
-                    .is_char_boundary(cookie.bytes_to_skip as usize);
+                let pos_is_valid = crate::common::wtf8::is_code_point_boundary(
+                    decoded.as_wtf8(),
+                    cookie.bytes_to_skip as usize,
+                );
                 textio.set_decoded_chars(Some(decoded));
                 if !pos_is_valid {
                     return Err(vm.new_os_error("can't restore logical file position".to_owned()));
@@ -2715,9 +2718,9 @@ mod _io {
                 } else if chunks.len() == 1 {
                     chunks.pop().unwrap()
                 } else {
-                    let mut ret = String::with_capacity(chunks_bytes);
+                    let mut ret = Wtf8Buf::with_capacity(chunks_bytes);
                     for chunk in chunks {
-                        ret.push_str(chunk.as_str())
+                        ret.push_wtf8(chunk.as_wtf8())
                     }
                     PyStr::from(ret).into_ref(&vm.ctx)
                 }
@@ -2744,7 +2747,7 @@ mod _io {
 
             let char_len = obj.char_len();
 
-            let data = obj.as_str();
+            let data = obj.as_wtf8();
 
             let replace_nl = match textio.newline {
                 Newlines::Lf => Some("\n"),
@@ -2753,11 +2756,12 @@ mod _io {
                 Newlines::Universal if cfg!(windows) => Some("\r\n"),
                 _ => None,
             };
-            let has_lf = (replace_nl.is_some() || textio.line_buffering) && data.contains('\n');
-            let flush = textio.line_buffering && (has_lf || data.contains('\r'));
+            let has_lf = (replace_nl.is_some() || textio.line_buffering)
+                && data.contains_code_point('\n'.into());
+            let flush = textio.line_buffering && (has_lf || data.contains_code_point('\r'.into()));
             let chunk = if let Some(replace_nl) = replace_nl {
                 if has_lf {
-                    PyStr::from(data.replace('\n', replace_nl)).into_ref(&vm.ctx)
+                    PyStr::from(data.replace("\n".as_ref(), replace_nl.as_ref())).into_ref(&vm.ctx)
                 } else {
                     obj
                 }
@@ -2834,7 +2838,7 @@ mod _io {
                     if self.is_full_slice() {
                         self.0.char_len()
                     } else {
-                        self.slice().chars().count()
+                        self.slice().code_points().count()
                     }
                 }
                 #[inline]
@@ -2842,8 +2846,8 @@ mod _io {
                     self.1.len() >= self.0.byte_len()
                 }
                 #[inline]
-                fn slice(&self) -> &str {
-                    &self.0.as_str()[self.1.clone()]
+                fn slice(&self) -> &Wtf8 {
+                    &self.0.as_wtf8()[self.1.clone()]
                 }
                 #[inline]
                 fn slice_pystr(self, vm: &VirtualMachine) -> PyStrRef {
@@ -2894,7 +2898,7 @@ mod _io {
                     Some(remaining) => {
                         assert_eq!(textio.decoded_chars_used.bytes, 0);
                         offset_to_buffer = remaining.utf8_len();
-                        let decoded_chars = decoded_chars.as_str();
+                        let decoded_chars = decoded_chars.as_wtf8();
                         let line = if remaining.is_full_slice() {
                             let mut line = remaining.0;
                             line.concat_in_place(decoded_chars, vm);
@@ -2902,16 +2906,16 @@ mod _io {
                         } else {
                             let remaining = remaining.slice();
                             let mut s =
-                                String::with_capacity(remaining.len() + decoded_chars.len());
-                            s.push_str(remaining);
-                            s.push_str(decoded_chars);
+                                Wtf8Buf::with_capacity(remaining.len() + decoded_chars.len());
+                            s.push_wtf8(remaining);
+                            s.push_wtf8(decoded_chars);
                             PyStr::from(s).into_ref(&vm.ctx)
                         };
                         start = Utf8size::default();
                         line
                     }
                 };
-                let line_from_start = &line.as_str()[start.bytes..];
+                let line_from_start = &line.as_wtf8()[start.bytes..];
                 let nl_res = textio.newline.find_newline(line_from_start);
                 match nl_res {
                     Ok(p) | Err(p) => {
@@ -2922,7 +2926,7 @@ mod _io {
                                 endpos = start
                                     + Utf8size {
                                         chars: limit - chunked.chars,
-                                        bytes: crate::common::str::char_range_end(
+                                        bytes: crate::common::str::codepoint_range_end(
                                             line_from_start,
                                             limit - chunked.chars,
                                         )
@@ -2963,9 +2967,9 @@ mod _io {
                     chunked += cur_line.byte_len();
                     chunks.push(cur_line);
                 }
-                let mut s = String::with_capacity(chunked);
+                let mut s = Wtf8Buf::with_capacity(chunked);
                 for chunk in chunks {
-                    s.push_str(chunk.slice())
+                    s.push_wtf8(chunk.slice())
                 }
                 PyStr::from(s).into_ref(&vm.ctx)
             } else if let Some(cur_line) = cur_line {
@@ -3100,7 +3104,7 @@ mod _io {
                 return None;
             }
             let decoded_chars = self.decoded_chars.as_ref()?;
-            let avail = &decoded_chars.as_str()[self.decoded_chars_used.bytes..];
+            let avail = &decoded_chars.as_wtf8()[self.decoded_chars_used.bytes..];
             if avail.is_empty() {
                 return None;
             }
@@ -3112,7 +3116,7 @@ mod _io {
                     (PyStr::from(avail).into_ref(&vm.ctx), avail_chars)
                 }
             } else {
-                let s = crate::common::str::get_chars(avail, 0..n);
+                let s = crate::common::str::get_codepoints(avail, 0..n);
                 (PyStr::from(s).into_ref(&vm.ctx), n)
             };
             self.decoded_chars_used += Utf8size {
@@ -3142,11 +3146,11 @@ mod _io {
                 return decoded_chars;
             }
             // TODO: in-place editing of `str` when refcount == 1
-            let decoded_chars_unused = &decoded_chars.as_str()[chars_pos..];
-            let mut s = String::with_capacity(decoded_chars_unused.len() + append_len);
-            s.push_str(decoded_chars_unused);
+            let decoded_chars_unused = &decoded_chars.as_wtf8()[chars_pos..];
+            let mut s = Wtf8Buf::with_capacity(decoded_chars_unused.len() + append_len);
+            s.push_wtf8(decoded_chars_unused);
             if let Some(append) = append {
-                s.push_str(append.as_str())
+                s.push_wtf8(append.as_wtf8())
             }
             PyStr::from(s).into_ref(&vm.ctx)
         }
