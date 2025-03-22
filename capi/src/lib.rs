@@ -3,6 +3,8 @@ use std::{cell::RefCell, ffi, sync::Arc};
 use rustpython_vm as vm;
 
 mod error;
+mod int;
+mod tuple;
 
 thread_local ! {
     pub static VM: RefCell<Option<Arc<vm::VirtualMachine>>> = RefCell::new(None);
@@ -57,4 +59,3 @@ pub struct PyInterpreterConfig {
     check_multi_interp_extensions: i32,
     gil: i32,
 }
-
