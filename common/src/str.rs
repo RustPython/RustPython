@@ -14,7 +14,7 @@ pub type wchar_t = libc::wchar_t;
 pub type wchar_t = u32;
 
 /// Utf8 + state.ascii (+ PyUnicode_Kind in future)
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StrKind {
     Ascii,
     Utf8,
@@ -40,6 +40,15 @@ impl StrKind {
 
     pub fn is_utf8(&self) -> bool {
         matches!(self, Self::Ascii | Self::Utf8)
+    }
+
+    #[inline(always)]
+    pub fn can_encode(&self, code: CodePoint) -> bool {
+        match self {
+            StrKind::Ascii => code.is_ascii(),
+            StrKind::Utf8 => code.to_char().is_some(),
+            StrKind::Wtf8 => true,
+        }
     }
 }
 

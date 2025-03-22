@@ -429,6 +429,10 @@ impl PyStr {
         self.data.as_str_kind()
     }
 
+    pub fn is_utf8(&self) -> bool {
+        self.kind().is_utf8()
+    }
+
     fn char_all<F>(&self, test: F) -> bool
     where
         F: Fn(char) -> bool,
@@ -725,7 +729,7 @@ impl PyStr {
                 .py_strip(
                     chars,
                     |s, chars| s.trim_matches(|c| chars.code_points().contains(&c)),
-                    |s| s.trim_matches(|c| c.is_char_and(char::is_whitespace)),
+                    |s| s.trim(),
                 )
                 .into(),
         }
@@ -737,10 +741,10 @@ impl PyStr {
         chars: OptionalOption<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyRef<Self> {
-        let s = zelf.as_str();
+        let s = zelf.as_wtf8();
         let stripped = s.py_strip(
             chars,
-            |s, chars| s.trim_start_matches(|c| chars.contains(c)),
+            |s, chars| s.trim_start_matches(|c| chars.contains_code_point(c)),
             |s| s.trim_start(),
         );
         if s == stripped {
@@ -756,10 +760,10 @@ impl PyStr {
         chars: OptionalOption<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyRef<Self> {
-        let s = zelf.as_str();
+        let s = zelf.as_wtf8();
         let stripped = s.py_strip(
             chars,
-            |s, chars| s.trim_end_matches(|c| chars.contains(c)),
+            |s, chars| s.trim_end_matches(|c| chars.contains_code_point(c)),
             |s| s.trim_end(),
         );
         if s == stripped {
@@ -772,7 +776,7 @@ impl PyStr {
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
         let (affix, substr) =
-            match options.prepare(self.as_str(), self.len(), |s, r| s.get_chars(r)) {
+            match options.prepare(self.as_wtf8(), self.len(), |s, r| s.get_chars(r)) {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -780,7 +784,7 @@ impl PyStr {
             &affix,
             "endswith",
             "str",
-            |s, x: &Py<PyStr>| s.ends_with(x.as_str()),
+            |s, x: &Py<PyStr>| s.ends_with(x.as_wtf8()),
             vm,
         )
     }
@@ -792,7 +796,7 @@ impl PyStr {
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
         let (affix, substr) =
-            match options.prepare(self.as_str(), self.len(), |s, r| s.get_chars(r)) {
+            match options.prepare(self.as_wtf8(), self.len(), |s, r| s.get_chars(r)) {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -800,7 +804,7 @@ impl PyStr {
             &affix,
             "startswith",
             "str",
-            |s, x: &Py<PyStr>| s.starts_with(x.as_str()),
+            |s, x: &Py<PyStr>| s.starts_with(x.as_wtf8()),
             vm,
         )
     }

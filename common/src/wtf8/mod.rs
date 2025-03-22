@@ -49,7 +49,7 @@ use std::collections::TryReserveError;
 use std::string::String;
 use std::vec::Vec;
 
-use bstr::ByteSlice;
+use bstr::{ByteSlice, ByteVec};
 
 mod core_char;
 mod core_str;
@@ -167,6 +167,10 @@ impl CodePoint {
 
     pub fn len_wtf8(&self) -> usize {
         len_utf8(self.value)
+    }
+
+    pub fn is_ascii(&self) -> bool {
+        self.is_char_and(|c| c.is_ascii())
     }
 }
 
@@ -436,6 +440,13 @@ impl Wtf8Buf {
         self.push_wtf8(code_point.encode_wtf8(&mut [0; MAX_LEN_UTF8]))
     }
 
+    pub fn pop(&mut self) -> Option<CodePoint> {
+        let ch = self.code_points().next_back()?;
+        let newlen = self.len() - ch.len_wtf8();
+        self.bytes.truncate(newlen);
+        Some(ch)
+    }
+
     /// Shortens a string to the specified length.
     ///
     /// # Panics
@@ -446,6 +457,20 @@ impl Wtf8Buf {
     pub fn truncate(&mut self, new_len: usize) {
         assert!(is_code_point_boundary(self, new_len));
         self.bytes.truncate(new_len)
+    }
+
+    /// Inserts a codepoint into this `Wtf8Buf` at a byte position.
+    #[inline]
+    pub fn insert(&mut self, idx: usize, c: CodePoint) {
+        self.insert_wtf8(idx, c.encode_wtf8(&mut [0; MAX_LEN_UTF8]))
+    }
+
+    /// Inserts a WTF-8 slice into this `Wtf8Buf` at a byte position.
+    #[inline]
+    pub fn insert_wtf8(&mut self, idx: usize, w: &Wtf8) {
+        assert!(is_code_point_boundary(self, idx));
+
+        self.bytes.insert_str(idx, w)
     }
 
     /// Consumes the WTF-8 string and tries to convert it to a vec of bytes.
@@ -914,6 +939,21 @@ impl Wtf8 {
             .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
     }
 
+    pub fn trim(&self) -> &Self {
+        let w = self.bytes.trim();
+        unsafe { Wtf8::from_bytes_unchecked(w) }
+    }
+
+    pub fn trim_start(&self) -> &Self {
+        let w = self.bytes.trim_start();
+        unsafe { Wtf8::from_bytes_unchecked(w) }
+    }
+
+    pub fn trim_end(&self) -> &Self {
+        let w = self.bytes.trim_end();
+        unsafe { Wtf8::from_bytes_unchecked(w) }
+    }
+
     pub fn trim_start_matches(&self, f: impl Fn(CodePoint) -> bool) -> &Self {
         let mut iter = self.code_points();
         loop {
@@ -958,6 +998,15 @@ impl Wtf8 {
         memchr::memmem::rfind(self.as_bytes(), pat.as_bytes())
     }
 
+    pub fn contains(&self, pat: &Wtf8) -> bool {
+        self.bytes.contains_str(pat)
+    }
+
+    pub fn contains_code_point(&self, pat: CodePoint) -> bool {
+        self.bytes
+            .contains_str(pat.encode_wtf8(&mut [0; MAX_LEN_UTF8]))
+    }
+
     pub fn get(&self, range: impl ops::RangeBounds<usize>) -> Option<&Self> {
         let start = match range.start_bound() {
             ops::Bound::Included(&i) => i,
@@ -976,6 +1025,26 @@ impl Wtf8 {
         } else {
             None
         }
+    }
+
+    pub fn ends_with(&self, w: &Wtf8) -> bool {
+        self.bytes.ends_with_str(w)
+    }
+
+    pub fn starts_with(&self, w: &Wtf8) -> bool {
+        self.bytes.starts_with_str(w)
+    }
+
+    pub fn strip_prefix(&self, w: &Wtf8) -> Option<&Self> {
+        self.bytes
+            .strip_prefix(w.as_bytes())
+            .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
+    }
+
+    pub fn strip_suffix(&self, w: &Wtf8) -> Option<&Self> {
+        self.bytes
+            .strip_suffix(w.as_bytes())
+            .map(|w| unsafe { Wtf8::from_bytes_unchecked(w) })
     }
 }
 

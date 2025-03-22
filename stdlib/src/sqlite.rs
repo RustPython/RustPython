@@ -3000,7 +3000,7 @@ mod _sqlite {
     ) -> PyResult<*const libc::c_char> {
         BEGIN_STATEMENTS
             .iter()
-            .find(|&&x| x[6..].eq_ignore_ascii_case(s.as_str().as_bytes()))
+            .find(|&&x| x[6..].eq_ignore_ascii_case(s.as_bytes()))
             .map(|&x| x.as_ptr().cast())
             .ok_or_else(|| {
                 vm.new_value_error(

@@ -152,7 +152,7 @@ impl ArgStrOrBytesLike {
     pub fn borrow_bytes(&self) -> BorrowedValue<'_, [u8]> {
         match self {
             Self::Buf(b) => b.borrow_buf(),
-            Self::Str(s) => s.as_str().as_bytes().into(),
+            Self::Str(s) => s.as_bytes().into(),
         }
     }
 }
@@ -195,7 +195,7 @@ impl ArgAsciiBuffer {
     #[inline]
     pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         match self {
-            Self::String(s) => f(s.as_str().as_bytes()),
+            Self::String(s) => f(s.as_bytes()),
             Self::Buffer(buffer) => buffer.with_ref(f),
         }
     }

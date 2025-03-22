@@ -328,7 +328,7 @@ mod _operator {
                         "comparing strings with non-ASCII characters is not supported".to_owned(),
                     ));
                 }
-                cmp::timing_safe_cmp(a.as_str().as_bytes(), b.as_str().as_bytes())
+                cmp::timing_safe_cmp(a.as_bytes(), b.as_bytes())
             }
             (Either::B(a), Either::B(b)) => {
                 a.with_ref(|a| b.with_ref(|b| cmp::timing_safe_cmp(a, b)))
