@@ -53,6 +53,8 @@ impl Interpreter {
         let mut vm = VirtualMachine::new(settings, ctx.clone());
         init(&mut vm);
         vm.initialize();
+        // This is kept in-case the c-api stops being a thread-local, for any reason.
+        #[allow(clippy::arc_with_non_send_sync)]
         let vm = Arc::new(vm);
         Self {
             vm,
