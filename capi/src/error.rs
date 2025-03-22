@@ -15,9 +15,15 @@ pub unsafe extern "C" fn err_new_exception(
         None => {
             // TODO: Set error
             return ptr::null_mut();
-        },
+        }
     };
     let module = &name_str[..last_dot];
     let name = &name_str[last_dot + 1..];
-    Into::<PyObjectRef>::into(vm.ctx.new_exception_type(module, name, Some(vec![vm.ctx.exceptions.exception_type.to_owned()]))).into_raw().as_ptr()
+    Into::<PyObjectRef>::into(vm.ctx.new_exception_type(
+        module,
+        name,
+        Some(vec![vm.ctx.exceptions.exception_type.to_owned()]),
+    ))
+    .into_raw()
+    .as_ptr()
 }

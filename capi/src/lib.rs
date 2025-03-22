@@ -6,8 +6,8 @@ mod error;
 mod int;
 mod tuple;
 
-thread_local ! {
-    pub static VM: RefCell<Option<Arc<vm::VirtualMachine>>> = RefCell::new(None);
+thread_local! {
+    pub static VM: RefCell<Option<Arc<vm::VirtualMachine>>> = const { RefCell::new(None) };
 }
 
 fn get_vm() -> Arc<vm::VirtualMachine> {
@@ -26,9 +26,10 @@ pub struct PyStatus {
     _type: PyStatusType,
     pub func: *const ffi::c_char,
     pub err_msg: *const ffi::c_char,
-    pub exitcode: ffi::c_int, 
+    pub exitcode: ffi::c_int,
 }
 
+#[allow(clippy::missing_safety_doc)]
 #[unsafe(export_name = "PyStatus_Ok")]
 pub unsafe extern "C" fn status_ok() -> PyStatus {
     PyStatus {
