@@ -373,8 +373,6 @@ class TestBytes(unittest.TestCase):
         check(difflib.diff_bytes(context, a, a, b'a', b'a', b'2005', b'2013'))
         check(difflib.diff_bytes(context, a, b, b'a', b'b', b'2005', b'2013'))
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_byte_filenames(self):
         # somebody renamed a file from ISO-8859-2 to UTF-8
         fna = b'\xb3odz.txt'    # "łodz.txt"

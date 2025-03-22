@@ -99,8 +99,6 @@ class UnicodeFunctionsTest(UnicodeDatabaseTest):
         result = h.hexdigest()
         self.assertEqual(result, self.expectedchecksum)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @requires_resource('cpu')
     def test_name_inverse_lookup(self):
         for i in range(sys.maxunicode + 1):
@@ -326,8 +324,6 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
         self.assertTrue("\u1d79".upper()=='\ua77d')
         self.assertTrue(".".upper()=='.')
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_bug_5828(self):
         self.assertEqual("\u1d79".lower(), "\u1d79")
         # Only U+0000 should have U+0000 as its upper/lower/titlecase variant
@@ -347,8 +343,6 @@ class UnicodeMiscTest(UnicodeDatabaseTest):
         self.assertEqual("\u01c5".title(), "\u01c5")
         self.assertEqual("\u01c6".title(), "\u01c5")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_linebreak_7643(self):
         for i in range(0x10000):
             lines = (chr(i) + 'A').splitlines()

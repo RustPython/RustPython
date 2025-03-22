@@ -9,10 +9,11 @@ mod re {
      * system.
      */
     use crate::vm::{
+        PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef},
         convert::{ToPyObject, TryFromObject},
         function::{OptionalArg, PosArgs},
-        match_class, PyObjectRef, PyResult, PyPayload, VirtualMachine,
+        match_class,
     };
     use num_traits::Signed;
     use regex::bytes::{Captures, Regex, RegexBuilder};
@@ -158,11 +159,9 @@ mod re {
     }
 
     fn do_sub(pattern: &PyPattern, repl: PyStrRef, search_text: PyStrRef, limit: usize) -> String {
-        let out = pattern.regex.replacen(
-            search_text.as_str().as_bytes(),
-            limit,
-            repl.as_str().as_bytes(),
-        );
+        let out = pattern
+            .regex
+            .replacen(search_text.as_bytes(), limit, repl.as_bytes());
         String::from_utf8_lossy(&out).into_owned()
     }
 
@@ -172,21 +171,21 @@ mod re {
         regex_text.push_str(pattern.regex.as_str());
         let regex = Regex::new(&regex_text).unwrap();
         regex
-            .captures(search_text.as_str().as_bytes())
+            .captures(search_text.as_bytes())
             .map(|captures| create_match(search_text.clone(), captures))
     }
 
     fn do_search(regex: &PyPattern, search_text: PyStrRef) -> Option<PyMatch> {
         regex
             .regex
-            .captures(search_text.as_str().as_bytes())
+            .captures(search_text.as_bytes())
             .map(|captures| create_match(search_text.clone(), captures))
     }
 
     fn do_findall(vm: &VirtualMachine, pattern: &PyPattern, search_text: PyStrRef) -> PyResult {
         let out = pattern
             .regex
-            .captures_iter(search_text.as_str().as_bytes())
+            .captures_iter(search_text.as_bytes())
             .map(|captures| match captures.len() {
                 1 => {
                     let full = captures.get(0).unwrap().as_bytes();
@@ -232,7 +231,7 @@ mod re {
             .map(|i| i.try_to_primitive::<usize>(vm))
             .transpose()?
             .unwrap_or(0);
-        let text = search_text.as_str().as_bytes();
+        let text = search_text.as_bytes();
         // essentially Regex::split, but it outputs captures as well
         let mut output = Vec::new();
         let mut last = 0;
@@ -332,9 +331,7 @@ mod re {
 
         #[pymethod]
         fn sub(&self, repl: PyStrRef, text: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-            let replaced_text = self
-                .regex
-                .replace_all(text.as_str().as_bytes(), repl.as_str().as_bytes());
+            let replaced_text = self.regex.replace_all(text.as_bytes(), repl.as_bytes());
             let replaced_text = String::from_utf8_lossy(&replaced_text).into_owned();
             Ok(vm.ctx.new_str(replaced_text))
         }

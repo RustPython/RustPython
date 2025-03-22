@@ -1698,8 +1698,6 @@ nameprep_tests = [
 
 
 class NameprepTest(unittest.TestCase):
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_nameprep(self):
         from encodings.idna import nameprep
         for pos, (orig, prepped) in enumerate(nameprep_tests):

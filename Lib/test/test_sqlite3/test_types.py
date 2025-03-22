@@ -95,8 +95,6 @@ class SqliteTypeTests(unittest.TestCase):
         row = self.cur.fetchone()
         self.assertIsNone(row)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_string_with_surrogates(self):
         for value in 0xd8ff, 0xdcff:
             with self.assertRaises(UnicodeEncodeError):

@@ -3,6 +3,8 @@ pub(crate) use _codecs::make_module;
 #[pymodule]
 mod _codecs {
     use crate::common::encodings;
+    use crate::common::str::StrKind;
+    use crate::common::wtf8::{Wtf8, Wtf8Buf};
     use crate::{
         AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple},
@@ -103,8 +105,8 @@ mod _codecs {
         }
     }
     impl encodings::StrBuffer for PyStrRef {
-        fn is_ascii(&self) -> bool {
-            PyStr::is_ascii(self)
+        fn is_compatible_with(&self, kind: StrKind) -> bool {
+            self.kind() <= kind
         }
     }
     impl encodings::ErrorHandler for ErrorsHandler<'_> {
@@ -114,7 +116,7 @@ mod _codecs {
 
         fn handle_encode_error(
             &self,
-            data: &str,
+            data: &Wtf8,
             char_range: Range<usize>,
             reason: &str,
         ) -> PyResult<(encodings::EncodeReplace<PyStrRef, PyBytesRef>, usize)> {
@@ -217,7 +219,7 @@ mod _codecs {
 
         fn error_encoding(
             &self,
-            data: &str,
+            data: &Wtf8,
             char_range: Range<usize>,
             reason: &str,
         ) -> Self::Error {
@@ -249,15 +251,15 @@ mod _codecs {
         #[inline]
         fn encode<'a, F>(self, name: &'a str, encode: F, vm: &'a VirtualMachine) -> EncodeResult
         where
-            F: FnOnce(&str, &ErrorsHandler<'a>) -> PyResult<Vec<u8>>,
+            F: FnOnce(&Wtf8, &ErrorsHandler<'a>) -> PyResult<Vec<u8>>,
         {
             let errors = ErrorsHandler::new(name, self.errors, vm);
-            let encoded = encode(self.s.as_str(), &errors)?;
+            let encoded = encode(self.s.as_wtf8(), &errors)?;
             Ok((encoded, self.s.char_len()))
         }
     }
 
-    type DecodeResult = PyResult<(String, usize)>;
+    type DecodeResult = PyResult<(Wtf8Buf, usize)>;
 
     #[derive(FromArgs)]
     struct DecodeArgs {
@@ -310,6 +312,14 @@ mod _codecs {
 
     #[pyfunction]
     fn utf_8_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
+        if args.s.is_utf8()
+            || args
+                .errors
+                .as_ref()
+                .is_some_and(|s| s.is(identifier!(vm, surrogatepass)))
+        {
+            return Ok((args.s.as_bytes().to_vec(), args.s.byte_len()));
+        }
         do_codec!(utf8::encode, args, vm)
     }
 
@@ -321,7 +331,7 @@ mod _codecs {
     #[pyfunction]
     fn latin_1_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
         if args.s.is_ascii() {
-            return Ok((args.s.as_str().as_bytes().to_vec(), args.s.byte_len()));
+            return Ok((args.s.as_bytes().to_vec(), args.s.byte_len()));
         }
         do_codec!(latin_1::encode, args, vm)
     }
@@ -334,7 +344,7 @@ mod _codecs {
     #[pyfunction]
     fn ascii_encode(args: EncodeArgs, vm: &VirtualMachine) -> EncodeResult {
         if args.s.is_ascii() {
-            return Ok((args.s.as_str().as_bytes().to_vec(), args.s.byte_len()));
+            return Ok((args.s.as_bytes().to_vec(), args.s.byte_len()));
         }
         do_codec!(ascii::encode, args, vm)
     }

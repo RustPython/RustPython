@@ -332,7 +332,7 @@ pub(super) mod _os {
                 };
                 dir_iter
                     .map(|entry| match entry {
-                        Ok(entry_path) => path.mode.process_path(entry_path.file_name(), vm),
+                        Ok(entry_path) => Ok(path.mode.process_path(entry_path.file_name(), vm)),
                         Err(err) => Err(IOErrorBuilder::with_filename(&err, path.clone(), vm)),
                     })
                     .collect::<PyResult<_>>()?
@@ -352,22 +352,18 @@ pub(super) mod _os {
                     let mut dir =
                         nix::dir::Dir::from_fd(new_fd).map_err(|e| e.into_pyexception(vm))?;
                     dir.iter()
-                        .filter_map(|entry| {
-                            entry
-                                .map_err(|e| e.into_pyexception(vm))
-                                .and_then(|entry| {
-                                    let fname = entry.file_name().to_bytes();
-                                    Ok(match fname {
-                                        b"." | b".." => None,
-                                        _ => Some(
-                                            OutputMode::String
-                                                .process_path(ffi::OsStr::from_bytes(fname), vm)?,
-                                        ),
-                                    })
-                                })
-                                .transpose()
+                        .filter_map_ok(|entry| {
+                            let fname = entry.file_name().to_bytes();
+                            match fname {
+                                b"." | b".." => None,
+                                _ => Some(
+                                    OutputMode::String
+                                        .process_path(ffi::OsStr::from_bytes(fname), vm),
+                                ),
+                            }
                         })
-                        .collect::<PyResult<_>>()?
+                        .collect::<Result<_, _>>()
+                        .map_err(|e| e.into_pyexception(vm))?
                 }
             }
         };
@@ -376,7 +372,7 @@ pub(super) mod _os {
 
     fn env_bytes_as_bytes(obj: &Either<PyStrRef, PyBytesRef>) -> &[u8] {
         match obj {
-            Either::A(s) => s.as_str().as_bytes(),
+            Either::A(s) => s.as_bytes(),
             Either::B(b) => b.as_bytes(),
         }
     }
@@ -429,7 +425,7 @@ pub(super) mod _os {
         let [] = dir_fd.0;
         let path =
             fs::read_link(&path).map_err(|err| IOErrorBuilder::with_filename(&err, path, vm))?;
-        mode.process_path(path, vm)
+        Ok(mode.process_path(path, vm))
     }
 
     #[pyattr]
@@ -452,12 +448,12 @@ pub(super) mod _os {
     impl DirEntry {
         #[pygetset]
         fn name(&self, vm: &VirtualMachine) -> PyResult {
-            self.mode.process_path(&self.file_name, vm)
+            Ok(self.mode.process_path(&self.file_name, vm))
         }
 
         #[pygetset]
         fn path(&self, vm: &VirtualMachine) -> PyResult {
-            self.mode.process_path(&self.pathval, vm)
+            Ok(self.mode.process_path(&self.pathval, vm))
         }
 
         fn perform_on_metadata(
@@ -908,12 +904,12 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn getcwd(vm: &VirtualMachine) -> PyResult {
-        OutputMode::String.process_path(curdir_inner(vm)?, vm)
+        Ok(OutputMode::String.process_path(curdir_inner(vm)?, vm))
     }
 
     #[pyfunction]
     fn getcwdb(vm: &VirtualMachine) -> PyResult {
-        OutputMode::Bytes.process_path(curdir_inner(vm)?, vm)
+        Ok(OutputMode::Bytes.process_path(curdir_inner(vm)?, vm))
     }
 
     #[pyfunction]

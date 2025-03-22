@@ -403,8 +403,8 @@ mod _ssl {
             .to_str()
             .unwrap();
         let (cert_file, cert_dir) = get_cert_file_dir();
-        let cert_file = OsPath::new_str(cert_file).filename(vm)?;
-        let cert_dir = OsPath::new_str(cert_dir).filename(vm)?;
+        let cert_file = OsPath::new_str(cert_file).filename(vm);
+        let cert_dir = OsPath::new_str(cert_dir).filename(vm);
         Ok((cert_file_env, cert_file, cert_dir_env, cert_dir))
     }
 
@@ -708,7 +708,7 @@ mod _ssl {
                         if !s.is_ascii() {
                             return Err(invalid_cadata(vm));
                         }
-                        X509::stack_from_pem(s.as_str().as_bytes())
+                        X509::stack_from_pem(s.as_bytes())
                     }
                     Either::B(b) => b.with_ref(x509_stack_from_der),
                 };

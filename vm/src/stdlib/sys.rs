@@ -458,21 +458,13 @@ mod sys {
     }
 
     #[pyfunction]
-    fn getfilesystemencoding(_vm: &VirtualMachine) -> String {
-        // TODO: implement non-utf-8 mode.
-        "utf-8".to_owned()
+    fn getfilesystemencoding(vm: &VirtualMachine) -> PyStrRef {
+        vm.fs_encoding().to_owned()
     }
 
-    #[cfg(not(windows))]
     #[pyfunction]
-    fn getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
-        "surrogateescape".to_owned()
-    }
-
-    #[cfg(windows)]
-    #[pyfunction]
-    fn getfilesystemencodeerrors(_vm: &VirtualMachine) -> String {
-        "surrogatepass".to_owned()
+    fn getfilesystemencodeerrors(vm: &VirtualMachine) -> PyStrRef {
+        vm.fs_encode_errors().to_owned()
     }
 
     #[pyfunction]

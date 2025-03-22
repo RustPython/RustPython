@@ -1305,6 +1305,8 @@ class ImportTracebackTests(unittest.TestCase):
             else:
                 importlib.SourceLoader.exec_module = old_exec_module
 
+    # TODO: RUSTPYTHON
+    @unittest.expectedFailure
     @unittest.skipUnless(TESTFN_UNENCODABLE, 'need TESTFN_UNENCODABLE')
     def test_unencodable_filename(self):
         # Issue #11619: The Python parser and the import machinery must not

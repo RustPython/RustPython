@@ -6,6 +6,7 @@ use crate::{
     bytesinner::PyBytesInner,
     class::PyClassImpl,
     common::{
+        format::FormatSpec,
         hash,
         int::{bigint_to_finite_float, bytes_to_int, true_div},
     },
@@ -20,7 +21,6 @@ use crate::{
 use malachite_bigint::{BigInt, Sign};
 use num_integer::Integer;
 use num_traits::{One, Pow, PrimInt, Signed, ToPrimitive, Zero};
-use rustpython_format::FormatSpec;
 use std::fmt;
 use std::ops::{Neg, Not};
 
