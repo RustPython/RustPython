@@ -11,16 +11,17 @@ pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
 mod winreg {
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
+    use std::ptr;
     use std::sync::Arc;
 
-    use crate::builtins::PyInt;
+    use crate::builtins::{PyInt, PyTuple};
     use crate::common::lock::PyRwLock;
     use crate::function::FuncArgs;
     use crate::protocol::PyNumberMethods;
     use crate::types::AsNumber;
     use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
-    use windows_sys::Win32::Foundation;
+    use windows_sys::Win32::Foundation::{self, ERROR_MORE_DATA};
     use windows_sys::Win32::System::Registry;
 
     use num_traits::ToPrimitive;
@@ -133,6 +134,7 @@ mod winreg {
         #[pymethod]
         fn Close(&self, vm: &VirtualMachine) -> PyResult<()> {
             let res = unsafe { Registry::RegCloseKey(*self.hkey.write()) };
+            *self.hkey.write() = std::ptr::null_mut();
             if res == 0 {
                 Ok(())
             } else {
@@ -166,6 +168,7 @@ mod winreg {
         #[pymethod(magic)]
         fn exit(zelf: PyRef<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let res = unsafe { Registry::RegCloseKey(*zelf.hkey.write()) };
+            *zelf.hkey.write() = std::ptr::null_mut();
             if res == 0 {
                 Ok(())
             } else {
@@ -251,22 +254,39 @@ mod winreg {
     // TODO: Computer name can be `None`
     #[pyfunction]
     fn ConnectRegistry(
-        computer_name: String,
+        computer_name: Option<String>,
         key: PyRef<PyHKEYObject>,
         vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let wide_computer_name = to_utf16(computer_name);
-        let res = unsafe {
-            Registry::RegConnectRegistryW(
-                wide_computer_name.as_ptr(),
-                *key.hkey.read(),
-                std::ptr::null_mut(),
-            )
-        };
-        if res == 0 {
-            Ok(())
+    ) -> PyResult<PyHKEYObject> {
+        if let Some(computer_name) = computer_name {
+            let mut ret_key = std::ptr::null_mut();
+            let wide_computer_name = to_utf16(computer_name);
+            let res = unsafe {
+                Registry::RegConnectRegistryW(
+                    wide_computer_name.as_ptr(),
+                    *key.hkey.read(),
+                    &mut ret_key
+                )
+            };
+            if res == 0 {
+                Ok(PyHKEYObject::new(ret_key))
+            } else {
+                Err(vm.new_os_error(format!("error code: {}", res)))
+            }
         } else {
-            Err(vm.new_os_error(format!("error code: {}", res)))
+            let mut ret_key = std::ptr::null_mut();
+            let res = unsafe {
+                Registry::RegConnectRegistryW(
+                    std::ptr::null_mut(),
+                    *key.hkey.read(),
+                    &mut ret_key
+                )
+            };
+            if res == 0 {
+                Ok(PyHKEYObject::new(ret_key))
+            } else {
+                Err(vm.new_os_error(format!("error code: {}", res)))
+            }
         }
     }
 
@@ -368,6 +388,144 @@ mod winreg {
         }
     }
 
+    // #[pyfunction]
+    // fn EnumKey(key: PyRef<PyHKEYObject>, index: i32, vm: &VirtualMachine) -> PyResult<String> {
+    //     let mut tmpbuf = [0u16; 257];
+    //     let mut len = std::mem::sizeof(tmpbuf.len())/std::mem::sizeof(tmpbuf[0]);
+    //     let res = unsafe {
+    //         Registry::RegEnumKeyExW(
+    //             *key.hkey.read(),
+    //             index as u32,
+    //             tmpbuf.as_mut_ptr(),
+    //             &mut len,
+    //             std::ptr::null_mut(),
+    //             std::ptr::null_mut(),
+    //             std::ptr::null_mut(),
+    //             std::ptr::null_mut(),
+    //         )
+    //     };
+    //     if res != 0 {
+    //         return Err(vm.new_os_error(format!("error code: {}", res)));
+    //     }
+    //     let s = String::from_utf16(&tmpbuf[..len as usize])
+    //         .map_err(|e| vm.new_value_error(format!("UTF16 error: {}", e)))?;
+    //     Ok(s)
+    // }
+
+    #[pyfunction]
+    fn EnumValue(hkey: PyRef<PyHKEYObject>, index: u32, vm: &VirtualMachine) -> PyResult {
+        // Query registry for the required buffer sizes.
+        let mut ret_value_size: u32 = 0;
+        let mut ret_data_size: u32 = 0;
+        let hkey: *mut std::ffi::c_void = *hkey.hkey.read();
+        let rc = unsafe {
+            Registry::RegQueryInfoKeyW(
+                hkey,
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                &mut ret_value_size as *mut u32,
+                &mut ret_data_size as *mut u32,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            )
+        };
+        if rc != 0 {
+            return Err(vm.new_os_error(format!(
+                "RegQueryInfoKeyW failed with error code {}",
+                rc
+            )));
+        }
+    
+        // Include room for null terminators.
+        ret_value_size += 1;
+        ret_data_size += 1;
+        let mut buf_value_size = ret_value_size;
+        let mut buf_data_size = ret_data_size;
+    
+        // Allocate buffers.
+        let mut ret_value_buf: Vec<u16> = vec![0; ret_value_size as usize];
+        let mut ret_data_buf: Vec<u8> = vec![0; ret_data_size as usize];
+
+        // Loop to enumerate the registry value.
+        loop {
+            let mut current_value_size = ret_value_size;
+            let mut current_data_size = ret_data_size;
+            let rc = unsafe {
+                Registry::RegEnumValueW(
+                    hkey,
+                    index,
+                    ret_value_buf.as_mut_ptr(),
+                    &mut current_value_size as *mut u32,
+                    ptr::null_mut(),
+                    {
+                        // typ will hold the registry data type.
+                        let mut t = 0u32;
+                        &mut t
+                    },
+                    ret_data_buf.as_mut_ptr(),
+                    &mut current_data_size as *mut u32,
+                )
+            };
+            if rc == ERROR_MORE_DATA {
+                // Double the buffer sizes.
+                buf_data_size *= 2;
+                buf_value_size *= 2;
+                ret_data_buf.resize(buf_data_size as usize, 0);
+                ret_value_buf.resize(buf_value_size as usize, 0);
+                // Reset sizes for next iteration.
+                ret_value_size = buf_value_size;
+                ret_data_size = buf_data_size;
+                continue;
+            }
+            if rc != 0 {
+                return Err(vm.new_os_error(format!(
+                    "RegEnumValueW failed with error code {}",
+                    rc
+                )));
+            }
+    
+            // At this point, current_value_size and current_data_size have been updated.
+            // Retrieve the registry type.
+            let mut reg_type: u32 = 0;
+            unsafe {
+                Registry::RegEnumValueW(
+                    hkey,
+                    index,
+                    ret_value_buf.as_mut_ptr(),
+                    &mut current_value_size as *mut u32,
+                    ptr::null_mut(),
+                    &mut reg_type as *mut u32,
+                    ret_data_buf.as_mut_ptr(),
+                    &mut current_data_size as *mut u32,
+                )
+            };
+    
+            // Convert the registry value name from UTF‑16.
+            let name_len = ret_value_buf
+                .iter()
+                .position(|&c| c == 0)
+                .unwrap_or(ret_value_buf.len());
+            let name = String::from_utf16(&ret_value_buf[..name_len])
+                .map_err(|e| vm.new_value_error(format!("UTF16 conversion error: {}", e)))?;
+    
+            // Slice the data buffer to the actual size returned.
+            let data_slice = &ret_data_buf[..current_data_size as usize];
+            let py_data = reg_to_py(vm, data_slice, reg_type)?;
+    
+            // Return tuple (value_name, data, type)
+            return Ok(vm.ctx.new_tuple(vec![
+                vm.ctx.new_str(name).into(),
+                py_data,
+                vm.ctx.new_int(reg_type).into(),
+            ]).into());
+        }
+    }
+
     #[pyfunction]
     fn FlushKey(key: PyRef<PyHKEYObject>, vm: &VirtualMachine) -> PyResult<()> {
         let res = unsafe { Registry::RegFlushKey(*key.hkey.read()) };
@@ -430,11 +588,11 @@ mod winreg {
     }
 
     #[pyfunction]
-    fn QueryInfoKey(key: PyRef<PyHKEYObject>, vm: &VirtualMachine) -> PyResult<()> {
+    fn QueryInfoKey(key: PyRef<PyHKEYObject>, vm: &VirtualMachine) -> PyResult<PyRef<PyTuple>> {
         let key = *key.hkey.read();
         let mut lpcsubkeys: u32 = 0;
         let mut lpcvalues: u32 = 0;
-        let lpftlastwritetime: *mut Foundation::FILETIME = std::ptr::null_mut();
+        let mut lpftlastwritetime: Foundation::FILETIME = unsafe { std::mem::zeroed() };
         let err = unsafe {
             Registry::RegQueryInfoKeyW(
                 key,
@@ -448,15 +606,16 @@ mod winreg {
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
-                lpftlastwritetime,
+                &mut lpftlastwritetime,
             )
         };
 
         if err != 0 {
-            Err(vm.new_os_error(format!("error code: {}", err)))
-        } else {
-            Ok(())
+            return Err(vm.new_os_error(format!("error code: {}", err)));
         }
+        let l: u64 = (lpftlastwritetime.dwHighDateTime as u64) << 32 | lpftlastwritetime.dwLowDateTime as u64;
+        let tup: Vec<PyObjectRef> = vec![vm.ctx.new_int(lpcsubkeys).into(), vm.ctx.new_int(lpcvalues).into(), vm.ctx.new_int(l).into()];
+        Ok(vm.ctx.new_tuple(tup))
     }
 
     #[pyfunction]
@@ -481,7 +640,44 @@ mod winreg {
         Ok(())
     }
 
-    // TODO: QueryValueEx
+    #[pyfunction]
+    fn QueryValueEx(key: PyRef<PyHKEYObject>, name: String, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let wide_name = to_utf16(name);
+        let mut buf_size = 0;
+        let res = unsafe {
+            Registry::RegQueryValueExW(
+                *key.hkey.read(),
+                wide_name.as_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut buf_size,
+            )
+        };
+        // TODO: res == ERROR_MORE_DATA
+        if res != 0 {
+            return Err(vm.new_os_error(format!("error code: {}", res)));
+        }
+        let mut retBuf = Vec::with_capacity(buf_size as usize);
+        let mut typ = 0;
+        let res = unsafe {
+            Registry::RegQueryValueExW(
+                *key.hkey.read(),
+                wide_name.as_ptr(),
+                std::ptr::null_mut(),
+                &mut typ,
+                retBuf.as_mut_ptr(),
+                &mut buf_size,
+            )
+        };
+        // TODO: res == ERROR_MORE_DATA
+        if res != 0 {
+            return Err(vm.new_os_error(format!("error code: {}", res)));
+        }
+        let obj = reg_to_py(vm, retBuf.as_slice(), typ)?;
+        Ok(obj)
+    }
+
     #[pyfunction]
     fn SaveKey(key: PyRef<PyHKEYObject>, file_name: String, vm: &VirtualMachine) -> PyResult<()> {
         let file_name = to_utf16(file_name);
@@ -530,6 +726,73 @@ mod winreg {
         }
     }
 
+    fn reg_to_py(vm: &VirtualMachine, ret_data: &[u8], typ: u32) -> PyResult {
+        match typ {
+            REG_DWORD => {
+                // If there isn’t enough data, return 0.
+                if ret_data.len() < std::mem::size_of::<u32>() {
+                    Ok(vm.ctx.new_int(0).into())
+                } else {
+                    let val = u32::from_ne_bytes(ret_data[..4].try_into().unwrap());
+                    Ok(vm.ctx.new_int(val).into())
+                }
+            }
+            REG_QWORD => {
+                if ret_data.len() < std::mem::size_of::<u64>() {
+                    Ok(vm.ctx.new_int(0).into())
+                } else {
+                    let val = u64::from_ne_bytes(ret_data[..8].try_into().unwrap());
+                    Ok(vm.ctx.new_int(val).into())
+                }
+            }
+            REG_SZ | REG_EXPAND_SZ => {
+                // Treat the data as a UTF-16 string.
+                let u16_count = ret_data.len() / 2;
+                let u16_slice = unsafe {
+                    std::slice::from_raw_parts(ret_data.as_ptr() as *const u16, u16_count)
+                };
+                // Only use characters up to the first NUL.
+                let len = u16_slice.iter().position(|&c| c == 0).unwrap_or(u16_slice.len());
+                let s = String::from_utf16(&u16_slice[..len])
+                    .map_err(|e| vm.new_value_error(format!("UTF16 error: {}", e)))?;
+                Ok(vm.ctx.new_str(s).into())
+            }
+            REG_MULTI_SZ => {
+                if ret_data.is_empty() {
+                    Ok(vm.ctx.new_list(vec![]).into())
+                } else {
+                    let u16_count = ret_data.len() / 2;
+                    let u16_slice = unsafe {
+                        std::slice::from_raw_parts(ret_data.as_ptr() as *const u16, u16_count)
+                    };
+                    let mut strings: Vec<PyObjectRef> = Vec::new();
+                    let mut start = 0;
+                    for (i, &c) in u16_slice.iter().enumerate() {
+                        if c == 0 {
+                            // An empty string signals the end.
+                            if start == i {
+                                break;
+                            }
+                            let s = String::from_utf16(&u16_slice[start..i])
+                                .map_err(|e| vm.new_value_error(format!("UTF16 error: {}", e)))?;
+                            strings.push(vm.ctx.new_str(s).into());
+                            start = i + 1;
+                        }
+                    }
+                    Ok(vm.ctx.new_list(strings).into())
+                }
+            }
+            // For REG_BINARY and any other unknown types, return a bytes object if data exists.
+            _ => {
+                if ret_data.is_empty() {
+                    Ok(vm.ctx.none())
+                } else {
+                    Ok(vm.ctx.new_bytes(ret_data.to_vec()).into())
+                }
+            }
+        }
+    }
+
     fn py2reg(value: PyObjectRef, typ: u32, vm: &VirtualMachine) -> PyResult<Option<Vec<u8>>> {
         match typ {
             REG_DWORD => {
@@ -569,7 +832,7 @@ mod winreg {
     fn SetValueEx(
         key: PyRef<PyHKEYObject>,
         value_name: String,
-        reserved: u32,
+        _reserved: u32,
         typ: u32,
         value: PyObjectRef,
         vm: &VirtualMachine,
