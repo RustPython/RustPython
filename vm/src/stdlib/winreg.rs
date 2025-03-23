@@ -4,38 +4,30 @@ use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub(crate) fn make_module(vm: &VirtualMachine) -> PyRef<PyModule> {
     let module = winreg::make_module(vm);
-
-    macro_rules! add_constants {
-        ($($name:ident),*$(,)?) => {
-            extend_module!(vm, &module, {
-                $((stringify!($name)) => vm.new_pyobj(::winreg::enums::$name as usize)),*
-            })
-        };
-    }
-
-    add_constants!(
-        HKEY_CLASSES_ROOT,
-        HKEY_CURRENT_USER,
-        HKEY_LOCAL_MACHINE,
-        HKEY_USERS,
-        HKEY_PERFORMANCE_DATA,
-        HKEY_CURRENT_CONFIG,
-        HKEY_DYN_DATA,
-    );
     module
 }
 
 #[pymodule]
 mod winreg {
-    use crate::common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard};
-    use crate::{
-        PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine, builtins::PyStrRef,
-        convert::ToPyException,
-    };
-    use ::winreg::{RegKey, RegValue, enums::RegType};
-    use std::mem::ManuallyDrop;
-    use std::{ffi::OsStr, io};
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use std::sync::Arc;
+
+    use crate::builtins::PyInt;
+    use crate::common::lock::PyRwLock;
+    use crate::function::FuncArgs;
+    use crate::protocol::PyNumberMethods;
+    use crate::types::AsNumber;
+    use crate::{PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+
     use windows_sys::Win32::Foundation;
+    use windows_sys::Win32::System::Registry;
+
+    use num_traits::ToPrimitive;
+
+    pub(crate) fn to_utf16<P: AsRef<OsStr>>(s: P) -> Vec<u16> {
+        s.as_ref().encode_wide().chain(Some(0)).collect()
+    }
 
     // access rights
     #[pyattr]
@@ -56,290 +48,600 @@ mod winreg {
         REG_RESOURCE_REQUIREMENTS_LIST, REG_SZ, REG_WHOLE_HIVE_VOLATILE,
     };
 
+    #[pyattr(once)]
+    fn HKEY_CLASSES_ROOT(_vm: &VirtualMachine) -> PyHKEYObject {
+        PyHKEYObject {
+            hkey: Arc::new(PyRwLock::new(Registry::HKEY_CLASSES_ROOT)),
+        }
+    }
+
+    #[pyattr(once)]
+    fn HKEY_CURRENT_USER(_vm: &VirtualMachine) -> PyHKEYObject {
+        PyHKEYObject {
+            hkey: Arc::new(PyRwLock::new(Registry::HKEY_CURRENT_USER)),
+        }
+    }
+
+    #[pyattr(once)]
+    fn HKEY_LOCAL_MACHINE(_vm: &VirtualMachine) -> PyHKEYObject {
+        PyHKEYObject {
+            hkey: Arc::new(PyRwLock::new(Registry::HKEY_LOCAL_MACHINE)),
+        }
+    }
+
+    #[pyattr(once)]
+    fn HKEY_USERS(_vm: &VirtualMachine) -> PyHKEYObject {
+        PyHKEYObject {
+            hkey: Arc::new(PyRwLock::new(Registry::HKEY_USERS)),
+        }
+    }
+
+    #[pyattr(once)]
+    fn HKEY_PERFORMANCE_DATA(_vm: &VirtualMachine) -> PyHKEYObject {
+        PyHKEYObject {
+            hkey: Arc::new(PyRwLock::new(Registry::HKEY_PERFORMANCE_DATA)),
+        }
+    }
+
+    #[pyattr(once)]
+    fn HKEY_CURRENT_CONFIG(_vm: &VirtualMachine) -> PyHKEYObject {
+        PyHKEYObject {
+            hkey: Arc::new(PyRwLock::new(Registry::HKEY_CURRENT_CONFIG)),
+        }
+    }
+
+    #[pyattr(once)]
+    fn HKEY_DYN_DATA(_vm: &VirtualMachine) -> PyHKEYObject {
+        PyHKEYObject {
+            hkey: Arc::new(PyRwLock::new(Registry::HKEY_DYN_DATA)),
+        }
+    }
+
     #[pyattr]
-    #[pyclass(module = "winreg", name = "HKEYType")]
-    #[derive(Debug, PyPayload)]
-    struct PyHkey {
-        key: PyRwLock<RegKey>,
-    }
-    type PyHkeyRef = PyRef<PyHkey>;
-
-    // TODO: fix this
-    unsafe impl Sync for PyHkey {}
-
-    impl PyHkey {
-        fn new(key: RegKey) -> Self {
-            Self {
-                key: PyRwLock::new(key),
-            }
-        }
-
-        fn key(&self) -> PyRwLockReadGuard<'_, RegKey> {
-            self.key.read()
-        }
-
-        fn key_mut(&self) -> PyRwLockWriteGuard<'_, RegKey> {
-            self.key.write()
-        }
+    #[pyclass(name)]
+    #[derive(Clone, Debug, PyPayload)]
+    pub struct PyHKEYObject {
+        hkey: Arc<PyRwLock<Registry::HKEY>>,
     }
 
-    #[pyclass]
-    impl PyHkey {
-        #[pymethod]
-        fn Close(&self) {
-            let null_key = RegKey::predef(0 as ::winreg::HKEY);
-            let key = std::mem::replace(&mut *self.key_mut(), null_key);
-            drop(key);
-        }
-        #[pymethod]
-        fn Detach(&self) -> usize {
-            let null_key = RegKey::predef(0 as ::winreg::HKEY);
-            let key = std::mem::replace(&mut *self.key_mut(), null_key);
-            let handle = key.raw_handle();
-            std::mem::forget(key);
-            handle as usize
+    // TODO: Fix
+    unsafe impl Send for PyHKEYObject {}
+    unsafe impl Sync for PyHKEYObject {}
+
+    #[pyclass(with(AsNumber))]
+    impl PyHKEYObject {
+        #[pygetset]
+        fn handle(&self) -> usize {
+            *self.hkey.read() as usize
         }
 
         #[pymethod(magic)]
         fn bool(&self) -> bool {
-            !self.key().raw_handle().is_null()
+            !self.hkey.read().is_null()
         }
+
         #[pymethod(magic)]
-        fn enter(zelf: PyRef<Self>) -> PyRef<Self> {
-            zelf
+        fn int(&self) -> usize {
+            *self.hkey.read() as usize
         }
+
         #[pymethod(magic)]
-        fn exit(&self, _cls: PyObjectRef, _exc: PyObjectRef, _tb: PyObjectRef) {
-            self.Close();
+        fn str(&self) -> String {
+            format!("<PyHKEY:{}>", *self.hkey.read() as usize)
+        }
+
+        #[pymethod]
+        fn Close(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let res = unsafe { Registry::RegCloseKey(*self.hkey.write()) };
+            if res == 0 {
+                Ok(())
+            } else {
+                Err(vm.new_os_error("msg TODO".to_string()))
+            }
+        }
+
+        #[pymethod]
+        fn Detach(&self) -> PyResult<usize> {
+            let hkey = *self.hkey.write();
+            // std::mem::forget(self);
+            // TODO: Fix this
+            Ok(hkey as usize)
+        }
+
+        // fn AsHKEY(object: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        //     if vm.is_none(object) {
+        //         return Err(vm.new_type_error("cannot convert None to HKEY".to_owned()))
+        //     } else if let Some(hkey) = object.downcast_ref::<PyHKEYObject>() {
+        //         Ok(true)
+        //     } else {
+        //         Err(vm.new_type_error("The object is not a PyHKEY object".to_owned()))
+        //     }
+        // }
+
+        #[pymethod(magic)]
+        fn enter(zelf: PyRef<Self>, _vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+            Ok(zelf)
+        }
+
+        #[pymethod(magic)]
+        fn exit(zelf: PyRef<Self>, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+            let res = unsafe { Registry::RegCloseKey(*zelf.hkey.write()) };
+            if res == 0 {
+                Ok(())
+            } else {
+                Err(vm.new_os_error("msg TODO".to_string()))
+            }
         }
     }
 
-    enum Hkey {
-        PyHkey(PyHkeyRef),
-        Constant(::winreg::HKEY),
-    }
-    impl TryFromObject for Hkey {
-        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            obj.downcast().map(Self::PyHkey).or_else(|o| {
-                usize::try_from_object(vm, o).map(|i| Self::Constant(i as ::winreg::HKEY))
-            })
-        }
-    }
-    impl Hkey {
-        fn with_key<R>(&self, f: impl FnOnce(&RegKey) -> R) -> R {
-            match self {
-                Self::PyHkey(py) => f(&py.key()),
-                Self::Constant(hkey) => {
-                    let k = ManuallyDrop::new(RegKey::predef(*hkey));
-                    f(&k)
+    impl Drop for PyHKEYObject {
+        fn drop(&mut self) {
+            unsafe {
+                let hkey = *self.hkey.write();
+                if !hkey.is_null() {
+                    Registry::RegCloseKey(hkey);
                 }
             }
         }
-        fn into_key(self) -> RegKey {
-            let k = match self {
-                Self::PyHkey(py) => py.key().raw_handle(),
-                Self::Constant(k) => k,
-            };
-            RegKey::predef(k)
+    }
+
+    pub const HKEY_ERR_MSG: &str = "bad operand type";
+
+    impl PyHKEYObject {
+        pub fn new(hkey: *mut std::ffi::c_void) -> Self {
+            Self {
+                hkey: Arc::new(PyRwLock::new(hkey)),
+            }
+        }
+
+        pub fn unary_fail(vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error(HKEY_ERR_MSG.to_owned()))
+        }
+
+        pub fn binary_fail(vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error(HKEY_ERR_MSG.to_owned()))
+        }
+
+        pub fn ternary_fail(vm: &VirtualMachine) -> PyResult {
+            Err(vm.new_type_error(HKEY_ERR_MSG.to_owned()))
         }
     }
 
-    #[derive(FromArgs)]
-    struct OpenKeyArgs {
-        key: Hkey,
-        sub_key: Option<PyStrRef>,
+    impl AsNumber for PyHKEYObject {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                add: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                subtract: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                multiply: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                remainder: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                divmod: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                power: Some(|_a, _b, _c, vm| PyHKEYObject::ternary_fail(vm)),
+                negative: Some(|_a, vm| PyHKEYObject::unary_fail(vm)),
+                positive: Some(|_a, vm| PyHKEYObject::unary_fail(vm)),
+                absolute: Some(|_a, vm| PyHKEYObject::unary_fail(vm)),
+                boolean: Some(|a, vm| {
+                    if let Some(a) = a.downcast_ref::<PyHKEYObject>() {
+                        Ok(a.bool())
+                    } else {
+                        PyHKEYObject::unary_fail(vm)?;
+                        unreachable!()
+                    }
+                }),
+                invert: Some(|_a, vm| PyHKEYObject::unary_fail(vm)),
+                lshift: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                rshift: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                and: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                xor: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                or: Some(|_a, _b, vm| PyHKEYObject::binary_fail(vm)),
+                int: Some(|a, vm| {
+                    if let Some(a) = a.downcast_ref::<PyHKEYObject>() {
+                        Ok(vm.new_pyobj(a.int()))
+                    } else {
+                        PyHKEYObject::unary_fail(vm)?;
+                        unreachable!()
+                    }
+                }),
+                float: Some(|_a, vm| PyHKEYObject::unary_fail(vm)),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
+        }
+    }
+
+    // TODO: Computer name can be `None`
+    #[pyfunction]
+    fn ConnectRegistry(
+        computer_name: String,
+        key: PyRef<PyHKEYObject>,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let wide_computer_name = to_utf16(computer_name);
+        let res = unsafe {
+            Registry::RegConnectRegistryW(
+                wide_computer_name.as_ptr(),
+                *key.hkey.read(),
+                std::ptr::null_mut(),
+            )
+        };
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
+    #[pyfunction]
+    fn CreateKey(
+        key: PyRef<PyHKEYObject>,
+        sub_key: String,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyHKEYObject> {
+        let wide_sub_key = to_utf16(sub_key);
+        let mut out_key = std::ptr::null_mut();
+        let res = unsafe {
+            Registry::RegCreateKeyW(*key.hkey.read(), wide_sub_key.as_ptr(), &mut out_key)
+        };
+        if res == 0 {
+            Ok(PyHKEYObject::new(out_key))
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
+    #[derive(FromArgs, Debug)]
+    struct CreateKeyExArgs {
+        #[pyarg(any)]
+        key: PyRef<PyHKEYObject>,
+        #[pyarg(any)]
+        sub_key: String,
         #[pyarg(any, default = "0")]
-        reserved: i32,
-        #[pyarg(any, default = "::winreg::enums::KEY_READ")]
+        reserved: u32,
+        #[pyarg(any, default = "windows_sys::Win32::System::Registry::KEY_WRITE")]
         access: u32,
     }
 
-    #[pyfunction(name = "OpenKeyEx")]
     #[pyfunction]
-    fn OpenKey(args: OpenKeyArgs, vm: &VirtualMachine) -> PyResult<PyHkey> {
-        let OpenKeyArgs {
-            key,
-            sub_key,
-            reserved,
-            access,
-        } = args;
-
-        if reserved != 0 {
-            // RegKey::open_subkey* doesn't have a reserved param, so this'll do
-            return Err(vm.new_value_error("reserved param must be 0".to_owned()));
-        }
-
-        let sub_key = sub_key.as_ref().map_or("", |s| s.as_str());
-        let key = key
-            .with_key(|k| k.open_subkey_with_flags(sub_key, access))
-            .map_err(|e| e.to_pyexception(vm))?;
-
-        Ok(PyHkey::new(key))
-    }
-
-    #[pyfunction]
-    fn QueryValue(key: Hkey, subkey: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<String> {
-        let subkey = subkey.as_ref().map_or("", |s| s.as_str());
-        key.with_key(|k| k.get_value(subkey))
-            .map_err(|e| e.to_pyexception(vm))
-    }
-
-    #[pyfunction]
-    fn QueryValueEx(
-        key: Hkey,
-        subkey: Option<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(PyObjectRef, usize)> {
-        let subkey = subkey.as_ref().map_or("", |s| s.as_str());
-        let regval = key
-            .with_key(|k| k.get_raw_value(subkey))
-            .map_err(|e| e.to_pyexception(vm))?;
-        #[allow(clippy::redundant_clone)]
-        let ty = regval.vtype.clone() as usize;
-        Ok((reg_to_py(regval, vm)?, ty))
-    }
-
-    #[pyfunction]
-    fn EnumKey(key: Hkey, index: u32, vm: &VirtualMachine) -> PyResult<String> {
-        key.with_key(|k| k.enum_keys().nth(index as usize))
-            .unwrap_or_else(|| {
-                Err(io::Error::from_raw_os_error(
-                    Foundation::ERROR_NO_MORE_ITEMS as i32,
-                ))
-            })
-            .map_err(|e| e.to_pyexception(vm))
-    }
-
-    #[pyfunction]
-    fn EnumValue(
-        key: Hkey,
-        index: u32,
-        vm: &VirtualMachine,
-    ) -> PyResult<(String, PyObjectRef, usize)> {
-        let (name, value) = key
-            .with_key(|k| k.enum_values().nth(index as usize))
-            .unwrap_or_else(|| {
-                Err(io::Error::from_raw_os_error(
-                    Foundation::ERROR_NO_MORE_ITEMS as i32,
-                ))
-            })
-            .map_err(|e| e.to_pyexception(vm))?;
-        #[allow(clippy::redundant_clone)]
-        let ty = value.vtype.clone() as usize;
-        Ok((name, reg_to_py(value, vm)?, ty))
-    }
-
-    #[pyfunction]
-    fn CloseKey(key: Hkey) {
-        match key {
-            Hkey::PyHkey(py) => py.Close(),
-            Hkey::Constant(hkey) => drop(RegKey::predef(hkey)),
-        }
-    }
-
-    #[pyfunction]
-    fn CreateKey(key: Hkey, subkey: Option<PyStrRef>, vm: &VirtualMachine) -> PyResult<PyHkey> {
-        let k = match subkey {
-            Some(subkey) => {
-                let (k, _disp) = key
-                    .with_key(|k| k.create_subkey(subkey.as_str()))
-                    .map_err(|e| e.to_pyexception(vm))?;
-                k
-            }
-            None => key.into_key(),
+    fn CreateKeyEx(args: CreateKeyExArgs, vm: &VirtualMachine) -> PyResult<PyHKEYObject> {
+        let wide_sub_key = to_utf16(args.sub_key);
+        let mut res: *mut std::ffi::c_void = core::ptr::null_mut();
+        let err = unsafe {
+            let key = *args.key.hkey.read();
+            Registry::RegCreateKeyExW(
+                key,
+                wide_sub_key.as_ptr(),
+                args.reserved,
+                std::ptr::null(),
+                Registry::REG_OPTION_NON_VOLATILE,
+                args.access,
+                std::ptr::null(),
+                &mut res,
+                std::ptr::null_mut(),
+            )
         };
-        Ok(PyHkey::new(k))
+        if err == 0 {
+            Ok(PyHKEYObject {
+                hkey: Arc::new(PyRwLock::new(res)),
+            })
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", err)))
+        }
     }
 
     #[pyfunction]
-    fn SetValue(
-        key: Hkey,
-        subkey: Option<PyStrRef>,
-        typ: u32,
-        value: PyStrRef,
+    fn DeleteKey(key: PyRef<PyHKEYObject>, sub_key: String, vm: &VirtualMachine) -> PyResult<()> {
+        let wide_sub_key = to_utf16(sub_key);
+        let res = unsafe { Registry::RegDeleteKeyW(*key.hkey.read(), wide_sub_key.as_ptr()) };
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
+    #[derive(FromArgs, Debug)]
+    struct DeleteKeyExArgs {
+        #[pyarg(any)]
+        key: PyRef<PyHKEYObject>,
+        #[pyarg(any)]
+        sub_key: String,
+        #[pyarg(any, default = "0")]
+        reserved: u32,
+        #[pyarg(any, default = "windows_sys::Win32::System::Registry::KEY_WOW64_32KEY")]
+        access: u32,
+    }
+
+    #[pyfunction]
+    fn DeleteKeyEx(args: DeleteKeyExArgs, vm: &VirtualMachine) -> PyResult<()> {
+        let wide_sub_key = to_utf16(args.sub_key);
+        let res = unsafe {
+            Registry::RegDeleteKeyExW(
+                *args.key.hkey.read(),
+                wide_sub_key.as_ptr(),
+                args.reserved,
+                args.access,
+            )
+        };
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
+    #[pyfunction]
+    fn FlushKey(key: PyRef<PyHKEYObject>, vm: &VirtualMachine) -> PyResult<()> {
+        let res = unsafe { Registry::RegFlushKey(*key.hkey.read()) };
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
+    #[pyfunction]
+    fn LoadKey(
+        key: PyRef<PyHKEYObject>,
+        sub_key: String,
+        file_name: String,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        if typ != REG_SZ {
-            return Err(vm.new_type_error("type must be winreg.REG_SZ".to_owned()));
+        let sub_key = to_utf16(sub_key);
+        let file_name = to_utf16(file_name);
+        let res = unsafe {
+            Registry::RegLoadKeyW(*key.hkey.read(), sub_key.as_ptr(), file_name.as_ptr())
+        };
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
         }
-        let subkey = subkey.as_ref().map_or("", |s| s.as_str());
-        key.with_key(|k| k.set_value(subkey, &OsStr::new(value.as_str())))
-            .map_err(|e| e.to_pyexception(vm))
+    }
+
+    #[derive(Debug, FromArgs)]
+    struct OpenKeyArgs {
+        #[pyarg(any)]
+        key: PyRef<PyHKEYObject>,
+        #[pyarg(any)]
+        sub_key: String,
+        #[pyarg(any, default = "0")]
+        reserved: u32,
+        #[pyarg(any, default = "windows_sys::Win32::System::Registry::KEY_READ")]
+        access: u32,
     }
 
     #[pyfunction]
-    fn DeleteKey(key: Hkey, subkey: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        key.with_key(|k| k.delete_subkey(subkey.as_str()))
-            .map_err(|e| e.to_pyexception(vm))
+    #[pyfunction(name = "OpenKeyEx")]
+    fn OpenKey(args: OpenKeyArgs, vm: &VirtualMachine) -> PyResult<PyHKEYObject> {
+        let wide_sub_key = to_utf16(args.sub_key);
+        let res: *mut *mut std::ffi::c_void = core::ptr::null_mut();
+        let err = unsafe {
+            let key = *args.key.hkey.read();
+            Registry::RegOpenKeyExW(key, wide_sub_key.as_ptr(), args.reserved, args.access, res)
+        };
+        if err == 0 {
+            unsafe {
+                Ok(PyHKEYObject {
+                    hkey: Arc::new(PyRwLock::new(*res)),
+                })
+            }
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", err)))
+        }
     }
 
-    fn reg_to_py(value: RegValue, vm: &VirtualMachine) -> PyResult {
-        macro_rules! bytes_to_int {
-            ($int:ident, $f:ident, $name:ident) => {{
-                let i = if value.bytes.is_empty() {
-                    Ok(0 as $int)
-                } else {
-                    (&*value.bytes).try_into().map($int::$f).map_err(|_| {
-                        vm.new_value_error(format!("{} value is wrong length", stringify!(name)))
-                    })
-                };
-                i.map(|i| vm.ctx.new_int(i).into())
-            }};
-        }
-        let bytes_to_wide = |b| {
-            if <[u8]>::len(b) % 2 == 0 {
-                let (pref, wide, suf) = unsafe { <[u8]>::align_to::<u16>(b) };
-                assert!(pref.is_empty() && suf.is_empty(), "wide slice is unaligned");
-                Some(wide)
-            } else {
-                None
-            }
+    #[pyfunction]
+    fn QueryInfoKey(key: PyRef<PyHKEYObject>, vm: &VirtualMachine) -> PyResult<()> {
+        let key = *key.hkey.read();
+        let mut lpcsubkeys: u32 = 0;
+        let mut lpcvalues: u32 = 0;
+        let lpftlastwritetime: *mut Foundation::FILETIME = std::ptr::null_mut();
+        let err = unsafe {
+            Registry::RegQueryInfoKeyW(
+                key,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                0 as _,
+                &mut lpcsubkeys,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut lpcvalues,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                lpftlastwritetime,
+            )
         };
-        match value.vtype {
-            RegType::REG_DWORD => bytes_to_int!(u32, from_ne_bytes, REG_DWORD),
-            RegType::REG_DWORD_BIG_ENDIAN => {
-                bytes_to_int!(u32, from_be_bytes, REG_DWORD_BIG_ENDIAN)
-            }
-            RegType::REG_QWORD => bytes_to_int!(u64, from_ne_bytes, REG_DWORD),
-            // RegType::REG_QWORD_BIG_ENDIAN => bytes_to_int!(u64, from_be_bytes, REG_DWORD_BIG_ENDIAN),
-            RegType::REG_SZ | RegType::REG_EXPAND_SZ => {
-                let wide_slice = bytes_to_wide(&value.bytes).ok_or_else(|| {
-                    vm.new_value_error("REG_SZ string doesn't have an even byte length".to_owned())
-                })?;
-                let nul_pos = wide_slice
-                    .iter()
-                    .position(|w| *w == 0)
-                    .unwrap_or(wide_slice.len());
-                let s = String::from_utf16_lossy(&wide_slice[..nul_pos]);
-                Ok(vm.ctx.new_str(s).into())
-            }
-            RegType::REG_MULTI_SZ => {
-                if value.bytes.is_empty() {
-                    return Ok(vm.ctx.new_list(vec![]).into());
+
+        if err != 0 {
+            Err(vm.new_os_error(format!("error code: {}", err)))
+        } else {
+            Ok(())
+        }
+    }
+
+    #[pyfunction]
+    fn QueryValue(key: PyRef<PyHKEYObject>, sub_key: String, vm: &VirtualMachine) -> PyResult<()> {
+        let key = *key.hkey.read();
+        let mut lpcbdata: i32 = 0;
+        // let mut lpdata = 0;
+        let wide_sub_key = to_utf16(sub_key);
+        let err = unsafe {
+            Registry::RegQueryValueW(
+                key,
+                wide_sub_key.as_ptr(),
+                std::ptr::null_mut(),
+                &mut lpcbdata,
+            )
+        };
+
+        if err != 0 {
+            return Err(vm.new_os_error(format!("error code: {}", err)));
+        }
+
+        Ok(())
+    }
+
+    // TODO: QueryValueEx
+    #[pyfunction]
+    fn SaveKey(key: PyRef<PyHKEYObject>, file_name: String, vm: &VirtualMachine) -> PyResult<()> {
+        let file_name = to_utf16(file_name);
+        let res = unsafe {
+            Registry::RegSaveKeyW(*key.hkey.read(), file_name.as_ptr(), std::ptr::null_mut())
+        };
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
+    #[pyfunction]
+    fn SetValue(key: PyRef<PyHKEYObject>, sub_key: String, typ: u32, value: String, vm: &VirtualMachine) -> PyResult<()> {
+        if typ != Registry::REG_SZ {
+            return Err(vm.new_type_error("type must be winreg.REG_SZ".to_string()));
+        }
+    
+        let wide_sub_key = to_utf16(sub_key);
+
+        // TODO: Value check
+        if *key.hkey.read() == Registry::HKEY_PERFORMANCE_DATA {
+            return Err(vm.new_os_error("Cannot set value on HKEY_PERFORMANCE_DATA".to_string()));
+        }
+
+        // if (sub_key && sub_key[0]) {
+        //     // TODO: create key
+        // }
+
+        let res = unsafe {
+            Registry::RegSetValueExW(
+                *key.hkey.read(),
+                wide_sub_key.as_ptr(),
+                0,
+                typ,
+                value.as_ptr(),
+                value.len() as u32,
+            )
+        };
+
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
+    fn py2reg(value: PyObjectRef, typ: u32, vm: &VirtualMachine) -> PyResult<Option<Vec<u8>>> {
+        match typ {
+            REG_DWORD => {
+                let val = value.downcast_ref::<PyInt>();
+                if val.is_none() {
+                    return Err(vm.new_type_error("value must be an integer".to_string()));
                 }
-                let wide_slice = bytes_to_wide(&value.bytes).ok_or_else(|| {
-                    vm.new_value_error(
-                        "REG_MULTI_SZ string doesn't have an even byte length".to_owned(),
-                    )
-                })?;
-                let wide_slice = if let Some((0, rest)) = wide_slice.split_last() {
-                    rest
-                } else {
-                    wide_slice
-                };
-                let strings = wide_slice
-                    .split(|c| *c == 0)
-                    .map(|s| vm.new_pyobj(String::from_utf16_lossy(s)))
-                    .collect();
-                Ok(vm.ctx.new_list(strings).into())
+                let val = val.unwrap().as_bigint().to_u32().unwrap();
+                Ok(Some(val.to_le_bytes().to_vec()))
             }
+            REG_QWORD => {
+                let val = value.downcast_ref::<PyInt>();
+                if val.is_none() {
+                    return Err(vm.new_type_error("value must be an integer".to_string()));
+                }
+                let val = val.unwrap().as_bigint().to_u64().unwrap();
+                Ok(Some(val.to_le_bytes().to_vec()))
+            }
+            // REG_SZ is fallthrough
+            REG_EXPAND_SZ => {
+                return Err(vm.new_type_error("TODO: RUSTPYTHON REG_EXPAND_SZ is not supported".to_string()));
+            }
+            REG_MULTI_SZ => {
+                return Err(vm.new_type_error("TODO: RUSTPYTHON REG_MULTI_SZ is not supported".to_string()));
+            }
+            // REG_BINARY is fallthrough
             _ => {
-                if value.bytes.is_empty() {
-                    Ok(vm.ctx.none())
-                } else {
-                    Ok(vm.ctx.new_bytes(value.bytes).into())
+                if vm.is_none(&value) {
+                    return Ok(None);
                 }
+                return Err(vm.new_type_error("TODO: RUSTPYTHON Not supported".to_string()));
             }
         }
+    }
+
+    #[pyfunction]
+    fn SetValueEx(
+        key: PyRef<PyHKEYObject>,
+        value_name: String,
+        reserved: u32,
+        typ: u32,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        match py2reg(value, typ, vm) {
+            Ok(Some(v)) => {
+                let len = v.len() as u32;
+                let ptr = v.as_ptr();
+                let wide_value_name = to_utf16(value_name);
+                let res = unsafe {
+                    Registry::RegSetValueExW(
+                        *key.hkey.read(),
+                        wide_value_name.as_ptr(),
+                        0,
+                        typ,
+                        ptr,
+                        len,
+                    )
+                };
+                if res != 0 {
+                    return Err(vm.new_os_error(format!("error code: {}", res)));
+                }
+            },
+            Ok(None) => {
+                let len = 0;
+                let ptr = std::ptr::null();
+                let wide_value_name = to_utf16(value_name);
+                let res = unsafe {
+                    Registry::RegSetValueExW(
+                        *key.hkey.read(),
+                        wide_value_name.as_ptr(),
+                        0,
+                        typ,
+                        ptr,
+                        len,
+                    )
+                };
+                if res != 0 {
+                    return Err(vm.new_os_error(format!("error code: {}", res)));
+                }
+            },
+            Err(_) => return Err(vm.new_type_error("value must be an integer".to_string())),
+        }
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn EnableReflectionKey(key: PyRef<PyHKEYObject>, vm: &VirtualMachine) -> PyResult<()> {
+        let res = unsafe { Registry::RegEnableReflectionKey(*key.hkey.read()) };
+        if res == 0 {
+            Ok(())
+        } else {
+            Err(vm.new_os_error(format!("error code: {}", res)))
+        }
+    }
+
+    #[pyfunction]
+    fn ExpandEnvironmentStrings(i: String) -> PyResult<String> {
+        let mut out = vec![0; 1024];
+        let r = unsafe {
+            windows_sys::Win32::System::Environment::ExpandEnvironmentStringsA(
+                i.as_ptr(),
+                out.as_mut_ptr(),
+                out.len() as u32,
+            )
+        };
+        let s = String::from_utf8(out[..r as usize].to_vec())
+            .unwrap()
+            .replace("\0", "")
+            .replace("\x02", "")
+            .to_string();
+
+        Ok(s)
     }
 }
