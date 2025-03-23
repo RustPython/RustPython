@@ -42,7 +42,6 @@ rustpython-compiler-core = { workspace = true }
 rustpython-compiler-source = { workspace = true }
 # rustpython-parser-core = { workspace = true }
 rustpython-literal = { workspace = true }
-rustpython-format = { workspace = true }
 rustpython-sre_engine = { workspace = true }
 
 ascii = { workspace = true }

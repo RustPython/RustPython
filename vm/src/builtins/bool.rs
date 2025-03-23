@@ -1,4 +1,5 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef};
+use crate::common::format::FormatSpec;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject,
     VirtualMachine,
@@ -11,7 +12,6 @@ use crate::{
 };
 use malachite_bigint::Sign;
 use num_traits::Zero;
-use rustpython_format::FormatSpec;
 use std::fmt::{Debug, Formatter};
 
 impl ToPyObject for bool {

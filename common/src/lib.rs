@@ -9,6 +9,7 @@ pub use macros::*;
 pub mod atomic;
 pub mod borrow;
 pub mod boxvec;
+pub mod cformat;
 pub mod cmp;
 #[cfg(any(unix, windows, target_os = "wasi"))]
 pub mod crt_fd;
@@ -16,6 +17,7 @@ pub mod encodings;
 #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 pub mod fileutils;
 pub mod float_ops;
+pub mod format;
 pub mod hash;
 pub mod int;
 pub mod linked_list;
