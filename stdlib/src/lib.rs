@@ -80,6 +80,9 @@ mod termios;
 )))]
 mod uuid;
 
+#[cfg(feature = "tkinter")]
+mod tkinter;
+
 use rustpython_common as common;
 use rustpython_vm as vm;
 
@@ -191,6 +194,10 @@ pub fn get_module_inits() -> impl Iterator<Item = (Cow<'static, str>, StdlibInit
         #[cfg(not(any(target_os = "ios", target_os = "android", target_arch = "wasm32")))]
         {
             "_locale" => locale::make_module,
+        }
+        #[cfg(feature = "tkinter")]
+        {
+            "_tkinter" => tkinter::make_module,
         }
     }
 }
