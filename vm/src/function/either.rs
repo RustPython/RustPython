@@ -2,6 +2,7 @@ use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, convert::ToPyObject,
 };
 use std::borrow::Borrow;
+use std::fmt::{self, Debug, Formatter};
 
 pub enum Either<A, B> {
     A(A),
@@ -79,5 +80,14 @@ where
             .map(Either::A)
             .or_else(|_| B::try_from_object(vm, obj.clone()).map(Either::B))
             .map_err(|_| vm.new_type_error(format!("unexpected type {}", obj.class())))
+    }
+}
+
+impl<A, B> Debug for Either<A, B> where A: Debug, B: Debug {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::A(a) => a.fmt(f),
+            Self::B(b) => b.fmt(f),
+        }
     }
 }
