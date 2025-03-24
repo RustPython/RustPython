@@ -111,7 +111,9 @@ mod _bz2 {
             unused_data.replace(input_buffer.clone());
             // skrink the vector to save memory
             input_buffer.shrink_to_fit();
-            unused_data.as_mut().map(|v| v.shrink_to_fit());
+            if let Some(v) = unused_data.as_mut() {
+                v.shrink_to_fit();
+            }
 
             if *eof {
                 *needs_input = false;
