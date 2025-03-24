@@ -8,6 +8,9 @@ rust-version.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[lib]
+crate-type = ["cdylib"]
+
 [features]
 
 [dependencies]
