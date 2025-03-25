@@ -3,11 +3,14 @@ import types as _types
 
 from _ctypes import RTLD_LOCAL, RTLD_GLOBAL
 from _ctypes import sizeof
-from _ctypes import _SimpleCData
+from _ctypes import _SimpleCData, Array
 from _ctypes import CFuncPtr as _CFuncPtr
 
 from struct import calcsize as _calcsize
 
+
+assert Array.__class__.__name__ == 'PyCArrayType'
+assert Array.__base__.__name__ == '_CData'
 
 DEFAULT_MODE = RTLD_LOCAL
 if _os.name == "posix" and _sys.platform == "darwin":
