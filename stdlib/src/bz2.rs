@@ -6,23 +6,26 @@ pub(crate) use _bz2::make_module;
 mod _bz2 {
     use crate::common::lock::PyMutex;
     use crate::vm::{
-        VirtualMachine,
+        FromArgs, VirtualMachine,
         builtins::{PyBytesRef, PyTypeRef},
         function::{ArgBytesLike, OptionalArg},
         object::{PyPayload, PyResult},
         types::Constructor,
     };
-    use bzip2::{Decompress, Status, write::BzEncoder};
+    use bzip2::read::BzDecoder;
+    use bzip2::write::BzEncoder;
+    use std::io::{Cursor, Read};
     use std::{fmt, io::Write};
 
     // const BUFSIZ: i32 = 8192;
 
     struct DecompressorState {
-        decoder: Decompress,
+        input_buffer: Vec<u8>,
+        // Flag indicating that end-of-stream has been reached.
         eof: bool,
+        // Unused data found after the end of stream.
+        unused_data: Option<Vec<u8>>,
         needs_input: bool,
-        // input_buffer: Vec<u8>,
-        // output_buffer: Vec<u8>,
     }
 
     #[pyattr]
@@ -33,7 +36,7 @@ mod _bz2 {
     }
 
     impl fmt::Debug for BZ2Decompressor {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "_bz2.BZ2Decompressor")
         }
     }
@@ -44,11 +47,10 @@ mod _bz2 {
         fn py_new(cls: PyTypeRef, _: Self::Args, vm: &VirtualMachine) -> PyResult {
             Self {
                 state: PyMutex::new(DecompressorState {
-                    decoder: Decompress::new(false),
                     eof: false,
+                    input_buffer: Vec::new(),
+                    unused_data: None,
                     needs_input: true,
-                    // input_buffer: Vec::new(),
-                    // output_buffer: Vec::new(),
                 }),
             }
             .into_ref_with_type(vm, cls)
@@ -56,76 +58,75 @@ mod _bz2 {
         }
     }
 
+    #[derive(Debug, FromArgs)]
+    struct DecompressArgs {
+        #[pyarg(positional)]
+        data: ArgBytesLike,
+        #[pyarg(any, default = "-1")]
+        max_length: i64,
+    }
+
     #[pyclass(with(Constructor))]
     impl BZ2Decompressor {
         #[pymethod]
-        fn decompress(
-            &self,
-            data: ArgBytesLike,
-            // TODO: PyIntRef
-            max_length: OptionalArg<i32>,
-            vm: &VirtualMachine,
-        ) -> PyResult<PyBytesRef> {
-            let max_length = max_length.unwrap_or(-1);
-            if max_length >= 0 {
-                return Err(vm.new_not_implemented_error(
-                    "the max_value argument is not implemented yet".to_owned(),
-                ));
-            }
-            // let max_length = if max_length < 0 || max_length >= BUFSIZ {
-            //     BUFSIZ
-            // } else {
-            //     max_length
-            // };
-
-            let mut state = self.state.lock();
+        fn decompress(&self, args: DecompressArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+            let DecompressArgs { data, max_length } = args;
             let DecompressorState {
-                decoder,
                 eof,
-                ..
-                // needs_input,
-                // input_buffer,
-                // output_buffer,
-            } = &mut *state;
-
+                input_buffer,
+                unused_data,
+                needs_input,
+            } = &mut *self.state.lock();
             if *eof {
                 return Err(vm.new_exception_msg(
                     vm.ctx.exceptions.eof_error.to_owned(),
                     "End of stream already reached".to_owned(),
                 ));
             }
+            let data_vec = data.borrow_buf().to_vec();
+            input_buffer.extend(data_vec);
 
-            // data.with_ref(|data| input_buffer.extend(data));
+            // Create a Cursor over the accumulated data.
+            let mut cursor = Cursor::new(&input_buffer);
+            // Wrap the cursor in a BzDecoder.
+            let mut decoder = BzDecoder::new(&mut cursor);
+            let mut output = Vec::new();
 
-            // If max_length is negative:
-            // read the input X bytes at a time, compress it and append it to output.
-            // Once you're out of input, setting needs_input to true and return the
-            // output as bytes.
-            //
-            // TODO:
-            // If max_length is non-negative:
-            // Read the input X bytes at a time, compress it and append it to
-            // the output. If output reaches `max_length` in size, return
-            // it (up to max_length), and store the rest of the output
-            // for later.
+            // If max_length is nonnegative, read at most that many bytes.
+            if max_length >= 0 {
+                let mut limited = decoder.by_ref().take(max_length as u64);
+                limited
+                    .read_to_end(&mut output)
+                    .map_err(|e| vm.new_os_error(format!("Decompression error: {}", e)))?;
+            } else {
+                decoder
+                    .read_to_end(&mut output)
+                    .map_err(|e| vm.new_os_error(format!("Decompression error: {}", e)))?;
+            }
 
-            // TODO: arbitrary choice, not the right way to do it.
-            let mut buf = Vec::with_capacity(data.len() * 32);
+            // Determine how many bytes were consumed from the input.
+            let consumed = cursor.position() as usize;
+            // Remove the consumed bytes.
+            input_buffer.drain(0..consumed);
+            unused_data.replace(input_buffer.clone());
+            // skrink the vector to save memory
+            input_buffer.shrink_to_fit();
+            if let Some(v) = unused_data.as_mut() {
+                v.shrink_to_fit();
+            }
 
-            let before = decoder.total_in();
-            let res = data.with_ref(|data| decoder.decompress_vec(data, &mut buf));
-            let _written = (decoder.total_in() - before) as usize;
+            if *eof {
+                *needs_input = false;
+            } else {
+                *needs_input = input_buffer.is_empty();
+            }
 
-            let res = match res {
-                Ok(x) => x,
-                // TODO: error message
-                _ => return Err(vm.new_os_error("Invalid data stream".to_owned())),
-            };
-
-            if res == Status::StreamEnd {
+            // If the decoder reached end-of-stream (i.e. no more input remains), mark eof.
+            if input_buffer.is_empty() {
                 *eof = true;
             }
-            Ok(vm.ctx.new_bytes(buf.to_vec()))
+
+            Ok(vm.ctx.new_bytes(output))
         }
 
         #[pygetset]
@@ -136,22 +137,11 @@ mod _bz2 {
 
         #[pygetset]
         fn unused_data(&self, vm: &VirtualMachine) -> PyBytesRef {
-            // Data found after the end of the compressed stream.
-            // If this attribute is accessed before the end of the stream
-            // has been reached, its value will be b''.
-            vm.ctx.new_bytes(b"".to_vec())
-            // alternatively, be more honest:
-            // Err(vm.new_not_implemented_error(
-            //     "unused_data isn't implemented yet".to_owned(),
-            // ))
-            //
-            // TODO
-            // let state = self.state.lock();
-            // if state.eof {
-            //     vm.ctx.new_bytes(state.input_buffer.to_vec())
-            // else {
-            //     vm.ctx.new_bytes(b"".to_vec())
-            // }
+            let state = self.state.lock();
+            match &state.unused_data {
+                Some(data) => vm.ctx.new_bytes(data.clone()),
+                None => vm.ctx.new_bytes(Vec::new()),
+            }
         }
 
         #[pygetset]
@@ -178,7 +168,7 @@ mod _bz2 {
     }
 
     impl fmt::Debug for BZ2Compressor {
-        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write!(f, "_bz2.BZ2Compressor")
         }
     }
@@ -188,8 +178,6 @@ mod _bz2 {
 
         fn py_new(cls: PyTypeRef, args: Self::Args, vm: &VirtualMachine) -> PyResult {
             let (compresslevel,) = args;
-            // TODO: seriously?
-            // compresslevel.unwrap_or(bzip2::Compression::best().level().try_into().unwrap());
             let compresslevel = compresslevel.unwrap_or(9);
             let level = match compresslevel {
                 valid_level @ 1..=9 => bzip2::Compression::new(valid_level as u32),
