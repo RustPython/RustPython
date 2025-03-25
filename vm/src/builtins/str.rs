@@ -8,6 +8,7 @@ use crate::{
     TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, adjust_indices},
     atomic_func,
+    cformat::cformat_string,
     class::PyClassImpl,
     common::str::{BorrowedStr, PyStrKind, PyStrKindData},
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
@@ -729,8 +730,7 @@ impl PyStr {
 
     #[pymethod(name = "__mod__")]
     fn modulo(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        let formatted = self.as_str().py_cformat(values, vm)?;
-        Ok(formatted)
+        cformat_string(vm, self.as_str(), values)
     }
 
     #[pymethod(magic)]
@@ -1596,10 +1596,6 @@ impl AnyStr for str {
 
     fn as_bytes(&self) -> &[u8] {
         self.as_bytes()
-    }
-
-    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error> {
-        Ok(self)
     }
 
     fn chars(&self) -> impl Iterator<Item = char> {
