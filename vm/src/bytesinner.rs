@@ -1037,10 +1037,6 @@ impl AnyStr for [u8] {
         self
     }
 
-    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error> {
-        std::str::from_utf8(self)
-    }
-
     fn chars(&self) -> impl Iterator<Item = char> {
         bstr::ByteSlice::chars(self)
     }

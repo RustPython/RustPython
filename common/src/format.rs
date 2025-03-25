@@ -14,11 +14,12 @@ trait FormatParse {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
+#[repr(u8)]
 pub enum FormatConversion {
-    Str,
-    Repr,
-    Ascii,
-    Bytes,
+    Str = b's',
+    Repr = b'r',
+    Ascii = b'b',
+    Bytes = b'a',
 }
 
 impl FormatParse for FormatConversion {

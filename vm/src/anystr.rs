@@ -1,7 +1,6 @@
 use crate::{
     Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyIntRef, PyTuple},
-    cformat::cformat_string,
     convert::TryFromBorrowedObject,
     function::OptionalOption,
 };
@@ -155,7 +154,6 @@ pub trait AnyStr {
 
     fn to_container(&self) -> Self::Container;
     fn as_bytes(&self) -> &[u8];
-    fn as_utf8_str(&self) -> Result<&str, std::str::Utf8Error>;
     fn chars(&self) -> impl Iterator<Item = char>;
     fn elements(&self) -> impl Iterator<Item = Self::Char>;
     fn get_bytes(&self, range: std::ops::Range<usize>) -> &Self;
@@ -424,11 +422,6 @@ pub trait AnyStr {
             }
         }
         cased
-    }
-
-    fn py_cformat(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<String> {
-        let format_string = self.as_utf8_str().unwrap();
-        cformat_string(vm, format_string, values)
     }
 }
 
