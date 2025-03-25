@@ -92,6 +92,25 @@ rev = "2024.02.14"
 [package.metadata.vcpkg.target]
 x86_64-pc-windows-msvc = { triplet = "x64-windows-static-md", dev-dependencies = ["openssl" ] }
 
+[package.metadata.packager]
+product-name = "RustPython"
+identifier = "com.rustpython.rustpython"
+description = "An open source Python 3 interpreter written in Rust"
+homepage = "https://rustpython.github.io/"
+license_file = "LICENSE"
+authors = ["RustPython Team"]
+publisher = "RustPython Team"
+resources = ["LICENSE", "README.md", "Lib"]
+icons = ["32x32.png"]
+
+[package.metadata.packager.nsis]
+installer_mode = "both"
+template = "installer-config/installer.nsi"
+
+[package.metadata.packager.wix]
+template = "installer-config/installer.wxs"
+
+
 [workspace]
 resolver = "2"
 members = [
