@@ -50,3 +50,40 @@ pub struct PyInterpreterConfig {
     check_multi_interp_extensions: i32,
     gil: i32,
 }
+
+thread_local! {
+    pub static INTERP: RefCell<Option<vm::Interpreter>> = const { RefCell::new(None) };
+}
+
+#[unsafe(export_name = "Py_Initialize")]
+pub unsafe extern "C" fn initialize() {
+    // TODO: This sort of reimplemented what has already been done in the bin/lib crate, try reusing that.
+    let settings = vm::Settings::default();
+    let init_hooks: Vec<Box<dyn FnOnce(&mut vm::VirtualMachine)>> = vec![];
+    let interp = vm::Interpreter::with_init(settings, |vm| {
+        for hook in init_hooks {
+            hook(vm);
+        }
+    });
+    VM.with(|vm_ref| {
+        *vm_ref.borrow_mut() = Some(interp.vm.clone());
+    });
+    INTERP.with(|interp_ref| {
+        *interp_ref.borrow_mut() = Some(interp);
+    });
+}
+
+#[unsafe(export_name = "Py_IsInitialized")]
+pub unsafe extern "C" fn is_initialized() -> i32 {
+    VM.with(|vm_ref| vm_ref.borrow().is_some() as i32)
+}
+
+#[unsafe(export_name = "Py_Finalize")]
+pub unsafe extern "C" fn finalize() {
+    VM.with(|vm_ref| {
+        *vm_ref.borrow_mut() = None;
+    });
+    INTERP.with(|interp_ref| {
+        *interp_ref.borrow_mut() = None;
+    });
+}
