@@ -36,6 +36,9 @@ from _ctypes import FUNCFLAG_CDECL as _FUNCFLAG_CDECL, \
      FUNCFLAG_USE_ERRNO as _FUNCFLAG_USE_ERRNO, \
      FUNCFLAG_USE_LASTERROR as _FUNCFLAG_USE_LASTERROR
 
+# TODO: RUSTPYTHON remove this
+from _ctypes import _non_existing_function
+
 # WINOLEAPI -> HRESULT
 # WINOLEAPI_(type)
 #
@@ -296,7 +299,9 @@ def create_unicode_buffer(init, size=None):
         return buf
     elif isinstance(init, int):
         _sys.audit("ctypes.create_unicode_buffer", None, init)
-        buftype = c_wchar * init
+        # XXX: RUSTPYTHON
+        # buftype = c_wchar * init
+        buftype = c_wchar.__mul__(init)
         buf = buftype()
         return buf
     raise TypeError(init)
@@ -495,14 +500,15 @@ elif sizeof(c_ulonglong) == sizeof(c_void_p):
     c_ssize_t = c_longlong
 
 # functions
-
 from _ctypes import _memmove_addr, _memset_addr, _string_at_addr, _cast_addr
 
 ## void *memmove(void *, const void *, size_t);
-memmove = CFUNCTYPE(c_void_p, c_void_p, c_void_p, c_size_t)(_memmove_addr)
+# XXX: RUSTPYTHON
+# memmove = CFUNCTYPE(c_void_p, c_void_p, c_void_p, c_size_t)(_memmove_addr)
 
 ## void *memset(void *, int, size_t)
-memset = CFUNCTYPE(c_void_p, c_void_p, c_int, c_size_t)(_memset_addr)
+# XXX: RUSTPYTHON
+# memset = CFUNCTYPE(c_void_p, c_void_p, c_int, c_size_t)(_memset_addr)
 
 def PYFUNCTYPE(restype, *argtypes):
     class CFunctionType(_CFuncPtr):
@@ -511,11 +517,13 @@ def PYFUNCTYPE(restype, *argtypes):
         _flags_ = _FUNCFLAG_CDECL | _FUNCFLAG_PYTHONAPI
     return CFunctionType
 
-_cast = PYFUNCTYPE(py_object, c_void_p, py_object, py_object)(_cast_addr)
+# XXX: RUSTPYTHON
+# _cast = PYFUNCTYPE(py_object, c_void_p, py_object, py_object)(_cast_addr)
 def cast(obj, typ):
     return _cast(obj, obj, typ)
 
-_string_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_string_at_addr)
+# XXX: RUSTPYTHON
+# _string_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_string_at_addr)
 def string_at(ptr, size=-1):
     """string_at(addr[, size]) -> string
 
@@ -527,7 +535,8 @@ try:
 except ImportError:
     pass
 else:
-    _wstring_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_wstring_at_addr)
+    # XXX: RUSTPYTHON
+    # _wstring_at = PYFUNCTYPE(py_object, c_void_p, c_int)(_wstring_at_addr)
     def wstring_at(ptr, size=-1):
         """wstring_at(addr[, size]) -> string
 
