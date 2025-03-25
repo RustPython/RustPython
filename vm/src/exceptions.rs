@@ -43,6 +43,9 @@ impl PyPayload for PyBaseException {
     }
 }
 
+const TRACEBACK_LIMIT: usize = 1000;
+const TRACEBACK_RECURSIVE_CUTOFF: usize = 3; // Also hardcoded in traceback.py.
+
 impl VirtualMachine {
     // Why `impl VirtualMachine`?
     // These functions are natively free function in CPython - not methods of PyException
@@ -131,10 +134,40 @@ impl VirtualMachine {
         exc: &PyBaseExceptionRef,
     ) -> Result<(), W::Error> {
         let vm = self;
+
+        // TODO: Get tracebacklimit from sys and replace limit with that if it exists
+        let limit = TRACEBACK_LIMIT;
         if let Some(tb) = exc.traceback.read().clone() {
             writeln!(output, "Traceback (most recent call last):")?;
+            let mut tb_list = vec![];
             for tb in tb.iter() {
-                write_traceback_entry(output, &tb)?;
+                tb_list.push(tb);
+            }
+            let mut repeat_counter = 0;
+            let mut previous_file = "".to_string();
+            let mut previous_line = 0;
+            let mut previous_name = "".to_string();
+            // Gets the last `limit` traceback entries
+            for tb in tb_list.into_iter().rev().take(limit).rev() {
+                if previous_file != tb.frame.code.source_path.as_str()
+                    || previous_line != tb.lineno.get()
+                    || previous_name != tb.frame.code.obj_name.as_str()
+                {
+                    if repeat_counter > TRACEBACK_RECURSIVE_CUTOFF {
+                        write_repeat_traceback_entry(output, &tb, repeat_counter)?;
+                    }
+                    previous_file = tb.frame.code.source_path.as_str().to_string();
+                    previous_line = tb.lineno.get();
+                    previous_name = tb.frame.code.obj_name.as_str().to_string();
+                    repeat_counter = 0;
+                }
+                repeat_counter += 1;
+                if repeat_counter <= TRACEBACK_RECURSIVE_CUTOFF {
+                    write_traceback_entry(output, &tb)?;
+                }
+            }
+            if repeat_counter > TRACEBACK_RECURSIVE_CUTOFF {
+                write_repeat_traceback_entry(output, &tb_list[0], repeat_counter)?;
             }
         }
 
@@ -381,6 +414,20 @@ fn write_traceback_entry<W: Write>(
     print_source_line(output, filename, tb_entry.lineno.get())?;
 
     Ok(())
+}
+
+fn write_repeat_traceback_entry<W: Write>(
+    output: &mut W,
+    tb_entry: &PyTracebackRef,
+    repeat_counter: usize,
+) -> Result<(), W::Error> {
+    let count = repeat_counter - TRACEBACK_RECURSIVE_CUTOFF;
+    writeln!(
+        output,
+        r##"  [Previous line repeated {} more time{}]"##,
+        count,
+        if count == 1 { "" } else { "s" }
+    )
 }
 
 #[derive(Clone)]
