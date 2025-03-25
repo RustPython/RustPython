@@ -53,6 +53,7 @@ use bstr::{ByteSlice, ByteVec};
 
 mod core_char;
 mod core_str;
+mod core_str_count;
 
 const UTF8_REPLACEMENT_CHARACTER: &str = "\u{FFFD}";
 
@@ -1256,6 +1257,10 @@ impl Iterator for Wtf8CodePoints<'_> {
     fn last(mut self) -> Option<Self::Item> {
         self.next_back()
     }
+
+    fn count(self) -> usize {
+        core_str_count::count_chars(self.as_wtf8())
+    }
 }
 
 impl DoubleEndedIterator for Wtf8CodePoints<'_> {
@@ -1277,8 +1282,8 @@ impl<'a> Wtf8CodePoints<'a> {
 
 #[derive(Clone)]
 pub struct Wtf8CodePointIndices<'a> {
-    pub(super) front_offset: usize,
-    pub(super) iter: Wtf8CodePoints<'a>,
+    front_offset: usize,
+    iter: Wtf8CodePoints<'a>,
 }
 
 impl Iterator for Wtf8CodePointIndices<'_> {
@@ -1307,6 +1312,11 @@ impl Iterator for Wtf8CodePointIndices<'_> {
     fn last(mut self) -> Option<(usize, CodePoint)> {
         // No need to go through the entire string.
         self.next_back()
+    }
+
+    #[inline]
+    fn count(self) -> usize {
+        self.iter.count()
     }
 }
 
