@@ -154,7 +154,7 @@ impl VirtualMachine {
                     || previous_name != tb.frame.code.obj_name.as_str()
                 {
                     if repeat_counter > TRACEBACK_RECURSIVE_CUTOFF {
-                        write_repeat_traceback_entry(output, &tb, repeat_counter)?;
+                        write_repeat_traceback_entry(output, repeat_counter)?;
                     }
                     previous_file = tb.frame.code.source_path.as_str().to_string();
                     previous_line = tb.lineno.get();
@@ -167,7 +167,7 @@ impl VirtualMachine {
                 }
             }
             if repeat_counter > TRACEBACK_RECURSIVE_CUTOFF {
-                write_repeat_traceback_entry(output, &tb_list[0], repeat_counter)?;
+                write_repeat_traceback_entry(output, repeat_counter)?;
             }
         }
 
@@ -407,7 +407,7 @@ fn write_traceback_entry<W: Write>(
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
-        filename.trim_start_matches(r"\\?\"),
+        filename,
         tb_entry.lineno,
         tb_entry.frame.code.obj_name
     )?;
@@ -418,7 +418,6 @@ fn write_traceback_entry<W: Write>(
 
 fn write_repeat_traceback_entry<W: Write>(
     output: &mut W,
-    tb_entry: &PyTracebackRef,
     repeat_counter: usize,
 ) -> Result<(), W::Error> {
     let count = repeat_counter - TRACEBACK_RECURSIVE_CUTOFF;
