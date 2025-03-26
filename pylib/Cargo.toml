@@ -10,11 +10,11 @@ rust-version.workspace = true
 repository.workspace = true
 
 [features]
-freeze-stdlib = []
+freeze-stdlib = ["dep:rustpython-compiler-core", "dep:rustpython-derive"]
 
 [dependencies]
-rustpython-compiler-core = { workspace = true }
-rustpython-derive = { version = "0.4.0", path = "../derive" }
+rustpython-compiler-core = { workspace = true, optional = true }
+rustpython-derive = { workspace = true, optional = true }
 
 [build-dependencies]
 glob = { workspace = true }
