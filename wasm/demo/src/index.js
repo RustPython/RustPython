@@ -21,7 +21,14 @@ import('rustpython')
     })
     .catch((e) => {
         console.error('Error importing `rustpython`:', e);
-        document.getElementById('error').textContent = e;
+        let errorDetails = e.toString();
+        if (window.__RUSTPYTHON_ERROR) {
+            errorDetails += '\nRustPython Error: ' + window.__RUSTPYTHON_ERROR;
+        }
+        if (window.__RUSTPYTHON_ERROR_STACK) {
+            errorDetails += '\nStack: ' + window.__RUSTPYTHON_ERROR_STACK;
+        }
+        document.getElementById('error').textContent = errorDetails;
     });
 
 const fixedHeightEditor = EditorView.theme({

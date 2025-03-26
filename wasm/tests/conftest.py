@@ -102,6 +102,12 @@ def wdriver(request):
         driver._print_panic()
         driver.quit()
         raise
+    except Exception as e:
+        print(f"Error waiting for page to load: {e}")
+        # Check the page source to see what's loaded
+        print("Page source:", driver.page_source[:500])
+        driver.quit()
+        raise
 
     yield driver
 
