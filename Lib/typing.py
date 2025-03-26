@@ -22,7 +22,6 @@ At large scale, the structure of the module is following:
 from abc import abstractmethod, ABCMeta
 import collections
 import collections.abc
-import contextlib
 import functools
 import operator
 import re as stdlib_re  # Avoid confusion with the re we export.
@@ -2138,8 +2137,13 @@ MappingView = _alias(collections.abc.MappingView, 1)
 KeysView = _alias(collections.abc.KeysView, 1)
 ItemsView = _alias(collections.abc.ItemsView, 2)
 ValuesView = _alias(collections.abc.ValuesView, 1)
-ContextManager = _alias(contextlib.AbstractContextManager, 1, name='ContextManager')
-AsyncContextManager = _alias(contextlib.AbstractAsyncContextManager, 1, name='AsyncContextManager')
+try:
+    # XXX: RUSTPYTHON; contextlib support for wasm
+    import contextlib
+    ContextManager = _alias(contextlib.AbstractContextManager, 1, name='ContextManager')
+    AsyncContextManager = _alias(contextlib.AbstractAsyncContextManager, 1, name='AsyncContextManager')
+except ImportError:
+    pass
 Dict = _alias(dict, 2, inst=False, name='Dict')
 DefaultDict = _alias(collections.defaultdict, 2, name='DefaultDict')
 OrderedDict = _alias(collections.OrderedDict, 2)
