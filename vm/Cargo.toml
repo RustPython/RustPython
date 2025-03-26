@@ -107,7 +107,7 @@ errno = "0.3"
 widestring = { workspace = true }
 
 [target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
-libffi = "3.2"
+libffi = { workspace = true, features = ["system"] }
 libloading = "0.8"
 
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
