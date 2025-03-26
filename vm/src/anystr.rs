@@ -403,9 +403,7 @@ pub trait AnyStr {
 
     // Unified form of CPython functions:
     //  _Py_bytes_islower
-    //   Py_bytes_isupper
     //  unicode_islower_impl
-    //  unicode_isupper_impl
     fn py_islower(&self) -> bool {
         let mut lower = false;
         for c in self.elements() {
@@ -418,6 +416,9 @@ pub trait AnyStr {
         lower
     }
 
+    // Unified form of CPython functions:
+    //   Py_bytes_isupper
+    //  unicode_isupper_impl
     fn py_isupper(&self) -> bool {
         let mut upper = false;
         for c in self.elements() {

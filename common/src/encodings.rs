@@ -230,7 +230,6 @@ pub mod utf8 {
 }
 
 pub mod latin_1 {
-
     use super::*;
 
     pub const ENCODING_NAME: &str = "latin-1";

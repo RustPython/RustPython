@@ -23,7 +23,7 @@
 //! needing any copies or re-encoding.
 //!
 //! This implementation is mostly copied from the WTF-8 implentation in the
-//! Rust standard library, which is used as the backing for [`OsStr`] on
+//! Rust 1.85 standard library, which is used as the backing for [`OsStr`] on
 //! Windows targets. As previously mentioned, however, it is modified to not
 //! join two surrogates into one codepoint when concatenating strings, in order
 //! to match CPython's behavior.

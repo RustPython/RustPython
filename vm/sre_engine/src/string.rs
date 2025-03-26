@@ -1,4 +1,3 @@
-#[cfg(feature = "wtf8")]
 use rustpython_common::wtf8::Wtf8;
 
 #[derive(Debug, Clone, Copy)]
@@ -151,7 +150,6 @@ impl StrDrive for &str {
     }
 }
 
-#[cfg(feature = "wtf8")]
 impl StrDrive for &Wtf8 {
     #[inline]
     fn count(&self) -> usize {
