@@ -8,23 +8,14 @@
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
-    IndexSet, ToPythonName,
-    error::{CodegenError, CodegenErrorType},
-    ir,
-    symboltable::{self, SymbolFlags, SymbolScope, SymbolTable},
+    error::{CodegenError, CodegenErrorType, PatternUnreachableReason}, ir::{self, BlockIdx}, symboltable::{self, SymbolFlags, SymbolScope, SymbolTable}, IndexSet, ToPythonName
 };
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive};
 use ruff_python_ast::{
-    Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem,
-    ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprFString,
-    ExprList, ExprName, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString,
-    FStringElement, FStringElements, FStringPart, Int, Keyword, MatchCase, ModExpression,
-    ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchValue, Stmt, StmtExpr,
-    TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp,
-    WithItem,
+    Alias, Arguments, BoolOp, CmpOp, Comprehension, ConversionFlag, DebugText, Decorator, DictItem, ExceptHandler, ExceptHandlerExceptHandler, Expr, ExprAttribute, ExprBoolOp, ExprFString, ExprList, ExprName, ExprStarred, ExprSubscript, ExprTuple, ExprUnaryOp, FString, FStringElement, FStringElements, FStringPart, Identifier, Int, Keyword, MatchCase, ModExpression, ModModule, Operator, Parameters, Pattern, PatternMatchAs, PatternMatchOr, PatternMatchSingleton, PatternMatchStar, PatternMatchValue, Singleton, Stmt, StmtExpr, TypeParam, TypeParamParamSpec, TypeParamTypeVar, TypeParamTypeVarTuple, TypeParams, UnaryOp, WithItem
 };
 use ruff_source_file::OneIndexed;
 use ruff_text_size::{Ranged, TextRange};
@@ -204,10 +195,37 @@ macro_rules! emit {
     };
 }
 
-struct PatternContext {
-    current_block: usize,
-    blocks: Vec<ir::BlockIdx>,
-    allow_irrefutable: bool,
+/// The pattern context holds information about captured names and jump targets.
+#[derive(Clone)]
+pub struct PatternContext {
+    /// A list of names captured by the pattern.
+    pub stores: Vec<String>,
+    /// If false, then any name captures against our subject will raise.
+    pub allow_irrefutable: bool,
+    /// A list of jump target labels used on pattern failure.
+    pub fail_pop: Vec<BlockIdx>,
+    /// The number of items on top of the stack that should remain.
+    pub on_top: usize,
+}
+
+impl PatternContext {
+    pub fn new() -> Self {
+        PatternContext {
+            stores: Vec::new(),
+            allow_irrefutable: false,
+            fail_pop: Vec::new(),
+            on_top: 0,
+        }
+    }
+
+    pub fn fail_pop_size(&self) -> usize {
+        self.fail_pop.len()
+    }
+}
+
+enum JumpOp {
+    Jump,
+    PopJumpIfFalse,
 }
 
 impl<'src> Compiler<'src> {
@@ -1800,56 +1818,367 @@ impl Compiler<'_> {
         Ok(())
     }
 
-    fn compile_pattern_value(
-        &mut self,
-        value: &PatternMatchValue,
-        _pattern_context: &mut PatternContext,
-    ) -> CompileResult<()> {
-        use crate::compile::bytecode::ComparisonOperator::*;
+    fn forbidden_name(&mut self, name: &str, ctx: NameUsage) -> CompileResult<bool> {
+        if ctx == NameUsage::Store && name == "__debug__" {
+            return Err(self.error(CodegenErrorType::Assign("__debug__")));
+            // return Ok(true);
+        }
+        if ctx == NameUsage::Delete && name == "__debug__" {
+            return Err(self.error(CodegenErrorType::Delete("__debug__")));
+            // return Ok(true);
+        }
+        Ok(false)
+    }
 
-        self.compile_expression(&value.value)?;
-        emit!(self, Instruction::CompareOperation { op: Equal });
+    fn compile_error_forbidden_name(&mut self, name: &str) -> CodegenError {
+        // TODO: make into error (fine for now since it realistically errors out earlier)
+        panic!("Failing due to forbidden name {:?}", name);
+    }
+
+    /// Ensures that `pc.fail_pop` has at least `n + 1` entries.
+    /// If not, new labels are generated and pushed until the required size is reached.
+    fn ensure_fail_pop(&mut self, pc: &mut PatternContext, n: usize) -> CompileResult<()> {
+        let required_size = n + 1;
+        if required_size <= pc.fail_pop.len() {
+            return Ok(());
+        }
+        while pc.fail_pop.len() < required_size {
+            let new_block = self.new_block();
+            pc.fail_pop.push(new_block);
+        }
+        Ok(())
+    }
+
+    fn jump_to_fail_pop(&mut self, pc: &mut PatternContext, op: JumpOp) -> CompileResult<()> {
+        // Compute the total number of items to pop:
+        // items on top plus the captured objects.
+        let pops = pc.on_top + pc.stores.len();
+        // Ensure that the fail_pop vector has at least `pops + 1` elements.
+        self.ensure_fail_pop(pc, pops)?;
+        // Emit a jump using the jump target stored at index `pops`.
+        match op {
+            JumpOp::Jump => {
+                emit!(
+                    self,
+                    Instruction::Jump {
+                        target: pc.fail_pop[pops]
+                    }
+                );
+            }
+            JumpOp::PopJumpIfFalse => {
+                emit!(
+                    self,
+                    Instruction::JumpIfFalse {
+                        target: pc.fail_pop[pops]
+                    }
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Emits the necessary POP instructions for all failure targets in the pattern context,
+    /// then resets the fail_pop vector.
+    fn emit_and_reset_fail_pop(&mut self, pc: &mut PatternContext) -> CompileResult<()> {
+        // If the fail_pop vector is empty, nothing needs to be done.
+        if pc.fail_pop.is_empty() {
+            debug_assert!(pc.fail_pop.is_empty());
+            return Ok(());
+        }
+        // Iterate over the fail_pop vector in reverse order, skipping the first label.
+        // This corresponds to the C loop that uses indices from fail_pop_size - 1 down to 1.
+        for &label in pc.fail_pop.iter().rev().skip(1) {
+            self.switch_to_block(label);
+            // Emit the POP instruction.
+            emit!(self, Instruction::Pop);
+        }
+        // Finally, use the first label.
+        self.switch_to_block(pc.fail_pop[0]);
+        pc.fail_pop.clear();
+        // Free the memory used by the vector.
+        pc.fail_pop.shrink_to_fit();
+        Ok(())
+    }
+
+    /// Duplicate the effect of Python 3.10's ROT_* instructions using SWAPs.
+    fn pattern_helper_rotate(&mut self, mut count: usize) -> CompileResult<()> {
+        while count > 1 {
+            // Emit a SWAP instruction with the current count.
+            emit!(
+                self,
+                Instruction::Swap {
+                    index: count as u32
+                }
+            );
+            count -= 1;
+        }
+        Ok(())
+    }
+
+    /// Helper to store a captured name for a star pattern.
+    ///
+    /// If `n` is `None`, it emits a POP_TOP instruction. Otherwise, it first
+    /// checks that the name is allowed and not already stored. Then it rotates
+    /// the object on the stack beneath any preserved items and appends the name
+    /// to the list of captured names.
+    fn pattern_helper_store_name(
+        &mut self,
+        n: Option<&Identifier>,
+        pc: &mut PatternContext,
+    ) -> CompileResult<()> {
+        // If no name is provided, simply pop the top of the stack.
+        if n.is_none() {
+            emit!(self, Instruction::Pop);
+            return Ok(());
+        }
+        let name = n.unwrap();
+
+        // Check if the name is forbidden for storing.
+        if self.forbidden_name(name.as_str(), NameUsage::Store)? {
+            return Err(self.compile_error_forbidden_name(name.as_str()));
+        }
+
+        // Ensure we don't store the same name twice.
+        if pc.stores.contains(&name.to_string()) {
+            return Err(self.error(CodegenErrorType::DuplicateStore(name.as_str().to_string())));
+        }
+
+        // Calculate how many items to rotate:
+        // the count is the number of items to preserve on top plus the current stored names,
+        // plus one for the new value.
+        let rotations = pc.on_top + pc.stores.len() + 1;
+        self.pattern_helper_rotate(rotations)?;
+
+        // Append the name to the captured stores.
+        pc.stores.push(name.to_string());
+        Ok(())
+    }
+
+    fn compile_pattern_subpattern(
+        &mut self,
+        p: &Pattern,
+        pc: &mut PatternContext,
+    ) -> CompileResult<()> {
+        // Save the current allow_irrefutable state.
+        let old_allow_irrefutable = pc.allow_irrefutable;
+        // Temporarily allow irrefutable patterns.
+        pc.allow_irrefutable = true;
+        // Compile the pattern.
+        self.compile_pattern(p, pc)?;
+        // Restore the original state.
+        pc.allow_irrefutable = old_allow_irrefutable;
         Ok(())
     }
 
     fn compile_pattern_as(
         &mut self,
-        as_pattern: &PatternMatchAs,
-        pattern_context: &mut PatternContext,
+        p: &PatternMatchAs,
+        pc: &mut PatternContext,
     ) -> CompileResult<()> {
-        if as_pattern.pattern.is_none() && !pattern_context.allow_irrefutable {
-            // TODO: better error message
-            if let Some(_name) = as_pattern.name.as_ref() {
-                return Err(self.error_ranged(CodegenErrorType::InvalidMatchCase, as_pattern.range));
+        // If there is no sub-pattern, then it's an irrefutable match.
+        if p.pattern.is_none() {
+            if !pc.allow_irrefutable {
+                if let Some(_name) = p.name.as_ref() {
+                    // TODO: This error does not match cpython exactly
+                    // A name capture makes subsequent patterns unreachable.
+                    return Err(self.error(CodegenErrorType::UnreachablePattern(PatternUnreachableReason::NameCapture)))
+                } else {
+                    // A wildcard makes remaining patterns unreachable.
+                    return Err(self.error(CodegenErrorType::UnreachablePattern(PatternUnreachableReason::Wildcard)))
+                }
             }
-            return Err(self.error_ranged(CodegenErrorType::InvalidMatchCase, as_pattern.range));
+            // If irrefutable matches are allowed, store the name (if any).
+            return self.pattern_helper_store_name(p.name.as_ref(), pc);
         }
-        // Need to make a copy for (possibly) storing later:
-        emit!(self, Instruction::Duplicate);
-        if let Some(pattern) = &as_pattern.pattern {
-            self.compile_pattern_inner(pattern, pattern_context)?;
-        }
-        if let Some(name) = as_pattern.name.as_ref() {
-            self.store_name(name.as_str())?;
-        } else {
-            emit!(self, Instruction::Pop);
+
+        // Otherwise, there is a sub-pattern. Duplicate the object on top of the stack.
+        pc.on_top += 1;
+        emit!(self, Instruction::CopyItem { index: 1 as u32 });
+        // Compile the sub-pattern.
+        self.compile_pattern(p.pattern.as_ref().unwrap(), pc)?;
+        // After success, decrement the on_top counter.
+        pc.on_top -= 1;
+        // Store the captured name (if any).
+        self.pattern_helper_store_name(p.name.as_ref(), pc)?;
+        Ok(())
+    }
+
+    fn compile_pattern_star(
+        &mut self,
+        p: &PatternMatchStar,
+        pc: &mut PatternContext,
+    ) -> CompileResult<()> {
+        self.pattern_helper_store_name(p.name.as_ref(), pc)?;
+        Ok(())
+    }
+
+    /// Validates that keyword attributes in a class pattern are allowed
+    /// and not duplicated.
+    fn validate_kwd_attrs(&mut self, attrs: &[String], _patterns: &[Pattern]) -> CompileResult<()> {
+        let nattrs = attrs.len();
+        for i in 0..nattrs {
+            let attr = &attrs[i];
+            // Check if the attribute name is forbidden in a Store context.
+            if self.forbidden_name(attr, NameUsage::Store)? {
+                // Return an error if the name is forbidden.
+                return Err(self.compile_error_forbidden_name(attr));
+            }
+            // Check for duplicates: compare with every subsequent attribute.
+            for j in (i + 1)..nattrs {
+                let other = &attrs[j];
+                if attr == other {
+                    todo!();
+                    // return Err(self.compiler_error(
+                    //     loc,
+                    //     &format!("attribute name repeated in class pattern: {}", attr),
+                    // ));
+                }
+            }
         }
         Ok(())
     }
 
-    fn compile_pattern_inner(
+    fn compile_pattern_or(
         &mut self,
-        pattern_type: &Pattern,
-        pattern_context: &mut PatternContext,
+        p: &PatternMatchOr,
+        pc: &mut PatternContext,
     ) -> CompileResult<()> {
-        match &pattern_type {
-            Pattern::MatchValue(value) => self.compile_pattern_value(value, pattern_context),
-            Pattern::MatchAs(as_pattern) => self.compile_pattern_as(as_pattern, pattern_context),
-            _ => {
-                eprintln!("not implemented pattern type: {pattern_type:?}");
-                Err(self.error(CodegenErrorType::NotImplementedYet))
+        // Ensure the pattern is a MatchOr.
+        let end = self.new_block(); // Create a new jump target label.
+        let size = p.patterns.len();
+        assert!(size > 1, "MatchOr must have more than one alternative");
+
+        // Save the current pattern context.
+        let old_pc = pc.clone();
+        // Simulate Py_INCREF on pc.stores by cloning it.
+        pc.stores = pc.stores.clone();
+        let mut control: Option<Vec<String>> = None; // Will hold the capture list of the first alternative.
+
+        // Process each alternative.
+        for (i, alt) in p.patterns.iter().enumerate() {
+            // Create a fresh empty store for this alternative.
+            pc.stores = Vec::new();
+            // An irrefutable subpattern must be last (if allowed).
+            pc.allow_irrefutable = (i == size - 1) && old_pc.allow_irrefutable;
+            // Reset failure targets and the on_top counter.
+            pc.fail_pop.clear();
+            pc.on_top = 0;
+            // Emit a COPY(1) instruction before compiling the alternative.
+            emit!(self, Instruction::CopyItem { index: 1 as u32 });
+            self.compile_pattern(alt, pc)?;
+
+            let nstores = pc.stores.len();
+            if i == 0 {
+                // Save the captured names from the first alternative.
+                control = Some(pc.stores.clone());
+            } else {
+                let control_vec = control.as_ref().unwrap();
+                if nstores != control_vec.len() {
+                    todo!();
+                    // return self.compiler_error("alternative patterns bind different names");
+                } else if nstores > 0 {
+                    // Check that the names occur in the same order.
+                    for icontrol in (0..nstores).rev() {
+                        let name = &control_vec[icontrol];
+                        // Find the index of `name` in the current stores.
+                        let istores = pc.stores.iter().position(|n| n == name).unwrap();
+                        // .ok_or_else(|| self.compiler_error(loc(p), "alternative patterns bind different names"))?;
+                        if icontrol != istores {
+                            // The orders differ; we must reorder.
+                            assert!(istores < icontrol, "expected istores < icontrol");
+                            let rotations = istores + 1;
+                            // Rotate pc.stores: take a slice of the first `rotations` items...
+                            let rotated = pc.stores[0..rotations].to_vec();
+                            // Remove those elements.
+                            for _ in 0..rotations {
+                                pc.stores.remove(0);
+                            }
+                            // Insert the rotated slice at the appropriate index.
+                            let insert_pos = icontrol - istores;
+                            for (j, elem) in rotated.into_iter().enumerate() {
+                                pc.stores.insert(insert_pos + j, elem);
+                            }
+                            // Also perform the same rotation on the evaluation stack.
+                            for _ in 0..(istores + 1) {
+                                self.pattern_helper_rotate(icontrol + 1)?;
+                            }
+                        }
+                    }
+                }
             }
+            // Emit a jump to the common end label and reset any failure jump targets.
+            emit!(self, Instruction::Jump { target: end });
+            self.emit_and_reset_fail_pop(pc)?;
         }
+
+        // Restore the original pattern context.
+        *pc = old_pc.clone();
+        // Simulate Py_INCREF on pc.stores.
+        pc.stores = pc.stores.clone();
+        // In C, old_pc.fail_pop is set to NULL to avoid freeing it later.
+        // In Rust, old_pc is a local clone, so we need not worry about that.
+
+        // No alternative matched: pop the subject and fail.
+        emit!(self, Instruction::Pop); // at loc(p)
+        self.jump_to_fail_pop(pc, JumpOp::Jump)?;
+
+        // Use the label "end".
+        self.switch_to_block(end);
+
+        // Adjust the final captures.
+        let nstores = control.as_ref().unwrap().len();
+        let nrots = nstores + 1 + pc.on_top + pc.stores.len();
+        for i in 0..nstores {
+            // Rotate the capture to its proper place.
+            self.pattern_helper_rotate(nrots)?;
+            let name = &control.as_ref().unwrap()[i];
+            // Check for duplicate binding.
+            if pc.stores.iter().any(|n| n == name) {
+                return Err(self.error(CodegenErrorType::DuplicateStore(name.to_string())));
+            }
+            pc.stores.push(name.clone());
+        }
+
+        // Old context and control will be dropped automatically.
+        // Finally, pop the copy of the subject.
+        emit!(self, Instruction::Pop);
+        Ok(())
+    }
+
+    fn compile_pattern_value(
+        &mut self,
+        p: &PatternMatchValue,
+        pc: &mut PatternContext,
+    ) -> CompileResult<()> {
+        // TODO: ensure literal or attribute lookup
+        self.compile_expression(&p.value)?;
+        emit!(
+            self,
+            Instruction::CompareOperation {
+                op: bytecode::ComparisonOperator::Equal
+            }
+        );
+        // emit!(self, Instruction::ToBool);
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        Ok(())
+    }
+
+    fn compile_pattern_singleton(
+        &mut self,
+        p: &PatternMatchSingleton,
+        pc: &mut PatternContext,
+    ) -> CompileResult<()> {
+        // Load the singleton constant value.
+        self.emit_load_const(match p.value {
+            Singleton::None => ConstantData::None,
+            Singleton::False => ConstantData::Boolean { value: false },
+            Singleton::True => ConstantData::Boolean { value: true }
+        });
+        // Compare using the "Is" operator.
+        emit!(self, Instruction::CompareOperation { op: bytecode::ComparisonOperator::Equal });
+        // Jump to the failure label if the comparison is false.
+        self.jump_to_fail_pop(pc, JumpOp::PopJumpIfFalse)?;
+        Ok(())
     }
 
     fn compile_pattern(
@@ -1857,14 +2186,31 @@ impl Compiler<'_> {
         pattern_type: &Pattern,
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
-        self.compile_pattern_inner(pattern_type, pattern_context)?;
-        emit!(
-            self,
-            Instruction::JumpIfFalse {
-                target: pattern_context.blocks[pattern_context.current_block + 1]
+        match &pattern_type {
+            Pattern::MatchValue(pattern_type) => {
+                self.compile_pattern_value(pattern_type, pattern_context)
             }
-        );
-        Ok(())
+            Pattern::MatchSingleton(pattern_type) => {
+                self.compile_pattern_singleton(pattern_type, pattern_context)
+            }
+            // Pattern::MatchSequence(pattern_type) => self.compile_pattern_sequence(pattern_type, pattern_context),
+            // Pattern::MatchMapping(pattern_type) => self.compile_pattern_mapping(pattern_type, pattern_context),
+            // Pattern::MatchClass(pattern_type) => self.compile_pattern_class(pattern_type, pattern_context),
+            Pattern::MatchStar(pattern_type) => {
+                self.compile_pattern_star(pattern_type, pattern_context)
+            }
+            Pattern::MatchAs(pattern_type) => {
+                self.compile_pattern_as(pattern_type, pattern_context)
+            }
+            Pattern::MatchOr(pattern_type) => {
+                self.compile_pattern_or(pattern_type, pattern_context)
+            }
+            _ => {
+                // The eprintln gives context as to which pattern type is not implemented.
+                eprintln!("not implemented pattern type: {pattern_type:?}");
+                Err(self.error(CodegenErrorType::NotImplementedYet))
+            }
+        }
     }
 
     fn compile_match_inner(
@@ -1874,63 +2220,68 @@ impl Compiler<'_> {
         pattern_context: &mut PatternContext,
     ) -> CompileResult<()> {
         self.compile_expression(subject)?;
-        pattern_context.blocks = std::iter::repeat_with(|| self.new_block())
-            .take(cases.len() + 1)
-            .collect::<Vec<_>>();
-        let end_block = *pattern_context.blocks.last().unwrap();
+        let end = self.new_block();
 
-        let _match_case_type = cases.last().expect("cases is not empty");
-        // TODO: get proper check for default case
-        // let has_default = match_case_type.pattern.is_match_as() && 1 < cases.len();
-        let has_default = false;
-        for i in 0..cases.len() - (has_default as usize) {
-            self.switch_to_block(pattern_context.blocks[i]);
-            pattern_context.current_block = i;
-            pattern_context.allow_irrefutable = cases[i].guard.is_some() || i == cases.len() - 1;
+        let num_cases = cases.len();
+        assert!(num_cases > 0);
+        let has_default = cases.iter().last().unwrap().pattern.is_match_star() && num_cases > 1;
+
+        let case_count = num_cases - if has_default { 1 } else { 0 };
+        for i in 0..case_count {
             let m = &cases[i];
-            // Only copy the subject if we're *not* on the last case:
-            if i != cases.len() - has_default as usize - 1 {
-                emit!(self, Instruction::Duplicate);
+
+            // Only copy the subject if not on the last case
+            if i != case_count - 1 {
+                emit!(self, Instruction::CopyItem { index: 1 as u32 });
             }
+
+            pattern_context.stores = Vec::with_capacity(1);
+            pattern_context.allow_irrefutable = m.guard.is_some() || i == case_count - 1;
+            pattern_context.fail_pop.clear();
+            pattern_context.on_top = 0;
+
             self.compile_pattern(&m.pattern, pattern_context)?;
+            assert_eq!(pattern_context.on_top, 0);
+
+            for name in &pattern_context.stores {
+                self.compile_name(name, NameUsage::Store)?;
+            }
+
+            if let Some(ref _guard) = m.guard {
+                todo!("Fix compile jump if call");
+                // self.ensure_fail_pop(pattern_context, 0)?;
+                // Jump if the guard fails. We assume that patter_context.fail_pop[0] is the jump target.
+                // self.compile_jump_if(&m.pattern, &guard, pattern_context.fail_pop[0])?;
+            }
+
+            if i != case_count - 1 {
+                emit!(self, Instruction::Pop);
+            }
+
             self.compile_statements(&m.body)?;
-            emit!(self, Instruction::Jump { target: end_block });
+            emit!(self, Instruction::Jump { target: end });
+            self.emit_and_reset_fail_pop(pattern_context)?;
         }
-        // TODO: below code is not called and does not work
+
         if has_default {
-            // A trailing "case _" is common, and lets us save a bit of redundant
-            // pushing and popping in the loop above:
-            let m = &cases.last().unwrap();
-            self.switch_to_block(*pattern_context.blocks.last().unwrap());
-            if cases.len() == 1 {
-                // No matches. Done with the subject:
+            let m = &cases[num_cases - 1];
+            if num_cases == 1 {
                 emit!(self, Instruction::Pop);
             } else {
-                // Show line coverage for default case (it doesn't create bytecode)
-                // emit!(self, Instruction::Nop);
+                emit!(self, Instruction::Nop);
+            }
+            if let Some(ref _guard) = m.guard {
+                todo!("Fix compile jump if call");
+                // self.compile_jump_if(&m.pattern, &guard, pattern_context.fail_pop[0])?;
             }
             self.compile_statements(&m.body)?;
         }
-
-        self.switch_to_block(end_block);
-
-        let code = self.current_code_info();
-        pattern_context
-            .blocks
-            .iter()
-            .zip(pattern_context.blocks.iter().skip(1))
-            .for_each(|(a, b)| {
-                code.blocks[a.0 as usize].next = *b;
-            });
+        self.switch_to_block(end);
         Ok(())
     }
 
     fn compile_match(&mut self, subject: &Expr, cases: &[MatchCase]) -> CompileResult<()> {
-        let mut pattern_context = PatternContext {
-            current_block: usize::MAX,
-            blocks: Vec::new(),
-            allow_irrefutable: false,
-        };
+        let mut pattern_context = PatternContext::new();
         self.compile_match_inner(subject, cases, &mut pattern_context)?;
         Ok(())
     }
@@ -3592,7 +3943,7 @@ impl ToU32 for usize {
 }
 
 #[cfg(test)]
-mod tests {
+mod ruff_tests {
     use super::*;
     use ruff_python_ast::name::Name;
     use ruff_python_ast::*;
@@ -3695,26 +4046,29 @@ mod tests {
     }
 }
 
-/*
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustpython_parser::Parse;
-    use rustpython_parser::ast::Suite;
-    use rustpython_parser_core::source_code::LinearLocator;
 
     fn compile_exec(source: &str) -> CodeObject {
-        let mut locator: LinearLocator<'_> = LinearLocator::new(source);
-        use rustpython_parser::ast::fold::Fold;
-        let mut compiler: Compiler = Compiler::new(
-            CompileOpts::default(),
-            "source_path".to_owned(),
-            "<module>".to_owned(),
-        );
-        let ast = Suite::parse(source, "<test>").unwrap();
-        let ast = locator.fold(ast).unwrap();
-        let symbol_scope = SymbolTable::scan_program(&ast).unwrap();
-        compiler.compile_program(&ast, symbol_scope).unwrap();
+        let opts = CompileOpts::default();
+        let mode = Mode::Exec;
+        let source_code = SourceCode::new("source_path", source);
+        let parsed = ruff_python_parser::parse(
+            source_code.text,
+            ruff_python_parser::Mode::from(mode).into(),
+        )
+        .unwrap();
+        let ast = parsed.into_syntax();
+        let ast = match ast {
+            ruff_python_ast::Mod::Module(stmts) => stmts,
+            _ => unreachable!(),
+        };
+        let symbol_table = SymbolTable::scan_program(&ast, source_code.clone())
+            .map_err(|e| e.into_codegen_error(source_code.path.to_owned()))
+            .unwrap();
+        let mut compiler = Compiler::new(opts, source_code, "<module>".to_owned());
+        compiler.compile_program(&ast, symbol_table).unwrap();
         compiler.pop_code_object()
     }
 
@@ -3774,5 +4128,21 @@ for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
 "
         ));
     }
+
+    #[test]
+    fn test_match() {
+        assert_dis_snapshot!(compile_exec(
+            "\
+i = 0
+z = 1
+match i:
+    case 0:
+        z = 0
+    case 1:
+        z = 2
+
+assert z == 0
+"
+        ));
+    }
 }
-*/
