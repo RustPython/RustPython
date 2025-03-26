@@ -1,3 +1,5 @@
+// cspell:disable
+
 pub(crate) use pwd::make_module;
 
 #[pymodule]

@@ -1,3 +1,5 @@
+// cspell:disable
+
 use crate::builtins::{PyStr, PyTupleRef, PyTypeRef};
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;

@@ -1,3 +1,5 @@
+// cspell:disable
+
 pub(crate) use resource::make_module;
 
 #[pymodule]

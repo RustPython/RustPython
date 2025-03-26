@@ -1,3 +1,4 @@
+// cspell:disable
 //! mmap module
 pub(crate) use mmap::make_module;
 

@@ -1,3 +1,5 @@
+// cspell:disable
+
 pub use msvcrt::*;
 
 #[pymodule]

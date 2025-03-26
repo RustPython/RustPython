@@ -1,3 +1,5 @@
+// cspell:disable
+
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 #[pymodule]

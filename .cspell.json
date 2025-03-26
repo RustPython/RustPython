@@ -187,6 +187,7 @@
     "warningregistry",
     "warnopts",
     "weakproxy",
+    "winver",
     "xopts",
     // RustPython
     "baseclass",

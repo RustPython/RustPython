@@ -1,3 +1,5 @@
+// cspell:disable
+
 pub(crate) use self::termios::make_module;
 
 #[pymodule]

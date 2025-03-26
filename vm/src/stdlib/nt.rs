@@ -1,3 +1,5 @@
+// cspell:disable
+
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
 
 pub use module::raw_set_handle_inheritable;

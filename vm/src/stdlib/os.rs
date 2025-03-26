@@ -1,3 +1,5 @@
+// cspell:disable
+
 use crate::{
     AsObject, Py, PyPayload, PyResult, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyModule, PySet},

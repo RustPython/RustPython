@@ -1,3 +1,4 @@
+// cspell:disable
 #![allow(non_snake_case)]
 
 use crate::{PyRef, VirtualMachine, builtins::PyModule};
