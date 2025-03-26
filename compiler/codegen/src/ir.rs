@@ -136,8 +136,7 @@ impl CodeInfo {
                         *arg = new_arg;
                     }
                     let (extras, lo_arg) = arg.split();
-                    locations
-                        .extend(std::iter::repeat(info.location.clone()).take(arg.instr_size()));
+                    locations.extend(std::iter::repeat_n(info.location.clone(), arg.instr_size()));
                     instructions.extend(
                         extras
                             .map(|byte| CodeUnit::new(Instruction::ExtendedArg, byte))

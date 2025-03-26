@@ -430,7 +430,7 @@ impl Iterable for PyTuple {
 impl Representable for PyTuple {
     #[inline]
     fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let s = if zelf.len() == 0 {
+        let s = if zelf.is_empty() {
             vm.ctx.intern_str("()").to_owned()
         } else if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let s = if zelf.len() == 1 {

@@ -335,7 +335,7 @@ mod decl {
                 item
             } else {
                 let saved = zelf.saved.read();
-                if saved.len() == 0 {
+                if saved.is_empty() {
                     return Ok(PyIterReturn::StopIteration(None));
                 }
 
@@ -1332,8 +1332,7 @@ mod decl {
             for arg in iterables.iter() {
                 pools.push(arg.try_to_value(vm)?);
             }
-            let pools = std::iter::repeat(pools)
-                .take(repeat)
+            let pools = std::iter::repeat_n(pools, repeat)
                 .flatten()
                 .collect::<Vec<Vec<PyObjectRef>>>();
 
@@ -1353,7 +1352,7 @@ mod decl {
     #[pyclass(with(IterNext, Iterable, Constructor))]
     impl PyItertoolsProduct {
         fn update_idxs(&self, mut idxs: PyRwLockWriteGuard<'_, Vec<usize>>) {
-            if idxs.len() == 0 {
+            if idxs.is_empty() {
                 self.stop.store(true);
                 return;
             }

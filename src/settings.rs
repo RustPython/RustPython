@@ -305,7 +305,7 @@ pub fn parse_opts() -> Result<(Settings, RunMode), lexopt::Error> {
         .then(|| get_env("PYTHONHASHSEED"))
         .flatten()
     {
-        Some(s) if s == "random" || s == "" => None,
+        Some(s) if s == "random" || s.is_empty() => None,
         Some(s) => {
             let seed = s.parse_with(|s| {
                 s.parse::<u32>().map_err(|_| {

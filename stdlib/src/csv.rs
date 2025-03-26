@@ -982,7 +982,7 @@ mod _csv {
             };
             loop {
                 let (res, nread, nwritten, nends) = reader.read_record(
-                    input[input_offset..].as_bytes(),
+                    &input.as_bytes()[input_offset..],
                     &mut buffer[output_offset..],
                     &mut output_ends[output_ends_offset..],
                 );
@@ -999,7 +999,7 @@ mod _csv {
                     }
                 }
             }
-            let rest = input[input_offset..].as_bytes();
+            let rest = &input.as_bytes()[input_offset..];
             if !rest.iter().all(|&c| matches!(c, b'\r' | b'\n')) {
                 return Err(new_csv_error(
                     vm,

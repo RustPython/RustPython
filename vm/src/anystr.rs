@@ -283,9 +283,9 @@ pub trait AnyStr {
         let mut u = Self::Container::with_capacity(
             (left + right) * fillchar.bytes_len() + self.bytes_len(),
         );
-        u.extend(std::iter::repeat(fillchar).take(left));
+        u.extend(std::iter::repeat_n(fillchar, left));
         u.push_str(self);
-        u.extend(std::iter::repeat(fillchar).take(right));
+        u.extend(std::iter::repeat_n(fillchar, right));
         u
     }
 

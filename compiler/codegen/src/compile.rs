@@ -1519,7 +1519,7 @@ impl Compiler<'_> {
             loop_data: None,
         };
 
-        let prev_class_name = std::mem::replace(&mut self.class_name, Some(name.to_owned()));
+        let prev_class_name = self.class_name.replace(name.to_owned());
 
         // Check if the class is declared global
         let symbol_table = self.symbol_table_stack.last().unwrap();
