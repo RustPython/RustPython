@@ -244,9 +244,6 @@ where
                 out.extend_from_slice(b.as_ref());
             }
         }
-        // data = crate::str::try_get_codepoints(full_data.as_ref(), char_restart..)
-        //     .ok_or_else(|| errors.error_oob_restart(char_restart))?;
-        // char_data_index = char_restart;
     }
     out.extend_from_slice(ctx.remaining_data().as_bytes());
     Ok(out)
