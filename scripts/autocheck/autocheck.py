@@ -2,10 +2,15 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List
+
+def subprocess_run(*args, **kwargs):
+    # print('Process run:', *args, kwargs, file=sys.stderr)
+    return subprocess.run(*args, **kwargs)
 
 @dataclass
 class LibEntry:
@@ -41,7 +46,7 @@ class LibEntry:
             shutil.copyfile(self.path_cpython_lib, self.path_tpython_lib)
             shutil.copyfile(self.path_cpython_test, self.path_tpython_test)
 
-            result = subprocess.run(
+            result = subprocess_run(
                 [RUSTEXECPATH, "-q", self.path_tpython_test],
                 stdout=subprocess.PIPE, 
                 stderr=subprocess.STDOUT,
@@ -111,21 +116,22 @@ def main():
 
     library_list: List[LibEntry] = []
 
-    with open(os.path.join(CURRENT_PATH.parent, "clib_list.txt"), 'r') as f:
+    with open(os.path.join(CURRENT_PATH.parent, "targets.txt"), 'r') as f:
         for line in f:
             line = line.split('#')[0]
             line = line.strip()
             if line:
                 library_list.append(LibEntry(line, CPYTHON_PATH, RPYTHON_PATH))
 
-    subprocess.run(["cargo", "build", "--release", "-q"])
+    subprocess_run(["cargo", "build", "--release", "-q"])
     REXECPATH = os.path.join(CURRENT_PATH.parents[2], "target", "release", "rustpython")
 
-    for entry in library_list:
-        entry.run(REXECPATH)
-        print(entry.to_string())
-    
-    shutil.rmtree(os.path.join(RPYTHON_PATH, "LibTest"))
+    try:
+        for entry in library_list:
+            entry.run(REXECPATH)
+            print(entry.to_string())
+    finally:
+        shutil.rmtree(os.path.join(RPYTHON_PATH, "LibTest"))
 
 if __name__ == "__main__":
     main()
