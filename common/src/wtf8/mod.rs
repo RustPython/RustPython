@@ -618,6 +618,9 @@ impl ToOwned for Wtf8 {
     fn to_owned(&self) -> Self::Owned {
         self.to_wtf8_buf()
     }
+    fn clone_into(&self, buf: &mut Self::Owned) {
+        self.bytes.clone_into(&mut buf.bytes);
+    }
 }
 
 impl PartialEq<str> for Wtf8 {
@@ -872,8 +875,8 @@ impl Wtf8 {
         }
     }
 
-    pub fn clone_into(&self, buf: &mut Wtf8Buf) {
-        self.bytes.clone_into(&mut buf.bytes);
+    pub fn is_code_point_boundary(&self, index: usize) -> bool {
+        is_code_point_boundary(self, index)
     }
 
     /// Boxes this `Wtf8`.
@@ -1101,6 +1104,7 @@ impl ops::Index<ops::Range<usize>> for Wtf8 {
     type Output = Wtf8;
 
     #[inline]
+    #[track_caller]
     fn index(&self, range: ops::Range<usize>) -> &Wtf8 {
         // is_code_point_boundary checks that the index is in [0, .len()]
         if range.start <= range.end
@@ -1124,6 +1128,7 @@ impl ops::Index<ops::RangeFrom<usize>> for Wtf8 {
     type Output = Wtf8;
 
     #[inline]
+    #[track_caller]
     fn index(&self, range: ops::RangeFrom<usize>) -> &Wtf8 {
         // is_code_point_boundary checks that the index is in [0, .len()]
         if is_code_point_boundary(self, range.start) {
@@ -1144,6 +1149,7 @@ impl ops::Index<ops::RangeTo<usize>> for Wtf8 {
     type Output = Wtf8;
 
     #[inline]
+    #[track_caller]
     fn index(&self, range: ops::RangeTo<usize>) -> &Wtf8 {
         // is_code_point_boundary checks that the index is in [0, .len()]
         if is_code_point_boundary(self, range.end) {
@@ -1171,7 +1177,7 @@ fn decode_surrogate(second_byte: u8, third_byte: u8) -> u16 {
 
 /// Copied from str::is_char_boundary
 #[inline]
-pub fn is_code_point_boundary(slice: &Wtf8, index: usize) -> bool {
+fn is_code_point_boundary(slice: &Wtf8, index: usize) -> bool {
     if index == 0 {
         return true;
     }
@@ -1226,6 +1232,7 @@ pub unsafe fn slice_unchecked(s: &Wtf8, begin: usize, end: usize) -> &Wtf8 {
 
 /// Copied from core::str::raw::slice_error_fail
 #[inline(never)]
+#[track_caller]
 pub fn slice_error_fail(s: &Wtf8, begin: usize, end: usize) -> ! {
     assert!(begin <= end);
     panic!("index {begin} and/or {end} in `{s:?}` do not lie on character boundary");

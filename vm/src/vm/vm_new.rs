@@ -1,7 +1,8 @@
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyDictRef, PyModule, PyStrRef, PyType, PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyStrRef, PyType,
+        PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
@@ -203,14 +204,76 @@ impl VirtualMachine {
         self.new_exception_msg(sys_error, msg)
     }
 
+    // TODO: remove & replace with new_unicode_decode_error_real
     pub fn new_unicode_decode_error(&self, msg: String) -> PyBaseExceptionRef {
         let unicode_decode_error = self.ctx.exceptions.unicode_decode_error.to_owned();
         self.new_exception_msg(unicode_decode_error, msg)
     }
 
+    pub fn new_unicode_decode_error_real(
+        &self,
+        encoding: PyStrRef,
+        object: PyBytesRef,
+        start: usize,
+        end: usize,
+        reason: PyStrRef,
+    ) -> PyBaseExceptionRef {
+        let start = self.ctx.new_int(start);
+        let end = self.ctx.new_int(end);
+        let exc = self.new_exception(
+            self.ctx.exceptions.unicode_decode_error.to_owned(),
+            vec![
+                encoding.clone().into(),
+                object.clone().into(),
+                start.clone().into(),
+                end.clone().into(),
+                reason.clone().into(),
+            ],
+        );
+        exc.as_object()
+            .set_attr("encoding", encoding, self)
+            .unwrap();
+        exc.as_object().set_attr("object", object, self).unwrap();
+        exc.as_object().set_attr("start", start, self).unwrap();
+        exc.as_object().set_attr("end", end, self).unwrap();
+        exc.as_object().set_attr("reason", reason, self).unwrap();
+        exc
+    }
+
+    // TODO: remove & replace with new_unicode_encode_error_real
     pub fn new_unicode_encode_error(&self, msg: String) -> PyBaseExceptionRef {
         let unicode_encode_error = self.ctx.exceptions.unicode_encode_error.to_owned();
         self.new_exception_msg(unicode_encode_error, msg)
+    }
+
+    pub fn new_unicode_encode_error_real(
+        &self,
+        encoding: PyStrRef,
+        object: PyStrRef,
+        start: usize,
+        end: usize,
+        reason: PyStrRef,
+    ) -> PyBaseExceptionRef {
+        let start = self.ctx.new_int(start);
+        let end = self.ctx.new_int(end);
+        let exc = self.new_exception(
+            self.ctx.exceptions.unicode_encode_error.to_owned(),
+            vec![
+                encoding.clone().into(),
+                object.clone().into(),
+                start.clone().into(),
+                end.clone().into(),
+                reason.clone().into(),
+            ],
+        );
+        exc.as_object()
+            .set_attr("encoding", encoding, self)
+            .unwrap();
+        exc.as_object().set_attr("object", object, self).unwrap();
+        exc.as_object().set_attr("start", start, self).unwrap();
+        exc.as_object().set_attr("end", end, self).unwrap();
+        exc.as_object().set_attr("reason", reason, self).unwrap();
+        exc
     }
 
     /// Create a new python ValueError object. Useful for raising errors from

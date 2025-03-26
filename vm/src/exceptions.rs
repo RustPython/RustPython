@@ -971,22 +971,10 @@ impl ExceptionZoo {
         extend_exception!(PySystemError, ctx, excs.system_error);
         extend_exception!(PyTypeError, ctx, excs.type_error);
         extend_exception!(PyValueError, ctx, excs.value_error);
-        extend_exception!(PyUnicodeError, ctx, excs.unicode_error, {
-            "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_error, make_arg_getter(0)),
-            "object" => ctx.new_readonly_getset("object", excs.unicode_error, make_arg_getter(1)),
-            "start" => ctx.new_readonly_getset("start", excs.unicode_error, make_arg_getter(2)),
-            "end" => ctx.new_readonly_getset("end", excs.unicode_error, make_arg_getter(3)),
-            "reason" => ctx.new_readonly_getset("reason", excs.unicode_error, make_arg_getter(4)),
-        });
+        extend_exception!(PyUnicodeError, ctx, excs.unicode_error);
         extend_exception!(PyUnicodeDecodeError, ctx, excs.unicode_decode_error);
         extend_exception!(PyUnicodeEncodeError, ctx, excs.unicode_encode_error);
-        extend_exception!(PyUnicodeTranslateError, ctx, excs.unicode_translate_error, {
-            "encoding" => ctx.new_readonly_getset("encoding", excs.unicode_translate_error, none_getter),
-            "object" => ctx.new_readonly_getset("object", excs.unicode_translate_error, make_arg_getter(0)),
-            "start" => ctx.new_readonly_getset("start", excs.unicode_translate_error, make_arg_getter(1)),
-            "end" => ctx.new_readonly_getset("end", excs.unicode_translate_error, make_arg_getter(2)),
-            "reason" => ctx.new_readonly_getset("reason", excs.unicode_translate_error, make_arg_getter(3)),
-        });
+        extend_exception!(PyUnicodeTranslateError, ctx, excs.unicode_translate_error);
 
         #[cfg(feature = "jit")]
         extend_exception!(PyJitError, ctx, excs.jit_error);
@@ -1008,10 +996,6 @@ impl ExceptionZoo {
         extend_exception!(PyResourceWarning, ctx, excs.resource_warning);
         extend_exception!(PyEncodingWarning, ctx, excs.encoding_warning);
     }
-}
-
-fn none_getter(_obj: PyObjectRef, vm: &VirtualMachine) -> PyRef<PyNone> {
-    vm.ctx.none.clone()
 }
 
 fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObjectRef> {
@@ -1182,11 +1166,12 @@ pub(super) mod types {
             PyInt, PyStrRef, PyTupleRef, PyTypeRef, traceback::PyTracebackRef, tuple::IntoPyTuple,
         },
         convert::ToPyResult,
-        function::FuncArgs,
+        function::{ArgBytesLike, FuncArgs},
         types::{Constructor, Initializer},
     };
     use crossbeam_utils::atomic::AtomicCell;
     use itertools::Itertools;
+    use rustpython_common::str::UnicodeEscapeCodepoint;
 
     // This module is designed to be used as `use builtins::*;`.
     // Do not add any pub symbols not included in builtins module.
@@ -1662,17 +1647,152 @@ pub(super) mod types {
     #[derive(Debug)]
     pub struct PyUnicodeError {}
 
-    #[pyexception(name, base = "PyUnicodeError", ctx = "unicode_decode_error", impl)]
+    #[pyexception(name, base = "PyUnicodeError", ctx = "unicode_decode_error")]
     #[derive(Debug)]
     pub struct PyUnicodeDecodeError {}
 
-    #[pyexception(name, base = "PyUnicodeError", ctx = "unicode_encode_error", impl)]
+    #[pyexception]
+    impl PyUnicodeDecodeError {
+        #[pyslot]
+        #[pymethod(name = "__init__")]
+        pub(crate) fn slot_init(
+            zelf: PyObjectRef,
+            args: FuncArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            type Args = (PyStrRef, ArgBytesLike, isize, isize, PyStrRef);
+            let (encoding, object, start, end, reason): Args = args.bind(vm)?;
+            zelf.set_attr("encoding", encoding, vm)?;
+            zelf.set_attr("object", object, vm)?;
+            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
+            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
+            zelf.set_attr("reason", reason, vm)?;
+            Ok(())
+        }
+
+        #[pymethod(magic)]
+        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
+            let Ok(object) = exc.as_object().get_attr("object", vm) else {
+                return Ok("".to_owned());
+            };
+            let object: ArgBytesLike = object.try_into_value(vm)?;
+            let encoding: PyStrRef = exc
+                .as_object()
+                .get_attr("encoding", vm)?
+                .try_into_value(vm)?;
+            let start: usize = exc.as_object().get_attr("start", vm)?.try_into_value(vm)?;
+            let end: usize = exc.as_object().get_attr("end", vm)?.try_into_value(vm)?;
+            let reason: PyStrRef = exc.as_object().get_attr("reason", vm)?.try_into_value(vm)?;
+            if start < object.len() && end <= object.len() && end == start + 1 {
+                let b = object.borrow_buf()[start];
+                Ok(format!(
+                    "'{encoding}' codec can't decode byte {b:#02x} in position {start}: {reason}"
+                ))
+            } else {
+                Ok(format!(
+                    "'{encoding}' codec can't decode bytes in position {start}-{}: {reason}",
+                    end - 1,
+                ))
+            }
+        }
+    }
+
+    #[pyexception(name, base = "PyUnicodeError", ctx = "unicode_encode_error")]
     #[derive(Debug)]
     pub struct PyUnicodeEncodeError {}
 
-    #[pyexception(name, base = "PyUnicodeError", ctx = "unicode_translate_error", impl)]
+    #[pyexception]
+    impl PyUnicodeEncodeError {
+        #[pyslot]
+        #[pymethod(name = "__init__")]
+        pub(crate) fn slot_init(
+            zelf: PyObjectRef,
+            args: FuncArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            type Args = (PyStrRef, PyStrRef, isize, isize, PyStrRef);
+            let (encoding, object, start, end, reason): Args = args.bind(vm)?;
+            zelf.set_attr("encoding", encoding, vm)?;
+            zelf.set_attr("object", object, vm)?;
+            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
+            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
+            zelf.set_attr("reason", reason, vm)?;
+            Ok(())
+        }
+
+        #[pymethod(magic)]
+        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
+            let Ok(object) = exc.as_object().get_attr("object", vm) else {
+                return Ok("".to_owned());
+            };
+            let object: PyStrRef = object.try_into_value(vm)?;
+            let encoding: PyStrRef = exc
+                .as_object()
+                .get_attr("encoding", vm)?
+                .try_into_value(vm)?;
+            let start: usize = exc.as_object().get_attr("start", vm)?.try_into_value(vm)?;
+            let end: usize = exc.as_object().get_attr("end", vm)?.try_into_value(vm)?;
+            let reason: PyStrRef = exc.as_object().get_attr("reason", vm)?.try_into_value(vm)?;
+            if start < object.char_len() && end <= object.char_len() && end == start + 1 {
+                let ch = object.as_wtf8().code_points().nth(start).unwrap();
+                Ok(format!(
+                    "'{encoding}' codec can't encode character '{}' in position {start}: {reason}",
+                    UnicodeEscapeCodepoint(ch)
+                ))
+            } else {
+                Ok(format!(
+                    "'{encoding}' codec can't encode characters in position {start}-{}: {reason}",
+                    end - 1,
+                ))
+            }
+        }
+    }
+
+    #[pyexception(name, base = "PyUnicodeError", ctx = "unicode_translate_error")]
     #[derive(Debug)]
     pub struct PyUnicodeTranslateError {}
+
+    #[pyexception]
+    impl PyUnicodeTranslateError {
+        #[pyslot]
+        #[pymethod(name = "__init__")]
+        pub(crate) fn slot_init(
+            zelf: PyObjectRef,
+            args: FuncArgs,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            type Args = (PyStrRef, isize, isize, PyStrRef);
+            let (object, start, end, reason): Args = args.bind(vm)?;
+            zelf.set_attr("object", object, vm)?;
+            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
+            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
+            zelf.set_attr("reason", reason, vm)?;
+            Ok(())
+        }
+
+        #[pymethod(magic)]
+        fn str(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyResult<String> {
+            let Ok(object) = exc.as_object().get_attr("object", vm) else {
+                return Ok("".to_owned());
+            };
+            let object: PyStrRef = object.try_into_value(vm)?;
+            let start: usize = exc.as_object().get_attr("start", vm)?.try_into_value(vm)?;
+            let end: usize = exc.as_object().get_attr("end", vm)?.try_into_value(vm)?;
+            let reason: PyStrRef = exc.as_object().get_attr("reason", vm)?.try_into_value(vm)?;
+            if start < object.char_len() && end <= object.char_len() && end == start + 1 {
+                let ch = object.as_wtf8().code_points().nth(start).unwrap();
+                Ok(format!(
+                    "can't translate character '{}' in position {start}: {reason}",
+                    UnicodeEscapeCodepoint(ch)
+                ))
+            } else {
+                Ok(format!(
+                    "can't translate characters in position {start}-{}: {reason}",
+                    end - 1,
+                ))
+            }
+        }
+    }
 
     /// JIT error.
     #[cfg(feature = "jit")]

@@ -29,6 +29,7 @@ num-traits = { workspace = true }
 once_cell = { workspace = true }
 parking_lot = { workspace = true, optional = true }
 rand = { workspace = true }
+unicode_names2 = { workspace = true }
 
 lock_api = "0.4"
 radium = "0.7"

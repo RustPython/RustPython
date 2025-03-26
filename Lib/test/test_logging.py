@@ -5525,8 +5525,6 @@ class BasicConfigTest(unittest.TestCase):
             self.assertEqual(data, r'\U0001f602: \u2603\ufe0f: The \xd8resund '
                                    r'Bridge joins Copenhagen to Malm\xf6')
 
-    # TODO: RustPython
-    @unittest.expectedFailure
     def test_encoding_errors_none(self):
         # Specifying None should behave as 'strict'
         try:

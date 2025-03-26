@@ -2536,10 +2536,9 @@ mod _io {
                 *snapshot = Some((cookie.dec_flags, input_chunk.clone()));
                 let decoded = vm.call_method(decoder, "decode", (input_chunk, cookie.need_eof))?;
                 let decoded = check_decoded(decoded, vm)?;
-                let pos_is_valid = crate::common::wtf8::is_code_point_boundary(
-                    decoded.as_wtf8(),
-                    cookie.bytes_to_skip as usize,
-                );
+                let pos_is_valid = decoded
+                    .as_wtf8()
+                    .is_code_point_boundary(cookie.bytes_to_skip as usize);
                 textio.set_decoded_chars(Some(decoded));
                 if !pos_is_valid {
                     return Err(vm.new_os_error("can't restore logical file position".to_owned()));

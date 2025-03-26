@@ -446,6 +446,21 @@ pub fn to_ascii(value: &str) -> AsciiString {
     unsafe { AsciiString::from_ascii_unchecked(ascii) }
 }
 
+pub struct UnicodeEscapeCodepoint(pub CodePoint);
+
+impl fmt::Display for UnicodeEscapeCodepoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let c = self.0.to_u32();
+        if c >= 0x10000 {
+            write!(f, "\\U{c:08x}")
+        } else if c >= 0x100 {
+            write!(f, "\\u{c:04x}")
+        } else {
+            write!(f, "\\x{c:02x}")
+        }
+    }
+}
+
 pub mod levenshtein {
     use std::{cell::RefCell, thread_local};
 
